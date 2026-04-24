@@ -237,9 +237,10 @@ export const getGeofenceBreachLog = async (req, res) => {
     const params = staff_id ? [parseInt(limit), staff_id] : [parseInt(limit)];
 
     const breaches = await prisma.$queryRawUnsafe(`
-      SELECT gb.*, u.name as staff_name, u.department, u.role as staff_role
+      SELECT gb.*, u.name as staff_name, s.department, u.role as staff_role
       FROM geofence_breaches gb
       JOIN users u ON gb.staff_id = u.id
+      LEFT JOIN staff s ON u.uid = s.user_id
       ${whereClause}
       ORDER BY gb.occurred_at DESC
       LIMIT $1
@@ -259,11 +260,12 @@ export const getGeofenceBreachLog = async (req, res) => {
 
     // Most frequent offenders
     const frequent = await prisma.$queryRawUnsafe(`
-      SELECT gb.staff_id, u.name, u.department, COUNT(*) as breach_count, MAX(gb.occurred_at) as last_breach
+      SELECT gb.staff_id, u.name, s.department, COUNT(*) as breach_count, MAX(gb.occurred_at) as last_breach
       FROM geofence_breaches gb
       JOIN users u ON gb.staff_id = u.id
+      LEFT JOIN staff s ON u.uid = s.user_id
       WHERE gb.occurred_at >= NOW() - INTERVAL '30 days'
-      GROUP BY gb.staff_id, u.name, u.department
+      GROUP BY gb.staff_id, u.name, s.department
       ORDER BY breach_count DESC LIMIT 10
     `);
 
@@ -284,11 +286,12 @@ export const getLeaveAuditTrail = async (req, res) => {
     const { id } = req.params;
 
     const leave = await prisma.$queryRawUnsafe(`
-      SELECT lr.*, u.name as staff_name, u.department,
+      SELECT lr.*, u.name as staff_name, s.department,
              u2.name as reviewed_by_name,
              rr.status as replacement_status, u3.name as replacement_name
       FROM leave_requests lr
       JOIN users u ON lr.staff_id = u.id
+      LEFT JOIN staff s ON u.uid = s.user_id
       LEFT JOIN users u2 ON lr.reviewed_by = u2.id
       LEFT JOIN replacement_requests rr ON rr.leave_request_id = lr.id
       LEFT JOIN users u3 ON rr.replacement_staff_id = u3.id

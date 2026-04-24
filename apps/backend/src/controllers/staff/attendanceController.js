@@ -314,7 +314,7 @@ export const getPendingDisputes = async (req, res) => {
   try {
     const disputes = await prisma.$queryRawUnsafe(`
       SELECT d.id, d.staff_uid, d.dispute_date, d.reason, d.status, d.resolution, d.resolved_by, d.created_at,
-        u.name as staff_name, u.employee_id, s.department
+        u.name as staff_name, s.employee_id, s.department
       FROM attendance_disputes d
       JOIN users u ON d.staff_id = u.id
       LEFT JOIN staff s ON u.uid = s.user_id

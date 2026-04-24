@@ -149,10 +149,11 @@ export const getGrievanceAdminDetail = async (req, res) => {
       SELECT sg.id, sg.staff_uid, sg.subject, sg.description, sg.category, sg.priority,
              sg.status, sg.assigned_to, sg.hr_notes, sg.resolution, sg.created_at, sg.updated_at,
              CASE WHEN sg.is_anonymous THEN NULL ELSE u.name END as reporter_name,
-             CASE WHEN sg.is_anonymous THEN NULL ELSE u.department END as reporter_department,
+             CASE WHEN sg.is_anonymous THEN NULL ELSE s.department END as reporter_department,
              u2.name as assigned_to_name
       FROM staff_grievances sg
       LEFT JOIN users u ON sg.reporter_id = u.id
+      LEFT JOIN staff s ON u.uid = s.user_id
       LEFT JOIN users u2 ON sg.assigned_to = u2.id
       WHERE sg.id = $1
     `, id);

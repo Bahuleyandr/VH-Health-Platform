@@ -230,7 +230,7 @@ class AdminDepartmentService {
       const [doctors, staffRows, workload] = await Promise.all([
         prisma.$queryRaw`
           SELECT u.id, u.name, u.phone, u.email,
-                 doc.specialization, doc.experience_years, doc.consultation_fee,
+                 doc.specialty AS specialization, doc.experience_years, doc.consultation_fee,
                  doc.available_days, doc.available_hours, doc.is_available
           FROM users u
           JOIN doctors doc ON u.id = doc.user_id

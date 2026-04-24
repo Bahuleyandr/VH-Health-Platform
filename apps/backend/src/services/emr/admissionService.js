@@ -394,8 +394,8 @@ async function getAdmissionDetail(admissionId, requestContext = {}) {
      LEFT JOIN users u ON a.patient_uid = u.uid
      LEFT JOIN beds b ON a.bed_id = b.id
      LEFT JOIN wards w ON b.ward_id = w.id
-     LEFT JOIN staff ad ON a.admitting_doctor = ad.uid
-     LEFT JOIN staff atd ON a.attending_doctor = atd.uid
+     LEFT JOIN users ad ON a.admitting_doctor = ad.uid
+     LEFT JOIN users atd ON a.attending_doctor = atd.uid
      WHERE a.id = $1`, admissionId);
 
   if (!rows.length) throw AppError.notFound('Admission not found');

@@ -151,7 +151,7 @@ export async function generateLabReportPDF(investigationId) {
   const invRows = await prisma.$queryRawUnsafe(
     `SELECT i.id, i.patient_uid, i.test_name, i.investigation_type, i.status,
             i.result_summary, i.conclusion, i.interpretation, i.results,
-            i.ordered_at, i.completed_at, i.created_at,
+            i.requested_at AS ordered_at, i.completed_at, i.created_at,
             u.name as patient_name, u.phone as patient_phone,
             u.gender as patient_gender, u.birthday as patient_birthday
      FROM investigations i

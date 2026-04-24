@@ -1052,9 +1052,11 @@ export const getAllAdvances = async (req, res) => {
       params.push(status);
     }
     const advances = await prisma.$queryRawUnsafe(`
-      SELECT sa.*, u.name as staff_name, u.department,
+      SELECT sa.*, u.name as staff_name, ss.department,
              (sa.amount - sa.total_deducted) as balance_remaining
-      FROM salary_advances sa JOIN users u ON sa.staff_uid = u.uid
+      FROM salary_advances sa
+      JOIN users u ON sa.staff_uid = u.uid
+      LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid
       ${where} ORDER BY sa.created_at DESC
     `, params);
     success(res, advances, 'Advances fetched');
@@ -1091,7 +1093,7 @@ export const exportPayrollSummary = async (req, res) => {
     const payslips = await prisma.$queryRawUnsafe(`
       SELECT
         u.name as employee_name,
-        ss.employee_id, ss.designation, u.department,
+        ss.employee_id, ss.designation, ss.department,
         ss.bank_account, ss.bank_ifsc,
         p.days_present, p.days_absent,
         COALESCE(p.lop_days, 0) as lop_days,
@@ -1281,7 +1283,7 @@ export const getPayrollComparison = async (req, res) => {
     // Fetch payslips for the date range
     let query = `
       SELECT
-        p.id, p.staff_uid, u.name, ss.employee_id, ss.designation, u.department,
+        p.id, p.staff_uid, u.name, ss.employee_id, ss.designation, ss.department,
         p.month, p.year,
         p.days_present, p.days_absent, p.lop_days, p.overtime_hours,
         p.basic_earned, p.hra_earned, p.da_earned,
@@ -1433,7 +1435,7 @@ export const getFnFList = async (req, res) => {
     let where = '';
     if (status) { params.push(status); where = `WHERE f.status = $1`; }
     const result = await prisma.$queryRawUnsafe(
-      `SELECT f.*, u.name as staff_name, u.department, ss.designation, ss.employee_id
+      `SELECT f.*, u.name as staff_name, ss.department, ss.designation, ss.employee_id
        FROM full_final_settlements f
        JOIN users u ON f.staff_uid = u.uid
        LEFT JOIN staff_salary ss ON ss.staff_uid = f.staff_uid
@@ -1498,7 +1500,7 @@ export const markFnFPaid = async (req, res) => {
 export const getAllGratuityStatus = async (req, res) => {
   try {
     const staff = await prisma.$queryRawUnsafe(
-      `SELECT u.uid, u.name, u.department, ss.basic_salary, ss.date_of_joining, ss.designation, ss.employee_id
+      `SELECT u.uid, u.name, ss.department, ss.basic_salary, ss.date_of_joining, ss.designation, ss.employee_id
        FROM users u LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid
        WHERE u.is_active=true AND ss.date_of_joining IS NOT NULL ORDER BY ss.date_of_joining`);
     const now = new Date();
@@ -1589,7 +1591,7 @@ export const getAllDeclarations = async (req, res) => {
     if (financial_year) { params.push(financial_year); where += ` AND d.financial_year=$${params.length}`; }
     if (status) { params.push(status); where += ` AND d.status=$${params.length}`; }
     const result = await prisma.$queryRawUnsafe(
-      `SELECT d.*, u.name as staff_name, u.department, ss.designation, ss.employee_id
+      `SELECT d.*, u.name as staff_name, ss.department, ss.designation, ss.employee_id
        FROM investment_declarations d
        JOIN users u ON d.staff_uid = u.uid
        LEFT JOIN staff_salary ss ON ss.staff_uid = d.staff_uid
@@ -1864,7 +1866,7 @@ export const createBulkRevision = async (req, res) => {
     if (!description||!revision_type||!target_type||!effective_from) return error(res,'description,revision_type,target_type,effective_from required',HTTP_STATUS.BAD_REQUEST);
     let countQuery=`SELECT COUNT(*) as cnt FROM users u JOIN staff_salary ss ON ss.staff_uid=u.uid WHERE u.is_active=true`;
     const params=[];
-    if (target_type==='department') { countQuery+=` AND u.department=$1`; params.push(target_value); }
+    if (target_type==='department') { countQuery+=` AND ss.department=$1`; params.push(target_value); }
     else if (target_type==='role') { countQuery+=` AND u.role=$1`; params.push(target_value); }
     else if (target_type==='designation') { countQuery+=` AND ss.designation=$1`; params.push(target_value); }
     const countResult=await prisma.$queryRawUnsafe(countQuery,...params);
@@ -1939,7 +1941,7 @@ export const approveBulkRevision = async (req, res) => {
         // and this is a read. Writes below are all typed.
         let staffQuery = `SELECT u.uid,ss.basic_salary FROM users u JOIN staff_salary ss ON ss.staff_uid=u.uid WHERE u.is_active=true`;
         const params = [];
-        if (j.target_type === 'department') { staffQuery += ` AND u.department=$1`; params.push(j.target_value); }
+        if (j.target_type === 'department') { staffQuery += ` AND ss.department=$1`; params.push(j.target_value); }
         else if (j.target_type === 'role') { staffQuery += ` AND u.role=$1`; params.push(j.target_value); }
         else if (j.target_type === 'designation') { staffQuery += ` AND ss.designation=$1`; params.push(j.target_value); }
         const staffList = await prisma.$queryRawUnsafe(staffQuery, ...params);

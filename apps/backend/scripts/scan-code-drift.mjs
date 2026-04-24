@@ -74,9 +74,18 @@ function parseSchema(source) {
 // 2. Walk src/ for .js files
 // ---------------------------------------------------------------------
 
+// Clinical-AI services carve-out — explicit project-level directive
+// (see project_vh_health_unification memory: "Don't touch the 40
+// clinical-AI services — v1 stable, explicit carve-out"). The scanner
+// skips them so their drift doesn't noise up the normal report; a
+// dedicated pass can include them with `--include-ai`.
+const INCLUDE_AI = process.argv.includes('--include-ai');
+const AI_CARVEOUT_DIR = 'ai';
+
 function walkJs(dir, out = []) {
   for (const entry of readdirSync(dir)) {
     if (entry === 'node_modules' || entry.startsWith('.')) continue;
+    if (!INCLUDE_AI && entry === AI_CARVEOUT_DIR && dir.endsWith('services')) continue;
     const full = join(dir, entry);
     const st = statSync(full);
     if (st.isDirectory()) walkJs(full, out);
@@ -146,6 +155,7 @@ function stripInlineDollarInterp(sql) {
 }
 
 function analyseSql(sql, ctx, findings, tables) {
+  analyseSelectRefs(sql, ctx, findings, tables);
   const cleaned = stripInlineDollarInterp(sql);
   const norm = cleaned.replace(/\s+/g, ' ').trim();
 
@@ -210,6 +220,96 @@ function splitTopLevelCommas(s) {
 function truncate(s, n) { return s.length > n ? `${s.slice(0, n)}…` : s; }
 
 // ---------------------------------------------------------------------
+// 4b. SELECT-path: find `alias.column` references whose table doesn't
+// declare that column. Qualified references only — unqualified columns
+// in JOIN-heavy queries are too ambiguous to attribute safely.
+// ---------------------------------------------------------------------
+
+// Reserved prefixes / schemas we never flag. The scanner only has
+// schema.prisma models (no views, no system catalogs, no subquery
+// outputs), so an `alias.col` on these is expected to be unresolvable.
+const SKIPPED_SCHEMAS = new Set([
+  'information_schema', 'pg_catalog', 'pg', 'public',
+]);
+
+// Reserved alias names that are never real tables.
+const SKIPPED_ALIASES = new Set([
+  'EXCLUDED',              // ON CONFLICT ... EXCLUDED.col — synthetic row
+  'NEW', 'OLD',            // trigger pseudo-rows
+  '__INTERP__',            // JS interpolation placeholder
+]);
+
+function stripStringLiterals(sql) {
+  // Drop single-quoted strings so `'app.version'` etc. don't trip the
+  // qualified-ref regex. Doesn't handle escaped quotes or dollar-quoted
+  // strings, but those are vanishingly rare in this codebase.
+  return sql.replace(/'[^']*'/g, "''");
+}
+
+function extractAliasMap(sql) {
+  const map = new Map();
+  // FROM/JOIN <table> [[AS] alias], but NOT `FROM (subquery) alias`.
+  // We also skip `LATERAL` clauses — the thing after LATERAL is a
+  // function or subquery, not a base table.
+  //
+  // Group 1: double-quoted table name ("my.table")
+  // Group 2: bare identifier table name
+  // Group 3: `AS alias` alias
+  // Group 4: bare trailing alias (no AS)
+  const fromJoinRe = /(?:FROM|(?:LEFT|RIGHT|INNER|OUTER|FULL|CROSS)\s+(?:OUTER\s+)?JOIN|JOIN)\s+(?!\(|LATERAL\b)(?:ONLY\s+)?(?:"([^"]+)"|(\w+))(?:\s+AS\s+(\w+)|(?:\s+(?!ON\b|USING\b|WHERE\b|GROUP\b|ORDER\b|LIMIT\b|HAVING\b|JOIN\b|LEFT\b|RIGHT\b|INNER\b|FULL\b|CROSS\b|OUTER\b|UNION\b|RETURNING\b|SET\b|VALUES\b|LATERAL\b)(\w+)))?/gi;
+  for (const m of sql.matchAll(fromJoinRe)) {
+    const rawTable = m[1] || m[2];
+    // Ignore `schema.table` — we don't model non-public schemas.
+    if (!rawTable || rawTable.includes('.')) continue;
+    const alias = m[3] || m[4] || rawTable;
+    // Always prefer the most specific mapping (JOIN keywords can recur
+    // in nested queries; last one wins for a given alias).
+    map.set(alias, rawTable);
+  }
+  return map;
+}
+
+function analyseSelectRefs(sql, ctx, findings, tables) {
+  const cleaned = stripInlineDollarInterp(stripStringLiterals(sql));
+  // Only run on queries that actually read — skip pure INSERT/UPDATE/DELETE
+  // that don't have a FROM/JOIN. Keep RETURNING columns out of scope here
+  // (they're validated against the target table elsewhere implicitly).
+  if (!/\b(FROM|JOIN)\b/i.test(cleaned)) return;
+
+  const aliasMap = extractAliasMap(cleaned);
+  if (aliasMap.size === 0) return;
+
+  // Match qualified `alias.column` references. Use a negative lookbehind
+  // to skip `::` casts (`$1::text`) and numeric literals (`5.0`).
+  const refRe = /\b(\w+)\.(\w+)\b/g;
+  const reportedKeys = new Set();
+  for (const m of cleaned.matchAll(refRe)) {
+    const [, alias, col] = m;
+    if (SKIPPED_SCHEMAS.has(alias.toLowerCase())) continue;
+    if (SKIPPED_ALIASES.has(alias.toUpperCase())) continue;
+    if (!aliasMap.has(alias)) continue;          // unknown alias — skip
+    const tableName = aliasMap.get(alias);
+    if (!tables.has(tableName)) continue;        // schema doesn't model this table
+    const schemaCols = tables.get(tableName);
+    if (schemaCols.has(col)) continue;           // column exists — fine
+    if (col === '__INTERP__') continue;
+
+    // Dedupe per-SQL-string by (alias, table, col).
+    const key = `${alias}|${tableName}|${col}`;
+    if (reportedKeys.has(key)) continue;
+    reportedKeys.add(key);
+
+    findings.push({
+      ...ctx,
+      kind: 'SELECT',
+      table: tableName,
+      col,
+      snippet: truncate(cleaned.replace(/\s+/g, ' ').trim(), 240),
+    });
+  }
+}
+
+// ---------------------------------------------------------------------
 // 5. Main
 // ---------------------------------------------------------------------
 
@@ -241,7 +341,7 @@ try {
   }
 
   if (unique.length === 0) {
-    console.log('✓ no code↔schema drift detected in INSERT/UPDATE statements');
+    console.log('✓ no code↔schema drift detected in INSERT / UPDATE / SELECT statements');
     process.exit(0);
   }
 

@@ -17,7 +17,7 @@ async function getInvestigationWithDetails(id) {
            i.requested_at, i.completed_at, i.created_at, i.updated_at,
            p.name AS patient_name, p.birthday, p.gender,
            d.name AS doctor_name,
-           dept.department, dept.specialization
+           dept.department, dept.specialty AS specialization
     FROM investigations i
     JOIN users p ON i.patient_id = p.id
     LEFT JOIN users d ON i.requested_by = d.uid

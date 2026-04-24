@@ -170,7 +170,7 @@ const generateLeaveReport = async (department, start_date, _end_date) => {
       s.department,
       la.leave_type,
       la.start_date,
-      la._end_date,
+      la.end_date,
       la.days_taken,
       la.status,
       la.reason
@@ -188,7 +188,7 @@ const generateLeaveReport = async (department, start_date, _end_date) => {
       month: '2-digit',
       year: 'numeric'
     }),
-    end_date: new Date(row._end_date).toLocaleDateString('en-GB', {
+    end_date: new Date(row.end_date).toLocaleDateString('en-GB', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric'

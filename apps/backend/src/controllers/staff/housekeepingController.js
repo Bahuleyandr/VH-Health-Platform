@@ -226,11 +226,12 @@ export const getAllCleaningLogs = async (req, res) => {
     params.push(Math.min(parseInt(limit), 500), parseInt(offset));
 
     const logs = await prisma.$queryRawUnsafe(`
-      SELECT hl.*, u.name as staff_name, u.department,
+      SELECT hl.*, u.name as staff_name, s.department,
              hz.name as zone_name, hz.zone_type,
              u2.name as verified_by_name
       FROM housekeeping_logs hl
       LEFT JOIN users u ON hl.staff_id = u.id
+      LEFT JOIN staff s ON u.uid = s.user_id
       LEFT JOIN housekeeping_zones hz ON hl.zone_id = hz.id
       LEFT JOIN users u2 ON hl.verified_by = u2.id
       ${where}
@@ -270,11 +271,12 @@ export const getAllRequests = async (req, res) => {
     const requests = await prisma.$queryRawUnsafe(`
       SELECT hr.id, hr.zone_id, hr.assigned_to, hr.task_type, hr.status, hr.notes, hr.completed_at, hr.created_at,
              hz.name as zone_name,
-             u.name as requester_name, u.department as requester_dept,
+             u.name as requester_name, s.department as requester_dept,
              u2.name as assigned_to_name
       FROM housekeeping_requests hr
       LEFT JOIN housekeeping_zones hz ON hr.zone_id = hz.id
       LEFT JOIN users u ON hr.requester_id = u.id
+      LEFT JOIN staff s ON u.uid = s.user_id
       LEFT JOIN users u2 ON hr.assigned_to = u2.id
       ${where}
       ORDER BY

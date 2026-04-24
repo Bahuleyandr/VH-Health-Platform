@@ -57,7 +57,7 @@ export class DoctorStatsService {
     try {
       // Verify doctor exists
       const doctorCheck = await prisma.$queryRawUnsafe(
-        'SELECT u.name, d.specialization, d.department FROM users u JOIN doctors d ON u.id = d.user_id WHERE u.id = $1',
+        'SELECT u.name, d.specialty AS specialization, d.department FROM users u JOIN doctors d ON u.id = d.user_id WHERE u.id = $1',
         doctorId
       );
       
@@ -119,7 +119,7 @@ export class DoctorStatsService {
   async getWorkloadAnalysis(days = 30, department = null) {
     try {
       let query = `
-        SELECT u.id, u.name, d.specialization, d.department,
+        SELECT u.id, u.name, d.specialty AS specialization, d.department,
                d.available_days, d.available_hours,
                COUNT(a.id) as total_appointments,
                COUNT(CASE WHEN a.status = 'COMPLETED' THEN 1 END) as completed_appointments,
@@ -144,7 +144,7 @@ export class DoctorStatsService {
         params.push(department);
       }
       
-      query += ` GROUP BY u.id, u.name, d.specialization, d.department, 
+      query += ` GROUP BY u.id, u.name, d.specialty, d.department,
                  d.available_days, d.available_hours, d.consultation_fee
                  ORDER BY total_appointments DESC`;
       
