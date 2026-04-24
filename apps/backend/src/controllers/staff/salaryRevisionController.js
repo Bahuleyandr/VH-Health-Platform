@@ -265,7 +265,7 @@ export const getRevisions = async (req, res) => {
              u5.name as rejected_by_name
       FROM salary_revisions sr
       JOIN users u ON sr.staff_uid = u.uid
-      LEFT JOIN staff s ON s.user_id = u.id
+      LEFT JOIN staff s ON s.user_id = u.uid
       LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid
       LEFT JOIN users u2 ON sr.proposed_by = u2.uid
       LEFT JOIN users u3 ON sr.hr_signed_by = u3.uid
@@ -302,7 +302,7 @@ export const getAnnualReviewStatus = async (req, res) => {
              ) as revision_this_year
       FROM staff_salary ss
       JOIN users u ON ss.staff_uid = u.uid
-      LEFT JOIN staff s ON s.user_id = u.id
+      LEFT JOIN staff s ON s.user_id = u.uid
       LEFT JOIN annual_review_reminders arr ON arr.staff_uid = u.uid AND arr.review_year = $1
       WHERE ss.is_active = true
         AND ss.date_of_joining IS NOT NULL
@@ -331,7 +331,7 @@ export const getRevisionDetail = async (req, res) => {
              u4.name as admin_signed_by_name
       FROM salary_revisions sr
       JOIN users u ON sr.staff_uid = u.uid
-      LEFT JOIN staff s ON s.user_id = u.id
+      LEFT JOIN staff s ON s.user_id = u.uid
       LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid
       LEFT JOIN users u2 ON sr.proposed_by = u2.uid
       LEFT JOIN users u3 ON sr.hr_signed_by = u3.uid

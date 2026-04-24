@@ -13,6 +13,10 @@ import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
 
 
+// Thin wrapper around prisma raw that returns the `pg`-style shape
+// `{ rows, rowCount }`. Most of this file reads `result.rows[0]` / `rows[i]`;
+// a couple of historical sites treat the result as a plain array instead —
+// those are updated below to use `.rows`.
 const query = async (sql, params = []) => {
   const normalizedSql = sql.trim();
   const upperSql = normalizedSql.toUpperCase();
@@ -21,7 +25,7 @@ const query = async (sql, params = []) => {
 
   if (isReadQuery) {
     const rows = await prisma.$queryRawUnsafe(normalizedSql, ...params);
-    return { rows, rowCount: Array.isArray(rows) ? rows.length : 0 };
+    return { rows: Array.isArray(rows) ? rows : [], rowCount: Array.isArray(rows) ? rows.length : 0 };
   }
 
   const rowCount = await prisma.$executeRawUnsafe(normalizedSql, ...params);
@@ -80,11 +84,11 @@ export class StaffAuthService {
           u.id, u.uid, u.name, u.email, u.phone, u.role, u.encrypted_password,
           s.employee_id, s.department, s.position, s.is_active, s.shift_type
         FROM staff s
-        JOIN users u ON s.user_id = u.id
+        JOIN users u ON s.user_id = u.uid
         WHERE s.employee_id = $1
       `, [employeeId]);
 
-      if (result.length === 0) {
+      if (result.rows.length === 0) {
         await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Invalid employee ID', 'password', req);
         logSecurityEvent('LOGIN_FAILED', {
           userName: employeeId,
@@ -96,7 +100,7 @@ export class StaffAuthService {
         throw new Error('Invalid employee ID or password');
       }
 
-      const staff = result[0];
+      const staff = result.rows[0];
 
       if (!staff.is_active) {
         await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', false, 'Account deactivated', 'password', req);
@@ -220,7 +224,7 @@ export class StaffAuthService {
           s.employee_id, s.department, s.position, s.is_active
         FROM staff_devices d
         JOIN users u ON d.staff_id = u.id
-        JOIN staff s ON u.id = s.user_id
+        JOIN staff s ON u.uid = s.user_id
         WHERE d.device_token = $1 
           AND d.is_active = true
           AND (
@@ -369,11 +373,11 @@ export class StaffAuthService {
           s.employee_id, s.department, s.position, s.is_active,
           s.pin_hash -- Assumes a PIN hash is stored on the staff table
         FROM staff s
-        JOIN users u ON s.user_id = u.id
+        JOIN users u ON s.user_id = u.uid
         WHERE s.employee_id = $1
       `, [employeeId]);
 
-      if (result.length === 0) {
+      if (result.rows.length === 0) {
         await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Invalid employee ID', 'pin', req);
         logSecurityEvent('LOGIN_FAILED', {
           userName: employeeId,
@@ -385,7 +389,7 @@ export class StaffAuthService {
         throw new Error('Invalid employee ID or PIN');
       }
 
-      const staff = result[0];
+      const staff = result.rows[0];
 
       if (!staff.is_active) {
         await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', false, 'Account deactivated', 'pin', req);
@@ -522,8 +526,8 @@ export class StaffAuthService {
         [staffId]
       );
       // ✅ FIX: Uses the logActivity helper for consistency.
-      await this.logActivity(adminUid, 'ADMIN_RESET_PIN', `Reset PIN for staff ${staffId}`, req, { affectedStaffId: staffId, devicesAffected: result.length });
-      return { success: true, message: 'PIN reset successfully', devicesAffected: result.length };
+      await this.logActivity(adminUid, 'ADMIN_RESET_PIN', `Reset PIN for staff ${staffId}`, req, { affectedStaffId: staffId, devicesAffected: result.rowCount });
+      return { success: true, message: 'PIN reset successfully', devicesAffected: result.rowCount };
     } catch (error) {
       logger.error('Admin reset PIN error:', error);
       throw error;

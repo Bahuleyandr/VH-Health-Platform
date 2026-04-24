@@ -228,7 +228,7 @@ cron.schedule('0 6 1 * *', withJobLock('monthly-payroll', async () => {
            COALESCE(s.department, ss.department) as department
     FROM staff_salary ss
     JOIN users u ON ss.staff_uid = u.uid
-    LEFT JOIN staff s ON s.user_id = u.id
+    LEFT JOIN staff s ON s.user_id = u.uid
     WHERE ss.is_active = true
   `);
 

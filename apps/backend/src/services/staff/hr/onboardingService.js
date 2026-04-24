@@ -12,7 +12,7 @@ export const getOnboardingChecklist = async (staffId) => {
     SELECT u.name, u.email, u.phone, s.employee_id, s.position, 
            s.department, s.hire_date, s.supervisor_id
     FROM users u
-    JOIN staff s ON u.id = s.user_id
+    JOIN staff s ON u.uid = s.user_id
     WHERE u.id = $1
   `, staffId);
 

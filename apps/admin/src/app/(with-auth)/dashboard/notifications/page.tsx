@@ -26,7 +26,10 @@ function NotificationsContent() {
   } = useQuery({
     queryKey: ["notifications"],
     queryFn: async () => {
-      const resp = await fetchAdminAPI<unknown>("/notifications");
+      // Admin history list: /api/v1/notifications/admin/manage.
+      // Previously called "/notifications" which resolves to a user-
+      // scoped endpoint that doesn't exist — always returned empty.
+      const resp = await fetchAdminAPI<unknown>("/notifications/admin/manage");
       return normalizeNotifications(resp);
     },
   });

@@ -3,6 +3,7 @@
 import express from 'express';
 import { wrapAutoRBAC, wrapRoutesWithValidation } from '../../config/routeWrapper.js';
 import logger from '../../logging/logger.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 import adminNotificationRoutes from './adminNotificationRoutes.js';
 import notificationRoutes from './notificationRoutes.js';
 
@@ -77,30 +78,16 @@ wrapAutoRBAC(router, 'ALL', {
   ]
 });
 
-// Admin-only routes
-wrapAutoRBAC(router, 'adminNotificationRoutes', {
-  get: [
-    ['/admin/test', adminNotificationRoutes],
-    ['/admin/overview', adminNotificationRoutes],
-    ['/admin/manage', adminNotificationRoutes],
-    ['/admin/templates', adminNotificationRoutes],
-    ['/admin/delivery-stats', adminNotificationRoutes]
-  ],
-  post: [
-    ['/admin', adminNotificationRoutes],
-    ['/admin/announcement', adminNotificationRoutes],
-    ['/admin/targeted', adminNotificationRoutes],
-    ['/admin/bulk-operations', adminNotificationRoutes],
-    ['/admin/templates', adminNotificationRoutes],
-    ['/admin/send-from-template', adminNotificationRoutes]
-  ],
-  delete: [
-    ['/admin/cleanup', adminNotificationRoutes]
-  ]
-}, {
-  requireUID: false,
-  requirePhone: false
-});
+// Admin-only routes — mounted via `router.use` so the full
+// adminNotificationRoutes sub-router resolves. The earlier wrapAutoRBAC
+// form registered each admin path as a handler invocation of the sub-
+// router, but Express doesn't strip the path prefix under
+// `router.get(path, subRouter)` so sub-routes like GET `/manage` never
+// matched against the incoming `/admin/manage` request — everything under
+// `/api/v1/notifications/admin/*` was 404'ing. Using `router.use('/admin',
+// subRouter)` strips the prefix so GET `/admin/manage` correctly hits
+// GET `/manage` in adminNotificationRoutes.
+router.use('/admin', requireRole('ADMIN', 'SUPER_ADMIN'), adminNotificationRoutes);
 
 // Export the configured router
 export default router;

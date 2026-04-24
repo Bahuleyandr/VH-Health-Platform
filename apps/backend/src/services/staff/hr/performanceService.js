@@ -44,7 +44,7 @@ export const generatePerformanceReport = async (queryParams) => {
       MAX(spr.review_date) as last_review_date,
       STRING_AGG(DISTINCT spr.reviewer_comments, '; ') as recent_comments
     FROM users u
-    JOIN staff s ON u.id = s.user_id
+    JOIN staff s ON u.uid = s.user_id
     LEFT JOIN staff_performance_reviews spr ON s.user_id = spr.staff_id ${dateFilter}
     ${whereClause}
     GROUP BY u.id, u.name, s.employee_id, s.position, s.department, s.performance_rating
@@ -140,7 +140,7 @@ export const createPerformanceReview = async (reviewData) => {
 
   // Verify staff member exists
   const staffCheck = await prisma.$queryRawUnsafe(
-    'SELECT u.name, s.employee_id FROM users u JOIN staff s ON u.id = s.user_id WHERE u.id = $1',
+    'SELECT u.name, s.employee_id FROM users u JOIN staff s ON u.uid = s.user_id WHERE u.id = $1',
     staff_id
   );
 

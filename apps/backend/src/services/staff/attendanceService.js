@@ -48,7 +48,7 @@ export const markAttendance = async (data, markedBy, markerRole, markerName) => 
 
   // Verify staff member exists
   const staffCheck = await prisma.$queryRawUnsafe(
-    'SELECT u.id, u.name, s.shift, s.department FROM users u JOIN staff s ON u.id = s.user_id WHERE u.id = $1',
+    'SELECT u.id, u.name, s.shift, s.department FROM users u JOIN staff s ON u.uid = s.user_id WHERE u.id = $1',
     staff_id
   );
 
@@ -187,7 +187,7 @@ export const getStaffAttendance = async (staffId, filters, userRole, userId) => 
   const staffCheck = await prisma.$queryRawUnsafe(`
     SELECT u.uid, u.name, s.employee_id, s.department
     FROM users u
-    JOIN staff s ON u.id = s.user_id
+    JOIN staff s ON u.uid = s.user_id
     WHERE u.id = $1
   `, staffId);
 

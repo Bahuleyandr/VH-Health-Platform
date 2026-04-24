@@ -20,7 +20,7 @@ export const getHRDashboardData = async (_timeframe) => {
       COUNT(CASE WHEN s.last_check_in IS NOT NULL AND s.last_check_out IS NULL THEN 1 END) as currently_checked_in,
       AVG(s.salary) FILTER (WHERE s.salary IS NOT NULL) as average_salary
     FROM users u
-    JOIN staff s ON u.id = s.user_id
+    JOIN staff s ON u.uid = s.user_id
     WHERE u.role = ANY($1)
   `, Object.values(STAFF_ROLES));
 
@@ -33,7 +33,7 @@ export const getHRDashboardData = async (_timeframe) => {
       COUNT(CASE WHEN s.last_check_in IS NOT NULL AND s.last_check_out IS NULL THEN 1 END) as present_today,
       AVG(s.salary) FILTER (WHERE s.salary IS NOT NULL) as avg_salary
     FROM users u
-    JOIN staff s ON u.id = s.user_id
+    JOIN staff s ON u.uid = s.user_id
     WHERE u.role = ANY($1) AND s.is_active = true
     GROUP BY s.department
     ORDER BY total_staff DESC
@@ -100,7 +100,7 @@ export const getHRDashboardData = async (_timeframe) => {
         s.employee_id,
         s.hire_date + INTERVAL '1 year' as due_date
       FROM users u
-      JOIN staff s ON u.id = s.user_id
+      JOIN staff s ON u.uid = s.user_id
       WHERE s.is_active = true
         AND s.hire_date + INTERVAL '1 year' BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
       ORDER BY due_date ASC

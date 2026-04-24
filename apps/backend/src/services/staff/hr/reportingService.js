@@ -126,7 +126,7 @@ const generatePerformanceReportData = async (department, _start_date, _end_date)
       s.performance_rating,
       s.last_review_date
     FROM staff s
-    JOIN users u ON s.user_id = u.id
+    JOIN users u ON s.user_id = u.uid
     ${whereClause}
     ORDER BY s.department, u.name
   `, queryParams);
@@ -176,7 +176,7 @@ const generateLeaveReport = async (department, start_date, _end_date) => {
       la.reason
     FROM leave_applications la
     JOIN staff s ON la.staff_id = s.user_id
-    JOIN users u ON s.user_id = u.id
+    JOIN users u ON s.user_id = u.uid
     ${whereClause}
     ORDER BY la.start_date DESC, u.name
   `, queryParams);
@@ -219,7 +219,7 @@ const generatePayrollReport = async (department, _start_date, _end_date) => {
       s.salary,
       s.bank_details
     FROM staff s
-    JOIN users u ON s.user_id = u.id
+    JOIN users u ON s.user_id = u.uid
     ${whereClause}
     ORDER BY s.department, u.name
   `, queryParams);

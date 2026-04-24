@@ -111,36 +111,37 @@ export const adminNotificationService = {
       const page = parseInt(filters.page) || 1;
       const limit = Math.min(parseInt(filters.limit) || 50, NOTIFICATION_LIMITS.MAX_PAGE_SIZE);
       const offset = (page - 1) * limit;
-      
-      let query = `
-        SELECT n.id, n.title, n.message, n.type, n.priority, n.is_read,
-               n.created_at, n.read_at, n.scheduled_for,
-               u.name as recipient_name, u.phone as recipient_phone, u.role as recipient_role,
-               sender.name as sender_name, sender.role as sender_role
+
+      // Notifications in this schema are phone-addressed (no user_id / sender_id
+      // columns). Left-join users on phone to surface recipient metadata when
+      // the phone matches a registered user.
+      let sql = `
+        SELECT n.id, n.title, n.body AS message, n.type, n.priority, n.is_read,
+               n.created_at, n.read_at, n.scheduled_for, n.phone,
+               u.name as recipient_name, u.phone as recipient_phone, u.role as recipient_role
         FROM notifications n
-        LEFT JOIN users u ON n.user_id = u.id
-        LEFT JOIN users sender ON n.sender_id = sender.id
+        LEFT JOIN users u ON n.phone = u.phone
         WHERE 1=1
       `;
-      
+
       // Build filter query
       const filterQuery = buildNotificationQuery(filters);
-      query += filterQuery.query;
-      
-      query += ` ORDER BY n.created_at DESC LIMIT $${filterQuery.params.length + 1} OFFSET $${filterQuery.params.length + 2}`;
+      sql += filterQuery.query;
+
+      sql += ` ORDER BY n.created_at DESC LIMIT $${filterQuery.params.length + 1} OFFSET $${filterQuery.params.length + 2}`;
       const params = [...filterQuery.params, limit, offset];
-      
-      const result = await query(query, params);
-      
+
+      const result = await query(sql, params);
+
       // Get total count
-      let countQuery = 'SELECT COUNT(*) FROM notifications n LEFT JOIN users u ON n.user_id = u.id WHERE 1=1';
-      countQuery += filterQuery.query;
-      
-      const countResult = await query(countQuery, filterQuery.params);
-      const totalNotifications = parseInt(countResult[0].count);
-      
+      let countSql = 'SELECT COUNT(*) FROM notifications n LEFT JOIN users u ON n.phone = u.phone WHERE 1=1';
+      countSql += filterQuery.query;
+
+      const countResult = await query(countSql, filterQuery.params);
+      const totalNotifications = parseInt(countResult.rows[0].count);
+
       return {
-        notifications: result.map(n => formatNotificationResponse(n, true)),
+        notifications: result.rows.map(n => formatNotificationResponse(n, true)),
         pagination: {
           page,
           limit,
@@ -310,7 +311,7 @@ export const adminNotificationService = {
       
       if (target_departments.length > 0) {
         targetQuery += ` LEFT JOIN doctors d ON u.id = d.user_id 
-                         LEFT JOIN staff s ON u.id = s.user_id`;
+                         LEFT JOIN staff s ON u.uid = s.user_id`;
         whereConditions.push(`(d.department = ANY($${targetParams.length + 1}) OR s.department = ANY($${targetParams.length + 1}))`);
         targetParams.push(target_departments);
       }
