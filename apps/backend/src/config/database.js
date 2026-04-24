@@ -1,301 +1,110 @@
-// src/config/database.js - SAFE DATABASE CONNECTION
-import pkg from 'pg';
-const { Pool } = pkg;
+// src/config/database.js
+//
+// Thin pg-style shim over the hardened Prisma client (src/lib/prisma.js).
+// Historically this module held its own pg pool; batches 23–28 consolidated
+// every query path onto Prisma, so the pool is gone. The shim remains so
+// the few remaining callers (RLS deep test, health probe, a couple of
+// middleware pool-stat reporters) don't need bespoke migrations.
+//
+// Everything below delegates to the Prisma client(s) — circuit breaker,
+// slow-query logging, RLS scoping, and read-replica routing all inherit
+// automatically.
+
+import prisma, { prismaReadOnly, setTenant } from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
-let consecutiveFailures = 0;
-let circuitOpen = false;
-let circuitOpenedAt = null;
-const CIRCUIT_BREAKER_THRESHOLD = 5; // Open after 5 consecutive failures
-const CIRCUIT_BREAKER_RESET_MS = 30000; // Try again after 30 seconds
+function returnsRows(sql) {
+  return /^\s*(SELECT|WITH)\b/i.test(sql) || /\bRETURNING\b/i.test(sql);
+}
+
+async function runOn(client, sql, params = []) {
+  if (returnsRows(sql)) {
+    const rows = await client.$queryRawUnsafe(sql, ...params);
+    return { rows: Array.isArray(rows) ? rows : [], rowCount: Array.isArray(rows) ? rows.length : 0 };
+  }
+  const rowCount = await client.$executeRawUnsafe(sql, ...params);
+  return { rows: [], rowCount: Number(rowCount) || 0 };
+}
 
 class DatabaseManager {
+  // Kept for back-compat — callers that import `db` treat it as "connected"
+  // once Prisma's lazy-connect succeeds.
   constructor() {
-    this.pool = null;
-    this.isConnected = false;
+    this.isConnected = true;
   }
 
+  // No-op: Prisma connects lazily on first query. Existing callers that call
+  // `connect()` at startup still work.
   async connect() {
-    try {
-      // Only connect when actually needed, not during import
-      if (!this.pool && process.env.DATABASE_URL) {
-        this.pool = new Pool({
-          connectionString: process.env.DATABASE_URL,
-          ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
-          max: 20,
-          idleTimeoutMillis: 30000,
-          connectionTimeoutMillis: 2000,
-          statement_timeout: 30000,
-        });
-
-        this.pool.on('error', (err) => {
-          logger.error('Unexpected database pool error:', err);
-        });
-
-        this.pool.on('connect', () => {
-          logger.debug('New database connection established');
-        });
-
-        // Test connection
-        const client = await this.pool.connect();
-        await client.query('SELECT NOW()');
-        client.release();
-        
-        // Read replica support — falls back to primary if no replica configured
-        if (process.env.DATABASE_READ_URL) {
-          this.readPool = new Pool({
-            connectionString: process.env.DATABASE_READ_URL,
-            ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
-            max: parseInt(process.env.DB_READ_POOL_MAX || '10'),
-            idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 2000,
-            statement_timeout: 30000,
-          });
-          logger.info('Read replica pool configured');
-        } else {
-          this.readPool = this.pool; // Fallback to primary
-        }
-
-        this.isConnected = true;
-        logger.info('✅ Database connected successfully');
-        return true;
-      }
-      
-      if (!process.env.DATABASE_URL) {
-        logger.warn('⚠️ DATABASE_URL not found - running in debug mode');
-        return false;
-      }
-      
-      return this.isConnected;
-    } catch (error) {
-      logger.error('❌ Database connection failed:', error.message);
-      this.isConnected = false;
-      return false;
-    }
+    this.isConnected = true;
+    return true;
   }
 
-  async query(text, params) {
-    // Circuit breaker: if open, reject immediately
-    if (circuitOpen) {
-      const elapsed = Date.now() - circuitOpenedAt;
-      if (elapsed < CIRCUIT_BREAKER_RESET_MS) {
-        throw new Error('Database circuit breaker is open — service temporarily unavailable');
-      }
-      // Half-open: allow one request through to test
-      circuitOpen = false;
-      logger.info('Database circuit breaker half-open — testing connection');
-    }
+  /** Plain write query — circuit breaker + slow logs inherited from Prisma. */
+  async query(text, params = []) {
+    return runOn(prisma, text, params);
+  }
 
-    if (!this.isConnected) {
-      const connected = await this.connect();
-      if (!connected) {
-        throw new Error('Database not available - running in debug mode');
-      }
-    }
-
-    const start = Date.now();
-    try {
-      const result = await this.pool.query(text, params);
-      const duration = Date.now() - start;
-      consecutiveFailures = 0; // Reset on success
-      if (duration > 1000) {
-        logger.warn('Slow query detected', {
-          duration_ms: duration,
-          query: text.substring(0, 200),
-          rowCount: result.rowCount
-        });
-      }
-      return result;
-    } catch (error) {
-      consecutiveFailures++;
-      if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
-        circuitOpen = true;
-        circuitOpenedAt = Date.now();
-        logger.error(`Database circuit breaker OPEN after ${consecutiveFailures} consecutive failures`);
-      }
-      const duration = Date.now() - start;
-      logger.error('Database query error', {
-        duration_ms: duration,
-        error: error.message,
-        query: text.substring(0, 100)
-      });
-      throw error;
-    }
+  /** Read-only query — routes to DATABASE_READ_URL if configured, else primary. */
+  async readQuery(text, params = []) {
+    return runOn(prismaReadOnly, text, params);
   }
 
   /**
-   * Execute a query with tenant-scoped Row-Level Security active.
+   * Tenant-scoped query — delegates to setTenant() from src/lib/prisma.js.
+   * The Prisma $transaction sets `app.current_tenant_id` via
+   * set_config(..., true) so the GUC is transaction-local.
    *
-   * Wraps the query in a transaction and sets `app.current_tenant_id` via
-   * set_config(..., true) so the GUC is transaction-local (auto-cleared at
-   * COMMIT/ROLLBACK — no session-state leak between pooled connections).
-   *
-   * The RLS policies installed by migration 075 recognize three cases:
-   *   - GUC unset/empty  → permissive (legacy `db.query()` path)
-   *   - GUC = 'bypass'   → full access (SUPER_ADMIN cross-tenant reads)
-   *   - GUC = <uuid>     → only rows whose tenant_id matches the uuid
-   *
-   * Pass `{ superAdmin: true }` for cross-tenant admin reads; tenantId is
-   * then optional (and ignored if provided alongside).
-   *
-   * @param {string} text   Parameterized SQL ($1, $2, ...).
-   * @param {Array}  params Values for the placeholders.
-   * @param {string} tenantId UUID of the tenant to scope to. Required unless superAdmin.
+   * @param {string} text       Parameterized SQL ($1, $2, ...).
+   * @param {Array}  params     Values for the placeholders.
+   * @param {string|null} tenantId UUID of the tenant. Required unless superAdmin.
    * @param {Object} [options]
-   * @param {boolean} [options.superAdmin=false] — if true, set GUC to 'bypass'.
+   * @param {boolean} [options.superAdmin=false]
    */
-  async queryAsTenant(text, params, tenantId, { superAdmin = false } = {}) {
-    if (!superAdmin && !tenantId) {
-      throw new Error('queryAsTenant requires tenantId (or { superAdmin: true } to bypass)');
-    }
-
-    // Circuit breaker mirrors query() semantics.
-    if (circuitOpen) {
-      const elapsed = Date.now() - circuitOpenedAt;
-      if (elapsed < CIRCUIT_BREAKER_RESET_MS) {
-        throw new Error('Database circuit breaker is open — service temporarily unavailable');
-      }
-      circuitOpen = false;
-      logger.info('Database circuit breaker half-open — testing connection');
-    }
-
-    if (!this.isConnected) {
-      const connected = await this.connect();
-      if (!connected) {
-        throw new Error('Database not available - running in debug mode');
-      }
-    }
-
-    const client = await this.pool.connect();
-    const start = Date.now();
-    const gucValue = superAdmin ? 'bypass' : tenantId;
-    try {
-      await client.query('BEGIN');
-      await client.query(
-        "SELECT set_config('app.current_tenant_id', $1, true)",
-        [gucValue]
-      );
-      const result = await client.query(text, params);
-      await client.query('COMMIT');
-      const duration = Date.now() - start;
-      consecutiveFailures = 0;
-      if (duration > 1000) {
-        logger.warn('Slow tenant-scoped query detected', {
-          duration_ms: duration,
-          query: text.substring(0, 200),
-          rowCount: result.rowCount,
-          tenantId: gucValue,
-        });
-      }
-      return result;
-    } catch (error) {
-      try { await client.query('ROLLBACK'); } catch (_err) { /* swallow rollback error */ }
-      consecutiveFailures++;
-      if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
-        circuitOpen = true;
-        circuitOpenedAt = Date.now();
-        logger.error(`Database circuit breaker OPEN after ${consecutiveFailures} consecutive failures`);
-      }
-      const duration = Date.now() - start;
-      logger.error('Tenant-scoped query error', {
-        duration_ms: duration,
-        error: error.message,
-        query: text.substring(0, 100),
-        tenantId: gucValue,
-      });
-      throw error;
-    } finally {
-      client.release();
-    }
+  async queryAsTenant(text, params = [], tenantId, { superAdmin = false } = {}) {
+    return setTenant(
+      tenantId,
+      (tx) => runOn(tx, text, params),
+      { superAdmin },
+    );
   }
 
   /**
-   * Execute a read-only query against the read replica (or primary if no replica configured).
-   * Use for analytics, exports, dashboards — anything that doesn't need write consistency.
+   * Health probe. `SELECT 1` proves Prisma + the underlying driver are live.
+   * Pool-stat fields (writePool/readPool counts) are no longer reported
+   * here — the legacy pg pool is gone and Prisma doesn't expose
+   * `totalCount`/`idleCount` directly. Callers that want those metrics
+   * should use `prisma.$metrics.json()` instead.
    */
-  async readQuery(text, params) {
-    if (!this.readPool) {
-      const connected = await this.connect();
-      if (!connected) {
-        throw new Error('Database not available - running in debug mode');
-      }
-    }
-
-    const start = Date.now();
-    try {
-      const result = await this.readPool.query(text, params);
-      const duration = Date.now() - start;
-      if (duration > 1000) {
-        logger.warn('Slow read query detected', {
-          duration_ms: duration,
-          query: text.substring(0, 200),
-          rowCount: result.rowCount
-        });
-      }
-      return result;
-    } catch (error) {
-      const duration = Date.now() - start;
-      logger.error('Read query error', {
-        duration_ms: duration,
-        error: error.message,
-        query: text.substring(0, 100)
-      });
-      throw error;
-    }
-  }
-
-  async getClient() {
-    if (!this.isConnected) {
-      const connected = await this.connect();
-      if (!connected) {
-        throw new Error('Database not available - running in debug mode');
-      }
-    }
-
-    try {
-      const client = await this.pool.connect();
-      return client;
-    } catch (error) {
-      logger.error('❌ Failed to get database client:', error.message);
-      throw error;
-    }
-  }
-
   async healthCheck() {
     try {
-      await this.query('SELECT 1 as ok');
-      const health = {
-        healthy: true,
-        writePool: { total: this.pool.totalCount, idle: this.pool.idleCount, waiting: this.pool.waitingCount },
-      };
-      if (this.readPool !== this.pool) {
-        health.readPool = { total: this.readPool.totalCount, idle: this.readPool.idleCount, waiting: this.readPool.waitingCount };
-      }
-      return health;
+      await prisma.$queryRaw`SELECT 1 AS ok`;
+      return { healthy: true };
     } catch (err) {
       return { healthy: false, error: err.message };
     }
   }
 
+  /** Graceful shutdown — disconnects primary + replica Prisma clients. */
   async close() {
-    if (this.pool) {
-      await this.pool.end();
-      // Close read pool if it's a separate pool
-      if (this.readPool && this.readPool !== this.pool) {
-        await this.readPool.end();
-      }
-      this.pool = null;
-      this.readPool = null;
-      this.isConnected = false;
-      logger.info('Database pools closed');
+    try { await prisma.$disconnect(); } catch (err) { logger.warn('Prisma primary $disconnect failed', err); }
+    if (prismaReadOnly !== prisma) {
+      try { await prismaReadOnly.$disconnect(); } catch (err) { logger.warn('Prisma readOnly $disconnect failed', err); }
     }
+    this.isConnected = false;
+    logger.info('Database clients disconnected');
   }
 }
 
-// Export singleton instance
+// Removed in batch 28:
+//   - pool / readPool (pg.Pool instances — replaced by Prisma's internal pool)
+//   - getClient() (manual pg.Client — use prisma.$transaction instead)
+// The two previous consumers (bedManagementService, rbacService) were
+// migrated to prisma.$transaction in the same batch.
+
 let instance = new DatabaseManager();
 
-// For testing: allows replacing the DB instance with a mock
+/** For testing: allows replacing the DB instance with a mock. */
 export function setDatabaseInstance(mockDb) {
   instance = mockDb;
 }

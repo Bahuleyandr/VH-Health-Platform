@@ -16,6 +16,7 @@
 // to confirm permissive behavior under a non-owner role.
 
 import db from '../config/database.js';
+import prisma from '../lib/prisma.js';
 
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const describeIfDb = hasDatabaseUrl ? describe : describe.skip;
@@ -26,49 +27,43 @@ const TAG_A = 'rls-deep-test-tenant-a';
 const TAG_B = 'rls-deep-test-tenant-b';
 const APP_ROLE = 'rls_test_app';
 
+// Shape that callers expected from the previous pg-based helpers: a plain
+// `{ rows, rowCount }` envelope. We return `rowCount` from `length` because
+// SELECTs don't track it separately under Prisma raw calls.
+function toPgShape(rows) {
+  const arr = Array.isArray(rows) ? rows : [];
+  return { rows: arr, rowCount: arr.length };
+}
+
 // Run a query as the non-owner APP_ROLE. Mirrors the contract of
-// `db.queryAsTenant`: optional superAdmin bypass. A fresh pooled connection is
-// acquired per call so the `SET LOCAL ROLE` cannot bleed across test cases.
+// `db.queryAsTenant`: optional superAdmin bypass. Uses `prisma.$transaction`
+// (batch 28+) — the $transaction callback gets a tenant-scoped `tx` client
+// and BEGIN/COMMIT is implicit, so `SET LOCAL ROLE` + the GUC set_config
+// are scoped to this single transaction and can't bleed across test cases.
 async function asAppRole(text, params, tenantId, { superAdmin = false } = {}) {
   if (!superAdmin && !tenantId) {
     throw new Error('asAppRole requires tenantId (or { superAdmin: true })');
   }
-  const client = await db.pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query(`SET LOCAL ROLE ${APP_ROLE}`);
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL ROLE ${APP_ROLE}`);
     const gucValue = superAdmin ? 'bypass' : tenantId;
-    await client.query(
+    await tx.$executeRawUnsafe(
       "SELECT set_config('app.current_tenant_id', $1, true)",
-      [gucValue]
+      gucValue,
     );
-    const result = await client.query(text, params);
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    try { await client.query('ROLLBACK'); } catch (_err) { /* ignore */ }
-    throw err;
-  } finally {
-    client.release();
-  }
+    const rows = await tx.$queryRawUnsafe(text, ...params);
+    return toPgShape(rows);
+  });
 }
 
 // Variant that leaves the GUC unset — simulates legacy `db.query()` from a
 // non-owner app role. RLS should be permissive.
 async function asAppRoleNoGuc(text, params) {
-  const client = await db.pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query(`SET LOCAL ROLE ${APP_ROLE}`);
-    const result = await client.query(text, params);
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    try { await client.query('ROLLBACK'); } catch (_err) { /* ignore */ }
-    throw err;
-  } finally {
-    client.release();
-  }
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL ROLE ${APP_ROLE}`);
+    const rows = await tx.$queryRawUnsafe(text, ...params);
+    return toPgShape(rows);
+  });
 }
 
 describeIfDb('Tenant RLS policies (migration 075)', () => {

@@ -181,16 +181,15 @@ function refreshGauges() {
   // Uptime
   nodeUptimeSeconds.set({}, Math.floor(process.uptime()));
 
-  // DB pool
-  try {
-    if (db.pool) {
-      dbPoolTotal.set({}, db.pool.totalCount || 0);
-      dbPoolIdle.set({}, db.pool.idleCount || 0);
-      dbPoolWaiting.set({}, db.pool.waitingCount || 0);
-    }
-  } catch {
-    // Pool may not be initialised yet
-  }
+  // DB pool — the pg pool was retired in batch 28 (consolidated onto Prisma).
+  // Prisma doesn't expose totalCount / idleCount / waitingCount directly, so
+  // we zero these gauges. If pool-level metrics become load-bearing we can
+  // wire `prisma.$metrics.json()` here, but for now the per-query slow-log
+  // + circuit-breaker signals from src/lib/prisma.js are the primary ops
+  // visibility.
+  dbPoolTotal.set({}, 0);
+  dbPoolIdle.set({}, 0);
+  dbPoolWaiting.set({}, 0);
 
   // Redis — reflect actual client connection state
   try {

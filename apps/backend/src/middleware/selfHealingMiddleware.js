@@ -47,17 +47,19 @@ async function triggerHealing(route, entry) {
 
   logger.error(`🚨 Self-healing triggered for ${route}: ${entry.count} errors in ${WINDOW_MS/1000}s`);
 
-  // Attempt DB pool refresh
+  // DB pool-pressure check retired in batch 28 — the pg pool was consolidated
+  // onto Prisma's internal pool, which doesn't expose totalCount / idleCount
+  // / waitingCount. The more reliable signal for "DB under pressure" now
+  // lives on the hardened Prisma client itself: `circuitBreakerStatus()`
+  // from src/lib/prisma.js opens the breaker after 5 consecutive failures
+  // and fail-fasts for 30s. Read that if self-healing needs to decide
+  // whether to back off further.
   try {
-    const db = (await import('../config/database.js')).default;
-    if (db.pool) {
-      const poolStats = { total: db.pool.totalCount, idle: db.pool.idleCount, waiting: db.pool.waitingCount };
-      logger.warn('DB Pool stats during healing:', poolStats);
-
-      if (poolStats.waiting > poolStats.total * 0.8) {
-        logger.warn('🔧 Self-healing: DB pool under pressure, connections may be exhausted');
-        action.action = 'db_pool_pressure_detected';
-      }
+    const { circuitBreakerStatus } = await import('../lib/prisma.js');
+    const status = circuitBreakerStatus();
+    if (status.open) {
+      logger.warn('🔧 Self-healing: Prisma circuit breaker is open', status);
+      action.action = 'db_circuit_breaker_open';
     }
   } catch (e) {
     logger.error('Self-healing DB check failed:', e.message);

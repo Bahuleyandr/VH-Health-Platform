@@ -1,8 +1,9 @@
 // src/services/bed/bedManagementService.js
-// Enhanced bed management: occupancy stats, admit/discharge/transfer workflows
-// Uses raw pg queries (project convention — Prisma schema is documentation only)
+// Bed management: occupancy stats + admit/discharge/transfer workflows.
+// Writes use prisma.$transaction for atomic multi-statement blocks (FOR
+// UPDATE row lock → conditional INSERT/UPDATE → state commit). Reads use
+// plain prisma.$queryRaw*.
 
-import db from '../../config/database.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
@@ -62,14 +63,13 @@ class BedManagementService {
   // admitPatient — Admit patient to a specific bed (transaction)
   // =========================================================================
   async admitPatient(bedId, patientUid, expectedDischarge) {
-    const client = await db.pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      // Lock the bed row
-      const { rows: bedRows } = await client.query(
+    // prisma.$transaction runs the callback inside BEGIN/COMMIT — thrown
+    // errors (including AppError) trigger automatic ROLLBACK before
+    // propagating to the caller.
+    const result = await prisma.$transaction(async (tx) => {
+      const bedRows = await tx.$queryRawUnsafe(
         `SELECT id, status, bed_number FROM beds WHERE id = $1 FOR UPDATE`,
-        [bedId]
+        bedId
       );
 
       if (!bedRows.length) {
@@ -82,10 +82,9 @@ class BedManagementService {
         );
       }
 
-      // Check patient is not already admitted to another bed
-      const { rows: existingAdmission } = await client.query(
-        `SELECT id, bed_number FROM beds WHERE patient_uid = $1 AND status = 'occupied'`,
-        [patientUid]
+      const existingAdmission = await tx.$queryRawUnsafe(
+        `SELECT id, bed_number FROM beds WHERE patient_uid = $1::uuid AND status = 'occupied'`,
+        patientUid
       );
 
       if (existingAdmission.length > 0) {
@@ -94,48 +93,39 @@ class BedManagementService {
         );
       }
 
-      // Admit
-      const { rows: updated } = await client.query(
+      const updated = await tx.$queryRawUnsafe(
         `UPDATE beds
          SET status = 'occupied',
-             patient_uid = $1,
+             patient_uid = $1::uuid,
              admitted_at = NOW(),
              expected_discharge = $2,
              updated_at = NOW()
          WHERE id = $3
          RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
-        [patientUid, expectedDischarge, bedId]
+        patientUid, expectedDischarge, bedId
       );
 
-      // Record in bed_transfers as an admission (from_bed_id = NULL)
-      await client.query(
+      await tx.$executeRawUnsafe(
         `INSERT INTO bed_transfers (patient_uid, from_bed_id, to_bed_id, reason, transferred_by)
-         VALUES ($1, NULL, $2, 'Admission', $3)`,
-        [patientUid, bedId, patientUid]
+         VALUES ($1::uuid, NULL, $2, 'Admission', $3::uuid)`,
+        patientUid, bedId, patientUid
       );
 
-      await client.query('COMMIT');
-      logger.info(`Patient ${patientUid} admitted to bed ${bedId}`);
       return updated[0];
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+    });
+
+    logger.info(`Patient ${patientUid} admitted to bed ${bedId}`);
+    return result;
   }
 
   // =========================================================================
   // dischargePatient — Discharge and set bed status to "cleaning"
   // =========================================================================
   async dischargePatient(bedId, dischargedBy) {
-    const client = await db.pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      const { rows: bedRows } = await client.query(
+    const { updated, patientUid } = await prisma.$transaction(async (tx) => {
+      const bedRows = await tx.$queryRawUnsafe(
         `SELECT id, status, patient_uid, bed_number FROM beds WHERE id = $1 FOR UPDATE`,
-        [bedId]
+        bedId
       );
 
       if (!bedRows.length) {
@@ -150,15 +140,13 @@ class BedManagementService {
 
       const patientUid = bedRows[0].patient_uid;
 
-      // Record discharge in bed_transfers (to_bed_id stays same, reason = Discharge)
-      await client.query(
+      await tx.$executeRawUnsafe(
         `INSERT INTO bed_transfers (patient_uid, from_bed_id, to_bed_id, reason, transferred_by)
-         VALUES ($1, $2, $2, 'Discharge', $3)`,
-        [patientUid, bedId, dischargedBy]
+         VALUES ($1::uuid, $2, $2, 'Discharge', $3::uuid)`,
+        patientUid, bedId, dischargedBy
       );
 
-      // Set bed to cleaning
-      const { rows: updated } = await client.query(
+      const updated = await tx.$queryRawUnsafe(
         `UPDATE beds
          SET status = 'cleaning',
              patient_uid = NULL,
@@ -167,32 +155,24 @@ class BedManagementService {
              updated_at = NOW()
          WHERE id = $1
          RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
-        [bedId]
+        bedId
       );
 
-      await client.query('COMMIT');
-      logger.info(`Patient ${patientUid} discharged from bed ${bedId}, bed set to cleaning`);
-      return updated[0];
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+      return { updated: updated[0], patientUid };
+    });
+
+    logger.info(`Patient ${patientUid} discharged from bed ${bedId}, bed set to cleaning`);
+    return updated;
   }
 
   // =========================================================================
   // transferPatient — Move patient from current bed to a new bed
   // =========================================================================
   async transferPatient(patientUid, toBedId, reason, transferredBy) {
-    const client = await db.pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      // Find current bed
-      const { rows: currentBedRows } = await client.query(
-        `SELECT id, bed_number FROM beds WHERE patient_uid = $1 AND status = 'occupied' FOR UPDATE`,
-        [patientUid]
+    const result = await prisma.$transaction(async (tx) => {
+      const currentBedRows = await tx.$queryRawUnsafe(
+        `SELECT id, bed_number FROM beds WHERE patient_uid = $1::uuid AND status = 'occupied' FOR UPDATE`,
+        patientUid
       );
 
       if (!currentBedRows.length) {
@@ -201,10 +181,9 @@ class BedManagementService {
 
       const fromBedId = currentBedRows[0].id;
 
-      // Lock and check target bed
-      const { rows: targetBedRows } = await client.query(
+      const targetBedRows = await tx.$queryRawUnsafe(
         `SELECT id, status, bed_number FROM beds WHERE id = $1 FOR UPDATE`,
-        [toBedId]
+        toBedId
       );
 
       if (!targetBedRows.length) {
@@ -217,45 +196,41 @@ class BedManagementService {
         );
       }
 
-      // Vacate old bed (set to cleaning)
-      await client.query(
+      // Vacate old bed
+      await tx.$executeRawUnsafe(
         `UPDATE beds
          SET status = 'cleaning', patient_uid = NULL, admitted_at = NULL,
              expected_discharge = NULL, updated_at = NOW()
          WHERE id = $1`,
-        [fromBedId]
+        fromBedId
       );
 
       // Occupy new bed
-      const { rows: newBed } = await client.query(
+      const newBed = await tx.$queryRawUnsafe(
         `UPDATE beds
-         SET status = 'occupied', patient_uid = $1, admitted_at = NOW(), updated_at = NOW()
+         SET status = 'occupied', patient_uid = $1::uuid, admitted_at = NOW(), updated_at = NOW()
          WHERE id = $2
          RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
-        [patientUid, toBedId]
+        patientUid, toBedId
       );
 
       // Record transfer
-      await client.query(
+      await tx.$executeRawUnsafe(
         `INSERT INTO bed_transfers (patient_uid, from_bed_id, to_bed_id, reason, transferred_by)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [patientUid, fromBedId, toBedId, reason, transferredBy]
+         VALUES ($1::uuid, $2, $3, $4, $5::uuid)`,
+        patientUid, fromBedId, toBedId, reason, transferredBy
       );
 
-      await client.query('COMMIT');
-      logger.info(`Patient ${patientUid} transferred from bed ${fromBedId} to bed ${toBedId}`);
+      return { fromBedId, toBed: newBed[0] };
+    });
 
-      return {
-        from_bed_id: fromBedId,
-        to_bed: newBed[0],
-        reason,
-      };
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+    logger.info(`Patient ${patientUid} transferred from bed ${result.fromBedId} to bed ${toBedId}`);
+
+    return {
+      from_bed_id: result.fromBedId,
+      to_bed: result.toBed,
+      reason,
+    };
   }
 
   // =========================================================================
