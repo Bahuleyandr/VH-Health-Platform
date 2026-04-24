@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test';
 
+// These tests must run unauthenticated — the project-wide
+// storageState from playwright.config.ts would skip the redirects
+// that tests 3 and 4 assert on. Empty storage = logged-out.
+test.use({ storageState: { cookies: [], origins: [] } });
+
 /**
  * Admin-portal smoke tests. Exercises the routes and auth-gate behaviour
  * that don't require a live backend. These are the first line of defence

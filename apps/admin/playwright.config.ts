@@ -10,8 +10,21 @@ import { defineConfig, devices } from '@playwright/test';
  *   2. Set `PLAYWRIGHT_BASE_URL` to override the target URL.
  *   3. `npx playwright install` once, then `npx playwright test`.
  *
- * CI: add a workflow job that runs `npm run dev` against a test backend +
- * `npx playwright test --reporter=github`.
+ * Auth setup (batch 42):
+ *   - The `setup` project runs `auth.setup.ts` once, logs in as the
+ *     seeded `playwright-admin` (role=ADMIN, no MFA), and writes
+ *     `playwright/.auth/admin.json` storage state.
+ *   - The `chromium` project depends on `setup` and reuses that state
+ *     for the `authenticated.spec.ts` journeys — skipping the login
+ *     dance on every test.
+ *   - `smoke.spec.ts` runs unauthenticated (blank storage) via the
+ *     explicit `storageState: {...}` override in that spec.
+ *
+ * CI: add a workflow job that
+ *   (a) runs the seed SQL that creates the test admin (see
+ *       `e2e/auth.setup.ts` header),
+ *   (b) runs `npm run dev` against a test backend, and
+ *   (c) runs `npx playwright test --reporter=github`.
  */
 export default defineConfig({
   testDir: './e2e',
@@ -28,7 +41,19 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    {
+      name: 'setup',
+      testMatch: /auth\.setup\.ts/,
+    },
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/admin.json',
+      },
+      dependencies: ['setup'],
+      testIgnore: /auth\.setup\.ts/,
+    },
   ],
   webServer: process.env.CI
     ? {
