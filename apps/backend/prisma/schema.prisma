@@ -32,7 +32,10 @@ model users {
   annual_review_reminders                                  annual_review_reminders[]
   annual_tax_summaries                                     annual_tax_summaries[]
   beds                                                     beds[]
+  doctors                                                  doctors[]
   full_final_settlements                                   full_final_settlements[]
+  investigations_investigations_patient_idTousers          investigations[]          @relation("investigations_patient_idTousers")
+  investigations_investigations_requested_byTousers        investigations[]          @relation("investigations_requested_byTousers")
   investment_declarations                                  investment_declarations[]
   leave_encashments                                        leave_encashments[]
   payroll_runs_payroll_runs_generated_byTousers            payroll_runs[]            @relation("payroll_runs_generated_byTousers")
@@ -306,6 +309,7 @@ model doctors {
   is_active     Boolean  @default(true)
   created_at    DateTime @default(now()) @db.Timestamp(6)
   updated_at    DateTime @updatedAt @db.Timestamp(6)
+  users         users?   @relation(fields: [user_id], references: [id], onUpdate: NoAction)
 
   @@index([department_id])
   @@index([is_available])
@@ -391,36 +395,38 @@ model medical_records {
 }
 
 model investigations {
-  id                                Int                                 @id @default(autoincrement())
-  uid                               String?                             @db.Uuid
-  phone                             String                              @db.VarChar(15)
-  patient_id                        Int?
-  test_name                         String                              @db.VarChar(255)
-  test_type                         String?                             @db.VarChar(100)
-  status                            String                              @default("REQUESTED") @db.VarChar(50)
-  result_file                       String?
-  file_key                          String?
-  priority                          String?                             @default("NORMAL") @db.VarChar(20)
-  requested_by                      String?                             @db.Uuid
-  requested_at                      DateTime                            @default(now()) @db.Timestamp(6)
-  completed_at                      DateTime?                           @db.Timestamp(6)
-  updated_at                        DateTime                            @updatedAt @db.Timestamp(6)
-  notified                          Boolean?                            @default(false)
-  notified_at                       DateTime?                           @db.Timestamp(6)
-  turnaround_target_hours           Int?                                @default(24)
-  result_uploaded_at                DateTime?                           @db.Timestamp(6)
-  urgent_alert_sent                 Boolean?                            @default(false)
-  patient_notified_at               DateTime?                           @db.Timestamp(6)
-  structured_results                Json?
-  patient_uid                       String?                             @db.Uuid
-  investigation_type                String?                             @db.VarChar(100)
-  results                           Json?
-  result_summary                    String?
-  interpretation                    String?
-  conclusion                        String?
-  notes                             String?
-  created_at                        DateTime?                           @default(now()) @db.Timestamptz(6)
-  clinical_ai_lab_autoverifications clinical_ai_lab_autoverifications[]
+  id                                       Int                                 @id @default(autoincrement())
+  uid                                      String?                             @db.Uuid
+  phone                                    String                              @db.VarChar(15)
+  patient_id                               Int?
+  test_name                                String                              @db.VarChar(255)
+  test_type                                String?                             @db.VarChar(100)
+  status                                   String                              @default("REQUESTED") @db.VarChar(50)
+  result_file                              String?
+  file_key                                 String?
+  priority                                 String?                             @default("NORMAL") @db.VarChar(20)
+  requested_by                             String?                             @db.Uuid
+  requested_at                             DateTime                            @default(now()) @db.Timestamp(6)
+  completed_at                             DateTime?                           @db.Timestamp(6)
+  updated_at                               DateTime                            @updatedAt @db.Timestamp(6)
+  notified                                 Boolean?                            @default(false)
+  notified_at                              DateTime?                           @db.Timestamp(6)
+  turnaround_target_hours                  Int?                                @default(24)
+  result_uploaded_at                       DateTime?                           @db.Timestamp(6)
+  urgent_alert_sent                        Boolean?                            @default(false)
+  patient_notified_at                      DateTime?                           @db.Timestamp(6)
+  structured_results                       Json?
+  patient_uid                              String?                             @db.Uuid
+  investigation_type                       String?                             @db.VarChar(100)
+  results                                  Json?
+  result_summary                           String?
+  interpretation                           String?
+  conclusion                               String?
+  notes                                    String?
+  created_at                               DateTime?                           @default(now()) @db.Timestamptz(6)
+  clinical_ai_lab_autoverifications        clinical_ai_lab_autoverifications[]
+  users_investigations_patient_idTousers   users?                              @relation("investigations_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
+  users_investigations_requested_byTousers users?                              @relation("investigations_requested_byTousers", fields: [requested_by], references: [uid], onUpdate: NoAction)
 
   @@index([phone])
   @@index([uid])

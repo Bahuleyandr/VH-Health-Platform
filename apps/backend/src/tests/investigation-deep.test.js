@@ -14,7 +14,12 @@ const PATIENT_PHONE = '+919000050001';
 const API_KEY = process.env.API_KEY || 'test-api-key';
 
 function adminAs() {
-  const token = generateTestToken('ADMIN', { uid: '00000000-0000-4000-8000-000000000001', id: 1 });
+  // Use the default test-harness uid from testClient.js (already seeded as a
+  // user by migration 082). The previous override to
+  // `00000000-0000-4000-8000-000000000001` was the DEFAULT_TENANT_ID, not a
+  // real user uid — harmless before migration 082 but now fails the
+  // investigations_requested_by_fkey on legacy-investigation creation.
+  const token = generateTestToken('ADMIN');
   return {
     get: (p) => request(app).get(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
