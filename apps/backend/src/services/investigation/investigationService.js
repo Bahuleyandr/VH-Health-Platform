@@ -5,10 +5,18 @@ import {
 } from '../../config/investigationConfig.js';
 import prisma from '../../lib/prisma.js';
 
+// Relation names Prisma generates for the two FKs pointing at `users`
+// (migration 082 declared both). Verbose because Prisma has to disambiguate
+// two relations to the same table — kept as constants so the six list
+// queries read consistently. `users.doctors` is a to-many list (one user
+// *could* have multiple doctor records); in practice there's at most one,
+// which we pull via `[0]` in `flattenRelations`.
+const REL_PATIENT = 'users_investigations_patient_idTousers';
+const REL_DOCTOR = 'users_investigations_requested_byTousers';
+
 // Shape of the investigation columns the list views select. Kept as
 // Prisma-select objects rather than SELECT-strings so column renames in
-// schema.prisma surface as PrismaClientValidationError, which is what
-// this batch of migrations is buying.
+// schema.prisma surface as PrismaClientValidationError at query construction.
 const INV_LIST_SELECT_BASE = {
   id: true,
   test_name: true,
@@ -26,28 +34,20 @@ const INV_LIST_SELECT_BASE = {
 const INV_LIST_SELECT_WITH_RESULTS = { ...INV_LIST_SELECT_BASE, results: true };
 
 /**
- * Enrich a batch of investigation rows with the patient + doctor + doctor-profile
- * info the list views used to JOIN in SQL. One extra findMany per related
- * domain, deduped by id/uid — O(1) extra queries regardless of list size.
+ * Build a Prisma `include`-like select object for the related columns a
+ * given list view needs. Consumers pass `fields` flags and get back a
+ * select object suitable for spread-merging into the main findMany select.
+ *
+ * Declared relations (from migration 082) mean column-rename drift on
+ * users/doctors now also surfaces at query-construction time, not just on
+ * investigations — the gap findMany+stitch (batch 30) couldn't close.
  *
  * The old raw SQL referenced `dept.specialization`, but the doctors table
- * actually has `specialty` (schema.prisma line ~302). The raw SQL was thus
- * 500-ing whenever these list endpoints were hit; the alias name is
- * preserved in the response (`specialization`) but now populated from
- * `doctors.specialty` so existing admin UI keys keep working.
- *
- * `fields` controls which related columns to attach — different list views
- * need different subsets (getInvestigationsByType skips specialization/
- * department entirely, getPendingInvestigations needs `gender` + `department`
- * etc.).
+ * actually has `specialty`. The response alias stays `specialization` so
+ * existing admin UI keys keep working, but now backed by `doctors.specialty`.
  */
-async function enrichInvestigations(rows, fields = {}) {
-  if (rows.length === 0) return rows;
-
-  const patientIds = [...new Set(rows.map((r) => r.patient_id).filter(Boolean))];
-  const doctorUids = [...new Set(rows.map((r) => r.requested_by).filter(Boolean))];
-
-  const patientSelect = {
+function buildRelationsSelect(fields = {}) {
+  const patientUserSelect = {
     id: true,
     name: true,
     phone: true,
@@ -55,63 +55,61 @@ async function enrichInvestigations(rows, fields = {}) {
     ...(fields.patientBirthGender ? { birthday: true, gender: true } : {}),
     ...(fields.patientGender ? { gender: true } : {}),
   };
-  const doctorSelect = {
-    uid: true,
+  const doctorProfileNeeded = fields.specialization || fields.department;
+  const doctorUserSelect = {
     id: true,
+    uid: true,
     name: true,
     ...(fields.doctorPhone ? { phone: true } : {}),
     ...(fields.doctorEmail ? { email: true } : {}),
-  };
-
-  const [patients, doctors] = await Promise.all([
-    patientIds.length
-      ? prisma.users.findMany({ where: { id: { in: patientIds } }, select: patientSelect })
-      : [],
-    doctorUids.length
-      ? prisma.users.findMany({ where: { uid: { in: doctorUids } }, select: doctorSelect })
-      : [],
-  ]);
-
-  const doctorUserIds = doctors.map((d) => d.id).filter(Boolean);
-  const doctorProfiles =
-    (fields.specialization || fields.department) && doctorUserIds.length
-      ? await prisma.doctors.findMany({
-          where: { user_id: { in: doctorUserIds } },
-          select: {
-            user_id: true,
-            ...(fields.specialization ? { specialty: true } : {}),
-            ...(fields.department ? { department: true } : {}),
+    ...(doctorProfileNeeded
+      ? {
+          doctors: {
+            select: {
+              ...(fields.specialization ? { specialty: true } : {}),
+              ...(fields.department ? { department: true } : {}),
+            },
+            take: 1,
           },
-        })
-      : [];
+        }
+      : {}),
+  };
+  return {
+    [REL_PATIENT]: { select: patientUserSelect },
+    [REL_DOCTOR]: { select: doctorUserSelect },
+  };
+}
 
-  const patientMap = new Map(patients.map((p) => [p.id, p]));
-  const doctorMap = new Map(doctors.map((d) => [d.uid, d]));
-  const doctorProfileMap = new Map(doctorProfiles.map((d) => [d.user_id, d]));
+/**
+ * Flatten a Prisma-include row back into the flat-alias shape the admin UI
+ * expects (patient_name, doctor_name, specialization, etc.). The include
+ * structure is nested; callers always worked with the flat keys.
+ */
+function flattenRelations(row, fields = {}) {
+  const patient = row[REL_PATIENT] ?? null;
+  const doctor = row[REL_DOCTOR] ?? null;
+  const profile = doctor && doctor.doctors ? doctor.doctors[0] ?? null : null;
 
-  return rows.map((r) => {
-    const patient = r.patient_id != null ? patientMap.get(r.patient_id) : null;
-    const doctor = r.requested_by ? doctorMap.get(r.requested_by) : null;
-    const profile = doctor ? doctorProfileMap.get(doctor.id) : null;
-    const enriched = {
-      ...r,
-      patient_name: patient?.name ?? null,
-      patient_phone: patient?.phone ?? null,
-      doctor_name: doctor?.name ?? null,
-      doctor_id: doctor?.id ?? null,
-    };
-    if (fields.patientEmail) enriched.patient_email = patient?.email ?? null;
-    if (fields.patientBirthGender) {
-      enriched.birthday = patient?.birthday ?? null;
-      enriched.gender = patient?.gender ?? null;
-    }
-    if (fields.patientGender) enriched.gender = patient?.gender ?? null;
-    if (fields.doctorPhone) enriched.doctor_phone = doctor?.phone ?? null;
-    if (fields.doctorEmail) enriched.doctor_email = doctor?.email ?? null;
-    if (fields.specialization) enriched.specialization = profile?.specialty ?? null;
-    if (fields.department) enriched.department = profile?.department ?? null;
-    return enriched;
-  });
+  const flat = { ...row };
+  delete flat[REL_PATIENT];
+  delete flat[REL_DOCTOR];
+
+  flat.patient_name = patient?.name ?? null;
+  flat.patient_phone = patient?.phone ?? null;
+  flat.doctor_name = doctor?.name ?? null;
+  flat.doctor_id = doctor?.id ?? null;
+
+  if (fields.patientEmail) flat.patient_email = patient?.email ?? null;
+  if (fields.patientBirthGender) {
+    flat.birthday = patient?.birthday ?? null;
+    flat.gender = patient?.gender ?? null;
+  }
+  if (fields.patientGender) flat.gender = patient?.gender ?? null;
+  if (fields.doctorPhone) flat.doctor_phone = doctor?.phone ?? null;
+  if (fields.doctorEmail) flat.doctor_email = doctor?.email ?? null;
+  if (fields.specialization) flat.specialization = profile?.specialty ?? null;
+  if (fields.department) flat.department = profile?.department ?? null;
+  return flat;
 }
 
 // Get investigations with filtering
@@ -167,11 +165,14 @@ export const getInvestigations = async (page, limit, filters, userRole, userId) 
     where.requested_at = { gte: start, lt: end };
   }
 
+  const relationFields = { specialization: true, doctorPhone: true };
   const [rows, totalInvestigations] = await Promise.all([
     prisma.investigations.findMany({
       where,
-      select:
-        userRole === 'PATIENT' ? INV_LIST_SELECT_BASE : INV_LIST_SELECT_WITH_RESULTS,
+      select: {
+        ...(userRole === 'PATIENT' ? INV_LIST_SELECT_BASE : INV_LIST_SELECT_WITH_RESULTS),
+        ...buildRelationsSelect(relationFields),
+      },
       orderBy: { requested_at: 'desc' },
       take: limit,
       skip: offset,
@@ -179,10 +180,7 @@ export const getInvestigations = async (page, limit, filters, userRole, userId) 
     prisma.investigations.count({ where }),
   ]);
 
-  const investigations = await enrichInvestigations(rows, {
-    specialization: true,
-    doctorPhone: true,
-  });
+  const investigations = rows.map((r) => flattenRelations(r, relationFields));
 
   return {
     investigations,
@@ -215,26 +213,34 @@ export const getInvestigationById = async (id, userRole, userId) => {
     where.patient_id = users.id;
   }
 
-  const row = await prisma.investigations.findFirst({ where });
-  if (!row) return null;
-
-  const [enriched] = await enrichInvestigations([row], {
+  const relationFields = {
     patientEmail: true,
     patientBirthGender: true,
     doctorPhone: true,
     doctorEmail: true,
     specialization: true,
     department: true,
+  };
+  // Single-record endpoint — selects all investigation columns (the old
+  // raw SQL used `i.*`). An explicit full-column select would duplicate
+  // schema.prisma and rot; `include` for relations + omitting the main
+  // `select` key gets every base column plus the two joined users.
+  const row = await prisma.investigations.findFirst({
+    where,
+    include: buildRelationsSelect(relationFields),
   });
+  if (!row) return null;
+
+  const flat = flattenRelations(row, relationFields);
 
   // Filter sensitive data for patients — keep the old delete semantics so
   // callers already checking `if (x.doctor_phone)` work unchanged.
   if (userRole === 'PATIENT') {
-    delete enriched.doctor_phone;
-    delete enriched.doctor_email;
+    delete flat.doctor_phone;
+    delete flat.doctor_email;
   }
 
-  return enriched;
+  return flat;
 };
 
 // Get patient investigations
@@ -256,23 +262,35 @@ export const getPatientInvestigations = async (patientId, filters, userRole, use
   if (type) where.test_type = type.toUpperCase();
   if (status) where.status = status.toUpperCase();
 
+  // This view only needs doctor_name + specialization — the patient
+  // info is returned separately as `patient`. Pass only the doctor relation
+  // into the include so we don't unnecessarily load the patient user row.
   const rows = await prisma.investigations.findMany({
     where,
-    select:
-      userRole === 'PATIENT' ? INV_LIST_SELECT_BASE : INV_LIST_SELECT_WITH_RESULTS,
+    select: {
+      ...(userRole === 'PATIENT' ? INV_LIST_SELECT_BASE : INV_LIST_SELECT_WITH_RESULTS),
+      [REL_DOCTOR]: {
+        select: {
+          id: true,
+          uid: true,
+          name: true,
+          doctors: { select: { specialty: true }, take: 1 },
+        },
+      },
+    },
     orderBy: { requested_at: 'desc' },
     take: parseInt(limit),
   });
 
-  // This view only needs doctor_name + specialization (no patient_* aliases —
-  // the patient-specific info is returned separately as `patient`).
-  const enriched = await enrichInvestigations(rows, { specialization: true });
-  // Drop the patient_* keys added by the shared enricher; this endpoint's
-  // old shape didn't include them.
-  const investigations = enriched.map((r) => {
-    const { patient_name, patient_phone, ...rest } = r;
-    void patient_name; void patient_phone;
-    return rest;
+  const investigations = rows.map((r) => {
+    const doctor = r[REL_DOCTOR] ?? null;
+    const profile = doctor?.doctors?.[0] ?? null;
+    const flat = { ...r };
+    delete flat[REL_DOCTOR];
+    flat.doctor_name = doctor?.name ?? null;
+    flat.doctor_id = doctor?.id ?? null;
+    flat.specialization = profile?.specialty ?? null;
+    return flat;
   });
 
   // Get patient info
@@ -320,6 +338,8 @@ export const getDoctorInvestigations = async (doctorId, filters) => {
   };
   if (date) where.requested_at = dateRangeFilter(date);
 
+  // Scoped to a single doctor already — only needs patient info, not doctor/
+  // specialization fields.
   const rows = await prisma.investigations.findMany({
     where,
     select: {
@@ -331,18 +351,18 @@ export const getDoctorInvestigations = async (doctorId, filters) => {
       requested_at: true,
       notes: true,
       patient_id: true,
-      requested_by: true,
+      [REL_PATIENT]: { select: { id: true, name: true, phone: true } },
     },
     orderBy: [{ requested_at: 'desc' }, { priority: 'desc' }],
   });
 
-  // Only patient_name / patient_phone / patient_id needed here — no doctor
-  // or specialization aliases (this view is scoped to one doctor already).
-  const enriched = await enrichInvestigations(rows, {});
-  const investigations = enriched.map((r) => {
-    const { doctor_name, doctor_id, requested_by, ...rest } = r;
-    void doctor_name; void doctor_id; void requested_by;
-    return rest;
+  const investigations = rows.map((r) => {
+    const patient = r[REL_PATIENT] ?? null;
+    const flat = { ...r };
+    delete flat[REL_PATIENT];
+    flat.patient_name = patient?.name ?? null;
+    flat.patient_phone = patient?.phone ?? null;
+    return flat;
   });
 
   return {
@@ -372,12 +392,14 @@ export const getInvestigationsByType = async (type, filters) => {
       completed_at: true,
       patient_id: true,
       requested_by: true,
+      [REL_PATIENT]: { select: { id: true, name: true, phone: true } },
+      [REL_DOCTOR]: { select: { id: true, uid: true, name: true } },
     },
     orderBy: { requested_at: 'desc' },
     take: 100,
   });
 
-  const investigations = await enrichInvestigations(rows, {});
+  const investigations = rows.map((r) => flattenRelations(r, {}));
 
   return {
     investigations,
@@ -395,6 +417,7 @@ export const getPendingInvestigations = async (filters) => {
   if (type) where.test_type = type.toUpperCase();
   if (priority) where.priority = priority.toUpperCase();
 
+  const relationFields = { patientGender: true, department: true };
   const rows = await prisma.investigations.findMany({
     where,
     select: {
@@ -406,6 +429,7 @@ export const getPendingInvestigations = async (filters) => {
       notes: true,
       patient_id: true,
       requested_by: true,
+      ...buildRelationsSelect(relationFields),
     },
     // Priority is a VARCHAR so lexical 'URGENT' < 'HIGH' < 'NORMAL' — the
     // old `ORDER BY priority DESC` inherited that same text ordering. This
@@ -414,10 +438,7 @@ export const getPendingInvestigations = async (filters) => {
     orderBy: [{ priority: 'desc' }, { requested_at: 'asc' }],
   });
 
-  const investigations = await enrichInvestigations(rows, {
-    patientGender: true,
-    department: true,
-  });
+  const investigations = rows.map((r) => flattenRelations(r, relationFields));
 
   return {
     investigations,
