@@ -35,7 +35,12 @@ function patientAs() {
 }
 
 function adminAs() {
-  const token = generateTestToken('ADMIN', { uid: '00000000-0000-4000-8000-000000000001', id: 1 });
+  // Use the default test-harness uid from testClient.js (seeded by
+  // migration 082). Same pattern as investigation-deep: the override to
+  // `00000000-0000-4000-8000-000000000001` is the DEFAULT_TENANT_ID, not
+  // a real user, and fails pharmacy_orders_prescribed_by_fkey (migration
+  // 083) when createOrder sets prescribed_by from the JWT's uid.
+  const token = generateTestToken('ADMIN');
   return {
     get: (p) => request(app).get(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
