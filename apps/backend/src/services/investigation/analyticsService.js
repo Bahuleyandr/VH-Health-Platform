@@ -1,5 +1,7 @@
 // src/services/investigation/analyticsService.js
-// Migrated from raw pg to Prisma ORM
+// Aligned to the canonical `investigations` schema: requested_at / test_type
+// (not ordered_date / type). `cost` column doesn't exist yet — reported as
+// null until a test_catalog table lands.
 
 import prisma from '../../lib/prisma.js';
 import { formatDateDDMMYYYY } from '../../utils/investigation/investigationHelpers.js';
@@ -14,29 +16,29 @@ export const getInvestigationStats = async (days) => {
         COUNT(CASE WHEN status = 'PENDING'   THEN 1 END)::int                 AS pending,
         COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END)::int                 AS completed,
         COUNT(CASE WHEN status = 'CANCELLED' THEN 1 END)::int                 AS cancelled,
-        COUNT(CASE WHEN ordered_date >= CURRENT_DATE - (${daysInt} || ' days')::interval THEN 1 END)::int AS recent_orders,
-        ROUND(AVG(cost)::numeric, 2)                                          AS average_cost
+        COUNT(CASE WHEN requested_at >= CURRENT_DATE - (${daysInt} || ' days')::interval THEN 1 END)::int AS recent_orders,
+        NULL::numeric                                                          AS average_cost
       FROM investigations
     `,
     prisma.$queryRaw`
-      SELECT type, COUNT(*)::int AS count
+      SELECT test_type AS type, COUNT(*)::int AS count
       FROM investigations
-      WHERE ordered_date >= CURRENT_DATE - (${daysInt} || ' days')::interval
-      GROUP BY type
+      WHERE requested_at >= CURRENT_DATE - (${daysInt} || ' days')::interval
+      GROUP BY test_type
       ORDER BY count DESC
     `,
     prisma.$queryRaw`
       SELECT status, COUNT(*)::int AS count
       FROM investigations
-      WHERE ordered_date >= CURRENT_DATE - (${daysInt} || ' days')::interval
+      WHERE requested_at >= CURRENT_DATE - (${daysInt} || ' days')::interval
       GROUP BY status
       ORDER BY count DESC
     `,
     prisma.$queryRaw`
-      SELECT DATE(ordered_date) AS date, COUNT(*)::int AS investigations_ordered
+      SELECT DATE(requested_at) AS date, COUNT(*)::int AS investigations_ordered
       FROM investigations
-      WHERE ordered_date >= CURRENT_DATE - (${daysInt} || ' days')::interval
-      GROUP BY DATE(ordered_date)
+      WHERE requested_at >= CURRENT_DATE - (${daysInt} || ' days')::interval
+      GROUP BY DATE(requested_at)
       ORDER BY date DESC
     `,
   ]);
