@@ -1,5 +1,4 @@
 // services/infrastructure/rbacService.js
-import db from '../../config/database.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
@@ -265,77 +264,77 @@ export class RBACService {
     }
   }
 
-  // Assign role to user
+  // Assign role to user — runs under prisma.$transaction. Errors roll back
+  // the UPDATE + audit INSERT atomically.
   static async assignRole(data, adminInfo) {
-    const client = await db.getClient();
+    const { phone, role, reason = 'Admin assignment' } = data;
+    const normalizedPhone = normalizePhone(phone);
+    const targetRole = role.toUpperCase();
+
+    if (!canUserManageRole(adminInfo.role, targetRole)) {
+      throw new Error('Insufficient permissions to assign this role');
+    }
+
+    // Capacity + user lookup can be done outside the transaction (both are
+    // read-only; no isolation concern). Capacity-vs-change race is accepted
+    // — a duplicate role assignment is harmless.
+    const capacity = await checkRoleCapacity(targetRole);
+    if (!capacity.hasCapacity) {
+      throw new Error(`Role capacity exceeded. Maximum ${capacity.max} users allowed for ${targetRole}`);
+    }
 
     try {
-      await client.query('BEGIN');
+      const result = await prisma.$transaction(async (tx) => {
+        const userResult = await tx.$queryRawUnsafe(
+          'SELECT uid, role, name FROM users WHERE phone = $1',
+          normalizedPhone
+        );
+        if (userResult.length === 0) throw new Error('User not found');
 
-      const { phone, role, reason = 'Admin assignment' } = data;
-      const normalizedPhone = normalizePhone(phone);
-      const targetRole = role.toUpperCase();
+        const user = userResult[0];
+        const oldRole = user.role;
 
-      if (!canUserManageRole(adminInfo.role, targetRole)) {
-        throw new Error('Insufficient permissions to assign this role');
+        if (oldRole === targetRole) {
+          // No-op: short-circuit before writing.
+          return { phone: normalizedPhone, role: targetRole, unchanged: true };
+        }
+
+        const validation = validateRoleTransition(oldRole, targetRole);
+        if (!validation.valid) {
+          throw new Error(`Invalid role transition: ${validation.errors.join(', ')}`);
+        }
+
+        await tx.$executeRawUnsafe(
+          'UPDATE users SET role = $1, role_updated_at = NOW() WHERE phone = $2',
+          targetRole, normalizedPhone
+        );
+
+        await tx.$executeRawUnsafe(
+          `INSERT INTO user_role_audit (
+            phone, old_role, new_role, changed_by_uid, reason, changed_at
+          ) VALUES ($1, $2, $3, $4::uuid, $5, NOW())`,
+          normalizedPhone, oldRole, targetRole, adminInfo.uid, reason
+        );
+
+        return {
+          phone: normalizedPhone,
+          userName: user.name,
+          oldRole,
+          newRole: targetRole,
+          changedBy: adminInfo.uid,
+          changedByRole: adminInfo.role,
+          reason,
+          timestamp: formatDateDDMMYYYY(new Date()),
+        };
+      });
+
+      if (!result.unchanged) {
+        logger.info(`🔄 Role changed: ${normalizedPhone} from ${result.oldRole} to ${result.newRole} by ${adminInfo.uid}`);
       }
-
-      const capacity = await checkRoleCapacity(targetRole, client);
-      if (!capacity.hasCapacity) {
-        throw new Error(`Role capacity exceeded. Maximum ${capacity.max} users allowed for ${targetRole}`);
-      }
-
-      const userResult = await client.query(
-        'SELECT uid, role, name FROM users WHERE phone = $1',
-        [normalizedPhone]
-      );
-      if (userResult.length === 0) throw new Error('User not found');
-
-      const user = userResult[0];
-      const oldRole = user.role;
-
-      if (oldRole === targetRole) {
-        await client.query('COMMIT');
-        return { phone: normalizedPhone, role: targetRole, unchanged: true };
-      }
-
-      const validation = validateRoleTransition(oldRole, targetRole);
-      if (!validation.valid) {
-        throw new Error(`Invalid role transition: ${validation.errors.join(', ')}`);
-      }
-
-      await client.query(
-        'UPDATE users SET role = $1, role_updated_at = NOW() WHERE phone = $2',
-        [targetRole, normalizedPhone]
-      );
-
-      await client.query(
-        `INSERT INTO user_role_audit (
-          phone, old_role, new_role, changed_by_uid, reason, changed_at
-        ) VALUES ($1, $2, $3, $4, $5, NOW())`,
-        [normalizedPhone, oldRole, targetRole, adminInfo.uid, reason]
-      );
-
-      await client.query('COMMIT');
-
-      logger.info(`🔄 Role changed: ${normalizedPhone} from ${oldRole} to ${targetRole} by ${adminInfo.uid}`);
-
-      return {
-        phone: normalizedPhone,
-        userName: user.name,
-        oldRole,
-        newRole: targetRole,
-        changedBy: adminInfo.uid,
-        changedByRole: adminInfo.role,
-        reason,
-        timestamp: formatDateDDMMYYYY(new Date())
-      };
+      return result;
     } catch (error) {
-      await client.query('ROLLBACK');
       logger.error('Assign role error:', error);
       throw error;
-    } finally {
-      client.release();
     }
   }
 
@@ -538,40 +537,38 @@ export class RBACService {
     }
   }
 
-  // Toggle user status (lock/unlock)
+  // Toggle user status (lock/unlock) — atomic UPDATE + audit INSERT under
+  // prisma.$transaction; thrown errors roll back the UPDATE.
   static async toggleUserStatus(data, adminInfo) {
-    const client = await db.getClient();
+    const { phone, action, reason = 'Admin action' } = data;
+    const normalizedPhone = normalizePhone(phone);
+    const isActive = action === 'unlock';
 
     try {
-      await client.query('BEGIN');
+      const user = await prisma.$transaction(async (tx) => {
+        const result = await tx.$queryRawUnsafe(
+          `UPDATE users SET
+            is_active = $1,
+            status_updated_at = NOW(),
+            status_updated_by = $2::uuid,
+            status_reason = $3
+           WHERE phone = $4
+           RETURNING uid, name, role, is_active`,
+          isActive, adminInfo.uid, reason, normalizedPhone
+        );
 
-      const { phone, action, reason = 'Admin action' } = data;
-      const normalizedPhone = normalizePhone(phone);
-      const isActive = action === 'unlock';
+        if (result.length === 0) throw new Error('User not found');
+        const row = result[0];
 
-      const result = await client.query(
-        `UPDATE users SET 
-          is_active = $1, 
-          status_updated_at = NOW(),
-          status_updated_by = $2,
-          status_reason = $3
-         WHERE phone = $4 
-         RETURNING uid, name, role, is_active`,
-        [isActive, adminInfo.uid, reason, normalizedPhone]
-      );
+        await tx.$executeRawUnsafe(
+          `INSERT INTO user_role_audit (
+            phone, old_role, new_role, changed_by_uid, reason, changed_at, action_type
+          ) VALUES ($1, $2, $3, $4::uuid, $5, NOW(), $6)`,
+          normalizedPhone, row.role, row.role, adminInfo.uid, reason, `user_${action}`
+        );
 
-      if (result.length === 0) throw new Error('User not found');
-
-      const user = result[0];
-
-      await client.query(
-        `INSERT INTO user_role_audit (
-          phone, old_role, new_role, changed_by_uid, reason, changed_at, action_type
-        ) VALUES ($1, $2, $3, $4, $5, NOW(), $6)`,
-        [normalizedPhone, user.role, user.role, adminInfo.uid, reason, `user_${action}`]
-      );
-
-      await client.query('COMMIT');
+        return row;
+      });
 
       logger.info(`🔒 User account ${action}ed: ${normalizedPhone} by admin ${adminInfo.uid}`);
 
@@ -583,18 +580,15 @@ export class RBACService {
           uid: user.uid,
           name: user.name,
           role: user.role,
-          isActive: user.is_active
+          isActive: user.is_active,
         },
         reason,
         actionBy: adminInfo.uid,
-        actionAt: formatDateDDMMYYYY(new Date())
+        actionAt: formatDateDDMMYYYY(new Date()),
       };
     } catch (error) {
-      await client.query('ROLLBACK');
       logger.error('Toggle user status error:', error);
       throw error;
-    } finally {
-      client.release();
     }
   }
 
