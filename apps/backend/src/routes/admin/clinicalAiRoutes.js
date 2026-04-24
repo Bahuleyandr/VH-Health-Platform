@@ -1,7 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import prisma from '../../lib/prisma.js';
-import db from '../../config/database.js';
+import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { validateFileContent } from '../../middleware/uploadMiddleware.js';
 import { error, success } from '../../utils/responseHelper.js';
@@ -1067,25 +1066,26 @@ router.get('/generations', async (req, res, next) => {
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    // RLS POC — wraps the read in a tenant-scoped transaction. The explicit
+    // RLS POC — wraps the read in a tenant-scoped transaction (setTenant
+    // sets `app.current_tenant_id` via set_config(..., true)). The explicit
     // `tenant_id = $1::uuid` above remains as belt-and-braces filtering; the
     // RLS policy from migration 075 is the defense-in-depth layer.
-    const result = await db.queryAsTenant(
-      `SELECT g.id, g.patient_uid, u.name AS patient_name, g.admission_id,
-              g.task_type, g.module_key, g.provider, g.model, g.prompt_version, g.source_hash,
-              g.status, g.used_ai, g.safety_flags, g.generated_by, g.reviewed_by,
-              g.signed_note_id, g.prompt_tokens, g.completion_tokens, g.total_tokens,
-              g.estimated_cost_minor, g.latency_ms, g.provider_request_id,
-              g.finish_reason, g.metadata, g.created_at, g.updated_at
-       FROM clinical_ai_generations g
-       LEFT JOIN users u ON u.uid = g.patient_uid
-       ${where}
-       ORDER BY g.created_at DESC
-       LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...params, limit, offset],
-      req.tenantId
+    const rows = await setTenant(req.tenantId, (tx) =>
+      tx.$queryRawUnsafe(
+        `SELECT g.id, g.patient_uid, u.name AS patient_name, g.admission_id,
+                g.task_type, g.module_key, g.provider, g.model, g.prompt_version, g.source_hash,
+                g.status, g.used_ai, g.safety_flags, g.generated_by, g.reviewed_by,
+                g.signed_note_id, g.prompt_tokens, g.completion_tokens, g.total_tokens,
+                g.estimated_cost_minor, g.latency_ms, g.provider_request_id,
+                g.finish_reason, g.metadata, g.created_at, g.updated_at
+         FROM clinical_ai_generations g
+         LEFT JOIN users u ON u.uid = g.patient_uid
+         ${where}
+         ORDER BY g.created_at DESC
+         LIMIT $${idx} OFFSET $${idx + 1}`,
+        ...params, limit, offset,
+      ),
     );
-    const rows = result.rows;
 
     return success(res, { generations: rows, count: rows.length }, 'Clinical AI generations retrieved');
   } catch (err) {
@@ -1134,30 +1134,30 @@ router.get('/safety-flags', async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
     // RLS POC — transactionally scopes the lateral join to the caller's tenant.
-    const result = await db.queryAsTenant(
-      `SELECT g.id AS generation_id, g.patient_uid, u.name AS patient_name,
-              g.admission_id, g.task_type, g.module_key, g.status,
-              flag->>'severity' AS severity,
-              flag->>'code' AS code,
-              flag->>'message' AS message,
-              g.created_at
-       FROM clinical_ai_generations g
-       LEFT JOIN users u ON u.uid = g.patient_uid
-       CROSS JOIN LATERAL jsonb_array_elements(COALESCE(g.safety_flags, '[]'::jsonb)) AS flag
-       WHERE g.tenant_id = $1::uuid
-       ORDER BY
-         CASE flag->>'severity'
-           WHEN 'critical' THEN 1
-           WHEN 'high' THEN 2
-           WHEN 'medium' THEN 3
-           ELSE 4
-         END,
-         g.created_at DESC
-       LIMIT $2`,
-      [req.tenantId, limit],
-      req.tenantId
+    const rows = await setTenant(req.tenantId, (tx) =>
+      tx.$queryRawUnsafe(
+        `SELECT g.id AS generation_id, g.patient_uid, u.name AS patient_name,
+                g.admission_id, g.task_type, g.module_key, g.status,
+                flag->>'severity' AS severity,
+                flag->>'code' AS code,
+                flag->>'message' AS message,
+                g.created_at
+         FROM clinical_ai_generations g
+         LEFT JOIN users u ON u.uid = g.patient_uid
+         CROSS JOIN LATERAL jsonb_array_elements(COALESCE(g.safety_flags, '[]'::jsonb)) AS flag
+         WHERE g.tenant_id = $1::uuid
+         ORDER BY
+           CASE flag->>'severity'
+             WHEN 'critical' THEN 1
+             WHEN 'high' THEN 2
+             WHEN 'medium' THEN 3
+             ELSE 4
+           END,
+           g.created_at DESC
+         LIMIT $2`,
+        req.tenantId, limit,
+      ),
     );
-    const rows = result.rows;
 
     return success(res, { flags: rows, count: rows.length }, 'Clinical AI safety flags retrieved');
   } catch (err) {
@@ -5447,21 +5447,20 @@ router.get('/dead-letter', async (req, res, next) => {
     // RLS POC — platform admins (SUPER_ADMIN) can read dead-letter across tenants.
     // Everyone else is scoped to their own tenant by the RLS policy.
     const isSuperAdmin = normalizeRole(req.user?.role) === 'SUPER_ADMIN';
-    const result = await db.queryAsTenant(
-      `SELECT g.id, g.patient_uid, u.name AS patient_name, g.admission_id,
-              g.task_type, g.module_key, g.provider, g.model, g.status,
-              g.safety_flags, g.metadata, g.created_at
-       FROM clinical_ai_generations g
-       LEFT JOIN users u ON u.uid = g.patient_uid
-       WHERE ($1::uuid IS NULL OR g.tenant_id = $1::uuid)
-         AND g.status = 'failed'
-       ORDER BY g.created_at DESC
-       LIMIT $2`,
-      [isSuperAdmin ? null : req.tenantId, limit],
-      req.tenantId,
-      { superAdmin: isSuperAdmin }
-    );
-    const rows = result.rows;
+    const rows = await setTenant(req.tenantId, (tx) =>
+      tx.$queryRawUnsafe(
+        `SELECT g.id, g.patient_uid, u.name AS patient_name, g.admission_id,
+                g.task_type, g.module_key, g.provider, g.model, g.status,
+                g.safety_flags, g.metadata, g.created_at
+         FROM clinical_ai_generations g
+         LEFT JOIN users u ON u.uid = g.patient_uid
+         WHERE ($1::uuid IS NULL OR g.tenant_id = $1::uuid)
+           AND g.status = 'failed'
+         ORDER BY g.created_at DESC
+         LIMIT $2`,
+        isSuperAdmin ? null : req.tenantId, limit,
+      ),
+    { superAdmin: isSuperAdmin });
     return success(res, { generations: rows, count: rows.length }, 'Clinical AI dead-letter queue retrieved');
   } catch (err) {
     return next(err);
