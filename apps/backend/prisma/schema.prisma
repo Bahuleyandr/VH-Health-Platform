@@ -40,7 +40,11 @@ model users {
   investigations_investigations_requested_byTousers        investigations[]          @relation("investigations_requested_byTousers")
   investment_declarations                                  investment_declarations[]
   leave_encashments                                        leave_encashments[]
+  medical_records_medical_records_created_byTousers        medical_records[]         @relation("medical_records_created_byTousers")
+  medical_records_medical_records_deleted_byTousers        medical_records[]         @relation("medical_records_deleted_byTousers")
   medical_records                                          medical_records[]
+  medical_records_medical_records_patient_idTousers        medical_records[]         @relation("medical_records_patient_idTousers")
+  medical_records_medical_records_updated_byTousers        medical_records[]         @relation("medical_records_updated_byTousers")
   payroll_runs_payroll_runs_generated_byTousers            payroll_runs[]            @relation("payroll_runs_generated_byTousers")
   payroll_runs_payroll_runs_locked_byTousers               payroll_runs[]            @relation("payroll_runs_locked_byTousers")
   payslips                                                 payslips[]
@@ -387,21 +391,30 @@ model health_records {
 }
 
 model medical_records {
-  id            Int      @id @default(autoincrement())
-  patient_id    String?  @db.Uuid
-  doctor_id     Int?
-  record_type   String?  @db.VarChar(50)
-  title         String?  @db.VarChar(255)
-  description   String?
-  diagnosis     String?
-  treatment     String?
-  medications   Json?
-  lab_results   Json?
-  attachments   Json?
-  privacy_level String?  @default("RESTRICTED") @db.VarChar(20)
-  created_by    String?  @db.Uuid
-  created_at    DateTime @default(now()) @db.Timestamp(6)
-  users         users?   @relation(fields: [doctor_id], references: [id], onUpdate: NoAction)
+  id                                      Int       @id @default(autoincrement())
+  patient_id                              String?   @db.Uuid
+  doctor_id                               Int?
+  record_type                             String?   @db.VarChar(50)
+  title                                   String?   @db.VarChar(255)
+  description                             String?
+  diagnosis                               String?
+  treatment                               String?
+  medications                             Json?
+  lab_results                             Json?
+  attachments                             Json?
+  privacy_level                           String?   @default("RESTRICTED") @db.VarChar(20)
+  created_by                              String?   @db.Uuid
+  created_at                              DateTime  @default(now()) @db.Timestamp(6)
+  updated_at                              DateTime? @db.Timestamptz(6)
+  updated_by                              String?   @db.Uuid
+  is_active                               Boolean   @default(true)
+  deleted_at                              DateTime? @db.Timestamptz(6)
+  deleted_by                              String?   @db.Uuid
+  users_medical_records_created_byTousers users?    @relation("medical_records_created_byTousers", fields: [created_by], references: [uid], onUpdate: NoAction)
+  users_medical_records_deleted_byTousers users?    @relation("medical_records_deleted_byTousers", fields: [deleted_by], references: [uid], onUpdate: NoAction)
+  users                                   users?    @relation(fields: [doctor_id], references: [id], onUpdate: NoAction)
+  users_medical_records_patient_idTousers users?    @relation("medical_records_patient_idTousers", fields: [patient_id], references: [uid], onUpdate: NoAction)
+  users_medical_records_updated_byTousers users?    @relation("medical_records_updated_byTousers", fields: [updated_by], references: [uid], onUpdate: NoAction)
 
   @@index([patient_id])
   @@index([doctor_id])

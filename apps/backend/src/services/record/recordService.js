@@ -216,6 +216,27 @@ async function enrichMedicalRecords(rows) {
   });
 }
 
+// Accept a patient_id filter either as a UUID or as a numeric
+// users.id and resolve to users.uid before filtering. The API
+// validator currently enforces isInt, but the DB column is uuid —
+// one of these has to bridge. See batch 46's header comment for
+// why we bridge in the service layer (smallest blast radius).
+async function resolvePatientFilterToUuid(raw) {
+  if (!raw) return null;
+  const s = String(raw);
+  // UUID v1-5 shape: 8-4-4-4-12 hex chars.
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) {
+    return s;
+  }
+  const asInt = parseInt(s, 10);
+  if (!Number.isFinite(asInt)) return null;
+  const user = await prisma.users.findUnique({
+    where: { id: asInt },
+    select: { uid: true },
+  });
+  return user?.uid ?? null;
+}
+
 export async function getMedicalRecords(filters = {}, _userRole) {
   try {
     const {
@@ -224,11 +245,13 @@ export async function getMedicalRecords(filters = {}, _userRole) {
     } = filters;
     const offset = (page - 1) * limit;
 
-    const where = {};
-    // patient_id is uuid; accept either a raw uuid or let Prisma coerce
-    // (callers pass strings). Not int-coercing as the old SQL did — the
-    // DB column is uuid and that's the only semantic that matches.
-    if (patient_id) where.patient_id = String(patient_id);
+    const where = { is_active: true };
+    if (patient_id) {
+      const patientUid = await resolvePatientFilterToUuid(patient_id);
+      // Impossible-match sentinel so a bogus patient_id returns zero
+      // rows instead of leaking the full set.
+      where.patient_id = patientUid ?? '00000000-0000-0000-0000-000000000000';
+    }
     if (doctor_id) where.doctor_id = parseInt(doctor_id);
     if (record_type) where.record_type = record_type.toUpperCase();
     if (date_from || date_to) {
@@ -286,8 +309,10 @@ export async function getMedicalRecords(filters = {}, _userRole) {
 
 export async function getMedicalRecordById(id) {
   try {
-    const row = await prisma.medical_records.findUnique({
-      where: { id: parseInt(id) },
+    // findFirst + is_active filter rather than findUnique, so soft-
+    // deleted records aren't visible via the detail endpoint.
+    const row = await prisma.medical_records.findFirst({
+      where: { id: parseInt(id), is_active: true },
       select: {
         id: true,
         patient_id: true,
@@ -302,6 +327,7 @@ export async function getMedicalRecordById(id) {
         attachments: true,
         privacy_level: true,
         created_at: true,
+        updated_at: true,
         [REL_DOCTOR]: {
           select: { id: true, name: true, phone: true, email: true },
         },
@@ -317,33 +343,50 @@ export async function getMedicalRecordById(id) {
 }
 
 export async function createMedicalRecord(data, doctorId, createdBy) {
+  // patient_id enters this service as an INT (the API validator enforces
+  // isInt). medical_records.patient_id is a UUID (batch 87 FK now
+  // enforces users.uid). Resolve int → uuid here so the rest of the
+  // service stays on the right semantics.
   try {
     return await prisma.$transaction(async (tx) => {
-      const patientRows = await tx.$queryRaw`
-        SELECT id, name, phone FROM users WHERE id = ${parseInt(data.patient_id)}
-      `;
+      const patient = await tx.users.findUnique({
+        where: { id: parseInt(data.patient_id) },
+        select: { id: true, uid: true, name: true, phone: true },
+      });
 
-      if (patientRows.length === 0) throw new Error('Patient not found');
+      if (!patient) throw new Error('Patient not found');
 
-      const recordRows = await tx.$queryRaw`
-        INSERT INTO medical_records (
-          patient_id, doctor_id, record_type, title, description,
-          diagnosis, treatment, medications, lab_results, attachments,
-          privacy_level, created_by, created_at
-        ) VALUES (
-          ${parseInt(data.patient_id)}, ${parseInt(doctorId)},
-          ${data.record_type.toUpperCase()},
-          ${data.title ?? null}, ${data.description ?? null},
-          ${data.diagnosis ?? null}, ${data.treatment ?? null},
-          ${data.medications ?? null}::jsonb, ${data.lab_results ?? null}::jsonb,
-          ${data.attachments ?? null}::jsonb,
-          ${data.privacy_level || 'RESTRICTED'}, ${createdBy ?? null}, NOW()
-        )
-        RETURNING id, patient_id, doctor_id, record_type, title, description,
-          diagnosis, treatment, privacy_level, created_by, created_at
-      `;
+      const record = await tx.medical_records.create({
+        data: {
+          patient_id: patient.uid,
+          doctor_id: parseInt(doctorId),
+          record_type: data.record_type.toUpperCase(),
+          title: data.title ?? null,
+          description: data.description ?? null,
+          diagnosis: data.diagnosis ?? null,
+          treatment: data.treatment ?? null,
+          medications: data.medications ?? null,
+          lab_results: data.lab_results ?? null,
+          attachments: data.attachments ?? null,
+          privacy_level: data.privacy_level || 'RESTRICTED',
+          created_by: createdBy ?? null,
+        },
+        select: {
+          id: true,
+          patient_id: true,
+          doctor_id: true,
+          record_type: true,
+          title: true,
+          description: true,
+          diagnosis: true,
+          treatment: true,
+          privacy_level: true,
+          created_by: true,
+          created_at: true,
+        },
+      });
 
-      return { record: recordRows[0], patient: patientRows[0] };
+      return { record, patient };
     });
   } catch (error) {
     logger.error(`[RecordService] Error creating medical record: ${error.message}`);
@@ -355,23 +398,37 @@ export async function updateMedicalRecord(id, data, updatedBy) {
   try {
     const { title, description, diagnosis, treatment, medications, lab_results, attachments } = data;
 
-    const rows = await prisma.$queryRaw`
-      UPDATE medical_records SET
-        title       = COALESCE(${title ?? null}, title),
-        description = COALESCE(${description ?? null}, description),
-        diagnosis   = COALESCE(${diagnosis ?? null}, diagnosis),
-        treatment   = COALESCE(${treatment ?? null}, treatment),
-        medications = COALESCE(${medications ?? null}::jsonb, medications),
-        lab_results = COALESCE(${lab_results ?? null}::jsonb, lab_results),
-        attachments = COALESCE(${attachments ?? null}::jsonb, attachments),
-        updated_at  = NOW(),
-        updated_by  = ${updatedBy ?? null}
-      WHERE id = ${parseInt(id)}
-      RETURNING id, patient_id, doctor_id, record_type, title, description,
-        diagnosis, treatment, privacy_level, created_by, created_at, updated_at
-    `;
+    // Match the old COALESCE semantics: only write the field when the
+    // caller supplied a non-null value. Conditional-spread keys achieve
+    // that without a second read-round-trip.
+    const patch = { updated_at: new Date(), updated_by: updatedBy ?? null };
+    if (title != null) patch.title = title;
+    if (description != null) patch.description = description;
+    if (diagnosis != null) patch.diagnosis = diagnosis;
+    if (treatment != null) patch.treatment = treatment;
+    if (medications != null) patch.medications = medications;
+    if (lab_results != null) patch.lab_results = lab_results;
+    if (attachments != null) patch.attachments = attachments;
 
-    return rows[0];
+    return await prisma.medical_records.update({
+      where: { id: parseInt(id) },
+      data: patch,
+      select: {
+        id: true,
+        patient_id: true,
+        doctor_id: true,
+        record_type: true,
+        title: true,
+        description: true,
+        diagnosis: true,
+        treatment: true,
+        privacy_level: true,
+        created_by: true,
+        created_at: true,
+        updated_at: true,
+        updated_by: true,
+      },
+    });
   } catch (error) {
     logger.error(`[RecordService] Error updating medical record: ${error.message}`);
     throw error;
@@ -380,13 +437,15 @@ export async function updateMedicalRecord(id, data, updatedBy) {
 
 export async function softDeleteRecord(id, deletedBy, _reason) {
   try {
-    const rows = await prisma.$queryRaw`
-      UPDATE medical_records
-      SET is_active = false, deleted_at = NOW(), deleted_by = ${deletedBy ?? null}
-      WHERE id = ${parseInt(id)}
-      RETURNING id, title
-    `;
-    return rows[0];
+    return await prisma.medical_records.update({
+      where: { id: parseInt(id) },
+      data: {
+        is_active: false,
+        deleted_at: new Date(),
+        deleted_by: deletedBy ?? null,
+      },
+      select: { id: true, title: true },
+    });
   } catch (error) {
     logger.error(`[RecordService] Error deleting medical record: ${error.message}`);
     throw error;
@@ -414,16 +473,15 @@ export async function searchMedicalRecords(searchTerm, userRole, limit = 50) {
     const q = { contains: searchTerm, mode: 'insensitive' };
     const rows = await prisma.medical_records.findMany({
       where: {
+        is_active: true,
         OR: [
           { title: q },
           { description: q },
           { diagnosis: q },
           { treatment: q },
           // users relation match surfaces "records where the doctor's
-          // name contains the term". Patient-name search is handled by
-          // a separate findMany lookup (no cheap way to do it via ORM
-          // because patient_id has no declared FK — see
-          // migration 086 header for the rationale).
+          // name contains the term". Patient-name search is a separate
+          // findMany lookup (out of scope for this query).
           { [REL_DOCTOR]: { name: q } },
         ],
       },
@@ -456,40 +514,71 @@ export async function searchMedicalRecords(searchTerm, userRole, limit = 50) {
 
 export async function getPatientSummary(patientId, _privacyFilter = '') {
   try {
-    // privacyFilter is a raw SQL string appended to query — use $queryRaw
-    const rows = await prisma.$queryRaw`
-      WITH patient_info AS (
-        SELECT name, phone, email, birthday, gender, address
-        FROM users WHERE id = ${parseInt(patientId)}
-      ),
-      record_stats AS (
-        SELECT record_type, COUNT(*)::int AS count, MAX(created_at) AS last_record
-        FROM medical_records
-        WHERE patient_id = ${parseInt(patientId)}
-        GROUP BY record_type
-      ),
-      recent_records AS (
-        SELECT mr.id, mr.record_type, mr.title, mr.privacy_level,
-               TO_CHAR(mr.created_at, 'DD-MM-YYYY HH24:MI') AS created_at_formatted,
-               d.name AS doctor_name, dp.specialty AS specialization
-        FROM medical_records mr
-        LEFT JOIN users d ON mr.doctor_id = d.id
-        LEFT JOIN doctors dp ON d.id = dp.user_id
-        WHERE mr.patient_id = ${parseInt(patientId)}
-        ORDER BY mr.created_at DESC
-        LIMIT 5
-      )
-      SELECT
-        (SELECT row_to_json(patient_info.*) FROM patient_info) AS patient,
-        (SELECT json_agg(record_stats.*) FROM record_stats) AS record_stats,
-        (SELECT json_agg(recent_records.*) FROM recent_records) AS recent_records
-    `;
+    // patientId arrives as int (the API validator is isInt). Resolve to
+    // users.uid first so the medical_records.patient_id comparisons
+    // don't try to compare uuid = integer.
+    const patientIntId = parseInt(patientId);
+    const patientUid = await resolvePatientFilterToUuid(patientIntId);
 
-    const data = rows[0];
+    const [patient, recordStats, recentRecords] = await Promise.all([
+      prisma.users.findUnique({
+        where: { id: patientIntId },
+        select: {
+          name: true,
+          phone: true,
+          email: true,
+          birthday: true,
+          gender: true,
+          address: true,
+        },
+      }),
+      patientUid
+        ? prisma.medical_records.groupBy({
+            by: ['record_type'],
+            where: { patient_id: patientUid, is_active: true },
+            _count: { _all: true },
+            _max: { created_at: true },
+          })
+        : [],
+      patientUid
+        ? prisma.medical_records.findMany({
+            where: { patient_id: patientUid, is_active: true },
+            select: {
+              id: true,
+              record_type: true,
+              title: true,
+              privacy_level: true,
+              created_at: true,
+              [REL_DOCTOR]: {
+                select: {
+                  id: true,
+                  name: true,
+                  doctors: { select: { specialty: true }, take: 1 },
+                },
+              },
+            },
+            orderBy: { created_at: 'desc' },
+            take: 5,
+          })
+        : [],
+    ]);
+
     return {
-      patient: data.patient,
-      recordStats: data.record_stats || [],
-      recentRecords: data.recent_records || [],
+      patient,
+      recordStats: recordStats.map((rs) => ({
+        record_type: rs.record_type,
+        count: rs._count._all,
+        last_record: rs._max.created_at,
+      })),
+      recentRecords: recentRecords.map((r) => ({
+        id: r.id,
+        record_type: r.record_type,
+        title: r.title,
+        privacy_level: r.privacy_level,
+        created_at_formatted: fmtDateTime(r.created_at),
+        doctor_name: r[REL_DOCTOR]?.name ?? null,
+        specialization: r[REL_DOCTOR]?.doctors?.[0]?.specialty ?? null,
+      })),
     };
   } catch (error) {
     logger.error(`[RecordService] Error getting patient summary: ${error.message}`);
