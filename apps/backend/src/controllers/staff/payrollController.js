@@ -79,6 +79,52 @@ export const getPayslipDetail = async (req, res) => {
   }
 };
 
+// ─── Staff: Download payslip PDF (302 redirect to signed R2 URL) ──────────────
+// The admin /dashboard/my-payslips page calls this with `fetch(...).blob()`;
+// fetch follows the 302 by default and resolves with the PDF bytes from R2.
+// Keeps PDF streaming off our server — the R2 signed URL expires in 10 min,
+// long enough for a browser to finish a small download.
+export const downloadPayslip = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const staffUid = req.user?.uid;
+
+    const rows = await prisma.$queryRawUnsafe(
+      'SELECT id, pdf_key, status FROM payslips WHERE id=$1 AND staff_uid=$2',
+      id, staffUid,
+    );
+    if (rows.length === 0) {
+      return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
+    }
+    const p = rows[0];
+    if (!p.pdf_key) {
+      return error(res, 'Payslip PDF not available', HTTP_STATUS.NOT_FOUND);
+    }
+
+    const pdfUrl = await getSignedFileUrl(p.pdf_key, 600).catch((e) => {
+      logger.warn('getSignedFileUrl failed for payslip', { id, err: e?.message });
+      return null;
+    });
+    if (!pdfUrl) {
+      return error(res, 'Payslip PDF could not be signed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    }
+
+    // Mark downloaded on first successful fetch — mirrors getPayslipDetail's
+    // issued→viewed bump, advancing one step further.
+    if (p.status === 'issued' || p.status === 'viewed') {
+      await prisma.$queryRawUnsafe(
+        'UPDATE payslips SET status=$1, downloaded_at=NOW() WHERE id=$2',
+        'downloaded', id,
+      );
+    }
+
+    return res.redirect(302, pdfUrl);
+  } catch (err) {
+    logger.error('Download Payslip Error:', err);
+    return error(res, 'Failed to download payslip', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
 // ─── Admin: Run payroll for a month ──────────────────────────────────────────
 export const runPayroll = async (req, res) => {
   try {

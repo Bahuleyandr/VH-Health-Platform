@@ -68,6 +68,12 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     // Payroll (staff: view own payslips)
     ['/payslips', payrollController.getMyPayslips],
     ['/payslips/:id', payrollController.getPayslipDetail],
+    // Aliases matching the admin /dashboard/my-payslips page's API config
+    // (apps/admin/src/lib/api-config.ts → myWork.payslips.*). Controllers are
+    // the same; only the URL shape differs.
+    ['/payroll/my-payslips', payrollController.getMyPayslips],
+    ['/payroll/my-payslips/:id', payrollController.getPayslipDetail],
+    ['/payroll/my-payslips/:id/download', payrollController.downloadPayslip],
     ['/payroll/tax-summary', payrollController.getMyTaxSummary],
     ['/payroll/advances', payrollController.getMyAdvances],
     // Compliance: staff self-service
