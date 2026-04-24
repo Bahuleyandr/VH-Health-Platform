@@ -47,6 +47,10 @@ model users {
   pharmacy_orders_pharmacy_orders_dispensed_byTousers      pharmacy_orders[]         @relation("pharmacy_orders_dispensed_byTousers")
   pharmacy_orders_pharmacy_orders_patient_idTousers        pharmacy_orders[]         @relation("pharmacy_orders_patient_idTousers")
   pharmacy_orders_pharmacy_orders_prescribed_byTousers     pharmacy_orders[]         @relation("pharmacy_orders_prescribed_byTousers")
+  referrals_referrals_accepted_byTousers                   referrals[]               @relation("referrals_accepted_byTousers")
+  referrals_referrals_patient_uidTousers                   referrals[]               @relation("referrals_patient_uidTousers")
+  referrals_referrals_referred_to_doctorTousers            referrals[]               @relation("referrals_referred_to_doctorTousers")
+  referrals_referrals_referring_doctorTousers              referrals[]               @relation("referrals_referring_doctorTousers")
   salary_advances_salary_advances_approved_byTousers       salary_advances[]         @relation("salary_advances_approved_byTousers")
   salary_advances_salary_advances_staff_uidTousers         salary_advances[]         @relation("salary_advances_staff_uidTousers")
   salary_arrears                                           salary_arrears[]
@@ -5018,24 +5022,28 @@ model radiology_orders {
 }
 
 model referrals {
-  id                     Int       @id @default(autoincrement())
-  referral_number        String    @unique @db.VarChar(50)
-  patient_uid            String    @db.Uuid
-  encounter_id           String?   @db.Uuid
-  referring_doctor       String    @db.Uuid
-  referred_to_doctor     String?   @db.Uuid
-  referred_to_department String
-  referral_type          String    @default("internal") @db.VarChar(20)
-  reason                 String
-  urgency                String    @default("routine") @db.VarChar(20)
-  clinical_summary       String?
-  status                 String    @default("pending") @db.VarChar(20)
-  accepted_by            String?   @db.Uuid
-  accepted_at            DateTime? @db.Timestamptz(6)
-  completed_at           DateTime? @db.Timestamptz(6)
-  response_notes         String?
-  created_at             DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at             DateTime  @default(now()) @db.Timestamptz(6)
+  id                                        Int       @id @default(autoincrement())
+  referral_number                           String    @unique @db.VarChar(50)
+  patient_uid                               String    @db.Uuid
+  encounter_id                              String?   @db.Uuid
+  referring_doctor                          String    @db.Uuid
+  referred_to_doctor                        String?   @db.Uuid
+  referred_to_department                    String
+  referral_type                             String    @default("internal") @db.VarChar(20)
+  reason                                    String
+  urgency                                   String    @default("routine") @db.VarChar(20)
+  clinical_summary                          String?
+  status                                    String    @default("pending") @db.VarChar(20)
+  accepted_by                               String?   @db.Uuid
+  accepted_at                               DateTime? @db.Timestamptz(6)
+  completed_at                              DateTime? @db.Timestamptz(6)
+  response_notes                            String?
+  created_at                                DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                                DateTime  @default(now()) @db.Timestamptz(6)
+  users_referrals_accepted_byTousers        users?    @relation("referrals_accepted_byTousers", fields: [accepted_by], references: [uid], onUpdate: NoAction)
+  users_referrals_patient_uidTousers        users     @relation("referrals_patient_uidTousers", fields: [patient_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
+  users_referrals_referred_to_doctorTousers users?    @relation("referrals_referred_to_doctorTousers", fields: [referred_to_doctor], references: [uid], onUpdate: NoAction)
+  users_referrals_referring_doctorTousers   users     @relation("referrals_referring_doctorTousers", fields: [referring_doctor], references: [uid], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([created_at(sort: Desc)], map: "idx_referrals_created_at")
   @@index([patient_uid], map: "idx_referrals_patient_uid")
