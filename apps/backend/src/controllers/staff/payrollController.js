@@ -23,13 +23,15 @@ export const getMyPayslips = async (req, res) => {
     const staffUid = req.user?.uid;
     const { months = 3 } = req.query;
 
+    // Cast to ::uuid so Prisma's text binding of a JS string param matches
+    // the UUID column (payslips.staff_uid is UUID).
     const payslips = await prisma.$queryRawUnsafe(`
       SELECT p.id, p.month, p.year, p.gross_salary, p.net_salary,
              p.total_deductions, p.days_present, p.days_absent,
              p.status, p.issued_at, p.pdf_key,
              p.basic_earned, p.overtime_pay, p.pf_employee
       FROM payslips p
-      WHERE p.staff_uid = $1 AND p.status IN ('issued','viewed','downloaded')
+      WHERE p.staff_uid = $1::uuid AND p.status IN ('issued','viewed','downloaded')
       ORDER BY p.year DESC, p.month DESC
       LIMIT $2
     `, staffUid, Math.min(parseInt(months), 24));
@@ -54,7 +56,7 @@ export const getPayslipDetail = async (req, res) => {
         p.professional_tax, p.tds, p.total_deductions, p.net_salary, p.status, p.pdf_key,
         p.created_at, p.updated_at
       FROM payslips p
-      WHERE p.id = $1 AND p.staff_uid = $2 AND p.status IN ('issued','viewed','downloaded')
+      WHERE p.id = $1 AND p.staff_uid = $2::uuid AND p.status IN ('issued','viewed','downloaded')
     `, id, staffUid);
 
     if (payslip.length === 0) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
@@ -90,7 +92,7 @@ export const downloadPayslip = async (req, res) => {
     const staffUid = req.user?.uid;
 
     const rows = await prisma.$queryRawUnsafe(
-      'SELECT id, pdf_key, status FROM payslips WHERE id=$1 AND staff_uid=$2',
+      'SELECT id, pdf_key, status FROM payslips WHERE id=$1 AND staff_uid=$2::uuid',
       id, staffUid,
     );
     if (rows.length === 0) {

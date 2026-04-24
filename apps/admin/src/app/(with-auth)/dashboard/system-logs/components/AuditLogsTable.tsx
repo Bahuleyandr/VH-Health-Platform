@@ -136,7 +136,7 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
                 </td>
                 <td className="px-6 py-4 text-sm text-foreground">
                   <div className="max-w-xs">
-                    {log.details.length > 100 ? (
+                    {(log.details ?? "").length > 100 ? (
                       <>
                         <div className="truncate">{log.details}</div>
                         <button

@@ -56,8 +56,11 @@ export default function ComplianceIndicatorsPage() {
   useEffect(() => {
     (async () => {
       try {
-        const resp = (await fetchAdminAPI("/compliance/indicators")) as { data?: Payload };
-        setData(resp.data ?? null);
+        // fetchAdminAPI already unwraps the {success, data} envelope — `resp`
+        // IS the Payload directly. Previous `resp.data` double-unwrap left the
+        // page stuck on "Loading…" forever.
+        const resp = await fetchAdminAPI<Payload>("/compliance/indicators");
+        setData(resp ?? null);
       } catch (e) {
         setErr(e instanceof Error ? e.message : "Failed to load indicators");
       }

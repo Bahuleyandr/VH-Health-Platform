@@ -42,10 +42,15 @@ export const AdminUserSchema = UserSchema.extend({
  * Lenient schema for parsing admin user data from localStorage.
  * Uses .passthrough() so extra fields are preserved, and optional
  * fields won't fail on incomplete cached data.
+ *
+ * Admin accounts use `uid` (UUID) as their primary key; staff accounts
+ * use `id` (integer). Accept both but don't require either — the
+ * downstream `role` check is what actually matters for the session.
  */
 export const StoredAdminUserSchema = z
   .object({
-    id: z.union([z.string(), z.number()]),
+    id: z.union([z.string(), z.number()]).optional(),
+    uid: z.string().optional(),
     role: z.enum([
       "SUPER_ADMIN",
       "ADMIN",

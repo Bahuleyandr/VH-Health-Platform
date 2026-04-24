@@ -114,7 +114,7 @@ class QualityService {
 
     const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS total FROM quality_incidents ${whereClause}`,
-      params
+      ...params
     );
 
     const total = parseInt(countResult[0].total, 10);
@@ -315,7 +315,7 @@ class QualityService {
 
     const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS total FROM infection_cases ${whereClause}`,
-      params
+      ...params
     );
     const total = parseInt(countResult[0].total, 10);
 
