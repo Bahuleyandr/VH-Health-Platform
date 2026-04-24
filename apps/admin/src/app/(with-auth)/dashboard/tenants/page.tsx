@@ -12,7 +12,7 @@ import {
   type TenantComplianceProfile,
   type TenantRegion,
 } from "@/lib/api/tenants";
-import { useAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/hooks/usePermissions";
 
 function fmt(value?: string | null) {
   if (!value) return "-";
@@ -57,7 +57,7 @@ function statusBadge(status: string) {
 
 export default function TenantsAdminPage() {
   const queryClient = useQueryClient();
-  const { user } = useAuth();
+  const { isSuperAdmin, loading: permLoading } = usePermissions();
   const [showCreate, setShowCreate] = useState(false);
   const [draft, setDraft] = useState({
     slug: "",
@@ -91,8 +91,10 @@ export default function TenantsAdminPage() {
     onError: (err: Error) => toast.error(err.message || "Update failed"),
   });
 
-  const role = String(user?.role || "").toUpperCase();
-  if (role !== "SUPER_ADMIN") {
+  if (permLoading) {
+    return <div className="p-6 text-sm text-muted-foreground">Checking permissions…</div>;
+  }
+  if (!isSuperAdmin) {
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-red-900">
         <div className="flex items-center gap-2 font-semibold">

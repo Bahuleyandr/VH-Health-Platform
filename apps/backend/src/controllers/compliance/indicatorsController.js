@@ -47,11 +47,14 @@ export async function getComplianceIndicators(req, res) {
 
     // Unacknowledged critical alerts — a strong proxy for response-time
     // compliance. Uses the clinical_alerts table that vitalSignMonitor writes.
+    // Schema uses `acknowledged` (boolean) — the legacy `acknowledged_at`
+    // column is not part of the canonical src/migrations/ tree, so we compare
+    // against the boolean directly.
     const [alertRow] = await prisma.$queryRawUnsafe(
       `SELECT
          COUNT(*)::int                                                                  AS total,
          COUNT(*) FILTER (WHERE severity = 'CRITICAL')::int                             AS critical_total,
-         COUNT(*) FILTER (WHERE severity = 'CRITICAL' AND acknowledged_at IS NULL)::int AS critical_unack
+         COUNT(*) FILTER (WHERE severity = 'CRITICAL' AND acknowledged = FALSE)::int    AS critical_unack
        FROM clinical_alerts
        WHERE created_at >= NOW() - ($1 || ' days')::interval`,
       String(windowDays),

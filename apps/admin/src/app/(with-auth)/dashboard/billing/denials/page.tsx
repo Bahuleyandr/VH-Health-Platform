@@ -35,12 +35,15 @@ export default function DenialDashboard() {
   useEffect(() => {
     (async () => {
       try {
+        // fetchAdminAPI already unwraps the {success, data} envelope — `s`
+        // IS the Summary; previously the code re-accessed `.data` which was
+        // undefined, leaving the page stuck on "Loading…" forever.
         const [s, list] = await Promise.all([
-          fetchAdminAPI("/billing/denials/summary"),
-          fetchAdminAPI("/billing/denials?limit=50"),
+          fetchAdminAPI<Summary>("/billing/denials/summary"),
+          fetchAdminAPI<{ items?: Denial[] }>("/billing/denials?limit=50"),
         ]);
-        setSummary(((s as { data?: Summary }).data) ?? null);
-        setDenials(((list as { data?: { items?: Denial[] } }).data?.items) ?? []);
+        setSummary(s ?? null);
+        setDenials(list?.items ?? []);
       } catch (e) {
         setErr(e instanceof Error ? e.message : "Failed to load denials");
       }

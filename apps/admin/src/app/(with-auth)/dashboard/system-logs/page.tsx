@@ -326,7 +326,7 @@ function SystemLogsContent() {
                 : "border-transparent text-muted-foreground hover:text-foreground hover:border-input"
             } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
           >
-            Audit Logs ({auditLogs.length})
+            Audit Logs ({auditLogs?.length ?? 0})
           </button>
           <button
             onClick={() => handleTabChange("system")}
@@ -336,7 +336,7 @@ function SystemLogsContent() {
                 : "border-transparent text-muted-foreground hover:text-foreground hover:border-input"
             } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
           >
-            System Logs ({systemLogs.length})
+            System Logs ({systemLogs?.length ?? 0})
           </button>
         </nav>
       </div>

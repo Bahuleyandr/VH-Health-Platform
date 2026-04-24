@@ -11,15 +11,26 @@ const IS_PROD = (process.env.NODE_ENV || '').toLowerCase() === 'production';
  *
  * Keep this list defensive — false positives just give a generic message,
  * false negatives leak internals. Tune toward stricter over time.
+ *
+ * Exported for unit-test coverage so new patterns don't regress.
  */
-const LEAK_PATTERNS = [
+export const LEAK_PATTERNS = [
   /\n\s{4}at\s/,          // stack frames: "    at Object.<anonymous>"
   /^Error:/i,             // raw Error.toString()
-  /SequelizeError|PrismaClient|pg_|ECONNREFUSED|ETIMEDOUT|ENOTFOUND/i,
+  /SequelizeError|PrismaClient|prisma|pg_|ECONNREFUSED|ETIMEDOUT|ENOTFOUND/i,
   /\/(home|root|usr|opt)\//, // absolute filesystem paths
   /\bsyntax error\b/i,
   /\bunexpected token\b/i,
   /\bconnection refused\b/i,
+  // Postgres schema leaks — "relation/column/table/constraint "foo" does not
+  // exist" prints the internal object name verbatim. HIPAA concern: exposes
+  // schema surface to attackers / end users.
+  /\b(relation|column|table|constraint|type|index)\s+"[^"]+"\s+(does\s+not\s+exist|already\s+exists)/i,
+  /\bduplicate\s+key\s+value\s+violates\s+unique\s+constraint\b/i,
+  /\bviolates\s+foreign\s+key\s+constraint\b/i,
+  /\bnull\s+value\s+in\s+column\s+"[^"]+"\s+violates\s+not-null/i,
+  // Prisma-style invocation banner: "Invalid `prisma.$queryRawUnsafe(...)`"
+  /Invalid\s+`?prisma\.\$/i,
 ];
 
 const GENERIC_5XX = 'An internal server error occurred. Please try again later.';

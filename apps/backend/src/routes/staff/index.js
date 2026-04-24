@@ -7,6 +7,7 @@ import medicalRoutes from './medicalRoutes.js';
 import pharmacyRoutes from './pharmacyRoutes.js';
 import staffAdminRoutes from './staffAdminRoutes.js';
 import staffRoutes from './staffRoutes.js';
+import * as replacementController from '../../controllers/staff/replacementController.js';
 
 const router = express.Router();
 
@@ -17,6 +18,15 @@ router.use('/hr', hrRoutes);            // HR management
 router.use('/medical', medicalRoutes);  // Medical document uploads
 router.use('/pharmacy', pharmacyRoutes); // Pharmacy order updates
 router.use('/admin', staffAdminRoutes);  // Staff admin operations
+
+// ─── /staff/replacements/* aliases ────────────────────────────────────────
+// The admin /dashboard/my-replacements page calls /api/v1/staff/replacements/my
+// (GET) and /api/v1/staff/replacements (POST). The canonical controllers live
+// under /staff/hr/replacement/* (see hrRoutes.js); these aliases keep that
+// canonical mount untouched while supporting the admin page's API config
+// (apps/admin/src/lib/api-config.ts → myWork.replacements.*).
+router.get('/replacements/my', replacementController.getPendingReplacements);
+router.post('/replacements', replacementController.requestReplacement);
 
 // Legacy compatibility routes
 router.get('/attendance', (req, res) => {
