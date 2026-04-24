@@ -486,33 +486,36 @@ export const getInvestigationSLADashboard = async (req, res) => {
     const from = from_date || new Date(Date.now() - 7*24*60*60*1000).toISOString().split('T')[0];
     const to = to_date || new Date().toISOString().split('T')[0];
 
+    // Aligned to canonical `investigations` schema: requested_at / completed_at
+    // (not ordered_date / completed_date), requested_by UUID → users.uid
+    // (not doctor_id int → users.id).
     const [summary, byStatus, byPriority, urgentPending, recentCompleted] = await Promise.all([
       prisma.$queryRawUnsafe(
         `SELECT COUNT(*) as total,
           COUNT(CASE WHEN status IN ('completed','COMPLETED','result_ready') THEN 1 END) as completed,
           COUNT(CASE WHEN status='PENDING' THEN 1 END) as pending,
           COUNT(CASE WHEN priority IN ('URGENT','STAT') AND status NOT IN ('completed','COMPLETED') THEN 1 END) as urgent_pending,
-          AVG(CASE WHEN result_uploaded_at IS NOT NULL THEN EXTRACT(EPOCH FROM (result_uploaded_at-ordered_date))/3600 END) as avg_tat_hours
-        FROM investigations WHERE DATE(ordered_date) BETWEEN $1 AND $2`, from, to
+          AVG(CASE WHEN result_uploaded_at IS NOT NULL THEN EXTRACT(EPOCH FROM (result_uploaded_at-requested_at))/3600 END) as avg_tat_hours
+        FROM investigations WHERE DATE(requested_at) BETWEEN $1 AND $2`, from, to
       ),
       prisma.$queryRawUnsafe(
-        `SELECT status, COUNT(*) as count FROM investigations WHERE DATE(ordered_date) BETWEEN $1 AND $2 GROUP BY status`, from, to
+        `SELECT status, COUNT(*) as count FROM investigations WHERE DATE(requested_at) BETWEEN $1 AND $2 GROUP BY status`, from, to
       ),
       prisma.$queryRawUnsafe(
-        `SELECT priority, COUNT(*) as count FROM investigations WHERE DATE(ordered_date) BETWEEN $1 AND $2 GROUP BY priority`, from, to
+        `SELECT priority, COUNT(*) as count FROM investigations WHERE DATE(requested_at) BETWEEN $1 AND $2 GROUP BY priority`, from, to
       ),
       prisma.$queryRawUnsafe(
         `SELECT i.*, u.name as patient_name, u.phone as patient_phone, d.name as doctor_name,
-          ROUND(EXTRACT(EPOCH FROM (NOW()-i.ordered_date))/3600) as hours_waiting
-        FROM investigations i LEFT JOIN users u ON i.patient_id=u.id LEFT JOIN users d ON i.doctor_id=d.id
+          ROUND(EXTRACT(EPOCH FROM (NOW()-i.requested_at))/3600) as hours_waiting
+        FROM investigations i LEFT JOIN users u ON i.patient_id=u.id LEFT JOIN users d ON i.requested_by=d.uid
         WHERE i.priority IN ('URGENT','STAT') AND i.status NOT IN ('completed','COMPLETED')
-        ORDER BY i.ordered_date ASC LIMIT 20`
+        ORDER BY i.requested_at ASC LIMIT 20`
       ),
       prisma.$queryRawUnsafe(
         `SELECT i.*, u.name as patient_name,
-          ROUND(EXTRACT(EPOCH FROM (COALESCE(i.result_uploaded_at,i.completed_date)-i.ordered_date))/3600,1) as tat_hours
+          ROUND(EXTRACT(EPOCH FROM (COALESCE(i.result_uploaded_at,i.completed_at)-i.requested_at))/3600,1) as tat_hours
         FROM investigations i LEFT JOIN users u ON i.patient_id=u.id
-        WHERE i.status IN ('completed','COMPLETED') ORDER BY COALESCE(i.completed_date,i.updated_at) DESC LIMIT 20`
+        WHERE i.status IN ('completed','COMPLETED') ORDER BY COALESCE(i.completed_at,i.updated_at) DESC LIMIT 20`
       )
     ]);
 
