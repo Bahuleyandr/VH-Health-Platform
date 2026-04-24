@@ -7,6 +7,28 @@ import { AppError } from '../../utils/AppError.js';
 const VALID_REFERRAL_TYPES = ['internal', 'external'];
 const VALID_URGENCIES = ['routine', 'urgent', 'emergency'];
 
+// Shared `select` for state-transition returns (accept / complete / decline).
+// Keeping the shape consistent means callers don't need to branch on which
+// action produced the row.
+const REFERRAL_STATE_SELECT = {
+  id: true,
+  referral_number: true,
+  patient_uid: true,
+  referring_doctor: true,
+  referred_to_doctor: true,
+  referred_to_department: true,
+  referral_type: true,
+  reason: true,
+  urgency: true,
+  clinical_summary: true,
+  status: true,
+  accepted_by: true,
+  accepted_at: true,
+  completed_at: true,
+  response_notes: true,
+  created_at: true,
+};
+
 class ReferralService {
 
   /**
@@ -67,25 +89,41 @@ class ReferralService {
 
     const referralNumber = await this._generateReferralNumber();
 
-    const result = await prisma.$queryRawUnsafe(
-      `INSERT INTO referrals (
-        referral_number, patient_uid, encounter_id, referring_doctor,
-        referred_to_doctor, referred_to_department, referral_type,
-        reason, urgency, clinical_summary
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING id, referral_number, patient_uid, encounter_id,
-        referring_doctor, referred_to_doctor, referred_to_department,
-        referral_type, reason, urgency, clinical_summary, status, created_at`,
-      
-        referralNumber, patient_uid, encounter_id || null, referring_doctor,
-        referred_to_doctor || null, referred_to_department,
-        referral_type || 'internal', reason, urgency || 'routine',
-        clinical_summary || null
-      
-    );
+    // Prisma ORM — column names validated at runtime against schema.prisma.
+    // Defaults for status ('pending') come from the schema itself, so we
+    // don't set them here.
+    const referral = await prisma.referrals.create({
+      data: {
+        referral_number: referralNumber,
+        patient_uid,
+        encounter_id: encounter_id || null,
+        referring_doctor,
+        referred_to_doctor: referred_to_doctor || null,
+        referred_to_department,
+        referral_type: referral_type || 'internal',
+        reason,
+        urgency: urgency || 'routine',
+        clinical_summary: clinical_summary || null,
+      },
+      select: {
+        id: true,
+        referral_number: true,
+        patient_uid: true,
+        encounter_id: true,
+        referring_doctor: true,
+        referred_to_doctor: true,
+        referred_to_department: true,
+        referral_type: true,
+        reason: true,
+        urgency: true,
+        clinical_summary: true,
+        status: true,
+        created_at: true,
+      },
+    });
 
     logger.info(`Referral created: ${referralNumber} from ${referring_doctor} to ${referred_to_department}`);
-    return result[0];
+    return referral;
   }
 
   /**
@@ -197,31 +235,30 @@ class ReferralService {
       throw AppError.badRequest('Invalid referral ID');
     }
 
-    const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM referrals WHERE id = $1`,
-      referralId
-    );
-    if (existing.length === 0) {
+    const existing = await prisma.referrals.findUnique({
+      where: { id: referralId },
+      select: { id: true, status: true },
+    });
+    if (!existing) {
       throw AppError.notFound('Referral not found');
     }
-    if (existing[0].status !== 'pending') {
-      throw AppError.badRequest(`Cannot accept referral with status: ${existing[0].status}`);
+    if (existing.status !== 'pending') {
+      throw AppError.badRequest(`Cannot accept referral with status: ${existing.status}`);
     }
 
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE referrals SET
-        status = 'accepted',
-        accepted_by = $1,
-        accepted_at = NOW()
-       WHERE id = $2
-       RETURNING id, referral_number, patient_uid, referring_doctor,
-        referred_to_doctor, referred_to_department, referral_type,
-        reason, urgency, status, accepted_by, accepted_at, created_at`,
-      acceptedBy, referralId
-    );
+    const referral = await prisma.referrals.update({
+      where: { id: referralId },
+      data: {
+        status: 'accepted',
+        accepted_by: acceptedBy,
+        accepted_at: new Date(),
+        updated_at: new Date(),
+      },
+      select: REFERRAL_STATE_SELECT,
+    });
 
     logger.info(`Referral ${referralId} accepted by ${acceptedBy}`);
-    return result[0];
+    return referral;
   }
 
   /**
@@ -233,32 +270,34 @@ class ReferralService {
       throw AppError.badRequest('Invalid referral ID');
     }
 
-    const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM referrals WHERE id = $1`,
-      referralId
-    );
-    if (existing.length === 0) {
+    const existing = await prisma.referrals.findUnique({
+      where: { id: referralId },
+      select: { id: true, status: true },
+    });
+    if (!existing) {
       throw AppError.notFound('Referral not found');
     }
-    if (!['accepted', 'in_progress'].includes(existing[0].status)) {
-      throw AppError.badRequest(`Cannot complete referral with status: ${existing[0].status}`);
+    if (!['accepted', 'in_progress'].includes(existing.status)) {
+      throw AppError.badRequest(`Cannot complete referral with status: ${existing.status}`);
     }
 
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE referrals SET
-        status = 'completed',
-        completed_at = NOW(),
-        response_notes = COALESCE($1, response_notes)
-       WHERE id = $2
-       RETURNING id, referral_number, patient_uid, referring_doctor,
-        referred_to_doctor, referred_to_department, referral_type,
-        reason, urgency, status, accepted_by, accepted_at,
-        completed_at, response_notes, created_at`,
-      responseNotes || null, referralId
-    );
+    // Matches the old COALESCE semantics: only overwrite response_notes
+    // when the caller supplied a non-null value.
+    const data = {
+      status: 'completed',
+      completed_at: new Date(),
+      updated_at: new Date(),
+    };
+    if (responseNotes != null) data.response_notes = responseNotes;
+
+    const referral = await prisma.referrals.update({
+      where: { id: referralId },
+      data,
+      select: REFERRAL_STATE_SELECT,
+    });
 
     logger.info(`Referral ${referralId} completed`);
-    return result[0];
+    return referral;
   }
 
   /**
@@ -270,30 +309,29 @@ class ReferralService {
       throw AppError.badRequest('Invalid referral ID');
     }
 
-    const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM referrals WHERE id = $1`,
-      referralId
-    );
-    if (existing.length === 0) {
+    const existing = await prisma.referrals.findUnique({
+      where: { id: referralId },
+      select: { id: true, status: true },
+    });
+    if (!existing) {
       throw AppError.notFound('Referral not found');
     }
-    if (existing[0].status !== 'pending') {
-      throw AppError.badRequest(`Cannot decline referral with status: ${existing[0].status}`);
+    if (existing.status !== 'pending') {
+      throw AppError.badRequest(`Cannot decline referral with status: ${existing.status}`);
     }
 
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE referrals SET
-        status = 'declined',
-        response_notes = $1
-       WHERE id = $2
-       RETURNING id, referral_number, patient_uid, referring_doctor,
-        referred_to_doctor, referred_to_department, referral_type,
-        reason, urgency, status, response_notes, created_at`,
-      responseNotes || null, referralId
-    );
+    const referral = await prisma.referrals.update({
+      where: { id: referralId },
+      data: {
+        status: 'declined',
+        response_notes: responseNotes || null,
+        updated_at: new Date(),
+      },
+      select: REFERRAL_STATE_SELECT,
+    });
 
     logger.info(`Referral ${referralId} declined`);
-    return result[0];
+    return referral;
   }
 
   /**

@@ -7,6 +7,24 @@ import { AppError } from '../../utils/AppError.js';
 const VALID_DIET_TYPES = ['regular', 'diabetic', 'cardiac', 'renal', 'soft', 'liquid', 'npo', 'enteral'];
 const VALID_STATUSES = ['active', 'on_hold', 'discontinued'];
 
+// Shared `select` shape for create + update return values — callers see a
+// stable object regardless of which method produced it.
+const DIET_ORDER_SELECT = {
+  id: true,
+  patient_uid: true,
+  encounter_id: true,
+  diet_type: true,
+  restrictions: true,
+  allergies: true,
+  meal_preferences: true,
+  calories_target: true,
+  special_instructions: true,
+  status: true,
+  ordered_by: true,
+  reviewed_by: true,
+  created_at: true,
+};
+
 const toTextArray = (value) => {
   if (Array.isArray(value)) {
     return value.map((item) => String(item).trim()).filter(Boolean);
@@ -40,21 +58,24 @@ class DietaryService {
     const normalizedRestrictions = toTextArray(restrictions);
     const normalizedAllergies = toTextArray(allergies);
 
-    const result = await prisma.$queryRawUnsafe(
-      `INSERT INTO diet_orders
-        (patient_uid, encounter_id, diet_type, restrictions, allergies, meal_preferences,
-         calories_target, special_instructions, status, ordered_by, created_at)
-       VALUES ($1::uuid, $2, $3, $4::text[], $5::text[], $6, $7, $8, 'active', $9::uuid, NOW())
-       RETURNING id, patient_uid, encounter_id, diet_type, restrictions, allergies,
-                 meal_preferences, calories_target, special_instructions, status, ordered_by, created_at`,
-      
-        patient_uid, encounter_id || null, diet_type, normalizedRestrictions, normalizedAllergies,
-        meal_preferences || null, calories_target || null, special_instructions || null, ordered_by
-      
-    );
+    const order = await prisma.diet_orders.create({
+      data: {
+        patient_uid,
+        encounter_id: encounter_id || null,
+        diet_type,
+        restrictions: normalizedRestrictions,
+        allergies: normalizedAllergies,
+        meal_preferences: meal_preferences || null,
+        calories_target: calories_target || null,
+        special_instructions: special_instructions || null,
+        status: 'active',
+        ordered_by,
+      },
+      select: DIET_ORDER_SELECT,
+    });
 
-    logger.info('Diet order created', { orderId: result[0].id, diet_type, patient_uid });
-    return result[0];
+    logger.info('Diet order created', { orderId: order.id, diet_type, patient_uid });
+    return order;
   }
 
   /**
@@ -100,16 +121,16 @@ class DietaryService {
       calories_target, special_instructions, status, reviewed_by
     } = data;
 
-    const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM diet_orders WHERE id = $1`,
-      id
-    );
+    const existing = await prisma.diet_orders.findUnique({
+      where: { id: parseInt(id, 10) },
+      select: { id: true, status: true },
+    });
 
-    if (existing.length === 0) {
+    if (!existing) {
       throw AppError.notFound('Diet order not found');
     }
 
-    if (existing[0].status === 'discontinued') {
+    if (existing.status === 'discontinued') {
       throw AppError.badRequest('Cannot update a discontinued diet order');
     }
 
@@ -121,33 +142,27 @@ class DietaryService {
       throw AppError.badRequest(`Invalid diet_type. Must be one of: ${VALID_DIET_TYPES.join(', ')}`);
     }
 
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE diet_orders
-       SET diet_type = COALESCE($1, diet_type),
-           restrictions = COALESCE($2, restrictions),
-           allergies = COALESCE($3, allergies),
-           meal_preferences = COALESCE($4, meal_preferences),
-           calories_target = COALESCE($5, calories_target),
-           special_instructions = COALESCE($6, special_instructions),
-           status = COALESCE($7, status),
-           reviewed_by = COALESCE($8::uuid, reviewed_by),
-           updated_at = NOW()
-       WHERE id = $9
-       RETURNING id, patient_uid, encounter_id, diet_type, restrictions, allergies,
-                 meal_preferences, calories_target, special_instructions, status,
-                 ordered_by, reviewed_by, created_at`,
-      
-        diet_type || null,
-        restrictions !== undefined ? toTextArray(restrictions) : null,
-        allergies !== undefined ? toTextArray(allergies) : null,
-        meal_preferences || null, calories_target || null,
-        special_instructions || null, status || null,
-        reviewed_by || null, id
-      
-    );
+    // Build the update payload with COALESCE semantics: undefined = skip the
+    // field (Prisma convention), so unspecified fields keep their current
+    // values in the DB.
+    const updateData = { updated_at: new Date() };
+    if (diet_type != null) updateData.diet_type = diet_type;
+    if (restrictions !== undefined) updateData.restrictions = toTextArray(restrictions);
+    if (allergies !== undefined) updateData.allergies = toTextArray(allergies);
+    if (meal_preferences != null) updateData.meal_preferences = meal_preferences;
+    if (calories_target != null) updateData.calories_target = calories_target;
+    if (special_instructions != null) updateData.special_instructions = special_instructions;
+    if (status != null) updateData.status = status;
+    if (reviewed_by != null) updateData.reviewed_by = reviewed_by;
+
+    const order = await prisma.diet_orders.update({
+      where: { id: parseInt(id, 10) },
+      data: updateData,
+      select: DIET_ORDER_SELECT,
+    });
 
     logger.info('Diet order updated', { orderId: id });
-    return result[0];
+    return order;
   }
 
   /**
