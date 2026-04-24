@@ -1,96 +1,124 @@
 // src/services/staff/hr/onboardingService.js
 import prisma from '../../../lib/prisma.js';
 
+// Default checklist returned when a staff member has no seeded tasks.
+// Matches the historic fallback shape; priority + description now align
+// with the real staff_onboarding_tasks schema after migration 091.
+const DEFAULT_CHECKLIST = [
+  { task_name: 'Complete employment paperwork', description: 'Fill out tax forms, emergency contacts, etc.', completed: false, priority: 'high' },
+  { task_name: 'System access setup', description: 'Create user accounts and assign permissions', completed: false, priority: 'high' },
+  { task_name: 'Department orientation', description: 'Meet team members and understand workflows', completed: false, priority: 'medium' },
+  { task_name: 'Safety training', description: 'Complete workplace safety and emergency procedures', completed: false, priority: 'high' },
+  { task_name: 'Job-specific training', description: 'Role-specific skills and procedures training', completed: false, priority: 'medium' },
+  { task_name: '30-day check-in', description: 'Review progress and address any concerns', completed: false, priority: 'low' },
+];
+
+const fmtDate = (d) => d
+  ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  : null;
+
 /**
  * Get onboarding checklist for a staff member
  * @param {number} staffId - Staff ID
  * @returns {Object} Onboarding checklist and progress
  */
 export const getOnboardingChecklist = async (staffId) => {
-  // Get staff information
-  const staffInfo = await prisma.$queryRawUnsafe(`
-    SELECT u.name, u.email, u.phone, s.employee_id, s.position, 
-           s.department, s.hire_date, s.supervisor_id
-    FROM users u
-    JOIN staff s ON u.uid = s.user_id
-    WHERE u.id = $1
-  `, staffId);
+  const user = await prisma.users.findUnique({
+    where: { id: Number(staffId) },
+    select: {
+      name: true,
+      email: true,
+      phone: true,
+      staff: {
+        select: {
+          employee_id: true,
+          position: true,
+          department: true,
+          hire_date: true,
+          supervisor_id: true,
+        },
+        take: 1,
+      },
+    },
+  });
 
-  if (staffInfo.length === 0) {
+  if (!user || user.staff.length === 0) {
     return null;
   }
 
-  const staff = staffInfo[0];
+  const [staff] = user.staff;
 
-  // Get onboarding checklist
-  let onboardingTasks = [];
+  // Load per-staff onboarding tasks. The raw version here previously
+  // failed with a try/catch fallback because description/assigned_to/
+  // due_date/priority didn't exist on the schema — batch 91 added them.
+  let taskRows;
   try {
-    const tasksResult = await prisma.$queryRawUnsafe(`
-      SELECT task_name, description, completed, completed_date, 
-             assigned_to, due_date, priority
-      FROM staff_onboarding_tasks
-      WHERE staff_id = $1
-      ORDER BY priority DESC, due_date ASC
-    `, staffId);
-
-    onboardingTasks = tasksResult.map(task => ({
-      ...task,
-      completed_date: task.completed_date ? new Date(task.completed_date).toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      }) : null,
-      due_date: task.due_date ? new Date(task.due_date).toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      }) : null
-    }));
-  } catch (_tasksError) {
-    // Provide default onboarding checklist if table doesn't exist
-    onboardingTasks = [
-      { task_name: 'Complete employment paperwork', description: 'Fill out tax forms, emergency contacts, etc.', completed: false, priority: 'high' },
-      { task_name: 'System access setup', description: 'Create user accounts and assign permissions', completed: false, priority: 'high' },
-      { task_name: 'Department orientation', description: 'Meet team members and understand workflows', completed: false, priority: 'medium' },
-      { task_name: 'Safety training', description: 'Complete workplace safety and emergency procedures', completed: false, priority: 'high' },
-      { task_name: 'Job-specific training', description: 'Role-specific skills and procedures training', completed: false, priority: 'medium' },
-      { task_name: '30-day check-in', description: 'Review progress and address any concerns', completed: false, priority: 'low' }
-    ];
+    taskRows = await prisma.staff_onboarding_tasks.findMany({
+      where: { staff_id: Number(staffId) },
+      select: {
+        id: true,
+        task_name: true,
+        description: true,
+        completed: true,
+        completed_date: true,
+        assigned_to: true,
+        due_date: true,
+        priority: true,
+      },
+      orderBy: [
+        { priority: 'desc' },
+        { due_date: 'asc' },
+      ],
+    });
+  } catch {
+    taskRows = null;
   }
 
-  // Calculate progress
-  const completedTasks = onboardingTasks.filter(task => task.completed).length;
+  const onboardingTasks = taskRows && taskRows.length > 0
+    ? taskRows.map((task) => ({
+      ...task,
+      completed_date: fmtDate(task.completed_date),
+      due_date: fmtDate(task.due_date),
+    }))
+    : DEFAULT_CHECKLIST;
+
+  // Calculate progress.
+  const completedTasks = onboardingTasks.filter((task) => task.completed).length;
   const totalTasks = onboardingTasks.length;
   const progressPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-  // Days since hire
-  const daysSinceHire = Math.floor((new Date() - new Date(staff.hire_date)) / (1000 * 60 * 60 * 24));
+  // Days since hire.
+  const daysSinceHire = staff.hire_date
+    ? Math.floor((new Date() - new Date(staff.hire_date)) / (1000 * 60 * 60 * 24))
+    : 0;
 
   return {
     staffInfo: {
-      ...staff,
-      hire_date: new Date(staff.hire_date).toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      }),
-      days_since_hire: daysSinceHire
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      employee_id: staff.employee_id,
+      position: staff.position,
+      department: staff.department,
+      supervisor_id: staff.supervisor_id,
+      hire_date: fmtDate(staff.hire_date),
+      days_since_hire: daysSinceHire,
     },
     onboardingProgress: {
       completed_tasks: completedTasks,
       total_tasks: totalTasks,
       progress_percentage: progressPercentage,
-      status: progressPercentage === 100 ? 'completed' : 
-             progressPercentage >= 75 ? 'nearly_complete' :
-             progressPercentage >= 50 ? 'in_progress' : 'just_started'
+      status: progressPercentage === 100 ? 'completed' :
+        progressPercentage >= 75 ? 'nearly_complete' :
+          progressPercentage >= 50 ? 'in_progress' : 'just_started',
     },
     tasks: onboardingTasks,
     recommendations: daysSinceHire <= 30 ? [
       'Schedule regular check-ins during first month',
       'Assign a workplace buddy or mentor',
       'Provide clear role expectations and goals',
-      'Ensure all safety training is completed promptly'
-    ] : []
+      'Ensure all safety training is completed promptly',
+    ] : [],
   };
 };
 
@@ -103,23 +131,32 @@ export const getOnboardingChecklist = async (staffId) => {
  * @returns {Object} Updated task details
  */
 export const updateOnboardingTask = async (staffId, taskId, completed, completedBy) => {
-  const result = await prisma.$queryRawUnsafe(`
-    UPDATE staff_onboarding_tasks 
-    SET completed = $1, 
-        completed_date = CASE WHEN $1 = true THEN NOW() ELSE NULL END,
-        completed_by = $2,
-        updated_at = NOW()
-    WHERE staff_id = $3 AND id = $4
-    RETURNING id, staff_id, task_name, description, completed, completed_date, completed_by, updated_at
-  `, completed, completedBy, staffId, taskId);
+  // Prisma's update(where: {id}) throws if not found; use updateMany
+  // with the compound predicate so the "not found" case is a 0-count
+  // rather than an exception (matches the raw version's null return).
+  const updated = await prisma.staff_onboarding_tasks.updateMany({
+    where: { id: Number(taskId), staff_id: Number(staffId) },
+    data: {
+      completed,
+      completed_date: completed ? new Date() : null,
+      completed_by: completedBy,
+      updated_at: new Date(),
+    },
+  });
 
-  if (result.length === 0) {
-    return null;
-  }
+  if (updated.count === 0) return null;
+
+  const task = await prisma.staff_onboarding_tasks.findUnique({
+    where: { id: Number(taskId) },
+    select: {
+      id: true, staff_id: true, task_name: true, description: true,
+      completed: true, completed_date: true, completed_by: true, updated_at: true,
+    },
+  });
 
   return {
-    task: result[0],
-    message: completed ? 'Task marked as completed' : 'Task marked as incomplete'
+    task,
+    message: completed ? 'Task marked as completed' : 'Task marked as incomplete',
   };
 };
 
@@ -130,9 +167,9 @@ export const updateOnboardingTask = async (staffId, taskId, completed, completed
  * @returns {boolean} True if viewing own onboarding
  */
 export const isUserViewingOwnOnboarding = async (staffId, userUid) => {
-  const result = await prisma.$queryRawUnsafe(
-    'SELECT 1 FROM users WHERE id = $1 AND uid = $2',
-    staffId, userUid
-  );
-  return result.length > 0;
+  const user = await prisma.users.findUnique({
+    where: { id: Number(staffId) },
+    select: { uid: true },
+  });
+  return user?.uid === userUid;
 };
