@@ -1,8 +1,25 @@
 # Code Audit: VHHealth Admin Portal
 
-**Audit Date**: 2026-03-25  
-**Scope**: `/home/bahuleyan/vhhealth-admin/src`  
-**Framework**: Next.js 15 (App Router), React 19, TypeScript 5, TanStack Query v5  
+**Audit Date**: 2026-03-25
+**Scope**: `/home/bahuleyan/vhhealth-admin/src`
+**Framework**: Next.js 15 (App Router), React 19, TypeScript 5, TanStack Query v5
+
+> **⚠️ HISTORICAL DOCUMENT — many findings already resolved.** This is a
+> point-in-time audit from 2026-03-25, preserved as a baseline. Major
+> items resolved since:
+> - `DashboardClient.tsx` (899L) — **deleted** in batch 20 (2026-04-24);
+>   replaced by `Dashboard.tsx` thin orchestrator + per-section
+>   components.
+> - `CleanDashboard.tsx` (528L) — **renamed** to `Dashboard.tsx` in
+>   batch 32 (2026-04-24); the two-file confusion this audit flagged
+>   is gone.
+> - Further god-page splits: ComplianceTab (batch 33), system-logs
+>   (batch 39), audit (batch 40).
+> - Testing: 21 Jest suites / 247 tests + 10 Playwright tests
+>   (batches 41–42).
+>
+> Treat the recommendations below as context, not a live to-do list.
+> The current roadmap is [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ---
 

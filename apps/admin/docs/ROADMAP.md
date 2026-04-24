@@ -38,16 +38,16 @@
 - [x] **MFA (TOTP) on login.** Challenge step + enrollment + recovery codes UI shipped.
 - [x] **Shorten JWT TTL to 4h + refresh token.** `/api/refresh` route rotates the httpOnly cookie server-side; `core.ts` 401 handler does single-flight refresh + retry, redirecting to login only on failure.
 - [x] **Move token storage out of `localStorage`.** Already on httpOnly `auth_token` cookie; legacy `localStorage.getItem("adminToken")` purged across 12 files. Also fixed a latent bug in `ProtectedRoute` that gated auth on a key nothing writes.
-- [x] **Split god-components (Phase 1 scope).** `PermissionsMatrix.tsx` 413→112L orchestrator + 4 sub-files. `system-audit/page.tsx` 1041→67L orchestrator + 5 sub-files. `DashboardClient.tsx` 973→746L (types/skeleton/helpers extracted; deeper per-section split still open — see Phase 2).
+- [x] **Split god-components (Phase 1 scope).** `PermissionsMatrix.tsx` 413→112L orchestrator + 4 sub-files. `system-audit/page.tsx` 1041→67L orchestrator + 5 sub-files. `DashboardClient.tsx` **deleted entirely in batch 20** (the Dashboard orchestrator is now `Dashboard.tsx` at 69 LOC + 5 sub-components). Follow-up splits shipped in batches 33 (ComplianceTab 908→54), 39 (system-logs 445→111), 40 (audit 612→149).
 
 ## Phase 2 — A+ Polish
 
-- [ ] **Test coverage ≥60%.** Currently 4 unit tests + 1 new auth-flow suite (`src/__tests__/lib/auth-flow.test.ts`). Add: MFA challenge flow, role change audit, bed CRUD, pharmacy stock adjustment.
+- [ ] **Test coverage ≥60%.** Currently **21 Jest suites / 247 unit+component tests** + **10 Playwright tests** (5 smoke + 5 authenticated journey, auth.setup.ts wired in batch 42). Remaining targets: MFA challenge flow, role change audit, bed CRUD, pharmacy stock adjustment — these need a seeded test backend + fixtures that roll back cleanly.
 - [ ] **Data-table features.** Pagination + sort + filter exist; **CSV export utility shipped** (`src/lib/exportToCsv.ts`). Still open: bulk-edit, keyboard shortcuts.
 - [x] **IP allowlist middleware.** `src/middleware.ts` gates `/dashboard/*` and `/api/proxy/*` behind `ADMIN_IP_ALLOWLIST` env var. Opt-in — unset means no allowlist.
 - [x] **Error boundaries + empty states.** `PageErrorBoundary` now reports to Sentry + hides raw errors from users. New `LoadingSpinner` + `EmptyState` shared components. `(with-auth)/layout.tsx` wraps all authenticated pages.
 - [x] **Sentry integration.** Already wired — `@sentry/nextjs` v10, 3 instrumentation files, `withSentryConfig`, CSP entry, error boundary hook. Set `NEXT_PUBLIC_SENTRY_DSN` in prod to activate.
-- [ ] **Deeper `DashboardClient.tsx` split.** 746L today; extract StatsGrid, NotificationsDrawer, CommandPalette, ActivityFeed as stateless children with explicit prop surfaces. Needs judgment on prop design.
+- [x] **Deeper `DashboardClient.tsx` split.** Obsoleted in batch 20 — the whole file was deleted (it was a duplicate of the CleanDashboard / now `Dashboard.tsx` tree). Batches 33/39/40 split the real remaining god-pages (ComplianceTab, system-logs, audit).
 
 ## Phase 3 — S-Tier Marquee
 

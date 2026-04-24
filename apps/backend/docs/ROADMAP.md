@@ -46,7 +46,7 @@
 - [ ] **Test coverage ≥60%.** Integration tests for billing, pharmacy state machines, clinical workflows. Currently 35 test files but many don't run. *Deferred — needs live Node+DB to run/debug.*
 - [ ] **OpenAPI/Swagger conformance.** `/api-docs` exists but isn't validated against runtime responses. Add CI check.
 - [x] **API response consistency.** 4 raw `res.json(...)` instances in `src/app.js` now use `success`/`error` helpers (`/`, `/health`, `/api/health`, `/api-docs` 404).
-- [ ] **Prisma schema drift detection.** Schema has 58 models, raw `pg` queries used. Add CI job that diffs schema vs live DB. (`schemaDriftDetector.js` exists — needs CI hook.)
+- [x] **Prisma schema drift detection.** Shipped batch 24 (2026-04-24): `scripts/check-schema-drift.mjs` runs `prisma db pull` against the test DB, diffs it against the committed `schema.prisma`, fails on mismatch. Wired into `_reusable-backend-lint-test.yml`. Local: `npm --prefix apps/backend run check:schema-drift`. Schema now has 219 models (regen'd in the same batch; raw-pg Pool retired in batch 28).
 - [x] **Observability.** `/metrics` Prometheus endpoint already wired (http duration histogram, request counter, DB pool, memory, uptime gauges). Fixed `redis_connected` gauge to reflect actual client state. OpenTelemetry still pending.
 - [ ] **Load-test automation.** `/load-tests` dir exists but not in CI. Run weekly against staging.
 

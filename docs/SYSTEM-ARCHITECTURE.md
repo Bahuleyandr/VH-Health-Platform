@@ -366,13 +366,15 @@ USING (
 )
 ```
 
-This is **opt-in defence-in-depth**: legacy `db.query()` calls without
-tenant context continue to work (every row visible); modern
-`db.queryAsTenant(sql, params, tenantId)` wraps the query in a
-transaction and issues `SELECT set_config('app.current_tenant_id',
-$tenantId, true)`, so only rows matching that tenant are returned.
-SUPER_ADMIN cross-tenant reads pass `{ superAdmin: true }`, which sets
-the GUC to `'bypass'` (the third permissive branch).
+This is **opt-in defence-in-depth**: plain `prisma.$queryRaw*` calls
+without tenant context continue to work (every row visible); modern
+`setTenant(tenantId, fn, { superAdmin })` from
+[`apps/backend/src/lib/prisma.js`](../apps/backend/src/lib/prisma.js)
+wraps `fn(tx)` in a Prisma `$transaction` and issues `SELECT
+set_config('app.current_tenant_id', $tenantId, true)` so only rows
+matching that tenant are returned. SUPER_ADMIN cross-tenant reads
+pass `{ superAdmin: true }`, which sets the GUC to `'bypass'` (the
+third permissive branch).
 
 The migration deliberately avoids `ALTER TABLE ... FORCE ROW LEVEL SECURITY`
 so the DB-owner connection (used for future migrations) stays
@@ -393,17 +395,27 @@ caller is not SUPER_ADMIN, the request fails closed. Resolved context
 is exposed as `req.tenantId`, `req.tenant`, `req.user.tenantId`,
 `req.user.tenantRegion`, `req.user.complianceProfile` downstream.
 
-### `db.queryAsTenant()` — opt-in usage
+### `setTenant()` — opt-in usage
 
 Per [`apps/backend/CLAUDE.md`](../apps/backend/CLAUDE.md) ("Phase 0.5 conventions"):
 
-- Plain `db.query()` **bypasses RLS** by design (legacy code paths).
-- New tenant-scoped reads/writes on the 11 RLS tables SHOULD use `db.queryAsTenant(sql, params, req.tenantId)`.
-- SUPER_ADMIN bypass: `{ superAdmin: true }` as 4th arg.
+- Plain `prisma.$queryRaw*` **bypasses RLS** by design (permissive
+  policy when the GUC is unset).
+- New tenant-scoped reads/writes on the 11 RLS tables SHOULD use
+  `setTenant(req.tenantId, (tx) => tx.$queryRaw`…`)` from
+  `src/lib/prisma.js`.
+- SUPER_ADMIN bypass: `{ superAdmin: true }` as 3rd arg.
 - Full migration of existing query sites is planned in a follow-up batch.
 
-POC sites already on `queryAsTenant`: the clinical-AI admin surfaces
-under [`apps/backend/src/routes/admin/clinicalAi/`](../apps/backend/src/routes/admin) and the tenant module-toggle service. Everything else is still on plain `db.query()` and relies on application-layer RBAC + tenant-id WHERE clauses.
+POC sites already on `setTenant`: the clinical-AI admin surfaces under
+[`apps/backend/src/routes/admin/clinicalAi/`](../apps/backend/src/routes/admin)
+and the tenant module-toggle service. Everything else is on plain
+`prisma.$queryRaw*` and relies on application-layer RBAC + tenant-id
+WHERE clauses.
+
+(The legacy `db.queryAsTenant()` shim on the `DatabaseManager` class
+was deleted along with the shim in batch 31 — callers that used it
+now call `setTenant` directly.)
 
 ---
 
@@ -411,19 +423,33 @@ under [`apps/backend/src/routes/admin/clinicalAi/`](../apps/backend/src/routes/a
 
 ### Driver + query contract
 
-All DB access flows through [`DatabaseManager`](../apps/backend/src/config/database.js) —
-a raw `pg.Pool` wrapper. **Prisma is documentation only.**
-[`apps/backend/prisma/schema.prisma`](../apps/backend/prisma/schema.prisma) has 58 models; it is used by `npx prisma db push` to materialise the schema in CI, but runtime queries are raw SQL via `db.query()`. This is an explicit choice (see `apps/backend/CLAUDE.md` — "Raw pg over Prisma"). Prisma codegen is run only to keep the schema file honest.
+All DB access flows through the hardened Prisma client at
+[`apps/backend/src/lib/prisma.js`](../apps/backend/src/lib/prisma.js).
+The earlier `DatabaseManager` / `src/config/database.js` pg.Pool wrapper
+was retired in batches 28–31:
 
-Exports from `database.js`:
+- Batch 23 hardened Prisma at the edge (circuit breaker, slow-query
+  logs, prismaReadOnly).
+- Batches 26–38 migrated domain writes + SELECT+JOIN reads from
+  `$queryRaw` to typed Prisma ORM (`.upsert`, `.findMany` with
+  `include`, `$transaction`).
+- Batch 28 retired the pg.Pool; batch 31 deleted the whole
+  `DatabaseManager` shim + `dbHealthMonitor`.
 
-| Method | Use |
+[`apps/backend/prisma/schema.prisma`](../apps/backend/prisma/schema.prisma)
+is the **canonical** schema with 219 models (regen'd from the live
+DB in batch 24). `prisma db pull` is the authoritative refresh path;
+`apps/backend/scripts/check-schema-drift.mjs` fails CI if the
+committed schema drifts from the DB.
+
+Exports from `src/lib/prisma.js`:
+
+| Export | Use |
 |---|---|
-| `db.query(sql, params)` | Write-path primary (no tenant GUC; RLS permissive). |
-| `db.readQuery(sql, params)` | Analytics / exports / dashboards; routes to `DATABASE_READ_URL` read replica when set, falls back to primary. |
-| `db.queryAsTenant(sql, params, tenantId, opts)` | Tenant-scoped writes/reads on RLS tables; sets `app.current_tenant_id` in a transaction. |
-| `db.healthCheck()` | `/health/deep` + pool pressure monitor. |
-| `db.setDatabaseInstance()` | Test mock seam. |
+| `prisma` | Write-path primary. Full Prisma client with circuit breaker + slow-log wrapped around every call. |
+| `prismaReadOnly` | Analytics / exports / dashboards; routes to `DATABASE_READ_URL` when set, falls back to primary. |
+| `setTenant(tenantId, fn, { superAdmin })` | Tenant-scoped writes/reads on RLS tables; runs `fn(tx)` in a `$transaction` with `app.current_tenant_id` set. |
+| `circuitBreakerStatus()` | Ops probe; scraped by `/health/metrics`. |
 
 ### Resilience
 
@@ -431,7 +457,7 @@ Exports from `database.js`:
 - **Circuit breaker**: after 5 consecutive failures, new queries reject immediately for 30s, then auto-resets half-open.
 - **Slow-query logging**: queries > 1000 ms logged as warnings with duration + truncated SQL.
 - **Pool error events** are logged (silent connection loss is noisy).
-- **Read replica** via `db.readQuery()` with primary fallback when `DATABASE_READ_URL` is unset.
+- **Read replica** via `prismaReadOnly` with primary fallback when `DATABASE_READ_URL` is unset.
 
 ### Schema + migrations
 
@@ -706,7 +732,7 @@ team grows past two reviewers.
 
 ### Self-healing
 
-- **DB health monitor**: [`src/utils/dbHealthMonitor.js`](../apps/backend/src/utils/dbHealthMonitor.js) polls pool stats every 30s; warns on pressure, alerts on near-exhaustion.
+- **Circuit breaker**: `circuitBreakerStatus()` from `src/lib/prisma.js` is scraped by `/health/metrics`. The legacy `dbHealthMonitor.js` that polled pool stats every 30s was deleted in batch 31 (the pg.Pool it polled is gone).
 - **Canary health checks**: [`src/utils/canaryHealthCheck.js`](../apps/backend/src/utils/canaryHealthCheck.js) — every 5 minutes, tests DB read/write, stuck-notification detection, unacknowledged critical alerts.
 - **Schema drift detector**: [`src/utils/schemaDriftDetector.js`](../apps/backend/src/utils/schemaDriftDetector.js) — compares expected vs actual DB tables at startup; warns on mismatches (non-fatal).
 - **Scheduler job locking**: `withJobLock()` prevents overlapping cron executions.
@@ -728,7 +754,7 @@ Cheatsheet for common changes. All paths relative to repo root.
 |---|---|
 | Add an API route | [`apps/backend/src/routes/<domain>/`](../apps/backend/src/routes/) + thin controller in [`controllers/<domain>/`](../apps/backend/src/controllers/) + service in [`services/<domain>/`](../apps/backend/src/services/) + validator in [`validators/<domain>/`](../apps/backend/src/validators/). Wrap with `wrapRoutesWithValidation` + `wrapAutoRBAC` from [`config/routeWrapper.js`](../apps/backend/src/config/routeWrapper.js). |
 | Require a role | `requireRole('ADMIN', 'DOCTOR')` from [`middleware/rbacMiddleware.js`](../apps/backend/src/middleware/rbacMiddleware.js), mounted before the router; OR add a `roles:` entry to the route map passed to `wrapAutoRBAC(router, configKey, routeMap)`. |
-| Add a tenant-scoped query | Use `db.queryAsTenant(sql, params, req.tenantId)` from [`config/database.js`](../apps/backend/src/config/database.js). If the table isn't one of the 11 in migration 075, add it there AND add a `tenant_id uuid NOT NULL DEFAULT DEFAULT_TENANT_ID` column in a new migration. |
+| Add a tenant-scoped query | Use `setTenant(req.tenantId, (tx) => tx.$queryRaw`…`)` from [`src/lib/prisma.js`](../apps/backend/src/lib/prisma.js). If the table isn't one of the 11 in migration 075, add it there AND add a `tenant_id uuid NOT NULL DEFAULT DEFAULT_TENANT_ID` column in a new migration. |
 | Add an env var | (1) [`src/utils/validateEnv.js`](../apps/backend/src/utils/validateEnv.js) — Joi rule + required vs optional. (2) [`.env.example`](../apps/backend/.env.example). (3) For prod: create a Sealed Secret via `kubeseal` — see [`docs/DEPLOYMENT_GUIDE.md` section 5](DEPLOYMENT_GUIDE.md). (4) For admin: [`apps/admin/.env.local.example`](../apps/admin/.env.local.example). |
 | Add a k8s workload | New Kustomize base under [`infra/kubernetes/apps/<name>/`](../infra/kubernetes/apps/) with `deployment.yaml` + `service.yaml` + `kustomization.yaml`. Reference it from [`infra/kubernetes/apps/kustomization.yaml`](../infra/kubernetes/apps/kustomization.yaml). Image tag pinned in the overlay at [`overlays/prod/kustomization.yaml`](../infra/kubernetes/overlays/prod/kustomization.yaml). ArgoCD's `vhhealth-apps` Application will pick it up. |
 | Add a DB migration | `apps/backend/src/migrations/NNN_description.sql` with the next sequential 3-digit number (currently `075` is the last; `076_` next). Raw SQL, no Prisma. The file is applied by [`scripts/ci-setup-db.mjs`](../apps/backend/scripts/ci-setup-db.mjs) and — if it adds a new RLS-scoped table — must also be handled in [`scripts/ensure-test-db.mjs`](../apps/backend/scripts/ensure-test-db.mjs). |
