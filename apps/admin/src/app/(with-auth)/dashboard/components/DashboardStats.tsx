@@ -1,5 +1,5 @@
-// src/app/(with-auth)/dashboard/components/DashboardStatsClean.tsx
-// Stat cards + Appointment queue for the CleanDashboard.
+// src/app/(with-auth)/dashboard/components/DashboardStats.tsx
+// Stat cards + Appointment queue for the admin Dashboard.
 
 'use client';
 

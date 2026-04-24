@@ -1,5 +1,5 @@
-// src/app/(with-auth)/dashboard/components/DashboardHeader.clean.tsx
-// Top bar for the CleanDashboard: greeting, date, live indicator, refresh button.
+// src/app/(with-auth)/dashboard/components/DashboardHeader.tsx
+// Top bar for the Dashboard: greeting, date, live indicator, refresh button.
 
 'use client';
 
@@ -16,7 +16,7 @@ interface Props {
   onRefresh: () => void;
 }
 
-export function DashboardHeaderClean({ secondsAgo, refreshing, onRefresh }: Props) {
+export function DashboardHeader({ secondsAgo, refreshing, onRefresh }: Props) {
   const greeting = useMemo(() => {
     const h = new Date().getHours();
     if (h < 12) return 'Good morning';

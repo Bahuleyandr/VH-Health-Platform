@@ -4,7 +4,7 @@
 
 **Gaps the existing roadmap understates:**
 - **Zero component tests.** Not one `.test.tsx` for an actual component. Jest configured but unused. Auth, forms, data tables — all untested at the UI level.
-- **God components** — `system-logs/page.tsx` (456 LOC), `PermissionsMatrix.tsx`, `CleanDashboard` pulling a giant subtree. Hard to mock, hard to test.
+- **God components** — `system-logs/page.tsx` (456 LOC), `PermissionsMatrix.tsx`, `Dashboard` pulling a giant subtree. Hard to mock, hard to test.
 - **Accessibility at 5/10.** Raw `<img>` tags bypass Next/Image (disabled with comments); sparse `aria-label`/`role` on interactive elements; forms may lack proper labels; no `aria-live` on async data tiles.
 - **Real-time half-baked.** WS reconnect has exponential backoff, but no heartbeat/pong, no subscribe-confirmation, no stale-ticket refresh UX. Ticket TTL is 60s — stale tokens will manifest as mysterious disconnects.
 - **Deployment story** (resolved 2026-04-23): admin portal now ships via
@@ -54,7 +54,7 @@
 ### 3A (admin slice). Real-time KPI dashboard ✅ (first tile, 2026-04-14)
 - `hooks/useRealtimeChannel.ts` — two-step handshake: POSTs `/api/realtime-ticket` to mint a ~60s WS-scoped ticket (primary JWT stays in the httpOnly cookie, never exposed to JS), then opens WS to backend `/ws?token=<ticket>` with auto-reconnect and subscribes to the named channel.
 - `app/api/realtime-ticket/route.ts` — server-side ticket proxy with CSRF origin check, matches `/api/refresh` pattern.
-- `LiveBedOccupancyTile` mounted in `CleanDashboard` — subscribes to `admin:beds`, shows connection pulse + most recent bed event.
+- `LiveBedOccupancyTile` mounted in `Dashboard` — subscribes to `admin:beds`, shows connection pulse + most recent bed event.
 - **Loose end closed (2026-04-14):** `LiveBedOccupancyTile` rewritten from an event log into an aggregate tile group. Subscribes to `admin:kpi` and renders two tiles — bed occupancy % (green/amber/red based on pressure) with occupied/total subline, and today's-queue (waiting count + in-consult + active doctors). Backend `kpiAggregator.tickAdminKpi` emits every 30s with a startup prime so tiles paint before the first cron tick.
 - **Still open:** ED wait time, pharmacy stock-out rate, staff utilisation — each requires its own aggregator branch. The pattern is in place; adding a tile is `emitAdminKpi('new-tile', {...})` on the backend + a reader in `LiveBedOccupancyTile`.
 

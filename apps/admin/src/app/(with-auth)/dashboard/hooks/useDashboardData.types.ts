@@ -1,5 +1,5 @@
 // src/app/(with-auth)/dashboard/hooks/useDashboardData.types.ts
-// Shared types for the CleanDashboard and its sub-components.
+// Shared types for the admin Dashboard and its sub-components.
 
 export type HealthStatus = 'healthy' | 'warning' | 'critical';
 

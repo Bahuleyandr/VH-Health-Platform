@@ -1,5 +1,5 @@
 // src/app/(with-auth)/dashboard/components/SystemHealthPanel.tsx
-// System Health panel + Infrastructure Monitor for the CleanDashboard.
+// System Health panel + Infrastructure Monitor for the admin Dashboard.
 
 'use client';
 
