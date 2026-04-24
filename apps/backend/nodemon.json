@@ -2,7 +2,7 @@
   "watch": ["src"],
   "ext": "js,json",
   "ignore": ["src/**/*.test.js", "dist/**/*"],
-  "exec": "node -r source-map-support/register",
+  "exec": "node -r dotenv/config -r source-map-support/register",
   "env": {
     "NODE_ENV": "development"
   }
