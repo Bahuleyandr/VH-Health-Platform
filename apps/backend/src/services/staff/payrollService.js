@@ -203,45 +203,98 @@ export async function calculatePayslip(staffUid, month, year) {
   };
 }
 
+// Columns returned by savePayslip — kept separate so the upsert create/update
+// branches (and downstream callers like runPayroll) stay consistent.
+const PAYSLIP_SAVE_SELECT = {
+  id: true,
+  payroll_run_id: true,
+  staff_uid: true,
+  month: true,
+  year: true,
+  total_working_days: true,
+  days_present: true,
+  days_absent: true,
+  days_leave: true,
+  overtime_hours: true,
+  overtime_rate: true,
+  basic_earned: true,
+  hra_earned: true,
+  da_earned: true,
+  special_allowance_earned: true,
+  transport_allowance_earned: true,
+  medical_allowance_earned: true,
+  overtime_pay: true,
+  arrears_amount: true,
+  gross_salary: true,
+  pf_employee: true,
+  esi_employee: true,
+  professional_tax: true,
+  tds: true,
+  total_deductions: true,
+  advance_deduction: true,
+  lop_days: true,
+  lop_deduction: true,
+  net_salary: true,
+  revision_note: true,
+  status: true,
+  created_at: true,
+  updated_at: true,
+};
+
 /**
  * Save payslip to DB (upsert).
  */
 export async function savePayslip(payrollRunId, data) {
-  const result = await prisma.$queryRawUnsafe(`
-    INSERT INTO payslips (
-      payroll_run_id, staff_uid, month, year,
-      total_working_days, days_present, days_absent, days_leave,
-      overtime_hours, overtime_rate,
-      basic_earned, hra_earned, da_earned, special_allowance_earned,
-      transport_allowance_earned, medical_allowance_earned, overtime_pay,
-      arrears_amount, gross_salary, pf_employee, esi_employee, professional_tax, tds,
-      total_deductions, advance_deduction, lop_days, lop_deduction, net_salary,
-      revision_note, status
-    ) VALUES (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,'draft'
-    )
-    ON CONFLICT (staff_uid, month, year) DO UPDATE SET
-      total_working_days=$5, days_present=$6, days_absent=$7, days_leave=$8,
-      overtime_hours=$9, overtime_rate=$10,
-      basic_earned=$11, hra_earned=$12, da_earned=$13, special_allowance_earned=$14,
-      transport_allowance_earned=$15, medical_allowance_earned=$16, overtime_pay=$17,
-      arrears_amount=$18, gross_salary=$19, pf_employee=$20, esi_employee=$21, professional_tax=$22,
-      tds=$23, total_deductions=$24, advance_deduction=$25, lop_days=$26, lop_deduction=$27,
-      net_salary=$28, revision_note=$29,
-      updated_at=NOW()
-    RETURNING id, payroll_run_id, staff_uid, month, year, total_working_days, days_present, days_absent, days_leave, overtime_hours, overtime_rate, basic_earned, hra_earned, da_earned, special_allowance_earned, transport_allowance_earned, medical_allowance_earned, overtime_pay, arrears_amount, gross_salary, pf_employee, esi_employee, professional_tax, tds, total_deductions, advance_deduction, lop_days, lop_deduction, net_salary, revision_note, status, created_at, updated_at
-  `, 
-    payrollRunId, data.staff_uid, data.month, data.year,
-    data.total_working_days, data.days_present, data.days_absent, data.days_leave,
-    data.overtime_hours, data.overtime_rate,
-    data.basic_earned, data.hra_earned, data.da_earned, data.special_allowance_earned,
-    data.transport_allowance_earned, data.medical_allowance_earned, data.overtime_pay,
-    data.arrears_amount || 0, data.gross_salary, data.pf_employee, data.esi_employee,
-    data.professional_tax, data.tds, data.total_deductions,
-    data.advance_deduction || 0, data.lop_days || 0, data.lop_deduction || 0,
-    data.net_salary, data.revision_note || null,
-  );
-  return result[0];
+  const payload = {
+    total_working_days: data.total_working_days,
+    days_present: data.days_present,
+    days_absent: data.days_absent,
+    days_leave: data.days_leave,
+    overtime_hours: data.overtime_hours,
+    overtime_rate: data.overtime_rate,
+    basic_earned: data.basic_earned,
+    hra_earned: data.hra_earned,
+    da_earned: data.da_earned,
+    special_allowance_earned: data.special_allowance_earned,
+    transport_allowance_earned: data.transport_allowance_earned,
+    medical_allowance_earned: data.medical_allowance_earned,
+    overtime_pay: data.overtime_pay,
+    arrears_amount: data.arrears_amount || 0,
+    gross_salary: data.gross_salary,
+    pf_employee: data.pf_employee,
+    esi_employee: data.esi_employee,
+    professional_tax: data.professional_tax,
+    tds: data.tds,
+    total_deductions: data.total_deductions,
+    advance_deduction: data.advance_deduction || 0,
+    lop_days: data.lop_days || 0,
+    lop_deduction: data.lop_deduction || 0,
+    net_salary: data.net_salary,
+    revision_note: data.revision_note || null,
+  };
+
+  return prisma.payslips.upsert({
+    where: {
+      staff_uid_month_year: {
+        staff_uid: data.staff_uid,
+        month: data.month,
+        year: data.year,
+      },
+    },
+    create: {
+      ...payload,
+      payroll_run_id: payrollRunId,
+      staff_uid: data.staff_uid,
+      month: data.month,
+      year: data.year,
+      status: 'draft',
+    },
+    update: {
+      ...payload,
+      updated_at: new Date(),
+    },
+    select: PAYSLIP_SAVE_SELECT,
+  });
 }
 
 /**
@@ -341,36 +394,76 @@ export async function generateAnnualTaxSummary(staffUid, financialYear) {
     months_included: payslips.length,
   };
 
-  const result = await prisma.$queryRawUnsafe(`
-    INSERT INTO annual_tax_summaries (
-      staff_uid, financial_year, total_basic, total_hra, total_da,
-      total_special_allowance, total_transport_allowance, total_medical_allowance,
-      total_overtime, total_bonus, total_arrears, total_gross,
-      total_pf, total_esi, total_professional_tax, total_tds, total_advance_deductions,
-      total_deductions, total_net, taxable_income, tax_payable,
-      months_included, generated_at
-    ) VALUES (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW()
-    )
-    ON CONFLICT (staff_uid, financial_year) DO UPDATE SET
-      total_basic=$3, total_hra=$4, total_da=$5,
-      total_special_allowance=$6, total_transport_allowance=$7, total_medical_allowance=$8,
-      total_overtime=$9, total_bonus=$10, total_arrears=$11, total_gross=$12,
-      total_pf=$13, total_esi=$14, total_professional_tax=$15, total_tds=$16,
-      total_advance_deductions=$17, total_deductions=$18, total_net=$19,
-      taxable_income=$20, tax_payable=$21, months_included=$22,
-      generated_at=NOW(), updated_at=NOW()
-    RETURNING id, staff_uid, financial_year, total_basic, total_hra, total_da, total_special_allowance, total_transport_allowance, total_medical_allowance, total_overtime, total_bonus, total_arrears, total_gross, total_pf, total_esi, total_professional_tax, total_tds, total_advance_deductions, total_deductions, total_net, taxable_income, tax_payable, months_included, generated_at, created_at, updated_at
-  `, 
-    summary.staff_uid, summary.financial_year, summary.total_basic, summary.total_hra, summary.total_da,
-    summary.total_special_allowance, summary.total_transport_allowance, summary.total_medical_allowance,
-    summary.total_overtime, summary.total_bonus, summary.total_arrears, summary.total_gross,
-    summary.total_pf, summary.total_esi, summary.total_professional_tax, summary.total_tds,
-    summary.total_advance_deductions, summary.total_deductions, summary.total_net,
-    summary.taxable_income, summary.tax_payable, summary.months_included,
-  );
+  const now = new Date();
+  const payload = {
+    total_basic: summary.total_basic,
+    total_hra: summary.total_hra,
+    total_da: summary.total_da,
+    total_special_allowance: summary.total_special_allowance,
+    total_transport_allowance: summary.total_transport_allowance,
+    total_medical_allowance: summary.total_medical_allowance,
+    total_overtime: summary.total_overtime,
+    total_bonus: summary.total_bonus,
+    total_arrears: summary.total_arrears,
+    total_gross: summary.total_gross,
+    total_pf: summary.total_pf,
+    total_esi: summary.total_esi,
+    total_professional_tax: summary.total_professional_tax,
+    total_tds: summary.total_tds,
+    total_advance_deductions: summary.total_advance_deductions,
+    total_deductions: summary.total_deductions,
+    total_net: summary.total_net,
+    taxable_income: summary.taxable_income,
+    tax_payable: summary.tax_payable,
+    months_included: summary.months_included,
+    generated_at: now,
+  };
 
-  return result[0];
+  return prisma.annual_tax_summaries.upsert({
+    where: {
+      staff_uid_financial_year: {
+        staff_uid: summary.staff_uid,
+        financial_year: summary.financial_year,
+      },
+    },
+    create: {
+      staff_uid: summary.staff_uid,
+      financial_year: summary.financial_year,
+      ...payload,
+    },
+    update: {
+      ...payload,
+      updated_at: now,
+    },
+    select: {
+      id: true,
+      staff_uid: true,
+      financial_year: true,
+      total_basic: true,
+      total_hra: true,
+      total_da: true,
+      total_special_allowance: true,
+      total_transport_allowance: true,
+      total_medical_allowance: true,
+      total_overtime: true,
+      total_bonus: true,
+      total_arrears: true,
+      total_gross: true,
+      total_pf: true,
+      total_esi: true,
+      total_professional_tax: true,
+      total_tds: true,
+      total_advance_deductions: true,
+      total_deductions: true,
+      total_net: true,
+      taxable_income: true,
+      tax_payable: true,
+      months_included: true,
+      generated_at: true,
+      created_at: true,
+      updated_at: true,
+    },
+  });
 }
 
 /**
@@ -428,12 +521,31 @@ export async function calculateArrears(revisionId) {
   const fromDate = arrearMonths[0];
   const toDate = arrearMonths[arrearMonths.length - 1];
 
-  const insertResult = await prisma.$queryRawUnsafe(`
-    INSERT INTO salary_arrears (staff_uid, revision_id, from_month, from_year, to_month, to_year, arrears_amount)
-    VALUES ($1,$2,$3,$4,$5,$6,$7)
-    ON CONFLICT DO NOTHING
-    RETURNING id, staff_uid, revision_id, from_month, from_year, to_month, to_year, arrears_amount, status, created_at
-  `, r.staff_uid, revisionId, fromDate.month, fromDate.year, toDate.month, toDate.year, Math.round(totalArrears * 100) / 100);
+  // salary_arrears has no unique constraint — the old `ON CONFLICT DO NOTHING`
+  // was a defensive no-op that never fired (autoincrement PK). Plain create.
+  const created = await prisma.salary_arrears.create({
+    data: {
+      staff_uid: r.staff_uid,
+      revision_id: revisionId,
+      from_month: fromDate.month,
+      from_year: fromDate.year,
+      to_month: toDate.month,
+      to_year: toDate.year,
+      arrears_amount: Math.round(totalArrears * 100) / 100,
+    },
+    select: {
+      id: true,
+      staff_uid: true,
+      revision_id: true,
+      from_month: true,
+      from_year: true,
+      to_month: true,
+      to_year: true,
+      arrears_amount: true,
+      status: true,
+      calculated_at: true,
+    },
+  });
 
-  return { arrears_amount: Math.round(totalArrears * 100) / 100, months: arrearMonths.length, result: insertResult[0] };
+  return { arrears_amount: Math.round(totalArrears * 100) / 100, months: arrearMonths.length, result: created };
 }

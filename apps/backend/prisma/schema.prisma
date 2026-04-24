@@ -4901,6 +4901,10 @@ model payslips {
   arrears_amount             Decimal?             @default(0) @db.Decimal(12, 2)
   advance_deduction          Decimal?             @default(0) @db.Decimal(12, 2)
   revision_note              String?
+  manually_edited            Boolean?             @default(false)
+  edit_reason                String?
+  edited_by                  String?              @db.Uuid
+  edited_at                  DateTime?            @db.Timestamptz(6)
   advance_deductions         advance_deductions[]
   leave_encashments          leave_encashments[]
   payslip_queries            payslip_queries[]

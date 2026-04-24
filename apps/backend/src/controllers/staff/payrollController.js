@@ -17,6 +17,63 @@ try {
   logger.warn('payslipPDF not loaded (PDF generation disabled):', e.message);
 }
 
+// Shared select shapes for Prisma ORM returns — keeps the HR/Admin signature
+// endpoints returning the same payload shape regardless of which action
+// produced the row, and avoids each caller re-listing ~15 columns.
+const PAYROLL_RUN_SELECT = {
+  id: true,
+  month: true,
+  year: true,
+  status: true,
+  total_staff: true,
+  total_gross: true,
+  total_net: true,
+  total_deductions: true,
+  generated_by: true,
+  generated_at: true,
+  employee_count: true,
+  hr_approved_by: true,
+  hr_approved_at: true,
+  hr_comment: true,
+  admin_approved_by: true,
+  admin_approved_at: true,
+  admin_comment: true,
+  approval_hash: true,
+  notes: true,
+  created_at: true,
+  updated_at: true,
+};
+
+const PAYSLIP_DETAIL_SELECT = {
+  id: true,
+  staff_uid: true,
+  month: true,
+  year: true,
+  payroll_run_id: true,
+  basic_earned: true,
+  hra_earned: true,
+  da_earned: true,
+  special_allowance_earned: true,
+  transport_allowance_earned: true,
+  medical_allowance_earned: true,
+  overtime_pay: true,
+  gross_salary: true,
+  pf_employee: true,
+  esi_employee: true,
+  professional_tax: true,
+  tds: true,
+  total_deductions: true,
+  net_salary: true,
+  status: true,
+  pdf_key: true,
+  manually_edited: true,
+  edit_reason: true,
+  edited_by: true,
+  edited_at: true,
+  created_at: true,
+  updated_at: true,
+};
+
 // ─── Staff: Get my payslips (last N months) ───────────────────────────────────
 export const getMyPayslips = async (req, res) => {
   try {
@@ -65,7 +122,11 @@ export const getPayslipDetail = async (req, res) => {
 
     // Mark as viewed
     if (p.status === 'issued') {
-      await prisma.$queryRawUnsafe('UPDATE payslips SET status=$1, viewed_at=NOW() WHERE id=$2', 'viewed', id);
+      await prisma.payslips.update({
+        where: { id: Number(id) },
+        data: { status: 'viewed', viewed_at: new Date() },
+        select: { id: true },
+      });
     }
 
     // Generate signed URL if PDF exists
@@ -114,10 +175,11 @@ export const downloadPayslip = async (req, res) => {
     // Mark downloaded on first successful fetch — mirrors getPayslipDetail's
     // issued→viewed bump, advancing one step further.
     if (p.status === 'issued' || p.status === 'viewed') {
-      await prisma.$queryRawUnsafe(
-        'UPDATE payslips SET status=$1, downloaded_at=NOW() WHERE id=$2',
-        'downloaded', id,
-      );
+      await prisma.payslips.update({
+        where: { id: Number(id) },
+        data: { status: 'downloaded', downloaded_at: new Date() },
+        select: { id: true },
+      });
     }
 
     return res.redirect(302, pdfUrl);
@@ -136,23 +198,34 @@ export const runPayroll = async (req, res) => {
     if (!month || !year) return error(res, 'month and year required', HTTP_STATUS.BAD_REQUEST);
     if (month < 1 || month > 12) return error(res, 'month must be 1-12', HTTP_STATUS.BAD_REQUEST);
 
-    // Create or get payroll run
-    const run = await prisma.$queryRawUnsafe(
-      'SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE month=$1 AND year=$2', month, year);
-
-    let runId;
-    if (run.length === 0) {
-      const newRun = await prisma.$queryRawUnsafe(
-        `INSERT INTO payroll_runs (month, year, status, generated_by, generated_at)
-         VALUES ($1,$2,'processing',$3,NOW()) RETURNING id, month, year, status, generated_by, total_gross, total_deductions, total_net, employee_count, created_at, updated_at`, month, year, adminUid);
-      runId = newRun[0].id;
-    } else if (run[0].status === 'locked') {
+    // Create or get payroll run. Uses the (month, year) unique upsert —
+    // collapses the prior SELECT+INSERT-or-UPDATE dance into one atomic
+    // call, which also closes a tiny race where two admins hitting
+    // runPayroll simultaneously could have both inserted.
+    const existing = await prisma.payroll_runs.findUnique({
+      where: { month_year: { month, year } },
+      select: { id: true, status: true },
+    });
+    if (existing?.status === 'locked') {
       return error(res, 'Payroll for this month is locked and cannot be rerun', HTTP_STATUS.FORBIDDEN);
-    } else {
-      runId = run[0].id;
-      await prisma.$queryRawUnsafe(
-        `UPDATE payroll_runs SET status='processing', generated_by=$1, generated_at=NOW() WHERE id=$2`, adminUid, runId);
     }
+    const run = await prisma.payroll_runs.upsert({
+      where: { month_year: { month, year } },
+      create: {
+        month,
+        year,
+        status: 'processing',
+        generated_by: adminUid,
+        generated_at: new Date(),
+      },
+      update: {
+        status: 'processing',
+        generated_by: adminUid,
+        generated_at: new Date(),
+      },
+      select: { id: true },
+    });
+    const runId = run.id;
 
     // Get all staff with salary config
     const staffList = await prisma.$queryRawUnsafe(`
@@ -175,29 +248,57 @@ export const runPayroll = async (req, res) => {
         // ─── FEATURE 3: Process advance deductions after saving ──────────
         if (calc._advances_to_process?.length > 0) {
           for (const adv of calc._advances_to_process) {
-            await prisma.$queryRawUnsafe(`
-              UPDATE salary_advances SET
-                total_deducted = total_deducted + $1,
-                months_remaining = GREATEST(0, months_remaining - 1),
-                status = CASE WHEN total_deducted + $1 >= amount THEN 'cleared' ELSE status END,
-                fully_cleared_at = CASE WHEN total_deducted + $1 >= amount THEN NOW() ELSE NULL END,
-                updated_at = NOW()
-              WHERE id = $2
-            `, adv.amount, adv.id);
+            // The old raw UPDATE used CASE expressions to flip status/
+            // fully_cleared_at when `total_deducted + delta >= amount`.
+            // Prisma has no ORM-side CASE, but the server has already
+            // computed `adv.balanceAfter` (remaining after this deduction)
+            // so the fully-cleared check is a simple JS comparison.
+            const fullyCleared = Number(adv.balanceAfter) <= 0;
+            await prisma.salary_advances.update({
+              where: { id: adv.id },
+              data: {
+                total_deducted: { increment: Number(adv.amount) },
+                months_remaining: { decrement: 1 },
+                ...(fullyCleared
+                  ? { status: 'cleared', fully_cleared_at: new Date() }
+                  : {}),
+                updated_at: new Date(),
+              },
+              select: { id: true },
+            });
+            // months_remaining can go negative with {decrement: 1}; the old
+            // SQL used GREATEST(0, ...). Follow-up update to clamp.
+            await prisma.salary_advances.updateMany({
+              where: { id: adv.id, months_remaining: { lt: 0 } },
+              data: { months_remaining: 0 },
+            });
 
-            await prisma.$queryRawUnsafe(`
-              INSERT INTO advance_deductions (advance_id, payslip_id, staff_uid, month, year, amount_deducted, balance_after)
-              VALUES ($1,$2,$3,$4,$5,$6,$7)
-            `, adv.id, saved.id, calc.staff_uid, calc.month, calc.year, adv.amount, adv.balanceAfter);
+            await prisma.advance_deductions.create({
+              data: {
+                advance_id: adv.id,
+                payslip_id: saved.id,
+                staff_uid: calc.staff_uid,
+                month: calc.month,
+                year: calc.year,
+                amount_deducted: adv.amount,
+                balance_after: adv.balanceAfter,
+              },
+              select: { id: true },
+            });
           }
         }
 
         // ─── FEATURE 4: Mark arrears as paid after saving ────────────────
         if (calc.arrears_amount > 0) {
-          await prisma.$queryRawUnsafe(`
-            UPDATE salary_arrears SET status='paid', paid_in_month=$1, paid_in_year=$2, payslip_id=$3
-            WHERE staff_uid=$4 AND status='pending'
-          `, calc.month, calc.year, saved.id, calc.staff_uid);
+          await prisma.salary_arrears.updateMany({
+            where: { staff_uid: calc.staff_uid, status: 'pending' },
+            data: {
+              status: 'paid',
+              paid_in_month: calc.month,
+              paid_in_year: calc.year,
+              payslip_id: saved.id,
+            },
+          });
         }
 
         // Generate and upload PDF
@@ -206,8 +307,11 @@ export const runPayroll = async (req, res) => {
             const pdfBuf = await generatePayslipPDF(calc, staff);
             const pdfKey = `payroll/${year}/${String(month).padStart(2, '0')}/payslip_${staff.staff_uid}_${year}_${String(month).padStart(2, '0')}.pdf`;
             await uploadFileToR2(pdfBuf, pdfKey, 'application/pdf');
-            await prisma.$queryRawUnsafe(
-              'UPDATE payslips SET pdf_key=$1, pdf_generated_at=NOW() WHERE id=$2', pdfKey, saved.id);
+            await prisma.payslips.update({
+              where: { id: saved.id },
+              data: { pdf_key: pdfKey, pdf_generated_at: new Date() },
+              select: { id: true },
+            });
           } catch (pdfErr) {
             logger.warn(`PDF generation failed for staff ${staff.staff_uid}: ${pdfErr.message}`);
           }
@@ -224,11 +328,17 @@ export const runPayroll = async (req, res) => {
     }
 
     // Update run summary
-    await prisma.$queryRawUnsafe(`
-      UPDATE payroll_runs SET
-        status='completed', total_staff=$1, total_gross=$2, total_net=$3, total_deductions=$4
-      WHERE id=$5
-    `, processed, totalGross.toFixed(2), totalNet.toFixed(2), totalDeductions.toFixed(2), runId);
+    await prisma.payroll_runs.update({
+      where: { id: runId },
+      data: {
+        status: 'completed',
+        total_staff: processed,
+        total_gross: totalGross.toFixed(2),
+        total_net: totalNet.toFixed(2),
+        total_deductions: totalDeductions.toFixed(2),
+      },
+      select: { id: true },
+    });
 
     success(res, {
       run_id: runId, processed, failed,
@@ -283,21 +393,28 @@ export const issuePayslips = async (req, res) => {
           const pdfBuf = await generatePayslipPDF(p, staffRes[0] || {});
           const pdfKey = `payroll/${year}/${String(month).padStart(2,'0')}/payslip_${p.staff_uid}_${year}_${String(month).padStart(2,'0')}.pdf`;
           await uploadFileToR2(pdfBuf, pdfKey, 'application/pdf');
-          await prisma.$queryRawUnsafe('UPDATE payslips SET pdf_key=$1, pdf_generated_at=NOW() WHERE id=$2', pdfKey, p.id);
+          await prisma.payslips.update({
+            where: { id: p.id },
+            data: { pdf_key: pdfKey, pdf_generated_at: new Date() },
+            select: { id: true },
+          });
         } catch (pdfErr) {
           logger.warn(`PDF regen failed for payslip ${p.id}: ${pdfErr.message}`);
         }
       }
     }
 
-    const result = await prisma.$queryRawUnsafe(`
-      UPDATE payslips SET status='issued', issued_at=NOW()
-      WHERE month=$1 AND year=$2 AND status='draft'
-      RETURNING id
-    `, month, year);
+    const { count: issued } = await prisma.payslips.updateMany({
+      where: { month, year, status: 'draft' },
+      data: { status: 'issued', issued_at: new Date() },
+    });
 
     // Lock the run
-    await prisma.$queryRawUnsafe(`UPDATE payroll_runs SET status='locked' WHERE month=$1 AND year=$2`, month, year);
+    await prisma.payroll_runs.update({
+      where: { month_year: { month, year } },
+      data: { status: 'locked' },
+      select: { id: true },
+    });
 
     // ─── FEATURE 8: Send notifications to staff ──────────────────────────
     const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(month)-1];
@@ -328,7 +445,7 @@ export const issuePayslips = async (req, res) => {
       }
     });
 
-    success(res, { issued: result.length }, `${result.length} payslips issued to staff`);
+    success(res, { issued }, `${issued} payslips issued to staff`);
   } catch (err) {
     logger.error('Issue Payslips Error:', err);
     error(res, 'Failed to issue payslips', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -478,25 +595,92 @@ export const upsertStaffSalaryConfig = async (req, res) => {
       return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    const result = await prisma.$queryRawUnsafe(`
-      INSERT INTO staff_salary (
-        staff_uid, basic_salary, hra_pct, da_pct, special_allowance, transport_allowance, medical_allowance,
-        pf_employee_pct, esi_applicable, professional_tax, tds_monthly,
-        designation, department, employee_id, date_of_joining, pan_number, pf_uan,
-        bank_account, bank_name, bank_ifsc, updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW())
-      ON CONFLICT (staff_uid) DO UPDATE SET
-        basic_salary=$2, hra_pct=$3, da_pct=$4, special_allowance=$5, transport_allowance=$6, medical_allowance=$7,
-        pf_employee_pct=$8, esi_applicable=$9, professional_tax=$10, tds_monthly=$11,
-        designation=$12, department=$13, employee_id=$14, date_of_joining=$15,
-        pan_number=COALESCE(NULLIF($16,''), staff_salary.pan_number),
-        pf_uan=$17,
-        bank_account=COALESCE(NULLIF($18,''), staff_salary.bank_account),
-        bank_name=$19, bank_ifsc=$20, updated_at=NOW()
-      RETURNING id, staff_uid, basic_salary, hra_pct, da_pct, special_allowance, transport_allowance, medical_allowance, pf_employee_pct, esi_applicable, professional_tax, tds_monthly, designation, department, employee_id, date_of_joining, pan_number, pf_uan, bank_account, bank_name, bank_ifsc, created_at, updated_at
-    `, staffUid, basic_salary, hra_pct ?? 40, da_pct ?? 10, special_allowance ?? 0, transport_allowance ?? 0, medical_allowance ?? 0, pf_employee_pct ?? 12, esi_applicable ?? false, professional_tax ?? 200, tds_monthly ?? 0, designation ?? null, department ?? null, employee_id ?? null, date_of_joining ?? null, pan_number ?? null, pf_uan ?? null, bank_account ?? null, bank_name ?? null, bank_ifsc ?? null);
+    // Preserve the two COALESCE-with-NULLIF patterns from the old SQL:
+    //   pan_number / bank_account: if caller sends '' or null, keep the
+    //   existing DB value. This matches the UI behaviour where the masked
+    //   form field sometimes submits the mask string rather than a value.
+    const panUpdate =
+      pan_number && String(pan_number).trim() !== '' ? { pan_number } : {};
+    const bankAcctUpdate =
+      bank_account && String(bank_account).trim() !== '' ? { bank_account } : {};
 
-    const row = result[0];
+    const now = new Date();
+    const sharedCreate = {
+      staff_uid: staffUid,
+      basic_salary,
+      hra_pct: hra_pct ?? 40,
+      da_pct: da_pct ?? 10,
+      special_allowance: special_allowance ?? 0,
+      transport_allowance: transport_allowance ?? 0,
+      medical_allowance: medical_allowance ?? 0,
+      pf_employee_pct: pf_employee_pct ?? 12,
+      esi_applicable: esi_applicable ?? false,
+      professional_tax: professional_tax ?? 200,
+      tds_monthly: tds_monthly ?? 0,
+      designation: designation ?? null,
+      department: department ?? null,
+      employee_id: employee_id ?? null,
+      date_of_joining: date_of_joining ? new Date(date_of_joining) : null,
+      pan_number: pan_number ?? null,
+      pf_uan: pf_uan ?? null,
+      bank_account: bank_account ?? null,
+      bank_name: bank_name ?? null,
+      bank_ifsc: bank_ifsc ?? null,
+      updated_at: now,
+    };
+    const result = await prisma.staff_salary.upsert({
+      where: { staff_uid: staffUid },
+      create: sharedCreate,
+      update: {
+        basic_salary,
+        hra_pct: hra_pct ?? 40,
+        da_pct: da_pct ?? 10,
+        special_allowance: special_allowance ?? 0,
+        transport_allowance: transport_allowance ?? 0,
+        medical_allowance: medical_allowance ?? 0,
+        pf_employee_pct: pf_employee_pct ?? 12,
+        esi_applicable: esi_applicable ?? false,
+        professional_tax: professional_tax ?? 200,
+        tds_monthly: tds_monthly ?? 0,
+        designation: designation ?? null,
+        department: department ?? null,
+        employee_id: employee_id ?? null,
+        date_of_joining: date_of_joining ? new Date(date_of_joining) : null,
+        ...panUpdate,
+        pf_uan: pf_uan ?? null,
+        ...bankAcctUpdate,
+        bank_name: bank_name ?? null,
+        bank_ifsc: bank_ifsc ?? null,
+        updated_at: now,
+      },
+      select: {
+        id: true,
+        staff_uid: true,
+        basic_salary: true,
+        hra_pct: true,
+        da_pct: true,
+        special_allowance: true,
+        transport_allowance: true,
+        medical_allowance: true,
+        pf_employee_pct: true,
+        esi_applicable: true,
+        professional_tax: true,
+        tds_monthly: true,
+        designation: true,
+        department: true,
+        employee_id: true,
+        date_of_joining: true,
+        pan_number: true,
+        pf_uan: true,
+        bank_account: true,
+        bank_name: true,
+        bank_ifsc: true,
+        created_at: true,
+        updated_at: true,
+      },
+    });
+
+    const row = result;
     if (row.bank_account) row.bank_account = '****' + String(row.bank_account).slice(-4);
     if (row.pan_number) row.pan_number = row.pan_number.substring(0, 2) + '***' + row.pan_number.slice(-3);
 
@@ -543,39 +727,73 @@ export const manualEditPayslip = async (req, res) => {
     if (fields.length === 0) return error(res, 'No valid editable fields provided', HTTP_STATUS.BAD_REQUEST);
 
     // Validate all payroll values are finite numbers (prevents NaN/Infinity injection)
-    const values = fields.map(f => {
+    const editData = {};
+    for (const f of fields) {
       const v = Number(edits[f]);
       if (!Number.isFinite(v)) throw new Error(`Invalid numeric value for field: ${f}`);
-      return v;
+      editData[f] = v;
+    }
+
+    // First update: apply the user-supplied edits. Field keys were already
+    // filtered against the allowlist so Prisma's validation will accept them
+    // (and reject anything else with PrismaClientValidationError).
+    await prisma.payslips.update({
+      where: { id: Number(id) },
+      data: editData,
+      select: { id: true },
     });
-    const setClauses = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
 
-    await prisma.$queryRawUnsafe(`UPDATE payslips SET ${setClauses} WHERE id = $1`, id, ...values);
+    // Second update: recompute derived totals from the just-updated row.
+    // We read the row back rather than using a SQL expression-in-UPDATE,
+    // which trades one extra SELECT for column-name drift safety.
+    const row = await prisma.payslips.findUnique({
+      where: { id: Number(id) },
+      select: {
+        basic_earned: true,
+        hra_earned: true,
+        da_earned: true,
+        special_allowance_earned: true,
+        transport_allowance_earned: true,
+        medical_allowance_earned: true,
+        overtime_pay: true,
+        bonus_this_month: true,
+        arrears_amount: true,
+        pf_employee: true,
+        esi_employee: true,
+        professional_tax: true,
+        tds: true,
+        other_deductions: true,
+        advance_deduction: true,
+      },
+    });
+    const num = (v) => Number(v || 0);
+    const gross =
+      num(row.basic_earned) + num(row.hra_earned) + num(row.da_earned)
+      + num(row.special_allowance_earned) + num(row.transport_allowance_earned)
+      + num(row.medical_allowance_earned) + num(row.overtime_pay)
+      + num(row.bonus_this_month) + num(row.arrears_amount);
+    const totalDeductions =
+      num(row.pf_employee) + num(row.esi_employee) + num(row.professional_tax)
+      + num(row.tds) + num(row.other_deductions);
+    const net = gross - (totalDeductions + num(row.advance_deduction));
 
-    await prisma.$queryRawUnsafe(`
-      UPDATE payslips SET
-        gross_salary = basic_earned + hra_earned + da_earned + special_allowance_earned
-                     + transport_allowance_earned + medical_allowance_earned
-                     + overtime_pay + COALESCE(bonus_this_month, 0) + COALESCE(arrears_amount, 0),
-        total_deductions = pf_employee + esi_employee + professional_tax + tds
-                         + COALESCE(other_deductions, 0),
-        net_salary = (basic_earned + hra_earned + da_earned + special_allowance_earned
-                    + transport_allowance_earned + medical_allowance_earned
-                    + overtime_pay + COALESCE(bonus_this_month, 0) + COALESCE(arrears_amount, 0))
-                   - (pf_employee + esi_employee + professional_tax + tds + COALESCE(other_deductions, 0)
-                      + COALESCE(advance_deduction, 0)),
-        manually_edited = true,
-        edit_reason = $1,
-        edited_by = $2,
-        edited_at = NOW(),
-        updated_at = NOW(),
-        pdf_key = NULL,
-        pdf_generated_at = NULL
-      WHERE id = $3
-    `, edit_reason, editorUid, id);
-
-    const updated = await prisma.$queryRawUnsafe('SELECT id, staff_uid, month, year, payroll_run_id, basic_earned, hra_earned, da_earned, special_allowance_earned, transport_allowance_earned, medical_allowance_earned, overtime_pay, gross_salary, pf_employee, esi_employee, professional_tax, tds, total_deductions, net_salary, status, pdf_key, created_at, updated_at FROM payslips WHERE id = $1', id);
-    success(res, updated[0], 'Payslip updated — PDF will regenerate on issue');
+    const updated = await prisma.payslips.update({
+      where: { id: Number(id) },
+      data: {
+        gross_salary: Math.round(gross * 100) / 100,
+        total_deductions: Math.round(totalDeductions * 100) / 100,
+        net_salary: Math.round(net * 100) / 100,
+        manually_edited: true,
+        edit_reason,
+        edited_by: editorUid,
+        edited_at: new Date(),
+        updated_at: new Date(),
+        pdf_key: null,
+        pdf_generated_at: null,
+      },
+      select: PAYSLIP_DETAIL_SELECT,
+    });
+    success(res, updated, 'Payslip updated — PDF will regenerate on issue');
   } catch (err) {
     logger.error('Manual Edit Payslip Error:', err);
     error(res, 'Failed to edit payslip', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -598,14 +816,16 @@ export const hrSignPayrollRun = async (req, res) => {
       return error(res, 'HR has already signed this payroll run', HTTP_STATUS.BAD_REQUEST);
     }
 
-    await prisma.$queryRawUnsafe(`
-      UPDATE payroll_runs SET
-        hr_approved_by = $1, hr_approved_at = NOW(), hr_comment = $2
-      WHERE id = $3
-    `, hrUid, comment || null, runId);
-
-    const updated = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', runId);
-    success(res, updated[0], 'HR signature applied — awaiting Admin countersign before payslips can be issued');
+    const updated = await prisma.payroll_runs.update({
+      where: { id: Number(runId) },
+      data: {
+        hr_approved_by: hrUid,
+        hr_approved_at: new Date(),
+        hr_comment: comment || null,
+      },
+      select: PAYROLL_RUN_SELECT,
+    });
+    success(res, updated, 'HR signature applied — awaiting Admin countersign before payslips can be issued');
   } catch (err) {
     logger.error('HR Sign Payroll Run Error:', err);
     error(res, 'Failed to sign payroll run', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -636,15 +856,18 @@ export const adminSignPayrollRun = async (req, res) => {
       .update(`${runId}:${run[0].month}:${run[0].year}:${run[0].total_gross}:${run[0].hr_approved_by}:${adminUid}`)
       .digest('hex');
 
-    await prisma.$queryRawUnsafe(`
-      UPDATE payroll_runs SET
-        admin_approved_by = $1, admin_approved_at = NOW(), admin_comment = $2,
-        approval_hash = $3, status = 'approved'
-      WHERE id = $4
-    `, adminUid, comment || null, hash, runId);
-
-    const updated = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id = $1', runId);
-    success(res, updated[0], 'Admin countersign complete — payslips can now be issued to staff');
+    const updated = await prisma.payroll_runs.update({
+      where: { id: Number(runId) },
+      data: {
+        admin_approved_by: adminUid,
+        admin_approved_at: new Date(),
+        admin_comment: comment || null,
+        approval_hash: hash,
+        status: 'approved',
+      },
+      select: PAYROLL_RUN_SELECT,
+    });
+    success(res, updated, 'Admin countersign complete — payslips can now be issued to staff');
   } catch (err) {
     logger.error('Admin Sign Payroll Run Error:', err);
     error(res, 'Failed to countersign payroll run', HTTP_STATUS.INTERNAL_SERVER_ERROR);
