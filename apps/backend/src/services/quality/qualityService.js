@@ -70,21 +70,34 @@ class QualityService {
 
     const incidentNumber = await this._generateIncidentNumber();
 
-    const result = await prisma.$queryRawUnsafe(
-      `INSERT INTO quality_incidents (
-        incident_number, reported_by, patient_uid, incident_type, severity,
-        description, location, date_occurred
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING id, incident_number, reported_by, patient_uid, incident_type,
-        severity, description, location, date_occurred, status, created_at`,
-      
-        incidentNumber, reported_by, patient_uid || null, incident_type,
-        severity, description, location || null, date_occurred
-      
-    );
+    const incident = await prisma.quality_incidents.create({
+      data: {
+        incident_number: incidentNumber,
+        reported_by,
+        patient_uid: patient_uid || null,
+        incident_type,
+        severity,
+        description,
+        location: location || null,
+        date_occurred: new Date(date_occurred),
+      },
+      select: {
+        id: true,
+        incident_number: true,
+        reported_by: true,
+        patient_uid: true,
+        incident_type: true,
+        severity: true,
+        description: true,
+        location: true,
+        date_occurred: true,
+        status: true,
+        created_at: true,
+      },
+    });
 
     logger.info(`Quality incident reported: ${incidentNumber} by ${reported_by}`);
-    return result[0];
+    return incident;
   }
 
   /**
@@ -151,11 +164,11 @@ class QualityService {
     }
 
     // Verify exists
-    const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM quality_incidents WHERE id = $1`,
-      incidentId
-    );
-    if (existing.length === 0) {
+    const existing = await prisma.quality_incidents.findUnique({
+      where: { id: incidentId },
+      select: { id: true, status: true },
+    });
+    if (!existing) {
       throw AppError.notFound('Incident not found');
     }
 
@@ -168,29 +181,40 @@ class QualityService {
       throw AppError.badRequest(`Invalid status. Must be one of: ${VALID_INCIDENT_STATUSES.join(', ')}`);
     }
 
-    const resolvedAt = (status === 'resolved' || status === 'closed') ? new Date() : null;
+    // COALESCE semantics: only update fields the caller supplied.
+    const updateData = { updated_at: new Date() };
+    if (root_cause != null) updateData.root_cause = root_cause;
+    if (corrective_action != null) updateData.corrective_action = corrective_action;
+    if (preventive_action != null) updateData.preventive_action = preventive_action;
+    if (status != null) updateData.status = status;
+    if (investigated_by != null) updateData.investigated_by = investigated_by;
+    if (status === 'resolved' || status === 'closed') updateData.resolved_at = new Date();
 
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE quality_incidents SET
-        root_cause = COALESCE($1, root_cause),
-        corrective_action = COALESCE($2, corrective_action),
-        preventive_action = COALESCE($3, preventive_action),
-        status = COALESCE($4, status),
-        investigated_by = COALESCE($5, investigated_by),
-        resolved_at = COALESCE($6, resolved_at)
-       WHERE id = $7
-       RETURNING id, incident_number, reported_by, patient_uid, incident_type,
-        severity, description, location, date_occurred, root_cause,
-        corrective_action, preventive_action, status, investigated_by,
-        resolved_at, created_at`,
-      
-        root_cause || null, corrective_action || null, preventive_action || null,
-        status || null, investigated_by || null, resolvedAt, incidentId
-      
-    );
+    const incident = await prisma.quality_incidents.update({
+      where: { id: incidentId },
+      data: updateData,
+      select: {
+        id: true,
+        incident_number: true,
+        reported_by: true,
+        patient_uid: true,
+        incident_type: true,
+        severity: true,
+        description: true,
+        location: true,
+        date_occurred: true,
+        root_cause: true,
+        corrective_action: true,
+        preventive_action: true,
+        status: true,
+        investigated_by: true,
+        resolved_at: true,
+        created_at: true,
+      },
+    });
 
     logger.info(`Quality incident ${incidentId} updated, status: ${status || 'unchanged'}`);
-    return result[0];
+    return incident;
   }
 
   /**
@@ -265,27 +289,42 @@ class QualityService {
       throw AppError.badRequest(`Invalid isolation_type. Must be one of: ${VALID_ISOLATION_TYPES.join(', ')}`);
     }
 
-    const result = await prisma.$queryRawUnsafe(
-      `INSERT INTO infection_cases (
-        patient_uid, encounter_id, organism, infection_site,
-        detection_date, culture_date, antibiotic_sensitivity,
-        isolation_required, isolation_type, treatment_notes, reported_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      RETURNING id, patient_uid, encounter_id, organism, infection_site,
-        detection_date, culture_date, antibiotic_sensitivity,
-        isolation_required, isolation_type, status, treatment_notes,
-        reported_by, created_at`,
-      
-        patient_uid, encounter_id || null, organism, infection_site,
-        detection_date, culture_date || null,
-        antibiotic_sensitivity ? JSON.stringify(antibiotic_sensitivity) : null,
-        isolation_required || false, isolation_type || null,
-        treatment_notes || null, reported_by
-      
-    );
+    const infectionCase = await prisma.infection_cases.create({
+      data: {
+        patient_uid,
+        encounter_id: encounter_id || null,
+        organism,
+        infection_site,
+        detection_date: new Date(detection_date),
+        culture_date: culture_date ? new Date(culture_date) : null,
+        // Prisma handles JSONB serialisation — pass the object/value
+        // directly, no manual JSON.stringify needed.
+        antibiotic_sensitivity: antibiotic_sensitivity ?? null,
+        isolation_required: isolation_required || false,
+        isolation_type: isolation_type || null,
+        treatment_notes: treatment_notes || null,
+        reported_by,
+      },
+      select: {
+        id: true,
+        patient_uid: true,
+        encounter_id: true,
+        organism: true,
+        infection_site: true,
+        detection_date: true,
+        culture_date: true,
+        antibiotic_sensitivity: true,
+        isolation_required: true,
+        isolation_type: true,
+        status: true,
+        treatment_notes: true,
+        reported_by: true,
+        created_at: true,
+      },
+    });
 
     logger.info(`Infection case reported for patient ${patient_uid}, organism: ${organism}`);
-    return result[0];
+    return infectionCase;
   }
 
   /**
