@@ -31,6 +31,14 @@ export const LEAK_PATTERNS = [
   /\bnull\s+value\s+in\s+column\s+"[^"]+"\s+violates\s+not-null/i,
   // Prisma-style invocation banner: "Invalid `prisma.$queryRawUnsafe(...)`"
   /Invalid\s+`?prisma\.\$/i,
+  // Postgres type-mismatch leaks:
+  //   "operator does not exist: uuid = text"
+  //   "operator does not exist: uuid = text[]"
+  // Emitted when a query binds wrong-typed parameters (e.g. passing a JS
+  // array where a scalar is expected, or missing a ::uuid cast).
+  /\boperator\s+does\s+not\s+exist:\s+[a-z_]+\s*=\s*[a-z_]+(\[\])?/i,
+  // Postgres undefined-function / argument-mismatch hints
+  /\bNo\s+operator\s+matches\s+the\s+given\s+name\b/i,
 ];
 
 const GENERIC_5XX = 'An internal server error occurred. Please try again later.';

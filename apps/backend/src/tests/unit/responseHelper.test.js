@@ -35,6 +35,9 @@ describe('responseHelper.sanitizeErrorMessage', () => {
       'null value in column "encrypted_password" violates not-null constraint',
       'Invalid `prisma.$queryRawUnsafe()` invocation',
       'constraint "tenant_region_check" does not exist',
+      'operator does not exist: uuid = text',
+      'operator does not exist: uuid = text[]',
+      'No operator matches the given name and argument types',
     ];
 
     it.each(leakyMessages)('scrubs: %s', (msg) => {

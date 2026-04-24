@@ -111,7 +111,7 @@ class ReferralService {
 
     const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS total FROM referrals ${whereClause}`,
-      params
+      ...params
     );
     const total = parseInt(countResult[0].total, 10);
 
@@ -162,7 +162,7 @@ class ReferralService {
 
     const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS total FROM referrals ${whereClause}`,
-      params
+      ...params
     );
     const total = parseInt(countResult[0].total, 10);
 
