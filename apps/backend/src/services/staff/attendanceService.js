@@ -45,21 +45,24 @@ function startOfTomorrow() {
   return d;
 }
 
-// Fetch the users row + associated staff row (joined via users.uid =
-// staff.user_id). Neither model declares the relation in schema.prisma
-// yet, so this is the two-call equivalent of SELECT u.id, u.name,
-// s.shift, s.department FROM users u JOIN staff s ON u.uid = s.user_id.
+// Fetch the users row + associated staff row via the users↔staff
+// relation declared in migration 090 (staff.user_id → users.uid FK).
+// Replaces the batch-49 two-call helper with a single include read.
 async function fetchStaffRow(staffId) {
   const user = await prisma.users.findUnique({
     where: { id: Number(staffId) },
-    select: { id: true, uid: true, name: true },
+    select: {
+      id: true,
+      uid: true,
+      name: true,
+      staff: {
+        select: { shift: true, department: true, employee_id: true },
+        take: 1,
+      },
+    },
   });
-  if (!user) return null;
-  const staff = await prisma.staff.findFirst({
-    where: { user_id: user.uid },
-    select: { shift: true, department: true, employee_id: true },
-  });
-  if (!staff) return null;
+  if (!user || user.staff.length === 0) return null;
+  const [staff] = user.staff;
   return {
     id: user.id,
     uid: user.uid,

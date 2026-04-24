@@ -76,6 +76,7 @@ model users {
   salary_revisions_salary_revisions_proposed_byTousers     salary_revisions[]        @relation("salary_revisions_proposed_byTousers")
   salary_revisions_salary_revisions_rejected_byTousers     salary_revisions[]        @relation("salary_revisions_rejected_byTousers")
   salary_revisions_salary_revisions_staff_uidTousers       salary_revisions[]        @relation("salary_revisions_staff_uidTousers")
+  staff                                                    staff[]
   staff_salary                                             staff_salary?
   tenants                                                  tenants                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -856,11 +857,13 @@ model staff {
   status_reason        String?
   bank_details         Json?
   base_salary          Decimal?  @db.Decimal(12, 2)
+  users                users?    @relation(fields: [user_id], references: [uid], onUpdate: NoAction)
 
   @@index([user_id])
   @@index([name])
   @@index([department])
   @@index([is_active])
+  @@index([user_id], map: "idx_staff_user_id_fk")
   @@map("staff")
 }
 
