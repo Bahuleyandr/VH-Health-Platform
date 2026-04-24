@@ -153,20 +153,11 @@ export class AppointmentService {
 
   async getAppointmentById(id) {
     try {
-      const rows = await prisma.$queryRaw`
-        SELECT a.id, a.uid, a.phone, a.patient_id, a.doctor_id, a.doctor_name, a.patient_name,
-               a.appointment_date, a.appointment_time, a.status, a.reason, a.notes,
-               a.created_at, a.updated_at,
-               u.email AS patient_email,
-               d.name AS doctor_name_detail, d.phone AS doctor_phone, d.email AS doctor_email,
-               dp.specialty, dp.department
-        FROM appointments a
-        LEFT JOIN users u ON a.patient_id = u.id
-        LEFT JOIN users d ON a.doctor_id = d.id
-        LEFT JOIN doctors dp ON d.id = dp.user_id
-        WHERE a.id = ${parseInt(id)}
-      `;
-      return rows.length > 0 ? rows[0] : null;
+      // Duplicate of AppointmentQueryService.getAppointmentById — both
+      // services export this method under slightly different consumer
+      // paths. Delegating here keeps the flattening logic in one place.
+      const { default: queryService } = await import('./appointmentQueryService.js');
+      return queryService.getAppointmentById(id);
     } catch (error) {
       logger.error('Error getting appointment by ID:', error);
       throw error;

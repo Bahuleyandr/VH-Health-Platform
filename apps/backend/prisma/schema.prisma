@@ -31,6 +31,8 @@ model users {
   pan_number                                               String?                   @db.VarChar(20)
   annual_review_reminders                                  annual_review_reminders[]
   annual_tax_summaries                                     annual_tax_summaries[]
+  appointments_appointments_doctor_idTousers               appointments[]            @relation("appointments_doctor_idTousers")
+  appointments_appointments_patient_idTousers              appointments[]            @relation("appointments_patient_idTousers")
   beds                                                     beds[]
   doctors                                                  doctors[]
   full_final_settlements                                   full_final_settlements[]
@@ -332,20 +334,22 @@ model patient_feedback {
 }
 
 model appointments {
-  id               Int      @id @default(autoincrement())
-  uid              String?  @db.Uuid
-  phone            String   @db.VarChar(15)
-  patient_id       Int?
-  doctor_id        Int?
-  doctor_name      String   @default("") @db.VarChar(100)
-  patient_name     String?  @db.VarChar(255)
-  appointment_date DateTime @db.Date
-  appointment_time String   @db.VarChar(10)
-  status           String   @default("SCHEDULED") @db.VarChar(50)
-  reason           String?
-  notes            String?
-  created_at       DateTime @default(now()) @db.Timestamp(6)
-  updated_at       DateTime @updatedAt @db.Timestamp(6)
+  id                                   Int      @id @default(autoincrement())
+  uid                                  String?  @db.Uuid
+  phone                                String   @db.VarChar(15)
+  patient_id                           Int?
+  doctor_id                            Int?
+  doctor_name                          String   @default("") @db.VarChar(100)
+  patient_name                         String?  @db.VarChar(255)
+  appointment_date                     DateTime @db.Date
+  appointment_time                     String   @db.VarChar(10)
+  status                               String   @default("SCHEDULED") @db.VarChar(50)
+  reason                               String?
+  notes                                String?
+  created_at                           DateTime @default(now()) @db.Timestamp(6)
+  updated_at                           DateTime @updatedAt @db.Timestamp(6)
+  users_appointments_doctor_idTousers  users?   @relation("appointments_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction)
+  users_appointments_patient_idTousers users?   @relation("appointments_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
 
   @@index([phone])
   @@index([uid])
