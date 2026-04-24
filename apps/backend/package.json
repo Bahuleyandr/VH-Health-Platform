@@ -13,6 +13,7 @@
     "lint": "eslint . --ext .js && npm run lint:raw-params && npm run secrets:scan",
     "lint:fix": "eslint . --ext .js --fix",
     "lint:raw-params": "node scripts/lint-raw-params.mjs",
+    "check:schema-drift": "node scripts/check-schema-drift.mjs",
     "secrets:scan": "node ../../scripts/scan-secrets.mjs",
     "test:db:setup": "node scripts/ensure-test-db.mjs",
     "pretest": "npm run test:db:setup",

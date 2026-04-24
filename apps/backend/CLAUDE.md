@@ -42,7 +42,9 @@ prisma/schema.prisma  # DB documentation (58 models, NOT used for queries)
 ```
 
 ## Key Architecture Decisions
-- **Raw pg over Prisma**: All DB queries use `db.query()` from `DatabaseManager`. Prisma schema is documentation only. Use `db.readQuery()` for analytics/exports (routes to read replica when `DATABASE_READ_URL` is set).
+- **Prisma client is the canonical DB path.** 288+ sites use `prisma.$queryRaw*` / `$executeRaw*` from `src/lib/prisma.js`. The singleton is hardened at the edge (circuit breaker after 5 consecutive failures, >1000ms slow-query logging in every env) — every raw-SQL call inherits that automatically. New code: use `prisma` for reads/writes, `prismaReadOnly` for analytics / dashboards / exports (falls back to primary when `DATABASE_READ_URL` unset), and `setTenant(tenantId, fn, { superAdmin })` to wrap queries under RLS tenant scope (migration 075).
+- **DatabaseManager (`src/config/database.js`) is legacy-but-live.** It hosts its own pg pool and is currently used only for health-check pool stats (`db.healthCheck()`, `db.pool.totalCount`) + Prometheus / self-healing middleware. New code should NOT import `db from '../config/database.js'` for queries — use `prisma` instead. A future batch will migrate those pool-stat consumers to Prisma's `$metrics` and retire DatabaseManager.
+- **Schema drift check in CI.** `apps/backend/scripts/check-schema-drift.mjs` diffs `prisma/schema.prisma` against a fresh `prisma db pull` of the test DB after migrations. Surfaces batch-18/22-class bugs (`ordered_date` vs `requested_at`) at review time. Local check: `npm --prefix apps/backend run check:schema-drift`.
 - **Domain grouping**: Controllers, routes, services, validators are grouped by domain (auth/, appointment/, staff/, etc.)
 - **wrapAutoRBAC**: Routes use `wrapAutoRBAC(router, configKey, routeMap)` from `src/config/routeWrapper.js` for role-based access control.
 - **Response format**: All responses use `success(res, data, message, status, meta)` or `error(res, message, statusCode, details)` from `src/utils/responseHelper.js`. Envelope: `{ success: true, message: "...", data: {...}, requestId: "..." }`. Optional `meta` param for pagination.
@@ -361,12 +363,18 @@ SQL, JWT auth, or test infrastructure:
   bound-value-set violations. Slicing/terminology/profile invariants
   deferred to the official IG Publisher run in CI's `fhir-conformance`
   job (non-blocking; sample bundles in `src/services/fhir/__samples__/`).
-- **RLS enforcement is opt-in via `db.queryAsTenant(sql, params, tenantId)`**.
-  Plain `db.query()` bypasses RLS by design (legacy code paths). Use
-  `queryAsTenant` for any tenant-scoped read/write on the 11 tables listed
-  in `migrations/075_tenant_rls_policies.sql`; pass `{ superAdmin: true }`
-  for admin bypass. Full migration of existing query sites is planned for a
-  follow-up batch.
+- **RLS enforcement is opt-in via `setTenant(tenantId, fn, { superAdmin })`**
+  from `src/lib/prisma.js`. The callback receives a Prisma client scoped
+  to a transaction with `SET LOCAL app.current_tenant_id = $1` already
+  issued (via `set_config(..., true)` — auto-cleared at COMMIT/ROLLBACK,
+  no pool-session leak). Plain `prisma.$queryRaw*` bypasses RLS by design
+  (matches the permissive policy in migration 075 when the GUC is unset).
+  Use `setTenant` for any tenant-scoped read/write on the 11 tables
+  listed in `migrations/075_tenant_rls_policies.sql`; pass
+  `{ superAdmin: true }` to set the GUC to `'bypass'` for
+  cross-tenant admin reads. The legacy `db.queryAsTenant()` on
+  `DatabaseManager` still works identically for the few remaining
+  consumers in `src/tests/tenant-rls.deep.test.js`.
 
 ## Future Directions
 

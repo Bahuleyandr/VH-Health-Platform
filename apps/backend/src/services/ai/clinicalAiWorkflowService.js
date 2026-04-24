@@ -1,6 +1,5 @@
 import crypto from 'crypto';
-import prisma from '../../lib/prisma.js';
-import db from '../../config/database.js';
+import prisma, { setTenant } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { collectAdmissionClinicalContext } from '../emr/clinicalTimelineService.js';
@@ -1016,13 +1015,14 @@ export async function getBedForecast({ ward = null, windowHours = 24, tenantId =
   };
   // RLS POC — persists forecast under the tenant's RLS scope. The WITH CHECK
   // clause on the tenant_isolation policy enforces that tenant_id in the row
-  // matches the GUC uuid set by queryAsTenant.
-  await db.queryAsTenant(
-    `INSERT INTO clinical_ai_bed_forecasts
-       (tenant_id, ward, forecast_window_hours, forecast, created_at)
-     VALUES ($1::uuid, $2, $3, $4::jsonb, NOW())`,
-    [tid, ward || null, safeHours, JSON.stringify(forecast)],
-    tid
+  // matches the GUC uuid set by setTenant.
+  await setTenant(tid, (tx) =>
+    tx.$executeRawUnsafe(
+      `INSERT INTO clinical_ai_bed_forecasts
+         (tenant_id, ward, forecast_window_hours, forecast, created_at)
+       VALUES ($1::uuid, $2, $3, $4::jsonb, NOW())`,
+      tid, ward || null, safeHours, JSON.stringify(forecast),
+    ),
   );
   return forecast;
 }
@@ -1060,12 +1060,13 @@ export async function getPharmacyStockoutForecast({ days = 7, tenantId = null } 
     // RLS POC — each write runs under the tenant GUC; RLS WITH CHECK enforces
     // tenant_id matches the GUC uuid, so a misconfigured caller cannot smuggle
     // rows into another tenant.
-    await db.queryAsTenant(
-      `INSERT INTO clinical_ai_pharmacy_forecasts
-         (tenant_id, medication_name, risk_level, forecast, created_at)
-       VALUES ($1::uuid, $2, $3, $4::jsonb, NOW())`,
-      [tid, item.medication_name, item.risk_level, JSON.stringify(item)],
-      tid
+    await setTenant(tid, (tx) =>
+      tx.$executeRawUnsafe(
+        `INSERT INTO clinical_ai_pharmacy_forecasts
+           (tenant_id, medication_name, risk_level, forecast, created_at)
+         VALUES ($1::uuid, $2, $3, $4::jsonb, NOW())`,
+        tid, item.medication_name, item.risk_level, JSON.stringify(item),
+      ),
     );
   }
   return forecast;

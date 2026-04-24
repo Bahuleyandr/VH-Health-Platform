@@ -93,8 +93,11 @@ jobs:
       - name: Apply raw migrations + seed lookup data
         run: node scripts/ci-setup-db.mjs
 
-      - name: Schema drift check
+      - name: Schema drift check (table allowlist)
         run: node scripts/ci-schema-drift.mjs
+
+      - name: Schema drift check (column-level via prisma db pull)
+        run: node scripts/check-schema-drift.mjs
 
       - name: Run tests
         run: node --max-old-space-size=4096 --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --forceExit --detectOpenHandles
