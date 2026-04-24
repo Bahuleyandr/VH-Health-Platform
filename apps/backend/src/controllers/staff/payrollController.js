@@ -44,6 +44,68 @@ const PAYROLL_RUN_SELECT = {
   updated_at: true,
 };
 
+// Shared return shape for full_final_settlements across create/approve/paid.
+const FNF_DETAIL_SELECT = {
+  id: true,
+  staff_uid: true,
+  separation_type: true,
+  last_working_day: true,
+  last_month_days_worked: true,
+  last_month_basic: true,
+  last_month_allowances: true,
+  notice_period_days: true,
+  notice_shortfall_days: true,
+  notice_recovery_amount: true,
+  years_of_service: true,
+  gratuity_eligible: true,
+  gratuity_amount: true,
+  bonus_payable: true,
+  other_deductions: true,
+  other_deductions_reason: true,
+  gross_payable: true,
+  total_deductions: true,
+  net_payable: true,
+  status: true,
+  hr_approved_by: true,
+  hr_approved_at: true,
+  admin_approved_by: true,
+  admin_approved_at: true,
+  payment_date: true,
+  payment_reference: true,
+  notes: true,
+  created_at: true,
+  updated_at: true,
+};
+
+// Shared return shape for investment_declarations (upsert + approve).
+const DECLARATION_SELECT = {
+  id: true,
+  staff_uid: true,
+  financial_year: true,
+  ppf: true,
+  epf_voluntary: true,
+  elss: true,
+  lic_premium: true,
+  nsc: true,
+  home_loan_principal: true,
+  tuition_fees: true,
+  other_80c: true,
+  health_insurance_self: true,
+  health_insurance_parents: true,
+  education_loan_interest: true,
+  rent_paid_monthly: true,
+  rent_receipt_provided: true,
+  home_loan_interest: true,
+  nps_contribution: true,
+  notes: true,
+  status: true,
+  submitted_at: true,
+  approved_by: true,
+  approved_at: true,
+  created_at: true,
+  updated_at: true,
+};
+
 const PAYSLIP_DETAIL_SELECT = {
   id: true,
   staff_uid: true,
@@ -1335,10 +1397,32 @@ export const createFnF = async (req, res) => {
     const grossPayable = lastMonthBasic + lastMonthAllowances + gratuityAmount + (parseFloat(bonus_payable) || 0);
     const totalDedns = noticeRecovery + (parseFloat(other_deductions) || 0);
     const netPayable = grossPayable - totalDedns;
-    const result = await prisma.$queryRawUnsafe(
-      `INSERT INTO full_final_settlements (staff_uid,separation_type,last_working_day,last_month_days_worked,last_month_basic,last_month_allowances,notice_period_days,notice_shortfall_days,notice_recovery_amount,years_of_service,gratuity_eligible,gratuity_amount,bonus_payable,other_deductions,other_deductions_reason,gross_payable,total_deductions,net_payable,notes,created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id, staff_uid, separation_type, last_working_day, last_month_days_worked, last_month_basic, last_month_allowances, notice_period_days, notice_shortfall_days, notice_recovery_amount, years_of_service, gratuity_eligible, gratuity_amount, bonus_payable, other_deductions, other_deductions_reason, gross_payable, total_deductions, net_payable, status, notes, created_at`, staff_uid, separation_type, last_working_day, daysWorked, lastMonthBasic, lastMonthAllowances, s.notice_period_days||30, shortfall, noticeRecovery, Math.round(yearsOfService*100)/100, gratuityEligible, gratuityAmount, parseFloat(bonus_payable)||0, parseFloat(other_deductions)||0, other_deductions_reason||null, grossPayable, totalDedns, netPayable, notes||null, req.user?.uid);
-    success(res, result[0], `F&F calculated. Net payable: ₹${netPayable}`);
+    const result = await prisma.full_final_settlements.create({
+      data: {
+        staff_uid,
+        separation_type,
+        last_working_day: new Date(last_working_day),
+        last_month_days_worked: daysWorked,
+        last_month_basic: lastMonthBasic,
+        last_month_allowances: lastMonthAllowances,
+        notice_period_days: s.notice_period_days || 30,
+        notice_shortfall_days: shortfall,
+        notice_recovery_amount: noticeRecovery,
+        years_of_service: Math.round(yearsOfService * 100) / 100,
+        gratuity_eligible: gratuityEligible,
+        gratuity_amount: gratuityAmount,
+        bonus_payable: parseFloat(bonus_payable) || 0,
+        other_deductions: parseFloat(other_deductions) || 0,
+        other_deductions_reason: other_deductions_reason || null,
+        gross_payable: grossPayable,
+        total_deductions: totalDedns,
+        net_payable: netPayable,
+        notes: notes || null,
+        created_by: req.user?.uid,
+      },
+      select: FNF_DETAIL_SELECT,
+    });
+    success(res, result, `F&F calculated. Net payable: ₹${netPayable}`);
   } catch (err) { logger.error('CreateFnF:', err); error(res, 'Failed to create settlement', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
@@ -1366,21 +1450,46 @@ export const approveFnF = async (req, res) => {
     if (!fnf.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
     const f = fnf[0];
     let update;
+    const now = new Date();
     if (role === 'HR' && f.status === 'draft') {
-      update = await prisma.$queryRawUnsafe('UPDATE full_final_settlements SET status=$1,hr_approved_by=$2,hr_approved_at=NOW(),updated_at=NOW() WHERE id=$3 RETURNING id, staff_uid, separation_type, last_working_day, gross_payable, total_deductions, net_payable, status, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, created_at, updated_at', 'hr_approved', uid, id);
+      update = await prisma.full_final_settlements.update({
+        where: { id: Number(id) },
+        data: { status: 'hr_approved', hr_approved_by: uid, hr_approved_at: now, updated_at: now },
+        select: FNF_DETAIL_SELECT,
+      });
     } else if (role === 'ADMIN' && f.status === 'hr_approved') {
-      update = await prisma.$queryRawUnsafe('UPDATE full_final_settlements SET status=$1,admin_approved_by=$2,admin_approved_at=NOW(),updated_at=NOW() WHERE id=$3 RETURNING id, staff_uid, separation_type, last_working_day, gross_payable, total_deductions, net_payable, status, hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at, created_at, updated_at', 'admin_approved', uid, id);
+      update = await prisma.full_final_settlements.update({
+        where: { id: Number(id) },
+        data: { status: 'admin_approved', admin_approved_by: uid, admin_approved_at: now, updated_at: now },
+        select: FNF_DETAIL_SELECT,
+      });
     } else return error(res, 'Cannot approve: wrong role or status', HTTP_STATUS.BAD_REQUEST);
-    success(res, update[0], 'F&F approved');
+    success(res, update, 'F&F approved');
   } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 export const markFnFPaid = async (req, res) => {
   try {
     const { id } = req.params; const { payment_date, payment_reference } = req.body;
-    const result = await prisma.$queryRawUnsafe('UPDATE full_final_settlements SET status=$1,payment_date=$2,payment_reference=$3,updated_at=NOW() WHERE id=$4 AND status=$5 RETURNING id, staff_uid, separation_type, last_working_day, gross_payable, total_deductions, net_payable, status, payment_date, payment_reference, created_at, updated_at', 'paid', payment_date, payment_reference, id, 'admin_approved');
-    if (!result.length) return error(res, 'Not found or not admin-approved', HTTP_STATUS.BAD_REQUEST);
-    success(res, result[0], 'F&F marked as paid');
+    // updateMany so the `status='admin_approved'` predicate is part of the
+    // WHERE — matches the original "atomic transition only from the
+    // approved state" contract. An ORM-side update() with a guard would
+    // need a separate SELECT + update, introducing a race window.
+    const { count } = await prisma.full_final_settlements.updateMany({
+      where: { id: Number(id), status: 'admin_approved' },
+      data: {
+        status: 'paid',
+        payment_date: payment_date ? new Date(payment_date) : null,
+        payment_reference,
+        updated_at: new Date(),
+      },
+    });
+    if (count === 0) return error(res, 'Not found or not admin-approved', HTTP_STATUS.BAD_REQUEST);
+    const result = await prisma.full_final_settlements.findUnique({
+      where: { id: Number(id) },
+      select: FNF_DETAIL_SELECT,
+    });
+    success(res, result, 'F&F marked as paid');
   } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
@@ -1423,20 +1532,46 @@ export const upsertDeclaration = async (req, res) => {
       rent_receipt_provided=false, home_loan_interest=0, nps_contribution=0, notes
     } = req.body;
     if (!financial_year) return error(res, 'financial_year required', HTTP_STATUS.BAD_REQUEST);
-    const result = await prisma.$queryRawUnsafe(
-      `INSERT INTO investment_declarations
-         (staff_uid,financial_year,ppf,epf_voluntary,elss,lic_premium,nsc,home_loan_principal,tuition_fees,other_80c,health_insurance_self,health_insurance_parents,education_loan_interest,rent_paid_monthly,rent_receipt_provided,home_loan_interest,nps_contribution,notes,status,submitted_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'submitted',NOW())
-       ON CONFLICT (staff_uid,financial_year) DO UPDATE SET
-         ppf=$3,epf_voluntary=$4,elss=$5,lic_premium=$6,nsc=$7,home_loan_principal=$8,
-         tuition_fees=$9,other_80c=$10,health_insurance_self=$11,health_insurance_parents=$12,
-         education_loan_interest=$13,rent_paid_monthly=$14,rent_receipt_provided=$15,
-         home_loan_interest=$16,nps_contribution=$17,notes=$18,
-         status=CASE WHEN investment_declarations.status='locked' THEN 'locked' ELSE 'submitted' END,
-         submitted_at=CASE WHEN investment_declarations.status='locked' THEN investment_declarations.submitted_at ELSE NOW() END,
-         updated_at=NOW()
-       RETURNING id, staff_uid, financial_year, ppf, epf_voluntary, elss, lic_premium, nsc, home_loan_principal, tuition_fees, other_80c, health_insurance_self, health_insurance_parents, education_loan_interest, rent_paid_monthly, rent_receipt_provided, home_loan_interest, nps_contribution, notes, status, submitted_at, created_at, updated_at`, staffUid, financial_year, ppf, epf_voluntary, elss, lic_premium, nsc, home_loan_principal, tuition_fees, other_80c, health_insurance_self, health_insurance_parents, education_loan_interest, rent_paid_monthly, rent_receipt_provided, home_loan_interest, nps_contribution, notes||null);
-    success(res, result[0], 'Declaration saved');
+
+    // The old UPSERT used CASE expressions to preserve `status` and
+    // `submitted_at` when the existing row was 'locked'. Prisma has no
+    // ORM-side CASE — read the current row first so we can branch in JS.
+    const existing = await prisma.investment_declarations.findUnique({
+      where: { staff_uid_financial_year: { staff_uid: staffUid, financial_year } },
+      select: { status: true, submitted_at: true },
+    });
+    const isLocked = existing?.status === 'locked';
+    const now = new Date();
+
+    const amounts = {
+      ppf, epf_voluntary, elss, lic_premium, nsc,
+      home_loan_principal, tuition_fees, other_80c,
+      health_insurance_self, health_insurance_parents,
+      education_loan_interest, rent_paid_monthly, rent_receipt_provided,
+      home_loan_interest, nps_contribution,
+      notes: notes || null,
+    };
+
+    const result = await prisma.investment_declarations.upsert({
+      where: { staff_uid_financial_year: { staff_uid: staffUid, financial_year } },
+      create: {
+        staff_uid: staffUid,
+        financial_year,
+        ...amounts,
+        status: 'submitted',
+        submitted_at: now,
+      },
+      update: {
+        ...amounts,
+        // Locked rows: keep status + submitted_at unchanged (match the
+        // old CASE-based UPSERT). Everything-else: flip to submitted
+        // and refresh submitted_at.
+        ...(isLocked ? {} : { status: 'submitted', submitted_at: now }),
+        updated_at: now,
+      },
+      select: DECLARATION_SELECT,
+    });
+    success(res, result, 'Declaration saved');
   } catch (err) { logger.error('UpsertDeclaration:', err); error(res, 'Failed to save declaration', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
@@ -1465,10 +1600,24 @@ export const getAllDeclarations = async (req, res) => {
 
 export const approveDeclaration = async (req, res) => {
   try {
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE investment_declarations SET status='approved',approved_by=$1,approved_at=NOW(),updated_at=NOW() WHERE id=$2 RETURNING id, staff_uid, financial_year, status, approved_by, approved_at, created_at, updated_at`, req.user?.uid, req.params.id);
-    if (!result.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
-    success(res, result[0], 'Declaration approved');
+    const now = new Date();
+    try {
+      const result = await prisma.investment_declarations.update({
+        where: { id: Number(req.params.id) },
+        data: {
+          status: 'approved',
+          approved_by: req.user?.uid,
+          approved_at: now,
+          updated_at: now,
+        },
+        select: DECLARATION_SELECT,
+      });
+      success(res, result, 'Declaration approved');
+    } catch (err) {
+      // P2025 = record not found — match the old "Not found" contract.
+      if (err?.code === 'P2025') return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
+      throw err;
+    }
   } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
@@ -1482,10 +1631,33 @@ export const calculateLeaveEncashment = async (req, res) => {
     if (!staffData.length || !staffData[0].basic_salary) return error(res, 'Salary config not found', HTTP_STATUS.BAD_REQUEST);
     const dailyRate = parseFloat(staffData[0].basic_salary) / 26;
     const amount = Math.round(dailyRate * parseInt(leave_days) * 100) / 100;
-    const result = await prisma.$queryRawUnsafe(
-      `INSERT INTO leave_encashments (staff_uid,encashment_type,leave_days,daily_rate,amount,financial_year,approved_by,approved_at,status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),'approved') RETURNING id, staff_uid, encashment_type, leave_days, daily_rate, amount, financial_year, approved_by, approved_at, status, created_at`, staff_uid, encashment_type, leave_days, dailyRate, amount, financial_year||null, req.user?.uid);
-    success(res, result[0], `${leave_days} days × ₹${dailyRate.toFixed(2)}/day = ₹${amount}`);
+    const result = await prisma.leave_encashments.create({
+      data: {
+        staff_uid,
+        encashment_type,
+        leave_days: parseInt(leave_days),
+        daily_rate: dailyRate,
+        amount,
+        financial_year: financial_year || null,
+        approved_by: req.user?.uid,
+        approved_at: new Date(),
+        status: 'approved',
+      },
+      select: {
+        id: true,
+        staff_uid: true,
+        encashment_type: true,
+        leave_days: true,
+        daily_rate: true,
+        amount: true,
+        financial_year: true,
+        approved_by: true,
+        approved_at: true,
+        status: true,
+        created_at: true,
+      },
+    });
+    success(res, result, `${leave_days} days × ₹${dailyRate.toFixed(2)}/day = ₹${amount}`);
   } catch (err) { logger.error('LeaveEncashment:', err); error(res, 'Failed to process leave encashment', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
@@ -1512,11 +1684,31 @@ export const raisePayslipQuery = async (req, res) => {
     const staffUid = req.user?.uid;
     const { payslip_id, subject, description, category } = req.body;
     if (!payslip_id || !subject || !description) return error(res, 'payslip_id, subject, description required', HTTP_STATUS.BAD_REQUEST);
-    const payslip = await prisma.$queryRawUnsafe('SELECT id, staff_uid, month, year, payroll_run_id, basic_earned, hra_earned, da_earned, special_allowance_earned, transport_allowance_earned, medical_allowance_earned, overtime_pay, gross_salary, pf_employee, esi_employee, professional_tax, tds, total_deductions, net_salary, status, pdf_key, created_at, updated_at FROM payslips WHERE id=$1 AND staff_uid=$2', payslip_id, staffUid);
-    if (!payslip.length) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
-    const result = await prisma.$queryRawUnsafe(
-      `INSERT INTO payslip_queries (payslip_id,staff_uid,subject,description,category) VALUES ($1,$2,$3,$4,$5) RETURNING id, payslip_id, staff_uid, subject, description, category, status, created_at`, payslip_id, staffUid, subject, description, category||'general');
-    success(res, result[0], 'Query raised');
+    const payslip = await prisma.payslips.findFirst({
+      where: { id: Number(payslip_id), staff_uid: staffUid },
+      select: { id: true },
+    });
+    if (!payslip) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
+    const result = await prisma.payslip_queries.create({
+      data: {
+        payslip_id: Number(payslip_id),
+        staff_uid: staffUid,
+        subject,
+        description,
+        category: category || 'general',
+      },
+      select: {
+        id: true,
+        payslip_id: true,
+        staff_uid: true,
+        subject: true,
+        description: true,
+        category: true,
+        status: true,
+        created_at: true,
+      },
+    });
+    success(res, result, 'Query raised');
   } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
@@ -1554,14 +1746,55 @@ export const replyToPayslipQuery = async (req, res) => {
   try {
     const { id } = req.params; const { message, resolve } = req.body;
     if (!message) return error(res, 'message required', HTTP_STATUS.BAD_REQUEST);
-    await prisma.$queryRawUnsafe('INSERT INTO payslip_query_replies (query_id,author_uid,author_role,message) VALUES ($1,$2,$3,$4)', id, req.user?.uid, req.user?.role, message);
+    const now = new Date();
+    await prisma.payslip_query_replies.create({
+      data: {
+        query_id: Number(id),
+        author_uid: req.user?.uid,
+        author_role: req.user?.role,
+        message,
+      },
+      select: { id: true },
+    });
     if (resolve) {
-      await prisma.$queryRawUnsafe(`UPDATE payslip_queries SET status='resolved',resolved_by=$1,resolved_at=NOW(),resolution_note=$2,updated_at=NOW() WHERE id=$3`, req.user?.uid, message, id);
+      await prisma.payslip_queries.update({
+        where: { id: Number(id) },
+        data: {
+          status: 'resolved',
+          resolved_by: req.user?.uid,
+          resolved_at: now,
+          resolution_note: message,
+          updated_at: now,
+        },
+        select: { id: true },
+      });
     } else {
-      await prisma.$queryRawUnsafe(`UPDATE payslip_queries SET status='in_review',updated_at=NOW() WHERE id=$1 AND status='open'`, id);
+      // The 'status=open' predicate must stay in the WHERE (atomic guard)
+      // so updateMany is the right primitive — update() with a where
+      // constraint would need a prior SELECT.
+      await prisma.payslip_queries.updateMany({
+        where: { id: Number(id), status: 'open' },
+        data: { status: 'in_review', updated_at: now },
+      });
     }
-    const updated = await prisma.$queryRawUnsafe('SELECT id, payslip_id, staff_uid, query_type, description, status, resolution, resolved_by, created_at, resolved_at FROM payslip_queries WHERE id=$1', id);
-    success(res, updated[0], resolve ? 'Query resolved' : 'Reply sent');
+    const updated = await prisma.payslip_queries.findUnique({
+      where: { id: Number(id) },
+      select: {
+        id: true,
+        payslip_id: true,
+        staff_uid: true,
+        subject: true,
+        description: true,
+        category: true,
+        status: true,
+        resolved_by: true,
+        resolved_at: true,
+        resolution_note: true,
+        created_at: true,
+        updated_at: true,
+      },
+    });
+    success(res, updated, resolve ? 'Query resolved' : 'Reply sent');
   } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
@@ -1637,51 +1870,136 @@ export const createBulkRevision = async (req, res) => {
     const countResult=await prisma.$queryRawUnsafe(countQuery,...params);
     const staffCount=parseInt(countResult[0].cnt);
     if (staffCount===0) return error(res,`No active staff found for ${target_type}=${target_value}`,HTTP_STATUS.BAD_REQUEST);
-    const job=await prisma.$queryRawUnsafe(
-      `INSERT INTO bulk_revision_jobs (description,revision_type,target_type,target_value,increment_type,increment_value,bonus_amount,effective_from,staff_count,status,created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'draft',$10) RETURNING id, description, revision_type, target_type, target_value, increment_type, increment_value, bonus_amount, effective_from, staff_count, status, created_by, created_at`, description, revision_type, target_type, target_value, increment_type, increment_value, bonus_amount, effective_from, staffCount, req.user?.uid);
-    success(res,job[0],`Bulk revision draft created. Will affect ${staffCount} staff.`);
+    const job = await prisma.bulk_revision_jobs.create({
+      data: {
+        description,
+        revision_type,
+        target_type,
+        target_value,
+        increment_type,
+        increment_value,
+        bonus_amount,
+        effective_from: new Date(effective_from),
+        staff_count: staffCount,
+        status: 'draft',
+        created_by: req.user?.uid,
+      },
+      select: {
+        id: true,
+        description: true,
+        revision_type: true,
+        target_type: true,
+        target_value: true,
+        increment_type: true,
+        increment_value: true,
+        bonus_amount: true,
+        effective_from: true,
+        staff_count: true,
+        status: true,
+        created_by: true,
+        created_at: true,
+      },
+    });
+    success(res, job, `Bulk revision draft created. Will affect ${staffCount} staff.`);
   } catch (err) { logger.error('CreateBulkRev:', err); error(res,'Failed to create bulk revision',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
 export const approveBulkRevision = async (req, res) => {
   try {
     const { id } = req.params; const adminUid=req.user?.uid;
-    const job=await prisma.$queryRawUnsafe('SELECT id, status, total, processed, failed, started_at, completed_at, created_by, created_at FROM bulk_revision_jobs WHERE id=$1', id);
-    if (!job.length) return error(res,'Not found',HTTP_STATUS.NOT_FOUND);
-    const j=job[0];
-    if (j.status!=='draft') return error(res,'Already processed',HTTP_STATUS.BAD_REQUEST);
-    await prisma.$queryRawUnsafe(`UPDATE bulk_revision_jobs SET status='approved',approved_by=$1,approved_at=NOW() WHERE id=$2`, adminUid, id);
-    setImmediate(async()=>{
+    const j = await prisma.bulk_revision_jobs.findUnique({
+      where: { id: Number(id) },
+      select: {
+        id: true,
+        status: true,
+        target_type: true,
+        target_value: true,
+        revision_type: true,
+        increment_type: true,
+        increment_value: true,
+        bonus_amount: true,
+        effective_from: true,
+        description: true,
+        staff_count: true,
+      },
+    });
+    if (!j) return error(res,'Not found',HTTP_STATUS.NOT_FOUND);
+    if (j.status !== 'draft') return error(res,'Already processed',HTTP_STATUS.BAD_REQUEST);
+
+    await prisma.bulk_revision_jobs.update({
+      where: { id: Number(id) },
+      data: { status: 'approved', approved_by: adminUid, approved_at: new Date() },
+      select: { id: true },
+    });
+
+    setImmediate(async () => {
       try {
-        let staffQuery=`SELECT u.uid,ss.basic_salary FROM users u JOIN staff_salary ss ON ss.staff_uid=u.uid WHERE u.is_active=true`;
-        const params=[];
-        if (j.target_type==='department'){staffQuery+=` AND u.department=$1`;params.push(j.target_value);}
-        else if (j.target_type==='role'){staffQuery+=` AND u.role=$1`;params.push(j.target_value);}
-        else if (j.target_type==='designation'){staffQuery+=` AND ss.designation=$1`;params.push(j.target_value);}
-        const staffList=await prisma.$queryRawUnsafe(staffQuery,...params);
-        let processed=0;
+        // Staff targeting — still raw because the dynamic WHERE on users/
+        // staff_salary with varying filter columns is awkward in ORM form,
+        // and this is a read. Writes below are all typed.
+        let staffQuery = `SELECT u.uid,ss.basic_salary FROM users u JOIN staff_salary ss ON ss.staff_uid=u.uid WHERE u.is_active=true`;
+        const params = [];
+        if (j.target_type === 'department') { staffQuery += ` AND u.department=$1`; params.push(j.target_value); }
+        else if (j.target_type === 'role') { staffQuery += ` AND u.role=$1`; params.push(j.target_value); }
+        else if (j.target_type === 'designation') { staffQuery += ` AND ss.designation=$1`; params.push(j.target_value); }
+        const staffList = await prisma.$queryRawUnsafe(staffQuery, ...params);
+
+        let processed = 0;
         for (const s of staffList) {
           try {
-            let proposed_basic=parseFloat(s.basic_salary);
-            if (j.revision_type==='increment') {
-              proposed_basic=j.increment_type==='percentage'
-                ?proposed_basic*(1+parseFloat(j.increment_value)/100)
-                :proposed_basic+parseFloat(j.increment_value);
+            let proposed_basic = parseFloat(s.basic_salary);
+            if (j.revision_type === 'increment') {
+              proposed_basic = j.increment_type === 'percentage'
+                ? proposed_basic * (1 + parseFloat(j.increment_value) / 100)
+                : proposed_basic + parseFloat(j.increment_value);
             }
-            await prisma.$queryRawUnsafe(
-              `INSERT INTO salary_revisions (staff_uid,revision_number,revision_type,current_basic,proposed_basic,bonus_amount,effective_from,reason,status,hr_approved_by,hr_approved_at,admin_approved_by,admin_approved_at,applied_at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'applied',$9,NOW(),$9,NOW(),NOW())`, s.uid, `BULK-${id}-${s.uid.toString().slice(0,6)}`, j.revision_type, s.basic_salary, j.revision_type==='increment'?Math.round(proposed_basic*100)/100:s.basic_salary, j.bonus_amount||0, j.effective_from, j.description, adminUid);
-            if (j.revision_type==='increment') {
-              await prisma.$queryRawUnsafe('UPDATE staff_salary SET basic_salary=$1,updated_at=NOW() WHERE staff_uid=$2', Math.round(proposed_basic*100)/100, s.uid);
+            const now = new Date();
+            await prisma.salary_revisions.create({
+              data: {
+                staff_uid: s.uid,
+                revision_number: `BULK-${id}-${s.uid.toString().slice(0, 6)}`,
+                revision_type: j.revision_type,
+                current_basic: s.basic_salary,
+                proposed_basic: j.revision_type === 'increment'
+                  ? Math.round(proposed_basic * 100) / 100
+                  : s.basic_salary,
+                bonus_amount: j.bonus_amount || 0,
+                effective_from: new Date(j.effective_from),
+                reason: j.description,
+                status: 'applied',
+                hr_signed_by: adminUid,
+                hr_signed_at: now,
+                admin_signed_by: adminUid,
+                admin_signed_at: now,
+                applied_at: now,
+              },
+              select: { id: true },
+            });
+            if (j.revision_type === 'increment') {
+              await prisma.staff_salary.update({
+                where: { staff_uid: s.uid },
+                data: { basic_salary: Math.round(proposed_basic * 100) / 100, updated_at: now },
+                select: { id: true },
+              });
             }
             processed++;
-          } catch(e){ logger.warn(`Bulk rev failed ${s.uid}: ${e.message}`); }
+          } catch (e) { logger.warn(`Bulk rev failed ${s.uid}: ${e.message}`); }
         }
-        await prisma.$queryRawUnsafe(`UPDATE bulk_revision_jobs SET status='completed',processed_count=$1,completed_at=NOW() WHERE id=$2`, processed, id);
-      } catch(e){ await prisma.$queryRawUnsafe(`UPDATE bulk_revision_jobs SET status='failed',error_log=$1 WHERE id=$2`, e.message, id); }
+        await prisma.bulk_revision_jobs.update({
+          where: { id: Number(id) },
+          data: { status: 'completed', processed_count: processed, completed_at: new Date() },
+          select: { id: true },
+        });
+      } catch (e) {
+        await prisma.bulk_revision_jobs.update({
+          where: { id: Number(id) },
+          data: { status: 'failed', error_log: e.message },
+          select: { id: true },
+        });
+      }
     });
-    success(res,{id,status:'processing',staff_count:j.staff_count},'Bulk revision approved and processing');
+
+    success(res, { id, status: 'processing', staff_count: j.staff_count }, 'Bulk revision approved and processing');
   } catch (err) { logger.error('ApproveBulkRev:', err); error(res,'Failed to approve bulk revision',HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
 
