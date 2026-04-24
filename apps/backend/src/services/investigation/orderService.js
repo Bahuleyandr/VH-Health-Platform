@@ -5,6 +5,7 @@
 // - `requested_at` (NOT `ordered_date`)
 // - status default 'REQUESTED' (the DB default), then 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'.
 
+import { randomUUID } from 'node:crypto';
 import {
   INVESTIGATION_TYPES,
   PRIORITY_LEVELS,
@@ -12,8 +13,23 @@ import {
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
-const INVESTIGATION_RETURNING = `id, uid, phone, patient_id, test_name, test_type, status,
-    priority, file_key, requested_by, requested_at, updated_at, turnaround_target_hours`;
+// Subset of investigations columns the caller gets back. Shared between the
+// clinical + legacy paths so the API surface stays consistent.
+const INVESTIGATION_SELECT = {
+  id: true,
+  uid: true,
+  phone: true,
+  patient_id: true,
+  test_name: true,
+  test_type: true,
+  status: true,
+  priority: true,
+  file_key: true,
+  requested_by: true,
+  requested_at: true,
+  updated_at: true,
+  turnaround_target_hours: true,
+};
 
 export const createInvestigationOrder = async (orderData) => {
   const {
@@ -31,64 +47,87 @@ export const createInvestigationOrder = async (orderData) => {
     throw new Error('INVALID_PRIORITY');
   }
 
-  const [patientRows] = await Promise.all([
-    prisma.$queryRaw`SELECT id, name, phone FROM users WHERE id = ${parseInt(patient_id)}`,
-  ]);
-  if (patientRows.length === 0) throw new Error('PATIENT_NOT_FOUND');
-  const patient = patientRows[0];
+  // Prisma ORM — column names checked at runtime against schema.prisma so a
+  // typo like `.findUnique({ where: { user_id: ... } })` fails loudly.
+  const patient = await prisma.users.findUnique({
+    where: { id: parseInt(patient_id) },
+    select: { id: true, name: true, phone: true },
+  });
+  if (!patient) throw new Error('PATIENT_NOT_FOUND');
 
   const requesterUuid = doctor_uid || orderedBy;
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO investigations (
-        phone, patient_id, test_name, test_type, status, priority,
-        requested_by, requested_at, updated_at
-     ) VALUES (
-        $1, $2, $3, $4, 'REQUESTED', $5, $6::uuid, NOW(), NOW()
-     )
-     RETURNING ${INVESTIGATION_RETURNING}`,
-    patient.phone || 'unknown',
-    parseInt(patient_id),
-    test_name,
-    type.toUpperCase(),
-    priority.toUpperCase(),
-    requesterUuid,
-  );
+  const investigation = await prisma.investigations.create({
+    data: {
+      phone: patient.phone || 'unknown',
+      patient_id: parseInt(patient_id),
+      test_name,
+      test_type: type.toUpperCase(),
+      status: 'REQUESTED',
+      priority: priority.toUpperCase(),
+      requested_by: requesterUuid,
+      // requested_at / updated_at / created_at are managed by schema defaults
+      // (@default(now()) + @updatedAt), so we don't set them here.
+    },
+    select: INVESTIGATION_SELECT,
+  });
 
-  // Notification is best-effort (use the legacy path for PATIENT notification)
-  await prisma.$queryRawUnsafe(
-    `INSERT INTO notifications (phone, title, body, type, created_at, updated_at, uid, is_read)
-     VALUES ($1, 'New Investigation Ordered', $2, 'investigation_ordered', NOW(), NOW(), gen_random_uuid(), false)`,
-    patient.phone || 'unknown',
-    `Your doctor has ordered: ${test_name}. Please check your appointments.`,
-  ).catch((err) => logger.warn(`investigation notification insert failed: ${err.message}`));
+  // Notification is best-effort. uid is populated client-side via randomUUID
+  // (matches the legacy gen_random_uuid() behavior but avoids the DB
+  // round-trip Prisma can't model via @default).
+  await prisma.notifications.create({
+    data: {
+      uid: randomUUID(),
+      phone: patient.phone || 'unknown',
+      title: 'New Investigation Ordered',
+      body: `Your doctor has ordered: ${test_name}. Please check your appointments.`,
+      type: 'investigation_ordered',
+      is_read: false,
+    },
+  }).catch((err) => logger.warn(`investigation notification insert failed: ${err.message}`));
 
   if (notes) logger.info(`Investigation notes captured (not persisted — schema lacks notes col): ${notes.slice(0, 40)}…`);
   logger.info(`Investigation ordered: ${test_name} for patient ${patient_id} by ${requesterUuid}`);
 
   return {
-    investigation: rows[0],
+    investigation,
     patient_name: patient.name,
   };
 };
 
 export const createLegacyInvestigation = async ({ phone, test_name, file_key, createdBy }) => {
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO investigations (phone, test_name, file_key, status, requested_by, requested_at, updated_at)
-     VALUES ($1, $2, $3, 'REQUESTED', $4::uuid, NOW(), NOW())
-     RETURNING id, phone, test_name, file_key, status, requested_by, requested_at`,
-    phone, test_name, file_key ?? null, createdBy ?? null,
-  );
+  const investigation = await prisma.investigations.create({
+    data: {
+      phone,
+      test_name,
+      file_key: file_key ?? null,
+      status: 'REQUESTED',
+      requested_by: createdBy ?? null,
+    },
+    select: {
+      id: true,
+      phone: true,
+      test_name: true,
+      file_key: true,
+      status: true,
+      requested_by: true,
+      requested_at: true,
+    },
+  });
 
-  await prisma.$queryRawUnsafe(
-    `INSERT INTO notifications (phone, title, body, type, created_at, updated_at, uid, is_read)
-     VALUES ($1, 'Investigation Report Ready', $2, 'investigation_ready', NOW(), NOW(), gen_random_uuid(), false)`,
-    phone,
-    `Your investigation report for "${test_name}" is now available.`,
-  ).catch((err) => logger.warn(`legacy investigation notification failed: ${err.message}`));
+  await prisma.notifications.create({
+    data: {
+      uid: randomUUID(),
+      phone,
+      title: 'Investigation Report Ready',
+      body: `Your investigation report for "${test_name}" is now available.`,
+      type: 'investigation_ready',
+      is_read: false,
+    },
+  }).catch((err) => logger.warn(`legacy investigation notification failed: ${err.message}`));
 
   logger.info(`Legacy investigation created: ${test_name} for ${phone}`);
-  return rows[0];
+  return investigation;
 };
 
 export const canOrderInvestigations = (userRole) => {
