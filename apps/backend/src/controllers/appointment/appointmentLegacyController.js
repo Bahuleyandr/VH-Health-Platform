@@ -12,12 +12,12 @@ export const createLegacyAppointment = async (req, res) => {
     const { doctor_name, date, time, department } = req.body;
 
     const result = await prisma.$queryRawUnsafe(
-      'INSERT INTO appointments (phone, doctor_name, date, time) VALUES ($1, $2, $3, $4) RETURNING id, uid, phone, patient_name, doctor_name, date, status, created_at',
+      'INSERT INTO appointments (phone, doctor_name, appointment_date, appointment_time) VALUES ($1, $2, $3, $4) RETURNING id, uid, phone, patient_name, doctor_name, appointment_date, appointment_time, status, created_at',
       phone, doctor_name, date, time
     );
 
     const appointment = result[0];
-    const scheduledAt = combineDateAndTime(appointment.date, appointment.time);
+    const scheduledAt = combineDateAndTime(appointment.appointment_date, appointment.appointment_time);
 
     success(res, {
       id: appointment.id,

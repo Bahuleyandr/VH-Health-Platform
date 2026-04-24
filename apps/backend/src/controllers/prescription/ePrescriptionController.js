@@ -641,7 +641,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     const phone = delivery_phone || rx.patient_phone;
     const orderResult = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_orders
-        (phone, patient_id, patient_name, order_note, delivery_type, delivery_address, delivery_phone, items_list, total_cost, status)
+        (phone, patient_id, patient_name, order_note, delivery_type, delivery_address, delivery_phone, items_list, total_amount, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
        RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at, order_number, delivery_type`,
       phone,

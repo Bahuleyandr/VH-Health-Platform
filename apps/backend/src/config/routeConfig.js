@@ -298,9 +298,6 @@ export const ROUTE_FILES = {
   version: '../routes/infrastructure/versionRoutes.js',
   health: '../routes/health/index.js',
   
-  // File Management & Media
-  upload: '../routes/uploadRoutes.js',
-  
   // Administrative & Management
   admin: '../routes/admin/index.js',
   adminDepartments: '../routes/department/adminDepartmentRoutes.js',
