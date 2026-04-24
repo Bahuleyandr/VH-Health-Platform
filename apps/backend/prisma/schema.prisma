@@ -961,8 +961,13 @@ model staff_onboarding_tasks {
   completed_by   String?   @db.Uuid
   completed_date DateTime? @db.Timestamp(6)
   updated_at     DateTime  @default(now()) @db.Timestamp(6)
+  description    String?
+  assigned_to    String?   @db.Uuid
+  due_date       DateTime? @db.Date
+  priority       String?   @default("medium") @db.VarChar(20)
 
   @@index([staff_id])
+  @@index([priority], map: "idx_staff_onboarding_tasks_priority")
   @@map("staff_onboarding_tasks")
 }
 
