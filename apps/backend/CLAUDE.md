@@ -17,7 +17,7 @@ and hardware spec in [`../../docs/HARDWARE_REQUIREMENTS.md`](../../docs/HARDWARE
 ## Tech Stack
 - **Runtime**: Node.js 22, Express 5
 - **Database**: PostgreSQL 17 native install (dev cluster at `D:\Dev\Tools\pgdata-vhhealth` on port **5433**, user `vhhealth`, db `vhhealth`). Prod runs managed Postgres; both speak the same wire protocol.
-- **ORM**: Prisma schema exists for documentation, but **all queries use raw `pg` Pool** via `src/config/database.js`
+- **ORM**: Prisma is the canonical DB client — `src/lib/prisma.js` exports `prisma`, `prismaReadOnly`, `setTenant`, `circuitBreakerStatus`. 288+ `$queryRaw*` call sites + the per-domain typed ORM migrations (batches 26–38) all run through it. `src/config/database.js` / `DatabaseManager` were **deleted in batch 31** — do not try to import them.
 - **Auth**: JWT (jsonwebtoken) + Firebase Admin SDK + bcrypt
 - **Storage**: Cloudflare R2 (vh-health-records bucket)
 - **Logging**: Winston (`src/logging/logger.js`)
@@ -38,12 +38,12 @@ src/
   validators/         # express-validator chains
   tests/              # Jest integration tests (authorization, critical paths)
   logging/            # Winston logger config
-prisma/schema.prisma  # DB documentation (58 models, NOT used for queries)
+prisma/schema.prisma  # 219 models, canonical schema source (batch 24 regen)
 ```
 
 ## Key Architecture Decisions
 - **Prisma client is the canonical DB path.** 288+ sites use `prisma.$queryRaw*` / `$executeRaw*` from `src/lib/prisma.js`. The singleton is hardened at the edge (circuit breaker after 5 consecutive failures, >1000ms slow-query logging in every env) — every raw-SQL call inherits that automatically. New code: use `prisma` for reads/writes, `prismaReadOnly` for analytics / dashboards / exports (falls back to primary when `DATABASE_READ_URL` unset), and `setTenant(tenantId, fn, { superAdmin })` to wrap queries under RLS tenant scope (migration 075).
-- **DatabaseManager (`src/config/database.js`) is legacy-but-live.** It hosts its own pg pool and is currently used only for health-check pool stats (`db.healthCheck()`, `db.pool.totalCount`) + Prometheus / self-healing middleware. New code should NOT import `db from '../config/database.js'` for queries — use `prisma` instead. A future batch will migrate those pool-stat consumers to Prisma's `$metrics` and retire DatabaseManager.
+- **DatabaseManager shim is gone.** `src/config/database.js` was deleted in batch 31 after every consumer (app.js root probe, bin/www.js shutdown, prometheusMiddleware, jest.teardown, tenant-rls deep test, uptimeRoutes) was ported to `prisma` directly. Do not try to re-add a shim; use `prisma.$queryRaw` / `prisma.$executeRaw` + the helpers on `src/lib/prisma.js` (setTenant, prismaReadOnly, circuitBreakerStatus).
 - **Schema drift check in CI.** `apps/backend/scripts/check-schema-drift.mjs` diffs `prisma/schema.prisma` against a fresh `prisma db pull` of the test DB after migrations. Surfaces batch-18/22-class bugs (`ordered_date` vs `requested_at`) at review time. Local check: `npm --prefix apps/backend run check:schema-drift`.
 - **Domain grouping**: Controllers, routes, services, validators are grouped by domain (auth/, appointment/, staff/, etc.)
 - **wrapAutoRBAC**: Routes use `wrapAutoRBAC(router, configKey, routeMap)` from `src/config/routeWrapper.js` for role-based access control.
@@ -144,9 +144,9 @@ Prefer `/my` endpoints that derive phone from JWT:
 - 30s `statement_timeout` on all queries (prevents connection pool exhaustion)
 - **Circuit breaker**: after 5 consecutive query failures, rejects immediately for 30s. Auto-resets (half-open) on recovery.
 - Pool error events logged (prevents silent connection loss)
-- `db.healthCheck()` returns pool stats (totalCount, idleCount, waitingCount)
-- `db.readQuery()` routes to read replica when `DATABASE_READ_URL` configured
-- `db.setDatabaseInstance()` export for test mocking
+- `circuitBreakerStatus()` from `src/lib/prisma.js` reports breaker state (open/consecutiveFailures/openedAt/resetInMs); scraped by `/health/metrics`.
+- `prismaReadOnly` from `src/lib/prisma.js` routes to `DATABASE_READ_URL` when configured, falls back to primary otherwise. Use it for analytics / dashboards / exports.
+- For test mocking, import and stub the `prisma` singleton directly (the old `setDatabaseInstance` shim was deleted with DatabaseManager in batch 31).
 - Slow query logging: queries >1000ms logged as warnings with duration and truncated SQL
 
 ### External Service Resilience
@@ -185,7 +185,7 @@ Prefer `/my` endpoints that derive phone from JWT:
 - **PII masking**: `src/utils/piiMask.js` — `maskPhone()`, `maskEmail()`, `maskName()` for safe logging
 
 ### Self-Healing Infrastructure
-- **DB health monitor**: `src/utils/dbHealthMonitor.js` — polls pool stats every 30s, warns on pressure, alerts on near-exhaustion
+- **DB health monitor**: the legacy `src/utils/dbHealthMonitor.js` was deleted in batch 31 (the pool it polled was retired in batch 28). `/health/metrics` in `src/routes/health/uptimeRoutes.js` now exposes `circuitBreakerStatus()` + a `SELECT 1` probe as the primary ops signal.
 - **Canary health checks**: `src/utils/canaryHealthCheck.js` — every 5 minutes tests DB read/write, stuck notifications, unacknowledged critical alerts
 - **Schema drift detection**: `src/utils/schemaDriftDetector.js` — compares expected vs actual DB tables at startup, warns on mismatches
 - **Scheduler job locking**: `withJobLock()` prevents overlapping cron executions
@@ -295,7 +295,7 @@ The five separate source repos these were merged from are archived on GitHub as 
 - Throw `AppError` (from `src/utils/AppError.js`) instead of generic `Error` in services — includes statusCode, code, details
 - Use role helpers from `src/utils/roleHelpers.js` (e.g. `isStaff()`, `isClinical()`) — never inline role arrays
 - Security constants live in `src/config/securityConfig.js` — not hardcoded in services
-- Use `db.readQuery()` for analytics/dashboards/exports (routes to read replica when configured)
+- Use `prismaReadOnly` from `src/lib/prisma.js` for analytics/dashboards/exports (routes to read replica when configured)
 - Never return fake success data in catch blocks — if the DB fails, return `error()` not `success()` with zeros
 - Use `checkVitalAnomalies()` after recording vitals — generates clinical alerts for abnormal values
 - Use `validatePrescriptionSafety()` before saving prescriptions — checks allergies and duplicates
@@ -372,9 +372,9 @@ SQL, JWT auth, or test infrastructure:
   Use `setTenant` for any tenant-scoped read/write on the 11 tables
   listed in `migrations/075_tenant_rls_policies.sql`; pass
   `{ superAdmin: true }` to set the GUC to `'bypass'` for
-  cross-tenant admin reads. The legacy `db.queryAsTenant()` on
-  `DatabaseManager` still works identically for the few remaining
-  consumers in `src/tests/tenant-rls.deep.test.js`.
+  cross-tenant admin reads. Batch 31 deleted `DatabaseManager` and
+  its `db.queryAsTenant()`; `src/tests/tenant-rls.deep.test.js` now
+  calls `setTenant` + a local `ownerQuery` helper directly.
 
 ## Future Directions
 

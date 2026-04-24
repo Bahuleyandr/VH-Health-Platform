@@ -139,12 +139,21 @@ The full `REFACTORING_PLAN.md` documents the full ranked leaderboard.
 
 ## Testing
 
-- **Unit/component**: Jest configured. Use `npm test`. No `.test.tsx`
-  written yet for components — top priority.
-- **E2E**: Playwright scaffolded at `playwright.config.ts` + `e2e/`.
-  Run `npm run test:e2e` (requires `npm run dev` running OR set
-  `webServer` config). `npm run test:e2e:ui` for the inspector.
-  Currently 3 smoke tests; add per-journey tests as god-pages get refactored.
+- **Unit/component**: Jest. `npm test` — currently 21 suites / 247
+  tests passing.
+- **E2E**: Playwright. `@playwright/test` is a pinned devDependency
+  (added batch 41); `npx playwright install chromium` once per clone.
+  `npm run test:e2e` runs against an existing `npm run dev` on :3001.
+  Two projects:
+    - `setup` — runs `e2e/auth.setup.ts` once, logs in as the seeded
+      `playwright-admin` test user (ADMIN role, no MFA), writes
+      `playwright/.auth/admin.json` storage state. DB seed SQL in the
+      file header.
+    - `chromium` — depends on setup, reuses the storage state for
+      `e2e/authenticated.spec.ts` journeys. `e2e/smoke.spec.ts`
+      explicitly opts out via `test.use({ storageState: { cookies:
+      [], origins: [] } })` so its redirect assertions fire.
+  Currently 5 smoke + 5 authenticated journey tests.
 
 ## Conventions
 - Use `fetchAdminAPI` for dashboard pages (auto-prepends /api/v1)

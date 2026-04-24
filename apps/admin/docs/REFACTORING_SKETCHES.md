@@ -1,5 +1,12 @@
 # God-page refactoring sketches — appointments + payroll
 
+> **✅ BOTH SKETCHES LANDED** — appointments/page.tsx is 82 LOC and
+> payroll/page.tsx is 62 LOC on main (both split pre-monorepo-merge on
+> 2026-04-18). Subsequent god-splits applied the same pattern to
+> ComplianceTab.tsx (batch 33), system-logs/page.tsx (batch 39), and
+> audit/page.tsx (batch 40). This sketch is preserved for reference on
+> how the pattern was derived, not as a live to-do list.
+
 Companion to `REFACTORING_PLAN.md`. Pre-cut decomposition for the two
 largest god pages, derived by greping for top-level `function` declarations.
 The same pattern proven on housekeeping (1268→65 LOC), pharmacy (889→58),

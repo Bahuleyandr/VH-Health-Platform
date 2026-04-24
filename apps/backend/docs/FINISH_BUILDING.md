@@ -149,8 +149,9 @@ Knock them out now before the next feature wave.
       bed CRUD, pharmacy stock adjustment, compliance indicators rendering,
       PDF export, denial dashboard.
 - [ ] **2.13** Data-table bulk-edit + keyboard shortcuts.
-- [ ] **2.14** Deeper `DashboardClient.tsx` split (still 746L — extract
-      `StatsGrid`, `NotificationsDrawer`, `CommandPalette`, `ActivityFeed`).
+- [x] **2.14** Deeper `DashboardClient.tsx` split — obsoleted. The file
+      was deleted in batch 20 (2026-04-24); the real remaining god-pages
+      (ComplianceTab, system-logs, audit) were split in batches 33/39/40.
 - [x] **2.15** Clinical AI governance control plane — 2026-04-22:
       `/api/v1/admin/clinical-ai` is limited to Admin/Super Admin/IT control
       roles, module/guardrail changes write structured `audit_logs`, and the
