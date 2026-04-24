@@ -143,19 +143,21 @@ export const getReportAuditTrail = async (req, res) => {
     }
 
     const reportQuery = type === 'incident'
-      ? `SELECT ir.*, u.name as reporter_name, u.department as reporter_dept,
+      ? `SELECT ir.*, u.name as reporter_name, s.department as reporter_dept,
                 u2.name as assigned_to_name, u3.name as resolved_by_name
          FROM incident_reports ir
          LEFT JOIN users u ON ir.reporter_id = u.id
+         LEFT JOIN staff s ON u.uid = s.user_id
          LEFT JOIN users u2 ON ir.assigned_to = u2.id
          LEFT JOIN users u3 ON ir.resolved_by = u3.id
          WHERE ir.id = $1`
-      : `SELECT sg.*, 
+      : `SELECT sg.*,
                 CASE WHEN sg.is_anonymous THEN 'Anonymous' ELSE u.name END as reporter_name,
-                CASE WHEN sg.is_anonymous THEN NULL ELSE u.department END as reporter_dept,
+                CASE WHEN sg.is_anonymous THEN NULL ELSE s.department END as reporter_dept,
                 u2.name as assigned_to_name, u3.name as resolved_by_name
          FROM staff_grievances sg
          LEFT JOIN users u ON sg.reporter_id = u.id
+         LEFT JOIN staff s ON u.uid = s.user_id
          LEFT JOIN users u2 ON sg.assigned_to = u2.id
          LEFT JOIN users u3 ON sg.resolved_by = u3.id
          WHERE sg.id = $1`;

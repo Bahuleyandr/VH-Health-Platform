@@ -73,7 +73,7 @@ class DepartmentService {
         SELECT d.name, d.description,
                COUNT(doc.user_id) as available_doctors,
                STRING_AGG(u.name, ', ') as doctor_names,
-               STRING_AGG(doc.specialization, ', ') as specializations
+               STRING_AGG(doc.specialty, ', ') as specializations
         FROM departments d
         LEFT JOIN doctors doc ON doc.department = d.name
           AND doc.is_available = true
@@ -133,7 +133,7 @@ class DepartmentService {
       // Get doctors in this department
       const doctorsRows = await prisma.$queryRaw`
         SELECT u.id, u.name, u.phone, u.email,
-               doc.specialization, doc.experience_years, doc.consultation_fee,
+               doc.specialty, doc.experience_years, doc.consultation_fee,
                doc.available_days, doc.available_hours, doc.is_available,
                doc.qualifications
         FROM users u

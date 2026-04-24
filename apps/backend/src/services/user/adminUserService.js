@@ -125,19 +125,19 @@ export class AdminUserService {
     const rows = await prisma.$queryRaw`
       SELECT
         u.uid, u.id, u.phone, u.name, u.email, u.role,
-        u.registered_at, u.last_login,
-        EXTRACT(DAY FROM NOW() - u.last_login)::int AS days_inactive,
+        u.registered_at, u.last_sign_in_at,
+        EXTRACT(DAY FROM NOW() - u.last_sign_in_at)::int AS days_inactive,
         CASE
-          WHEN u.last_login IS NULL THEN 'Never logged in'
-          WHEN u.last_login < NOW() - INTERVAL '90 days' THEN 'Very inactive'
-          WHEN u.last_login < NOW() - INTERVAL '60 days' THEN 'Inactive'
-          WHEN u.last_login < NOW() - INTERVAL '30 days' THEN 'Becoming inactive'
+          WHEN u.last_sign_in_at IS NULL THEN 'Never logged in'
+          WHEN u.last_sign_in_at < NOW() - INTERVAL '90 days' THEN 'Very inactive'
+          WHEN u.last_sign_in_at < NOW() - INTERVAL '60 days' THEN 'Inactive'
+          WHEN u.last_sign_in_at < NOW() - INTERVAL '30 days' THEN 'Becoming inactive'
           ELSE 'Recently active'
         END AS activity_status
       FROM users u
-      WHERE u.last_login < NOW() - (${daysInt} || ' days')::interval
-         OR u.last_login IS NULL
-      ORDER BY u.last_login ASC NULLS FIRST
+      WHERE u.last_sign_in_at < NOW() - (${daysInt} || ' days')::interval
+         OR u.last_sign_in_at IS NULL
+      ORDER BY u.last_sign_in_at ASC NULLS FIRST
     `;
 
     return {

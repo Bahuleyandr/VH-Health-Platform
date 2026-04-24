@@ -124,9 +124,10 @@ export const getAllIncidents = async (req, res) => {
     const incidents = await prisma.$queryRawUnsafe(`
       SELECT ir.id, ir.reported_by, ir.description, ir.category, ir.severity, ir.status,
         ir.location, ir.acknowledged_by, ir.created_at, ir.updated_at,
-        u.name as reporter_name, u.department as reporter_department, u2.name as assigned_to_name
+        u.name as reporter_name, s.department as reporter_department, u2.name as assigned_to_name
       FROM incident_reports ir
       LEFT JOIN users u ON ir.reporter_id = u.id
+      LEFT JOIN staff s ON u.uid = s.user_id
       LEFT JOIN users u2 ON ir.assigned_to = u2.id
       ${where}
       ORDER BY
@@ -157,9 +158,10 @@ export const getAdminIncidentDetail = async (req, res) => {
     const incident = await prisma.$queryRawUnsafe(`
       SELECT ir.id, ir.reported_by, ir.description, ir.category, ir.severity, ir.status,
         ir.location, ir.acknowledged_by, ir.created_at, ir.updated_at,
-        u.name as reporter_name, u.department as reporter_department, u2.name as assigned_to_name
+        u.name as reporter_name, s.department as reporter_department, u2.name as assigned_to_name
       FROM incident_reports ir
       LEFT JOIN users u ON ir.reporter_id = u.id
+      LEFT JOIN staff s ON u.uid = s.user_id
       LEFT JOIN users u2 ON ir.assigned_to = u2.id
       WHERE ir.id = $1
     `, id);

@@ -282,9 +282,9 @@ export class DoctorService {
         rows = await prisma.$queryRaw`
           SELECT u.id, u.uid, u.phone, u.name, u.email, u.gender, u.address,
                  u.birthday, u.profile_picture, u.registered_at,
-                 d.specialization, d.department, d.experience_years, d.consultation_fee,
-                 d.available_days, d.available_hours, d.is_available, d.bio, d.education,
-                 d.qualifications, d.certifications, d.created_at as profile_created,
+                 d.specialty AS specialization, d.department, d.experience_years, d.consultation_fee,
+                 d.available_days, d.available_hours, d.is_available, d.intro AS bio, d.education,
+                 d.qualifications, NULL::text[] AS certifications, d.created_at as profile_created,
                  d.updated_at as profile_updated
           FROM users u
           LEFT JOIN doctors d ON u.id = d.user_id
@@ -295,9 +295,9 @@ export class DoctorService {
         rows = await prisma.$queryRaw`
           SELECT u.id, u.uid, u.phone, u.name, u.email, u.gender, u.address,
                  u.birthday, u.profile_picture, u.registered_at,
-                 d.specialization, d.department, d.experience_years, d.consultation_fee,
-                 d.available_days, d.available_hours, d.is_available, d.bio, d.education,
-                 d.qualifications, d.certifications, d.created_at as profile_created,
+                 d.specialty AS specialization, d.department, d.experience_years, d.consultation_fee,
+                 d.available_days, d.available_hours, d.is_available, d.intro AS bio, d.education,
+                 d.qualifications, NULL::text[] AS certifications, d.created_at as profile_created,
                  d.updated_at as profile_updated
           FROM users u
           LEFT JOIN doctors d ON u.id = d.user_id
@@ -319,8 +319,8 @@ export class DoctorService {
       if (availableOnly) {
         rows = await prisma.$queryRaw`
           SELECT u.id, u.uid, u.name, u.phone, u.email,
-                 d.specialization, d.experience_years, d.consultation_fee, d.is_available,
-                 d.available_days, d.available_hours, d.bio
+                 d.specialty AS specialization, d.experience_years, d.consultation_fee, d.is_available,
+                 d.available_days, d.available_hours, d.intro AS bio
           FROM users u
           JOIN doctors d ON u.id = d.user_id
           WHERE u.role = 'DOCTOR' AND UPPER(d.department) = UPPER(${department}) AND d.is_available = true
@@ -329,8 +329,8 @@ export class DoctorService {
       } else {
         rows = await prisma.$queryRaw`
           SELECT u.id, u.uid, u.name, u.phone, u.email,
-                 d.specialization, d.experience_years, d.consultation_fee, d.is_available,
-                 d.available_days, d.available_hours, d.bio
+                 d.specialty AS specialization, d.experience_years, d.consultation_fee, d.is_available,
+                 d.available_days, d.available_hours, d.intro AS bio
           FROM users u
           JOIN doctors d ON u.id = d.user_id
           WHERE u.role = 'DOCTOR' AND UPPER(d.department) = UPPER(${department})
@@ -353,8 +353,8 @@ export class DoctorService {
 
       const rows = await prisma.$queryRaw`
         SELECT u.id, u.uid, u.name, u.phone,
-               d.specialization, d.department, d.consultation_fee,
-               d.available_days, d.available_hours, d.bio
+               d.specialty AS specialization, d.department, d.consultation_fee,
+               d.available_days, d.available_hours, d.intro AS bio
         FROM users u
         JOIN doctors d ON u.id = d.user_id
         WHERE u.role = 'DOCTOR'

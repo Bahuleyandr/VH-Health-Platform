@@ -143,19 +143,20 @@ export const getAbsentReport = async (req, res) => {
     const { date = new Date().toISOString().split('T')[0], department } = req.query;
     
     const absentStaff = await prisma.$queryRawUnsafe(`
-      SELECT 
+      SELECT
         s.name,
         s.employee_id,
         s.department,
-        s.phone,
-        CASE 
+        u.phone,
+        CASE
           WHEN la.id IS NOT NULL THEN 'On Leave'
           ELSE 'Absent Without Notice'
         END as status
       FROM staff s
-      LEFT JOIN staff_attendance a ON s.id = a.staff_id 
+      LEFT JOIN users u ON s.user_id = u.uid
+      LEFT JOIN staff_attendance a ON s.id = a.staff_id
         AND a.check_in_time::date = $1
-      LEFT JOIN leave_applications la ON s.id = la.staff_id 
+      LEFT JOIN leave_applications la ON s.id = la.staff_id
         AND la.status = 'approved'
         AND $1 BETWEEN la.start_date AND la.end_date
       WHERE 

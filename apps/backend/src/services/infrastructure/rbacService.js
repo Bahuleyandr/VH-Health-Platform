@@ -103,10 +103,10 @@ export class RBACService {
               'name', u.name,
               'email', u.email,
               'registered_at', TO_CHAR(u.registered_at, 'DD-MM-YYYY'),
-              'last_login', TO_CHAR(u.last_login, 'DD-MM-YYYY HH24:MI'),
+              'last_login', TO_CHAR(u.last_sign_in_at, 'DD-MM-YYYY HH24:MI'),
               'is_active', u.is_active,
               'role_updated_at', TO_CHAR(u.role_updated_at, 'DD-MM-YYYY')
-            ) ORDER BY u.last_login DESC NULLS LAST
+            ) ORDER BY u.last_sign_in_at DESC NULLS LAST
           ) as users
         FROM users u
         ${whereClause}

@@ -290,7 +290,7 @@ export const getTodayQueue = async (req, res) => {
       SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date, a.appointment_time,
         a.status, a.reason, a.notes, a.token_number, a.department, a.confirmed_at, a.created_at, a.updated_at,
         p.name as patient_name, p.phone as patient_phone, p.blood_group,
-        d.name as doctor_display_name, d.specialization,
+        d.name as doctor_display_name, doc.specialty AS specialization,
         doc.department as doctor_department
       FROM appointments a
       LEFT JOIN users p ON a.patient_id = p.id
@@ -353,7 +353,7 @@ export const getAvailableSlots = async (req, res) => {
 
     // Doctor can be referenced by users.id OR doctors.id
     const doctorQuery = await prisma.$queryRawUnsafe(
-      `SELECT doc.id, doc.user_id, doc.department, doc.specialization, doc.available_days, doc.available_hours, u.name as doctor_name
+      `SELECT doc.id, doc.user_id, doc.department, doc.specialty AS specialization, doc.available_days, doc.available_hours, u.name as doctor_name
        FROM doctors doc
        JOIN users u ON doc.user_id = u.id
        WHERE doc.id = $1 OR doc.user_id = $1`,

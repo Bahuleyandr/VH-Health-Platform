@@ -367,8 +367,8 @@ wrapAutoRBAC(
             }
 
             const departmentStats = await prisma.$queryRawUnsafe(`
-              SELECT 
-                d.department,
+              SELECT
+                d.name AS department,
                 COUNT(DISTINCT doc.user_id) as total_doctors,
                 COUNT(DISTINCT doc.user_id) FILTER (WHERE doc.is_available = true) as available_doctors,
                 COUNT(a.id) as total_appointments,
@@ -380,7 +380,7 @@ wrapAutoRBAC(
               LEFT JOIN doctors doc ON d.name = doc.department
               LEFT JOIN users u ON doc.user_id = u.id
               LEFT JOIN appointments a ON u.id = a.doctor_id
-              GROUP BY d.department
+              GROUP BY d.name
               ORDER BY total_appointments DESC
             `);
 
@@ -570,8 +570,8 @@ wrapAutoRBAC(
               
               // Department-wise ratings
               prisma.$queryRawUnsafe(`
-                SELECT 
-                  d.department,
+                SELECT
+                  d.name AS department,
                   COUNT(f.id) as feedback_count,
                   ROUND(AVG(f.rating), 2) as avg_rating,
                   COUNT(*) FILTER (WHERE f.rating >= 4) as positive_count
@@ -581,7 +581,7 @@ wrapAutoRBAC(
                 JOIN doctors doc ON u.id = doc.user_id
                 JOIN departments d ON doc.department = d.name
                 WHERE f.created_at > NOW() - INTERVAL '${interval}'
-                GROUP BY d.department
+                GROUP BY d.name
                 ORDER BY avg_rating DESC
               `),
               

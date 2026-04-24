@@ -100,9 +100,13 @@ model user_devices {
   fcm_token   String?
   last_active DateTime? @db.Timestamp(6)
   created_at  DateTime  @default(now()) @db.Timestamp(6)
+  device_type String?   @db.VarChar(50)
+  ip_address  String?   @db.VarChar(45)
+  updated_at  DateTime  @default(now()) @db.Timestamp(6)
 
   @@unique([user_uid, device_id])
   @@index([user_uid])
+  @@index([updated_at(sort: Desc)], map: "idx_user_devices_updated")
   @@map("user_devices")
 }
 
@@ -291,10 +295,13 @@ model auth_logs {
   ip_address     String?  @db.VarChar(45)
   user_agent     String?
   created_at     DateTime @default(now()) @db.Timestamp(6)
+  jti            String?  @db.VarChar(100)
+  device_info    String?
 
   @@index([phone])
   @@index([user_id])
   @@index([created_at])
+  @@index([user_id, created_at(sort: Desc)], map: "idx_auth_logs_user_created")
   @@map("auth_logs")
 }
 
@@ -336,25 +343,26 @@ model department_audit_log {
 }
 
 model doctors {
-  id               Int      @id @default(autoincrement())
-  user_id          Int?
-  name             String   @default("") @db.VarChar(100)
-  department_id    Int?
-  department       String   @db.VarChar(100)
-  specialty        String?  @db.VarChar(100)
-  intro            String?
-  image_url        String?
-  is_available     Boolean  @default(true)
-  is_active        Boolean  @default(true)
-  created_at       DateTime @default(now()) @db.Timestamp(6)
-  updated_at       DateTime @updatedAt @db.Timestamp(6)
-  available_days   String[]
-  available_hours  Json?
-  consultation_fee Decimal? @db.Decimal(10, 2)
-  experience_years Int?
-  education        String?
-  qualifications   String?
-  users            users?   @relation(fields: [user_id], references: [id], onUpdate: NoAction)
+  id                       Int      @id @default(autoincrement())
+  user_id                  Int?
+  name                     String   @default("") @db.VarChar(100)
+  department_id            Int?
+  department               String   @db.VarChar(100)
+  specialty                String?  @db.VarChar(100)
+  intro                    String?
+  image_url                String?
+  is_available             Boolean  @default(true)
+  is_active                Boolean  @default(true)
+  created_at               DateTime @default(now()) @db.Timestamp(6)
+  updated_at               DateTime @updatedAt @db.Timestamp(6)
+  available_days           String[]
+  available_hours          Json?
+  consultation_fee         Decimal? @db.Decimal(10, 2)
+  experience_years         Int?
+  education                String?
+  qualifications           String?
+  max_appointments_per_day Int      @default(20)
+  users                    users?   @relation(fields: [user_id], references: [id], onUpdate: NoAction)
 
   @@index([department_id])
   @@index([is_available])
@@ -373,29 +381,33 @@ model patient_feedback {
 }
 
 model appointments {
-  id                                   Int      @id @default(autoincrement())
-  uid                                  String?  @db.Uuid
-  phone                                String   @db.VarChar(15)
+  id                                   Int       @id @default(autoincrement())
+  uid                                  String?   @db.Uuid
+  phone                                String    @db.VarChar(15)
   patient_id                           Int?
   doctor_id                            Int?
-  doctor_name                          String   @default("") @db.VarChar(100)
-  patient_name                         String?  @db.VarChar(255)
-  appointment_date                     DateTime @db.Date
-  appointment_time                     String   @db.VarChar(10)
-  status                               String   @default("SCHEDULED") @db.VarChar(50)
+  doctor_name                          String    @default("") @db.VarChar(100)
+  patient_name                         String?   @db.VarChar(255)
+  appointment_date                     DateTime  @db.Date
+  appointment_time                     String    @db.VarChar(10)
+  status                               String    @default("SCHEDULED") @db.VarChar(50)
   reason                               String?
   notes                                String?
-  created_at                           DateTime @default(now()) @db.Timestamp(6)
-  updated_at                           DateTime @updatedAt @db.Timestamp(6)
-  admin_override                       Boolean  @default(false)
+  created_at                           DateTime  @default(now()) @db.Timestamp(6)
+  updated_at                           DateTime  @updatedAt @db.Timestamp(6)
+  admin_override                       Boolean   @default(false)
   override_reason                      String?
-  created_by                           String?  @db.Uuid
-  updated_by                           String?  @db.Uuid
-  reminder_sent                        Boolean  @default(false)
-  reminder_1h_sent                     Boolean  @default(false)
-  reminder_24h_sent                    Boolean  @default(false)
-  users_appointments_doctor_idTousers  users?   @relation("appointments_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction)
-  users_appointments_patient_idTousers users?   @relation("appointments_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
+  created_by                           String?   @db.Uuid
+  updated_by                           String?   @db.Uuid
+  reminder_sent                        Boolean   @default(false)
+  reminder_1h_sent                     Boolean   @default(false)
+  reminder_24h_sent                    Boolean   @default(false)
+  token_number                         String?   @db.VarChar(20)
+  department                           String?   @db.VarChar(100)
+  confirmed_at                         DateTime? @db.Timestamptz(6)
+  sla_target_at                        DateTime? @db.Timestamptz(6)
+  users_appointments_doctor_idTousers  users?    @relation("appointments_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction)
+  users_appointments_patient_idTousers users?    @relation("appointments_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
 
   @@index([phone])
   @@index([uid])
@@ -403,6 +415,7 @@ model appointments {
   @@index([doctor_id])
   @@index([appointment_date])
   @@index([status])
+  @@index([department, appointment_date], map: "idx_appointments_department_date")
   @@map("appointments")
 }
 
@@ -841,6 +854,8 @@ model staff {
   archived_by          String?   @db.Uuid
   archive_reason       String?
   status_reason        String?
+  bank_details         Json?
+  base_salary          Decimal?  @db.Decimal(12, 2)
 
   @@index([user_id])
   @@index([name])
@@ -1585,6 +1600,7 @@ model audit_log {
   response_time_ms Int?
   success          Boolean?
   user_agent       String?   @db.VarChar(500)
+  error_message    String?
 
   @@index([path])
   @@index([status_code])

@@ -83,7 +83,7 @@ export const approveOvertime = async (req, res) => {
 export const getPendingOvertimeRequests = async (req, res) => {
   try {
     const rows = await prisma.$queryRawUnsafe(`
-      SELECT o.*, u.name as staff_name, u.employee_id, s.department
+      SELECT o.*, u.name as staff_name, s.employee_id, s.department
       FROM overtime_requests o
       JOIN users u ON o.staff_id = u.id
       LEFT JOIN staff s ON u.uid = s.user_id

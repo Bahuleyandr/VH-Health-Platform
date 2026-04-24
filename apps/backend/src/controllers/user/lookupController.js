@@ -313,11 +313,11 @@ export class LookupController {
       } = req.query;
 
       let query = `
-        SELECT u.uid, u.phone, u.name, u.email, u.role, u.registered_at, u.last_login,
+        SELECT u.uid, u.phone, u.name, u.email, u.role, u.registered_at, u.last_sign_in_at AS last_login,
                u.profile_picture, u.address, u.birthday, u.gender,
-               d.department, d.specialization
+               d.department, d.specialty AS specialization
         FROM users u
-        LEFT JOIN doctors d ON u.uid = d.user_uid
+        LEFT JOIN doctors d ON u.id = d.user_id
         WHERE 1=1
       `;
       const params = [];
@@ -338,7 +338,7 @@ export class LookupController {
       }
 
       if (lastLoginAfter) {
-        query += ` AND u.last_login >= $${params.length + 1}`;
+        query += ` AND u.last_sign_in_at >= $${params.length + 1}`;
         params.push(lastLoginAfter);
       }
 
@@ -367,7 +367,7 @@ export class LookupController {
       }
 
       if (!includeInactive) {
-        query += ` AND u.last_login > NOW() - INTERVAL '30 days'`;
+        query += ` AND u.last_sign_in_at > NOW() - INTERVAL '30 days'`;
       }
 
       // Validate and apply sorting
@@ -483,10 +483,10 @@ export class LookupController {
 
           // Department statistics
           prisma.$queryRawUnsafe(`
-            SELECT d.department, d.specialization, COUNT(u.uid) as staff_count
+            SELECT d.department, d.specialty AS specialization, COUNT(u.uid) as staff_count
             FROM doctors d
-            LEFT JOIN users u ON d.user_uid = u.uid
-            GROUP BY d.department, d.specialization
+            LEFT JOIN users u ON d.user_id = u.id
+            GROUP BY d.department, d.specialty
             ORDER BY staff_count DESC
           `)
         ]);
@@ -588,18 +588,18 @@ export class LookupController {
       const recentActivity = await prisma.$queryRawUnsafe(`
         SELECT
           u.uid, u.phone, u.name, u.role,
-          u.last_login,
+          u.last_sign_in_at AS last_login,
           u.registered_at,
           CASE
-            WHEN u.last_login > NOW() - INTERVAL '1 day' THEN 'Very Active'
-            WHEN u.last_login > NOW() - INTERVAL '7 days' THEN 'Active'
-            WHEN u.last_login > NOW() - INTERVAL '30 days' THEN 'Inactive'
+            WHEN u.last_sign_in_at > NOW() - INTERVAL '1 day' THEN 'Very Active'
+            WHEN u.last_sign_in_at > NOW() - INTERVAL '7 days' THEN 'Active'
+            WHEN u.last_sign_in_at > NOW() - INTERVAL '30 days' THEN 'Inactive'
             ELSE 'Long Inactive'
           END as activity_status
         FROM users u
         WHERE u.registered_at > NOW() - make_interval(days => $2)
-           OR u.last_login > NOW() - make_interval(days => $2)
-        ORDER BY COALESCE(u.last_login, u.registered_at) DESC
+           OR u.last_sign_in_at > NOW() - make_interval(days => $2)
+        ORDER BY COALESCE(u.last_sign_in_at, u.registered_at) DESC
         LIMIT $1
       `, Math.min(parseInt(limit), 100), parseInt(days));
 
