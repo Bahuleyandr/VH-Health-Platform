@@ -2,127 +2,245 @@
 import prisma from '../../../lib/prisma.js';
 import logger from '../../../logging/logger.js';
 
+const fmtDate = (d) => d
+  ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  : null;
+
+// Translate the HR request's `timeframe` arg into a Prisma date
+// filter on staff_performance_reviews.review_date. Returns null
+// when no date filter should be applied.
+function reviewDateFilter(timeframe, start_date, end_date) {
+  if (timeframe === 'custom' && start_date && end_date) {
+    return { gte: new Date(start_date), lte: new Date(end_date) };
+  }
+  if (timeframe === 'quarterly') {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 3);
+    return { gte: d };
+  }
+  if (timeframe === 'annual') {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 1);
+    return { gte: d };
+  }
+  return null;
+}
+
 /**
  * Generate comprehensive performance report for staff
  * @param {Object} queryParams - Query parameters including department, timeframe, etc.
  * @returns {Object} Performance report data
  */
 export const generatePerformanceReport = async (queryParams) => {
-  const { department, timeframe, start_date, end_date, userRole } = queryParams;
+  const { department, timeframe, start_date, end_date } = queryParams;
 
-  let dateFilter = '';
-  let dateParams = [];
-  
-  if (timeframe === 'custom' && start_date && end_date) {
-    dateFilter = 'AND spr.review_date BETWEEN $2 AND $3';
-    dateParams = [start_date, end_date];
-  } else if (timeframe === 'quarterly') {
-    dateFilter = 'AND spr.review_date >= CURRENT_DATE - INTERVAL \'3 months\'';
-  } else if (timeframe === 'annual') {
-    dateFilter = 'AND spr.review_date >= CURRENT_DATE - INTERVAL \'1 year\'';
+  const activeStaffWhere = { is_active: true };
+  if (department) activeStaffWhere.department = department;
+
+  // Load active staff + their users row via the relation declared
+  // in migration 090. staff_performance_reviews.staff_id is int and
+  // the caller populates it with users.id (the existing INSERT at
+  // createPerformanceReview:154 passes the request-body staff_id
+  // which is a user id). Resolve reviews per-user below.
+  const staffRows = await prisma.staff.findMany({
+    where: activeStaffWhere,
+    select: {
+      employee_id: true,
+      position: true,
+      department: true,
+      performance_rating: true,
+      user_id: true,
+      users: { select: { id: true, name: true } },
+    },
+  });
+
+  const userIds = staffRows.map((s) => s.users?.id).filter((x) => x != null);
+
+  // Reviews scoped to the selected staff and date window.
+  const reviewWhere = { staff_id: { in: userIds } };
+  const dateFilter = reviewDateFilter(timeframe, start_date, end_date);
+  if (dateFilter) reviewWhere.review_date = dateFilter;
+
+  const reviewRows = userIds.length > 0
+    ? await prisma.staff_performance_reviews.findMany({
+      where: reviewWhere,
+      select: {
+        staff_id: true,
+        rating: true,
+        review_date: true,
+        reviewer_comments: true,
+      },
+    })
+    : [];
+
+  // Per-user aggregate: total reviews, average rating, last review,
+  // distinct comments joined.
+  const reviewAgg = new Map();
+  for (const r of reviewRows) {
+    const agg = reviewAgg.get(r.staff_id) ?? {
+      total_reviews: 0,
+      sum_rating: 0,
+      count_rating: 0,
+      last_review_date: null,
+      comments: new Set(),
+    };
+    agg.total_reviews += 1;
+    if (r.rating != null) {
+      agg.sum_rating += Number(r.rating);
+      agg.count_rating += 1;
+    }
+    if (r.review_date && (!agg.last_review_date || r.review_date > agg.last_review_date)) {
+      agg.last_review_date = r.review_date;
+    }
+    if (r.reviewer_comments) agg.comments.add(r.reviewer_comments);
+    reviewAgg.set(r.staff_id, agg);
   }
 
-  let whereClause = 'WHERE s.is_active = true';
-  let paramIndex = 1;
+  const staffPerformance = staffRows
+    .map((s) => {
+      const userId = s.users?.id;
+      const agg = userId != null ? reviewAgg.get(userId) : null;
+      return {
+        id: userId,
+        name: s.users?.name ?? null,
+        employee_id: s.employee_id,
+        position: s.position,
+        department: s.department,
+        current_rating: s.performance_rating
+          ? Math.round(Number(s.performance_rating) * 10) / 10 : null,
+        total_reviews: agg?.total_reviews ?? 0,
+        average_rating: agg && agg.count_rating > 0
+          ? Math.round((agg.sum_rating / agg.count_rating) * 10) / 10 : null,
+        last_review_date: agg ? fmtDate(agg.last_review_date) : null,
+        recent_comments: agg ? [...agg.comments].join('; ') : null,
+      };
+    })
+    .sort((a, b) => (a.department ?? '').localeCompare(b.department ?? '')
+      || ((b.average_rating ?? -Infinity) - (a.average_rating ?? -Infinity)));
 
-  if (department) {
-    whereClause += ` AND s.department = $${paramIndex}`;
-    queryParams.push(department);
-    paramIndex++;
+  // Add performance_trend and compute insights.
+  for (const row of staffPerformance) {
+    if (row.current_rating != null && row.average_rating != null) {
+      row.performance_trend = row.current_rating > row.average_rating
+        ? 'improving'
+        : row.current_rating < row.average_rating ? 'declining' : 'stable';
+    } else {
+      row.performance_trend = 'unknown';
+    }
   }
 
-  // Add date parameters
-  queryParams.push(...dateParams);
+  // Department summary (across all active staff + their reviews,
+  // not just the filtered set — mirrors the pre-ORM query which
+  // dropped the department-filter from this aggregate).
+  const allActiveStaff = await prisma.staff.findMany({
+    where: { is_active: true },
+    select: {
+      department: true,
+      performance_rating: true,
+      user_id: true,
+      users: { select: { id: true } },
+    },
+  });
+  const allUserIds = allActiveStaff.map((s) => s.users?.id).filter((x) => x != null);
+  const deptReviews = allUserIds.length > 0
+    ? await prisma.staff_performance_reviews.findMany({
+      where: {
+        staff_id: { in: allUserIds },
+        ...(dateFilter ? { review_date: dateFilter } : {}),
+      },
+      select: { staff_id: true, rating: true },
+    })
+    : [];
 
-  // Performance summary by staff
-  const performanceData = await prisma.$queryRawUnsafe(`
-    SELECT 
-      u.id, u.name, s.employee_id, s.position, s.department,
-      s.performance_rating as current_rating,
-      COUNT(spr.id) as total_reviews,
-      AVG(spr.rating) as average_rating,
-      MAX(spr.review_date) as last_review_date,
-      STRING_AGG(DISTINCT spr.reviewer_comments, '; ') as recent_comments
-    FROM users u
-    JOIN staff s ON u.uid = s.user_id
-    LEFT JOIN staff_performance_reviews spr ON s.user_id = spr.staff_id ${dateFilter}
-    ${whereClause}
-    GROUP BY u.id, u.name, s.employee_id, s.position, s.department, s.performance_rating
-    ORDER BY s.department, average_rating DESC NULLS LAST
-  `, queryParams);
+  // Map reviewer rating sums per user.
+  const reviewByUser = new Map();
+  for (const r of deptReviews) {
+    const entry = reviewByUser.get(r.staff_id) ?? { sum: 0, count: 0 };
+    if (r.rating != null) {
+      entry.sum += Number(r.rating);
+      entry.count += 1;
+    }
+    reviewByUser.set(r.staff_id, entry);
+  }
 
-  // Department performance averages
-  const departmentPerformance = await prisma.$queryRawUnsafe(`
-    SELECT 
-      s.department,
-      COUNT(DISTINCT s.user_id) as staff_count,
-      AVG(s.performance_rating) as avg_current_rating,
-      AVG(spr.rating) as avg_review_rating,
-      COUNT(spr.id) as total_reviews
-    FROM staff s
-    LEFT JOIN staff_performance_reviews spr ON s.user_id = spr.staff_id ${dateFilter}
-    WHERE s.is_active = true
-    GROUP BY s.department
-    ORDER BY avg_current_rating DESC NULLS LAST
-  `, dateParams);
+  const deptAgg = new Map();
+  for (const s of allActiveStaff) {
+    const dept = s.department ?? '(none)';
+    const agg = deptAgg.get(dept) ?? {
+      department: dept,
+      staff_count: 0,
+      sum_current: 0, count_current: 0,
+      sum_review: 0, count_review: 0, total_reviews: 0,
+    };
+    agg.staff_count += 1;
+    if (s.performance_rating != null) {
+      agg.sum_current += Number(s.performance_rating);
+      agg.count_current += 1;
+    }
+    const reviewEntry = s.users?.id != null ? reviewByUser.get(s.users.id) : null;
+    if (reviewEntry && reviewEntry.count > 0) {
+      agg.sum_review += reviewEntry.sum;
+      agg.count_review += reviewEntry.count;
+      agg.total_reviews += reviewEntry.count;
+    }
+    deptAgg.set(dept, agg);
+  }
 
-  // Performance distribution
-  const performanceDistribution = await prisma.$queryRawUnsafe(`
-    SELECT 
-      CASE 
-        WHEN performance_rating >= 4.5 THEN 'excellent'
-        WHEN performance_rating >= 4.0 THEN 'good'
-        WHEN performance_rating >= 3.0 THEN 'satisfactory'
-        WHEN performance_rating >= 2.0 THEN 'needs_improvement'
-        ELSE 'unsatisfactory'
-      END as performance_level,
-      COUNT(*) as count
-    FROM staff
-    WHERE is_active = true AND performance_rating IS NOT NULL
-    GROUP BY 
-      CASE 
-        WHEN performance_rating >= 4.5 THEN 'excellent'
-        WHEN performance_rating >= 4.0 THEN 'good'
-        WHEN performance_rating >= 3.0 THEN 'satisfactory'
-        WHEN performance_rating >= 2.0 THEN 'needs_improvement'
-        ELSE 'unsatisfactory'
-      END
-    ORDER BY performance_level DESC
-  `);
+  const departmentSummary = [...deptAgg.values()]
+    .sort((a, b) => {
+      const aAvg = a.count_current > 0 ? a.sum_current / a.count_current : -Infinity;
+      const bAvg = b.count_current > 0 ? b.sum_current / b.count_current : -Infinity;
+      return bAvg - aAvg;
+    })
+    .map((agg) => ({
+      department: agg.department,
+      staff_count: agg.staff_count,
+      avg_current_rating: agg.count_current > 0
+        ? Math.round((agg.sum_current / agg.count_current) * 10) / 10 : null,
+      avg_review_rating: agg.count_review > 0
+        ? Math.round((agg.sum_review / agg.count_review) * 10) / 10 : null,
+      total_reviews: agg.total_reviews,
+    }));
+
+  // Performance distribution — all active, rated staff.
+  const ratedStaff = allActiveStaff.filter((s) => s.performance_rating != null);
+  const distBuckets = {
+    excellent: 0, good: 0, satisfactory: 0,
+    needs_improvement: 0, unsatisfactory: 0,
+  };
+  for (const s of ratedStaff) {
+    const r = Number(s.performance_rating);
+    if (r >= 4.5) distBuckets.excellent += 1;
+    else if (r >= 4.0) distBuckets.good += 1;
+    else if (r >= 3.0) distBuckets.satisfactory += 1;
+    else if (r >= 2.0) distBuckets.needs_improvement += 1;
+    else distBuckets.unsatisfactory += 1;
+  }
+  const performanceDistribution = Object.entries(distBuckets)
+    .filter(([, count]) => count > 0)
+    .map(([performance_level, count]) => ({ performance_level, count }));
 
   return {
     reportDetails: {
       department: department || 'All Departments',
       timeframe,
       dateRange: timeframe === 'custom' ? { start_date, end_date } : null,
-      generatedAt: new Date().toISOString()
+      generatedAt: new Date().toISOString(),
     },
-    staffPerformance: performanceData.map(staff => ({
-      ...staff,
-      current_rating: staff.current_rating ? Math.round(staff.current_rating * 10) / 10 : null,
-      average_rating: staff.average_rating ? Math.round(staff.average_rating * 10) / 10 : null,
-      last_review_date: staff.last_review_date ? new Date(staff.last_review_date).toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      }) : null,
-      performance_trend: staff.current_rating && staff.average_rating ? 
-        (staff.current_rating > staff.average_rating ? 'improving' : 
-         staff.current_rating < staff.average_rating ? 'declining' : 'stable') : 'unknown'
-    })),
-    departmentSummary: departmentPerformance.map(dept => ({
-      ...dept,
-      avg_current_rating: dept.avg_current_rating ? Math.round(dept.avg_current_rating * 10) / 10 : null,
-      avg_review_rating: dept.avg_review_rating ? Math.round(dept.avg_review_rating * 10) / 10 : null
-    })),
-    performanceDistribution: performanceDistribution,
+    staffPerformance,
+    departmentSummary,
+    performanceDistribution,
     insights: {
-      totalStaffEvaluated: performanceData.length,
-      averageRating: performanceData.length > 0 ? 
-        Math.round((performanceData.reduce((sum, s) => sum + (s.current_rating || 0), 0) / performanceData.length) * 10) / 10 : 0,
-      highPerformers: performanceData.filter(s => s.current_rating >= 4.0).length,
-      needsAttention: performanceData.filter(s => s.current_rating && s.current_rating < 3.0).length
-    }
+      totalStaffEvaluated: staffPerformance.length,
+      averageRating: staffPerformance.length > 0
+        ? Math.round((staffPerformance.reduce((sum, s) => sum + (s.current_rating || 0), 0)
+            / staffPerformance.length) * 10) / 10
+        : 0,
+      highPerformers: staffPerformance.filter((s) => s.current_rating >= 4.0).length,
+      needsAttention: staffPerformance.filter(
+        (s) => s.current_rating != null && s.current_rating < 3.0,
+      ).length,
+    },
   };
 };
 
@@ -135,85 +253,94 @@ export const createPerformanceReview = async (reviewData) => {
   const {
     staff_id, rating, review_period, reviewer_comments,
     goals_achieved, areas_for_improvement, future_goals,
-    training_recommendations, reviewerId, reviewerName
+    training_recommendations, reviewerId, reviewerName,
   } = reviewData;
 
-  // Verify staff member exists
-  const staffCheck = await prisma.$queryRawUnsafe(
-    'SELECT u.name, s.employee_id FROM users u JOIN staff s ON u.uid = s.user_id WHERE u.id = $1',
-    staff_id
-  );
-
-  if (staffCheck.length === 0) {
+  // Resolve the staff's user + profile via the batch-90 relation.
+  const user = await prisma.users.findUnique({
+    where: { id: Number(staff_id) },
+    select: {
+      uid: true,
+      name: true,
+      phone: true,
+      staff: { select: { employee_id: true }, take: 1 },
+    },
+  });
+  if (!user || user.staff.length === 0) {
     throw new Error('STAFF_NOT_FOUND');
   }
+  const [staff] = user.staff;
 
-  const staff = staffCheck[0];
+  // Create performance review. goals / improvements / future_goals /
+  // training_recommendations are TEXT columns that callers pass as
+  // structured objects; JSON-stringify to preserve the previous shape.
+  const review = await prisma.staff_performance_reviews.create({
+    data: {
+      staff_id: Number(staff_id),
+      reviewer_id: reviewerId,
+      rating,
+      review_period,
+      reviewer_comments,
+      goals_achieved: goals_achieved ? JSON.stringify(goals_achieved) : null,
+      areas_for_improvement: areas_for_improvement ? JSON.stringify(areas_for_improvement) : null,
+      future_goals: future_goals ? JSON.stringify(future_goals) : null,
+      training_recommendations: training_recommendations ? JSON.stringify(training_recommendations) : null,
+      review_date: new Date(),
+    },
+    select: {
+      id: true, staff_id: true, reviewer_id: true, rating: true, review_period: true,
+      reviewer_comments: true, goals_achieved: true, areas_for_improvement: true,
+      future_goals: true, training_recommendations: true, review_date: true, created_at: true,
+    },
+  });
 
-  // Create performance review
-  const reviewResult = await prisma.$queryRawUnsafe(`
-    INSERT INTO staff_performance_reviews (
-      staff_id, reviewer_id, rating, review_period, reviewer_comments,
-      goals_achieved, areas_for_improvement, future_goals,
-      training_recommendations, review_date, created_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_DATE, NOW())
-    RETURNING id, staff_id, reviewer_id, rating, review_period, reviewer_comments, goals_achieved, areas_for_improvement, future_goals, training_recommendations, review_date, created_at
-  `, 
-    staff_id, reviewerId, rating, review_period, reviewer_comments,
-    goals_achieved ? JSON.stringify(goals_achieved) : null,
-    areas_for_improvement ? JSON.stringify(areas_for_improvement) : null,
-    future_goals ? JSON.stringify(future_goals) : null,
-    training_recommendations ? JSON.stringify(training_recommendations) : null
-  );
+  // Update staff's current rating. The pre-ORM version used
+  // `WHERE user_id = $staff_id` which passed an int into a uuid
+  // column — would've errored. Resolve via the users.uid we just
+  // loaded and filter staff by user_id properly.
+  await prisma.staff.updateMany({
+    where: { user_id: user.uid },
+    data: {
+      performance_rating: rating,
+      last_review_date: new Date(),
+    },
+  });
 
-  // Update staff's current performance rating
-  await prisma.$queryRawUnsafe(
-    'UPDATE staff SET performance_rating = $1, last_review_date = CURRENT_DATE WHERE user_id = $2',
-    rating, staff_id
-  );
+  // Notify the reviewed staff member. Original INSERT omitted the
+  // NOT NULL `phone` column — same bug as leaveService fixed in
+  // batch 50. Use the user's phone now that we have it loaded.
+  await prisma.notifications.create({
+    data: {
+      user_id: user.id,
+      phone: user.phone,
+      title: 'Performance Review Completed',
+      body: `Your ${review_period} performance review has been completed. Rating: ${rating}/5.0`,
+      type: 'performance_review',
+      related_id: review.id,
+    },
+  });
 
-  // Create notification for staff member
-  await prisma.$queryRawUnsafe(
-    `INSERT INTO notifications (
-      user_id, title, body, type, related_id, created_at
-    ) VALUES ($1, $2, $3, $4, $5, NOW())`,
-    
-      staff_id,
-      'Performance Review Completed',
-      `Your ${review_period} performance review has been completed. Rating: ${rating}/5.0`,
-      'performance_review',
-      reviewResult[0].id
-    
-  );
+  // Log review activity.
+  await prisma.hr_activity_logs.create({
+    data: {
+      hr_staff_uid: reviewerId,
+      action: 'PERFORMANCE_REVIEW_CREATED',
+      staff_id: Number(staff_id),
+      description: `Performance review created for ${user.name} - Rating: ${rating}/5.0`,
+    },
+  });
 
-  // Log review activity
-  await prisma.$queryRawUnsafe(
-    `INSERT INTO hr_activity_logs (
-      hr_staff_uid, action, staff_id, description, created_at
-    ) VALUES ($1, $2, $3, $4, NOW())`,
-    
-      reviewerId,
-      'PERFORMANCE_REVIEW_CREATED',
-      staff_id,
-      `Performance review created for ${staff.name} - Rating: ${rating}/5.0`
-    
-  );
-
-  logger.info(`📝 Performance review created for ${staff.name} (${staff_id}) by ${reviewerName} - Rating: ${rating}/5.0`);
+  logger.info(`📝 Performance review created for ${user.name} (${staff_id}) by ${reviewerName} - Rating: ${rating}/5.0`);
 
   return {
     review: {
-      ...reviewResult[0],
-      review_date: reviewResult[0].review_date.toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      }),
-      created_at: reviewResult[0].created_at.toLocaleString('en-IN')
+      ...review,
+      review_date: fmtDate(review.review_date),
+      created_at: review.created_at.toLocaleString('en-IN'),
     },
     staffInfo: {
-      name: staff.name,
-      employee_id: staff.employee_id
-    }
+      name: user.name,
+      employee_id: staff.employee_id,
+    },
   };
 };
