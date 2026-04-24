@@ -342,44 +342,54 @@ export const getPendingInvestigations = async (filters) => {
   };
 };
 
-// Update investigation status
+// Update investigation status.
+// Type-safe Prisma ORM — column names are checked against schema.prisma at
+// runtime. Renaming a column in migration without updating schema.prisma
+// would throw a clear PrismaClientKnownRequestError instead of silently
+// running a broken SQL statement.
 export const updateStatus = async (id, status, notes, userId) => {
   const validStatuses = Object.values(INVESTIGATION_STATUS);
   if (!validStatuses.includes(status.toUpperCase())) {
     throw new Error('INVALID_STATUS');
   }
-  
+
   // `userId` is accepted for audit parity with callers but the investigations
   // schema has no updated_by column — audit is emitted separately via the
   // phiAccessLogger middleware on the route. Keep the param for signature
   // stability; intentionally unused here.
   void userId;
 
-  let rows;
+  const data = { status: status.toUpperCase() };
+  if (notes != null) data.notes = notes;
+  if (status.toUpperCase() === 'COMPLETED') data.completed_at = new Date();
+  // `updated_at` is @updatedAt in schema.prisma — Prisma auto-bumps on every
+  // update, no need to set it manually.
 
-  // Set completed_at if status is COMPLETED
-  if (status.toUpperCase() === 'COMPLETED') {
-    rows = await prisma.$queryRaw`
-      UPDATE investigations SET
-        status = ${status.toUpperCase()},
-        notes = COALESCE(${notes ?? null}, notes),
-        completed_at = NOW(),
-        updated_at = NOW()
-      WHERE id = ${parseInt(id)}
-      RETURNING id, patient_id, requested_by, test_name, test_type, status, priority, notes, completed_at, updated_at
-    `;
-  } else {
-    rows = await prisma.$queryRaw`
-      UPDATE investigations SET
-        status = ${status.toUpperCase()},
-        notes = COALESCE(${notes ?? null}, notes),
-        updated_at = NOW()
-      WHERE id = ${parseInt(id)}
-      RETURNING id, patient_id, requested_by, test_name, test_type, status, priority, notes, completed_at, updated_at
-    `;
+  const INVESTIGATION_SELECT = {
+    id: true,
+    patient_id: true,
+    requested_by: true,
+    test_name: true,
+    test_type: true,
+    status: true,
+    priority: true,
+    notes: true,
+    completed_at: true,
+    updated_at: true,
+  };
+
+  try {
+    return await prisma.investigations.update({
+      where: { id: parseInt(id) },
+      data,
+      select: INVESTIGATION_SELECT,
+    });
+  } catch (err) {
+    // Prisma P2025 = record not found. Match the pre-ORM behavior of
+    // returning null so callers that check `if (!result)` continue to work.
+    if (err?.code === 'P2025') return null;
+    throw err;
   }
-
-  return rows.length > 0 ? rows[0] : null;
 };
 
 // Add investigation results
@@ -391,18 +401,34 @@ export const addResults = async (id, resultData, userId) => {
   const { results, interpretation } = resultData;
   void userId;
 
-  const rows = await prisma.$queryRaw`
-    UPDATE investigations SET
-      results = ${results},
-      interpretation = COALESCE(${interpretation ?? null}, interpretation),
-      status = 'COMPLETED',
-      completed_at = NOW(),
-      updated_at = NOW()
-    WHERE id = ${parseInt(id)}
-    RETURNING id, patient_id, requested_by, test_name, test_type, status, results, interpretation, completed_at, updated_at
-  `;
+  const data = {
+    results,
+    status: 'COMPLETED',
+    completed_at: new Date(),
+  };
+  if (interpretation != null) data.interpretation = interpretation;
 
-  return rows.length > 0 ? rows[0] : null;
+  try {
+    return await prisma.investigations.update({
+      where: { id: parseInt(id) },
+      data,
+      select: {
+        id: true,
+        patient_id: true,
+        requested_by: true,
+        test_name: true,
+        test_type: true,
+        status: true,
+        results: true,
+        interpretation: true,
+        completed_at: true,
+        updated_at: true,
+      },
+    });
+  } catch (err) {
+    if (err?.code === 'P2025') return null;
+    throw err;
+  }
 };
 
 // Permission check functions
