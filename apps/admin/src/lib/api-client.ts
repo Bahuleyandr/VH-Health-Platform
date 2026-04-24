@@ -318,9 +318,18 @@ export async function verifyAdminMfa(params: {
 }
 
 export async function getAdminProfile(): Promise<AdminUser> {
-  const data = await getJSON<AdminUser>(API_ENDPOINTS.auth.admin.profile);
-  if (data) cacheAdminUser(data);
-  return data;
+  // Backend response shape (post `requestJSON` single-level unwrap):
+  //   { admin: { uid, role, permissions, ... } }
+  // adminLogin returns the admin flat (it destructures before returning), but
+  // this endpoint returns the wrapper as-is. Unwrap here so the cache and
+  // every downstream consumer (AuthContext.user, usePermissions) sees a flat
+  // AdminUser with a top-level `role`.
+  const data = await getJSON<{ admin?: AdminUser } | AdminUser>(API_ENDPOINTS.auth.admin.profile);
+  const admin: AdminUser = (data && typeof data === 'object' && 'admin' in data && data.admin)
+    ? data.admin
+    : (data as AdminUser);
+  if (admin) cacheAdminUser(admin);
+  return admin;
 }
 
 export async function adminLogout(): Promise<void> {
