@@ -1,17 +1,17 @@
-// src/app/(with-auth)/dashboard/CleanDashboard.tsx
+// src/app/(with-auth)/dashboard/Dashboard.tsx
 // Thin orchestrator -- delegates to focused sub-components.
 
 'use client';
 
 import React from 'react';
 import { useDashboardData } from './hooks/useDashboardData';
-import { DashboardHeaderClean } from './components/DashboardHeader.clean';
-import { StatCards, AppointmentQueueCards } from './components/DashboardStatsClean';
-import { AnalyticsAndActivity } from './components/DashboardChartsClean';
+import { DashboardHeader } from './components/DashboardHeader';
+import { StatCards, AppointmentQueueCards } from './components/DashboardStats';
+import { AnalyticsAndActivity } from './components/DashboardCharts';
 import { SystemHealthSection, InfrastructureMonitor } from './components/SystemHealthPanel';
 import LiveBedOccupancyTile from './components/LiveBedOccupancyTile';
 
-export default function CleanDashboard() {
+export default function Dashboard() {
   const {
     loading,
     refreshing,
@@ -31,7 +31,7 @@ export default function CleanDashboard() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/40 text-foreground">
       {/* Top bar */}
-      <DashboardHeaderClean
+      <DashboardHeader
         secondsAgo={secondsAgo}
         refreshing={refreshing}
         onRefresh={refreshCache}

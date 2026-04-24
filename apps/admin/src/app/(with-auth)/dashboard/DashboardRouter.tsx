@@ -5,7 +5,7 @@
 import dynamic from 'next/dynamic';
 import { usePermissions } from '@/hooks/usePermissions';
 
-const CleanDashboard = dynamic(() => import('./CleanDashboard'), { ssr: false });
+const AdminDashboard = dynamic(() => import('./Dashboard'), { ssr: false });
 
 // Lightweight staff/doctor/hr home views
 function StaffHome() {
@@ -115,11 +115,11 @@ export default function DashboardRouter() {
     );
   }
 
-  if (isAdmin) return <CleanDashboard />;
+  if (isAdmin) return <AdminDashboard />;
   if (isDoctor) return <DoctorHome />;
   if (isHR) return <HRHome />;
   if (isStaff) return <StaffHome />;
 
   // Fallback for unknown roles
-  return <CleanDashboard />;
+  return <AdminDashboard />;
 }
