@@ -412,8 +412,8 @@ export class DoctorService {
 
       const rows = await prisma.$queryRaw`
         INSERT INTO doctors (
-          user_id, specialization, department, experience_years,
-          consultation_fee, available_days, available_hours, bio, education,
+          user_id, specialty, department, experience_years,
+          consultation_fee, available_days, available_hours, intro, education,
           qualifications, is_available, created_at
         ) VALUES (
           ${user_id}, ${profileData.specialization}, ${profileData.department.toUpperCase()},
