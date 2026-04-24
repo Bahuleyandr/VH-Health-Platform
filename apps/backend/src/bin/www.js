@@ -10,7 +10,6 @@ import http from 'http';
 import app from '../app.js';
 import { initRedis, disconnectRedis } from '../lib/redis.js';
 import logger from '../logging/logger.js';
-import { startDbHealthMonitor } from '../utils/dbHealthMonitor.js';
 import { checkDependencyHealth } from '../utils/dependencyChecker.js';
 import { runMigrations } from '../utils/migrations/runMigrations.js';
 import { runAllScheduledTasksNow } from '../utils/scheduler.js';
@@ -79,9 +78,10 @@ async function onListening() {
   // Verify schema health after migrations
   await checkSchemaHealth();
 
-  // Start database pool health monitoring
-  const db = (await import('../config/database.js')).default;
-  startDbHealthMonitor(db);
+  // NB: database pool health monitor was removed with the DatabaseManager
+  // shim — Prisma doesn't expose pool counts directly. Circuit-breaker
+  // state is surfaced by `circuitBreakerStatus()` and scraped via
+  // /health/metrics.
 
   // Initialize Redis cache
   try {
@@ -99,24 +99,23 @@ function gracefulShutdown(signal) {
   server.close(async () => {
     logger.info('HTTP server closed.');
     try {
-      const db = (await import('../config/database.js')).default;
-      await db.close();
-      logger.info('Database pool closed.');
+      // Disconnect Prisma primary + read-replica (if configured). Both
+      // clients come from src/lib/prisma.js; prismaReadOnly is the same
+      // instance as `prisma` when DATABASE_READ_URL isn't set.
+      const { default: prisma, prismaReadOnly } = await import('../lib/prisma.js');
+      await prisma.$disconnect();
+      if (prismaReadOnly !== prisma) {
+        await prismaReadOnly.$disconnect();
+      }
+      logger.info('Database clients disconnected.');
     } catch (err) {
-      logger.error('Error closing database pool:', err.message);
+      logger.error('Error disconnecting Prisma:', err.message);
     }
     try {
       await disconnectRedis();
       logger.info('Redis disconnected.');
     } catch (err) {
       logger.error('Error disconnecting Redis:', err.message);
-    }
-    try {
-      const { default: prisma } = await import('../lib/prisma.js');
-      await prisma.$disconnect();
-      logger.info('Prisma client disconnected.');
-    } catch (_err) {
-      // Prisma may not be initialized yet — safe to ignore
     }
     process.exit(0);
   });

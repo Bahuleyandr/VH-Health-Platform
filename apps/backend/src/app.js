@@ -291,12 +291,22 @@ if (!isProduction) {
 app.use('/metrics', genericLimiter, metricsRoutes);
 app.use('/api/v1/internal', validateApiKey, internalRoutes);
 
-// Root health check — rate limited, minimal info in production
+// Root health check — rate limited, minimal info in production. Proves the
+// Prisma driver is live with a cheap `SELECT 1`; circuit-breaker state is
+// not included here to keep this probe as fast as possible (use
+// /health/metrics for the fuller picture).
+async function probeDb() {
+  try {
+    const { default: prisma } = await import('./lib/prisma.js');
+    await prisma.$queryRaw`SELECT 1`;
+    return true;
+  } catch {
+    return false;
+  }
+}
 app.get('/', genericLimiter, async (req, res, next) => {
   try {
-    const db = (await import('./config/database.js')).default;
-    const dbHealth = await db.healthCheck();
-    if (!dbHealth.healthy) {
+    if (!(await probeDb())) {
       return error(res, 'Database unavailable', 503, { safe: true, status: 'degraded' });
     }
     success(res, {
@@ -309,9 +319,7 @@ app.get('/', genericLimiter, async (req, res, next) => {
 });
 app.head('/', async (req, res, next) => {
   try {
-    const db = (await import('./config/database.js')).default;
-    const health = await db.healthCheck();
-    res.status(health.healthy ? 200 : 503).end();
+    res.status((await probeDb()) ? 200 : 503).end();
   } catch (err) {
     next(err);
   }

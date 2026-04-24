@@ -15,8 +15,22 @@
 // statement runs. The legacy `db.query()` test (case 3) also uses this helper
 // to confirm permissive behavior under a non-owner role.
 
-import db from '../config/database.js';
-import prisma from '../lib/prisma.js';
+import prisma, { setTenant } from '../lib/prisma.js';
+
+// Owner-path helper (no RLS enforcement — Postgres exempts table owners).
+// Used for setup/teardown + the permissive-GUC assertion. Matches the old
+// `db.query()` contract: `$executeRawUnsafe` for writes that don't return
+// rows, `$queryRawUnsafe` for anything that does.
+async function ownerQuery(text, params = []) {
+  // Heuristic: SELECT / WITH / RETURNING → rows come back.
+  if (/^\s*(SELECT|WITH)\b/i.test(text) || /\bRETURNING\b/i.test(text)) {
+    const rows = await prisma.$queryRawUnsafe(text, ...params);
+    const arr = Array.isArray(rows) ? rows : [];
+    return { rows: arr, rowCount: arr.length };
+  }
+  const rowCount = await prisma.$executeRawUnsafe(text, ...params);
+  return { rows: [], rowCount: Number(rowCount) || 0 };
+}
 
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const describeIfDb = hasDatabaseUrl ? describe : describe.skip;
@@ -71,7 +85,7 @@ describeIfDb('Tenant RLS policies (migration 075)', () => {
     // Create the non-owner application role if it does not already exist, and
     // grant it the minimum privileges needed to exercise RLS on the two tables
     // this suite touches. CREATE ROLE is idempotent via DO/pg_roles check.
-    await db.query(`
+    await ownerQuery(`
       DO $$
       BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rls_test_app') THEN
@@ -79,14 +93,14 @@ describeIfDb('Tenant RLS policies (migration 075)', () => {
         END IF;
       END $$;
     `);
-    await db.query(`GRANT USAGE ON SCHEMA public TO rls_test_app`);
-    await db.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON clinical_ai_generations TO rls_test_app`);
-    await db.query(`GRANT SELECT ON tenants TO rls_test_app`);
-    await db.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO rls_test_app`);
+    await ownerQuery(`GRANT USAGE ON SCHEMA public TO rls_test_app`);
+    await ownerQuery(`GRANT SELECT, INSERT, UPDATE, DELETE ON clinical_ai_generations TO rls_test_app`);
+    await ownerQuery(`GRANT SELECT ON tenants TO rls_test_app`);
+    await ownerQuery(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO rls_test_app`);
 
     // Seed tenant B via the legacy path (bypasses RLS on `tenants` table — not
     // one of the 11 tenant-scoped tables in the policy set).
-    await db.query(
+    await ownerQuery(
       `INSERT INTO tenants (id, slug, name, region, compliance_profile, status)
        VALUES ($1::uuid, 'rls-deep-b', 'RLS Deep Test Tenant B', 'IN', 'DPDP', 'active')
        ON CONFLICT (id) DO NOTHING`,
@@ -95,20 +109,20 @@ describeIfDb('Tenant RLS policies (migration 075)', () => {
 
     // Clean prior runs (both tenants), then seed one generation per tenant via
     // the legacy owner path (so the seed itself is not subject to RLS).
-    await db.query(
+    await ownerQuery(
       `DELETE FROM clinical_ai_generations
        WHERE source_hash IN ($1, $2, 'rls-wrong-tenant-insert')`,
       [TAG_A, TAG_B]
     );
 
-    await db.query(
+    await ownerQuery(
       `INSERT INTO clinical_ai_generations
          (tenant_id, task_type, provider, model, prompt_version, source_hash, status)
        VALUES ($1::uuid, 'rls_test', 'template', 'test', 'rls-v1', $2, 'draft')`,
       [TENANT_A, TAG_A]
     );
 
-    await db.query(
+    await ownerQuery(
       `INSERT INTO clinical_ai_generations
          (tenant_id, task_type, provider, model, prompt_version, source_hash, status)
        VALUES ($1::uuid, 'rls_test', 'template', 'test', 'rls-v1', $2, 'draft')`,
@@ -120,12 +134,12 @@ describeIfDb('Tenant RLS policies (migration 075)', () => {
     // Owner path cleanup — RLS is exempt for the owner, so a single DELETE
     // reaches rows for both tenants. Delete the clinical_ai rows BEFORE the
     // tenant row so the FK constraint doesn't fire.
-    await db.query(
+    await ownerQuery(
       `DELETE FROM clinical_ai_generations
        WHERE source_hash IN ($1, $2, 'rls-wrong-tenant-insert')`,
       [TAG_A, TAG_B]
     );
-    await db.query(
+    await ownerQuery(
       `DELETE FROM tenants WHERE id = $1::uuid`,
       [TENANT_B]
     );
@@ -200,18 +214,19 @@ describeIfDb('Tenant RLS policies (migration 075)', () => {
     ).rejects.toThrow();
 
     // Confirm nothing landed on disk, even via bypass.
-    const verify = await db.queryAsTenant(
-      `SELECT 1 FROM clinical_ai_generations WHERE source_hash = 'rls-wrong-tenant-insert'`,
-      [],
+    const verifyRows = await setTenant(
       null,
-      { superAdmin: true }
+      (tx) => tx.$queryRawUnsafe(
+        `SELECT 1 FROM clinical_ai_generations WHERE source_hash = 'rls-wrong-tenant-insert'`
+      ),
+      { superAdmin: true },
     );
-    expect(verify.rowCount).toBe(0);
+    expect(Array.isArray(verifyRows) ? verifyRows.length : 0).toBe(0);
   });
 
-  it('throws when queryAsTenant is called without tenantId or superAdmin', async () => {
+  it('throws when setTenant is called without tenantId or superAdmin', async () => {
     await expect(
-      db.queryAsTenant('SELECT 1', [], null)
+      setTenant(null, (tx) => tx.$queryRawUnsafe('SELECT 1'))
     ).rejects.toThrow(/requires tenantId/);
   });
 });
