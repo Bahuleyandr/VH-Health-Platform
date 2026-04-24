@@ -1,8 +1,7 @@
 // src/routes/health/uptimeRoutes.js
 // Dedicated health check endpoints optimized for external monitoring tools
 import express from 'express';
-import db from '../../config/database.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { circuitBreakerStatus } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 const router = express.Router();
@@ -101,13 +100,18 @@ router.get('/metrics', async (_req, res) => {
   const uptimeSeconds = Math.floor((Date.now() - startTime) / 1000);
   const memUsage = process.memoryUsage();
 
+  // Database health — SELECT 1 proves the driver is live; circuit breaker
+  // status tells operators whether the client is rejecting queries due to
+  // prior failures. The legacy pg pool (totalCount/idleCount/waitingCount)
+  // is gone since batch 28; use `prisma.$metrics.json()` if per-pool
+  // counters become load-bearing again.
   let dbPoolStats = null;
   try {
-    const health = await db.healthCheck();
-    dbPoolStats = health;
+    await prisma.$queryRaw`SELECT 1`;
+    dbPoolStats = { healthy: true, circuitBreaker: circuitBreakerStatus() };
   } catch (err) {
-    logger.warn('Failed to get DB pool stats for metrics:', err.message);
-    dbPoolStats = { healthy: false, error: 'Database pool check failed' };
+    logger.warn('Failed DB health probe for metrics:', err.message);
+    dbPoolStats = { healthy: false, error: 'Database check failed', circuitBreaker: circuitBreakerStatus() };
   }
 
   res.status(200).json({

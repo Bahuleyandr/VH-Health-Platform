@@ -2,7 +2,8 @@
 // Lightweight Prometheus metrics collection without external dependencies.
 // Exposes histograms, counters, and gauges in Prometheus exposition format.
 
-import db from '../config/database.js';
+// The pg pool was retired in batch 28 and the db_pool_* gauges are zeroed
+// out below — there's no DB client needed at this layer anymore.
 import { isRedisConnected } from '../lib/redis.js';
 
 // ---------------------------------------------------------------------------
