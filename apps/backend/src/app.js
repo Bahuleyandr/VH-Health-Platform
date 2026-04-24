@@ -18,7 +18,7 @@ import { auditLogMiddleware } from './middleware/auditLog.js';
 import corsMiddleware, { corsErrorHandler } from './middleware/corsMiddleware.js';
 import { errorHandlerMiddleware } from './middleware/errorHandlerMiddleware.js';
 import { adminIpAllowlist } from './middleware/ipAllowlistMiddleware.js';
-import jwtAuth from './middleware/jwtMiddleware.js';
+import jwtAuth, { enforceFullScope } from './middleware/jwtMiddleware.js';
 import tenantContextMiddleware from './middleware/tenantContextMiddleware.js';
 import tenantRoutes from './routes/admin/tenantRoutes.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
@@ -358,6 +358,11 @@ app.use('/api/v1/config', configRoutes);
 app.use('/api/v1/hl7', hl7Routes);
 
 app.use(jwtAuth);  // Single JWT middleware for all authenticated routes
+// Narrow-scope tokens (e.g. mfa_setup) must never reach non-auth routes.
+// The two setup-enroll/confirm endpoints are mounted under /api/v1/auth
+// (above this line) and carry their own requireSetupScope guard; every
+// route past this line gets the inverse guard.
+app.use(enforceFullScope);
 app.use(tenantContextMiddleware);  // Resolves req.tenantId after JWT auth
 app.use(normalizeIdentityFields); // runs AFTER JWT auth
 
