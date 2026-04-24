@@ -112,7 +112,7 @@ export const runPayroll = async (req, res) => {
              COALESCE(s.department, ss.department) as department
       FROM staff_salary ss
       JOIN users u ON ss.staff_uid = u.uid
-      LEFT JOIN staff s ON s.user_id = u.id
+      LEFT JOIN staff s ON s.user_id = u.uid
       WHERE ss.is_active = true
     `);
 
@@ -315,7 +315,7 @@ export const getPayrollRunDetail = async (req, res) => {
              u.role
       FROM payslips p
       JOIN users u ON p.staff_uid = u.uid
-      LEFT JOIN staff s ON s.user_id = u.id
+      LEFT JOIN staff s ON s.user_id = u.uid
       LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid
       WHERE p.payroll_run_id = $1
       ORDER BY u.name
@@ -359,7 +359,7 @@ export const getStaffForPayroll = async (req, res) => {
              CASE WHEN ss.id IS NOT NULL THEN true ELSE false END as has_salary_config,
              ss.basic_salary, ss.designation
       FROM users u
-      LEFT JOIN staff s ON s.user_id = u.id
+      LEFT JOIN staff s ON s.user_id = u.uid
       LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid
       ${where}
       ORDER BY u.name
@@ -385,7 +385,7 @@ export const getStaffSalaryConfig = async (req, res) => {
              COALESCE(s.department, ss.department) as dept
       FROM staff_salary ss
       JOIN users u ON ss.staff_uid = u.uid
-      LEFT JOIN staff s ON s.user_id = u.id
+      LEFT JOIN staff s ON s.user_id = u.uid
       WHERE ss.staff_uid = $1
     `, staffUid);
 

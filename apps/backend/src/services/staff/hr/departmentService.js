@@ -19,7 +19,7 @@ export const getDepartmentStaffSummary = async (department) => {
       MIN(s.salary) FILTER (WHERE s.salary IS NOT NULL) as min_salary,
       MAX(s.salary) FILTER (WHERE s.salary IS NOT NULL) as max_salary
     FROM users u
-    JOIN staff s ON u.id = s.user_id
+    JOIN staff s ON u.uid = s.user_id
     WHERE s.department = $1
   `, department);
 
@@ -30,7 +30,7 @@ export const getDepartmentStaffSummary = async (department) => {
       COUNT(*) as count,
       AVG(s.salary) FILTER (WHERE s.salary IS NOT NULL) as avg_salary
     FROM users u
-    JOIN staff s ON u.id = s.user_id
+    JOIN staff s ON u.uid = s.user_id
     WHERE s.department = $1 AND s.is_active = true
     GROUP BY s.position
     ORDER BY count DESC
@@ -42,7 +42,7 @@ export const getDepartmentStaffSummary = async (department) => {
       s.shift_type,
       COUNT(*) as count
     FROM users u
-    JOIN staff s ON u.id = s.user_id
+    JOIN staff s ON u.uid = s.user_id
     WHERE s.department = $1 AND s.is_active = true AND s.shift_type IS NOT NULL
     GROUP BY s.shift_type
     ORDER BY count DESC
@@ -60,7 +60,7 @@ export const getDepartmentStaffSummary = async (department) => {
       END as experience_range,
       COUNT(*) as count
     FROM users u
-    JOIN staff s ON u.id = s.user_id
+    JOIN staff s ON u.uid = s.user_id
     WHERE s.department = $1 AND s.is_active = true
     GROUP BY experience_range
     ORDER BY 
@@ -107,7 +107,7 @@ export const getDepartmentStaffSummary = async (department) => {
         ELSE 'absent'
       END as attendance_status
     FROM users u
-    JOIN staff s ON u.id = s.user_id
+    JOIN staff s ON u.uid = s.user_id
     LEFT JOIN staff_attendance sa ON s.user_id = sa.staff_id 
       AND DATE(sa.check_in_time) = CURRENT_DATE
     WHERE s.department = $1 AND s.is_active = true
@@ -295,7 +295,7 @@ export const getAttendanceAnalytics = async (queryParams) => {
       SUM(sa.overtime_hours) as total_overtime
     FROM staff_attendance sa
     JOIN staff s ON sa.staff_id = s.user_id
-    JOIN users u ON s.user_id = u.id
+    JOIN users u ON s.user_id = u.uid
     ${whereClause}
     GROUP BY u.name, s.employee_id, s.department
     HAVING COUNT(*) > 5

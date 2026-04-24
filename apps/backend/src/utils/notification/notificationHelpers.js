@@ -134,7 +134,7 @@ export const buildUserTargetingQuery = (criteria) => {
   
   if (criteria.department) {
     joins.push('LEFT JOIN doctors d ON u.id = d.user_id');
-    joins.push('LEFT JOIN staff s ON u.id = s.user_id');
+    joins.push('LEFT JOIN staff s ON u.uid = s.user_id');
     conditions.push(`(d.department = $${params.length + 1} OR s.department = $${params.length + 1})`);
     params.push(criteria.department);
   }

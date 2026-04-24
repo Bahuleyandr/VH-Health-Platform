@@ -69,7 +69,7 @@ export const getStaffList = async (filters, userRole) => {
       END as current_status,
       s.last_check_in, s.last_check_out
     FROM users u 
-    LEFT JOIN staff s ON u.id = s.user_id 
+    LEFT JOIN staff s ON u.uid = s.user_id 
     LEFT JOIN users sup ON s.supervisor_id = sup.id
     ${whereClause}
     ORDER BY 
@@ -84,7 +84,7 @@ export const getStaffList = async (filters, userRole) => {
   const countQuery = `
     SELECT COUNT(*)
     FROM users u 
-    LEFT JOIN staff s ON u.id = s.user_id 
+    LEFT JOIN staff s ON u.uid = s.user_id 
     LEFT JOIN users sup ON s.supervisor_id = sup.id
     ${whereClause}
   `;
@@ -95,7 +95,7 @@ export const getStaffList = async (filters, userRole) => {
   const departmentStats = await prisma.$queryRawUnsafe(`
     SELECT s.department, COUNT(*) as count
     FROM users u 
-    LEFT JOIN staff s ON u.id = s.user_id 
+    LEFT JOIN staff s ON u.uid = s.user_id 
     WHERE u.role = ANY($1) AND (s.is_active = true OR s.is_active IS NULL)
     GROUP BY s.department
     ORDER BY count DESC
@@ -104,7 +104,7 @@ export const getStaffList = async (filters, userRole) => {
   const roleStats = await prisma.$queryRawUnsafe(`
     SELECT u.role, COUNT(*) as count
     FROM users u 
-    LEFT JOIN staff s ON u.id = s.user_id 
+    LEFT JOIN staff s ON u.uid = s.user_id 
     WHERE u.role = ANY($1) AND (s.is_active = true OR s.is_active IS NULL)
     GROUP BY u.role
     ORDER BY count DESC
@@ -167,7 +167,7 @@ export const getStaffProfile = async (identifier, userRole, userId, includePriva
         ELSE 'not_checked_in'
       END as current_status
     FROM users u 
-    LEFT JOIN staff s ON u.id = s.user_id 
+    LEFT JOIN staff s ON u.uid = s.user_id 
     LEFT JOIN users sup ON s.supervisor_id = sup.id
     WHERE ${column} = $1 AND u.role = ANY($2)
   `, identifier, allowedRoles);
@@ -382,7 +382,7 @@ export const updateStaffProfile = async (id, data, updatedBy, updaterName, ipAdd
 
   // Verify staff profile exists
   const staffCheck = await prisma.$queryRawUnsafe(
-    'SELECT s.*, u.name FROM staff s JOIN users u ON s.user_id = u.id WHERE s.user_id = $1',
+    'SELECT s.*, u.name FROM staff s JOIN users u ON s.user_id = u.uid WHERE s.user_id = $1',
     id
   );
 
@@ -494,7 +494,7 @@ export const getStaffByDepartment = async (department, shift, includeInactive, u
         ELSE 'not_checked_in'
       END as current_status
     FROM users u 
-    JOIN staff s ON u.id = s.user_id 
+    JOIN staff s ON u.uid = s.user_id 
     ${whereClause}
     ORDER BY s.position, u.name
   `;
@@ -569,7 +569,7 @@ export const getStaffByShift = async (shift, department, date, userRole) => {
         ELSE 'scheduled'
       END as attendance_status
     FROM users u 
-    JOIN staff s ON u.id = s.user_id 
+    JOIN staff s ON u.uid = s.user_id 
     LEFT JOIN staff_attendance att ON s.user_id = att.staff_id 
       AND DATE(att.check_in_time) = $${paramIndex}
     ${whereClause}
@@ -632,7 +632,7 @@ export const getStaffStatistics = async (userRole, timeframe) => {
       AVG(s.salary) FILTER (WHERE s.salary IS NOT NULL) as average_salary,
       COUNT(CASE WHEN s.last_check_in IS NOT NULL AND s.last_check_out IS NULL THEN 1 END) as currently_checked_in
     FROM users u
-    LEFT JOIN staff s ON u.id = s.user_id
+    LEFT JOIN staff s ON u.uid = s.user_id
     WHERE u.role = ANY($1)
   `, allowedRoles);
 
@@ -644,7 +644,7 @@ export const getStaffStatistics = async (userRole, timeframe) => {
       COUNT(CASE WHEN s.is_active = true THEN 1 END) as active_count,
       COUNT(CASE WHEN s.last_check_in IS NOT NULL AND s.last_check_out IS NULL THEN 1 END) as checked_in_count
     FROM users u
-    JOIN staff s ON u.id = s.user_id
+    JOIN staff s ON u.uid = s.user_id
     WHERE s.is_active = true AND u.role = ANY($1)
     GROUP BY s.department
     ORDER BY total_count DESC
@@ -657,7 +657,7 @@ export const getStaffStatistics = async (userRole, timeframe) => {
       COUNT(*) as count,
       COUNT(CASE WHEN s.is_active = true THEN 1 END) as active_count
     FROM users u
-    LEFT JOIN staff s ON u.id = s.user_id
+    LEFT JOIN staff s ON u.uid = s.user_id
     WHERE u.role = ANY($1)
     GROUP BY u.role
     ORDER BY count DESC
@@ -670,7 +670,7 @@ export const getStaffStatistics = async (userRole, timeframe) => {
       COUNT(*) as count,
       COUNT(CASE WHEN s.last_check_in IS NOT NULL AND s.last_check_out IS NULL THEN 1 END) as checked_in_count
     FROM users u
-    JOIN staff s ON u.id = s.user_id
+    JOIN staff s ON u.uid = s.user_id
     WHERE s.is_active = true AND u.role = ANY($1)
     GROUP BY s.shift
     ORDER BY s.shift

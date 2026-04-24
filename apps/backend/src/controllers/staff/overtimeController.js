@@ -86,7 +86,7 @@ export const getPendingOvertimeRequests = async (req, res) => {
       SELECT o.*, u.name as staff_name, u.employee_id, s.department
       FROM overtime_requests o
       JOIN users u ON o.staff_id = u.id
-      LEFT JOIN staff s ON u.id = s.user_id
+      LEFT JOIN staff s ON u.uid = s.user_id
       WHERE o.status='pending' ORDER BY o.date DESC
     `);
 

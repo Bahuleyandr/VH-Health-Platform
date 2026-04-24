@@ -37,12 +37,17 @@ export class AppointmentQueryService {
         prisma.$queryRaw`
           SELECT a.id, a.appointment_date, a.appointment_time, a.status, a.reason, a.notes,
                  a.created_at, a.updated_at,
-                 p.name AS patient_name, p.phone AS patient_phone,
-                 d.name AS doctor_name, d.phone AS doctor_phone
+                 a.patient_id, a.doctor_id,
+                 COALESCE(p.name, a.patient_name) AS patient_name,
+                 COALESCE(p.phone, a.phone) AS patient_phone,
+                 COALESCE(d.name, a.doctor_name) AS doctor_name,
+                 du.phone AS doctor_phone,
+                 d.specialty AS doctor_specialization,
+                 d.department AS doctor_department
           FROM appointments a
-          LEFT JOIN users p ON a.uid = p.uid
-          LEFT JOIN users d ON a.doctor_id = d.id
-          LEFT JOIN doctors dp ON d.id = dp.user_id
+          LEFT JOIN users p ON a.patient_id = p.id
+          LEFT JOIN doctors d ON a.doctor_id = d.id
+          LEFT JOIN users du ON d.user_id = du.id
           WHERE ${whereClause}
           ORDER BY a.appointment_date, a.appointment_time
           LIMIT ${limit} OFFSET ${offset}

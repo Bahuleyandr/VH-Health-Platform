@@ -10,7 +10,7 @@ import logger from '../../../logging/logger.js';
  */
 export const getStaffLeaveBalance = async (staffId, year) => {
   const staffCheck = await prisma.$queryRawUnsafe(
-    'SELECT u.name, s.employee_id, s.hire_date FROM users u JOIN staff s ON u.id = s.user_id WHERE u.id = $1',
+    'SELECT u.name, s.employee_id, s.hire_date FROM users u JOIN staff s ON u.uid = s.user_id WHERE u.id = $1',
     staffId
   );
 
@@ -137,7 +137,7 @@ export const applyForLeave = async (leaveData) => {
 
   // Get staff details
   const staffInfo = await prisma.$queryRawUnsafe(
-    'SELECT u.name, s.employee_id, s.department, s.supervisor_id FROM users u JOIN staff s ON u.id = s.user_id WHERE u.id = $1',
+    'SELECT u.name, s.employee_id, s.department, s.supervisor_id FROM users u JOIN staff s ON u.uid = s.user_id WHERE u.id = $1',
     staff_id
   );
 

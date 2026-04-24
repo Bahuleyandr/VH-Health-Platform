@@ -317,7 +317,7 @@ export const getPendingDisputes = async (req, res) => {
         u.name as staff_name, u.employee_id, s.department
       FROM attendance_disputes d
       JOIN users u ON d.staff_id = u.id
-      LEFT JOIN staff s ON u.id = s.user_id
+      LEFT JOIN staff s ON u.uid = s.user_id
       WHERE d.status = 'pending' ORDER BY d.date DESC
     `);
 
