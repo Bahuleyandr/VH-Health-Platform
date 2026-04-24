@@ -92,9 +92,6 @@ if (process.env.NODE_ENV === 'development') {
       version: routes.version,
       health: routes.health,
       
-      // ===== FILE MANAGEMENT & MEDIA =====
-      upload: routes.upload,
-      
       // ===== ADMINISTRATIVE & MANAGEMENT =====
       adminDepartments: routes.adminDepartments,
       adminDoctors: routes.adminDoctors,

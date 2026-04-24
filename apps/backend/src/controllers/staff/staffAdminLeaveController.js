@@ -81,10 +81,10 @@ export const bulkLeaveApproval = async (req, res) => {
 
     const result = await prisma.$queryRawUnsafe(`
       UPDATE leave_applications
-      SET 
+      SET
         status = $1,
-        approved_by = $2,
-        approved_at = NOW()
+        reviewed_by = $2,
+        reviewed_at = NOW()
       WHERE id = ANY($3::int[])
       RETURNING id
     `, status, approvedBy, leave_ids);
@@ -109,13 +109,13 @@ export const approveLeaveRequest = async (req, res) => {
 
     const result = await prisma.$queryRawUnsafe(`
       UPDATE leave_applications
-      SET 
+      SET
         status = 'approved',
-        approved_by = $2,
-        approved_at = NOW(),
-        approver_comments = $3
+        reviewed_by = $2,
+        reviewed_at = NOW(),
+        review_notes = $3
       WHERE id = $1
-      RETURNING id, staff_uid, leave_type, start_date, end_date, status, approved_by, reason, created_at
+      RETURNING id, staff_uid, leave_type, start_date, end_date, status, reviewed_by, reason, created_at
     `, leaveId, approvedBy, comments);
 
     if (result.length === 0) {

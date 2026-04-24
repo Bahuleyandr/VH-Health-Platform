@@ -173,7 +173,7 @@ async function importPatient(fhirPatient, _importedBy) {
   // Create new patient — generate UID
   const uid = `IMP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await prisma.$queryRawUnsafe(
-    `INSERT INTO users (uid, phone, name, gender, birthday, address, email, role, is_active, created_at)
+    `INSERT INTO users (uid, phone, name, gender, birthday, address, email, role, is_active, registered_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, 'PATIENT', true, NOW())`,
     uid, patient.phone, patient.name, patient.gender, patient.birthday, patient.address, patient.email
   );
@@ -455,7 +455,7 @@ async function importPatientFromCCDA(patientData, _importedBy) {
   patientData.uid = uid;
 
   await prisma.$queryRawUnsafe(
-    `INSERT INTO users (uid, phone, name, gender, birthday, address, role, is_active, created_at)
+    `INSERT INTO users (uid, phone, name, gender, birthday, address, role, is_active, registered_at)
      VALUES ($1, $2, $3, $4, $5, $6, 'PATIENT', true, NOW())`,
     uid, patientData.phone, patientData.name, patientData.gender, patientData.birthday, patientData.address
   );

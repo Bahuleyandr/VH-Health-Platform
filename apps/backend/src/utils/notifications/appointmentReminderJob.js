@@ -212,7 +212,7 @@ export async function sendAppointmentReminders() {
 
         // Store as in-app notification
         await prisma.$queryRawUnsafe(
-          `INSERT INTO notifications (phone, title, body, type, created_at, read)
+          `INSERT INTO notifications (phone, title, body, type, created_at, is_read)
            VALUES ($1, $2, $3, $4, NOW(), false)`,
           appt.phone, notification.title, notification.body, 'reminder'
         );

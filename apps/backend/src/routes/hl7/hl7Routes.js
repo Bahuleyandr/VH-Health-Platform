@@ -112,14 +112,14 @@ router.post(
         }
 
         await prisma.$queryRawUnsafe(
-          `INSERT INTO investigations (patient_uid, test_name, status, ordered_at, created_at)
+          `INSERT INTO investigations (patient_uid, test_name, status, requested_at, created_at)
            VALUES ($1, $2, $3, $4, NOW())`,
-          
+
             patient.uid,
             order.test_name || 'Unknown Test',
             order.status || 'PENDING',
             order.ordered_at || new Date().toISOString(),
-          
+
         );
 
         logger.info('HL7 ORM processed', { testName: order.test_name, patientUid: patient.uid, requestId: req.id });

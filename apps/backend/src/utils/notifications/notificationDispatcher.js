@@ -82,7 +82,7 @@ export async function dispatch({ userId, title, body, channels = ['push', 'inapp
   if (channels.includes('inapp')) {
     try {
       await prisma.$queryRawUnsafe(
-        `INSERT INTO notifications (phone, title, body, type, created_at, read)
+        `INSERT INTO notifications (phone, title, body, type, created_at, is_read)
          VALUES ($1, $2, $3, $4, NOW(), false)`,
         user.phone, title, body, type
       );

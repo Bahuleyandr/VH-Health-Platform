@@ -430,7 +430,6 @@ app.use('/api/v1/devices', deviceRoutes);
 app.use('/api/v1/feedback', patientRateLimiter, routes.feedback);
 app.use('/api/v1/sos', patientRateLimiter, routes.sos);
 app.use('/api/v1/search', searchRoutes);
-app.use('/api/v1/upload', routes.upload);
 
 // GDPR Data Export + Erasure
 app.use('/api/v1/data-export', dataExportRateLimiter, dataExportRoutes);
@@ -602,7 +601,6 @@ if (process.env.NODE_ENV === 'development') {
   logger.info('  - ALL    /api/v1/devices/*');
   logger.info('  - ALL    /api/v1/feedback/*');
   logger.info('  - ALL    /api/v1/sos/*');
-  logger.info('  - ALL    /api/v1/upload/*');
 
   logger.info('\n🔑 JWT Protected Routes:');
   logger.info('  - ALL    /api/v1/staff/*');

@@ -4,7 +4,6 @@
 export const ROUTE_RATE_PROFILES = {
   'appointmentRoutes.post': 'strict',
   'feedbackRoutes.post': 'relaxed',
-  'uploadRoutes.post': 'files'
 };
 
 // ✅ Disable audit logging for lightweight GETs
