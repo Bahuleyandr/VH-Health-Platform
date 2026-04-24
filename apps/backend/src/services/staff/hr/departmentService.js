@@ -1,166 +1,245 @@
 // src/services/staff/hr/departmentService.js
 import prisma from '../../../lib/prisma.js';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const YEAR_MS = 365.25 * DAY_MS;
+const fmtDate = (d) => d
+  ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  : null;
+
+function startOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function startOfTomorrow() {
+  const d = startOfToday();
+  d.setDate(d.getDate() + 1);
+  return d;
+}
+
+function lateCategory(checkInTime) {
+  // Matches the pre-ORM thresholds: on_time ≤ 09:00, slightly_late ≤ 09:30,
+  // late ≤ 10:00, else very_late.
+  const h = checkInTime.getHours() + checkInTime.getMinutes() / 60;
+  if (h <= 9) return 'on_time';
+  if (h <= 9.5) return 'slightly_late';
+  if (h <= 10) return 'late';
+  return 'very_late';
+}
+
 /**
  * Get comprehensive department staff summary
  * @param {string} department - Department name
  * @returns {Object} Department statistics and staff list
  */
 export const getDepartmentStaffSummary = async (department) => {
-  // Basic department statistics
-  const departmentStats = await prisma.$queryRawUnsafe(`
-    SELECT 
-      COUNT(*) as total_staff,
-      COUNT(CASE WHEN s.is_active = true THEN 1 END) as active_staff,
-      COUNT(CASE WHEN s.employment_type = 'FULL_TIME' THEN 1 END) as full_time,
-      COUNT(CASE WHEN s.employment_type = 'PART_TIME' THEN 1 END) as part_time,
-      COUNT(CASE WHEN s.employment_type = 'CONTRACT' THEN 1 END) as contract,
-      AVG(s.salary) FILTER (WHERE s.salary IS NOT NULL) as average_salary,
-      MIN(s.salary) FILTER (WHERE s.salary IS NOT NULL) as min_salary,
-      MAX(s.salary) FILTER (WHERE s.salary IS NOT NULL) as max_salary
-    FROM users u
-    JOIN staff s ON u.uid = s.user_id
-    WHERE s.department = $1
-  `, department);
+  const allStaff = await prisma.staff.findMany({
+    where: { department },
+    select: {
+      id: true,
+      user_id: true,
+      employee_id: true,
+      position: true,
+      shift_type: true,
+      employment_type: true,
+      hire_date: true,
+      performance_rating: true,
+      salary: true,
+      is_active: true,
+      users: {
+        select: { id: true, name: true, email: true, phone: true },
+      },
+    },
+  });
 
-  // Staff by position
-  const positionBreakdown = await prisma.$queryRawUnsafe(`
-    SELECT 
-      s.position,
-      COUNT(*) as count,
-      AVG(s.salary) FILTER (WHERE s.salary IS NOT NULL) as avg_salary
-    FROM users u
-    JOIN staff s ON u.uid = s.user_id
-    WHERE s.department = $1 AND s.is_active = true
-    GROUP BY s.position
-    ORDER BY count DESC
-  `, department);
+  // Today's attendance for staff in this department, keyed by
+  // whichever id the row carries (staff_id int or staff_uid uuid).
+  const todayStart = startOfToday();
+  const tomorrowStart = startOfTomorrow();
+  const staffUidSet = new Set(allStaff.map((s) => s.user_id).filter(Boolean));
+  const userIdSet = new Set(allStaff.map((s) => s.users?.id).filter((x) => x != null));
+  const todayAttendance = await prisma.staff_attendance.findMany({
+    where: {
+      check_in_time: { gte: todayStart, lt: tomorrowStart },
+      OR: [
+        ...(staffUidSet.size > 0 ? [{ staff_uid: { in: [...staffUidSet] } }] : []),
+        ...(userIdSet.size > 0 ? [{ staff_id: { in: [...userIdSet] } }] : []),
+      ],
+    },
+    select: {
+      staff_id: true,
+      staff_uid: true,
+      check_in_time: true,
+      check_out_time: true,
+    },
+  });
+  const attendanceByUid = new Map();
+  const attendanceById = new Map();
+  for (const row of todayAttendance) {
+    if (row.staff_uid) attendanceByUid.set(row.staff_uid, row);
+    if (row.staff_id != null) attendanceById.set(row.staff_id, row);
+  }
 
-  // Staff by shift
-  const shiftBreakdown = await prisma.$queryRawUnsafe(`
-    SELECT 
-      s.shift_type,
-      COUNT(*) as count
-    FROM users u
-    JOIN staff s ON u.uid = s.user_id
-    WHERE s.department = $1 AND s.is_active = true AND s.shift_type IS NOT NULL
-    GROUP BY s.shift_type
-    ORDER BY count DESC
-  `, department);
+  // Aggregate: total / active / employment_type breakdowns / salary extremes.
+  const stats = {
+    total_staff: allStaff.length,
+    active_staff: 0,
+    full_time: 0,
+    part_time: 0,
+    contract: 0,
+    salary_sum: 0, salary_count: 0,
+    salary_min: null, salary_max: null,
+  };
+  const activeStaff = [];
+  for (const s of allStaff) {
+    if (s.is_active) {
+      stats.active_staff += 1;
+      activeStaff.push(s);
+    }
+    if (s.employment_type === 'FULL_TIME') stats.full_time += 1;
+    else if (s.employment_type === 'PART_TIME') stats.part_time += 1;
+    else if (s.employment_type === 'CONTRACT') stats.contract += 1;
+    if (s.salary != null) {
+      const sal = Number(s.salary);
+      stats.salary_sum += sal;
+      stats.salary_count += 1;
+      if (stats.salary_min == null || sal < stats.salary_min) stats.salary_min = sal;
+      if (stats.salary_max == null || sal > stats.salary_max) stats.salary_max = sal;
+    }
+  }
 
-  // Experience distribution
-  const experienceDistribution = await prisma.$queryRawUnsafe(`
-    SELECT 
-      CASE
-        WHEN AGE(NOW(), s.hire_date) < INTERVAL '1 year' THEN '0-1 years'
-        WHEN AGE(NOW(), s.hire_date) < INTERVAL '3 years' THEN '1-3 years'
-        WHEN AGE(NOW(), s.hire_date) < INTERVAL '5 years' THEN '3-5 years'
-        WHEN AGE(NOW(), s.hire_date) < INTERVAL '10 years' THEN '5-10 years'
-        ELSE '10+ years'
-      END as experience_range,
-      COUNT(*) as count
-    FROM users u
-    JOIN staff s ON u.uid = s.user_id
-    WHERE s.department = $1 AND s.is_active = true
-    GROUP BY experience_range
-    ORDER BY 
-      CASE experience_range
-        WHEN '0-1 years' THEN 1
-        WHEN '1-3 years' THEN 2
-        WHEN '3-5 years' THEN 3
-        WHEN '5-10 years' THEN 4
-        ELSE 5
-      END
-  `, department);
+  // Position breakdown (active only).
+  const positionAgg = new Map();
+  for (const s of activeStaff) {
+    const key = s.position ?? '(unassigned)';
+    const agg = positionAgg.get(key) ?? { position: s.position, count: 0, salary_sum: 0, salary_count: 0 };
+    agg.count += 1;
+    if (s.salary != null) {
+      agg.salary_sum += Number(s.salary);
+      agg.salary_count += 1;
+    }
+    positionAgg.set(key, agg);
+  }
+  const positionBreakdown = [...positionAgg.values()]
+    .sort((a, b) => b.count - a.count)
+    .map((agg) => ({
+      position: agg.position,
+      count: agg.count,
+      avg_salary: agg.salary_count > 0 ? Math.round(agg.salary_sum / agg.salary_count) : null,
+    }));
 
-  // Recent attendance
-  const attendanceMetrics = await prisma.$queryRawUnsafe(`
-    SELECT 
-      COUNT(DISTINCT sa.staff_id) as staff_present_today,
-      AVG(EXTRACT(EPOCH FROM (sa.check_out_time - sa.check_in_time))/3600) as avg_hours_today
-    FROM staff_attendance sa
-    JOIN staff s ON sa.staff_id = s.user_id
-    WHERE s.department = $1 
-      AND DATE(sa.check_in_time) = CURRENT_DATE
-      AND sa.check_out_time IS NOT NULL
-  `, department);
+  // Shift breakdown (active + has shift_type).
+  const shiftAgg = new Map();
+  for (const s of activeStaff) {
+    if (!s.shift_type) continue;
+    shiftAgg.set(s.shift_type, (shiftAgg.get(s.shift_type) ?? 0) + 1);
+  }
+  const shiftBreakdown = [...shiftAgg.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([shift_type, count]) => ({ shift_type, count }));
 
-  // Performance metrics
-  const performanceMetrics = await prisma.$queryRawUnsafe(`
-    SELECT 
-      AVG(s.performance_rating) as avg_performance,
-      COUNT(CASE WHEN s.performance_rating >= 4.0 THEN 1 END) as high_performers,
-      COUNT(CASE WHEN s.performance_rating < 3.0 THEN 1 END) as needs_improvement
-    FROM staff s
-    WHERE s.department = $1 AND s.is_active = true AND s.performance_rating IS NOT NULL
-  `, department);
+  // Experience distribution (active + hire_date set).
+  const now = new Date();
+  const expBuckets = new Map([
+    ['0-1 years', 0], ['1-3 years', 0], ['3-5 years', 0], ['5-10 years', 0], ['10+ years', 0],
+  ]);
+  for (const s of activeStaff) {
+    if (!s.hire_date) continue;
+    const years = (now - s.hire_date) / YEAR_MS;
+    const bucket = years < 1 ? '0-1 years'
+      : years < 3 ? '1-3 years'
+        : years < 5 ? '3-5 years'
+          : years < 10 ? '5-10 years' : '10+ years';
+    expBuckets.set(bucket, expBuckets.get(bucket) + 1);
+  }
+  const experienceDistribution = [...expBuckets.entries()]
+    .filter(([, count]) => count > 0)
+    .map(([experience_range, count]) => ({ experience_range, count }));
 
-  // Staff list
-  const staffList = await prisma.$queryRawUnsafe(`
-    SELECT 
-      u.id, u.name, u.email, u.phone,
-      s.employee_id, s.position, s.shift_type, s.employment_type,
-      s.hire_date, s.performance_rating,
-      CASE 
-        WHEN sa.check_in_time IS NOT NULL AND sa.check_out_time IS NULL THEN 'present'
-        WHEN sa.check_in_time IS NOT NULL THEN 'checked_out'
-        ELSE 'absent'
-      END as attendance_status
-    FROM users u
-    JOIN staff s ON u.uid = s.user_id
-    LEFT JOIN staff_attendance sa ON s.user_id = sa.staff_id 
-      AND DATE(sa.check_in_time) = CURRENT_DATE
-    WHERE s.department = $1 AND s.is_active = true
-    ORDER BY s.position, u.name
-  `, department);
+  // Today's attendance metrics.
+  const presentToday = new Set();
+  let completedHoursSum = 0;
+  let completedHoursCount = 0;
+  for (const s of activeStaff) {
+    const att = (s.user_id && attendanceByUid.get(s.user_id))
+      ?? (s.users?.id != null && attendanceById.get(s.users.id));
+    if (!att) continue;
+    presentToday.add(s.id);
+    if (att.check_out_time) {
+      completedHoursSum += (att.check_out_time.getTime() - att.check_in_time.getTime()) / 3_600_000;
+      completedHoursCount += 1;
+    }
+  }
+  const staffPresentToday = presentToday.size;
+  const avgHoursToday = completedHoursCount > 0 ? completedHoursSum / completedHoursCount : 0;
 
-  const stats = departmentStats[0];
-  const attendance = attendanceMetrics[0];
-  const performance = performanceMetrics[0];
+  // Performance metrics (active + rated).
+  const perfAgg = { sum: 0, count: 0, high: 0, low: 0 };
+  for (const s of activeStaff) {
+    if (s.performance_rating == null) continue;
+    const rating = Number(s.performance_rating);
+    perfAgg.sum += rating;
+    perfAgg.count += 1;
+    if (rating >= 4.0) perfAgg.high += 1;
+    if (rating < 3.0) perfAgg.low += 1;
+  }
+
+  // Staff list.
+  const staffList = activeStaff
+    .sort((a, b) => (a.position ?? '').localeCompare(b.position ?? '')
+      || (a.users?.name ?? '').localeCompare(b.users?.name ?? ''))
+    .map((s) => {
+      const att = (s.user_id && attendanceByUid.get(s.user_id))
+        ?? (s.users?.id != null && attendanceById.get(s.users.id));
+      const attendance_status = !att ? 'absent'
+        : att.check_out_time ? 'checked_out' : 'present';
+      return {
+        id: s.users?.id,
+        name: s.users?.name ?? null,
+        email: s.users?.email ?? null,
+        phone: s.users?.phone ?? null,
+        employee_id: s.employee_id,
+        position: s.position,
+        shift_type: s.shift_type,
+        employment_type: s.employment_type,
+        hire_date: fmtDate(s.hire_date),
+        tenure: s.hire_date ? Math.floor((now - s.hire_date) / YEAR_MS) : 0,
+        performance_rating: s.performance_rating
+          ? Math.round(Number(s.performance_rating) * 10) / 10 : null,
+        attendance_status,
+      };
+    });
 
   return {
     department,
     overview: {
-      total_staff: parseInt(stats.total_staff) || 0,
-      active_staff: parseInt(stats.active_staff) || 0,
-      full_time: parseInt(stats.full_time) || 0,
-      part_time: parseInt(stats.part_time) || 0,
-      contract: parseInt(stats.contract) || 0,
-      attendance_today: parseInt(attendance.staff_present_today) || 0,
-      attendance_rate: stats.active_staff > 0 ? 
-        Math.round((attendance.staff_present_today / stats.active_staff) * 100) : 0,
-      avg_hours_today: attendance.avg_hours_today ? 
-        Math.round(attendance.avg_hours_today * 10) / 10 : 0
+      total_staff: stats.total_staff,
+      active_staff: stats.active_staff,
+      full_time: stats.full_time,
+      part_time: stats.part_time,
+      contract: stats.contract,
+      attendance_today: staffPresentToday,
+      attendance_rate: stats.active_staff > 0
+        ? Math.round((staffPresentToday / stats.active_staff) * 100) : 0,
+      avg_hours_today: Math.round(avgHoursToday * 10) / 10,
     },
     salary: {
-      average: stats.average_salary ? Math.round(stats.average_salary) : null,
-      minimum: stats.min_salary ? Math.round(stats.min_salary) : null,
-      maximum: stats.max_salary ? Math.round(stats.max_salary) : null
+      average: stats.salary_count > 0 ? Math.round(stats.salary_sum / stats.salary_count) : null,
+      minimum: stats.salary_min != null ? Math.round(stats.salary_min) : null,
+      maximum: stats.salary_max != null ? Math.round(stats.salary_max) : null,
     },
     performance: {
-      average_rating: performance.avg_performance ? 
-        Math.round(performance.avg_performance * 10) / 10 : null,
-      high_performers: parseInt(performance.high_performers) || 0,
-      needs_improvement: parseInt(performance.needs_improvement) || 0
+      average_rating: perfAgg.count > 0
+        ? Math.round((perfAgg.sum / perfAgg.count) * 10) / 10 : null,
+      high_performers: perfAgg.high,
+      needs_improvement: perfAgg.low,
     },
-    positionBreakdown: positionBreakdown.map(pos => ({
-      position: pos.position,
-      count: parseInt(pos.count),
-      avg_salary: pos.avg_salary ? Math.round(pos.avg_salary) : null
-    })),
-    shiftBreakdown: shiftBreakdown,
-    experienceDistribution: experienceDistribution,
-    staffList: staffList.map(staff => ({
-      ...staff,
-      hire_date: new Date(staff.hire_date).toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      }),
-      tenure: Math.floor((new Date() - new Date(staff.hire_date)) / (365.25 * 24 * 60 * 60 * 1000)),
-      performance_rating: staff.performance_rating ? 
-        Math.round(staff.performance_rating * 10) / 10 : null
-    }))
+    positionBreakdown,
+    shiftBreakdown,
+    experienceDistribution,
+    staffList,
   };
 };
 
@@ -172,181 +251,236 @@ export const getDepartmentStaffSummary = async (department) => {
 export const getAttendanceAnalytics = async (queryParams) => {
   const { department, start_date, end_date, group_by } = queryParams;
 
-  let whereClause = 'WHERE sa.check_in_time IS NOT NULL';
-  let paramIndex = 1;
-
-  if (department) {
-    whereClause += ` AND s.department = $${paramIndex}`;
-    queryParams.push(department);
-    paramIndex++;
-  }
-
+  const attendanceWhere = { check_in_time: { not: null } };
   if (start_date && end_date) {
-    whereClause += ` AND DATE(sa.check_in_time) BETWEEN $${paramIndex} AND $${paramIndex + 1}`;
-    queryParams.push(start_date, end_date);
-    paramIndex += 2;
+    const start = new Date(start_date);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(end_date);
+    end.setHours(23, 59, 59, 999);
+    attendanceWhere.check_in_time = { not: null, gte: start, lte: end };
   }
 
-  // Attendance overview
-  const overview = await prisma.$queryRawUnsafe(`
-    SELECT 
-      COUNT(DISTINCT sa.staff_id) as unique_staff,
-      COUNT(*) as total_check_ins,
-      COUNT(CASE WHEN sa.check_out_time IS NOT NULL THEN 1 END) as completed_shifts,
-      AVG(EXTRACT(EPOCH FROM (sa.check_out_time - sa.check_in_time))/3600) 
-        FILTER (WHERE sa.check_out_time IS NOT NULL) as avg_hours_worked,
-      COUNT(CASE WHEN TIME(sa.check_in_time) > '09:30:00' THEN 1 END) as late_arrivals,
-      COUNT(CASE WHEN sa.overtime_hours > 0 THEN 1 END) as overtime_shifts
-    FROM staff_attendance sa
-    JOIN staff s ON sa.staff_id = s.user_id
-    ${whereClause}
-  `, queryParams);
+  const attendanceRows = await prisma.staff_attendance.findMany({
+    where: attendanceWhere,
+    select: {
+      staff_id: true,
+      staff_uid: true,
+      check_in_time: true,
+      check_out_time: true,
+      overtime_hours: true,
+    },
+  });
 
-  // Group by time period
-  let groupByClause;
-  let dateFormat;
-  
-  switch (group_by) {
-    case 'week':
-      groupByClause = "DATE_TRUNC('week', sa.check_in_time)";
-      dateFormat = "to_char(DATE_TRUNC('week', sa.check_in_time), 'DD-MM-YYYY')";
-      break;
-    case 'month':
-      groupByClause = "DATE_TRUNC('month', sa.check_in_time)";
-      dateFormat = "to_char(DATE_TRUNC('month', sa.check_in_time), 'Mon YYYY')";
-      break;
-    default: // day
-      groupByClause = "DATE(sa.check_in_time)";
-      dateFormat = "to_char(DATE(sa.check_in_time), 'DD-MM-YYYY')";
+  // Load staff rows keyed by both user_id (uuid) and id (int) so we
+  // can resolve either side of the pre-ORM `sa.staff_id = s.user_id`
+  // type-mismatched JOIN.
+  const uids = [...new Set(attendanceRows.map((r) => r.staff_uid).filter(Boolean))];
+  const ids = [...new Set(attendanceRows.map((r) => r.staff_id).filter((x) => x != null))];
+  const [staffByUid, staffById] = await Promise.all([
+    uids.length > 0
+      ? prisma.staff.findMany({
+        where: { user_id: { in: uids } },
+        select: {
+          id: true, user_id: true, department: true, employee_id: true,
+          users: { select: { name: true } },
+        },
+      })
+      : [],
+    ids.length > 0
+      ? prisma.users.findMany({
+        where: { id: { in: ids } },
+        select: {
+          id: true, name: true,
+          staff: { select: { department: true, employee_id: true }, take: 1 },
+        },
+      })
+      : [],
+  ]);
+  const uidMap = new Map(staffByUid.map((s) => [s.user_id, {
+    department: s.department, employee_id: s.employee_id, name: s.users?.name ?? null,
+  }]));
+  const idMap = new Map(staffById.map((u) => [u.id, {
+    department: u.staff[0]?.department ?? null,
+    employee_id: u.staff[0]?.employee_id ?? null,
+    name: u.name,
+  }]));
+
+  // Annotate each attendance row with its staff context.
+  const annotated = attendanceRows.map((row) => {
+    const staff = (row.staff_uid && uidMap.get(row.staff_uid))
+      ?? (row.staff_id != null && idMap.get(row.staff_id))
+      ?? null;
+    return { row, staff };
+  }).filter(({ staff }) => staff
+    && (!department || staff.department === department));
+
+  // Summary / overview.
+  const uniqueStaffIds = new Set();
+  let totalCheckIns = 0;
+  let completedShifts = 0;
+  let hoursSum = 0;
+  let hoursCount = 0;
+  let lateArrivals = 0;
+  let overtimeShifts = 0;
+  for (const { row } of annotated) {
+    uniqueStaffIds.add(row.staff_uid ?? `id:${row.staff_id}`);
+    totalCheckIns += 1;
+    if (row.check_out_time) {
+      completedShifts += 1;
+      hoursSum += (row.check_out_time.getTime() - row.check_in_time.getTime()) / 3_600_000;
+      hoursCount += 1;
+    }
+    const hour = row.check_in_time.getHours() + row.check_in_time.getMinutes() / 60;
+    if (hour > 9.5) lateArrivals += 1;
+    if (row.overtime_hours && Number(row.overtime_hours) > 0) overtimeShifts += 1;
   }
 
-  const trendsData = await prisma.$queryRawUnsafe(`
-    SELECT 
-      ${dateFormat} as period,
-      COUNT(DISTINCT sa.staff_id) as unique_staff,
-      COUNT(*) as total_check_ins,
-      AVG(EXTRACT(EPOCH FROM (sa.check_out_time - sa.check_in_time))/3600) 
-        FILTER (WHERE sa.check_out_time IS NOT NULL) as avg_hours,
-      COUNT(CASE WHEN TIME(sa.check_in_time) > '09:30:00' THEN 1 END) as late_arrivals,
-      SUM(sa.overtime_hours) as total_overtime_hours
-    FROM staff_attendance sa
-    JOIN staff s ON sa.staff_id = s.user_id
-    ${whereClause}
-    GROUP BY ${groupByClause}
-    ORDER BY ${groupByClause} DESC
-    LIMIT 30
-  `, queryParams);
+  // Time-grouped trend.
+  const trendAgg = new Map();
+  const bucketKey = (d) => {
+    if (group_by === 'week') {
+      const w = new Date(d);
+      w.setHours(0, 0, 0, 0);
+      w.setDate(w.getDate() - w.getDay()); // Sunday-start week
+      return { key: w.toISOString(), label: fmtDate(w), sortDate: w };
+    }
+    if (group_by === 'month') {
+      const m = new Date(d.getFullYear(), d.getMonth(), 1);
+      return { key: m.toISOString(), label: m.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }), sortDate: m };
+    }
+    const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    return { key: day.toISOString(), label: fmtDate(day), sortDate: day };
+  };
+  for (const { row } of annotated) {
+    const { key, label, sortDate } = bucketKey(row.check_in_time);
+    const bucket = trendAgg.get(key) ?? {
+      period: label, sortDate, uniq: new Set(), total: 0,
+      hoursSum: 0, hoursCount: 0, late: 0, overtimeSum: 0,
+    };
+    bucket.uniq.add(row.staff_uid ?? `id:${row.staff_id}`);
+    bucket.total += 1;
+    if (row.check_out_time) {
+      bucket.hoursSum += (row.check_out_time.getTime() - row.check_in_time.getTime()) / 3_600_000;
+      bucket.hoursCount += 1;
+    }
+    const hour = row.check_in_time.getHours() + row.check_in_time.getMinutes() / 60;
+    if (hour > 9.5) bucket.late += 1;
+    if (row.overtime_hours) bucket.overtimeSum += Number(row.overtime_hours);
+    trendAgg.set(key, bucket);
+  }
+  const trends = [...trendAgg.values()]
+    .sort((a, b) => b.sortDate - a.sortDate)
+    .slice(0, 30)
+    .map((bucket) => ({
+      period: bucket.period,
+      unique_staff: bucket.uniq.size,
+      total_check_ins: bucket.total,
+      avg_hours: bucket.hoursCount > 0 ? Math.round((bucket.hoursSum / bucket.hoursCount) * 10) / 10 : 0,
+      late_arrivals: bucket.late,
+      total_overtime_hours: Math.round(bucket.overtimeSum * 100) / 100,
+    }));
 
-  // Department comparison (if not filtering by department)
+  // Department comparison (skip when a department filter was specified).
   let departmentComparison = [];
   if (!department) {
-    const deptResult = await prisma.$queryRawUnsafe(`
-      SELECT 
-        s.department,
-        COUNT(DISTINCT sa.staff_id) as unique_staff,
-        COUNT(*) as total_check_ins,
-        AVG(EXTRACT(EPOCH FROM (sa.check_out_time - sa.check_in_time))/3600) 
-          FILTER (WHERE sa.check_out_time IS NOT NULL) as avg_hours,
-        COUNT(CASE WHEN TIME(sa.check_in_time) > '09:30:00' THEN 1 END) as late_arrivals
-      FROM staff_attendance sa
-      JOIN staff s ON sa.staff_id = s.user_id
-      WHERE sa.check_in_time IS NOT NULL
-        ${start_date && end_date ? `AND DATE(sa.check_in_time) BETWEEN $1 AND $2` : ''}
-      GROUP BY s.department
-      ORDER BY total_check_ins DESC
-    `, start_date && end_date ? [start_date, end_date] : []);
-    
-    departmentComparison = deptResult;
+    const deptAgg = new Map();
+    for (const { row, staff } of annotated) {
+      const dept = staff.department ?? '(unknown)';
+      const agg = deptAgg.get(dept) ?? {
+        department: dept, uniq: new Set(), total: 0,
+        hoursSum: 0, hoursCount: 0, late: 0,
+      };
+      agg.uniq.add(row.staff_uid ?? `id:${row.staff_id}`);
+      agg.total += 1;
+      if (row.check_out_time) {
+        agg.hoursSum += (row.check_out_time.getTime() - row.check_in_time.getTime()) / 3_600_000;
+        agg.hoursCount += 1;
+      }
+      const hour = row.check_in_time.getHours() + row.check_in_time.getMinutes() / 60;
+      if (hour > 9.5) agg.late += 1;
+      deptAgg.set(dept, agg);
+    }
+    departmentComparison = [...deptAgg.values()]
+      .sort((a, b) => b.total - a.total)
+      .map((agg) => ({
+        department: agg.department,
+        unique_staff: agg.uniq.size,
+        total_check_ins: agg.total,
+        avg_hours: agg.hoursCount > 0 ? Math.round((agg.hoursSum / agg.hoursCount) * 10) / 10 : 0,
+        late_arrivals: agg.late,
+        punctuality_score: agg.total > 0
+          ? Math.round(((agg.total - agg.late) / agg.total) * 100) : 0,
+      }));
   }
 
-  // Punctuality analysis
-  const punctualityData = await prisma.$queryRawUnsafe(`
-    SELECT 
-      CASE 
-        WHEN TIME(sa.check_in_time) <= '09:00:00' THEN 'on_time'
-        WHEN TIME(sa.check_in_time) <= '09:30:00' THEN 'slightly_late'
-        WHEN TIME(sa.check_in_time) <= '10:00:00' THEN 'late'
-        ELSE 'very_late'
-      END as punctuality,
-      COUNT(*) as count
-    FROM staff_attendance sa
-    JOIN staff s ON sa.staff_id = s.user_id
-    ${whereClause}
-    GROUP BY punctuality
-    ORDER BY 
-      CASE punctuality
-        WHEN 'on_time' THEN 1
-        WHEN 'slightly_late' THEN 2
-        WHEN 'late' THEN 3
-        ELSE 4
-      END
-  `, queryParams);
+  // Punctuality breakdown.
+  const punctAgg = new Map([
+    ['on_time', 0], ['slightly_late', 0], ['late', 0], ['very_late', 0],
+  ]);
+  for (const { row } of annotated) {
+    const cat = lateCategory(row.check_in_time);
+    punctAgg.set(cat, punctAgg.get(cat) + 1);
+  }
+  const punctualityBreakdown = [...punctAgg.entries()]
+    .filter(([, count]) => count > 0)
+    .map(([punctuality, count]) => ({ punctuality, count }));
 
-  // Top performers (most consistent attendance)
-  const topPerformers = await prisma.$queryRawUnsafe(`
-    SELECT 
-      u.name,
-      s.employee_id,
-      s.department,
-      COUNT(*) as days_present,
-      AVG(EXTRACT(EPOCH FROM (sa.check_out_time - sa.check_in_time))/3600) 
-        FILTER (WHERE sa.check_out_time IS NOT NULL) as avg_hours,
-      COUNT(CASE WHEN TIME(sa.check_in_time) <= '09:00:00' THEN 1 END) as on_time_days,
-      SUM(sa.overtime_hours) as total_overtime
-    FROM staff_attendance sa
-    JOIN staff s ON sa.staff_id = s.user_id
-    JOIN users u ON s.user_id = u.uid
-    ${whereClause}
-    GROUP BY u.name, s.employee_id, s.department
-    HAVING COUNT(*) > 5
-    ORDER BY days_present DESC, on_time_days DESC
-    LIMIT 10
-  `, queryParams);
-
-  const overviewData = overview[0];
+  // Top performers (>5 days present, sorted by present + on-time).
+  const perfAgg = new Map();
+  for (const { row, staff } of annotated) {
+    const key = `${staff.employee_id ?? row.staff_uid ?? row.staff_id}`;
+    const agg = perfAgg.get(key) ?? {
+      name: staff.name,
+      employee_id: staff.employee_id,
+      department: staff.department,
+      days: 0,
+      hoursSum: 0, hoursCount: 0,
+      onTime: 0,
+      overtimeSum: 0,
+    };
+    agg.days += 1;
+    if (row.check_out_time) {
+      agg.hoursSum += (row.check_out_time.getTime() - row.check_in_time.getTime()) / 3_600_000;
+      agg.hoursCount += 1;
+    }
+    const hour = row.check_in_time.getHours() + row.check_in_time.getMinutes() / 60;
+    if (hour <= 9) agg.onTime += 1;
+    if (row.overtime_hours) agg.overtimeSum += Number(row.overtime_hours);
+    perfAgg.set(key, agg);
+  }
+  const topPerformers = [...perfAgg.values()]
+    .filter((agg) => agg.days > 5)
+    .sort((a, b) => b.days - a.days || b.onTime - a.onTime)
+    .slice(0, 10)
+    .map((agg) => ({
+      name: agg.name,
+      employee_id: agg.employee_id,
+      department: agg.department,
+      days_present: agg.days,
+      avg_hours: agg.hoursCount > 0 ? Math.round((agg.hoursSum / agg.hoursCount) * 10) / 10 : 0,
+      on_time_days: agg.onTime,
+      total_overtime: Math.round(agg.overtimeSum * 100) / 100,
+      punctuality_rate: agg.days > 0 ? Math.round((agg.onTime / agg.days) * 100) : 0,
+    }));
 
   return {
     filters: {
       department: department || 'All Departments',
-      date_range: start_date && end_date ? 
-        { start: start_date, end: end_date } : 'All Time',
-      grouping: group_by
+      date_range: start_date && end_date ? { start: start_date, end: end_date } : 'All Time',
+      grouping: group_by,
     },
     summary: {
-      unique_staff: parseInt(overviewData.unique_staff) || 0,
-      total_check_ins: parseInt(overviewData.total_check_ins) || 0,
-      completed_shifts: parseInt(overviewData.completed_shifts) || 0,
-      avg_hours_worked: overviewData.avg_hours_worked ? 
-        Math.round(overviewData.avg_hours_worked * 10) / 10 : 0,
-      late_arrivals: parseInt(overviewData.late_arrivals) || 0,
-      late_arrival_rate: overviewData.total_check_ins > 0 ?
-        Math.round((overviewData.late_arrivals / overviewData.total_check_ins) * 100) : 0,
-      overtime_shifts: parseInt(overviewData.overtime_shifts) || 0
+      unique_staff: uniqueStaffIds.size,
+      total_check_ins: totalCheckIns,
+      completed_shifts: completedShifts,
+      avg_hours_worked: hoursCount > 0 ? Math.round((hoursSum / hoursCount) * 10) / 10 : 0,
+      late_arrivals: lateArrivals,
+      late_arrival_rate: totalCheckIns > 0 ? Math.round((lateArrivals / totalCheckIns) * 100) : 0,
+      overtime_shifts: overtimeShifts,
     },
-    trends: trendsData.map(trend => ({
-      period: trend.period,
-      unique_staff: parseInt(trend.unique_staff),
-      total_check_ins: parseInt(trend.total_check_ins),
-      avg_hours: trend.avg_hours ? Math.round(trend.avg_hours * 10) / 10 : 0,
-      late_arrivals: parseInt(trend.late_arrivals),
-      total_overtime_hours: parseFloat(trend.total_overtime_hours) || 0
-    })),
-    departmentComparison: departmentComparison.map(dept => ({
-      department: dept.department,
-      unique_staff: parseInt(dept.unique_staff),
-      total_check_ins: parseInt(dept.total_check_ins),
-      avg_hours: dept.avg_hours ? Math.round(dept.avg_hours * 10) / 10 : 0,
-      late_arrivals: parseInt(dept.late_arrivals),
-      punctuality_score: dept.total_check_ins > 0 ?
-        Math.round(((dept.total_check_ins - dept.late_arrivals) / dept.total_check_ins) * 100) : 0
-    })),
-    punctualityBreakdown: punctualityData,
-    topPerformers: topPerformers.map(performer => ({
-      ...performer,
-      avg_hours: performer.avg_hours ? Math.round(performer.avg_hours * 10) / 10 : 0,
-      punctuality_rate: performer.days_present > 0 ?
-        Math.round((performer.on_time_days / performer.days_present) * 100) : 0,
-      total_overtime: parseFloat(performer.total_overtime) || 0
-    }))
+    trends,
+    departmentComparison,
+    punctualityBreakdown,
+    topPerformers,
   };
 };
