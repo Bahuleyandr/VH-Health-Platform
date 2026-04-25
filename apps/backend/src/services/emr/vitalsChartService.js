@@ -16,10 +16,40 @@ const VALID_IO_TYPES = ['intake', 'output'];
 const VALID_IO_CATEGORIES = ['oral', 'iv', 'blood', 'urine', 'drain', 'vomit', 'stool', 'other'];
 const VALID_CONSCIOUSNESS = ['A', 'C', 'V', 'P', 'U'];
 
-const VITAL_RETURNING = `id, patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp,
-    temperature, spo2, respiratory_rate, blood_glucose, pain_score,
-    weight_kg, height_cm, gcs_score, supplemental_o2, o2_flow_rate,
-    consciousness, notes, recorded_by, recorded_at`;
+const VITAL_SELECT = {
+  id: true,
+  patient_uid: true,
+  encounter_id: true,
+  heart_rate: true,
+  systolic_bp: true,
+  diastolic_bp: true,
+  temperature: true,
+  spo2: true,
+  respiratory_rate: true,
+  blood_glucose: true,
+  pain_score: true,
+  weight_kg: true,
+  height_cm: true,
+  gcs_score: true,
+  supplemental_o2: true,
+  o2_flow_rate: true,
+  consciousness: true,
+  notes: true,
+  recorded_by: true,
+  recorded_at: true,
+};
+
+const IO_SELECT = {
+  id: true,
+  patient_uid: true,
+  encounter_id: true,
+  io_type: true,
+  category: true,
+  amount_ml: true,
+  description: true,
+  recorded_by: true,
+  recorded_at: true,
+};
 
 export async function recordVitals(data) {
   const {
@@ -48,23 +78,30 @@ export async function recordVitals(data) {
     throw AppError.badRequest(`consciousness must be one of: ${VALID_CONSCIOUSNESS.join(', ')}`);
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO vitals_chart
-       (patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp, temperature,
-        spo2, respiratory_rate, blood_glucose, pain_score, weight_kg, height_cm,
-        gcs_score, supplemental_o2, o2_flow_rate, consciousness, notes, recorded_by, recorded_at)
-     VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::uuid, NOW())
-     RETURNING ${VITAL_RETURNING}`,
-    patient_uid,
-    encounter_id || null,
-    heart_rate ?? null, systolic_bp ?? null, diastolic_bp ?? null, temperature ?? null,
-    spo2 ?? null, respiratory_rate ?? null, blood_glucose ?? null, pain_score ?? null,
-    weight_kg ?? null, height_cm ?? null, gcs_score ?? null,
-    supplemental_o2 ?? false, o2_flow_rate ?? null,
-    consciousness || null, notes || null, recorded_by,
-  );
+  const record = await prisma.vitals_chart.create({
+    data: {
+      patient_uid,
+      encounter_id: encounter_id ?? null,
+      heart_rate: heart_rate ?? null,
+      systolic_bp: systolic_bp ?? null,
+      diastolic_bp: diastolic_bp ?? null,
+      temperature: temperature ?? null,
+      spo2: spo2 ?? null,
+      respiratory_rate: respiratory_rate ?? null,
+      blood_glucose: blood_glucose ?? null,
+      pain_score: pain_score ?? null,
+      weight_kg: weight_kg ?? null,
+      height_cm: height_cm ?? null,
+      gcs_score: gcs_score ?? null,
+      supplemental_o2: supplemental_o2 ?? false,
+      o2_flow_rate: o2_flow_rate ?? null,
+      consciousness: consciousness ?? null,
+      notes: notes ?? null,
+      recorded_by,
+    },
+    select: VITAL_SELECT,
+  });
 
-  const record = rows[0];
   let alerts = [];
   let news2Result = null;
 
@@ -92,17 +129,15 @@ export async function recordVitals(data) {
 
     if (Object.keys(vitalsForCheck).length > 0) {
       // clinical_alerts.patient_id is an INT FK to users(id) — resolve uuid→int.
-      const userRows = await prisma.$queryRawUnsafe(
-        `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`, patient_uid);
-      const patientIntId = userRows[0]?.id ?? null;
-      // recorded_by is a uuid; clinical_alerts.created_by is int FK — resolve too.
-      const recorderRows = await prisma.$queryRawUnsafe(
-        `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`, recorded_by);
-      const recordedByInt = recorderRows[0]?.id ?? null;
+      // recorded_by is uuid; clinical_alerts.created_by is int FK — same resolution.
+      const [patientUser, recorderUser] = await Promise.all([
+        prisma.users.findUnique({ where: { uid: patient_uid }, select: { id: true } }),
+        prisma.users.findUnique({ where: { uid: recorded_by }, select: { id: true } }),
+      ]);
 
-      if (patientIntId) {
-        alerts = await checkVitalAnomalies(patientIntId, vitalsForCheck, {
-          recordedBy: recordedByInt,
+      if (patientUser?.id) {
+        alerts = await checkVitalAnomalies(patientUser.id, vitalsForCheck, {
+          recordedBy: recorderUser?.id ?? null,
         });
       }
     }
@@ -120,79 +155,64 @@ export async function getVitalsTrend(patientUid, vitalType, dateFrom, dateTo) {
     throw AppError.badRequest(`Invalid vital type: ${vitalType}. Must be one of: ${VALID_VITAL_TYPES.join(', ')}`);
   }
 
-  const conditions = ['patient_uid = $1::uuid', `${vitalType} IS NOT NULL`];
-  const params = [patientUid];
-  let paramIdx = 2;
-
-  if (dateFrom) {
-    conditions.push(`recorded_at >= $${paramIdx}`);
-    params.push(dateFrom);
-    paramIdx++;
-  }
-  if (dateTo) {
-    conditions.push(`recorded_at <= $${paramIdx}`);
-    params.push(dateTo);
-    paramIdx++;
+  const where = {
+    patient_uid: patientUid,
+    [vitalType]: { not: null },
+  };
+  if (dateFrom || dateTo) {
+    where.recorded_at = {};
+    if (dateFrom) where.recorded_at.gte = new Date(dateFrom);
+    if (dateTo) where.recorded_at.lte = new Date(dateTo);
   }
 
-  // vitalType validated against VALID_VITAL_TYPES whitelist — safe for interpolation
-  return prisma.$queryRawUnsafe(
-    `SELECT recorded_at AS timestamp, ${vitalType} AS value
-     FROM vitals_chart
-     WHERE ${conditions.join(' AND ')}
-     ORDER BY recorded_at ASC`,
-    ...params
-  );
+  // The vitalType column is whitelist-validated above, so it's safe to
+  // dynamically select it. Project to { timestamp, value } shape that the
+  // pre-ORM raw SQL aliased.
+  const rows = await prisma.vitals_chart.findMany({
+    where,
+    select: { recorded_at: true, [vitalType]: true },
+    orderBy: { recorded_at: 'asc' },
+  });
+
+  return rows.map((row) => ({
+    timestamp: row.recorded_at,
+    value: row[vitalType],
+  }));
 }
 
 export async function getLatestVitals(patientUid) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT ${VITAL_RETURNING}
-     FROM vitals_chart
-     WHERE patient_uid = $1::uuid
-     ORDER BY recorded_at DESC
-     LIMIT 1`,
-    patientUid
-  );
-  return rows.length > 0 ? rows[0] : null;
+  return prisma.vitals_chart.findFirst({
+    where: { patient_uid: patientUid },
+    select: VITAL_SELECT,
+    orderBy: { recorded_at: 'desc' },
+  });
 }
 
 export async function getVitalsChart(patientUid, encounterId, pagination = {}) {
   const { page = 1, limit = 50 } = pagination;
 
-  const conditions = ['patient_uid = $1::uuid'];
-  const params = [patientUid];
-  let paramIdx = 2;
+  const where = { patient_uid: patientUid };
+  if (encounterId) where.encounter_id = encounterId;
 
-  if (encounterId) {
-    conditions.push(`encounter_id = $${paramIdx}`);
-    params.push(encounterId);
-    paramIdx++;
-  }
-
-  const whereClause = conditions.join(' AND ');
   const safeLimit = Math.min(Math.max(1, parseInt(limit, 10)), 100);
-  const offset = (Math.max(1, parseInt(page, 10)) - 1) * safeLimit;
+  const safePage = Math.max(1, parseInt(page, 10));
+  const skip = (safePage - 1) * safeLimit;
 
-  const countRows = await prisma.$queryRawUnsafe(
-    `SELECT COUNT(*)::int AS total FROM vitals_chart WHERE ${whereClause}`,
-    ...params
-  );
-  const total = parseInt(countRows[0].total, 10);
-
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT ${VITAL_RETURNING}
-     FROM vitals_chart
-     WHERE ${whereClause}
-     ORDER BY recorded_at DESC
-     LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
-    ...params, safeLimit, offset
-  );
+  const [vitals, total] = await Promise.all([
+    prisma.vitals_chart.findMany({
+      where,
+      select: VITAL_SELECT,
+      orderBy: { recorded_at: 'desc' },
+      take: safeLimit,
+      skip,
+    }),
+    prisma.vitals_chart.count({ where }),
+  ]);
 
   return {
-    vitals: rows,
+    vitals,
     pagination: {
-      page: parseInt(page, 10),
+      page: safePage,
       limit: safeLimit,
       total,
       total_pages: Math.ceil(total / safeLimit),
@@ -216,55 +236,68 @@ export async function recordIntakeOutput(data) {
     throw AppError.badRequest('amount_ml must be a non-negative number');
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO intake_output
-       (patient_uid, encounter_id, io_type, category, amount_ml, description, recorded_by, recorded_at)
-     VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::uuid, NOW())
-     RETURNING id, patient_uid, encounter_id, io_type, category, amount_ml, description, recorded_by, recorded_at`,
-    patient_uid, encounter_id || null, io_type, category, amount_ml, description || null, recorded_by
-  );
+  const created = await prisma.intake_output.create({
+    data: {
+      patient_uid,
+      encounter_id: encounter_id ?? null,
+      io_type,
+      category,
+      amount_ml,
+      description: description ?? null,
+      recorded_by,
+    },
+    select: IO_SELECT,
+  });
 
-  logger.info(`I/O recorded: id=${rows[0].id}, type=${io_type}, category=${category}, amount=${amount_ml}ml, patient=${patient_uid}`);
-  return rows[0];
+  logger.info(`I/O recorded: id=${created.id}, type=${io_type}, category=${category}, amount=${amount_ml}ml, patient=${patient_uid}`);
+  return created;
 }
 
 export async function getIOBalance(patientUid, encounterId, date) {
   if (!date) throw AppError.badRequest('date is required (YYYY-MM-DD)');
 
-  const conditions = ['patient_uid = $1::uuid', 'recorded_at::date = $2::date'];
-  const params = [patientUid, date];
-  let paramIdx = 3;
+  // The pre-ORM query did `recorded_at::date = $date::date` (server-local
+  // tz). Mirror with explicit day bounds so the query stays index-friendly.
+  const dayStart = new Date(date);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setDate(dayEnd.getDate() + 1);
 
-  if (encounterId) {
-    conditions.push(`encounter_id = $${paramIdx}`);
-    params.push(encounterId);
-    paramIdx++;
-  }
+  const where = {
+    patient_uid: patientUid,
+    recorded_at: { gte: dayStart, lt: dayEnd },
+  };
+  if (encounterId) where.encounter_id = encounterId;
 
-  const whereClause = conditions.join(' AND ');
-
-  const totals = await prisma.$queryRawUnsafe(
-    `SELECT io_type, COALESCE(SUM(amount_ml), 0) AS total_ml
-     FROM intake_output
-     WHERE ${whereClause}
-     GROUP BY io_type`,
-    ...params
-  );
+  // Aggregate intake/output sums via groupBy + JS reduction (one query).
+  const [groups, entries] = await Promise.all([
+    prisma.intake_output.groupBy({
+      by: ['io_type'],
+      where,
+      _sum: { amount_ml: true },
+    }),
+    prisma.intake_output.findMany({
+      where,
+      select: {
+        id: true,
+        io_type: true,
+        category: true,
+        amount_ml: true,
+        description: true,
+        recorded_by: true,
+        recorded_at: true,
+      },
+      orderBy: { recorded_at: 'asc' },
+    }),
+  ]);
 
   let totalIntake = 0;
   let totalOutput = 0;
-  for (const row of totals) {
-    if (row.io_type === 'intake') totalIntake = parseFloat(row.total_ml);
-    if (row.io_type === 'output') totalOutput = parseFloat(row.total_ml);
+  for (const group of groups) {
+    const total = Number(group._sum.amount_ml ?? 0);
+    if (group.io_type === 'intake') totalIntake = total;
+    else if (group.io_type === 'output') totalOutput = total;
   }
-
-  const entries = await prisma.$queryRawUnsafe(
-    `SELECT id, io_type, category, amount_ml, description, recorded_by, recorded_at
-     FROM intake_output
-     WHERE ${whereClause}
-     ORDER BY recorded_at ASC`,
-    ...params
-  );
 
   return {
     date,
@@ -276,33 +309,27 @@ export async function getIOBalance(patientUid, encounterId, date) {
 }
 
 export async function getIOChart(patientUid, encounterId, dateFrom, dateTo) {
-  const conditions = ['patient_uid = $1::uuid'];
-  const params = [patientUid];
-  let paramIdx = 2;
-
-  if (encounterId) {
-    conditions.push(`encounter_id = $${paramIdx}`);
-    params.push(encounterId);
-    paramIdx++;
-  }
-  if (dateFrom) {
-    conditions.push(`recorded_at >= $${paramIdx}`);
-    params.push(dateFrom);
-    paramIdx++;
-  }
-  if (dateTo) {
-    conditions.push(`recorded_at <= $${paramIdx}`);
-    params.push(dateTo);
-    paramIdx++;
+  const where = { patient_uid: patientUid };
+  if (encounterId) where.encounter_id = encounterId;
+  if (dateFrom || dateTo) {
+    where.recorded_at = {};
+    if (dateFrom) where.recorded_at.gte = new Date(dateFrom);
+    if (dateTo) where.recorded_at.lte = new Date(dateTo);
   }
 
-  return prisma.$queryRawUnsafe(
-    `SELECT id, io_type, category, amount_ml, description, recorded_by, recorded_at
-     FROM intake_output
-     WHERE ${conditions.join(' AND ')}
-     ORDER BY recorded_at ASC`,
-    ...params
-  );
+  return prisma.intake_output.findMany({
+    where,
+    select: {
+      id: true,
+      io_type: true,
+      category: true,
+      amount_ml: true,
+      description: true,
+      recorded_by: true,
+      recorded_at: true,
+    },
+    orderBy: { recorded_at: 'asc' },
+  });
 }
 
 export default {
