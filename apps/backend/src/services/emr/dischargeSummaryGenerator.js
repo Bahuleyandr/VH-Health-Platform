@@ -427,8 +427,9 @@ export async function generateDischargeSummary(admissionId, requestedBy, req) {
   return summary;
 }
 
-export async function saveDischargeSummary(admissionId, summary, savedBy) {
+export async function saveDischargeSummary(admissionId, summary, savedBy, savedByRole) {
   if (!savedBy) throw AppError.badRequest('savedBy is required');
+  if (!savedByRole) throw AppError.badRequest('savedByRole is required');
   if (!summary || typeof summary !== 'object') throw AppError.badRequest('summary is required');
 
   const admission = await prisma.admissions.findUnique({
@@ -479,7 +480,7 @@ export async function saveDischargeSummary(admissionId, summary, savedBy) {
         encounter_id: admission.encounter_id,
         patient_uid: admission.patient_uid,
         author_uid: savedBy,
-        author_role: 'DOCTOR',
+        author_role: savedByRole,
         note_type: 'discharge',
         title: 'Draft discharge summary',
         content,
@@ -529,90 +530,100 @@ export async function signDischargeSummary(admissionId, doctorUid) {
   });
   if (!admission) throw AppError.notFound('Admission not found');
 
-  // We need the existing content because the pre-ORM SQL did
-  // `jsonb_set(content, '{is_signed}', 'true') / jsonb_set(..., '{signed_at}', to_jsonb(NOW()))`.
-  // Prisma doesn't express jsonb_set, so we read the row, mutate the object in JS,
-  // and write it back.
-  const note = await prisma.clinical_notes.findFirst({
-    where: {
-      encounter_id: admission.encounter_id,
-      note_type: 'discharge',
-      is_addendum: false,
-    },
-    select: DISCHARGE_NOTE_FOR_SIGN_SELECT,
-    orderBy: [{ version: 'desc' }, { id: 'desc' }],
-  });
-  if (!note) throw AppError.notFound('No discharge summary found. Generate one first.');
-  if (note.is_signed) throw AppError.badRequest('Discharge summary is already signed');
-
-  // Single shared timestamp so the column value matches the JSON value the
-  // original `to_jsonb(NOW())` produced.
+  // The read of `note` (for the jsonb_set replacement) and the write that
+  // flips `is_signed` happen in one transaction. The write itself is
+  // conditioned on `is_signed: false` via updateMany — if a concurrent
+  // signer flipped the flag between our SELECT and UPDATE, count comes
+  // back 0 and we surface a 400 instead of silently double-signing.
+  // Single shared timestamp so the column value matches the JSON value
+  // the original `to_jsonb(NOW())` produced.
   const signedAt = new Date();
-  // content may be null on pathological rows; default to {} so we don't NPE.
-  const baseContent = (note.content && typeof note.content === 'object' && !Array.isArray(note.content))
-    ? note.content
-    : {};
-  const updatedContent = {
-    ...baseContent,
-    is_signed: true,
-    signed_at: signedAt.toISOString(),
-  };
 
-  const signed = await prisma.clinical_notes.update({
-    where: { id: note.id },
-    data: {
+  const txnResult = await prisma.$transaction(async (tx) => {
+    const note = await tx.clinical_notes.findFirst({
+      where: {
+        encounter_id: admission.encounter_id,
+        note_type: 'discharge',
+        is_addendum: false,
+      },
+      select: DISCHARGE_NOTE_FOR_SIGN_SELECT,
+      orderBy: [{ version: 'desc' }, { id: 'desc' }],
+    });
+    if (!note) throw AppError.notFound('No discharge summary found. Generate one first.');
+    if (note.is_signed) throw AppError.badRequest('Discharge summary is already signed');
+
+    // content may be null on pathological rows; default to {} so we don't NPE.
+    const baseContent = (note.content && typeof note.content === 'object' && !Array.isArray(note.content))
+      ? note.content
+      : {};
+    const updatedContent = {
+      ...baseContent,
       is_signed: true,
-      signed_at: signedAt,
-      signed_by: doctorUid,
-      updated_at: signedAt,
-      content: updatedContent,
-    },
-    select: { id: true, signed_at: true },
-  });
+      signed_at: signedAt.toISOString(),
+    };
 
-  if (note.ai_generation_id) {
-    await prisma.clinical_ai_generations.update({
-      where: { id: note.ai_generation_id },
+    const flip = await tx.clinical_notes.updateMany({
+      where: { id: note.id, is_signed: false },
       data: {
-        status: 'signed',
-        reviewed_by: doctorUid,
-        signed_note_id: note.id,
+        is_signed: true,
+        signed_at: signedAt,
+        signed_by: doctorUid,
         updated_at: signedAt,
+        content: updatedContent,
       },
     });
-  }
+    if (flip.count === 0) {
+      // Lost the race — another signer flipped is_signed between our
+      // SELECT and UPDATE. Reject with a 400 (the signed copy stands).
+      throw AppError.badRequest('Discharge summary is already signed');
+    }
 
-  await prisma.audit_logs.create({
-    data: {
-      uid: doctorUid,
-      action: 'SIGN_DISCHARGE_SUMMARY',
-      resource: 'clinical_notes',
-      resource_id: String(note.id),
-      metadata: {
-        admission_id: admissionId,
-        patient_uid: admission.patient_uid,
-        ai_generation_id: note.ai_generation_id || null,
+    if (note.ai_generation_id) {
+      await tx.clinical_ai_generations.update({
+        where: { id: note.ai_generation_id },
+        data: {
+          status: 'signed',
+          reviewed_by: doctorUid,
+          signed_note_id: note.id,
+          updated_at: signedAt,
+        },
+      });
+    }
+
+    await tx.audit_logs.create({
+      data: {
+        uid: doctorUid,
+        action: 'SIGN_DISCHARGE_SUMMARY',
+        resource: 'clinical_notes',
+        resource_id: String(note.id),
+        metadata: {
+          admission_id: admissionId,
+          patient_uid: admission.patient_uid,
+          ai_generation_id: note.ai_generation_id || null,
+        },
       },
-    },
+    });
+
+    return { noteId: note.id, aiGenerationId: note.ai_generation_id || null };
   });
 
   await publishEvent({
     eventType: 'clinical_document.discharge_summary.signed',
     aggregateType: 'clinical_note',
-    aggregateId: note.id,
+    aggregateId: txnResult.noteId,
     patientUid: admission.patient_uid,
     payload: {
       admission_id: admissionId,
       signed_by: doctorUid,
-      signed_at: signed.signed_at,
-      ai_generation_id: note.ai_generation_id || null,
+      signed_at: signedAt,
+      ai_generation_id: txnResult.aiGenerationId,
     },
   });
 
   return {
-    noteId: note.id,
+    noteId: txnResult.noteId,
     signed: true,
-    signedAt: signed.signed_at,
+    signedAt: signedAt,
   };
 }
 

@@ -267,7 +267,8 @@ router.put(
     const result = await dischargeSummaryGenerator.saveDischargeSummary(
       admissionId,
       discharge_summary,
-      req.user?.uid
+      req.user?.uid,
+      role
     );
 
     success(res, result, `Discharge summary ${result.action} (still a draft — requires doctor signature)`);
