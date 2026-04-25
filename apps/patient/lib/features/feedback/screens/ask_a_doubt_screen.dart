@@ -26,7 +26,8 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
   @override
   void initState() {
     super.initState();
-    _isGuest = widget.phone.toLowerCase() == 'guest' || widget.phone.trim().isEmpty;
+    _isGuest =
+        widget.phone.toLowerCase() == 'guest' || widget.phone.trim().isEmpty;
     _phoneController.text = _isGuest ? '' : widget.phone;
   }
 
@@ -58,39 +59,47 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
       setState(() => _isSubmitting = false);
 
       if (response.isSuccess) {
-        messenger.showSnackBar(SnackBar(
-          content: Text(loc.feedbackSuccess),
-          backgroundColor: Theme.of(context).colorScheme.primary,
-          behavior: SnackBarBehavior.floating,
-        ));
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(loc.feedbackSuccess),
+            backgroundColor: Theme.of(context).colorScheme.primary,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
         context.pop();
       } else {
         final msg = response.message ?? loc.feedbackFailed;
-        messenger.showSnackBar(SnackBar(
-          content: Text(msg),
-          backgroundColor: Theme.of(context).colorScheme.error,
-          behavior: SnackBarBehavior.floating,
-        ));
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(msg),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } catch (e) {
       debugPrint('Ask a doubt submit failed: $e');
       if (!mounted) return;
       setState(() => _isSubmitting = false);
-      messenger.showSnackBar(SnackBar(
-        content: Text(loc.networkError),
-        backgroundColor: Theme.of(context).colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(loc.networkError),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
   void _triggerSOS() {
     final loc = AppLocalizations.of(context)!;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(loc.authSosTriggered),
-      backgroundColor: Theme.of(context).colorScheme.error,
-      behavior: SnackBarBehavior.floating,
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(loc.authSosTriggered),
+        backgroundColor: Theme.of(context).colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
@@ -113,7 +122,7 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
         key: _formKey,
         child: ListView(
           shrinkWrap: true,
-          physics: const AlwaysScrollableScrollPhysics(), 
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           children: [
             if (_isGuest) ...[

@@ -106,8 +106,8 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
         final list = resp.data is List
             ? resp.data as List
             : (resp.data is Map
-                ? (resp.data['milestones'] as List? ?? [])
-                : []);
+                  ? (resp.data['milestones'] as List? ?? [])
+                  : []);
         setState(() {
           _milestones = list
               .map((e) => Map<String, dynamic>.from(e as Map))
@@ -130,15 +130,16 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
         final list = resp.data is List
             ? resp.data as List
             : (resp.data is Map
-                ? (resp.data['milestones'] as List? ?? [])
-                : []);
+                  ? (resp.data['milestones'] as List? ?? [])
+                  : []);
         // Filter to only CLAIMED milestones with active vouchers
         final claimed = list
             .map((e) => Map<String, dynamic>.from(e as Map))
             .where((m) {
-          final status = m['status']?.toString().toUpperCase() ?? '';
-          return status == 'CLAIMED';
-        }).toList();
+              final status = m['status']?.toString().toUpperCase() ?? '';
+              return status == 'CLAIMED';
+            })
+            .toList();
         setState(() => _rewards = claimed);
       }
     } catch (e) {
@@ -166,11 +167,12 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
       if (!mounted) return;
       if (resp.isSuccess) {
         final data = resp.data is Map ? resp.data as Map<String, dynamic> : {};
-        final entries = (data['entries'] as List? ??
-                data['history'] as List? ??
-                (resp.data is List ? resp.data as List : []))
-            .map((e) => Map<String, dynamic>.from(e as Map))
-            .toList();
+        final entries =
+            (data['entries'] as List? ??
+                    data['history'] as List? ??
+                    (resp.data is List ? resp.data as List : []))
+                .map((e) => Map<String, dynamic>.from(e as Map))
+                .toList();
 
         setState(() {
           if (loadMore) {
@@ -203,10 +205,12 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
       if (!mounted) return;
       if (resp.isSuccess) {
         final data = resp.data is Map ? resp.data as Map<String, dynamic> : {};
-        final voucherCode = data['voucherCode']?.toString() ??
+        final voucherCode =
+            data['voucherCode']?.toString() ??
             data['voucher']?.toString() ??
             '';
-        final rewardDesc = data['rewardDescription']?.toString() ??
+        final rewardDesc =
+            data['rewardDescription']?.toString() ??
             data['description']?.toString() ??
             'Reward claimed!';
         _showVoucherDialog(voucherCode, rewardDesc);
@@ -227,11 +231,13 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
 
   void _showError(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: Theme.of(context).colorScheme.error,
-      behavior: SnackBarBehavior.floating,
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: Theme.of(context).colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   void _showVoucherDialog(String voucherCode, String description) {
@@ -242,8 +248,7 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
-            Icon(Icons.celebration,
-                color: theme.colorScheme.primary, size: 28),
+            Icon(Icons.celebration, color: theme.colorScheme.primary, size: 28),
             const SizedBox(width: 8),
             const Text('Reward Claimed!'),
           ],
@@ -251,17 +256,20 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(description,
-                style: theme.textTheme.bodyMedium,
-                textAlign: TextAlign.center),
+            Text(
+              description,
+              style: theme.textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 16),
             if (voucherCode.isNotEmpty) ...[
-              Text('Your voucher code:',
-                  style: theme.textTheme.bodySmall),
+              Text('Your voucher code:', style: theme.textTheme.bodySmall),
               const SizedBox(height: 8),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   color: theme.colorScheme.primaryContainer,
                   borderRadius: BorderRadius.circular(12),

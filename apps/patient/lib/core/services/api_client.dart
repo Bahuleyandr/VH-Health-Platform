@@ -14,7 +14,8 @@ import 'package:http/http.dart' as http;
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth_core/vhhealth_core.dart';
 
-export 'package:vhhealth_core/models/api_response.dart' show ApiResponse, CachedApiResponse;
+export 'package:vhhealth_core/models/api_response.dart'
+    show ApiResponse, CachedApiResponse;
 
 class ApiClient {
   ApiClient._();
@@ -32,34 +33,31 @@ class ApiClient {
     String path, {
     Map<String, String>? queryParameters,
     Duration? timeout,
-  }) =>
-      VHHttpClient.get(path, queryParameters: queryParameters, timeout: timeout);
+  }) => VHHttpClient.get(
+    path,
+    queryParameters: queryParameters,
+    timeout: timeout,
+  );
 
   static Future<ApiResponse> post(
     String path, {
     Map<String, dynamic>? body,
     Duration? timeout,
-  }) =>
-      VHHttpClient.post(path, body: body, timeout: timeout);
+  }) => VHHttpClient.post(path, body: body, timeout: timeout);
 
   static Future<ApiResponse> put(
     String path, {
     Map<String, dynamic>? body,
     Duration? timeout,
-  }) =>
-      VHHttpClient.put(path, body: body, timeout: timeout);
+  }) => VHHttpClient.put(path, body: body, timeout: timeout);
 
   static Future<ApiResponse> patch(
     String path, {
     Map<String, dynamic>? body,
     Duration? timeout,
-  }) =>
-      VHHttpClient.patch(path, body: body, timeout: timeout);
+  }) => VHHttpClient.patch(path, body: body, timeout: timeout);
 
-  static Future<ApiResponse> delete(
-    String path, {
-    Duration? timeout,
-  }) =>
+  static Future<ApiResponse> delete(String path, {Duration? timeout}) =>
       VHHttpClient.delete(path, timeout: timeout);
 
   static Future<ApiResponse> multipart(
@@ -68,14 +66,13 @@ class ApiClient {
     List<http.MultipartFile> files = const [],
     Future<List<http.MultipartFile>> Function()? fileBuilder,
     Duration? timeout,
-  }) =>
-      VHHttpClient.multipart(
-        path,
-        fields: fields,
-        files: files,
-        fileBuilder: fileBuilder,
-        timeout: timeout,
-      );
+  }) => VHHttpClient.multipart(
+    path,
+    fields: fields,
+    files: files,
+    fileBuilder: fileBuilder,
+    timeout: timeout,
+  );
 
   // ── Patient-specific: cache-first GET ─────────────────────────────────────
 
@@ -130,19 +127,23 @@ class ApiClient {
 
     if (cached != null && !cached.isStale(cacheTtl)) {
       // Cache is fresh — return immediately, refresh in background.
-      final freshFuture = get(path, queryParameters: queryParameters, timeout: timeout)
-          .then((response) {
-        if (response.isSuccess) {
-          ApiCacheManager.save(cacheKey, response.data);
-        }
-        return response;
-      }).catchError((_) => ApiResponse(
-            statusCode: 0,
-            isSuccess: false,
-            data: cached.data,
-            raw: null,
-            message: 'Background refresh failed',
-          ));
+      final freshFuture =
+          get(path, queryParameters: queryParameters, timeout: timeout)
+              .then((response) {
+                if (response.isSuccess) {
+                  ApiCacheManager.save(cacheKey, response.data);
+                }
+                return response;
+              })
+              .catchError(
+                (_) => ApiResponse(
+                  statusCode: 0,
+                  isSuccess: false,
+                  data: cached.data,
+                  raw: null,
+                  message: 'Background refresh failed',
+                ),
+              );
 
       return CachedApiResponse(
         response: ApiResponse(
@@ -160,7 +161,11 @@ class ApiClient {
 
     // Cache is stale or missing — fetch live, fall back to stale cache on error.
     try {
-      final response = await get(path, queryParameters: queryParameters, timeout: timeout);
+      final response = await get(
+        path,
+        queryParameters: queryParameters,
+        timeout: timeout,
+      );
       if (response.isSuccess) {
         await ApiCacheManager.save(cacheKey, response.data);
       }

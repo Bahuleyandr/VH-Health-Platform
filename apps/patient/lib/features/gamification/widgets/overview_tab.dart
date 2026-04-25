@@ -32,20 +32,20 @@ class OverviewTab extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.emoji_events_outlined,
-                size: 48,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.3)),
-            const SizedBox(height: 12),
-            Text('Could not load your points summary',
-                style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: onRefresh,
-              child: const Text('Retry'),
+            Icon(
+              Icons.emoji_events_outlined,
+              size: 48,
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.3),
             ),
+            const SizedBox(height: 12),
+            Text(
+              'Could not load your points summary',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 8),
+            TextButton(onPressed: onRefresh, child: const Text('Retry')),
           ],
         ),
       );
@@ -53,22 +53,23 @@ class OverviewTab extends StatelessWidget {
 
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final total = (summary!['totalPoints'] as num?)?.toInt() ??
+    final total =
+        (summary!['totalPoints'] as num?)?.toInt() ??
         (summary!['total'] as num?)?.toInt() ??
         0;
     final currentTier = summary!['currentTier']?.toString() ?? 'Bronze';
     final nextTier = summary!['nextTier']?.toString() ?? '';
     final progress =
         (summary!['progressToNextTier'] as num?)?.toDouble().clamp(0.0, 1.0) ??
-            0.0;
+        0.0;
     final pointsToNext = (summary!['pointsToNextTier'] as num?)?.toInt() ?? 0;
     final tierColor = getTierColor(currentTier);
 
-    final activities = summary!['activities'] as List? ??
+    final activities =
+        summary!['activities'] as List? ??
         summary!['earnActivities'] as List? ??
         [];
-    final nextAppt =
-        summary!['nextAppointmentDetail'] as Map<String, dynamic>?;
+    final nextAppt = summary!['nextAppointmentDetail'] as Map<String, dynamic>?;
 
     return RefreshIndicator(
       onRefresh: onRefresh,
@@ -148,7 +149,8 @@ class OverviewTab extends StatelessWidget {
             Card(
               elevation: 0,
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
+                borderRadius: BorderRadius.circular(16),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -169,29 +171,36 @@ class OverviewTab extends StatelessWidget {
                     const SizedBox(height: 12),
                     ...activities.map((a) {
                       final activity = a is Map ? a : {};
-                      final name =
-                          activity['name']?.toString() ?? 'Activity';
-                      final points =
-                          (activity['points'] as num?)?.toInt() ?? 0;
+                      final name = activity['name']?.toString() ?? 'Activity';
+                      final points = (activity['points'] as num?)?.toInt() ?? 0;
                       final icon = activityIcon(
-                          activity['type']?.toString() ?? '');
+                        activity['type']?.toString() ?? '',
+                      );
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Row(
                           children: [
-                            Icon(icon, size: 16,
-                                color: cs.onSurface.withValues(alpha: 0.6)),
+                            Icon(
+                              icon,
+                              size: 16,
+                              color: cs.onSurface.withValues(alpha: 0.6),
+                            ),
                             const SizedBox(width: 10),
                             Expanded(
-                              child: Text(name,
-                                  style: theme.textTheme.bodySmall),
+                              child: Text(
+                                name,
+                                style: theme.textTheme.bodySmall,
+                              ),
                             ),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 2),
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFFFD54F)
-                                    .withValues(alpha: 0.2),
+                                color: const Color(
+                                  0xFFFFD54F,
+                                ).withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(

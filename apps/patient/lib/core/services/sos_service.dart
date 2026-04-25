@@ -4,10 +4,12 @@
 /// Legacy [SOSService.triggerSOS] is kept as a thin wrapper for
 /// backward compatibility with existing call sites.
 library;
+
 import 'package:flutter/material.dart';
 import 'package:vhhealth_core/widgets/sos_button.dart' as core;
 
-export 'package:vhhealth_core/widgets/sos_button.dart' show triggerSOS, SosButton, kSosEmergencyNumber;
+export 'package:vhhealth_core/widgets/sos_button.dart'
+    show triggerSOS, SosButton, kSosEmergencyNumber;
 
 /// Legacy wrapper — existing patient screens call [SOSService.triggerSOS].
 class SOSService {

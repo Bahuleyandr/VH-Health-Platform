@@ -44,7 +44,10 @@ class MutationQueue {
 
   /// Queue a mutation for later replay.
   static Future<void> _enqueue(
-      String method, String path, Map<String, dynamic>? body) async {
+    String method,
+    String path,
+    Map<String, dynamic>? body,
+  ) async {
     final queue = await _loadQueue();
     queue.add({
       'method': method,
@@ -55,7 +58,8 @@ class MutationQueue {
     await _saveQueue(queue);
     if (kDebugMode) {
       debugPrint(
-          'MutationQueue: queued $method $path (${queue.length} pending)');
+        'MutationQueue: queued $method $path (${queue.length} pending)',
+      );
     }
   }
 
@@ -91,7 +95,8 @@ class MutationQueue {
       await _saveQueue(failed);
       if (kDebugMode) {
         debugPrint(
-            'MutationQueue: replayed $replayed, ${failed.length} still pending');
+          'MutationQueue: replayed $replayed, ${failed.length} still pending',
+        );
       }
       return replayed;
     } finally {
@@ -106,7 +111,10 @@ class MutationQueue {
   }
 
   static Future<ApiResponse> _execute(
-      String method, String path, Map<String, dynamic>? body) {
+    String method,
+    String path,
+    Map<String, dynamic>? body,
+  ) {
     switch (method.toUpperCase()) {
       case 'POST':
         return ApiClient.post(path, body: body);

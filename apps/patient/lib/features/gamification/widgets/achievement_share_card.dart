@@ -39,8 +39,9 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
     if (_sharing) return;
     setState(() => _sharing = true);
     try {
-      final boundary = _boundaryKey.currentContext!.findRenderObject()
-          as RenderRepaintBoundary;
+      final boundary =
+          _boundaryKey.currentContext!.findRenderObject()
+              as RenderRepaintBoundary;
       final ui.Image image = await boundary.toImage(pixelRatio: 3.0);
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       final bytes = byteData!.buffer.asUint8List();
@@ -88,7 +89,10 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [a.color.withValues(alpha: 0.95), a.color.withValues(alpha: 0.65)],
+                    colors: [
+                      a.color.withValues(alpha: 0.95),
+                      a.color.withValues(alpha: 0.65),
+                    ],
                   ),
                 ),
                 child: Column(
@@ -124,12 +128,16 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
                     Text(
                       a.description,
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white.withValues(alpha: 0.9)),
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.9),
+                      ),
                     ),
                     const SizedBox(height: 18),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.25),
                         borderRadius: BorderRadius.circular(20),
@@ -175,7 +183,9 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
             const SizedBox(height: 8),
             Text(
               'Share your progress with family and friends',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.hintColor,
+              ),
               textAlign: TextAlign.center,
             ),
           ],

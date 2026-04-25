@@ -40,7 +40,10 @@ class CacheFileUtils {
   }
 
   /// Save raw bytes directly to the cache directory.
-  static Future<File?> saveBytesToCache(String fileName, List<int> bytes) async {
+  static Future<File?> saveBytesToCache(
+    String fileName,
+    List<int> bytes,
+  ) async {
     try {
       final file = await _getLocalFile(fileName);
       await file.writeAsBytes(bytes);

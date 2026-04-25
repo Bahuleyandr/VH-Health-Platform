@@ -9,11 +9,7 @@ class SettingsScreen extends StatefulWidget {
   final String phone;
   final String name;
 
-  const SettingsScreen({
-    super.key,
-    required this.phone,
-    required this.name,
-  });
+  const SettingsScreen({super.key, required this.phone, required this.name});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -49,23 +45,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     // ✅ Guard against uninitialized controller
     if (!_initialized) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(controller.loc.settingsTitle),
-        elevation: 0,
-      ),
+      appBar: AppBar(title: Text(controller.loc.settingsTitle), elevation: 0),
       body: LogoBackground(
         child: SafeArea(
           child: ListView(
             shrinkWrap: true,
-            physics: const AlwaysScrollableScrollPhysics(), 
+            physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(8, 16, 8, 16),
             children: buildSettingsSections(controller),
           ),

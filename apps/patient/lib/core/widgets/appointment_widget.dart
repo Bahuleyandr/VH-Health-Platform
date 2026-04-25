@@ -20,7 +20,7 @@ class AppointmentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Container(
       margin: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -42,14 +42,13 @@ class AppointmentCard extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: theme.colorScheme.primary.withValues(alpha: 0.1),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
             ),
             child: Row(
               children: [
-                Icon(
-                  LucideIcons.calendar,
-                  color: theme.colorScheme.primary,
-                ),
+                Icon(LucideIcons.calendar, color: theme.colorScheme.primary),
                 const SizedBox(width: 12),
                 Text(
                   'Appointments',
@@ -61,7 +60,7 @@ class AppointmentCard extends StatelessWidget {
               ],
             ),
           ),
-          
+
           // Appointments
           Padding(
             padding: const EdgeInsets.all(16),
@@ -91,7 +90,7 @@ class AppointmentCard extends StatelessWidget {
               ],
             ),
           ),
-          
+
           // Action buttons
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -137,7 +136,7 @@ class AppointmentCard extends StatelessWidget {
   }) {
     final theme = Theme.of(context);
     final hasDate = date != null && date.isNotEmpty;
-    
+
     return Row(
       children: [
         Container(
@@ -146,11 +145,7 @@ class AppointmentCard extends StatelessWidget {
             color: iconColor.withValues(alpha: 0.1),
             shape: BoxShape.circle,
           ),
-          child: Icon(
-            icon,
-            color: iconColor,
-            size: 24,
-          ),
+          child: Icon(icon, color: iconColor, size: 24),
         ),
         const SizedBox(width: 16),
         Expanded(
@@ -168,9 +163,9 @@ class AppointmentCard extends StatelessWidget {
                 hasDate ? _formatDate(date) : 'Not Scheduled',
                 style: theme.textTheme.bodyLarge?.copyWith(
                   fontWeight: FontWeight.bold,
-                  color: hasDate 
-                    ? theme.colorScheme.onSurface 
-                    : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                  color: hasDate
+                      ? theme.colorScheme.onSurface
+                      : theme.colorScheme.onSurface.withValues(alpha: 0.5),
                 ),
               ),
               if (hasDate && !isPast) ...[
@@ -193,7 +188,7 @@ class AppointmentCard extends StatelessWidget {
     try {
       // Try parsing different date formats
       DateTime? parsedDate;
-      
+
       // Try dd/MM/yyyy format first
       try {
         parsedDate = DateFormat('dd/MM/yyyy').parse(date);
@@ -214,7 +209,7 @@ class AppointmentCard extends StatelessWidget {
   String _getDaysUntil(String date) {
     try {
       DateTime? parsedDate;
-      
+
       try {
         parsedDate = DateFormat('dd/MM/yyyy').parse(date);
       } catch (e) {
@@ -254,7 +249,7 @@ class AppointmentTimeline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -281,11 +276,7 @@ class AppointmentTimeline extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    LucideIcons.checkCircle2,
-                    color: Colors.green,
-                    size: 32,
-                  ),
+                  Icon(LucideIcons.checkCircle2, color: Colors.green, size: 32),
                   const SizedBox(height: 8),
                   Text(
                     'Last Visit',
@@ -304,7 +295,7 @@ class AppointmentTimeline extends StatelessWidget {
                 ],
               ),
             ),
-            
+
             // Timeline connector
             SizedBox(
               height: 60,
@@ -324,17 +315,13 @@ class AppointmentTimeline extends StatelessWidget {
                 ],
               ),
             ),
-            
+
             // Next appointment
             Expanded(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    LucideIcons.calendarClock,
-                    color: Colors.blue,
-                    size: 32,
-                  ),
+                  Icon(LucideIcons.calendarClock, color: Colors.blue, size: 32),
                   const SizedBox(height: 8),
                   Text(
                     'Next Visit',
@@ -347,9 +334,9 @@ class AppointmentTimeline extends StatelessWidget {
                     nextAppointment ?? 'Schedule now',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: nextAppointment != null 
-                        ? null 
-                        : theme.colorScheme.primary,
+                      color: nextAppointment != null
+                          ? null
+                          : theme.colorScheme.primary,
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -379,7 +366,7 @@ class AppointmentInfoBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -406,7 +393,8 @@ class AppointmentInfoBar extends StatelessWidget {
                       Text(
                         'Last: ',
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onPrimaryContainer.withValues(alpha: 0.7),
+                          color: theme.colorScheme.onPrimaryContainer
+                              .withValues(alpha: 0.7),
                         ),
                       ),
                       Text(
@@ -424,7 +412,8 @@ class AppointmentInfoBar extends StatelessWidget {
                       Text(
                         'Next: ',
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onPrimaryContainer.withValues(alpha: 0.7),
+                          color: theme.colorScheme.onPrimaryContainer
+                              .withValues(alpha: 0.7),
                         ),
                       ),
                       Text(
@@ -441,7 +430,9 @@ class AppointmentInfoBar extends StatelessWidget {
             ),
             Icon(
               LucideIcons.chevronRight,
-              color: theme.colorScheme.onPrimaryContainer.withValues(alpha: 0.5),
+              color: theme.colorScheme.onPrimaryContainer.withValues(
+                alpha: 0.5,
+              ),
             ),
           ],
         ),

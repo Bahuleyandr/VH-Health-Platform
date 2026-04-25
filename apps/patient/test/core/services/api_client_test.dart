@@ -144,10 +144,7 @@ void main() {
     });
 
     test('200 response with null data', () {
-      final response = _r(200, {
-        'success': true,
-        'data': null,
-      });
+      final response = _r(200, {'success': true, 'data': null});
 
       expect(response.isSuccess, isTrue);
       expect(response.data, isNull);
@@ -164,10 +161,7 @@ void main() {
     });
 
     test('message is null when not present in body', () {
-      final response = _r(200, {
-        'success': true,
-        'data': {},
-      });
+      final response = _r(200, {'success': true, 'data': {}});
 
       expect(response.message, isNull);
     });
@@ -175,10 +169,7 @@ void main() {
 
   group('ApiResponse — error parsing', () {
     test('400 response is not successful', () {
-      final response = _r(400, {
-        'success': false,
-        'message': 'Bad request',
-      });
+      final response = _r(400, {'success': false, 'message': 'Bad request'});
 
       expect(response.isSuccess, isFalse);
       expect(response.statusCode, 400);
@@ -196,10 +187,7 @@ void main() {
     });
 
     test('299 is still successful (edge of 2xx range)', () {
-      final response = _r(299, {
-        'success': true,
-        'data': 'ok',
-      });
+      final response = _r(299, {'success': true, 'data': 'ok'});
 
       expect(response.isSuccess, isTrue);
     });
@@ -235,10 +223,7 @@ void main() {
     });
 
     test('403 response is not unauthorized (different from 401)', () {
-      final response = _r(403, {
-        'success': false,
-        'message': 'Forbidden',
-      });
+      final response = _r(403, {'success': false, 'message': 'Forbidden'});
 
       expect(response.isUnauthorized, isFalse);
     });
@@ -246,7 +231,9 @@ void main() {
 
   group('ApiResponse — dataAsList', () {
     test('returns list when data is a list', () {
-      final response = _r(200, {'data': [1, 2, 3]});
+      final response = _r(200, {
+        'data': [1, 2, 3],
+      });
 
       final list = response.dataAsList();
       expect(list, [1, 2, 3]);
@@ -310,7 +297,9 @@ void main() {
     });
 
     test('returns empty map when data is a list', () {
-      final response = _r(200, {'data': [1, 2, 3]});
+      final response = _r(200, {
+        'data': [1, 2, 3],
+      });
 
       expect(response.dataAsMap(), isEmpty);
     });

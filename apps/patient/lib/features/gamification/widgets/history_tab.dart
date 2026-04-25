@@ -36,20 +36,20 @@ class HistoryTab extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.history,
-                size: 48,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.3)),
-            const SizedBox(height: 12),
-            Text('No point history yet',
-                style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: onRefresh,
-              child: const Text('Refresh'),
+            Icon(
+              Icons.history,
+              size: 48,
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.3),
             ),
+            const SizedBox(height: 12),
+            Text(
+              'No point history yet',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 8),
+            TextButton(onPressed: onRefresh, child: const Text('Refresh')),
           ],
         ),
       );
@@ -88,10 +88,12 @@ class HistoryTab extends StatelessWidget {
             final description =
                 entry['description']?.toString() ?? 'Points activity';
             final points = (entry['points'] as num?)?.toInt() ?? 0;
-            final dateStr = entry['createdAt']?.toString() ??
+            final dateStr =
+                entry['createdAt']?.toString() ??
                 entry['date']?.toString() ??
                 '';
-            final activityType = entry['activityType']?.toString() ??
+            final activityType =
+                entry['activityType']?.toString() ??
                 entry['type']?.toString() ??
                 '';
 
@@ -105,8 +107,9 @@ class HistoryTab extends StatelessWidget {
               try {
                 final parsed = DateTime.tryParse(dateStr);
                 if (parsed != null) {
-                  formattedDate =
-                      DateFormat('dd MMM yyyy, HH:mm').format(parsed);
+                  formattedDate = DateFormat(
+                    'dd MMM yyyy, HH:mm',
+                  ).format(parsed);
                 }
               } catch (_) {
                 formattedDate = dateStr;
@@ -121,9 +124,9 @@ class HistoryTab extends StatelessWidget {
                     width: 36,
                     height: 36,
                     decoration: BoxDecoration(
-                      color:
-                          (isPositive ? Colors.green : cs.error)
-                              .withValues(alpha: 0.1),
+                      color: (isPositive ? Colors.green : cs.error).withValues(
+                        alpha: 0.1,
+                      ),
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
@@ -149,8 +152,7 @@ class HistoryTab extends StatelessWidget {
                           Text(
                             formattedDate,
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color:
-                                  cs.onSurface.withValues(alpha: 0.5),
+                              color: cs.onSurface.withValues(alpha: 0.5),
                               fontSize: 10,
                             ),
                           ),
@@ -159,7 +161,9 @@ class HistoryTab extends StatelessWidget {
                   ),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 3),
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: pointColor.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(8),

@@ -12,11 +12,7 @@ class ProfileEditScreen extends StatefulWidget {
   final String phone;
   final String name;
 
-  const ProfileEditScreen({
-    super.key,
-    required this.phone,
-    required this.name,
-  });
+  const ProfileEditScreen({super.key, required this.phone, required this.name});
 
   @override
   State<ProfileEditScreen> createState() => _ProfileEditScreenState();
@@ -26,12 +22,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   final _formKey = GlobalKey<FormState>();
 
   late final TextEditingController _nameController;
-  final _emailController            = TextEditingController();
-  final _birthdayController         = TextEditingController();
-  final _addressController          = TextEditingController();
-  final _allergiesController        = TextEditingController();
+  final _emailController = TextEditingController();
+  final _birthdayController = TextEditingController();
+  final _addressController = TextEditingController();
+  final _allergiesController = TextEditingController();
   final _emergencyContactController = TextEditingController();
-  final _insuranceController        = TextEditingController();
+  final _insuranceController = TextEditingController();
   final _preferredHospitalController = TextEditingController();
 
   DateTime? _selectedBirthday;
@@ -41,7 +37,16 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   bool _isLoading = true;
 
   static const _genderOptions = ['MALE', 'FEMALE', 'OTHER'];
-  static const _bloodGroupOptions = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'];
+  static const _bloodGroupOptions = [
+    'A+',
+    'A-',
+    'B+',
+    'B-',
+    'O+',
+    'O-',
+    'AB+',
+    'AB-',
+  ];
 
   @override
   void initState() {
@@ -79,7 +84,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         _addressController.text = user['address']?.toString() ?? '';
         _allergiesController.text = user['allergies']?.toString() ?? '';
         _insuranceController.text = user['insurance_details']?.toString() ?? '';
-        _preferredHospitalController.text = user['preferred_hospital']?.toString() ?? '';
+        _preferredHospitalController.text =
+            user['preferred_hospital']?.toString() ?? '';
 
         // Emergency contact can be a string or JSON object
         final ec = user['emergency_contact'];
@@ -110,8 +116,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           try {
             _selectedBirthday = DateTime.parse(user['birthday'].toString());
             if (mounted) {
-              _birthdayController.text =
-                  MaterialLocalizations.of(context).formatMediumDate(_selectedBirthday!);
+              _birthdayController.text = MaterialLocalizations.of(
+                context,
+              ).formatMediumDate(_selectedBirthday!);
             }
           } catch (e) {
             debugPrint('Birthday parse failed: $e');
@@ -128,8 +135,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   // ───────────────────────────────── Submit ─────────────────────────────────
   Future<void> _submit() async {
     final messenger = ScaffoldMessenger.of(context);
-    final theme     = Theme.of(context);
-    final l10n      = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
 
     if (!_formKey.currentState!.validate()) return;
 
@@ -143,32 +150,39 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       final response = await ApiClient.put(
         '/users/${widget.phone}',
         body: {
-          'name'               : InputSanitizer.sanitizeName(_nameController.text.trim()),
-          'email'              : _emailController.text.trim().isNotEmpty
+          'name': InputSanitizer.sanitizeName(_nameController.text.trim()),
+          'email': _emailController.text.trim().isNotEmpty
               ? _emailController.text.trim()
               : null,
-          'birthday'           : _selectedBirthday != null
+          'birthday': _selectedBirthday != null
               ? '${_selectedBirthday!.year.toString().padLeft(4, '0')}-${_selectedBirthday!.month.toString().padLeft(2, '0')}-${_selectedBirthday!.day.toString().padLeft(2, '0')}'
               : null,
-          'gender'             : _selectedGender,
-          'blood_group'        : _selectedBloodGroup,
-          'address'            : _addressController.text.trim().isNotEmpty
+          'gender': _selectedGender,
+          'blood_group': _selectedBloodGroup,
+          'address': _addressController.text.trim().isNotEmpty
               ? InputSanitizer.sanitize(_addressController.text.trim())
               : null,
-          'allergies'          : _allergiesController.text.trim().isNotEmpty
+          'allergies': _allergiesController.text.trim().isNotEmpty
               ? InputSanitizer.sanitize(_allergiesController.text.trim())
               : null,
-          'emergency_contact'  : ecText.isNotEmpty ? InputSanitizer.sanitize(ecText) : null,
-          'insurance_details'  : _insuranceController.text.trim().isNotEmpty
+          'emergency_contact': ecText.isNotEmpty
+              ? InputSanitizer.sanitize(ecText)
+              : null,
+          'insurance_details': _insuranceController.text.trim().isNotEmpty
               ? InputSanitizer.sanitize(_insuranceController.text.trim())
               : null,
-          'preferred_hospital' : _preferredHospitalController.text.trim().isNotEmpty
-              ? InputSanitizer.sanitize(_preferredHospitalController.text.trim())
+          'preferred_hospital':
+              _preferredHospitalController.text.trim().isNotEmpty
+              ? InputSanitizer.sanitize(
+                  _preferredHospitalController.text.trim(),
+                )
               : null,
         },
       );
       success = response.isSuccess;
-      if (!success) debugPrint('API error: ${response.statusCode} – ${response.message}');
+      if (!success) {
+        debugPrint('API error: ${response.statusCode} – ${response.message}');
+      }
     } catch (e) {
       debugPrint('Network error: $e');
     }
@@ -177,9 +191,9 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
 
     messenger.showSnackBar(
       SnackBar(
-        content: Text(success
-            ? l10n.profileUpdatedSuccessfully
-            : l10n.networkError),
+        content: Text(
+          success ? l10n.profileUpdatedSuccessfully : l10n.networkError,
+        ),
         backgroundColor: success
             ? theme.colorScheme.primary
             : theme.colorScheme.error,
@@ -197,10 +211,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   // ─────────────────────────────── Birthday picker ──────────────────────────
   Future<void> _selectBirthday(BuildContext context) async {
     final picked = await showDatePicker(
-      context    : context,
+      context: context,
       initialDate: _selectedBirthday ?? DateTime.now(),
-      firstDate  : DateTime(1900),
-      lastDate   : DateTime.now(),
+      firstDate: DateTime(1900),
+      lastDate: DateTime.now(),
     );
     if (picked != null) {
       _selectedBirthday = picked;
@@ -214,8 +228,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   // ────────────────────────────────── SOS ───────────────────────────────────
   void _triggerSOS() {
     final messenger = ScaffoldMessenger.of(context);
-    final theme     = Theme.of(context);
-    final l10n      = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
 
     messenger.showSnackBar(
       SnackBar(
@@ -231,20 +245,24 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   // ─────────────────────────── Gender display label ─────────────────────────
   String _genderLabel(String value) {
     switch (value) {
-      case 'MALE':   return 'Male';
-      case 'FEMALE': return 'Female';
-      case 'OTHER':  return 'Other';
-      default:       return value;
+      case 'MALE':
+        return 'Male';
+      case 'FEMALE':
+        return 'Female';
+      case 'OTHER':
+        return 'Other';
+      default:
+        return value;
     }
   }
 
   // ────────────────────────────────── UI ────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final theme  = Theme.of(context);
-    final cs     = theme.colorScheme;
-    final text   = theme.textTheme;
-    final l10n   = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final text = theme.textTheme;
+    final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
       appBar: AppBar(title: Text(l10n.profileEditScreenTitle)),
@@ -253,7 +271,8 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
           child: _isLoading
               ? Center(
                   child: CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation(cs.primary)),
+                    valueColor: AlwaysStoppedAnimation(cs.primary),
+                  ),
                 )
               : Padding(
                   padding: const EdgeInsets.all(16),
@@ -268,9 +287,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                           controller: _nameController,
                           textCapitalization: TextCapitalization.words,
                           decoration: InputDecoration(
-                            labelText : l10n.profileNameLabel,
-                            hintText  : l10n.profileNameHint,
-                            prefixIcon: Icon(Icons.person_outline, color: cs.primary),
+                            labelText: l10n.profileNameLabel,
+                            hintText: l10n.profileNameHint,
+                            prefixIcon: Icon(
+                              Icons.person_outline,
+                              color: cs.primary,
+                            ),
                           ),
                           validator: (v) => (v == null || v.trim().isEmpty)
                               ? l10n.profileNameValidationRequired
@@ -284,14 +306,18 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                           controller: _emailController,
                           keyboardType: TextInputType.emailAddress,
                           decoration: InputDecoration(
-                            labelText : l10n.profileEmailLabel,
-                            hintText  : l10n.profileEmailHint,
-                            prefixIcon: Icon(Icons.email_outlined, color: cs.primary),
+                            labelText: l10n.profileEmailLabel,
+                            hintText: l10n.profileEmailHint,
+                            prefixIcon: Icon(
+                              Icons.email_outlined,
+                              color: cs.primary,
+                            ),
                           ),
                           validator: (v) {
                             if (v == null || v.trim().isEmpty) return null;
-                            final regex =
-                                RegExp(r'^[\w\.-]+@([\w-]+\.)+[a-zA-Z]{2,}$');
+                            final regex = RegExp(
+                              r'^[\w\.-]+@([\w-]+\.)+[a-zA-Z]{2,}$',
+                            );
                             return regex.hasMatch(v.trim())
                                 ? null
                                 : l10n.profileEmailValidationInvalid;
@@ -304,14 +330,19 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                         DropdownButtonFormField<String>(
                           initialValue: _selectedGender,
                           decoration: InputDecoration(
-                            labelText : 'Gender',
-                            prefixIcon: Icon(Icons.wc_outlined, color: cs.primary),
+                            labelText: 'Gender',
+                            prefixIcon: Icon(
+                              Icons.wc_outlined,
+                              color: cs.primary,
+                            ),
                           ),
                           items: _genderOptions
-                              .map((g) => DropdownMenuItem(
-                                    value: g,
-                                    child: Text(_genderLabel(g)),
-                                  ))
+                              .map(
+                                (g) => DropdownMenuItem(
+                                  value: g,
+                                  child: Text(_genderLabel(g)),
+                                ),
+                              )
                               .toList(),
                           onChanged: (v) => setState(() => _selectedGender = v),
                           style: text.bodyLarge,
@@ -323,13 +354,17 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                           controller: _birthdayController,
                           readOnly: true,
                           decoration: InputDecoration(
-                            labelText : l10n.profileBirthdayLabel,
-                            hintText  : l10n.profileBirthdayHint,
-                            prefixIcon: Icon(Icons.calendar_today_outlined,
-                                color: cs.primary),
+                            labelText: l10n.profileBirthdayLabel,
+                            hintText: l10n.profileBirthdayHint,
+                            prefixIcon: Icon(
+                              Icons.calendar_today_outlined,
+                              color: cs.primary,
+                            ),
                             suffixIcon: IconButton(
-                              icon: Icon(Icons.edit_calendar_outlined,
-                                  color: cs.primary),
+                              icon: Icon(
+                                Icons.edit_calendar_outlined,
+                                color: cs.primary,
+                              ),
                               onPressed: () => _selectBirthday(context),
                             ),
                           ),
@@ -342,16 +377,22 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                         DropdownButtonFormField<String>(
                           initialValue: _selectedBloodGroup,
                           decoration: InputDecoration(
-                            labelText : 'Blood Group',
-                            prefixIcon: Icon(Icons.bloodtype_outlined, color: cs.primary),
+                            labelText: 'Blood Group',
+                            prefixIcon: Icon(
+                              Icons.bloodtype_outlined,
+                              color: cs.primary,
+                            ),
                           ),
                           items: _bloodGroupOptions
-                              .map((bg) => DropdownMenuItem(
-                                    value: bg,
-                                    child: Text(bg),
-                                  ))
+                              .map(
+                                (bg) => DropdownMenuItem(
+                                  value: bg,
+                                  child: Text(bg),
+                                ),
+                              )
                               .toList(),
-                          onChanged: (v) => setState(() => _selectedBloodGroup = v),
+                          onChanged: (v) =>
+                              setState(() => _selectedBloodGroup = v),
                           style: text.bodyLarge,
                         ),
                         const SizedBox(height: 16),
@@ -363,9 +404,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                           minLines: 2,
                           textCapitalization: TextCapitalization.sentences,
                           decoration: InputDecoration(
-                            labelText : 'Address',
-                            hintText  : 'Enter your address',
-                            prefixIcon: Icon(Icons.home_outlined, color: cs.primary),
+                            labelText: 'Address',
+                            hintText: 'Enter your address',
+                            prefixIcon: Icon(
+                              Icons.home_outlined,
+                              color: cs.primary,
+                            ),
                             alignLabelWithHint: true,
                           ),
                           style: text.bodyLarge,
@@ -377,9 +421,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                           controller: _allergiesController,
                           textCapitalization: TextCapitalization.sentences,
                           decoration: InputDecoration(
-                            labelText : 'Allergies',
-                            hintText  : 'e.g., Penicillin, Peanuts (comma-separated)',
-                            prefixIcon: Icon(Icons.warning_amber_outlined, color: cs.primary),
+                            labelText: 'Allergies',
+                            hintText:
+                                'e.g., Penicillin, Peanuts (comma-separated)',
+                            prefixIcon: Icon(
+                              Icons.warning_amber_outlined,
+                              color: cs.primary,
+                            ),
                           ),
                           style: text.bodyLarge,
                         ),
@@ -390,9 +438,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                           controller: _emergencyContactController,
                           keyboardType: TextInputType.text,
                           decoration: InputDecoration(
-                            labelText : 'Emergency Contact',
-                            hintText  : 'e.g., Spouse: 9876543210',
-                            prefixIcon: Icon(Icons.emergency_outlined, color: cs.primary),
+                            labelText: 'Emergency Contact',
+                            hintText: 'e.g., Spouse: 9876543210',
+                            prefixIcon: Icon(
+                              Icons.emergency_outlined,
+                              color: cs.primary,
+                            ),
                           ),
                           style: text.bodyLarge,
                         ),
@@ -403,9 +454,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                           controller: _insuranceController,
                           textCapitalization: TextCapitalization.sentences,
                           decoration: InputDecoration(
-                            labelText : 'Insurance Details',
-                            hintText  : 'e.g., Policy number, provider',
-                            prefixIcon: Icon(Icons.shield_outlined, color: cs.primary),
+                            labelText: 'Insurance Details',
+                            hintText: 'e.g., Policy number, provider',
+                            prefixIcon: Icon(
+                              Icons.shield_outlined,
+                              color: cs.primary,
+                            ),
                           ),
                           style: text.bodyLarge,
                         ),
@@ -416,9 +470,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                           controller: _preferredHospitalController,
                           textCapitalization: TextCapitalization.words,
                           decoration: InputDecoration(
-                            labelText : 'Preferred Hospital',
-                            hintText  : 'e.g., VH Medical Center',
-                            prefixIcon: Icon(Icons.local_hospital_outlined, color: cs.primary),
+                            labelText: 'Preferred Hospital',
+                            hintText: 'e.g., VH Medical Center',
+                            prefixIcon: Icon(
+                              Icons.local_hospital_outlined,
+                              color: cs.primary,
+                            ),
                           ),
                           style: text.bodyLarge,
                         ),
@@ -431,12 +488,18 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
                               ? const SizedBox(
                                   width: 20,
                                   height: 20,
-                                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                  ),
                                 )
                               : Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                  child: Text(l10n.profileSaveChangesButton,
-                                      style: text.labelLarge),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                  child: Text(
+                                    l10n.profileSaveChangesButton,
+                                    style: text.labelLarge,
+                                  ),
                                 ),
                         ),
                       ],

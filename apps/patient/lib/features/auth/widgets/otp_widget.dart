@@ -101,12 +101,17 @@ class _OtpWidgetState extends State<OtpWidget> {
     if (mounted) setState(() => isVerifying = false);
   }
 
-  Future<void> _handleFirebaseAuthSuccess(PhoneAuthCredential credential) async {
+  Future<void> _handleFirebaseAuthSuccess(
+    PhoneAuthCredential credential,
+  ) async {
     try {
       await FirebaseAuth.instance.signInWithCredential(credential);
       _showMessage("OTP verified ✅");
-      
-      developer.log("Firebase authentication successful - awaiting backend login", name: 'OtpWidget');
+
+      developer.log(
+        "Firebase authentication successful - awaiting backend login",
+        name: 'OtpWidget',
+      );
 
       // Await backend login BEFORE navigating so JWT is stored first
       await _otpService.loginToBackendInBackground(
@@ -114,9 +119,11 @@ class _OtpWidgetState extends State<OtpWidget> {
         phoneNumber: widget.phoneNumber,
       );
 
-      developer.log("Backend login complete - triggering navigation", name: 'OtpWidget');
+      developer.log(
+        "Backend login complete - triggering navigation",
+        name: 'OtpWidget',
+      );
       widget.onSuccess();
-      
     } catch (e) {
       _showMessage("Authentication failed: ${e.toString()}");
       developer.log("Firebase auth error: $e", name: 'OtpWidget');
@@ -127,10 +134,7 @@ class _OtpWidgetState extends State<OtpWidget> {
   void _showMessage(String msg) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(msg),
-          duration: const Duration(seconds: 2),
-        ),
+        SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
       );
     }
   }

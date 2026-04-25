@@ -165,11 +165,7 @@ class GaugeChartPainter extends CustomPainter {
     canvas.drawLine(center, Offset(nx, ny), needlePaint);
 
     // Needle hub.
-    canvas.drawCircle(
-      center,
-      4,
-      Paint()..color = needleColor,
-    );
+    canvas.drawCircle(center, 4, Paint()..color = needleColor);
   }
 
   @override
@@ -239,7 +235,10 @@ class SparklinePainter extends CustomPainter {
 
     // Dot at the last point.
     canvas.drawCircle(
-      Offset(size.width, size.height - ((values.last - minV) / range) * size.height),
+      Offset(
+        size.width,
+        size.height - ((values.last - minV) / range) * size.height,
+      ),
       strokeWidth + 1,
       Paint()..color = color,
     );

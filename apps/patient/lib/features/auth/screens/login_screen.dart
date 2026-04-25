@@ -36,10 +36,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const PopupMenuItem<int>(
                         value: 0,
                         enabled: false,
-                        child: SizedBox(
-                          width: 160,
-                          child: LanguageDropdown(),
-                        ),
+                        child: SizedBox(width: 160, child: LanguageDropdown()),
                       ),
                     ],
                   ),

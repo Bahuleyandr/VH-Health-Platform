@@ -25,23 +25,37 @@ List<Widget> buildSettingsSections(SettingsController c) {
             ),
             title: Text(c.loc.settingsEditProfile, style: txt.titleMedium),
             subtitle: Text(c.name, style: txt.bodySmall),
-            trailing: Icon(Icons.arrow_forward_ios, size: 16, color: cs.onSurfaceVariant),
+            trailing: Icon(
+              Icons.arrow_forward_ios,
+              size: 16,
+              color: cs.onSurfaceVariant,
+            ),
             onTap: () {
-              c.context.push('/profile-edit', extra: {
-                'phone': c.phone,
-                'name': c.name,
-              });
+              c.context.push(
+                '/profile-edit',
+                extra: {'phone': c.phone, 'name': c.name},
+              );
             },
           ),
           const Divider(height: 1),
           ListTile(
             leading: CircleAvatar(
               backgroundColor: const Color(0xFF26A69A).withAlpha(30),
-              child: const Icon(Icons.health_and_safety, color: Color(0xFF26A69A)),
+              child: const Icon(
+                Icons.health_and_safety,
+                color: Color(0xFF26A69A),
+              ),
             ),
             title: Text('Health ID (ABHA)', style: txt.titleMedium),
-            subtitle: Text('Ayushman Bharat Health Account', style: txt.bodySmall),
-            trailing: Icon(Icons.arrow_forward_ios, size: 16, color: cs.onSurfaceVariant),
+            subtitle: Text(
+              'Ayushman Bharat Health Account',
+              style: txt.bodySmall,
+            ),
+            trailing: Icon(
+              Icons.arrow_forward_ios,
+              size: 16,
+              color: cs.onSurfaceVariant,
+            ),
             onTap: () => c.context.push('/abdm'),
           ),
           const Divider(height: 1),
@@ -51,30 +65,41 @@ List<Widget> buildSettingsSections(SettingsController c) {
               child: const Icon(Icons.watch, color: Color(0xFFFF7043)),
             ),
             title: Text('Connect wearables', style: txt.titleMedium),
-            subtitle: Text('Sync steps, heart rate, SpO₂ from Apple Health / Google Health Connect',
-                style: txt.bodySmall),
+            subtitle: Text(
+              'Sync steps, heart rate, SpO₂ from Apple Health / Google Health Connect',
+              style: txt.bodySmall,
+            ),
             trailing: const Icon(Icons.sync, size: 18),
             onTap: () async {
               final messenger = ScaffoldMessenger.of(c.context);
-              final granted = await HealthSyncService.instance.requestPermissions();
+              final granted = await HealthSyncService.instance
+                  .requestPermissions();
               if (!granted) {
-                messenger.showSnackBar(const SnackBar(
-                  content: Text('Health permissions were not granted'),
-                ));
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('Health permissions were not granted'),
+                  ),
+                );
                 return;
               }
-              messenger.showSnackBar(const SnackBar(content: Text('Syncing health data…')));
+              messenger.showSnackBar(
+                const SnackBar(content: Text('Syncing health data…')),
+              );
               final synced = await HealthSyncService.instance.syncNow();
               await HealthSyncService.instance.startForegroundSync();
               // Register the 15-min background task so sync keeps running when
               // the app is backgrounded. Safe to call every time — existingWork
               // policy is `keep`, so re-registration is a no-op.
               await HealthSyncService.enableBackgroundSync();
-              messenger.showSnackBar(SnackBar(
-                content: Text(synced > 0
-                    ? 'Health data synced — vitals updated'
-                    : 'No new samples to sync'),
-              ));
+              messenger.showSnackBar(
+                SnackBar(
+                  content: Text(
+                    synced > 0
+                        ? 'Health data synced — vitals updated'
+                        : 'No new samples to sync',
+                  ),
+                ),
+              );
             },
           ),
         ],
@@ -125,45 +150,46 @@ List<Widget> buildSettingsSections(SettingsController c) {
             },
             title: Text(c.loc.settingsTheme, style: txt.titleMedium),
             subtitle: Text(
-              c.tp.isDarkMode ? c.loc.settingsDarkTheme : c.loc.settingsLightTheme,
+              c.tp.isDarkMode
+                  ? c.loc.settingsDarkTheme
+                  : c.loc.settingsLightTheme,
               style: txt.bodySmall,
             ),
             secondary: Icon(
-              c.tp.isDarkMode ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
+              c.tp.isDarkMode
+                  ? Icons.dark_mode_outlined
+                  : Icons.light_mode_outlined,
               color: cs.primary,
             ),
             activeThumbColor: cs.primary,
           ),
-          
+
           const Divider(height: 1),
-          
+
           // Dynamic Colors Toggle
           SwitchListTile(
             value: c.tp.enableDynamicColors,
             onChanged: (value) {
               c.tp.toggleDynamicColors();
             },
-            title: Text(
-              c.loc.settingsDynamicColors,
-              style: txt.titleMedium,
-            ),
+            title: Text(c.loc.settingsDynamicColors, style: txt.titleMedium),
             subtitle: Text(
               c.loc.settingsDynamicColorsDesc,
               style: txt.bodySmall,
             ),
-            secondary: Icon(
-              Icons.palette_outlined,
-              color: cs.primary,
-            ),
+            secondary: Icon(Icons.palette_outlined, color: cs.primary),
             activeThumbColor: cs.primary,
           ),
-          
+
           // Current Color Preview
           if (c.tp.enableDynamicColors && c.tp.dynamicAccentColor != null) ...[
             const Divider(height: 1),
             ListTile(
               leading: Icon(Icons.color_lens_outlined, color: cs.primary),
-              title: Text(c.loc.settingsCurrentAccentColor, style: txt.titleMedium),
+              title: Text(
+                c.loc.settingsCurrentAccentColor,
+                style: txt.titleMedium,
+              ),
               subtitle: Text(
                 c.loc.settingsAccentColorDesc,
                 style: txt.bodySmall,
@@ -189,16 +215,13 @@ List<Widget> buildSettingsSections(SettingsController c) {
               ),
             ),
           ],
-          
+
           // Reset Theme Button
           const Divider(height: 1),
           ListTile(
             leading: Icon(Icons.restore_outlined, color: cs.primary),
             title: Text(c.loc.settingsResetTheme, style: txt.titleMedium),
-            subtitle: Text(
-              c.loc.settingsResetThemeDesc,
-              style: txt.bodySmall,
-            ),
+            subtitle: Text(c.loc.settingsResetThemeDesc, style: txt.bodySmall),
             onTap: () async {
               final confirmed = await showDialog<bool>(
                 context: c.context,
@@ -217,7 +240,7 @@ List<Widget> buildSettingsSections(SettingsController c) {
                   ],
                 ),
               );
-              
+
               if (confirmed == true) {
                 await c.tp.resetToDefaults();
                 if (c.context.mounted) {
@@ -263,29 +286,33 @@ List<Widget> buildSettingsSections(SettingsController c) {
     const SizedBox(height: 16),
 
     _sectionTitle(c.loc.settingsPermissionsTitle.toUpperCase(), c.context),
-    _card(Column(children: [
-      _permissionTile(
-        Icons.calendar_today_outlined,
-        c.loc.settingsPermissionCalendar,
-        c.loc.settingsPermissionCalendarDesc,
-        c.calendarGranted,
-        c,
+    _card(
+      Column(
+        children: [
+          _permissionTile(
+            Icons.calendar_today_outlined,
+            c.loc.settingsPermissionCalendar,
+            c.loc.settingsPermissionCalendarDesc,
+            c.calendarGranted,
+            c,
+          ),
+          _permissionTile(
+            Icons.location_on_outlined,
+            c.loc.settingsPermissionLocation,
+            c.loc.settingsPermissionLocationDesc,
+            c.locationGranted,
+            c,
+          ),
+          _permissionTile(
+            Icons.camera_alt_outlined,
+            c.loc.settingsPermissionCamera,
+            c.loc.settingsPermissionCameraDesc,
+            c.cameraGranted,
+            c,
+          ),
+        ],
       ),
-      _permissionTile(
-        Icons.location_on_outlined,
-        c.loc.settingsPermissionLocation,
-        c.loc.settingsPermissionLocationDesc,
-        c.locationGranted,
-        c,
-      ),
-      _permissionTile(
-        Icons.camera_alt_outlined,
-        c.loc.settingsPermissionCamera,
-        c.loc.settingsPermissionCameraDesc,
-        c.cameraGranted,
-        c,
-      ),
-    ])),
+    ),
     const SizedBox(height: 24),
 
     Padding(
@@ -308,7 +335,9 @@ Widget _sectionTitle(String t, BuildContext context) {
       t,
       style: TextStyle(
         fontWeight: FontWeight.bold,
-        color: theme.colorScheme.primary, // ✅ Uses theme color instead of hardcoded blue
+        color: theme
+            .colorScheme
+            .primary, // ✅ Uses theme color instead of hardcoded blue
         letterSpacing: .8,
       ),
     ),
@@ -316,11 +345,11 @@ Widget _sectionTitle(String t, BuildContext context) {
 }
 
 Widget _card(Widget child) => Card(
-      elevation: 1,
-      margin: const EdgeInsets.symmetric(horizontal: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: child,
-    );
+  elevation: 1,
+  margin: const EdgeInsets.symmetric(horizontal: 8),
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  child: child,
+);
 
 Widget _permissionTile(
   IconData icon,

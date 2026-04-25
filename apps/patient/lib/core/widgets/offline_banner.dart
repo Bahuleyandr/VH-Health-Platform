@@ -53,7 +53,11 @@ class _OfflineBannerState extends State<OfflineBanner> {
         color: theme.colorScheme.errorContainer,
         child: Row(
           children: [
-            Icon(Icons.cloud_off, size: 16, color: theme.colorScheme.onErrorContainer),
+            Icon(
+              Icons.cloud_off,
+              size: 16,
+              color: theme.colorScheme.onErrorContainer,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(

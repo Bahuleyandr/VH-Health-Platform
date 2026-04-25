@@ -76,9 +76,9 @@ class _FamilyScreenState extends State<FamilyScreen> {
     final id = (member['_id'] as String?) ?? (member['id']?.toString());
     if (id == null || id.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Member ID not found')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Member ID not found')));
       }
       return;
     }
@@ -115,14 +115,18 @@ class _FamilyScreenState extends State<FamilyScreen> {
         _fetchMembers();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(response.message ?? 'Failed to remove member')),
+          SnackBar(
+            content: Text(response.message ?? 'Failed to remove member'),
+          ),
         );
       }
     } catch (e) {
       if (kDebugMode) debugPrint('FamilyScreen: remove error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to remove member. Please try again.')),
+          const SnackBar(
+            content: Text('Failed to remove member. Please try again.'),
+          ),
         );
       }
     }
@@ -160,7 +164,11 @@ class _FamilyScreenState extends State<FamilyScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
+              Icon(
+                Icons.error_outline,
+                size: 48,
+                color: theme.colorScheme.error,
+              ),
               const SizedBox(height: 12),
               Text(_error!, style: theme.textTheme.bodyMedium),
               const SizedBox(height: 12),
@@ -182,7 +190,11 @@ class _FamilyScreenState extends State<FamilyScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.family_restroom, size: 48, color: Colors.grey.shade400),
+              Icon(
+                Icons.family_restroom,
+                size: 48,
+                color: Colors.grey.shade400,
+              ),
               const SizedBox(height: 12),
               Text('No family members yet', style: theme.textTheme.bodyMedium),
               const SizedBox(height: 8),
@@ -212,7 +224,9 @@ class _FamilyScreenState extends State<FamilyScreen> {
       children: [
         Text(
           'Your Family',
-          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
@@ -307,14 +321,18 @@ class _FamilyMemberCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       phone,
-                      style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: Colors.grey.shade600,
+                      ),
                     ),
                   ],
                   if (dob.isNotEmpty) ...[
                     const SizedBox(height: 2),
                     Text(
                       'DOB: $dob',
-                      style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: Colors.grey.shade600,
+                      ),
                     ),
                   ],
                 ],
@@ -397,7 +415,10 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
         body['dateOfBirth'] = _dobCtrl.text;
       }
 
-      final response = await ApiClient.post('/users/family-members', body: body);
+      final response = await ApiClient.post(
+        '/users/family-members',
+        body: body,
+      );
       if (!mounted) return;
 
       if (response.isSuccess) {
@@ -408,7 +429,9 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
       } else {
         setState(() => _submitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(response.message ?? 'Failed to add family member')),
+          SnackBar(
+            content: Text(response.message ?? 'Failed to add family member'),
+          ),
         );
       }
     } catch (e) {
@@ -416,7 +439,9 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
       if (mounted) {
         setState(() => _submitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to add family member. Please try again.')),
+          const SnackBar(
+            content: Text('Failed to add family member. Please try again.'),
+          ),
         );
       }
     }
@@ -446,7 +471,9 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
             const SizedBox(height: 16),
             Text(
               'Add Family Member',
-              style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 20),
 

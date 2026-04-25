@@ -21,7 +21,7 @@ class FeedbackPrompt extends StatefulWidget {
 
 class _FeedbackPromptState extends State<FeedbackPrompt> {
   static const Duration _requestTimeout = Duration(seconds: 10);
-  
+
   int _rating = 0;
   final _commentController = TextEditingController();
   bool _submitting = false;
@@ -36,10 +36,10 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
   Future<void> _submitFeedback() async {
     // Prevent double submission
     if (_submitting) return;
-    
+
     // Debounce check
     final now = DateTime.now();
-    if (_lastSubmitTime != null && 
+    if (_lastSubmitTime != null &&
         now.difference(_lastSubmitTime!) < const Duration(seconds: 2)) {
       return;
     }
@@ -53,13 +53,17 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
     _lastSubmitTime = now;
 
     try {
-      final response = await ApiClient.post('/feedback', body: {
-        'phone': widget.phone,
-        'appointment_id': widget.refId,
-        'category': widget.type,
-        'rating': _rating,
-        'comment': _commentController.text.trim(),
-      }, timeout: _requestTimeout);
+      final response = await ApiClient.post(
+        '/feedback',
+        body: {
+          'phone': widget.phone,
+          'appointment_id': widget.refId,
+          'category': widget.type,
+          'rating': _rating,
+          'comment': _commentController.text.trim(),
+        },
+        timeout: _requestTimeout,
+      );
 
       if (!mounted) return;
 
@@ -67,7 +71,9 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
         _showSnackBar('Thank you for your feedback!', isSuccess: true);
         context.pop();
       } else {
-        _showSnackBar(response.message ?? 'Failed to submit feedback. Please try again.');
+        _showSnackBar(
+          response.message ?? 'Failed to submit feedback. Please try again.',
+        );
       }
     } on TimeoutException catch (e) {
       debugPrint('Feedback submission timed out: $e');
@@ -84,16 +90,14 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
 
   void _showSnackBar(String message, {bool isSuccess = false}) {
     if (!mounted) return;
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: isSuccess ? Colors.green : null,
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(16),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }
@@ -101,7 +105,7 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Container(
       height: MediaQuery.of(context).size.height * 0.5,
       padding: EdgeInsets.fromLTRB(
@@ -127,7 +131,7 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          
+
           Text(
             'Rate your experience',
             style: theme.textTheme.titleLarge?.copyWith(
@@ -135,7 +139,7 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
             ),
           ),
           const SizedBox(height: 16),
-          
+
           // Star rating
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -147,12 +151,14 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
                   size: 40,
                 ),
                 color: isSelected ? Colors.amber : theme.colorScheme.outline,
-                onPressed: _submitting ? null : () => setState(() => _rating = i + 1),
+                onPressed: _submitting
+                    ? null
+                    : () => setState(() => _rating = i + 1),
               );
             }),
           ),
           const SizedBox(height: 24),
-          
+
           // Comment field
           TextField(
             controller: _commentController,
@@ -169,7 +175,7 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
             textCapitalization: TextCapitalization.sentences,
           ),
           const SizedBox(height: 24),
-          
+
           // Submit button
           SizedBox(
             width: double.infinity,

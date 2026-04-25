@@ -13,12 +13,8 @@ Future<void> addEventToCalendar({
     location: location,
     startDate: startDate,
     endDate: endDate,
-    iosParams: const IOSParams(
-      reminder: Duration(minutes: 30),
-    ),
-    androidParams: const AndroidParams(
-      emailInvites: [],
-    ),
+    iosParams: const IOSParams(reminder: Duration(minutes: 30)),
+    androidParams: const AndroidParams(emailInvites: []),
   );
 
   await Add2Calendar.addEvent2Cal(event);

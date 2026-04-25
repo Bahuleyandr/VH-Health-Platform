@@ -114,8 +114,12 @@ class _DailyCheckInSheetState extends State<DailyCheckInSheet> {
       if (vitalsBody.length > 1) {
         // Only send if at least one vital beyond 'mood' was provided.
         // ignore: unawaited_futures
-        ApiClient.post('/health/patient/vitals', body: vitalsBody).catchError((e) {
-          if (kDebugMode) debugPrint('DailyCheckInSheet: vitals post error: $e');
+        ApiClient.post('/health/patient/vitals', body: vitalsBody).catchError((
+          e,
+        ) {
+          if (kDebugMode) {
+            debugPrint('DailyCheckInSheet: vitals post error: $e');
+          }
           // Return an ApiResponse-shaped value so the future completes.
           return checkInRes;
         });
@@ -132,7 +136,9 @@ class _DailyCheckInSheetState extends State<DailyCheckInSheet> {
       if (mounted) {
         setState(() => _submitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not save check-in. Please try again.')),
+          const SnackBar(
+            content: Text('Could not save check-in. Please try again.'),
+          ),
         );
       }
     }
@@ -165,19 +171,31 @@ class _DailyCheckInSheetState extends State<DailyCheckInSheet> {
             if (_done)
               _celebration(theme)
             else ...[
-              Text('Daily Check-In',
-                  style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                'Daily Check-In',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 4),
-              Text('How are you feeling today?',
-                  style: theme.textTheme.bodyMedium?.copyWith(color: theme.hintColor)),
+              Text(
+                'How are you feeling today?',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.hintColor,
+                ),
+              ),
               const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [for (final m in _moods) _moodChip(theme, m)],
               ),
               const SizedBox(height: 20),
-              Text('Quick vitals (optional)',
-                  style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600)),
+              Text(
+                'Quick vitals (optional)',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -194,12 +212,17 @@ class _DailyCheckInSheetState extends State<DailyCheckInSheet> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
-                  onPressed: _selectedMood == null || _submitting ? null : _submit,
+                  onPressed: _selectedMood == null || _submitting
+                      ? null
+                      : _submit,
                   child: _submitting
                       ? const SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
                         )
                       : const Text('Save check-in  ·  +10 points'),
                 ),
@@ -241,7 +264,12 @@ class _DailyCheckInSheetState extends State<DailyCheckInSheet> {
     );
   }
 
-  Widget _numField(TextEditingController c, String label, String suffix, {bool allowDecimal = false}) {
+  Widget _numField(
+    TextEditingController c,
+    String label,
+    String suffix, {
+    bool allowDecimal = false,
+  }) {
     return TextField(
       controller: c,
       keyboardType: TextInputType.numberWithOptions(decimal: allowDecimal),
@@ -260,13 +288,19 @@ class _DailyCheckInSheetState extends State<DailyCheckInSheet> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Center(
-          child: Icon(Icons.check_circle, color: Colors.green.shade600, size: 56),
+          child: Icon(
+            Icons.check_circle,
+            color: Colors.green.shade600,
+            size: 56,
+          ),
         ),
         const SizedBox(height: 12),
         Text(
           streak > 1 ? 'Day $streak of your streak!' : 'Check-in saved',
           textAlign: TextAlign.center,
-          style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
         ),
         const SizedBox(height: 8),
         Text(

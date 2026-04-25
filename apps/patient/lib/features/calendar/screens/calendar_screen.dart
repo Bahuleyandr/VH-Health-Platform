@@ -71,21 +71,27 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
       _parseAndAddEvents(
         newEvents,
-        responses[0].isSuccess ? (responses[0].data is List ? responses[0].data : null) : null,
+        responses[0].isSuccess
+            ? (responses[0].data is List ? responses[0].data : null)
+            : null,
         'appointment',
         (item) => item['department'] ?? loc.eventTypesAppointment,
         (item) => item['date'] ?? item['created_at'],
       );
       _parseAndAddEvents(
         newEvents,
-        responses[1].isSuccess ? (responses[1].data is List ? responses[1].data : null) : null,
+        responses[1].isSuccess
+            ? (responses[1].data is List ? responses[1].data : null)
+            : null,
         'investigation',
         (item) => item['test_name'] ?? loc.eventTypesInvestigation,
         (item) => item['created_at'],
       );
       _parseAndAddEvents(
         newEvents,
-        responses[2].isSuccess ? (responses[2].data is List ? responses[2].data : null) : null,
+        responses[2].isSuccess
+            ? (responses[2].data is List ? responses[2].data : null)
+            : null,
         'pharmacy',
         (_) => loc.eventTypesPharmacyOrder,
         (item) => item['created_at'],
@@ -149,13 +155,22 @@ class _CalendarScreenState extends State<CalendarScreen> {
         appBar: AppBar(title: Text(loc.calendarFullAccess)),
         body: Center(
           child: _isLoadingEvents
-              ? CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(colorScheme.primary))
+              ? CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation(colorScheme.primary),
+                )
               : Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.event_busy, size: 60, color: colorScheme.onSurface.withAlpha(153)),
+                    Icon(
+                      Icons.event_busy,
+                      size: 60,
+                      color: colorScheme.onSurface.withAlpha(153),
+                    ),
                     const SizedBox(height: 16),
-                    Text(loc.calendarEnablePermissions, textAlign: TextAlign.center),
+                    Text(
+                      loc.calendarEnablePermissions,
+                      textAlign: TextAlign.center,
+                    ),
                     const SizedBox(height: 16),
                     ElevatedButton.icon(
                       icon: const Icon(Icons.settings),
@@ -173,7 +188,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
         title: Text(loc.calendarFullAccess),
         actions: [
           IconButton(
-            icon: Icon(Icons.refresh, color: theme.appBarTheme.actionsIconTheme?.color ?? colorScheme.onPrimary),
+            icon: Icon(
+              Icons.refresh,
+              color:
+                  theme.appBarTheme.actionsIconTheme?.color ??
+                  colorScheme.onPrimary,
+            ),
             tooltip: loc.refreshCalendar,
             onPressed: () {
               if (permissionsGranted && !_isLoadingEvents) {
@@ -211,9 +231,20 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 headerStyle: HeaderStyle(
                   formatButtonVisible: false,
                   titleCentered: true,
-                  titleTextStyle: theme.textTheme.titleLarge ?? const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  leftChevronIcon: Icon(Icons.chevron_left, color: colorScheme.primary),
-                  rightChevronIcon: Icon(Icons.chevron_right, color: colorScheme.primary),
+                  titleTextStyle:
+                      theme.textTheme.titleLarge ??
+                      const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                  leftChevronIcon: Icon(
+                    Icons.chevron_left,
+                    color: colorScheme.primary,
+                  ),
+                  rightChevronIcon: Icon(
+                    Icons.chevron_right,
+                    color: colorScheme.primary,
+                  ),
                 ),
                 calendarStyle: CalendarStyle(
                   outsideDaysVisible: false,
@@ -236,14 +267,22 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-  Widget _buildEventList(ThemeData theme, ColorScheme colorScheme, AppLocalizations loc) {
+  Widget _buildEventList(
+    ThemeData theme,
+    ColorScheme colorScheme,
+    AppLocalizations loc,
+  ) {
     final eventsToShow = _getEventsForDay(selectedDay ?? focusedDay);
     if (eventsToShow.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.event_note_outlined, size: 48, color: colorScheme.onSurfaceVariant.withAlpha(179)),
+            Icon(
+              Icons.event_note_outlined,
+              size: 48,
+              color: colorScheme.onSurfaceVariant.withAlpha(179),
+            ),
             const SizedBox(height: 8),
             Text(
               selectedDay == null ? loc.selectDayPrompt : loc.noEventsForDay,
@@ -261,7 +300,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
         final String type = event['type']?.toString() ?? 'unknown';
         return Card(
           child: ListTile(
-            leading: Icon(_iconForType(type), color: _iconColorForType(type, colorScheme)),
+            leading: Icon(
+              _iconForType(type),
+              color: _iconColorForType(type, colorScheme),
+            ),
             title: Text(title),
             subtitle: Text(locEventType(loc, type)),
           ),

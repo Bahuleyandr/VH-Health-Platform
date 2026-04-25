@@ -17,7 +17,8 @@ class AboutUsScreen extends StatelessWidget {
   static const _emergencyPhone = '+914445004500';
   static const _emergencyPhone2 = '+919094004500';
   static const _hospitalEmail = 'info@venkataeswara.com';
-  static const _hospitalAddress = '36-A, Chamiers Road, Nandanam, Chennai - 600035';
+  static const _hospitalAddress =
+      '36-A, Chamiers Road, Nandanam, Chennai - 600035';
   static const _hospitalLat = 13.02936;
   static const _hospitalLng = 80.24409;
 
@@ -38,10 +39,16 @@ class AboutUsScreen extends StatelessWidget {
     await SafeUrlLauncher.launch(url, mode: LaunchMode.externalApplication);
   }
 
-  void _showPhoneOptions(BuildContext context, String title, List<(String, String)> numbers) {
+  void _showPhoneOptions(
+    BuildContext context,
+    String title,
+    List<(String, String)> numbers,
+  ) {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (_) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(20),
@@ -49,20 +56,39 @@ class AboutUsScreen extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              ...numbers.map((entry) => ListTile(
-                leading: const CircleAvatar(
-                  backgroundColor: Color(0x1A007A64),
-                  child: Icon(Icons.phone, color: Color(0xFF007A64), size: 20),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
                 ),
-                title: Text(entry.$1, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: 1)),
-                trailing: const Icon(Icons.call, color: Color(0xFF007A64)),
-                onTap: () {
-                  Navigator.pop(context);
-                  SafeUrlLauncher.launchPhone(entry.$2);
-                },
-              )),
+              ),
+              const SizedBox(height: 16),
+              ...numbers.map(
+                (entry) => ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0x1A007A64),
+                    child: Icon(
+                      Icons.phone,
+                      color: Color(0xFF007A64),
+                      size: 20,
+                    ),
+                  ),
+                  title: Text(
+                    entry.$1,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  trailing: const Icon(Icons.call, color: Color(0xFF007A64)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    SafeUrlLauncher.launchPhone(entry.$2);
+                  },
+                ),
+              ),
               const SizedBox(height: 8),
             ],
           ),
@@ -73,12 +99,15 @@ class AboutUsScreen extends StatelessWidget {
 
   // ignore: unused_element
   Future<void> _emailHospital() async {
-    await _launchUrl('mailto:$_hospitalEmail?subject=Enquiry%20from%20VHHealth%20App');
+    await _launchUrl(
+      'mailto:$_hospitalEmail?subject=Enquiry%20from%20VHHealth%20App',
+    );
   }
 
   Future<void> _navigateToHospital() async {
     // Try Google Maps first, fall back to generic geo URI
-    final googleMapsUrl = 'https://www.google.com/maps/search/?api=1&query=$_hospitalLat,$_hospitalLng';
+    final googleMapsUrl =
+        'https://www.google.com/maps/search/?api=1&query=$_hospitalLat,$_hospitalLng';
     await _launchUrl(googleMapsUrl);
   }
 
@@ -119,28 +148,34 @@ class AboutUsScreen extends StatelessWidget {
                     icon: Icons.calendar_month,
                     label: 'Appointments',
                     color: Colors.teal,
-                    onTap: () => _showPhoneOptions(context, 'Doctor Appointments', [
-                      ('044-4511 4511', _appointmentPhone),
-                      ('4511 1111', _appointmentPhone2),
-                    ]),
+                    onTap: () =>
+                        _showPhoneOptions(context, 'Doctor Appointments', [
+                          ('044-4511 4511', _appointmentPhone),
+                          ('4511 1111', _appointmentPhone2),
+                        ]),
                   ),
                   _ContactAction(
                     icon: Icons.science_outlined,
                     label: 'Home Sample',
                     color: Colors.blue,
-                    onTap: () => _showPhoneOptions(context, 'Free Home Sample Collection', [
-                      ('93845 43289', _sampleCollectionPhone),
-                      ('95002 10210', _sampleCollectionPhone2),
-                    ]),
+                    onTap: () => _showPhoneOptions(
+                      context,
+                      'Free Home Sample Collection',
+                      [
+                        ('93845 43289', _sampleCollectionPhone),
+                        ('95002 10210', _sampleCollectionPhone2),
+                      ],
+                    ),
                   ),
                   _ContactAction(
                     icon: Icons.emergency,
                     label: 'Ambulance',
                     color: Colors.red,
-                    onTap: () => _showPhoneOptions(context, 'Emergency Ambulance', [
-                      ('044-4500 4500', _emergencyPhone),
-                      ('90940 04500', _emergencyPhone2),
-                    ]),
+                    onTap: () =>
+                        _showPhoneOptions(context, 'Emergency Ambulance', [
+                          ('044-4500 4500', _emergencyPhone),
+                          ('90940 04500', _emergencyPhone2),
+                        ]),
                   ),
                   _ContactAction(
                     icon: Icons.navigation_rounded,
@@ -173,17 +208,25 @@ class AboutUsScreen extends StatelessWidget {
                         children: [
                           Text(
                             'Venkataeswara Hospitals',
-                            style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           const SizedBox(height: 2),
                           Text(
                             _hospitalAddress,
-                            style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.hintColor,
+                            ),
                           ),
                           const SizedBox(height: 4),
                           Text(
                             'Tap to open in Google Maps →',
-                            style: TextStyle(fontSize: 11, color: cs.primary, fontWeight: FontWeight.w500),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: cs.primary,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ],
                       ),
@@ -199,29 +242,50 @@ class AboutUsScreen extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: DefaultTextStyle.merge(
-                style: theme.textTheme.bodyLarge?.copyWith(fontStyle: FontStyle.italic) ??
+                style:
+                    theme.textTheme.bodyLarge?.copyWith(
+                      fontStyle: FontStyle.italic,
+                    ) ??
                     const TextStyle(fontStyle: FontStyle.italic),
                 child: MarkdownBlock(
                   data: l10n.aboutUsContent,
                   config: MarkdownConfig(
                     configs: [
                       PConfig(
-                        textStyle: theme.textTheme.bodyLarge ?? const TextStyle(fontSize: 16),
+                        textStyle:
+                            theme.textTheme.bodyLarge ??
+                            const TextStyle(fontSize: 16),
                       ),
                       H1Config(
-                        style: theme.textTheme.headlineMedium?.copyWith(
+                        style:
+                            theme.textTheme.headlineMedium?.copyWith(
                               fontWeight: FontWeight.bold,
                               color: cs.primary,
                             ) ??
-                            const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                            const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
                       ),
                       H2Config(
-                        style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600) ??
-                            const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+                        style:
+                            theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ) ??
+                            const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                            ),
                       ),
                       H3Config(
-                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600) ??
-                            const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                        style:
+                            theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ) ??
+                            const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                            ),
                       ),
                       LinkConfig(
                         style: TextStyle(
@@ -273,7 +337,11 @@ class _ContactAction extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             label,
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
           ),
         ],
       ),

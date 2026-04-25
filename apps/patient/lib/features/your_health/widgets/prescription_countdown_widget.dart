@@ -49,8 +49,9 @@ class PrescriptionCountdown extends StatelessWidget {
   }
 
   static int? _parseDurationString(String text) {
-    final m = RegExp(r'(\d+)\s*(d|day|days|w|wk|week|weeks|m|mo|month|months)?')
-        .firstMatch(text);
+    final m = RegExp(
+      r'(\d+)\s*(d|day|days|w|wk|week|weeks|m|mo|month|months)?',
+    ).firstMatch(text);
     if (m == null) return null;
     final n = int.tryParse(m.group(1)!);
     if (n == null) return null;
@@ -73,8 +74,8 @@ class PrescriptionCountdown extends StatelessWidget {
     final ringColor = isCompleted
         ? Colors.green.shade600
         : lowTime
-            ? Colors.red.shade600
-            : theme.colorScheme.primary;
+        ? Colors.red.shade600
+        : theme.colorScheme.primary;
 
     return SizedBox(
       width: size,

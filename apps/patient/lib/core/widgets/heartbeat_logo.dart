@@ -7,7 +7,8 @@ class HeartbeatLogo extends StatefulWidget {
   State<HeartbeatLogo> createState() => _HeartbeatLogoState();
 }
 
-class _HeartbeatLogoState extends State<HeartbeatLogo> with SingleTickerProviderStateMixin {
+class _HeartbeatLogoState extends State<HeartbeatLogo>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _heartbeat;
 

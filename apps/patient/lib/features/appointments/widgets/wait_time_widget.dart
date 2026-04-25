@@ -20,7 +20,9 @@ class _WaitTimeWidgetState extends State<WaitTimeWidget> {
 
   Future<void> _fetchWaitTime() async {
     try {
-      final resp = await ApiClient.get('/appointments/${widget.appointmentId}/wait-time');
+      final resp = await ApiClient.get(
+        '/appointments/${widget.appointmentId}/wait-time',
+      );
       if (mounted && resp.isSuccess) {
         setState(() {
           _waitData = resp.dataAsMap();
@@ -51,18 +53,26 @@ class _WaitTimeWidgetState extends State<WaitTimeWidget> {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            Icon(Icons.timer_outlined,
-                color: theme.colorScheme.primary, size: 32),
+            Icon(
+              Icons.timer_outlined,
+              color: theme.colorScheme.primary,
+              size: 32,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('$ahead patients ahead',
-                      style: theme.textTheme.titleSmall),
-                  Text('Estimated wait: ~$waitMin minutes',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant)),
+                  Text(
+                    '$ahead patients ahead',
+                    style: theme.textTheme.titleSmall,
+                  ),
+                  Text(
+                    'Estimated wait: ~$waitMin minutes',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                 ],
               ),
             ),

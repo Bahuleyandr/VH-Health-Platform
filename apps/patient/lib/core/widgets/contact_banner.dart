@@ -18,25 +18,25 @@ class ContactBanner extends StatelessWidget {
 
   /// Appointment booking banner
   factory ContactBanner.appointments() => ContactBanner(
-        title: 'Book by Phone',
-        icon: Icons.calendar_month,
-        color: const Color(0xFF007A64),
-        numbers: const [
-          ContactNumber(label: '044-4511 4511', phone: '+914445114511'),
-          ContactNumber(label: '4511 1111', phone: '+914445111111'),
-        ],
-      );
+    title: 'Book by Phone',
+    icon: Icons.calendar_month,
+    color: const Color(0xFF007A64),
+    numbers: const [
+      ContactNumber(label: '044-4511 4511', phone: '+914445114511'),
+      ContactNumber(label: '4511 1111', phone: '+914445111111'),
+    ],
+  );
 
   /// Home sample collection banner
   factory ContactBanner.homeSampleCollection() => ContactBanner(
-        title: 'Free Home Sample Collection',
-        icon: Icons.home_outlined,
-        color: Colors.blue,
-        numbers: const [
-          ContactNumber(label: '93845 43289', phone: '+919384543289'),
-          ContactNumber(label: '95002 10210', phone: '+919500210210'),
-        ],
-      );
+    title: 'Free Home Sample Collection',
+    icon: Icons.home_outlined,
+    color: Colors.blue,
+    numbers: const [
+      ContactNumber(label: '93845 43289', phone: '+919384543289'),
+      ContactNumber(label: '95002 10210', phone: '+919500210210'),
+    ],
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -58,31 +58,39 @@ class ContactBanner extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Wrap(
                   spacing: 12,
-                  children: numbers.map((n) => GestureDetector(
-                    onTap: () => SafeUrlLauncher.launchPhone(n.phone),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.phone, size: 13, color: color),
-                        const SizedBox(width: 3),
-                        Text(
-                          n.label,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: color,
-                            decoration: TextDecoration.underline,
-                            decorationColor: color.withValues(alpha: 0.4),
+                  children: numbers
+                      .map(
+                        (n) => GestureDetector(
+                          onTap: () => SafeUrlLauncher.launchPhone(n.phone),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.phone, size: 13, color: color),
+                              const SizedBox(width: 3),
+                              Text(
+                                n.label,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: color,
+                                  decoration: TextDecoration.underline,
+                                  decorationColor: color.withValues(alpha: 0.4),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
-                  )).toList(),
+                      )
+                      .toList(),
                 ),
               ],
             ),

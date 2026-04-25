@@ -22,9 +22,7 @@ class FirebaseSessionService {
   /// Revoke the current Firebase session on the backend (call on logout).
   static Future<bool> revokeSession() async {
     try {
-      final response = await ApiClient.post(
-        '/auth/firebase/revoke-session',
-      );
+      final response = await ApiClient.post('/auth/firebase/revoke-session');
       return response.isSuccess;
     } catch (e) {
       debugPrint('FirebaseSessionService.revokeSession error: $e');

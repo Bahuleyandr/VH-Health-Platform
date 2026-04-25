@@ -30,8 +30,7 @@ class _HospitalDocumentsTabState extends State<HospitalDocumentsTab> {
     });
 
     try {
-      final response =
-          await ApiClient.get('/appointments/patient/records/all');
+      final response = await ApiClient.get('/appointments/patient/records/all');
       if (!mounted) return;
 
       if (response.isSuccess) {
@@ -65,7 +64,8 @@ class _HospitalDocumentsTabState extends State<HospitalDocumentsTab> {
     if (_isLoading) {
       return Center(
         child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation(cs.primary)),
+          valueColor: AlwaysStoppedAnimation(cs.primary),
+        ),
       );
     }
 
@@ -74,12 +74,16 @@ class _HospitalDocumentsTabState extends State<HospitalDocumentsTab> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(_error!,
-                style: TextStyle(color: cs.error),
-                textAlign: TextAlign.center),
+            Text(
+              _error!,
+              style: TextStyle(color: cs.error),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 12),
             ElevatedButton(
-                onPressed: _fetchRecords, child: const Text('Retry')),
+              onPressed: _fetchRecords,
+              child: const Text('Retry'),
+            ),
           ],
         ),
       );
@@ -92,8 +96,7 @@ class _HospitalDocumentsTabState extends State<HospitalDocumentsTab> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.local_hospital_outlined,
-                  size: 64, color: Colors.grey),
+              Icon(Icons.local_hospital_outlined, size: 64, color: Colors.grey),
               SizedBox(height: 12),
               Text(
                 'Your prescriptions and reports from visits will appear here',

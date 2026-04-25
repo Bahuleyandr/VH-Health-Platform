@@ -129,8 +129,9 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     final customTests = booking['custom_test_names'] as String?;
     final collectionType = booking['collection_type'] ?? 'home';
     final createdAt = booking['created_at'] != null
-        ? DateFormat('d MMM yyyy, h:mm a')
-            .format(DateTime.parse(booking['created_at']).toLocal())
+        ? DateFormat(
+            'd MMM yyyy, h:mm a',
+          ).format(DateTime.parse(booking['created_at']).toLocal())
         : '';
 
     return Card(
@@ -152,8 +153,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                   ),
                 ),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: _statusColor(status).withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(12),
@@ -180,7 +183,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                 runSpacing: 4,
                 children: testDetails.map<Widget>((t) {
                   return Chip(
-                    label: Text(t['name'] ?? '', style: const TextStyle(fontSize: 11)),
+                    label: Text(
+                      t['name'] ?? '',
+                      style: const TextStyle(fontSize: 11),
+                    ),
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,
@@ -194,8 +200,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                 children: [
                   const Icon(Icons.photo, size: 14),
                   const SizedBox(width: 4),
-                  Text('Prescription slip attached',
-                      style: theme.textTheme.bodySmall),
+                  Text(
+                    'Prescription slip attached',
+                    style: theme.textTheme.bodySmall,
+                  ),
                 ],
               ),
 
@@ -205,9 +213,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
             Row(
               children: [
                 Icon(
-                  collectionType == 'home'
-                      ? Icons.home
-                      : Icons.local_hospital,
+                  collectionType == 'home' ? Icons.home : Icons.local_hospital,
                   size: 16,
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -280,9 +286,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      done
-                          ? Icons.check_circle
-                          : Icons.radio_button_unchecked,
+                      done ? Icons.check_circle : Icons.radio_button_unchecked,
                       size: 18,
                       color: done
                           ? theme.colorScheme.primary

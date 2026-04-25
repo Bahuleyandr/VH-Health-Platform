@@ -41,11 +41,17 @@ class AppointmentCard extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               color: theme.colorScheme.primary.withValues(alpha: 0.1),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
             ),
             child: Row(
               children: [
-                Icon(LucideIcons.calendar, color: theme.colorScheme.primary, size: 20),
+                Icon(
+                  LucideIcons.calendar,
+                  color: theme.colorScheme.primary,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   'Appointments',
@@ -106,7 +112,9 @@ class AppointmentCard extends StatelessWidget {
                     onPressed: onViewHistory,
                     icon: const Icon(LucideIcons.history, size: 16),
                     label: const Text('History'),
-                    style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 8)),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -115,7 +123,9 @@ class AppointmentCard extends StatelessWidget {
                     onPressed: onScheduleNew,
                     icon: const Icon(LucideIcons.plus, size: 16),
                     label: const Text('Schedule'),
-                    style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 8)),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
                   ),
                 ),
               ],
@@ -175,27 +185,41 @@ class AppointmentCard extends StatelessWidget {
   String _formatDate(String date) {
     try {
       DateTime? d;
-      try { d = DateFormat('dd/MM/yyyy').parse(date); } catch (_) {}
+      try {
+        d = DateFormat('dd/MM/yyyy').parse(date);
+      } catch (_) {}
       d ??= DateTime.tryParse(date);
       if (d != null) return DateFormat('dd/MM/yyyy').format(d);
-    } catch (e) { debugPrint('Dashboard error: $e'); }
+    } catch (e) {
+      debugPrint('Dashboard error: $e');
+    }
     return date;
   }
 
   String _getDaysUntil(String date) {
     try {
       DateTime? d;
-      try { d = DateFormat('dd/MM/yyyy').parse(date); } catch (_) {}
+      try {
+        d = DateFormat('dd/MM/yyyy').parse(date);
+      } catch (_) {}
       d ??= DateTime.tryParse(date);
       if (d != null) {
         final diff = DateTime(d.year, d.month, d.day)
-            .difference(DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day))
+            .difference(
+              DateTime(
+                DateTime.now().year,
+                DateTime.now().month,
+                DateTime.now().day,
+              ),
+            )
             .inDays;
         if (diff == 0) return 'Today';
         if (diff == 1) return 'Tomorrow';
         if (diff > 0) return 'In $diff days';
       }
-    } catch (e) { debugPrint('Dashboard error: $e'); }
+    } catch (e) {
+      debugPrint('Dashboard error: $e');
+    }
     return '';
   }
 }

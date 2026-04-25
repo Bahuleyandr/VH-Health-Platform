@@ -21,9 +21,7 @@ class AccessibleCard extends StatelessWidget {
       label: label,
       value: value,
       container: true,
-      child: onTap != null
-          ? InkWell(onTap: onTap, child: child)
-          : child,
+      child: onTap != null ? InkWell(onTap: onTap, child: child) : child,
     );
   }
 }

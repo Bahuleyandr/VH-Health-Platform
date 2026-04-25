@@ -69,11 +69,7 @@ class WebSocketService {
         subscribe(ch);
       }
 
-      _channel!.stream.listen(
-        _onData,
-        onError: _onError,
-        onDone: _onDone,
-      );
+      _channel!.stream.listen(_onData, onError: _onError, onDone: _onDone);
     } catch (e) {
       if (kDebugMode) debugPrint('WebSocketService: connect failed - $e');
       _scheduleReconnect();

@@ -60,8 +60,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
   @override
   void initState() {
     super.initState();
-    _isGuest = widget.phone.toLowerCase() == 'guest' ||
-        widget.phone.trim().isEmpty;
+    _isGuest =
+        widget.phone.toLowerCase() == 'guest' || widget.phone.trim().isEmpty;
     _phoneController.text = _isGuest ? '' : widget.phone;
     _tabController = TabController(length: 3, vsync: this);
     if (!_isGuest) {
@@ -100,11 +100,13 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     final messenger = ScaffoldMessenger.of(context);
 
     if (!await _ensurePickerPermissions()) {
-      messenger.showSnackBar(SnackBar(
-        content: Text(l10n.pharmacyPermissionsRequired),
-        backgroundColor: theme.colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(l10n.pharmacyPermissionsRequired),
+          backgroundColor: theme.colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       return;
     }
 
@@ -119,11 +121,13 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
         const maxSizeBytes = 10 * 1024 * 1024; // 10 MB
         if (sizeBytes > maxSizeBytes) {
           if (mounted) {
-            messenger.showSnackBar(SnackBar(
-              content: const Text('File too large. Maximum size is 10 MB.'),
-              backgroundColor: theme.colorScheme.error,
-              behavior: SnackBarBehavior.floating,
-            ));
+            messenger.showSnackBar(
+              SnackBar(
+                content: const Text('File too large. Maximum size is 10 MB.'),
+                backgroundColor: theme.colorScheme.error,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
           }
           return;
         }
@@ -134,11 +138,13 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
       }
     } catch (e) {
       debugPrint('Investigation file pick failed: $e');
-      messenger.showSnackBar(SnackBar(
-        content: Text(l10n.pharmacyFilePickerError),
-        backgroundColor: theme.colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(l10n.pharmacyFilePickerError),
+          backgroundColor: theme.colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -148,11 +154,13 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     final messenger = ScaffoldMessenger.of(context);
 
     if (!_formKey.currentState!.validate() || _file == null) {
-      messenger.showSnackBar(SnackBar(
-        content: Text(l10n.investigationsFormAndFileRequired),
-        backgroundColor: theme.colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(l10n.investigationsFormAndFileRequired),
+          backgroundColor: theme.colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       return;
     }
 
@@ -163,8 +171,11 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
       final uploadResponse = await ApiClient.multipart(
         '/upload',
         files: [
-          await http.MultipartFile.fromPath('file', _file!.path,
-              filename: _fileName),
+          await http.MultipartFile.fromPath(
+            'file',
+            _file!.path,
+            filename: _fileName,
+          ),
         ],
       );
       if (uploadResponse.isSuccess) {
@@ -176,28 +187,35 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
       }
     } catch (e) {
       debugPrint('Investigation file upload failed: $e');
-      messenger.showSnackBar(SnackBar(
-        content: Text(l10n.investigationsUploadFailed),
-        backgroundColor: theme.colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(l10n.investigationsUploadFailed),
+          backgroundColor: theme.colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       if (mounted) setState(() => _isSubmitting = false);
       return;
     }
 
     try {
-      final apiRes = await ApiClient.post('/investigations', body: {
-        'phone': _phoneController.text.trim(),
-        'test_name': _testNameController.text.trim(),
-        'file_key': fileKey,
-      });
+      final apiRes = await ApiClient.post(
+        '/investigations',
+        body: {
+          'phone': _phoneController.text.trim(),
+          'test_name': _testNameController.text.trim(),
+          'file_key': fileKey,
+        },
+      );
 
       if (apiRes.isSuccess) {
-        messenger.showSnackBar(SnackBar(
-          content: Text(l10n.investigationsConfirmationNote),
-          backgroundColor: theme.colorScheme.primary,
-          behavior: SnackBarBehavior.floating,
-        ));
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(l10n.investigationsConfirmationNote),
+            backgroundColor: theme.colorScheme.primary,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
         // Switch to results tab and refresh
         _tabController.animateTo(1);
         _fetchInvestigations();
@@ -209,19 +227,23 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
         });
       } else {
         final msg = (apiRes.message ?? l10n.investigationsFailed).toString();
-        messenger.showSnackBar(SnackBar(
-          content: Text(msg),
-          backgroundColor: theme.colorScheme.error,
-          behavior: SnackBarBehavior.floating,
-        ));
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(msg),
+            backgroundColor: theme.colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } catch (e) {
       debugPrint('Investigation submit failed: $e');
-      messenger.showSnackBar(SnackBar(
-        content: Text(l10n.networkError),
-        backgroundColor: theme.colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(l10n.networkError),
+          backgroundColor: theme.colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -249,7 +271,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
         final data = response.data;
         final List<dynamic> investigations = data is List
             ? data
-            : (data is Map ? (data['investigations'] ?? []) : []) as List<dynamic>;
+            : (data is Map ? (data['investigations'] ?? []) : [])
+                  as List<dynamic>;
         setState(() {
           _investigations = investigations;
           _isLoadingResults = false;
@@ -276,13 +299,16 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     setState(() => _loadingFiles.add(investigationId));
 
     try {
-      final response = await ApiClient.get('/investigations/$investigationId/files');
+      final response = await ApiClient.get(
+        '/investigations/$investigationId/files',
+      );
       if (!mounted) return;
 
       if (response.isSuccess) {
         final data = response.data;
-        final List<dynamic> files =
-            data is List ? data : (data is Map ? (data['files'] ?? []) : []) as List<dynamic>;
+        final List<dynamic> files = data is List
+            ? data
+            : (data is Map ? (data['files'] ?? []) : []) as List<dynamic>;
         setState(() {
           _fileCache[investigationId] = files;
           _loadingFiles.remove(investigationId);
@@ -296,8 +322,11 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     }
   }
 
-  Future<void> _downloadFile(String investigationId, String fileId,
-      String fileName) async {
+  Future<void> _downloadFile(
+    String investigationId,
+    String fileId,
+    String fileName,
+  ) async {
     final messenger = ScaffoldMessenger.of(context);
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
@@ -307,8 +336,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     );
 
     try {
-      final resp =
-          await http.get(uri, headers: await ApiConfig.authenticatedAuthHeaders()).timeout(const Duration(seconds: 15));
+      final resp = await http
+          .get(uri, headers: await ApiConfig.authenticatedAuthHeaders())
+          .timeout(const Duration(seconds: 15));
       if (!mounted) return;
 
       if (resp.statusCode == 200) {
@@ -317,9 +347,15 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
         if (contentType.contains('application/json')) {
           // Response contains a URL to download
           final body = jsonDecode(resp.body);
-          final url = body['data']?['url'] ?? body['data']?['storage_url'] ?? body['url'];
+          final url =
+              body['data']?['url'] ??
+              body['data']?['storage_url'] ??
+              body['url'];
           if (url != null) {
-            final file = await CacheFileUtils.downloadAndCacheFile(fileName, url);
+            final file = await CacheFileUtils.downloadAndCacheFile(
+              fileName,
+              url,
+            );
             if (file != null) {
               await CacheFileUtils.openCachedFile(file.path);
               return;
@@ -328,7 +364,10 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
           throw Exception('No download URL');
         } else {
           // Direct file content
-          final file = await CacheFileUtils.saveBytesToCache(fileName, resp.bodyBytes);
+          final file = await CacheFileUtils.saveBytesToCache(
+            fileName,
+            resp.bodyBytes,
+          );
           if (file != null) {
             await CacheFileUtils.openCachedFile(file.path);
             return;
@@ -341,11 +380,13 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     } catch (e) {
       debugPrint('Investigation file download failed: $e');
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(
-        content: Text(l10n.investigationsDownloadFailed),
-        backgroundColor: theme.colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(l10n.investigationsDownloadFailed),
+          backgroundColor: theme.colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -363,7 +404,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
   void _showResultDetail(Map<String, dynamic> inv) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final dateFmt = DateFormat.yMMMd(Localizations.localeOf(context).toString());
+    final dateFmt = DateFormat.yMMMd(
+      Localizations.localeOf(context).toString(),
+    );
     final id = (inv['id'] ?? '').toString();
     final testName = inv['test_name'] ?? inv['type'] ?? 'Investigation';
     final status = (inv['status'] ?? 'pending').toString();
@@ -375,13 +418,21 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     DateTime? orderedDate;
     final orderedStr = inv['ordered_date'] ?? inv['created_at'] ?? inv['date'];
     if (orderedStr != null) {
-      try { orderedDate = DateTime.parse(orderedStr.toString()).toLocal(); } catch (e) { debugPrint('Ordered date parse failed: $e'); }
+      try {
+        orderedDate = DateTime.parse(orderedStr.toString()).toLocal();
+      } catch (e) {
+        debugPrint('Ordered date parse failed: $e');
+      }
     }
 
     DateTime? completedDate;
     final completedStr = inv['completed_date'];
     if (completedStr != null) {
-      try { completedDate = DateTime.parse(completedStr.toString()).toLocal(); } catch (e) { debugPrint('Completed date parse failed: $e'); }
+      try {
+        completedDate = DateTime.parse(completedStr.toString()).toLocal();
+      } catch (e) {
+        debugPrint('Completed date parse failed: $e');
+      }
     }
 
     showModalBottomSheet(
@@ -403,7 +454,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
             children: [
               Center(
                 child: Container(
-                  width: 40, height: 4,
+                  width: 40,
+                  height: 4,
                   margin: const EdgeInsets.only(bottom: 16),
                   decoration: BoxDecoration(
                     color: cs.onSurface.withAlpha(50),
@@ -411,16 +463,29 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                   ),
                 ),
               ),
-              Text(testName.toString(), style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                testName.toString(),
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 12),
               _detailRow('Type', type.toString(), cs),
               _detailRow('Status', status, cs),
-              if (orderedDate != null) _detailRow('Ordered', dateFmt.format(orderedDate), cs),
-              if (completedDate != null) _detailRow('Completed', dateFmt.format(completedDate), cs),
-              if (normalRange.toString().isNotEmpty) _detailRow('Normal Range', normalRange.toString(), cs),
+              if (orderedDate != null)
+                _detailRow('Ordered', dateFmt.format(orderedDate), cs),
+              if (completedDate != null)
+                _detailRow('Completed', dateFmt.format(completedDate), cs),
+              if (normalRange.toString().isNotEmpty)
+                _detailRow('Normal Range', normalRange.toString(), cs),
               if (results != null && results.toString().isNotEmpty) ...[
                 const SizedBox(height: 12),
-                Text('Result', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+                Text(
+                  'Result',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 Container(
                   width: double.infinity,
@@ -429,7 +494,10 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                     color: cs.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Text(results.toString(), style: theme.textTheme.bodyMedium),
+                  child: Text(
+                    results.toString(),
+                    style: theme.textTheme.bodyMedium,
+                  ),
                 ),
               ],
               if (fileKey != null && fileKey.toString().isNotEmpty) ...[
@@ -465,7 +533,14 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
         children: [
           SizedBox(
             width: 100,
-            child: Text(label, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13, fontWeight: FontWeight.w500)),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: cs.onSurfaceVariant,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
           Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
         ],
@@ -523,7 +598,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
   }
 
   Widget _buildBookingsTab(BuildContext context) {
-        // ignore: unused_local_variable
+    // ignore: unused_local_variable
     final theme = Theme.of(context);
     return Column(
       children: [
@@ -609,15 +684,15 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                 label: Text(
                   l10n.fileClearSelection,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                    color: Theme.of(context).colorScheme.error,
+                  ),
                 ),
                 onPressed: _isSubmitting
                     ? null
                     : () => setState(() {
-                          _file = null;
-                          _fileName = null;
-                        }),
+                        _file = null;
+                        _fileName = null;
+                      }),
               ),
             ),
           const SizedBox(height: 24),
@@ -640,21 +715,26 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final dateFmt =
-        DateFormat.yMMMd(Localizations.localeOf(context).toString());
+    final dateFmt = DateFormat.yMMMd(
+      Localizations.localeOf(context).toString(),
+    );
 
     if (_isGuest) {
       return Center(
-        child: Text(l10n.yourHealthLoginToView,
-            style: theme.textTheme.bodyLarge
-                ?.copyWith(color: cs.onSurfaceVariant)),
+        child: Text(
+          l10n.yourHealthLoginToView,
+          style: theme.textTheme.bodyLarge?.copyWith(
+            color: cs.onSurfaceVariant,
+          ),
+        ),
       );
     }
 
     if (_isLoadingResults) {
       return Center(
         child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation(cs.primary)),
+          valueColor: AlwaysStoppedAnimation(cs.primary),
+        ),
       );
     }
 
@@ -681,12 +761,18 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.science_outlined,
-                size: 48, color: cs.onSurface.withAlpha(100)),
+            Icon(
+              Icons.science_outlined,
+              size: 48,
+              color: cs.onSurface.withAlpha(100),
+            ),
             const SizedBox(height: 12),
-            Text(l10n.investigationsNoResults,
-                style: theme.textTheme.bodyLarge
-                    ?.copyWith(color: cs.onSurfaceVariant)),
+            Text(
+              l10n.investigationsNoResults,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
+            ),
           ],
         ),
       );
@@ -700,10 +786,8 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
         itemBuilder: (_, i) {
           final inv = _investigations[i];
           final id = (inv['id'] ?? inv['_id'] ?? '').toString();
-          final testName =
-              inv['test_name'] ?? inv['type'] ?? 'Investigation';
-          final status =
-              (inv['status'] ?? 'pending').toString().toLowerCase();
+          final testName = inv['test_name'] ?? inv['type'] ?? 'Investigation';
+          final status = (inv['status'] ?? 'pending').toString().toLowerCase();
           final isCompleted = status == 'completed' || status == 'done';
           final results = inv['results'] ?? inv['result'];
 
@@ -728,109 +812,127 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
               onTap: () => _showResultDetail(inv),
               borderRadius: BorderRadius.circular(12),
               child: Column(
-              children: [
-                ListTile(
-                  leading: Icon(
-                    isCompleted
-                        ? Icons.check_circle_outlined
-                        : Icons.hourglass_empty_outlined,
-                    color: isCompleted ? cs.tertiary : cs.onSurfaceVariant,
-                  ),
-                  title: Text(testName.toString(),
-                      style: theme.textTheme.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w600)),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (date != null) Text(dateFmt.format(date)),
-                      const SizedBox(height: 4),
-                      Chip(
-                        label: Text(
-                          isCompleted
-                              ? l10n.investigationsStatusCompleted
-                              : l10n.investigationsStatusPending,
-                          style: TextStyle(fontSize: 11),
-                        ),
-                        backgroundColor: isCompleted
-                            ? cs.tertiaryContainer
-                            : cs.surfaceContainerHighest,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    ],
-                  ),
-                  trailing: id.isNotEmpty
-                      ? IconButton(
-                          icon: Icon(isExpanded
-                              ? Icons.expand_less
-                              : Icons.expand_more),
-                          onPressed: () => _toggleExpand(id),
-                        )
-                      : null,
-                  isThreeLine: true,
-                ),
-                // Results — gauge if numeric value + parseable reference range, else text
-                if (results != null && results.toString().isNotEmpty)
-                  Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    child: _buildResultBlock(
-                      theme,
+                children: [
+                  ListTile(
+                    leading: Icon(
+                      isCompleted
+                          ? Icons.check_circle_outlined
+                          : Icons.hourglass_empty_outlined,
+                      color: isCompleted ? cs.tertiary : cs.onSurfaceVariant,
+                    ),
+                    title: Text(
                       testName.toString(),
-                      results.toString(),
-                      inv['normal_range']?.toString() ??
-                          inv['reference_range']?.toString(),
-                      inv['unit']?.toString(),
-                      previousValue: _findPreviousNumericValue(
-                        _investigations,
-                        currentIndex: i,
-                        testName: testName.toString(),
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                  ),
-                // Expandable file list
-                if (isExpanded) ...[
-                  const Divider(height: 1),
-                  if (isLoadingFileList)
-                    const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  else if (files != null && files.isNotEmpty)
-                    ...files.map((f) {
-                      final fileId = (f['id'] ?? f['_id'] ?? '').toString();
-                      final fName = f['file_name'] ??
-                          f['filename'] ??
-                          f['original_name'] ??
-                          'Report';
-                      return ListTile(
-                        dense: true,
-                        leading: Icon(Icons.description_outlined,
-                            size: 20, color: cs.primary),
-                        title: Text(fName.toString(),
-                            style: theme.textTheme.bodySmall),
-                        trailing: IconButton(
-                          icon: Icon(Icons.download_outlined,
-                              color: cs.primary),
-                          onPressed: () =>
-                              _downloadFile(id, fileId, fName.toString()),
-                          tooltip: l10n.investigationsDownloadReport,
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (date != null) Text(dateFmt.format(date)),
+                        const SizedBox(height: 4),
+                        Chip(
+                          label: Text(
+                            isCompleted
+                                ? l10n.investigationsStatusCompleted
+                                : l10n.investigationsStatusPending,
+                            style: TextStyle(fontSize: 11),
+                          ),
+                          backgroundColor: isCompleted
+                              ? cs.tertiaryContainer
+                              : cs.surfaceContainerHighest,
+                          visualDensity: VisualDensity.compact,
                         ),
-                      );
-                    })
-                  else
-                    Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Text('No files available',
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: cs.onSurfaceVariant)),
+                      ],
                     ),
+                    trailing: id.isNotEmpty
+                        ? IconButton(
+                            icon: Icon(
+                              isExpanded
+                                  ? Icons.expand_less
+                                  : Icons.expand_more,
+                            ),
+                            onPressed: () => _toggleExpand(id),
+                          )
+                        : null,
+                    isThreeLine: true,
+                  ),
+                  // Results — gauge if numeric value + parseable reference range, else text
+                  if (results != null && results.toString().isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      child: _buildResultBlock(
+                        theme,
+                        testName.toString(),
+                        results.toString(),
+                        inv['normal_range']?.toString() ??
+                            inv['reference_range']?.toString(),
+                        inv['unit']?.toString(),
+                        previousValue: _findPreviousNumericValue(
+                          _investigations,
+                          currentIndex: i,
+                          testName: testName.toString(),
+                        ),
+                      ),
+                    ),
+                  // Expandable file list
+                  if (isExpanded) ...[
+                    const Divider(height: 1),
+                    if (isLoadingFileList)
+                      const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    else if (files != null && files.isNotEmpty)
+                      ...files.map((f) {
+                        final fileId = (f['id'] ?? f['_id'] ?? '').toString();
+                        final fName =
+                            f['file_name'] ??
+                            f['filename'] ??
+                            f['original_name'] ??
+                            'Report';
+                        return ListTile(
+                          dense: true,
+                          leading: Icon(
+                            Icons.description_outlined,
+                            size: 20,
+                            color: cs.primary,
+                          ),
+                          title: Text(
+                            fName.toString(),
+                            style: theme.textTheme.bodySmall,
+                          ),
+                          trailing: IconButton(
+                            icon: Icon(
+                              Icons.download_outlined,
+                              color: cs.primary,
+                            ),
+                            onPressed: () =>
+                                _downloadFile(id, fileId, fName.toString()),
+                            tooltip: l10n.investigationsDownloadReport,
+                          ),
+                        );
+                      })
+                    else
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Text(
+                          'No files available',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                  ],
                 ],
-              ],
-            ),
+              ),
             ),
           );
         },
@@ -869,8 +971,12 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
         children: [
           Text(results, style: theme.textTheme.bodySmall),
           if (normalRange != null && normalRange.isNotEmpty)
-            Text('Reference: $normalRange',
-                style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor)),
+            Text(
+              'Reference: $normalRange',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.hintColor,
+              ),
+            ),
         ],
       ),
     );
@@ -904,4 +1010,3 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     return null;
   }
 }
-

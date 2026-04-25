@@ -80,7 +80,8 @@ class SettingsController {
     refresh();
   }
 
-  void toggleTheme(bool isDark) => tp.setThemeMode(isDark ? ThemeMode.dark : ThemeMode.light);
+  void toggleTheme(bool isDark) =>
+      tp.setThemeMode(isDark ? ThemeMode.dark : ThemeMode.light);
 
   void changeFontSize(double size) {
     tp.setFontSize(size);
@@ -135,7 +136,10 @@ class SettingsController {
     }
 
     biometricEnabled = value;
-    await _secureStorage.write(key: 'biometric_enabled', value: value.toString());
+    await _secureStorage.write(
+      key: 'biometric_enabled',
+      value: value.toString(),
+    );
     if (value) {
       await _secureStorage.write(key: 'user_phone_for_biometric', value: phone);
     } else {
@@ -159,7 +163,9 @@ class SettingsController {
             child: Text(loc.commonCancelButton),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             onPressed: () => nav.pop(true),
             child: Text(loc.settingsConfirmLogout),
           ),

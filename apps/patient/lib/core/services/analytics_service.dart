@@ -56,7 +56,10 @@ class AnalyticsService {
     await _logEvent('feedback_submitted', {'rating': rating});
   }
 
-  static Future<void> trackStepSessionCompleted({int? steps, double? distanceKm}) async {
+  static Future<void> trackStepSessionCompleted({
+    int? steps,
+    double? distanceKm,
+  }) async {
     await _logEvent('step_session_completed', {
       'steps': steps,
       'distance_km': distanceKm,
@@ -73,12 +76,17 @@ class AnalyticsService {
 
   // ── Helper ──────────────────────────────────────────────────────────────
 
-  static Future<void> _logEvent(String name, [Map<String, Object?>? params]) async {
+  static Future<void> _logEvent(
+    String name, [
+    Map<String, Object?>? params,
+  ]) async {
     try {
       await _analytics.logEvent(
         name: name,
         parameters: params != null
-            ? Map.fromEntries(params.entries.map((e) => MapEntry(e.key, e.value as Object)))
+            ? Map.fromEntries(
+                params.entries.map((e) => MapEntry(e.key, e.value as Object)),
+              )
             : null,
       );
     } catch (e) {

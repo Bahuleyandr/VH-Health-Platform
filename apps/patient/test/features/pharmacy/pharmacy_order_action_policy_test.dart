@@ -22,10 +22,10 @@ class OrderActions {
     required this.canViewPrescription,
   });
 
-  final bool canCancel;   // cancel button shown
-  final bool canTrack;    // live delivery tracking button shown
-  final bool canReorder;  // re-order button shown (terminal delivered only)
-  final bool canViewPrescription;  // always true when Rx is attached
+  final bool canCancel; // cancel button shown
+  final bool canTrack; // live delivery tracking button shown
+  final bool canReorder; // re-order button shown (terminal delivered only)
+  final bool canViewPrescription; // always true when Rx is attached
 }
 
 /// Decide which action buttons appear for a given canonical status.
@@ -40,7 +40,8 @@ class OrderActions {
 ///  * viewPrescription: always shown if an Rx is attached. This flag is
 ///    a function of the Rx presence, not status.
 OrderActions actionsFor(PharmacyOrderStatus? status, {required bool hasRx}) {
-  final canCancel = status == PharmacyOrderStatus.pending ||
+  final canCancel =
+      status == PharmacyOrderStatus.pending ||
       status == PharmacyOrderStatus.confirmed;
   final canTrack = status == PharmacyOrderStatus.dispatched;
   final canReorder = status == PharmacyOrderStatus.delivered;
@@ -65,14 +66,21 @@ void main() {
     test('CONFIRMED still cancellable by the patient', () {
       final a = actionsFor(PharmacyOrderStatus.confirmed, hasRx: false);
       expect(a.canCancel, isTrue);
-      expect(a.canViewPrescription, isFalse,
-          reason: 'Non-Rx (walk-in) order should not show "View Prescription"');
+      expect(
+        a.canViewPrescription,
+        isFalse,
+        reason: 'Non-Rx (walk-in) order should not show "View Prescription"',
+      );
     });
 
     test('PREPARING removes cancel — requires support contact', () {
       final a = actionsFor(PharmacyOrderStatus.preparing, hasRx: true);
-      expect(a.canCancel, isFalse,
-          reason: 'Once pharmacy has started preparation the patient cannot self-cancel');
+      expect(
+        a.canCancel,
+        isFalse,
+        reason:
+            'Once pharmacy has started preparation the patient cannot self-cancel',
+      );
       expect(a.canTrack, isFalse);
     });
 
@@ -103,9 +111,13 @@ void main() {
       final parsed = PharmacyOrderStatus.fromString('PLACED');
       expect(parsed, PharmacyOrderStatus.pending);
       final a = actionsFor(parsed, hasRx: true);
-      expect(a.canCancel, isTrue,
-          reason: 'Cancel must still work for old-status orders — '
-              'regression guard for the 2026-04-14 rename');
+      expect(
+        a.canCancel,
+        isTrue,
+        reason:
+            'Cancel must still work for old-status orders — '
+            'regression guard for the 2026-04-14 rename',
+      );
     });
 
     test('unknown/null status → safe empty set of actions', () {
@@ -113,8 +125,11 @@ void main() {
       expect(a.canCancel, isFalse);
       expect(a.canTrack, isFalse);
       expect(a.canReorder, isFalse);
-      expect(a.canViewPrescription, isTrue,
-          reason: 'Rx view is independent of status');
+      expect(
+        a.canViewPrescription,
+        isTrue,
+        reason: 'Rx view is independent of status',
+      );
     });
   });
 }

@@ -5,7 +5,9 @@ class PermissionsService {
   // ────────────────────────────────────────────────
   // 1. Request all key permissions needed in app
   // ────────────────────────────────────────────────
-  static Future<void> requestAllRequiredPermissions(BuildContext context) async {
+  static Future<void> requestAllRequiredPermissions(
+    BuildContext context,
+  ) async {
     await requestStartupPermissions(context);
     if (!context.mounted) return; // Add mounted check after each await
 
@@ -81,7 +83,12 @@ class PermissionsService {
     return _requestPermissionWithExplanation(
       context,
       permission,
-      permission.toString().split('.').last.replaceAll(RegExp(r'([A-Z])'), ' \$1').trim(),
+      permission
+          .toString()
+          .split('.')
+          .last
+          .replaceAll(RegExp(r'([A-Z])'), ' \$1')
+          .trim(),
       'This permission is required for proper functionality.',
     );
   }
@@ -104,13 +111,19 @@ class PermissionsService {
 
     if (status.isPermanentlyDenied) {
       final openSettings = await _showSettingsDialog(context, title);
-      if (!context.mounted) return false; // Check 2: After showing settings dialog
+      if (!context.mounted) {
+        return false; // Check 2: After showing settings dialog
+      }
 
       if (openSettings) {
         await openAppSettings();
-        if (!context.mounted) return false; // Check 3: After opening app settings
+        if (!context.mounted) {
+          return false; // Check 3: After opening app settings
+        }
         status = await permission.status;
-        if (!context.mounted) return false; // Check 4: After getting updated status
+        if (!context.mounted) {
+          return false; // Check 4: After getting updated status
+        }
         return status.isGranted || status.isLimited;
       }
       return false; // User chose not to open settings
@@ -121,7 +134,9 @@ class PermissionsService {
       title,
       explanation,
     );
-    if (!context.mounted) return false; // Check 5: After showing explanation dialog
+    if (!context.mounted) {
+      return false; // Check 5: After showing explanation dialog
+    }
 
     if (!shouldRequest) {
       return false; // User chose not to request permission
@@ -136,13 +151,19 @@ class PermissionsService {
 
     if (status.isDenied || status.isPermanentlyDenied) {
       final openSettings = await _showSettingsDialog(context, title);
-      if (!context.mounted) return false; // Check 7: After showing settings dialog again
+      if (!context.mounted) {
+        return false; // Check 7: After showing settings dialog again
+      }
 
       if (openSettings) {
         await openAppSettings();
-        if (!context.mounted) return false; // Check 8: After opening app settings again
+        if (!context.mounted) {
+          return false; // Check 8: After opening app settings again
+        }
         status = await permission.status;
-        if (!context.mounted) return false; // Check 9: After getting updated status again
+        if (!context.mounted) {
+          return false; // Check 9: After getting updated status again
+        }
         return status.isGranted || status.isLimited;
       }
     }

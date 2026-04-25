@@ -71,9 +71,9 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
             end: Alignment.bottomCenter,
             colors: [
               theme.scaffoldBackgroundColor,
-              widget.color.withAlpha(26),  // ~0.1 alpha
-              widget.color.withAlpha(51),  // ~0.2 alpha
-              widget.color.withAlpha(77),  // ~0.3 alpha
+              widget.color.withAlpha(26), // ~0.1 alpha
+              widget.color.withAlpha(51), // ~0.2 alpha
+              widget.color.withAlpha(77), // ~0.3 alpha
             ],
             stops: const [0.0, 0.3, 0.7, 1.0],
           ),
@@ -85,7 +85,10 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
               children: [
                 // App Bar
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8.0,
+                    vertical: 8.0,
+                  ),
                   child: Row(
                     children: [
                       // Back button
@@ -123,7 +126,7 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
                     ],
                   ),
                 ),
-                
+
                 // Scrollable content with watermark
                 Expanded(
                   child: Stack(
@@ -137,7 +140,7 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
                           child: Icon(
                             widget.icon,
                             size: 140,
-                            color: widget.color.withAlpha(20),  // ~0.08 alpha
+                            color: widget.color.withAlpha(20), // ~0.08 alpha
                           ),
                         ),
                       ),
@@ -152,19 +155,28 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(24),
                               child: BackdropFilter(
-                                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                                filter: ImageFilter.blur(
+                                  sigmaX: 12,
+                                  sigmaY: 12,
+                                ),
                                 child: Container(
                                   padding: const EdgeInsets.all(24),
                                   decoration: BoxDecoration(
-                                    color: theme.colorScheme.surface.withAlpha(179),  // ~0.7 alpha
+                                    color: theme.colorScheme.surface.withAlpha(
+                                      179,
+                                    ), // ~0.7 alpha
                                     borderRadius: BorderRadius.circular(24),
                                     border: Border.all(
-                                      color: widget.color.withAlpha(51),  // ~0.2 alpha
+                                      color: widget.color.withAlpha(
+                                        51,
+                                      ), // ~0.2 alpha
                                       width: 1,
                                     ),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: widget.color.withAlpha(26),  // ~0.1 alpha
+                                        color: widget.color.withAlpha(
+                                          26,
+                                        ), // ~0.1 alpha
                                         blurRadius: 10,
                                         offset: const Offset(0, 8),
                                       ),

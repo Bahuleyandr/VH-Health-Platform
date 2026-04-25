@@ -25,50 +25,62 @@ class _StepProfile {
   });
 
   factory _StepProfile.fromJson(Map<String, dynamic> j) => _StepProfile(
-        displayName: j['display_name']?.toString() ?? '',
-        displayColor: j['display_color']?.toString() ?? '#2196F3',
-        dailyGoal: (j['daily_goal'] as num?)?.toInt() ?? 8000,
-        optedIn: j['opted_in'] as bool? ?? true,
-      );
+    displayName: j['display_name']?.toString() ?? '',
+    displayColor: j['display_color']?.toString() ?? '#2196F3',
+    dailyGoal: (j['daily_goal'] as num?)?.toInt() ?? 8000,
+    optedIn: j['opted_in'] as bool? ?? true,
+  );
 }
 
 class _DailyRow {
   final String date;
   final int steps;
   final double distanceMeters;
-  const _DailyRow({required this.date, required this.steps, required this.distanceMeters});
+  const _DailyRow({
+    required this.date,
+    required this.steps,
+    required this.distanceMeters,
+  });
 
   factory _DailyRow.fromJson(Map<String, dynamic> j) => _DailyRow(
-        date: j['date']?.toString() ?? '',
-        steps: (j['steps'] as num?)?.toInt() ?? 0,
-        distanceMeters: (j['distanceMeters'] as num?)?.toDouble() ?? 0,
-      );
+    date: j['date']?.toString() ?? '',
+    steps: (j['steps'] as num?)?.toInt() ?? 0,
+    distanceMeters: (j['distanceMeters'] as num?)?.toDouble() ?? 0,
+  );
 }
 
 class _WeeklyRow {
   final String weekStart;
   final int avgSteps;
   final double avgDistanceMeters;
-  const _WeeklyRow({required this.weekStart, required this.avgSteps, required this.avgDistanceMeters});
+  const _WeeklyRow({
+    required this.weekStart,
+    required this.avgSteps,
+    required this.avgDistanceMeters,
+  });
 
   factory _WeeklyRow.fromJson(Map<String, dynamic> j) => _WeeklyRow(
-        weekStart: j['weekStart']?.toString() ?? '',
-        avgSteps: (j['avgSteps'] as num?)?.toInt() ?? 0,
-        avgDistanceMeters: (j['avgDistanceMeters'] as num?)?.toDouble() ?? 0,
-      );
+    weekStart: j['weekStart']?.toString() ?? '',
+    avgSteps: (j['avgSteps'] as num?)?.toInt() ?? 0,
+    avgDistanceMeters: (j['avgDistanceMeters'] as num?)?.toDouble() ?? 0,
+  );
 }
 
 class _MonthlyRow {
   final String month;
   final int avgSteps;
   final double avgDistanceMeters;
-  const _MonthlyRow({required this.month, required this.avgSteps, required this.avgDistanceMeters});
+  const _MonthlyRow({
+    required this.month,
+    required this.avgSteps,
+    required this.avgDistanceMeters,
+  });
 
   factory _MonthlyRow.fromJson(Map<String, dynamic> j) => _MonthlyRow(
-        month: j['month']?.toString() ?? '',
-        avgSteps: (j['avgSteps'] as num?)?.toInt() ?? 0,
-        avgDistanceMeters: (j['avgDistanceMeters'] as num?)?.toDouble() ?? 0,
-      );
+    month: j['month']?.toString() ?? '',
+    avgSteps: (j['avgSteps'] as num?)?.toInt() ?? 0,
+    avgDistanceMeters: (j['avgDistanceMeters'] as num?)?.toDouble() ?? 0,
+  );
 }
 
 class _LeaderEntry {
@@ -89,13 +101,13 @@ class _LeaderEntry {
   });
 
   factory _LeaderEntry.fromJson(Map<String, dynamic> j) => _LeaderEntry(
-        displayName: j['displayName']?.toString() ?? 'Anonymous',
-        displayColor: j['displayColor']?.toString() ?? '#2196F3',
-        totalSteps: (j['totalSteps'] as num?)?.toInt() ?? 0,
-        totalDistanceMeters: (j['totalDistanceMeters'] as num?)?.toDouble() ?? 0,
-        rank: (j['rank'] as num?)?.toInt() ?? 0,
-        isMe: j['isMe'] as bool? ?? false,
-      );
+    displayName: j['displayName']?.toString() ?? 'Anonymous',
+    displayColor: j['displayColor']?.toString() ?? '#2196F3',
+    totalSteps: (j['totalSteps'] as num?)?.toInt() ?? 0,
+    totalDistanceMeters: (j['totalDistanceMeters'] as num?)?.toDouble() ?? 0,
+    rank: (j['rank'] as num?)?.toInt() ?? 0,
+    isMe: j['isMe'] as bool? ?? false,
+  );
 }
 
 class _Reward {
@@ -103,13 +115,17 @@ class _Reward {
   final String description;
   final bool isApplied;
 
-  const _Reward({required this.rewardType, required this.description, required this.isApplied});
+  const _Reward({
+    required this.rewardType,
+    required this.description,
+    required this.isApplied,
+  });
 
   factory _Reward.fromJson(Map<String, dynamic> j) => _Reward(
-        rewardType: j['reward_type']?.toString() ?? '',
-        description: j['description']?.toString() ?? '',
-        isApplied: j['is_applied'] as bool? ?? false,
-      );
+    rewardType: j['reward_type']?.toString() ?? '',
+    description: j['description']?.toString() ?? '',
+    isApplied: j['is_applied'] as bool? ?? false,
+  );
 
   String get displayText {
     switch (rewardType) {
@@ -150,7 +166,6 @@ class StepChallengeScreen extends StatefulWidget {
 
 class _StepChallengeScreenState extends State<StepChallengeScreen>
     with SingleTickerProviderStateMixin {
-
   // ── Tab controller ──
   late final TabController _historyTabController;
 
@@ -161,8 +176,14 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
   final _nameController = TextEditingController();
   String _editColor = '#2196F3';
   final List<String> _colorOptions = [
-    '#2196F3', '#4CAF50', '#FF5722', '#9C27B0',
-    '#00BCD4', '#FF9800', '#E91E63', '#795548',
+    '#2196F3',
+    '#4CAF50',
+    '#FF5722',
+    '#9C27B0',
+    '#00BCD4',
+    '#FF9800',
+    '#E91E63',
+    '#795548',
   ];
 
   // ── History ──
@@ -278,9 +299,18 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
       if (resp.isSuccess && resp.data is Map) {
         final d = resp.data as Map<String, dynamic>;
         setState(() {
-          _daily = (d['daily'] as List? ?? []).cast<Map<String, dynamic>>().map(_DailyRow.fromJson).toList();
-          _weekly = (d['weekly'] as List? ?? []).cast<Map<String, dynamic>>().map(_WeeklyRow.fromJson).toList();
-          _monthly = (d['monthly'] as List? ?? []).cast<Map<String, dynamic>>().map(_MonthlyRow.fromJson).toList();
+          _daily = (d['daily'] as List? ?? [])
+              .cast<Map<String, dynamic>>()
+              .map(_DailyRow.fromJson)
+              .toList();
+          _weekly = (d['weekly'] as List? ?? [])
+              .cast<Map<String, dynamic>>()
+              .map(_WeeklyRow.fromJson)
+              .toList();
+          _monthly = (d['monthly'] as List? ?? [])
+              .cast<Map<String, dynamic>>()
+              .map(_MonthlyRow.fromJson)
+              .toList();
         });
       }
     } catch (e) {
@@ -297,7 +327,10 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
       if (resp.isSuccess && resp.data is Map) {
         final d = resp.data as Map<String, dynamic>;
         setState(() {
-          _leaderboard = (d['leaderboard'] as List? ?? []).cast<Map<String, dynamic>>().map(_LeaderEntry.fromJson).toList();
+          _leaderboard = (d['leaderboard'] as List? ?? [])
+              .cast<Map<String, dynamic>>()
+              .map(_LeaderEntry.fromJson)
+              .toList();
           _myRank = d['myRank'] as Map<String, dynamic>?;
         });
       }
@@ -315,7 +348,10 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
       if (resp.isSuccess && resp.data is Map) {
         final list = resp.data['rewards'] as List? ?? [];
         setState(() {
-          _rewards = list.cast<Map<String, dynamic>>().map(_Reward.fromJson).toList();
+          _rewards = list
+              .cast<Map<String, dynamic>>()
+              .map(_Reward.fromJson)
+              .toList();
         });
       }
     } catch (e) {
@@ -335,12 +371,15 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
     }
     setState(() => _savingProfile = true);
     try {
-      final resp = await ApiClient.put('/steps/profile', body: {
-        'displayName': name,
-        'displayColor': _editColor,
-        'dailyGoal': _profile?.dailyGoal ?? 8000,
-        'optedIn': _profile?.optedIn ?? true,
-      });
+      final resp = await ApiClient.put(
+        '/steps/profile',
+        body: {
+          'displayName': name,
+          'displayColor': _editColor,
+          'dailyGoal': _profile?.dailyGoal ?? 8000,
+          'optedIn': _profile?.optedIn ?? true,
+        },
+      );
       if (resp.isSuccess) {
         await _fetchProfile();
         _showSuccess('Profile saved');
@@ -388,33 +427,38 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
         _estimatedSteps = 0;
         _elapsedSeconds = 0;
         _lastPosition = null;
-        _pedometerBaseline = null; // Reset so next pedometer event sets baseline
+        _pedometerBaseline =
+            null; // Reset so next pedometer event sets baseline
       });
 
       // Start GPS stream
-      _positionStream = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 5,
-        ),
-      ).listen((Position pos) {
-        if (!mounted) return;
-        if (_lastPosition != null) {
-          final dist = Geolocator.distanceBetween(
-            _lastPosition!.latitude,
-            _lastPosition!.longitude,
-            pos.latitude,
-            pos.longitude,
+      _positionStream =
+          Geolocator.getPositionStream(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              distanceFilter: 5,
+            ),
+          ).listen(
+            (Position pos) {
+              if (!mounted) return;
+              if (_lastPosition != null) {
+                final dist = Geolocator.distanceBetween(
+                  _lastPosition!.latitude,
+                  _lastPosition!.longitude,
+                  pos.latitude,
+                  pos.longitude,
+                );
+                setState(() {
+                  _totalDistanceMeters += dist;
+                  _estimatedSteps = (_totalDistanceMeters / 0.762).round();
+                });
+              }
+              _lastPosition = pos;
+            },
+            onError: (e) {
+              debugPrint('GPS stream error: $e');
+            },
           );
-          setState(() {
-            _totalDistanceMeters += dist;
-            _estimatedSteps = (_totalDistanceMeters / 0.762).round();
-          });
-        }
-        _lastPosition = pos;
-      }, onError: (e) {
-        debugPrint('GPS stream error: $e');
-      });
 
       // Elapsed timer
       _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -449,12 +493,15 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
     if (sessionId == null) return;
 
     try {
-      final resp = await ApiClient.post('/steps/session/stop', body: {
-        'sessionId': sessionId,
-        'steps': steps,
-        'distanceMeters': distance,
-        'durationSeconds': duration,
-      });
+      final resp = await ApiClient.post(
+        '/steps/session/stop',
+        body: {
+          'sessionId': sessionId,
+          'steps': steps,
+          'distanceMeters': distance,
+          'durationSeconds': duration,
+        },
+      );
 
       if (resp.isSuccess) {
         final distKm = (distance / 1000).toStringAsFixed(2);
@@ -472,20 +519,24 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
 
   void _showError(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: Theme.of(context).colorScheme.error,
-      behavior: SnackBarBehavior.floating,
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: Theme.of(context).colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   void _showSuccess(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: Colors.green[700],
-      behavior: SnackBarBehavior.floating,
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: Colors.green[700],
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   Color _hexColor(String hex) {
@@ -552,13 +603,16 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
 
   Widget _buildProfileSection() {
     if (_loadingProfile) {
-      return const Center(child: Padding(
-        padding: EdgeInsets.all(8),
-        child: CircularProgressIndicator(strokeWidth: 2),
-      ));
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(8),
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
     }
 
-    final needsSetup = _profile == null ||
+    final needsSetup =
+        _profile == null ||
         _profile!.displayName.isEmpty ||
         _profile!.displayName.startsWith('User');
 
@@ -568,11 +622,19 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
           leading: CircleAvatar(
             backgroundColor: _hexColor(_profile!.displayColor),
             child: Text(
-              _profile!.displayName.isNotEmpty ? _profile!.displayName[0].toUpperCase() : '?',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              _profile!.displayName.isNotEmpty
+                  ? _profile!.displayName[0].toUpperCase()
+                  : '?',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
-          title: Text(_profile!.displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
+          title: Text(
+            _profile!.displayName,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
           subtitle: Text('Daily goal: ${_profile!.dailyGoal.toString()} steps'),
           trailing: TextButton(
             onPressed: () => setState(() {
@@ -592,7 +654,10 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Set up your profile', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Text(
+              'Set up your profile',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: _nameController,
@@ -603,7 +668,10 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
               ),
             ),
             const SizedBox(height: 12),
-            const Text('Pick a color:', style: TextStyle(fontWeight: FontWeight.w600)),
+            const Text(
+              'Pick a color:',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -636,7 +704,8 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
                 onPressed: _savingProfile ? null : _saveProfile,
                 child: _savingProfile
                     ? const SizedBox(
-                        width: 20, height: 20,
+                        width: 20,
+                        height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Text('Save Profile'),
@@ -664,21 +733,48 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Today's Activity", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Text(
+              "Today's Activity",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 Column(
                   children: [
-                    Text('$steps', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF4CAF50))),
-                    Text('steps', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                    Text(
+                      '$steps',
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF4CAF50),
+                      ),
+                    ),
+                    Text(
+                      'steps',
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
                   ],
                 ),
                 Column(
                   children: [
-                    Text(_distKm(dist), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF2196F3))),
-                    Text('distance', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                    Text(
+                      _distKm(dist),
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2196F3),
+                      ),
+                    ),
+                    Text(
+                      'distance',
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -693,8 +789,13 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
             ),
             const SizedBox(height: 4),
             Text(
-              pct >= 1.0 ? '🎉 Daily goal reached!' : '${(pct * 100).toStringAsFixed(0)}% of $goal-step goal',
-              style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+              pct >= 1.0
+                  ? '🎉 Daily goal reached!'
+                  : '${(pct * 100).toStringAsFixed(0)}% of $goal-step goal',
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
@@ -711,11 +812,16 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
         height: 64,
         child: ElevatedButton.icon(
           icon: const Icon(Icons.directions_walk, size: 28),
-          label: const Text('START WALK', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          label: const Text(
+            'START WALK',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.green[600],
             foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
           onPressed: _startWalk,
         ),
@@ -729,14 +835,29 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            const Text('Walk in progress…', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green)),
+            const Text(
+              'Walk in progress…',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: Colors.green,
+              ),
+            ),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _statChip(Icons.directions_walk, '$_estimatedSteps', 'steps'),
-                _statChip(Icons.straighten, _distKm(_totalDistanceMeters), 'distance'),
-                _statChip(Icons.timer, _formatElapsed(_elapsedSeconds), 'elapsed'),
+                _statChip(
+                  Icons.straighten,
+                  _distKm(_totalDistanceMeters),
+                  'distance',
+                ),
+                _statChip(
+                  Icons.timer,
+                  _formatElapsed(_elapsedSeconds),
+                  'elapsed',
+                ),
               ],
             ),
             const SizedBox(height: 16),
@@ -745,11 +866,16 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
               height: 52,
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.stop_circle_outlined, size: 24),
-                label: const Text('STOP WALK', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                label: const Text(
+                  'STOP WALK',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.red[600],
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 onPressed: _stopWalk,
               ),
@@ -765,7 +891,10 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
       children: [
         Icon(icon, color: Colors.green[700], size: 22),
         const SizedBox(height: 4),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        Text(
+          value,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
         Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
       ],
     );
@@ -778,7 +907,10 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('History', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const Text(
+          'History',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
         const SizedBox(height: 8),
         TabBar(
           controller: _historyTabController,
@@ -810,7 +942,9 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
 
   Widget _buildDailyList() {
     if (_daily.isEmpty) {
-      return const Center(child: Text('No daily data yet', style: TextStyle(color: Colors.grey)));
+      return const Center(
+        child: Text('No daily data yet', style: TextStyle(color: Colors.grey)),
+      );
     }
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -829,7 +963,9 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
 
   Widget _buildWeeklyList() {
     if (_weekly.isEmpty) {
-      return const Center(child: Text('No weekly data yet', style: TextStyle(color: Colors.grey)));
+      return const Center(
+        child: Text('No weekly data yet', style: TextStyle(color: Colors.grey)),
+      );
     }
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -848,7 +984,12 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
 
   Widget _buildMonthlyList() {
     if (_monthly.isEmpty) {
-      return const Center(child: Text('No monthly data yet', style: TextStyle(color: Colors.grey)));
+      return const Center(
+        child: Text(
+          'No monthly data yet',
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
     }
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -885,17 +1026,35 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
                 if (subtitle != null)
-                  Text(subtitle, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
               ],
             ),
           ),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text('$steps steps', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF4CAF50))),
-              Text(_distKm(distanceMeters), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              Text(
+                '$steps steps',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF4CAF50),
+                ),
+              ),
+              Text(
+                _distKm(distanceMeters),
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
             ],
           ),
         ],
@@ -911,9 +1070,15 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
       children: [
         Row(
           children: [
-            const Text('Leaderboard', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Text(
+              'Leaderboard',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
             const Spacer(),
-            const Text('This month', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            const Text(
+              'This month',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
           ],
         ),
         const SizedBox(height: 4),
@@ -932,27 +1097,37 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
                 const SizedBox(width: 8),
                 Text(
                   'Your rank: #${_myRank!['rank']} — ${_myRank!['totalSteps']} steps',
-                  style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF2E7D32)),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF2E7D32),
+                  ),
                 ),
               ],
             ),
           ),
         _loadingLeaderboard
-            ? const Center(child: Padding(
-                padding: EdgeInsets.all(16),
-                child: CircularProgressIndicator(),
-              ))
+            ? const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: CircularProgressIndicator(),
+                ),
+              )
             : _leaderboard.isEmpty
-                ? const Center(child: Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text('No leaderboard data yet', style: TextStyle(color: Colors.grey)),
-                  ))
-                : ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _leaderboard.length,
-                    itemBuilder: (ctx, i) => _leaderboardTile(_leaderboard[i]),
+            ? const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    'No leaderboard data yet',
+                    style: TextStyle(color: Colors.grey),
                   ),
+                ),
+              )
+            : ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _leaderboard.length,
+                itemBuilder: (ctx, i) => _leaderboardTile(_leaderboard[i]),
+              ),
       ],
     );
   }
@@ -961,19 +1136,23 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
     final rankLabel = entry.rank == 1
         ? '🥇'
         : entry.rank == 2
-            ? '🥈'
-            : entry.rank == 3
-                ? '🥉'
-                : '#${entry.rank}';
+        ? '🥈'
+        : entry.rank == 3
+        ? '🥉'
+        : '#${entry.rank}';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: entry.isMe ? const Color(0xFFE8F5E9) : Theme.of(context).colorScheme.surface,
+        color: entry.isMe
+            ? const Color(0xFFE8F5E9)
+            : Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: entry.isMe ? const Color(0xFF4CAF50) : Theme.of(context).colorScheme.outlineVariant,
+          color: entry.isMe
+              ? const Color(0xFF4CAF50)
+              : Theme.of(context).colorScheme.outlineVariant,
           width: entry.isMe ? 2 : 1,
         ),
       ),
@@ -981,15 +1160,25 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
         children: [
           SizedBox(
             width: 32,
-            child: Text(rankLabel, style: const TextStyle(fontSize: 16), textAlign: TextAlign.center),
+            child: Text(
+              rankLabel,
+              style: const TextStyle(fontSize: 16),
+              textAlign: TextAlign.center,
+            ),
           ),
           const SizedBox(width: 8),
           CircleAvatar(
             radius: 16,
             backgroundColor: _hexColor(entry.displayColor),
             child: Text(
-              entry.displayName.isNotEmpty ? entry.displayName[0].toUpperCase() : '?',
-              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+              entry.displayName.isNotEmpty
+                  ? entry.displayName[0].toUpperCase()
+                  : '?',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
           const SizedBox(width: 8),
@@ -1004,8 +1193,17 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text('${entry.totalSteps}', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF4CAF50))),
-              Text(_distKm(entry.totalDistanceMeters), style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              Text(
+                '${entry.totalSteps}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF4CAF50),
+                ),
+              ),
+              Text(
+                _distKm(entry.totalDistanceMeters),
+                style: const TextStyle(fontSize: 11, color: Colors.grey),
+              ),
             ],
           ),
         ],
@@ -1017,35 +1215,46 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
 
   Widget _buildRewardsSection() {
     if (_loadingRewards) {
-      return const Center(child: Padding(
-        padding: EdgeInsets.all(8),
-        child: CircularProgressIndicator(strokeWidth: 2),
-      ));
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(8),
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
     }
     if (_rewards.isEmpty) return const SizedBox.shrink();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Your Rewards 🏆', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const Text(
+          'Your Rewards 🏆',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
         const SizedBox(height: 8),
-        ...(_rewards.map((r) => Card(
-          color: r.isApplied ? Theme.of(context).colorScheme.surfaceContainerLow : const Color(0xFFFFF9C4),
-          child: ListTile(
-            leading: const Icon(Icons.emoji_events, color: Colors.amber),
-            title: Text(
-              r.displayText,
-              style: TextStyle(
-                fontSize: 14,
-                color: r.isApplied ? Theme.of(context).colorScheme.onSurfaceVariant : Theme.of(context).colorScheme.onSurface,
-                decoration: r.isApplied ? TextDecoration.lineThrough : null,
+        ...(_rewards.map(
+          (r) => Card(
+            color: r.isApplied
+                ? Theme.of(context).colorScheme.surfaceContainerLow
+                : const Color(0xFFFFF9C4),
+            child: ListTile(
+              leading: const Icon(Icons.emoji_events, color: Colors.amber),
+              title: Text(
+                r.displayText,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: r.isApplied
+                      ? Theme.of(context).colorScheme.onSurfaceVariant
+                      : Theme.of(context).colorScheme.onSurface,
+                  decoration: r.isApplied ? TextDecoration.lineThrough : null,
+                ),
               ),
+              trailing: r.isApplied
+                  ? const Icon(Icons.check_circle, color: Colors.grey, size: 20)
+                  : const Icon(Icons.star, color: Colors.amber, size: 20),
             ),
-            trailing: r.isApplied
-                ? const Icon(Icons.check_circle, color: Colors.grey, size: 20)
-                : const Icon(Icons.star, color: Colors.amber, size: 20),
           ),
-        ))),
+        )),
       ],
     );
   }

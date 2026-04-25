@@ -14,11 +14,7 @@ import 'package:vhhealth/generated/app_localizations.dart';
 class DepartmentsScreen extends StatefulWidget {
   final String phone;
   final String? name;
-  const DepartmentsScreen({
-    super.key,
-    required this.phone,
-    this.name,
-  });
+  const DepartmentsScreen({super.key, required this.phone, this.name});
 
   @override
   State<DepartmentsScreen> createState() => _DepartmentsScreenState();
@@ -72,7 +68,9 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
     if (_searchQuery.isEmpty) return departments;
     final q = _searchQuery.toLowerCase();
     return departments.where((dept) {
-      final deptName = (dept['name'] ?? dept['department'] ?? '').toString().toLowerCase();
+      final deptName = (dept['name'] ?? dept['department'] ?? '')
+          .toString()
+          .toLowerCase();
       if (deptName.contains(q)) return true;
       final doctors = dept['doctors'] as List<dynamic>? ?? [];
       return doctors.any((d) {
@@ -91,7 +89,9 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
     });
 
     try {
-      final response = await ApiClient.get('/departments/departments-with-doctors');
+      final response = await ApiClient.get(
+        '/departments/departments-with-doctors',
+      );
 
       if (!mounted) return;
 
@@ -133,10 +133,10 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
   }
 
   void _bookDoctor(String dept, String doctor) {
-    context.push('/appointments', extra: {
-      'department': dept,
-      'doctor': doctor,
-    });
+    context.push(
+      '/appointments',
+      extra: {'department': dept, 'doctor': doctor},
+    );
   }
 
   Future<void> _callNumber(String number) async {
@@ -189,20 +189,36 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
                   CircleAvatar(
                     radius: 36,
                     backgroundColor: cs.primaryContainer,
-                    child: Icon(Icons.person, size: 36, color: cs.onPrimaryContainer),
+                    child: Icon(
+                      Icons.person,
+                      size: 36,
+                      color: cs.onPrimaryContainer,
+                    ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(docName, style: _theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                        Text(
+                          docName,
+                          style: _theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                         const SizedBox(height: 4),
                         Text(
                           doctor['specialization']?.toString() ?? '',
-                          style: _theme.textTheme.bodyMedium?.copyWith(color: cs.primary),
+                          style: _theme.textTheme.bodyMedium?.copyWith(
+                            color: cs.primary,
+                          ),
                         ),
-                        Text(deptName, style: _theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                        Text(
+                          deptName,
+                          style: _theme.textTheme.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -213,17 +229,37 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
               // Quick stats
               Row(
                 children: [
-                  if (exp != null) _StatChip(icon: Icons.work_outline, label: '$exp yrs', theme: _theme),
-                  if (fee != null) _StatChip(icon: Icons.currency_rupee, label: '₹$fee', theme: _theme),
+                  if (exp != null)
+                    _StatChip(
+                      icon: Icons.work_outline,
+                      label: '$exp yrs',
+                      theme: _theme,
+                    ),
+                  if (fee != null)
+                    _StatChip(
+                      icon: Icons.currency_rupee,
+                      label: '₹$fee',
+                      theme: _theme,
+                    ),
                   if (_isDoctorAvailableToday(doctor))
-                    _StatChip(icon: Icons.check_circle, label: 'Available Today', theme: _theme, isGreen: true),
+                    _StatChip(
+                      icon: Icons.check_circle,
+                      label: 'Available Today',
+                      theme: _theme,
+                      isGreen: true,
+                    ),
                 ],
               ),
               const SizedBox(height: 16),
 
               // Bio
               if (bio.isNotEmpty) ...[
-                Text('About', style: _theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                Text(
+                  'About',
+                  style: _theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const SizedBox(height: 6),
                 Text(bio, style: _theme.textTheme.bodyMedium),
                 const SizedBox(height: 16),
@@ -231,7 +267,12 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
 
               // Education
               if (education.isNotEmpty) ...[
-                Text('Education', style: _theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                Text(
+                  'Education',
+                  style: _theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const SizedBox(height: 6),
                 Text(education, style: _theme.textTheme.bodyMedium),
                 const SizedBox(height: 16),
@@ -239,30 +280,50 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
 
               // Qualifications
               if (qualifications.isNotEmpty) ...[
-                Text('Qualifications', style: _theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                Text(
+                  'Qualifications',
+                  style: _theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const SizedBox(height: 6),
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
-                  children: qualifications.map((q) => Chip(
-                    label: Text(q.toString(), style: const TextStyle(fontSize: 12)),
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: VisualDensity.compact,
-                    backgroundColor: cs.secondaryContainer,
-                    labelStyle: TextStyle(color: cs.onSecondaryContainer),
-                  )).toList(),
+                  children: qualifications
+                      .map(
+                        (q) => Chip(
+                          label: Text(
+                            q.toString(),
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                          backgroundColor: cs.secondaryContainer,
+                          labelStyle: TextStyle(color: cs.onSecondaryContainer),
+                        ),
+                      )
+                      .toList(),
                 ),
                 const SizedBox(height: 16),
               ],
 
               // Schedule
               if (availDays.isNotEmpty) ...[
-                Text('Schedule', style: _theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                Text(
+                  'Schedule',
+                  style: _theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const SizedBox(height: 6),
                 ...availDays.map((day) {
                   final dayStr = day.toString();
                   final h = availHours[dayStr] as Map<String, dynamic>?;
-                  final timeStr = h != null ? '${h['start']} – ${h['end']}' : '';
+                  final timeStr = h != null
+                      ? '${h['start']} – ${h['end']}'
+                      : '';
                   final isToday = dayStr == _getTodayName();
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 2),
@@ -273,7 +334,9 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
                           child: Text(
                             dayStr,
                             style: _theme.textTheme.bodySmall?.copyWith(
-                              fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+                              fontWeight: isToday
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
                               color: isToday ? cs.primary : cs.onSurface,
                             ),
                           ),
@@ -302,11 +365,17 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Consultation Fee', style: _theme.textTheme.bodyMedium),
-                      Text('₹$fee', style: _theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: cs.primary,
-                      )),
+                      Text(
+                        'Consultation Fee',
+                        style: _theme.textTheme.bodyMedium,
+                      ),
+                      Text(
+                        '₹$fee',
+                        style: _theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: cs.primary,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -324,7 +393,9 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
                   label: Text(_loc.departmentsBook),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ),
@@ -336,11 +407,13 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
   }
 
   Future<void> _triggerSOS() async {
-    _messenger.showSnackBar(SnackBar(
-      content: Text(_loc.authSosTriggered),
-      backgroundColor: _theme.colorScheme.error,
-      behavior: SnackBarBehavior.floating,
-    ));
+    _messenger.showSnackBar(
+      SnackBar(
+        content: Text(_loc.authSosTriggered),
+        backgroundColor: _theme.colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
     await SOSService.triggerSOS();
   }
 
@@ -371,162 +444,229 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
         emptySubtitle: '',
         builder: (context, depts) {
           return Column(
-              children: [
-                // Search bar
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-                  child: TextField(
-                    controller: _searchController,
-                    onChanged: (v) {
-                      _debounce?.cancel();
-                      _debounce = Timer(const Duration(milliseconds: 300), () {
-                        if (mounted) setState(() => _searchQuery = v);
-                      });
-                    },
-                    decoration: InputDecoration(
-                      hintText: 'Search departments or doctors...',
-                      prefixIcon: const Icon(Icons.search, size: 20),
-                      suffixIcon: _searchQuery.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear, size: 18),
-                              onPressed: () {
-                                _searchController.clear();
-                                setState(() => _searchQuery = '');
-                              },
-                            )
-                          : null,
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: cs.outline),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: cs.outline.withAlpha(102)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: cs.primary, width: 1.5),
-                      ),
-                      filled: true,
-                      fillColor: cs.surface,
-                    ),
-                  ),
-                ),
-                // Department list
-                Expanded(
-                  child: RefreshIndicator(
-                    onRefresh: _fetchDepartmentsData,
-                    color: cs.primary,
-                    backgroundColor: _theme.scaffoldBackgroundColor,
-                    child: filtered.isEmpty
-                        ? _EmptyState(loc: _loc, colorScheme: cs, theme: _theme)
-                        : ListView.builder(
-                            padding: const EdgeInsets.only(bottom: 80),
-                            itemCount: filtered.length,
-                            itemBuilder: (_, i) {
-                              final dept = filtered[i];
-                              final deptName = (dept['name'] ?? dept['department'] ?? _loc.departmentsUnknown).toString();
-                              final doctors = dept['doctors'] as List<dynamic>? ?? [];
-                              final location = dept['location'] as String?;
-                              final contactNumber = dept['contact_number'] as String?;
-                              final doctorCount = doctors.length;
-
-                              return Card(
-                                margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                elevation: 1,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                child: ExpansionTile(
-                                  tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                                  title: Row(
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(deptName, style: _theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-                                            if (location != null && location.isNotEmpty)
-                                              Padding(
-                                                padding: const EdgeInsets.only(top: 2),
-                                                child: Row(
-                                                  children: [
-                                                    Icon(Icons.location_on_outlined, size: 13, color: cs.onSurfaceVariant),
-                                                    const SizedBox(width: 3),
-                                                    Text(location, style: _theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
-                                                  ],
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                      ),
-                                      // Doctor count badge
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                        decoration: BoxDecoration(
-                                          color: cs.primaryContainer,
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                        child: Text(
-                                          '$doctorCount',
-                                          style: _theme.textTheme.labelSmall?.copyWith(
-                                            color: cs.onPrimaryContainer,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                      // Call button
-                                      if (contactNumber != null && contactNumber.isNotEmpty)
-                                        IconButton(
-                                          icon: Icon(Icons.phone_outlined, size: 18, color: cs.primary),
-                                          onPressed: () => _callNumber(contactNumber),
-                                          tooltip: contactNumber,
-                                          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                                          padding: const EdgeInsets.all(4),
-                                        ),
-                                    ],
-                                  ),
-                                  iconColor: cs.primary,
-                                  collapsedIconColor: cs.onSurfaceVariant,
-                                  initiallyExpanded: _expandedIndices.contains(i),
-                                  onExpansionChanged: (expanded) {
-                                    setState(() {
-                                      if (expanded) {
-                                        _expandedIndices
-                                          ..clear()
-                                          ..add(i);
-                                      } else {
-                                        _expandedIndices.remove(i);
-                                      }
-                                    });
-                                  },
-                                  children: doctors.isEmpty
-                                      ? [
-                                          Padding(
-                                            padding: const EdgeInsets.all(16),
-                                            child: Text(
-                                              'No doctors available in this department',
-                                              style: _theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                                            ),
-                                          ),
-                                        ]
-                                      : doctors.map((d) => _DoctorCard(
-                                          doctor: d as Map<String, dynamic>,
-                                          deptName: deptName,
-                                          theme: _theme,
-                                          loc: _loc,
-                                          isAvailableToday: _isDoctorAvailableToday(d),
-                                          onTap: () => _showDoctorDetail(d, deptName),
-                                          onBook: () => _bookDoctor(deptName, (d['name'] ?? '').toString()),
-                                        )).toList(),
-                                ),
-                              );
+            children: [
+              // Search bar
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: (v) {
+                    _debounce?.cancel();
+                    _debounce = Timer(const Duration(milliseconds: 300), () {
+                      if (mounted) setState(() => _searchQuery = v);
+                    });
+                  },
+                  decoration: InputDecoration(
+                    hintText: 'Search departments or doctors...',
+                    prefixIcon: const Icon(Icons.search, size: 20),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 18),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _searchQuery = '');
                             },
-                          ),
+                          )
+                        : null,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 12,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: cs.outline),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: cs.outline.withAlpha(102)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: cs.primary, width: 1.5),
+                    ),
+                    filled: true,
+                    fillColor: cs.surface,
                   ),
                 ),
-              ],
-            );
+              ),
+              // Department list
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: _fetchDepartmentsData,
+                  color: cs.primary,
+                  backgroundColor: _theme.scaffoldBackgroundColor,
+                  child: filtered.isEmpty
+                      ? _EmptyState(loc: _loc, colorScheme: cs, theme: _theme)
+                      : ListView.builder(
+                          padding: const EdgeInsets.only(bottom: 80),
+                          itemCount: filtered.length,
+                          itemBuilder: (_, i) {
+                            final dept = filtered[i];
+                            final deptName =
+                                (dept['name'] ??
+                                        dept['department'] ??
+                                        _loc.departmentsUnknown)
+                                    .toString();
+                            final doctors =
+                                dept['doctors'] as List<dynamic>? ?? [];
+                            final location = dept['location'] as String?;
+                            final contactNumber =
+                                dept['contact_number'] as String?;
+                            final doctorCount = doctors.length;
+
+                            return Card(
+                              margin: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
+                              elevation: 1,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: ExpansionTile(
+                                tilePadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 4,
+                                ),
+                                title: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            deptName,
+                                            style: _theme.textTheme.titleMedium
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                          ),
+                                          if (location != null &&
+                                              location.isNotEmpty)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                top: 2,
+                                              ),
+                                              child: Row(
+                                                children: [
+                                                  Icon(
+                                                    Icons.location_on_outlined,
+                                                    size: 13,
+                                                    color: cs.onSurfaceVariant,
+                                                  ),
+                                                  const SizedBox(width: 3),
+                                                  Text(
+                                                    location,
+                                                    style: _theme
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          color: cs
+                                                              .onSurfaceVariant,
+                                                        ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    // Doctor count badge
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: cs.primaryContainer,
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        '$doctorCount',
+                                        style: _theme.textTheme.labelSmall
+                                            ?.copyWith(
+                                              color: cs.onPrimaryContainer,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                      ),
+                                    ),
+                                    // Call button
+                                    if (contactNumber != null &&
+                                        contactNumber.isNotEmpty)
+                                      IconButton(
+                                        icon: Icon(
+                                          Icons.phone_outlined,
+                                          size: 18,
+                                          color: cs.primary,
+                                        ),
+                                        onPressed: () =>
+                                            _callNumber(contactNumber),
+                                        tooltip: contactNumber,
+                                        constraints: const BoxConstraints(
+                                          minWidth: 36,
+                                          minHeight: 36,
+                                        ),
+                                        padding: const EdgeInsets.all(4),
+                                      ),
+                                  ],
+                                ),
+                                iconColor: cs.primary,
+                                collapsedIconColor: cs.onSurfaceVariant,
+                                initiallyExpanded: _expandedIndices.contains(i),
+                                onExpansionChanged: (expanded) {
+                                  setState(() {
+                                    if (expanded) {
+                                      _expandedIndices
+                                        ..clear()
+                                        ..add(i);
+                                    } else {
+                                      _expandedIndices.remove(i);
+                                    }
+                                  });
+                                },
+                                children: doctors.isEmpty
+                                    ? [
+                                        Padding(
+                                          padding: const EdgeInsets.all(16),
+                                          child: Text(
+                                            'No doctors available in this department',
+                                            style: _theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  color: cs.onSurfaceVariant,
+                                                ),
+                                          ),
+                                        ),
+                                      ]
+                                    : doctors
+                                          .map(
+                                            (d) => _DoctorCard(
+                                              doctor: d as Map<String, dynamic>,
+                                              deptName: deptName,
+                                              theme: _theme,
+                                              loc: _loc,
+                                              isAvailableToday:
+                                                  _isDoctorAvailableToday(d),
+                                              onTap: () => _showDoctorDetail(
+                                                d,
+                                                deptName,
+                                              ),
+                                              onBook: () => _bookDoctor(
+                                                deptName,
+                                                (d['name'] ?? '').toString(),
+                                              ),
+                                            ),
+                                          )
+                                          .toList(),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ),
+            ],
+          );
         },
       ),
     );
@@ -587,22 +727,33 @@ class _DoctorCard extends StatelessWidget {
                       Flexible(
                         child: Text(
                           docName,
-                          style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
                       if (isAvailableToday) ...[
                         const SizedBox(width: 6),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.green.withAlpha(25),
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.green.withAlpha(100)),
+                            border: Border.all(
+                              color: Colors.green.withAlpha(100),
+                            ),
                           ),
                           child: const Text(
                             'Available',
-                            style: TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.w600),
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.green,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       ],
@@ -613,22 +764,45 @@ class _DoctorCard extends StatelessWidget {
                   if (specialization.isNotEmpty)
                     Text(
                       specialization,
-                      style: theme.textTheme.bodySmall?.copyWith(color: cs.primary),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.primary,
+                      ),
                     ),
                   const SizedBox(height: 4),
                   // Experience + fee
                   Row(
                     children: [
                       if (exp != null) ...[
-                        Icon(Icons.work_outline, size: 12, color: cs.onSurfaceVariant),
+                        Icon(
+                          Icons.work_outline,
+                          size: 12,
+                          color: cs.onSurfaceVariant,
+                        ),
                         const SizedBox(width: 3),
-                        Text('$exp yrs', style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant, fontSize: 11)),
+                        Text(
+                          '$exp yrs',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                            fontSize: 11,
+                          ),
+                        ),
                         const SizedBox(width: 12),
                       ],
                       if (fee != null) ...[
-                        Icon(Icons.currency_rupee, size: 12, color: cs.onSurfaceVariant),
+                        Icon(
+                          Icons.currency_rupee,
+                          size: 12,
+                          color: cs.onSurfaceVariant,
+                        ),
                         const SizedBox(width: 2),
-                        Text('₹$fee', style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant, fontSize: 11, fontWeight: FontWeight.w600)),
+                        Text(
+                          '₹$fee',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ],
                     ],
                   ),
@@ -639,17 +813,28 @@ class _DoctorCard extends StatelessWidget {
                       child: Wrap(
                         spacing: 4,
                         runSpacing: 4,
-                        children: qualifications.take(4).map((q) => Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: cs.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            q.toString(),
-                            style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
-                          ),
-                        )).toList(),
+                        children: qualifications
+                            .take(4)
+                            .map(
+                              (q) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: cs.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  q.toString(),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: cs.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
                       ),
                     ),
                 ],
@@ -665,7 +850,9 @@ class _DoctorCard extends StatelessWidget {
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     textStyle: const TextStyle(fontSize: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                   child: Text(loc.departmentsBook),
                 ),
@@ -706,7 +893,14 @@ class _StatChip extends StatelessWidget {
         children: [
           Icon(icon, size: 14, color: color),
           const SizedBox(width: 4),
-          Text(label, style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w600)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
@@ -732,12 +926,18 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.list_alt_outlined, size: 60, color: colorScheme.onSurface.withAlpha(127)),
+            Icon(
+              Icons.list_alt_outlined,
+              size: 60,
+              color: colorScheme.onSurface.withAlpha(127),
+            ),
             const SizedBox(height: 16),
             Text(
               loc.departmentsNoneFound,
               textAlign: TextAlign.center,
-              style: theme.textTheme.titleMedium?.copyWith(color: colorScheme.onSurfaceVariant),
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),

@@ -22,29 +22,28 @@ class MainScaffoldGoRouter extends StatefulWidget {
   State<MainScaffoldGoRouter> createState() => _MainScaffoldGoRouterState();
 }
 
-class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter> 
+class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
     with WidgetsBindingObserver {
-  
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _fetchNotifications();
   }
-  
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
-  
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
       context.read<NotificationProvider>().fetchUnreadCount(widget.phone);
     }
   }
-  
+
   void _fetchNotifications() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -124,7 +123,7 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
                 badgeContent: Text(
                   unread > 99 ? '99+' : unread.toString(),
                   style: const TextStyle(
-                    fontSize: 10, 
+                    fontSize: 10,
                     color: Colors.white,
                     fontWeight: FontWeight.w600,
                   ),
@@ -142,7 +141,7 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
                 badgeContent: Text(
                   unread > 99 ? '99+' : unread.toString(),
                   style: const TextStyle(
-                    fontSize: 10, 
+                    fontSize: 10,
                     color: Colors.white,
                     fontWeight: FontWeight.w600,
                   ),

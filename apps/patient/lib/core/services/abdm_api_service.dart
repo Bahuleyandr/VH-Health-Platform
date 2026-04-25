@@ -41,11 +41,7 @@ class AbdmApiService {
   }) async {
     final response = await ApiClient.post(
       '/abdm/verify-abha',
-      body: {
-        'abhaNumber': abhaNumber,
-        'otp': otp,
-        'mobile': mobile,
-      },
+      body: {'abhaNumber': abhaNumber, 'otp': otp, 'mobile': mobile},
     );
     if (response.isSuccess) {
       return response.dataAsMap();
@@ -57,10 +53,10 @@ class AbdmApiService {
 
   /// Fetch patient info by ABHA number.
   static Future<Map<String, dynamic>?> getPatientByAbha(
-      String abhaNumber) async {
+    String abhaNumber,
+  ) async {
     try {
-      final response =
-          await ApiClient.get('/abdm/patient-by-abha/$abhaNumber');
+      final response = await ApiClient.get('/abdm/patient-by-abha/$abhaNumber');
       if (response.isSuccess) {
         return response.dataAsMap();
       }
@@ -92,9 +88,7 @@ class AbdmApiService {
   static Future<void> grantConsent(String id) async {
     final response = await ApiClient.post('/abdm/consents/$id/grant');
     if (!response.isSuccess) {
-      throw AbdmException(
-        response.message ?? 'Failed to grant consent',
-      );
+      throw AbdmException(response.message ?? 'Failed to grant consent');
     }
   }
 
@@ -102,9 +96,7 @@ class AbdmApiService {
   static Future<void> denyConsent(String id) async {
     final response = await ApiClient.post('/abdm/consents/$id/deny');
     if (!response.isSuccess) {
-      throw AbdmException(
-        response.message ?? 'Failed to deny consent',
-      );
+      throw AbdmException(response.message ?? 'Failed to deny consent');
     }
   }
 
@@ -112,9 +104,7 @@ class AbdmApiService {
   static Future<void> revokeConsent(String id) async {
     final response = await ApiClient.post('/abdm/consents/$id/revoke');
     if (!response.isSuccess) {
-      throw AbdmException(
-        response.message ?? 'Failed to revoke consent',
-      );
+      throw AbdmException(response.message ?? 'Failed to revoke consent');
     }
   }
 }

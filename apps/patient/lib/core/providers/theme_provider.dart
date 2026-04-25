@@ -35,7 +35,8 @@ class ThemeProvider extends ChangeNotifier {
 
   bool get isDarkMode {
     if (_themeMode == ThemeMode.system) {
-      final brightness = SchedulerBinding.instance.platformDispatcher.platformBrightness;
+      final brightness =
+          SchedulerBinding.instance.platformDispatcher.platformBrightness;
       return brightness == Brightness.dark;
     }
     return _themeMode == ThemeMode.dark;
@@ -43,7 +44,7 @@ class ThemeProvider extends ChangeNotifier {
 
   // --- Build theme with dynamic colors ---
   ThemeData _buildTheme(Brightness brightness) {
-    final baseTheme = brightness == Brightness.light 
+    final baseTheme = brightness == Brightness.light
         ? AppTheme.getLightTheme(_fontSize)
         : AppTheme.getDarkTheme(_fontSize);
 
@@ -69,12 +70,12 @@ class ThemeProvider extends ChangeNotifier {
       ),
       // Update app bar theme
       appBarTheme: baseTheme.appBarTheme.copyWith(
-        backgroundColor: brightness == Brightness.light 
+        backgroundColor: brightness == Brightness.light
             ? _dynamicAccentColor?.withValues(alpha: 0.1)
             : _dynamicAccentColor?.withValues(alpha: 0.05),
         iconTheme: IconThemeData(
-          color: brightness == Brightness.light 
-              ? _dynamicAccentColor 
+          color: brightness == Brightness.light
+              ? _dynamicAccentColor
               : _dynamicAccentColor?.withValues(alpha: 0.9),
         ),
       ),
@@ -165,7 +166,8 @@ class ThemeProvider extends ChangeNotifier {
   void toggleFontSize() async {
     const List<double> sizes = [16.0, 18.0, 20.0];
     final currentIndex = sizes.indexOf(_fontSize);
-    final nextIndex = (currentIndex != -1 ? currentIndex + 1 : 1) % sizes.length;
+    final nextIndex =
+        (currentIndex != -1 ? currentIndex + 1 : 1) % sizes.length;
     await setFontSize(sizes[nextIndex]);
   }
 

@@ -19,14 +19,22 @@ class _DeptInfo {
   final int id;
   final String name;
   final List<_DoctorInfo> doctors;
-  const _DeptInfo({required this.id, required this.name, required this.doctors});
+  const _DeptInfo({
+    required this.id,
+    required this.name,
+    required this.doctors,
+  });
 }
 
 class _DoctorInfo {
   final int id;
   final String name;
   final String? specialization;
-  const _DoctorInfo({required this.id, required this.name, this.specialization});
+  const _DoctorInfo({
+    required this.id,
+    required this.name,
+    this.specialization,
+  });
 }
 
 class _AppointmentInfo {
@@ -105,8 +113,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _isGuest = widget.phone.trim().isEmpty ||
-        widget.phone.toLowerCase() == 'guest';
+    _isGuest =
+        widget.phone.trim().isEmpty || widget.phone.toLowerCase() == 'guest';
     _phoneController.text = _isGuest ? '' : widget.phone;
     _loadPatientId();
     _fetchDepartments();
@@ -151,8 +159,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
       final resp = await ApiClient.get('/departments/departments-with-doctors');
       if (resp.isSuccess) {
         final rawData = resp.data;
-        final List<dynamic> depts =
-            rawData is Map ? (rawData['departments'] ?? []) : (rawData ?? []);
+        final List<dynamic> depts = rawData is Map
+            ? (rawData['departments'] ?? [])
+            : (rawData ?? []);
 
         final parsed = <_DeptInfo>[];
         for (final dept in depts) {
@@ -163,17 +172,22 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
           final rawDoctors = dept['doctors'] as List<dynamic>? ?? [];
           final doctors = rawDoctors
               .where((d) => d['id'] != null)
-              .map((d) => _DoctorInfo(
-                    id: d['id'] as int,
-                    name: d['name']?.toString() ?? 'Doctor',
-                    specialization: d['specialization']?.toString(),
-                  ))
+              .map(
+                (d) => _DoctorInfo(
+                  id: d['id'] as int,
+                  name: d['name']?.toString() ?? 'Doctor',
+                  specialization: d['specialization']?.toString(),
+                ),
+              )
               .toList();
 
-          parsed.add(_DeptInfo(
+          parsed.add(
+            _DeptInfo(
               id: id is int ? id : int.parse(id.toString()),
               name: name,
-              doctors: doctors));
+              doctors: doctors,
+            ),
+          );
         }
 
         if (mounted) {
@@ -199,19 +213,21 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
       final resp = await ApiClient.get('/appointments/patient/$_patientId');
       if (resp.isSuccess) {
         final data = resp.data ?? {};
-        final List<dynamic> raw = data is List ? data : (data['appointments'] ?? data ?? []);
+        final List<dynamic> raw = data is List
+            ? data
+            : (data['appointments'] ?? data ?? []);
         final list = raw.map((a) {
           return _AppointmentInfo(
             id: a['id'] ?? 0,
             doctorName: a['doctor_name'] ?? a['doctor']?['name'] ?? 'Doctor',
-            department: a['department_name'] ??
-                a['department'] ??
-                '',
+            department: a['department_name'] ?? a['department'] ?? '',
             date: a['appointment_date']?.toString().split('T').first ?? '',
             time: a['appointment_time']?.toString() ?? '',
             status: a['status']?.toString().toLowerCase() ?? 'scheduled',
             reason: a['reason']?.toString(),
-            tokenNumber: a['token_number'] != null ? int.tryParse(a['token_number'].toString()) : null,
+            tokenNumber: a['token_number'] != null
+                ? int.tryParse(a['token_number'].toString())
+                : null,
             confirmationNotes: a['confirmation_notes']?.toString(),
             hasDocuments: false, // updated when documents are fetched
           );
@@ -267,7 +283,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
     setState(() => _submitting = true);
 
     try {
-      final resp = await ApiClient.post('/appointments/book', body: {
+      final resp = await ApiClient.post(
+        '/appointments/book',
+        body: {
           'patient_id': int.parse(_patientId!),
           'doctor_id': _selectedDoctor!.id,
           'appointment_date': dateStr,
@@ -275,7 +293,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
           'reason': _reasonController.text.trim().isEmpty
               ? 'General consultation'
               : _reasonController.text.trim(),
-        });
+        },
+      );
 
       if (!mounted) return;
       setState(() => _submitting = false);
@@ -285,7 +304,13 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
         _reasonController.clear();
 
         // Calendar integration
-        final start = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+        final start = DateTime(
+          date.year,
+          date.month,
+          date.day,
+          time.hour,
+          time.minute,
+        );
         final end = start.add(const Duration(minutes: 30));
         final doctor = _selectedDoctor?.name ?? l10n.generalDoctor;
 
@@ -336,20 +361,35 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Documents', style: Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                Text(
+                  'Documents',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const SizedBox(height: 12),
                 ...docs.map((d) {
                   final m = d as Map<String, dynamic>;
                   final url = m['file_url']?.toString();
-                  final name = m['file_name'] ?? m['document_type'] ?? 'Document';
+                  final name =
+                      m['file_name'] ?? m['document_type'] ?? 'Document';
                   return ListTile(
                     leading: const Icon(Icons.description),
                     title: Text(name),
-                    subtitle: Text(m['document_type']?.toString().replaceAll('_', ' ') ?? ''),
-                    trailing: url != null ? const Icon(Icons.open_in_new) : null,
-                    onTap: url == null ? null : () async {
-                      await SafeUrlLauncher.launch(url, mode: LaunchMode.externalApplication);
-                    },
+                    subtitle: Text(
+                      m['document_type']?.toString().replaceAll('_', ' ') ?? '',
+                    ),
+                    trailing: url != null
+                        ? const Icon(Icons.open_in_new)
+                        : null,
+                    onTap: url == null
+                        ? null
+                        : () async {
+                            await SafeUrlLauncher.launch(
+                              url,
+                              mode: LaunchMode.externalApplication,
+                            );
+                          },
                   );
                 }),
               ],
@@ -372,14 +412,17 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
       builder: (ctx) => AlertDialog(
         title: const Text('Cancel Appointment'),
         content: Text(
-            'Cancel appointment with ${appt.doctorName} on ${appt.date} at ${appt.time}?'),
+          'Cancel appointment with ${appt.doctorName} on ${appt.date} at ${appt.time}?',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('No')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('No'),
+          ),
           TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Yes, Cancel')),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Yes, Cancel'),
+          ),
         ],
       ),
     );
@@ -403,20 +446,24 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
 
   void _showError(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: Theme.of(context).colorScheme.error,
-      behavior: SnackBarBehavior.floating,
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: Theme.of(context).colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   void _showSuccess(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: Theme.of(context).colorScheme.primary,
-      behavior: SnackBarBehavior.floating,
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   Future<bool> _getAutoAddToCalendar() async {
@@ -430,7 +477,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
   }
 
   Future<void> _promptCalendarSync(
-      AppLocalizations l10n, String doctor, DateTime start, DateTime end) async {
+    AppLocalizations l10n,
+    String doctor,
+    DateTime start,
+    DateTime end,
+  ) async {
     await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -438,8 +489,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
         content: Text(l10n.calendarSyncPrompt),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text(l10n.no)),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(l10n.no),
+          ),
           TextButton(
             onPressed: () async {
               Navigator.pop(ctx, true);
@@ -579,11 +631,13 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
 
   Future<void> _triggerSOS() async {
     final l10n = AppLocalizations.of(context)!;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(l10n.authSosTriggered),
-      backgroundColor: Theme.of(context).colorScheme.error,
-      behavior: SnackBarBehavior.floating,
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(l10n.authSosTriggered),
+        backgroundColor: Theme.of(context).colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
     await SOSService.triggerSOS();
   }
 
@@ -617,10 +671,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: [
-                _buildBookTab(l10n),
-                _buildAppointmentsTab(),
-              ],
+              children: [_buildBookTab(l10n), _buildAppointmentsTab()],
             ),
           ),
         ],
@@ -646,8 +697,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
               controller: _phoneController,
               keyboardType: TextInputType.phone,
               decoration: InputDecoration(labelText: l10n.authPhoneNumber),
-              validator: (v) =>
-                  v == null || v.trim().length != 10 ? l10n.enterValidPhone : null,
+              validator: (v) => v == null || v.trim().length != 10
+                  ? l10n.enterValidPhone
+                  : null,
               style: theme.textTheme.bodyLarge,
             ),
             const SizedBox(height: 16),
@@ -662,8 +714,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
           else
             DropdownButtonFormField<_DeptInfo>(
               initialValue: _selectedDept,
-              decoration:
-                  InputDecoration(labelText: l10n.chooseDepartmentOrDoctor),
+              decoration: InputDecoration(
+                labelText: l10n.chooseDepartmentOrDoctor,
+              ),
               items: _departments.map((dept) {
                 return DropdownMenuItem(
                   value: dept,
@@ -690,15 +743,20 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
           if (_selectedDept != null && _selectedDept!.doctors.isNotEmpty)
             DropdownButtonFormField<_DoctorInfo>(
               initialValue: _selectedDoctor,
-              decoration:
-                  InputDecoration(labelText: l10n.selectDoctorPlaceholder),
+              decoration: InputDecoration(
+                labelText: l10n.selectDoctorPlaceholder,
+              ),
               items: _selectedDept!.doctors
-                  .map((doc) => DropdownMenuItem(
-                        value: doc,
-                        child: Text(doc.specialization != null
+                  .map(
+                    (doc) => DropdownMenuItem(
+                      value: doc,
+                      child: Text(
+                        doc.specialization != null
                             ? '${doc.name} (${doc.specialization})'
-                            : doc.name),
-                      ))
+                            : doc.name,
+                      ),
+                    ),
+                  )
                   .toList(),
               onChanged: (val) {
                 setState(() {
@@ -753,7 +811,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
               padding: const EdgeInsets.only(top: 4, bottom: 8),
               child: Text(
                 'Select Time Slot',
-                style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
             Wrap(
@@ -777,20 +837,23 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
                         }
                       : null,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: isSelected
                           ? const Color(0xFF00796B)
                           : available
-                              ? const Color(0xFFE0F2F1)
-                              : theme.colorScheme.surfaceContainerLow,
+                          ? const Color(0xFFE0F2F1)
+                          : theme.colorScheme.surfaceContainerLow,
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
                         color: isSelected
                             ? const Color(0xFF00796B)
                             : available
-                                ? const Color(0xFF80CBC4)
-                                : theme.colorScheme.outlineVariant,
+                            ? const Color(0xFF80CBC4)
+                            : theme.colorScheme.outlineVariant,
                       ),
                     ),
                     child: Text(
@@ -801,9 +864,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
                         color: isSelected
                             ? Colors.white
                             : available
-                                ? const Color(0xFF00796B)
-                                : theme.colorScheme.onSurfaceVariant,
-                        decoration: available ? null : TextDecoration.lineThrough,
+                            ? const Color(0xFF00796B)
+                            : theme.colorScheme.onSurfaceVariant,
+                        decoration: available
+                            ? null
+                            : TextDecoration.lineThrough,
                       ),
                     ),
                   ),
@@ -882,10 +947,19 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.event_busy, size: 64, color: theme.colorScheme.onSurfaceVariant),
+            Icon(
+              Icons.event_busy,
+              size: 64,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
             const SizedBox(height: 16),
-            Text('No appointments yet',
-                style: TextStyle(fontSize: 16, color: theme.colorScheme.onSurfaceVariant)),
+            Text(
+              'No appointments yet',
+              style: TextStyle(
+                fontSize: 16,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
             const SizedBox(height: 8),
             TextButton.icon(
               onPressed: () => _tabController.animateTo(0),
@@ -897,12 +971,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
       );
     }
 
-    final upcoming =
-        _appointments.where((a) => a.isUpcoming).toList()
-          ..sort((a, b) => '${a.date} ${a.time}'.compareTo('${b.date} ${b.time}'));
-    final past =
-        _appointments.where((a) => !a.isUpcoming).toList()
-          ..sort((a, b) => '${b.date} ${b.time}'.compareTo('${a.date} ${a.time}'));
+    final upcoming = _appointments.where((a) => a.isUpcoming).toList()
+      ..sort((a, b) => '${a.date} ${a.time}'.compareTo('${b.date} ${b.time}'));
+    final past = _appointments.where((a) => !a.isUpcoming).toList()
+      ..sort((a, b) => '${b.date} ${b.time}'.compareTo('${a.date} ${a.time}'));
 
     return RefreshIndicator(
       onRefresh: _fetchAppointments,
@@ -926,11 +998,12 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
   Widget _sectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Text(title,
-          style: Theme.of(context)
-              .textTheme
-              .titleMedium
-              ?.copyWith(fontWeight: FontWeight.bold)),
+      child: Text(
+        title,
+        style: Theme.of(
+          context,
+        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+      ),
     );
   }
 
@@ -948,13 +1021,18 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
             Row(
               children: [
                 Expanded(
-                  child: Text(appt.doctorName,
-                      style: theme.textTheme.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.bold)),
+                  child: Text(
+                    appt.doctorName,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: statusCol.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(12),
@@ -962,26 +1040,38 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
                   child: Text(
                     _statusLabel(appt.status),
                     style: TextStyle(
-                        color: statusCol,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600),
+                      color: statusCol,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
             if (appt.department.isNotEmpty)
-              Text(appt.department,
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+              Text(
+                appt.department,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
             const SizedBox(height: 4),
             Row(
               children: [
-                Icon(Icons.calendar_today, size: 14, color: theme.colorScheme.onSurfaceVariant),
+                Icon(
+                  Icons.calendar_today,
+                  size: 14,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
                 const SizedBox(width: 4),
                 Text(appt.date, style: theme.textTheme.bodySmall),
                 const SizedBox(width: 16),
-                Icon(Icons.access_time, size: 14, color: theme.colorScheme.onSurfaceVariant),
+                Icon(
+                  Icons.access_time,
+                  size: 14,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
                 const SizedBox(width: 4),
                 Text(appt.time, style: theme.textTheme.bodySmall),
               ],
@@ -990,27 +1080,40 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
               const SizedBox(height: 6),
               Row(
                 children: [
-                  Icon(Icons.confirmation_number, size: 14, color: const Color(0xFF00796B)),
+                  Icon(
+                    Icons.confirmation_number,
+                    size: 14,
+                    color: const Color(0xFF00796B),
+                  ),
                   const SizedBox(width: 4),
-                  Text('Token #${appt.tokenNumber}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF00796B),
-                        fontWeight: FontWeight.w600,
-                      )),
+                  Text(
+                    'Token #${appt.tokenNumber}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF00796B),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
               ),
             ],
             if (appt.reason != null && appt.reason!.isNotEmpty) ...[
               const SizedBox(height: 4),
-              Text('Reason: ${appt.reason}',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(fontStyle: FontStyle.italic)),
+              Text(
+                'Reason: ${appt.reason}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
             ],
-            if (appt.confirmationNotes != null && appt.confirmationNotes!.isNotEmpty) ...[
+            if (appt.confirmationNotes != null &&
+                appt.confirmationNotes!.isNotEmpty) ...[
               const SizedBox(height: 4),
-              Text('Note: ${appt.confirmationNotes}',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+              Text(
+                'Note: ${appt.confirmationNotes}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
             ],
             if (appt.status == 'completed') ...[
               const SizedBox(height: 8),
@@ -1020,7 +1123,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
                   onPressed: () => _viewPrescription(appt),
                   icon: const Icon(Icons.description_outlined, size: 18),
                   label: const Text('View Prescription'),
-                  style: TextButton.styleFrom(foregroundColor: const Color(0xFF00796B)),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF00796B),
+                  ),
                 ),
               ),
             ],

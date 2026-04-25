@@ -79,9 +79,9 @@ class OtpHeader extends StatelessWidget {
         Text(
           "Enter the 6-digit OTP sent to",
           textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Colors.grey[600],
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
         ),
         const SizedBox(height: 4),
         Text(
@@ -184,10 +184,7 @@ class OtpVerifyButton extends StatelessWidget {
               )
             : const Text(
                 'Verify OTP',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
       ),
     );
@@ -229,10 +226,7 @@ class OtpResendButton extends StatelessWidget {
             )
           : const Text(
               "Didn't receive OTP? Resend",
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
             ),
     );
   }

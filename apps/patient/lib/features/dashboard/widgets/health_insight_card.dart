@@ -94,11 +94,7 @@ class _HealthInsightsStripState extends State<HealthInsightsStrip> {
     }
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-      child: Column(
-        children: [
-          for (final i in _insights!) _card(context, i),
-        ],
-      ),
+      child: Column(children: [for (final i in _insights!) _card(context, i)]),
     );
   }
 
@@ -142,15 +138,19 @@ class _HealthInsightsStripState extends State<HealthInsightsStrip> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          )),
+                      Text(
+                        title,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       const SizedBox(height: 2),
-                      Text(message,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.hintColor,
-                          )),
+                      Text(
+                        message,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.hintColor,
+                        ),
+                      ),
                     ],
                   ),
                 ),

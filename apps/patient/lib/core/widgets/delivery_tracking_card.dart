@@ -75,7 +75,10 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
     final dispatched = DateTime.tryParse(widget.dispatchedAt!);
     if (dispatched == null) return 0.0;
 
-    final elapsed = DateTime.now().toUtc().difference(dispatched.toUtc()).inMinutes;
+    final elapsed = DateTime.now()
+        .toUtc()
+        .difference(dispatched.toUtc())
+        .inMinutes;
     // Use original ETA estimate for progress (not the shrinking live ETA)
     final totalEstimate = elapsed + (estimatedMins as num).toInt();
     if (totalEstimate <= 0) return 0.0;
@@ -113,7 +116,10 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [theme.colorScheme.primaryContainer.withAlpha(77), theme.colorScheme.primaryContainer.withAlpha(38)],
+          colors: [
+            theme.colorScheme.primaryContainer.withAlpha(77),
+            theme.colorScheme.primaryContainer.withAlpha(38),
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -139,7 +145,10 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
               const Spacer(),
               if (isActive)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.green.shade100,
                     borderRadius: BorderRadius.circular(12),
@@ -147,9 +156,20 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.my_location, size: 12, color: Colors.green.shade700),
+                      Icon(
+                        Icons.my_location,
+                        size: 12,
+                        color: Colors.green.shade700,
+                      ),
                       const SizedBox(width: 4),
-                      Text('Live', style: TextStyle(fontSize: 11, color: Colors.green.shade700, fontWeight: FontWeight.bold)),
+                      Text(
+                        'Live',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.green.shade700,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -162,20 +182,34 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
           Row(
             children: [
               if (etaMins != null) ...[
-                Icon(Icons.schedule, size: 18, color: theme.colorScheme.primary),
+                Icon(
+                  Icons.schedule,
+                  size: 18,
+                  color: theme.colorScheme.primary,
+                ),
                 const SizedBox(width: 6),
                 Text(
                   'Estimated arrival: ~$etaMins min',
-                  style: TextStyle(fontSize: 14, color: theme.colorScheme.primary),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: theme.colorScheme.primary,
+                  ),
                 ),
               ],
               if (distanceKm != null) ...[
                 const SizedBox(width: 16),
-                Icon(Icons.straighten, size: 18, color: theme.colorScheme.primary),
+                Icon(
+                  Icons.straighten,
+                  size: 18,
+                  color: theme.colorScheme.primary,
+                ),
                 const SizedBox(width: 6),
                 Text(
                   '$distanceKm km',
-                  style: TextStyle(fontSize: 14, color: theme.colorScheme.primary),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: theme.colorScheme.primary,
+                  ),
                 ),
               ],
             ],
@@ -193,9 +227,21 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       if (deliveryPerson != null)
-                        Text(deliveryPerson, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                        Text(
+                          deliveryPerson,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
                       if (deliveryPhone != null)
-                        Text(deliveryPhone, style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13)),
+                        Text(
+                          deliveryPhone,
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontSize: 13,
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -227,10 +273,20 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Hospital',
-                      style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
-                  Text('Your Location',
-                      style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+                  Text(
+                    'Hospital',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  Text(
+                    'Your Location',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                 ],
               ),
             ],

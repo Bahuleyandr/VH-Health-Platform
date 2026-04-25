@@ -58,35 +58,34 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
   int? hoveredIndex;
   late AnimationController _animationController;
   late List<Animation<double>> _scaleAnimations;
-  
+
   // Reordered features
   late List<FeatureIconData> _reorderedFeatures;
 
   @override
   void initState() {
     super.initState();
-    
+
     // Reorder features to put "health" first
     _reorderedFeatures = _getReordered();
-    
+
     // Initialize animation controller for tap feedback
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
-    
+
     // Create scale animations for each feature
     _scaleAnimations = List.generate(
       _reorderedFeatures.length,
-      (index) => Tween<double>(
-        begin: 1.0,
-        end: 1.2,
-      ).animate(CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.easeOutBack,
-      )),
+      (index) => Tween<double>(begin: 1.0, end: 1.2).animate(
+        CurvedAnimation(
+          parent: _animationController,
+          curve: Curves.easeOutBack,
+        ),
+      ),
     );
-    
+
     // Set initial color if callback provided
     if (widget.onFocusColorChanged != null && _reorderedFeatures.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -104,19 +103,19 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
 
   List<FeatureIconData> _getReordered() {
     if (widget.features.isEmpty) return [];
-    
+
     // Find "health" feature and put it first (at top position)
     final healthIndex = widget.features.indexWhere(
       (f) => f.label.toLowerCase().contains('health'),
     );
-    
+
     if (healthIndex > 0) {
       final reordered = List<FeatureIconData>.from(widget.features);
       final healthFeature = reordered.removeAt(healthIndex);
       reordered.insert(0, healthFeature);
       return reordered;
     }
-    
+
     return widget.features;
   }
 
@@ -125,20 +124,20 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
     if (widget.enableHaptics) {
       HapticFeedback.selectionClick();
     }
-    
+
     // Update selected index
     setState(() {
       selectedIndex = index;
     });
-    
+
     // Trigger scale animation
     _animationController.forward().then((_) {
       _animationController.reverse();
     });
-    
+
     // Call color change callback
     widget.onFocusColorChanged?.call(feature.color);
-    
+
     // Navigate to feature
     feature.onTap(context);
   }
@@ -152,14 +151,16 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
     final theme = Theme.of(context);
     final isDarkMode = theme.brightness == Brightness.dark;
     final size = MediaQuery.of(context).size;
-    final diameter = widget.size ?? min(size.width * 0.8, 380.0); // Reduced max size
+    final diameter =
+        widget.size ?? min(size.width * 0.8, 380.0); // Reduced max size
     final radius = diameter * 0.35; // Conservative radius to ensure no cutoff
 
     return Center(
       child: SizedBox(
         width: diameter,
         height: diameter,
-        child: ClipRect( // Add clipping to ensure nothing overflows
+        child: ClipRect(
+          // Add clipping to ensure nothing overflows
           child: Stack(
             alignment: Alignment.center,
             children: [
@@ -172,7 +173,7 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
                   gradient: RadialGradient(
                     colors: [
                       theme.colorScheme.primary.withAlpha(
-                        isDarkMode ? 25 : 13  // ✅ More visible in dark mode
+                        isDarkMode ? 25 : 13, // ✅ More visible in dark mode
                       ),
                       Colors.transparent,
                     ],
@@ -190,8 +191,10 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
                   color: theme.colorScheme.surface,
                   boxShadow: [
                     BoxShadow(
-                      color: isDarkMode 
-                          ? Colors.black.withAlpha(64)  // ✅ Stronger shadow in dark
+                      color: isDarkMode
+                          ? Colors.black.withAlpha(
+                              64,
+                            ) // ✅ Stronger shadow in dark
                           : Colors.black.withAlpha(38),
                       blurRadius: 15,
                       offset: const Offset(0, 3),
@@ -238,7 +241,7 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
   ) {
     final itemCount = _reorderedFeatures.length;
     final angleStep = (2 * pi) / itemCount;
-    
+
     return List.generate(itemCount, (index) {
       // Calculate position - start from top (-pi/2) and go clockwise
       final angle = -pi / 2 + (angleStep * index);
@@ -247,30 +250,36 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
       final feature = _reorderedFeatures[index];
       final isSelected = index == selectedIndex;
       final isHovered = index == hoveredIndex;
-      
+
       // Items at top are slightly larger
       // ignore: unused_local_variable
       final distanceFromTop = (angle + pi / 2).abs();
-      final positionScale = index == 0 ? 1.05 : 1.0; // Reduced from 1.1 to prevent cutoff
+      final positionScale = index == 0
+          ? 1.05
+          : 1.0; // Reduced from 1.1 to prevent cutoff
 
       return Positioned(
         left: diameter / 2 + x - 38, // Center the 76px containers
-        top: diameter / 2 + y - 38,  // Center the 76px containers
+        top: diameter / 2 + y - 38, // Center the 76px containers
         child: MouseRegion(
           onEnter: (_) => setState(() => hoveredIndex = index),
           onExit: (_) => setState(() => hoveredIndex = null),
           child: GestureDetector(
             onTap: () => _onFeatureTap(index, feature),
-            onLongPress: widget.enableAccessibility ? () {
-              if (widget.enableHaptics) {
-                HapticFeedback.mediumImpact();
-              }
-              _showFeatureDescription(feature);
-            } : null,
+            onLongPress: widget.enableAccessibility
+                ? () {
+                    if (widget.enableHaptics) {
+                      HapticFeedback.mediumImpact();
+                    }
+                    _showFeatureDescription(feature);
+                  }
+                : null,
             child: AnimatedBuilder(
               animation: _scaleAnimations[index],
               builder: (context, child) {
-                final animScale = isSelected ? _scaleAnimations[index].value : 1.0;
+                final animScale = isSelected
+                    ? _scaleAnimations[index].value
+                    : 1.0;
                 return Transform.scale(
                   scale: positionScale * animScale * (isHovered ? 1.05 : 1.0),
                   child: child,
@@ -299,7 +308,9 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
     ThemeData theme,
     bool isDarkMode,
   ) {
-    final shadowOpacity = ThemeColors.getShadowOpacity(context); // ✅ Use theme utility
+    final shadowOpacity = ThemeColors.getShadowOpacity(
+      context,
+    ); // ✅ Use theme utility
     final isHighlighted = isSelected || isHovered || isTopItem;
 
     return Stack(
@@ -315,14 +326,14 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
               gradient: RadialGradient(
                 colors: [
                   feature.color.withValues(
-                    alpha: isDarkMode ? 0.15 : 0.25  // ✅ Subtler in dark mode
+                    alpha: isDarkMode ? 0.15 : 0.25, // ✅ Subtler in dark mode
                   ),
                   feature.color.withValues(alpha: 0.0),
                 ],
               ),
             ),
           ),
-        
+
         // Main container
         AnimatedContainer(
           duration: const Duration(milliseconds: 200),
@@ -356,7 +367,9 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
                 children: [
                   Icon(
                     feature.icon,
-                    size: isHighlighted ? 28 : 26, // Adjusted for smaller containers
+                    size: isHighlighted
+                        ? 28
+                        : 26, // Adjusted for smaller containers
                     color: isHighlighted
                         ? feature.color
                         : theme.colorScheme.primary,
@@ -442,9 +455,7 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
             Text(feature.label),
           ],
         ),
-        content: Text(
-          feature.description ?? 'Tap to access ${feature.label}',
-        ),
+        content: Text(feature.description ?? 'Tap to access ${feature.label}'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -455,9 +466,7 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
               Navigator.pop(context);
               feature.onTap(context);
             },
-            style: FilledButton.styleFrom(
-              backgroundColor: feature.color,
-            ),
+            style: FilledButton.styleFrom(backgroundColor: feature.color),
             child: const Text('Open'),
           ),
         ],

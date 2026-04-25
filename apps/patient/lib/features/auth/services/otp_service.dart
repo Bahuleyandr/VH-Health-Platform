@@ -48,17 +48,20 @@ class OtpService {
       if (kDebugMode) {
         developer.log('🔄 Starting background backend login...', name: 'Auth');
       }
-      
+
       final idToken = await FirebaseAuth.instance.currentUser?.getIdToken();
       if (idToken == null) {
         if (kDebugMode) {
-          developer.log('❌ No Firebase ID token available for backend login', name: 'Auth');
+          developer.log(
+            '❌ No Firebase ID token available for backend login',
+            name: 'Auth',
+          );
         }
         return;
       }
 
       final response = await BackendApiService.firebaseLogin(idToken);
-      
+
       // Check if response is valid
       if (response.body.isEmpty) {
         if (kDebugMode) {
@@ -66,7 +69,7 @@ class OtpService {
         }
         return;
       }
-      
+
       final decoded = jsonDecode(response.body);
 
       // Safely access nested data from { success, data: { accessToken, user: { ... } } }
@@ -79,8 +82,11 @@ class OtpService {
       if (jwt != null && userPhone != null) {
         await secureStorage.write(key: 'jwt', value: jwt);
         await secureStorage.write(key: 'user_phone', value: userPhone);
-        await secureStorage.write(key: 'isNewUser', value: isNewUser.toString());
-        
+        await secureStorage.write(
+          key: 'isNewUser',
+          value: isNewUser.toString(),
+        );
+
         // Store user ID for appointment booking and other features.
         // Written under both keys so that screens reading 'patient_id'
         // (health summary, consultations, vitals) and those reading
@@ -88,32 +94,43 @@ class OtpService {
         final userId = user?['id'];
         if (userId != null) {
           await secureStorage.write(key: 'user_id', value: userId.toString());
-          await secureStorage.write(key: 'patient_id', value: userId.toString());
+          await secureStorage.write(
+            key: 'patient_id',
+            value: userId.toString(),
+          );
         }
-        
+
         if (kDebugMode) {
           developer.log('✅ Backend login completed successfully', name: 'Auth');
           developer.log('📱 New User: $isNewUser', name: 'Auth');
         }
       } else {
         if (kDebugMode) {
-          developer.log('⚠️ Backend response missing required fields', name: 'Auth');
-          developer.log('📋 Response structure: ${decoded.keys.toList()}', name: 'Auth');
+          developer.log(
+            '⚠️ Backend response missing required fields',
+            name: 'Auth',
+          );
+          developer.log(
+            '📋 Response structure: ${decoded.keys.toList()}',
+            name: 'Auth',
+          );
         }
       }
-      
     } catch (e) {
       if (kDebugMode) {
         developer.log('❌ Background backend login failed: $e', name: 'Auth');
       }
-      
+
       // Store basic Firebase info as fallback
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         await secureStorage.write(key: 'user_phone', value: phoneNumber);
         await secureStorage.write(key: 'firebase_uid', value: user.uid);
         if (kDebugMode) {
-          developer.log('💾 Stored basic Firebase user info as fallback', name: 'Auth');
+          developer.log(
+            '💾 Stored basic Firebase user info as fallback',
+            name: 'Auth',
+          );
         }
       }
     }

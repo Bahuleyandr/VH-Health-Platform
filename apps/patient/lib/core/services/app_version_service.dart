@@ -36,13 +36,15 @@ class AppVersionService {
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
         final data = body['data'] ?? body;
-        _latestVersion = data['latestVersion'] as String? ??
+        _latestVersion =
+            data['latestVersion'] as String? ??
             data['latest_version'] as String?;
-        _updateUrl = data['updateUrl'] as String? ??
-            data['update_url'] as String?;
+        _updateUrl =
+            data['updateUrl'] as String? ?? data['update_url'] as String?;
         if (kDebugMode) {
           debugPrint(
-              'AppVersionService: current=$_currentVersion latest=$_latestVersion');
+            'AppVersionService: current=$_currentVersion latest=$_latestVersion',
+          );
         }
       }
     } catch (e) {

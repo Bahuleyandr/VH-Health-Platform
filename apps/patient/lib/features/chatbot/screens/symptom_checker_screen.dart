@@ -35,7 +35,10 @@ class _SymptomCheckerScreenState extends State<SymptomCheckerScreen> {
       _error = null;
     });
     try {
-      final resp = await ApiClient.post('/chatbot/triage', body: {'symptoms': text});
+      final resp = await ApiClient.post(
+        '/chatbot/triage',
+        body: {'symptoms': text},
+      );
       if (resp.isSuccess) {
         setState(() => _result = resp.dataAsMap());
       } else {
@@ -51,12 +54,24 @@ class _SymptomCheckerScreenState extends State<SymptomCheckerScreen> {
   ({Color colour, String label, IconData icon}) _triageVisual(String key) {
     switch (key) {
       case 'urgent_care':
-        return (colour: Colors.red, label: 'Urgent care — go to A&E', icon: Icons.emergency);
+        return (
+          colour: Colors.red,
+          label: 'Urgent care — go to A&E',
+          icon: Icons.emergency,
+        );
       case 'see_doctor_now':
-        return (colour: Colors.orange, label: 'See a doctor today', icon: Icons.medical_services);
+        return (
+          colour: Colors.orange,
+          label: 'See a doctor today',
+          icon: Icons.medical_services,
+        );
       case 'self_care':
       default:
-        return (colour: Colors.green, label: 'Self-care — monitor at home', icon: Icons.home);
+        return (
+          colour: Colors.green,
+          label: 'Self-care — monitor at home',
+          icon: Icons.home,
+        );
     }
   }
 
@@ -88,7 +103,10 @@ class _SymptomCheckerScreenState extends State<SymptomCheckerScreen> {
               onPressed: _busy ? null : _run,
               icon: _busy
                   ? const SizedBox(
-                      width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   : const Icon(Icons.psychology),
               label: Text(_busy ? 'Thinking…' : 'Check symptoms'),
             ),
@@ -124,8 +142,13 @@ class _SymptomCheckerScreenState extends State<SymptomCheckerScreen> {
             Icon(visual.icon, color: visual.colour, size: 28),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(visual.label,
-                  style: TextStyle(fontWeight: FontWeight.bold, color: visual.colour)),
+              child: Text(
+                visual.label,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: visual.colour,
+                ),
+              ),
             ),
           ],
         ),
@@ -140,12 +163,18 @@ class _SymptomCheckerScreenState extends State<SymptomCheckerScreen> {
         for (final f in redFlags)
           Padding(
             padding: const EdgeInsets.only(top: 2),
-            child: Text('• $f', style: const TextStyle(color: Colors.red, fontSize: 13)),
+            child: Text(
+              '• $f',
+              style: const TextStyle(color: Colors.red, fontSize: 13),
+            ),
           ),
       ],
       if (differential.isNotEmpty) ...[
         const SizedBox(height: 16),
-        const Text('Possible causes', style: TextStyle(fontWeight: FontWeight.bold)),
+        const Text(
+          'Possible causes',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         for (final d in differential)
           ListTile(
             dense: true,
@@ -157,9 +186,10 @@ class _SymptomCheckerScreenState extends State<SymptomCheckerScreen> {
       if (triageKey != 'urgent_care') ...[
         const SizedBox(height: 12),
         OutlinedButton.icon(
-          onPressed: () => context.push('/appointments', extra: {
-            'reason': _symptomsCtrl.text.trim(),
-          }),
+          onPressed: () => context.push(
+            '/appointments',
+            extra: {'reason': _symptomsCtrl.text.trim()},
+          ),
           icon: const Icon(Icons.event_available),
           label: const Text('Book an appointment'),
         ),

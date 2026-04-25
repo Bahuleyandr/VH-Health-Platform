@@ -24,10 +24,7 @@ class AccessibleButton extends StatelessWidget {
       hint: hint,
       button: true,
       excludeSemantics: excludeSemantics,
-      child: GestureDetector(
-        onTap: onPressed,
-        child: child,
-      ),
+      child: GestureDetector(onTap: onPressed, child: child),
     );
   }
 }
