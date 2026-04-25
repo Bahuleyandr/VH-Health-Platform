@@ -8,21 +8,25 @@ import 'package:vhhealth/core/config/api_config.dart';
 class BackendApiService {
   /// 🔐 Firebase OTP token login (called after OTP is verified)
   static Future<http.Response> firebaseLogin(String token) async {
-    final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/auth/firebase/firebase-login'),
-      headers: ApiConfig.jsonHeaders,
-      body: jsonEncode({'idToken': token}),
-    ).timeout(const Duration(seconds: 15));
+    final response = await http
+        .post(
+          Uri.parse('${ApiConfig.baseUrl}/auth/firebase/firebase-login'),
+          headers: ApiConfig.jsonHeaders,
+          body: jsonEncode({'idToken': token}),
+        )
+        .timeout(const Duration(seconds: 15));
     return response;
   }
 
   /// 📝 Save user profile after initial registration (post-OTP onboarding)
   static Future<bool> saveUserProfile(Map<String, dynamic> profile) async {
-    final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/auth/firebase/complete-profile'),
-      headers: ApiConfig.jsonHeaders,
-      body: jsonEncode(profile),
-    ).timeout(const Duration(seconds: 15));
+    final response = await http
+        .post(
+          Uri.parse('${ApiConfig.baseUrl}/auth/firebase/complete-profile'),
+          headers: ApiConfig.jsonHeaders,
+          body: jsonEncode(profile),
+        )
+        .timeout(const Duration(seconds: 15));
     return response.statusCode == 200 || response.statusCode == 201;
   }
 

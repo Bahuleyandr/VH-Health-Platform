@@ -102,12 +102,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   void _handleNotificationTap(Map<String, dynamic> notification) {
     // Extract type from top-level or nested data
-    final type = notification['type']?.toString() ??
+    final type =
+        notification['type']?.toString() ??
         (notification['data'] is Map
             ? (notification['data'] as Map)['type']?.toString()
             : null) ??
         '';
-          // ignore: unused_local_variable
+    // ignore: unused_local_variable
     final data = notification['data'] is Map
         ? notification['data'] as Map<String, dynamic>
         : <String, dynamic>{};
@@ -167,74 +168,85 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           OfflineBanner(staleLabel: _staleLabel),
           Expanded(
             child: DataStateBuilder<dynamic>(
-        isLoading: loading,
-        error: _error,
-        data: notifications,
-        onRetry: _fetchNotifications,
-        emptyIcon: Icons.notifications_off_outlined,
-        emptyTitle: loc.noNotifications,
-        emptySubtitle: '',
-        builder: (context, items) => RefreshIndicator(
-              onRefresh: _fetchNotifications,
-              child: ListView.separated(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: notifications.length,
-                      separatorBuilder: (_, _) => const Divider(),
-                      itemBuilder: (_, index) {
-                        final notif = notifications[index];
-                        final created = DateTime.tryParse(notif['created_at'] ?? '') ?? DateTime.now();
-                        final isRead = notif['read'] == true;
+              isLoading: loading,
+              error: _error,
+              data: notifications,
+              onRetry: _fetchNotifications,
+              emptyIcon: Icons.notifications_off_outlined,
+              emptyTitle: loc.noNotifications,
+              emptySubtitle: '',
+              builder: (context, items) => RefreshIndicator(
+                onRefresh: _fetchNotifications,
+                child: ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: notifications.length,
+                  separatorBuilder: (_, _) => const Divider(),
+                  itemBuilder: (_, index) {
+                    final notif = notifications[index];
+                    final created =
+                        DateTime.tryParse(notif['created_at'] ?? '') ??
+                        DateTime.now();
+                    final isRead = notif['read'] == true;
 
-                        return Dismissible(
-                          key: Key('${notif['id']}'),
-                          direction: DismissDirection.endToStart,
-                          background: Container(
-                            alignment: Alignment.centerRight,
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            color: Colors.teal,
-                            child: const Icon(Icons.done, color: Colors.white),
-                          ),
-                          onDismissed: (_) async {
-                            await _markAsRead(notif['id']);
-                            if (!mounted) return;
-                            setState(() => notifications.removeAt(index));
-                            // ignore: use_build_context_synchronously
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(loc.notificationMarkedAsRead)),
-                            );
-                          },
-                          child: ListTile(
-                            title: Text(notif['title'] ?? loc.notification),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(notif['body'] ?? ''),
-                                const SizedBox(height: 4),
-                                Text(
-                                  DateFormat('dd-MM-yyyy hh:mm a').format(created.toLocal()),
-                                  style: const TextStyle(fontSize: 11, color: Colors.grey),
-                                ),
-                              ],
-                            ),
-                            trailing: isRead
-                                ? null
-                                : const Icon(Icons.circle, color: Colors.teal, size: 10),
-                            onTap: () async {
-                              await _markAsRead(notif['id']);
-                              if (!mounted) return;
-                              setState(() {
-                                notifications[index]['read'] = true;
-                              });
-                              _handleNotificationTap(notif);
-                            },
-                            tileColor: isRead ? null : Colors.teal.withAlpha(20),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
+                    return Dismissible(
+                      key: Key('${notif['id']}'),
+                      direction: DismissDirection.endToStart,
+                      background: Container(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        color: Colors.teal,
+                        child: const Icon(Icons.done, color: Colors.white),
+                      ),
+                      onDismissed: (_) async {
+                        await _markAsRead(notif['id']);
+                        if (!mounted) return;
+                        setState(() => notifications.removeAt(index));
+                        // ignore: use_build_context_synchronously
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(loc.notificationMarkedAsRead)),
                         );
                       },
-                    ),
+                      child: ListTile(
+                        title: Text(notif['title'] ?? loc.notification),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(notif['body'] ?? ''),
+                            const SizedBox(height: 4),
+                            Text(
+                              DateFormat(
+                                'dd-MM-yyyy hh:mm a',
+                              ).format(created.toLocal()),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                        trailing: isRead
+                            ? null
+                            : const Icon(
+                                Icons.circle,
+                                color: Colors.teal,
+                                size: 10,
+                              ),
+                        onTap: () async {
+                          await _markAsRead(notif['id']);
+                          if (!mounted) return;
+                          setState(() {
+                            notifications[index]['read'] = true;
+                          });
+                          _handleNotificationTap(notif);
+                        },
+                        tileColor: isRead ? null : Colors.teal.withAlpha(20),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           ),

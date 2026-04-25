@@ -7,17 +7,38 @@ import 'package:vhhealth/core/models/status_enums.dart';
 void main() {
   group('AppointmentStatus.fromString', () {
     test('parses canonical uppercase values', () {
-      expect(AppointmentStatus.fromString('SCHEDULED'), AppointmentStatus.scheduled);
-      expect(AppointmentStatus.fromString('CONFIRMED'), AppointmentStatus.confirmed);
-      expect(AppointmentStatus.fromString('IN_PROGRESS'), AppointmentStatus.inProgress);
-      expect(AppointmentStatus.fromString('COMPLETED'), AppointmentStatus.completed);
-      expect(AppointmentStatus.fromString('CANCELLED'), AppointmentStatus.cancelled);
+      expect(
+        AppointmentStatus.fromString('SCHEDULED'),
+        AppointmentStatus.scheduled,
+      );
+      expect(
+        AppointmentStatus.fromString('CONFIRMED'),
+        AppointmentStatus.confirmed,
+      );
+      expect(
+        AppointmentStatus.fromString('IN_PROGRESS'),
+        AppointmentStatus.inProgress,
+      );
+      expect(
+        AppointmentStatus.fromString('COMPLETED'),
+        AppointmentStatus.completed,
+      );
+      expect(
+        AppointmentStatus.fromString('CANCELLED'),
+        AppointmentStatus.cancelled,
+      );
       expect(AppointmentStatus.fromString('NO_SHOW'), AppointmentStatus.noShow);
     });
 
     test('accepts lowercase + mixed case', () {
-      expect(AppointmentStatus.fromString('scheduled'), AppointmentStatus.scheduled);
-      expect(AppointmentStatus.fromString('In_Progress'), AppointmentStatus.inProgress);
+      expect(
+        AppointmentStatus.fromString('scheduled'),
+        AppointmentStatus.scheduled,
+      );
+      expect(
+        AppointmentStatus.fromString('In_Progress'),
+        AppointmentStatus.inProgress,
+      );
     });
 
     test('returns null for null input', () {
@@ -45,19 +66,49 @@ void main() {
 
   group('PharmacyOrderStatus.fromString', () {
     test('parses the 7 canonical statuses', () {
-      expect(PharmacyOrderStatus.fromString('PENDING'), PharmacyOrderStatus.pending);
-      expect(PharmacyOrderStatus.fromString('CONFIRMED'), PharmacyOrderStatus.confirmed);
-      expect(PharmacyOrderStatus.fromString('PREPARING'), PharmacyOrderStatus.preparing);
-      expect(PharmacyOrderStatus.fromString('READY'), PharmacyOrderStatus.ready);
-      expect(PharmacyOrderStatus.fromString('DISPATCHED'), PharmacyOrderStatus.dispatched);
-      expect(PharmacyOrderStatus.fromString('DELIVERED'), PharmacyOrderStatus.delivered);
-      expect(PharmacyOrderStatus.fromString('CANCELLED'), PharmacyOrderStatus.cancelled);
+      expect(
+        PharmacyOrderStatus.fromString('PENDING'),
+        PharmacyOrderStatus.pending,
+      );
+      expect(
+        PharmacyOrderStatus.fromString('CONFIRMED'),
+        PharmacyOrderStatus.confirmed,
+      );
+      expect(
+        PharmacyOrderStatus.fromString('PREPARING'),
+        PharmacyOrderStatus.preparing,
+      );
+      expect(
+        PharmacyOrderStatus.fromString('READY'),
+        PharmacyOrderStatus.ready,
+      );
+      expect(
+        PharmacyOrderStatus.fromString('DISPATCHED'),
+        PharmacyOrderStatus.dispatched,
+      );
+      expect(
+        PharmacyOrderStatus.fromString('DELIVERED'),
+        PharmacyOrderStatus.delivered,
+      );
+      expect(
+        PharmacyOrderStatus.fromString('CANCELLED'),
+        PharmacyOrderStatus.cancelled,
+      );
     });
 
-    test('legacy PLACED folds into pending (backend lifecycle renamed 2026-04-14)', () {
-      expect(PharmacyOrderStatus.fromString('PLACED'), PharmacyOrderStatus.pending);
-      expect(PharmacyOrderStatus.fromString('placed'), PharmacyOrderStatus.pending);
-    });
+    test(
+      'legacy PLACED folds into pending (backend lifecycle renamed 2026-04-14)',
+      () {
+        expect(
+          PharmacyOrderStatus.fromString('PLACED'),
+          PharmacyOrderStatus.pending,
+        );
+        expect(
+          PharmacyOrderStatus.fromString('placed'),
+          PharmacyOrderStatus.pending,
+        );
+      },
+    );
 
     test('isActive includes every non-terminal state', () {
       expect(PharmacyOrderStatus.pending.isActive, isTrue);
@@ -84,9 +135,18 @@ void main() {
 
   group('InvestigationStatus.fromString', () {
     test('parses canonical statuses', () {
-      expect(InvestigationStatus.fromString('PENDING'), InvestigationStatus.pending);
-      expect(InvestigationStatus.fromString('SAMPLE_COLLECTED'), InvestigationStatus.sampleCollected);
-      expect(InvestigationStatus.fromString('REPORT_READY'), InvestigationStatus.reportReady);
+      expect(
+        InvestigationStatus.fromString('PENDING'),
+        InvestigationStatus.pending,
+      );
+      expect(
+        InvestigationStatus.fromString('SAMPLE_COLLECTED'),
+        InvestigationStatus.sampleCollected,
+      );
+      expect(
+        InvestigationStatus.fromString('REPORT_READY'),
+        InvestigationStatus.reportReady,
+      );
     });
 
     test('reportReady is not isActive but is not isTerminal either', () {

@@ -28,16 +28,21 @@ void main() {
       expect(cached.isStale(), isTrue);
     });
 
-    test('returns false when age exactly equals TTL (not strictly greater)', () {
-      // age > ttl, not >=, so exactly equal should be false
-      // This is hard to test exactly due to timing, so we use slightly less
-      final cached = CachedData(
-        data: null,
-        cachedAt: DateTime.now().subtract(const Duration(minutes: 14, seconds: 59)),
-      );
+    test(
+      'returns false when age exactly equals TTL (not strictly greater)',
+      () {
+        // age > ttl, not >=, so exactly equal should be false
+        // This is hard to test exactly due to timing, so we use slightly less
+        final cached = CachedData(
+          data: null,
+          cachedAt: DateTime.now().subtract(
+            const Duration(minutes: 14, seconds: 59),
+          ),
+        );
 
-      expect(cached.isStale(), isFalse);
-    });
+        expect(cached.isStale(), isFalse);
+      },
+    );
 
     test('custom TTL is respected', () {
       final cached = CachedData(
@@ -62,10 +67,7 @@ void main() {
     });
 
     test('just-created data is not stale', () {
-      final cached = CachedData(
-        data: 'fresh',
-        cachedAt: DateTime.now(),
-      );
+      final cached = CachedData(data: 'fresh', cachedAt: DateTime.now());
 
       expect(cached.isStale(), isFalse);
     });
@@ -82,10 +84,7 @@ void main() {
     });
 
     test('returns "just now" for data 0 seconds old', () {
-      final cached = CachedData(
-        data: null,
-        cachedAt: DateTime.now(),
-      );
+      final cached = CachedData(data: null, cachedAt: DateTime.now());
 
       expect(cached.ageLabel, 'just now');
     });
@@ -102,7 +101,9 @@ void main() {
     test('returns "1 min ago" for data 1 minute old', () {
       final cached = CachedData(
         data: null,
-        cachedAt: DateTime.now().subtract(const Duration(minutes: 1, seconds: 30)),
+        cachedAt: DateTime.now().subtract(
+          const Duration(minutes: 1, seconds: 30),
+        ),
       );
 
       expect(cached.ageLabel, '1 min ago');
@@ -189,29 +190,20 @@ void main() {
     });
 
     test('stores and returns list data', () {
-      final cached = CachedData(
-        data: [1, 2, 3],
-        cachedAt: DateTime.now(),
-      );
+      final cached = CachedData(data: [1, 2, 3], cachedAt: DateTime.now());
 
       expect(cached.data, isA<List>());
       expect((cached.data as List).length, 3);
     });
 
     test('stores and returns null data', () {
-      final cached = CachedData(
-        data: null,
-        cachedAt: DateTime.now(),
-      );
+      final cached = CachedData(data: null, cachedAt: DateTime.now());
 
       expect(cached.data, isNull);
     });
 
     test('stores and returns string data', () {
-      final cached = CachedData(
-        data: 'hello',
-        cachedAt: DateTime.now(),
-      );
+      final cached = CachedData(data: 'hello', cachedAt: DateTime.now());
 
       expect(cached.data, 'hello');
     });

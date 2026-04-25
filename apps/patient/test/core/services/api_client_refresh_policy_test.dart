@@ -73,7 +73,10 @@ void main() {
     test('successful refresh → caller retries original', () async {
       int refreshCalls = 0;
       final g = RefreshGate(
-        doRefresh: () async { refreshCalls++; return true; },
+        doRefresh: () async {
+          refreshCalls++;
+          return true;
+        },
         onSessionExpired: () => fail('should not expire'),
       );
       expect(await g.handle401(), RefreshOutcome.retryOriginal);
@@ -97,8 +100,11 @@ void main() {
       refreshCompleter.complete(true);
       final results = await Future.wait(futures);
 
-      expect(refreshCalls, 1,
-          reason: 'All concurrent 401s must share one refresh call');
+      expect(
+        refreshCalls,
+        1,
+        reason: 'All concurrent 401s must share one refresh call',
+      );
       expect(results, everyElement(RefreshOutcome.retryOriginal));
     });
 
@@ -111,49 +117,68 @@ void main() {
 
       expect(await g.handle401(), RefreshOutcome.sessionExpired);
       expect(await g.handle401(), RefreshOutcome.sessionExpired);
-      expect(expiredFired, 1,
-          reason: 'onSessionExpired must be idempotent — one expiry = one redirect');
+      expect(
+        expiredFired,
+        1,
+        reason:
+            'onSessionExpired must be idempotent — one expiry = one redirect',
+      );
     });
 
     test('thrown refresh error is treated as expired, not a crash', () async {
       int expiredFired = 0;
       final g = RefreshGate(
-        doRefresh: () async { throw StateError('network down'); },
+        doRefresh: () async {
+          throw StateError('network down');
+        },
         onSessionExpired: () => expiredFired++,
       );
       expect(await g.handle401(), RefreshOutcome.sessionExpired);
       expect(expiredFired, 1);
     });
 
-    test('after expiry, new 401s short-circuit to expired (no retry loop)', () async {
-      int refreshCalls = 0;
-      int expiredFired = 0;
-      final g = RefreshGate(
-        doRefresh: () async { refreshCalls++; return false; },
-        onSessionExpired: () => expiredFired++,
-      );
-      await g.handle401();  // triggers refresh → fails
-      final r = await g.handle401();  // should NOT call refresh again
-      expect(r, RefreshOutcome.sessionExpired);
-      expect(refreshCalls, 1);
-      expect(expiredFired, 1);
-    });
+    test(
+      'after expiry, new 401s short-circuit to expired (no retry loop)',
+      () async {
+        int refreshCalls = 0;
+        int expiredFired = 0;
+        final g = RefreshGate(
+          doRefresh: () async {
+            refreshCalls++;
+            return false;
+          },
+          onSessionExpired: () => expiredFired++,
+        );
+        await g.handle401(); // triggers refresh → fails
+        final r = await g.handle401(); // should NOT call refresh again
+        expect(r, RefreshOutcome.sessionExpired);
+        expect(refreshCalls, 1);
+        expect(expiredFired, 1);
+      },
+    );
 
-    test('concurrent 401s, refresh fails → all get expired, one notify', () async {
-      int expiredFired = 0;
-      final refreshCompleter = Completer<bool>();
-      final g = RefreshGate(
-        doRefresh: () async => refreshCompleter.future,
-        onSessionExpired: () => expiredFired++,
-      );
-      final futures = [g.handle401(), g.handle401(), g.handle401()];
-      await Future<void>.delayed(Duration.zero);
-      refreshCompleter.complete(false);
-      final results = await Future.wait(futures);
+    test(
+      'concurrent 401s, refresh fails → all get expired, one notify',
+      () async {
+        int expiredFired = 0;
+        final refreshCompleter = Completer<bool>();
+        final g = RefreshGate(
+          doRefresh: () async => refreshCompleter.future,
+          onSessionExpired: () => expiredFired++,
+        );
+        final futures = [g.handle401(), g.handle401(), g.handle401()];
+        await Future<void>.delayed(Duration.zero);
+        refreshCompleter.complete(false);
+        final results = await Future.wait(futures);
 
-      expect(results, everyElement(RefreshOutcome.sessionExpired));
-      expect(expiredFired, 1,
-          reason: 'Even with N concurrent callers, only one redirect should fire');
-    });
+        expect(results, everyElement(RefreshOutcome.sessionExpired));
+        expect(
+          expiredFired,
+          1,
+          reason:
+              'Even with N concurrent callers, only one redirect should fire',
+        );
+      },
+    );
   });
 }

@@ -39,7 +39,8 @@ class _TodayAppointmentCardState extends State<TodayAppointmentCard> {
   @override
   void didUpdateWidget(covariant TodayAppointmentCard old) {
     super.didUpdateWidget(old);
-    if (old.appointment['id']?.toString() != widget.appointment['id']?.toString()) {
+    if (old.appointment['id']?.toString() !=
+        widget.appointment['id']?.toString()) {
       _position = null;
       _etaMinutes = null;
       _attachRealtime();
@@ -84,7 +85,8 @@ class _TodayAppointmentCardState extends State<TodayAppointmentCard> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final doctorName = widget.appointment['doctor_name']?.toString() ?? 'Doctor';
+    final doctorName =
+        widget.appointment['doctor_name']?.toString() ?? 'Doctor';
     final time = widget.appointment['appointment_time']?.toString() ?? '';
     final live = _liveLine();
 
@@ -107,7 +109,10 @@ class _TodayAppointmentCardState extends State<TodayAppointmentCard> {
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: widget.statusColor,
                         borderRadius: BorderRadius.circular(8),

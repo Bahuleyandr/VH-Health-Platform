@@ -133,31 +133,38 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
       if (body.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Please enter at least one vital sign')),
+            const SnackBar(
+              content: Text('Please enter at least one vital sign'),
+            ),
           );
         }
         return;
       }
 
-      final response = await ApiClient.post('/health/patient/vitals', body: body);
+      final response = await ApiClient.post(
+        '/health/patient/vitals',
+        body: body,
+      );
       if (!mounted) return;
 
       if (response.isSuccess) {
         // Mirror into HealthKit / Health Connect so the entry shows up alongside
         // wearable data. Fire-and-forget; backend is the source of truth.
-        unawaited(HealthSyncService.instance.writeVitalsToHealthStore(
-          heartRate: body['heartRate'] as int?,
-          spO2: body['spO2'] as int?,
-          weight: body['weight'] as double?,
-          temperature: body['temperature'] as double?,
-          systolic: body['bloodPressure'] is Map
-              ? (body['bloodPressure'] as Map)['systolic'] as int?
-              : null,
-          diastolic: body['bloodPressure'] is Map
-              ? (body['bloodPressure'] as Map)['diastolic'] as int?
-              : null,
-          bloodGlucose: body['bloodSugar'] as int?,
-        ));
+        unawaited(
+          HealthSyncService.instance.writeVitalsToHealthStore(
+            heartRate: body['heartRate'] as int?,
+            spO2: body['spO2'] as int?,
+            weight: body['weight'] as double?,
+            temperature: body['temperature'] as double?,
+            systolic: body['bloodPressure'] is Map
+                ? (body['bloodPressure'] as Map)['systolic'] as int?
+                : null,
+            diastolic: body['bloodPressure'] is Map
+                ? (body['bloodPressure'] as Map)['diastolic'] as int?
+                : null,
+            bloodGlucose: body['bloodSugar'] as int?,
+          ),
+        );
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Vitals recorded successfully')),
@@ -173,14 +180,18 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
         widget.onSubmitted();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(response.message ?? 'Failed to record vitals')),
+          SnackBar(
+            content: Text(response.message ?? 'Failed to record vitals'),
+          ),
         );
       }
     } catch (e) {
       if (kDebugMode) debugPrint('VitalsFormTab: submit error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to record vitals. Please try again.')),
+          const SnackBar(
+            content: Text('Failed to record vitals. Please try again.'),
+          ),
         );
       }
     } finally {
@@ -200,7 +211,9 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
           children: [
             Text(
               'Log Your Daily Vitals',
-              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
@@ -278,7 +291,9 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
             // Temperature
             TextFormField(
               controller: _temperatureCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: const InputDecoration(
                 labelText: 'Temperature',
                 suffixText: '\u00B0F',
@@ -288,7 +303,9 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
               validator: (v) {
                 if (v != null && v.isNotEmpty) {
                   final n = double.tryParse(v);
-                  if (n == null || n < 90 || n > 110) return 'Enter 90-110 \u00B0F';
+                  if (n == null || n < 90 || n > 110) {
+                    return 'Enter 90-110 \u00B0F';
+                  }
                 }
                 return null;
               },
@@ -308,7 +325,9 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
               validator: (v) {
                 if (v != null && v.isNotEmpty) {
                   final n = int.tryParse(v);
-                  if (n == null || n < 20 || n > 600) return 'Enter 20-600 mg/dL';
+                  if (n == null || n < 20 || n > 600) {
+                    return 'Enter 20-600 mg/dL';
+                  }
                 }
                 return null;
               },
@@ -318,7 +337,9 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
             // Weight
             TextFormField(
               controller: _weightCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: const InputDecoration(
                 labelText: 'Weight',
                 suffixText: 'kg',
@@ -408,7 +429,8 @@ class _VitalsHistoryTabState extends State<_VitalsHistoryTab> {
       // Resolve patient ID from secure storage (same pattern as HealthSummaryTab).
       // Falls back to firebase_uid, then phone number as last resort.
       const storage = FlutterSecureStorage();
-      final patientId = await storage.read(key: 'patient_id') ??
+      final patientId =
+          await storage.read(key: 'patient_id') ??
           await storage.read(key: 'firebase_uid') ??
           widget.phone;
       final response = await ApiClient.get('/health/patient/$patientId/vitals');
@@ -465,7 +487,11 @@ class _VitalsHistoryTabState extends State<_VitalsHistoryTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.monitor_heart_outlined, size: 48, color: Colors.grey.shade400),
+            Icon(
+              Icons.monitor_heart_outlined,
+              size: 48,
+              color: Colors.grey.shade400,
+            ),
             const SizedBox(height: 12),
             Text('No vitals recorded yet', style: theme.textTheme.bodyMedium),
             const SizedBox(height: 8),
@@ -486,12 +512,20 @@ class _VitalsHistoryTabState extends State<_VitalsHistoryTab> {
           if (_entries.length >= 2)
             _VitalsTrendSummary(latest: _entries[0], previous: _entries[1]),
           if (_entries.length >= 2) const SizedBox(height: 16),
-          Text('History', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+          Text(
+            'History',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           const SizedBox(height: 8),
-          ...List.generate(_entries.length, (i) => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _VitalEntryCard(entry: _entries[i]),
-          )),
+          ...List.generate(
+            _entries.length,
+            (i) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _VitalEntryCard(entry: _entries[i]),
+            ),
+          ),
         ],
       ),
     );
@@ -511,7 +545,12 @@ class _VitalsTrendSummary extends StatelessWidget {
     final theme = Theme.of(context);
     final trends = <_TrendItem>[];
 
-    void addTrend(String label, String unit, String key, {bool higherIsBad = true}) {
+    void addTrend(
+      String label,
+      String unit,
+      String key, {
+      bool higherIsBad = true,
+    }) {
       final cur = _toDouble(latest[key]);
       final prev = _toDouble(previous[key]);
       if (cur == null || prev == null) return;
@@ -548,11 +587,17 @@ class _VitalsTrendSummary extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.trending_up, size: 18, color: Color(0xFFE57373)),
+                const Icon(
+                  Icons.trending_up,
+                  size: 18,
+                  color: Color(0xFFE57373),
+                ),
                 const SizedBox(width: 8),
                 Text(
                   'Trends vs Last Reading',
-                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
             ),
@@ -564,25 +609,39 @@ class _VitalsTrendSummary extends StatelessWidget {
                 final diff = t.current - t.previous;
                 final isUp = diff > 0;
                 final isDown = diff < 0;
-                final isBad = (isUp && t.higherIsBad) || (isDown && !t.higherIsBad);
+                final isBad =
+                    (isUp && t.higherIsBad) || (isDown && !t.higherIsBad);
                 final color = diff == 0
                     ? Colors.grey
                     : isBad
-                        ? Colors.red.shade400
-                        : Colors.green.shade400;
-                final arrow = diff == 0 ? '→' : isUp ? '↑' : '↓';
+                    ? Colors.red.shade400
+                    : Colors.green.shade400;
+                final arrow = diff == 0
+                    ? '→'
+                    : isUp
+                    ? '↑'
+                    : '↓';
 
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(t.label, style: theme.textTheme.labelSmall?.copyWith(color: Colors.grey)),
+                    Text(
+                      t.label,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: Colors.grey,
+                      ),
+                    ),
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          t.current.toStringAsFixed(t.current == t.current.roundToDouble() ? 0 : 1),
-                          style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                          t.current.toStringAsFixed(
+                            t.current == t.current.roundToDouble() ? 0 : 1,
+                          ),
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         const SizedBox(width: 4),
                         Text(
@@ -617,7 +676,13 @@ class _TrendItem {
   final double previous;
   final String unit;
   final bool higherIsBad;
-  _TrendItem(this.label, this.current, this.previous, this.unit, this.higherIsBad);
+  _TrendItem(
+    this.label,
+    this.current,
+    this.previous,
+    this.unit,
+    this.higherIsBad,
+  );
 }
 
 class _VitalEntryCard extends StatelessWidget {
@@ -627,17 +692,22 @@ class _VitalEntryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dateStr = entry['createdAt'] as String? ?? entry['date'] as String? ?? '';
+    final dateStr =
+        entry['createdAt'] as String? ?? entry['date'] as String? ?? '';
     String formattedDate = dateStr;
     try {
       final dt = DateTime.parse(dateStr);
       formattedDate = DateFormat('MMM dd, yyyy - hh:mm a').format(dt);
-    } catch (e) { debugPrint('Vitals date parse: $e'); }
+    } catch (e) {
+      debugPrint('Vitals date parse: $e');
+    }
 
     final bp = entry['bloodPressure'] as Map<String, dynamic>?;
     final items = <_VitalItem>[];
     if (bp != null) {
-      items.add(_VitalItem('BP', '${bp['systolic']}/${bp['diastolic']}', 'mmHg'));
+      items.add(
+        _VitalItem('BP', '${bp['systolic']}/${bp['diastolic']}', 'mmHg'),
+      );
     }
     if (entry['heartRate'] != null) {
       items.add(_VitalItem('HR', '${entry['heartRate']}', 'bpm'));
@@ -665,11 +735,17 @@ class _VitalEntryCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.calendar_today, size: 14, color: Colors.grey.shade600),
+                Icon(
+                  Icons.calendar_today,
+                  size: 14,
+                  color: Colors.grey.shade600,
+                ),
                 const SizedBox(width: 6),
                 Text(
                   formattedDate,
-                  style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.grey.shade600,
+                  ),
                 ),
               ],
             ),
@@ -684,7 +760,9 @@ class _VitalEntryCard extends StatelessWidget {
                   children: [
                     Text(
                       item.label,
-                      style: theme.textTheme.labelSmall?.copyWith(color: Colors.grey),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: Colors.grey,
+                      ),
                     ),
                     RichText(
                       text: TextSpan(
@@ -696,7 +774,9 @@ class _VitalEntryCard extends StatelessWidget {
                           TextSpan(text: item.value),
                           TextSpan(
                             text: ' ${item.unit}',
-                            style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: Colors.grey,
+                            ),
                           ),
                         ],
                       ),

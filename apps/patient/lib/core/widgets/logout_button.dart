@@ -8,8 +8,8 @@ import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/firebase_session_service.dart';
 
 enum LogoutButtonStyle {
-  iconOnly,   // for AppBar
-  listTile,   // for SettingsScreen
+  iconOnly, // for AppBar
+  listTile, // for SettingsScreen
 }
 
 class LogoutButton extends StatelessWidget {
@@ -74,7 +74,6 @@ class LogoutButton extends StatelessWidget {
       if (context.mounted) {
         context.go('/login');
       }
-      
     } catch (e) {
       debugPrint('Logout error: $e');
       // If navigation fails, show error
@@ -92,7 +91,7 @@ class LogoutButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     switch (style) {
       case LogoutButtonStyle.iconOnly:
         return IconButton(
@@ -100,14 +99,11 @@ class LogoutButton extends StatelessWidget {
           icon: Icon(icon, color: color ?? theme.colorScheme.onSurface),
           onPressed: () => _confirmAndLogout(context),
         );
-      
+
       case LogoutButtonStyle.listTile:
         return ListTile(
           leading: Icon(icon, color: theme.colorScheme.error),
-          title: Text(
-            label,
-            style: TextStyle(color: theme.colorScheme.error),
-          ),
+          title: Text(label, style: TextStyle(color: theme.colorScheme.error)),
           onTap: () => _confirmAndLogout(context),
         );
     }

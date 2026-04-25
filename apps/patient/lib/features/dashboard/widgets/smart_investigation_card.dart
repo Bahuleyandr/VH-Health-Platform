@@ -5,7 +5,11 @@ class SmartInvestigationCard extends StatelessWidget {
   final Map<String, dynamic> booking;
   final VoidCallback onTap;
 
-  const SmartInvestigationCard({super.key, required this.booking, required this.onTap});
+  const SmartInvestigationCard({
+    super.key,
+    required this.booking,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -41,12 +45,17 @@ class SmartInvestigationCard extends StatelessWidget {
                 children: [
                   Text(
                     'Lab Booking ${bookingNumber.isNotEmpty ? bookingNumber : ''}',
-                    style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 2),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 1,
+                    ),
                     decoration: BoxDecoration(
                       color: color,
                       borderRadius: BorderRadius.circular(6),

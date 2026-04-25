@@ -33,20 +33,20 @@ class MilestonesTab extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.emoji_events_outlined,
-                size: 48,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.3)),
-            const SizedBox(height: 12),
-            Text('No milestones available yet',
-                style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: onRefresh,
-              child: const Text('Retry'),
+            Icon(
+              Icons.emoji_events_outlined,
+              size: 48,
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.3),
             ),
+            const SizedBox(height: 12),
+            Text(
+              'No milestones available yet',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 8),
+            TextButton(onPressed: onRefresh, child: const Text('Retry')),
           ],
         ),
       );
@@ -65,10 +65,11 @@ class MilestonesTab extends StatelessWidget {
           final id = m['id']?.toString() ?? m['_id']?.toString() ?? '';
           final name = m['name']?.toString() ?? 'Milestone';
           final tierName = m['tier']?.toString() ?? name;
-          final pointsRequired =
-              (m['pointsRequired'] as num?)?.toInt() ?? 0;
+          final pointsRequired = (m['pointsRequired'] as num?)?.toInt() ?? 0;
           final rewardDesc =
-              m['rewardDescription']?.toString() ?? m['reward']?.toString() ?? '';
+              m['rewardDescription']?.toString() ??
+              m['reward']?.toString() ??
+              '';
           final status = m['status']?.toString().toUpperCase() ?? 'LOCKED';
           final voucherCode = m['voucherCode']?.toString() ?? '';
 
@@ -103,9 +104,7 @@ class MilestonesTab extends StatelessWidget {
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
-                        isClaimed
-                            ? Icons.check_circle
-                            : getTierIcon(tierName),
+                        isClaimed ? Icons.check_circle : getTierIcon(tierName),
                         color: isLocked
                             ? cs.onSurface.withValues(alpha: 0.3)
                             : tierColor,
@@ -151,9 +150,11 @@ class MilestonesTab extends StatelessWidget {
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.confirmation_num,
-                                    size: 14,
-                                    color: cs.primary),
+                                Icon(
+                                  Icons.confirmation_num,
+                                  size: 14,
+                                  color: cs.primary,
+                                ),
                                 const SizedBox(width: 4),
                                 Text(
                                   voucherCode,
@@ -172,12 +173,10 @@ class MilestonesTab extends StatelessWidget {
                       SizedBox(
                         height: 32,
                         child: FilledButton(
-                          onPressed:
-                              isClaiming ? null : () => onClaim(id),
+                          onPressed: isClaiming ? null : () => onClaim(id),
                           style: FilledButton.styleFrom(
                             backgroundColor: tierColor,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14),
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
                           ),
                           child: isClaiming
                               ? const SizedBox(
@@ -192,12 +191,13 @@ class MilestonesTab extends StatelessWidget {
                         ),
                       ),
                     if (isClaimed)
-                      Icon(Icons.check_circle,
-                          color: cs.primary, size: 24),
+                      Icon(Icons.check_circle, color: cs.primary, size: 24),
                     if (isLocked)
-                      Icon(Icons.lock,
-                          color: cs.onSurface.withValues(alpha: 0.3),
-                          size: 20),
+                      Icon(
+                        Icons.lock,
+                        color: cs.onSurface.withValues(alpha: 0.3),
+                        size: 20,
+                      ),
                   ],
                 ),
               ),

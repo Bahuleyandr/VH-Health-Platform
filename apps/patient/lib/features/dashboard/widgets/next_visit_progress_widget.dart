@@ -79,8 +79,10 @@ class NextVisitProgressWidget extends StatelessWidget {
               FilledButton(
                 onPressed: onSchedule,
                 style: FilledButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                 ),
                 child: const Text('Book Now'),
               ),
@@ -162,8 +164,11 @@ class NextVisitProgressWidget extends StatelessWidget {
                       color: countdownColor.withValues(alpha: 0.15),
                       shape: BoxShape.circle,
                     ),
-                    child:
-                        Icon(Icons.calendar_month, color: countdownColor, size: 20),
+                    child: Icon(
+                      Icons.calendar_month,
+                      color: countdownColor,
+                      size: 20,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -175,8 +180,11 @@ class NextVisitProgressWidget extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Icon(Icons.chevron_right,
-                      color: cs.onSurface.withValues(alpha: 0.4), size: 20),
+                  Icon(
+                    Icons.chevron_right,
+                    color: cs.onSurface.withValues(alpha: 0.4),
+                    size: 20,
+                  ),
                 ],
               ),
 
@@ -222,8 +230,11 @@ class NextVisitProgressWidget extends StatelessWidget {
               Row(
                 children: [
                   if (doctorName != null && doctorName.isNotEmpty) ...[
-                    Icon(Icons.person, size: 14,
-                        color: cs.onSurface.withValues(alpha: 0.6)),
+                    Icon(
+                      Icons.person,
+                      size: 14,
+                      color: cs.onSurface.withValues(alpha: 0.6),
+                    ),
                     const SizedBox(width: 4),
                     Text(
                       'Dr. $doctorName',

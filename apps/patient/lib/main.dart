@@ -36,9 +36,7 @@ import 'package:vhhealth/generated/app_localizations.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // Install the Firebase-backed crash reporter so core + app code all route
   // non-fatal errors through the same abstraction.
@@ -81,11 +79,14 @@ Future<void> main() async {
   WebSocketService.instance.connect();
 
   // Catch async errors not handled by Flutter framework.
-  runZonedGuarded(() {
-    runApp(const VHRoot());
-  }, (error, stack) {
-    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-  });
+  runZonedGuarded(
+    () {
+      runApp(const VHRoot());
+    },
+    (error, stack) {
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    },
+  );
 }
 
 class VHRoot extends StatefulWidget {
@@ -137,7 +138,9 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
         // Realtime fabric lifecycle owner. Widgets listen via
         // `context.read<RealtimeProvider>().events(channel)` instead of
         // calling `RealtimeClient.instance.connect()` directly.
-        ChangeNotifierProvider(create: (_) => RealtimeProvider()..ensureConnected()),
+        ChangeNotifierProvider(
+          create: (_) => RealtimeProvider()..ensureConnected(),
+        ),
         ChangeNotifierProvider(
           create: (_) => SessionTimeoutProvider(
             timeoutDuration: const Duration(minutes: 30),

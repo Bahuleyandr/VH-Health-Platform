@@ -209,8 +209,8 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
     final color = ratio >= 0.8
         ? Colors.green.shade600
         : ratio >= 0.5
-            ? Colors.amber.shade700
-            : Colors.red.shade600;
+        ? Colors.amber.shade700
+        : Colors.red.shade600;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Column(
@@ -220,11 +220,13 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(label, style: theme.textTheme.bodyMedium),
-              Text('$s / $m',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.hintColor,
-                    fontWeight: FontWeight.w600,
-                  )),
+              Text(
+                '$s / $m',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.hintColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 4),

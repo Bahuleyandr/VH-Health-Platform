@@ -49,17 +49,21 @@ class _YourHealthScreenState extends State<YourHealthScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 6, vsync: this, initialIndex: widget.initialTab);
-    _isGuest = widget.phone.trim().isEmpty ||
-        widget.phone.toLowerCase() == 'guest';
+    _tabController = TabController(
+      length: 6,
+      vsync: this,
+      initialIndex: widget.initialTab,
+    );
+    _isGuest =
+        widget.phone.trim().isEmpty || widget.phone.toLowerCase() == 'guest';
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final extra = GoRouterState.of(context).extra as Map<String, dynamic>?;
-    _color = extra?['color'] ??
-        FeatureScreenScaffold.featureColors['your-health']!;
+    _color =
+        extra?['color'] ?? FeatureScreenScaffold.featureColors['your-health']!;
 
     if (extra?['defaultFilter'] == 'Investigation') {
       _selectedType = 'Investigation';
@@ -106,9 +110,8 @@ class _YourHealthScreenState extends State<YourHealthScreen>
         final rawData = response.data;
         final List<dynamic> data = rawData is List
             ? rawData
-            : (rawData is Map
-                ? (rawData['records'] ?? rawData ?? [])
-                : []) as List<dynamic>;
+            : (rawData is Map ? (rawData['records'] ?? rawData ?? []) : [])
+                  as List<dynamic>;
         await RecordCacheManager.saveManifest(widget.phone, data);
         if (!mounted) return;
         setState(() {
@@ -139,18 +142,22 @@ class _YourHealthScreenState extends State<YourHealthScreen>
         records = _newestFirst ? cached : cached.reversed.toList();
         _isLoadingRecords = false;
       });
-      messenger.showSnackBar(SnackBar(
-        content: Text(l10n.recordsShowingOffline),
-        backgroundColor: theme.colorScheme.tertiary,
-        behavior: SnackBarBehavior.floating,
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(l10n.recordsShowingOffline),
+          backgroundColor: theme.colorScheme.tertiary,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     } else {
       setState(() => _isLoadingRecords = false);
-      messenger.showSnackBar(SnackBar(
-        content: Text(errorMsg),
-        backgroundColor: theme.colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(errorMsg),
+          backgroundColor: theme.colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -179,11 +186,13 @@ class _YourHealthScreenState extends State<YourHealthScreen>
       Permission.photos,
     );
     if (!granted) {
-      messenger.showSnackBar(SnackBar(
-        content: Text(l10n.downloadPermissionDenied),
-        backgroundColor: theme.colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(l10n.downloadPermissionDenied),
+          backgroundColor: theme.colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       return;
     }
 
@@ -194,11 +203,13 @@ class _YourHealthScreenState extends State<YourHealthScreen>
       if (response.isSuccess) {
         final data = response.dataAsMap();
         if (data['quarantined'] == true) {
-          messenger.showSnackBar(SnackBar(
-            content: Text(l10n.fileQuarantined),
-            backgroundColor: theme.colorScheme.error,
-            behavior: SnackBarBehavior.floating,
-          ));
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(l10n.fileQuarantined),
+              backgroundColor: theme.colorScheme.error,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
           return;
         }
 
@@ -206,8 +217,10 @@ class _YourHealthScreenState extends State<YourHealthScreen>
         if (downloadUrl == null || downloadUrl.isEmpty) throw Exception();
 
         final fileName = fileKey.split('/').last;
-        final file =
-            await CacheFileUtils.downloadAndCacheFile(fileName, downloadUrl);
+        final file = await CacheFileUtils.downloadAndCacheFile(
+          fileName,
+          downloadUrl,
+        );
 
         if (file != null) {
           await CacheFileUtils.openCachedFile(file.path);
@@ -220,11 +233,13 @@ class _YourHealthScreenState extends State<YourHealthScreen>
     } catch (e) {
       debugPrint('File open/download failed: $e');
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(
-        content: Text(l10n.fileCouldNotOpen),
-        backgroundColor: theme.colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(l10n.fileCouldNotOpen),
+          backgroundColor: theme.colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -294,20 +309,27 @@ class _YourHealthScreenState extends State<YourHealthScreen>
   }
 
   Widget _buildGuestView(
-      ThemeData theme, ColorScheme cs, AppLocalizations l10n) {
+    ThemeData theme,
+    ColorScheme cs,
+    AppLocalizations l10n,
+  ) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.lock_outline,
-                size: 60, color: cs.onSurface.withAlpha(153)),
+            Icon(
+              Icons.lock_outline,
+              size: 60,
+              color: cs.onSurface.withAlpha(153),
+            ),
             const SizedBox(height: 16),
             Text(
               l10n.yourHealthLoginToView,
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(color: cs.onSurfaceVariant),
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -325,9 +347,13 @@ class _YourHealthScreenState extends State<YourHealthScreen>
   // ─── Health Records Tab ───
 
   Widget _buildRecordsTab(
-      ThemeData theme, ColorScheme cs, AppLocalizations l10n) {
-    final dateFmt =
-        DateFormat.yMMMd(Localizations.localeOf(context).toString());
+    ThemeData theme,
+    ColorScheme cs,
+    AppLocalizations l10n,
+  ) {
+    final dateFmt = DateFormat.yMMMd(
+      Localizations.localeOf(context).toString(),
+    );
 
     return Column(
       children: [
@@ -335,21 +361,22 @@ class _YourHealthScreenState extends State<YourHealthScreen>
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: DropdownButtonFormField<String>(
             initialValue: _selectedType,
-            decoration:
-                InputDecoration(labelText: l10n.yourHealthFilterByType),
+            decoration: InputDecoration(labelText: l10n.yourHealthFilterByType),
             onChanged: _onTypeChanged,
             items: const ['All', 'Consultation', 'Investigation', 'Report']
-                .map((type) => DropdownMenuItem(
-                      value: type,
-                      child: Text(
-                        l10n.recordTypeLabel(type),
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          color: _selectedType == type
-                              ? cs.primary
-                              : cs.onSurface,
-                        ),
+                .map(
+                  (type) => DropdownMenuItem(
+                    value: type,
+                    child: Text(
+                      l10n.recordTypeLabel(type),
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: _selectedType == type
+                            ? cs.primary
+                            : cs.onSurface,
                       ),
-                    ))
+                    ),
+                  ),
+                )
                 .toList(),
           ),
         ),
@@ -375,46 +402,47 @@ class _YourHealthScreenState extends State<YourHealthScreen>
           child: _isLoadingRecords
               ? Center(
                   child: CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation(cs.primary)))
+                    valueColor: AlwaysStoppedAnimation(cs.primary),
+                  ),
+                )
               : records.isEmpty
-                  ? Center(child: Text(l10n.yourHealthNoRecords))
-                  : ListView.builder(
-                      itemCount: records.length,
-                      itemBuilder: (_, i) {
-                        final item = records[i];
-                        final type = item['type']?.toString() ?? 'Record';
-                        final fileKey = item['file_key']?.toString() ?? '';
+              ? Center(child: Text(l10n.yourHealthNoRecords))
+              : ListView.builder(
+                  itemCount: records.length,
+                  itemBuilder: (_, i) {
+                    final item = records[i];
+                    final type = item['type']?.toString() ?? 'Record';
+                    final fileKey = item['file_key']?.toString() ?? '';
 
-                        DateTime? uploaded;
-                        if (item['uploaded_at'] != null) {
-                          try {
-                            uploaded = DateTime.parse(item['uploaded_at'])
-                                .toLocal();
-                          } catch (e) {
-                            debugPrint('Upload date parse failed: $e');
-                          }
-                        }
+                    DateTime? uploaded;
+                    if (item['uploaded_at'] != null) {
+                      try {
+                        uploaded = DateTime.parse(
+                          item['uploaded_at'],
+                        ).toLocal();
+                      } catch (e) {
+                        debugPrint('Upload date parse failed: $e');
+                      }
+                    }
 
-                        return Card(
-                          child: ListTile(
-                            leading:
-                                Icon(_iconFor(type), color: cs.primary),
-                            title: Text(l10n.recordTypeLabel(type)),
-                            subtitle: Text(
-                              '${l10n.yourHealthUploaded}: '
-                              '${uploaded != null ? dateFmt.format(uploaded) : l10n.notAvailable}',
-                            ),
-                            trailing: IconButton(
-                              icon: const Icon(
-                                  Icons.download_for_offline_outlined),
-                              onPressed: fileKey.isNotEmpty
-                                  ? () => _downloadIfSafe(fileKey)
-                                  : null,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+                    return Card(
+                      child: ListTile(
+                        leading: Icon(_iconFor(type), color: cs.primary),
+                        title: Text(l10n.recordTypeLabel(type)),
+                        subtitle: Text(
+                          '${l10n.yourHealthUploaded}: '
+                          '${uploaded != null ? dateFmt.format(uploaded) : l10n.notAvailable}',
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.download_for_offline_outlined),
+                          onPressed: fileKey.isNotEmpty
+                              ? () => _downloadIfSafe(fileKey)
+                              : null,
+                        ),
+                      ),
+                    );
+                  },
+                ),
         ),
       ],
     );

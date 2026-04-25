@@ -25,7 +25,7 @@ class HealthPointsWidget extends StatelessWidget {
     final nextTier = data!['nextTier']?.toString();
     final progressToNextTier =
         (data!['progressToNextTier'] as num?)?.toDouble().clamp(0.0, 1.0) ??
-            0.0;
+        0.0;
     final unclaimedCount = (data!['unclaimedCount'] as num?)?.toInt() ?? 0;
 
     // Gold/amber accent for points display
@@ -88,7 +88,9 @@ class HealthPointsWidget extends StatelessWidget {
                         // Tier badge
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 2),
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: pointsColor,
                             borderRadius: BorderRadius.circular(8),
@@ -113,7 +115,9 @@ class HealthPointsWidget extends StatelessWidget {
                         if (unclaimedCount > 0)
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
                             decoration: BoxDecoration(
                               color: cs.error,
                               borderRadius: BorderRadius.circular(10),
@@ -157,8 +161,11 @@ class HealthPointsWidget extends StatelessWidget {
               ),
 
               const SizedBox(width: 4),
-              Icon(Icons.chevron_right,
-                  color: cs.onSurface.withValues(alpha: 0.4), size: 20),
+              Icon(
+                Icons.chevron_right,
+                color: cs.onSurface.withValues(alpha: 0.4),
+                size: 20,
+              ),
             ],
           ),
         ),

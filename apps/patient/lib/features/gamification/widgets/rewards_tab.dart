@@ -30,21 +30,21 @@ class RewardsTab extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.card_giftcard,
-                size: 48,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.3)),
-            const SizedBox(height: 12),
-            Text('Complete milestones to earn rewards!',
-                style: Theme.of(context).textTheme.bodyMedium,
-                textAlign: TextAlign.center),
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: onRefresh,
-              child: const Text('Refresh'),
+            Icon(
+              Icons.card_giftcard,
+              size: 48,
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.3),
             ),
+            const SizedBox(height: 12),
+            Text(
+              'Complete milestones to earn rewards!',
+              style: Theme.of(context).textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            TextButton(onPressed: onRefresh, child: const Text('Refresh')),
           ],
         ),
       );
@@ -60,10 +60,13 @@ class RewardsTab extends StatelessWidget {
         itemCount: rewards.length,
         itemBuilder: (context, index) {
           final r = rewards[index];
-          final name = r['name']?.toString() ?? r['tier']?.toString() ?? 'Reward';
+          final name =
+              r['name']?.toString() ?? r['tier']?.toString() ?? 'Reward';
           final voucherCode = r['voucherCode']?.toString() ?? '';
           final rewardDesc =
-              r['rewardDescription']?.toString() ?? r['reward']?.toString() ?? '';
+              r['rewardDescription']?.toString() ??
+              r['reward']?.toString() ??
+              '';
           final expiryStr = r['expiryDate']?.toString() ?? '';
           final redeemed = r['redeemed'] == true;
 
@@ -95,8 +98,11 @@ class RewardsTab extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.card_giftcard,
-                          color: const Color(0xFFFFD54F), size: 22),
+                      Icon(
+                        Icons.card_giftcard,
+                        color: const Color(0xFFFFD54F),
+                        size: 22,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -121,7 +127,9 @@ class RewardsTab extends StatelessWidget {
                     const SizedBox(height: 10),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       decoration: BoxDecoration(
                         color: cs.primaryContainer.withValues(alpha: 0.4),
                         borderRadius: BorderRadius.circular(10),
@@ -140,7 +148,8 @@ class RewardsTab extends StatelessWidget {
                           InkWell(
                             onTap: () {
                               Clipboard.setData(
-                                  ClipboardData(text: voucherCode));
+                                ClipboardData(text: voucherCode),
+                              );
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text('Voucher code copied!'),
@@ -149,9 +158,11 @@ class RewardsTab extends StatelessWidget {
                                 ),
                               );
                             },
-                            child: Icon(Icons.copy,
-                                size: 16,
-                                color: cs.onSurface.withValues(alpha: 0.5)),
+                            child: Icon(
+                              Icons.copy,
+                              size: 16,
+                              color: cs.onSurface.withValues(alpha: 0.5),
+                            ),
                           ),
                         ],
                       ),

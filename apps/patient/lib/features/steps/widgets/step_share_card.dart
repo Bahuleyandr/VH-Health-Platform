@@ -134,7 +134,10 @@ class StepShareCard extends StatelessWidget {
                     ),
                     const Padding(
                       padding: EdgeInsets.only(bottom: 8, left: 6),
-                      child: Text('steps today', style: TextStyle(fontSize: 14, color: Colors.black54)),
+                      child: Text(
+                        'steps today',
+                        style: TextStyle(fontSize: 14, color: Colors.black54),
+                      ),
                     ),
                   ],
                 ),
@@ -177,7 +180,10 @@ class StepShareCard extends StatelessWidget {
                   const SizedBox(height: 12),
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.amber.shade50,
                       borderRadius: BorderRadius.circular(10),
@@ -209,18 +215,32 @@ class StepShareCard extends StatelessWidget {
                     spacing: 8,
                     runSpacing: 6,
                     alignment: WrapAlignment.center,
-                    children: badges.take(5).map((b) => Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: accent.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: accent.withValues(alpha: 0.3)),
-                      ),
-                      child: Text(
-                        '${b['emoji']} ${b['label']}',
-                        style: TextStyle(fontSize: 11, color: accent, fontWeight: FontWeight.w500),
-                      ),
-                    )).toList(),
+                    children: badges
+                        .take(5)
+                        .map(
+                          (b) => Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: accent.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: accent.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Text(
+                              '${b['emoji']} ${b['label']}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: accent,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(),
                   ),
                 ],
 
@@ -233,14 +253,21 @@ class StepShareCard extends StatelessWidget {
                   children: [
                     Text(
                       'Venkataeswara Hospitals, Chennai',
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade500,
+                      ),
                     ),
                     const SizedBox(width: 6),
                     Text('•', style: TextStyle(color: Colors.grey.shade400)),
                     const SizedBox(width: 6),
                     Text(
                       'VH Health App',
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade500,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ],
                 ),
@@ -277,8 +304,18 @@ class _StatPill extends StatelessWidget {
       children: [
         Text(emoji, style: const TextStyle(fontSize: 20)),
         const SizedBox(height: 2),
-        Text(value, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: color)),
-        Text(label, style: const TextStyle(fontSize: 10, color: Colors.black54)),
+        Text(
+          value,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 10, color: Colors.black54),
+        ),
       ],
     );
   }

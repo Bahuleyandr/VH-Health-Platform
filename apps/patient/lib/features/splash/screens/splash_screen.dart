@@ -30,9 +30,10 @@ class _SplashScreenState extends State<SplashScreen>
       duration: const Duration(seconds: 1),
     )..repeat(reverse: true);
 
-    _pulse = Tween<double>(begin: 0.9, end: 1.1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _pulse = Tween<double>(
+      begin: 0.9,
+      end: 1.1,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override
@@ -76,7 +77,9 @@ class _SplashScreenState extends State<SplashScreen>
       final firebaseUser = FirebaseAuth.instance.currentUser;
       final jwt = await _secureStorage.read(key: 'jwt');
       final phone = await _secureStorage.read(key: 'user_phone');
-      final biometricEnabled = await _secureStorage.read(key: 'biometric_enabled');
+      final biometricEnabled = await _secureStorage.read(
+        key: 'biometric_enabled',
+      );
 
       // ── 1. Firebase + JWT available → check profile, then dashboard ──
       if (firebaseUser != null && jwt != null && mounted) {
@@ -85,7 +88,8 @@ class _SplashScreenState extends State<SplashScreen>
         AppRouter.setUserData(phone ?? '', name ?? 'User');
 
         // Profile completion gate: new users or users without a name
-        if (isNewUser == 'true' || (name == null && phone != null && phone.isNotEmpty)) {
+        if (isNewUser == 'true' ||
+            (name == null && phone != null && phone.isNotEmpty)) {
           if (!mounted) return;
           context.go('/profile-setup', extra: phone ?? '');
           return;

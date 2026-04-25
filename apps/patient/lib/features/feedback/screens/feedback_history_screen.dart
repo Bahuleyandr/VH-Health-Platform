@@ -89,9 +89,12 @@ class _FeedbackHistoryScreenState extends State<FeedbackHistoryScreen> {
                         backgroundColor: rating >= 4
                             ? Colors.green
                             : rating <= 2
-                                ? Colors.red
-                                : Colors.orange,
-                        child: Text('$rating', style: const TextStyle(color: Colors.white)),
+                            ? Colors.red
+                            : Colors.orange,
+                        child: Text(
+                          '$rating',
+                          style: const TextStyle(color: Colors.white),
+                        ),
                       ),
                       title: Text(comment.isNotEmpty ? comment : '($category)'),
                       subtitle: Text(

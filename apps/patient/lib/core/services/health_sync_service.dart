@@ -61,8 +61,14 @@ class HealthSyncService {
   /// explicit user action (the Settings tile) — not from background code.
   Future<bool> requestPermissions() async {
     await _health.configure();
-    final permissions = List<HealthDataAccess>.filled(_types.length, HealthDataAccess.READ);
-    final granted = await _health.requestAuthorization(_types, permissions: permissions);
+    final permissions = List<HealthDataAccess>.filled(
+      _types.length,
+      HealthDataAccess.READ,
+    );
+    final granted = await _health.requestAuthorization(
+      _types,
+      permissions: permissions,
+    );
     _permissionsGranted = granted;
     return granted;
   }
@@ -73,10 +79,14 @@ class HealthSyncService {
   /// the user saves — iOS surfaces a single combined HealthKit sheet either way.
   Future<bool> requestWritePermissions() async {
     await _health.configure();
-    final permissions =
-        List<HealthDataAccess>.filled(_writableTypes.length, HealthDataAccess.READ_WRITE);
-    final granted =
-        await _health.requestAuthorization(_writableTypes, permissions: permissions);
+    final permissions = List<HealthDataAccess>.filled(
+      _writableTypes.length,
+      HealthDataAccess.READ_WRITE,
+    );
+    final granted = await _health.requestAuthorization(
+      _writableTypes,
+      permissions: permissions,
+    );
     _writePermissionsGranted = granted;
     return granted;
   }
@@ -169,8 +179,14 @@ class HealthSyncService {
       }
     }
 
-    if (heartRate == null && spo2 == null && weight == null && temperature == null) {
-      await prefs.setString(sourceKey, (latestSampleAt ?? end).toIso8601String());
+    if (heartRate == null &&
+        spo2 == null &&
+        weight == null &&
+        temperature == null) {
+      await prefs.setString(
+        sourceKey,
+        (latestSampleAt ?? end).toIso8601String(),
+      );
       return 0;
     }
 
@@ -186,7 +202,9 @@ class HealthSyncService {
     try {
       final resp = await ApiClient.post('/health/patient/vitals', body: body);
       if (!resp.isSuccess) {
-        if (kDebugMode) debugPrint('HealthSyncService: POST failed ${resp.statusCode}');
+        if (kDebugMode) {
+          debugPrint('HealthSyncService: POST failed ${resp.statusCode}');
+        }
         return 0;
       }
     } catch (e) {
@@ -195,7 +213,11 @@ class HealthSyncService {
     }
 
     await prefs.setString(sourceKey, (latestSampleAt ?? end).toIso8601String());
-    if (kDebugMode) debugPrint('HealthSyncService: synced ${points.length} points, steps=$steps');
+    if (kDebugMode) {
+      debugPrint(
+        'HealthSyncService: synced ${points.length} points, steps=$steps',
+      );
+    }
     return 1;
   }
 
@@ -226,11 +248,20 @@ class HealthSyncService {
     DateTime? recordedAt,
   }) async {
     if (!_writePermissionsGranted) {
-      if (_writePermissionsAsked) return; // user previously declined this session
+      if (_writePermissionsAsked) {
+        return; // user previously declined this session
+      }
       await _health.configure();
-      final permissions =
-          List<HealthDataAccess>.filled(_writableTypes.length, HealthDataAccess.READ_WRITE);
-      final has = await _health.hasPermissions(_writableTypes, permissions: permissions) ?? false;
+      final permissions = List<HealthDataAccess>.filled(
+        _writableTypes.length,
+        HealthDataAccess.READ_WRITE,
+      );
+      final has =
+          await _health.hasPermissions(
+            _writableTypes,
+            permissions: permissions,
+          ) ??
+          false;
       if (has) {
         _writePermissionsGranted = true;
       } else {
@@ -238,8 +269,10 @@ class HealthSyncService {
         // mirror actually lands. After one decline, further saves in this
         // session silently no-op (see [_writePermissionsAsked]).
         _writePermissionsAsked = true;
-        final granted =
-            await _health.requestAuthorization(_writableTypes, permissions: permissions);
+        final granted = await _health.requestAuthorization(
+          _writableTypes,
+          permissions: permissions,
+        );
         _writePermissionsGranted = granted;
         if (!granted) return;
       }
@@ -249,56 +282,72 @@ class HealthSyncService {
     final writes = <Future<bool>>[];
 
     if (heartRate != null) {
-      writes.add(_health.writeHealthData(
-        value: heartRate.toDouble(),
-        type: HealthDataType.HEART_RATE,
-        startTime: at,
-      ));
+      writes.add(
+        _health.writeHealthData(
+          value: heartRate.toDouble(),
+          type: HealthDataType.HEART_RATE,
+          startTime: at,
+        ),
+      );
     }
     if (spO2 != null) {
-      writes.add(_health.writeHealthData(
-        value: spO2 / 100.0,
-        type: HealthDataType.BLOOD_OXYGEN,
-        startTime: at,
-      ));
+      writes.add(
+        _health.writeHealthData(
+          value: spO2 / 100.0,
+          type: HealthDataType.BLOOD_OXYGEN,
+          startTime: at,
+        ),
+      );
     }
     if (weight != null) {
-      writes.add(_health.writeHealthData(
-        value: weight,
-        type: HealthDataType.WEIGHT,
-        startTime: at,
-      ));
+      writes.add(
+        _health.writeHealthData(
+          value: weight,
+          type: HealthDataType.WEIGHT,
+          startTime: at,
+        ),
+      );
     }
     if (temperature != null) {
-      writes.add(_health.writeHealthData(
-        value: temperature,
-        type: HealthDataType.BODY_TEMPERATURE,
-        startTime: at,
-      ));
+      writes.add(
+        _health.writeHealthData(
+          value: temperature,
+          type: HealthDataType.BODY_TEMPERATURE,
+          startTime: at,
+        ),
+      );
     }
     if (bloodGlucose != null) {
-      writes.add(_health.writeHealthData(
-        value: bloodGlucose.toDouble(),
-        type: HealthDataType.BLOOD_GLUCOSE,
-        startTime: at,
-      ));
+      writes.add(
+        _health.writeHealthData(
+          value: bloodGlucose.toDouble(),
+          type: HealthDataType.BLOOD_GLUCOSE,
+          startTime: at,
+        ),
+      );
     }
     if (systolic != null && diastolic != null) {
-      writes.add(_health.writeBloodPressure(
-        systolic: systolic,
-        diastolic: diastolic,
-        startTime: at,
-      ));
+      writes.add(
+        _health.writeBloodPressure(
+          systolic: systolic,
+          diastolic: diastolic,
+          startTime: at,
+        ),
+      );
     }
 
     try {
       final results = await Future.wait(writes);
       final ok = results.where((r) => r).length;
       if (kDebugMode) {
-        debugPrint('HealthSyncService.writeVitalsToHealthStore: $ok/${results.length} writes succeeded');
+        debugPrint(
+          'HealthSyncService.writeVitalsToHealthStore: $ok/${results.length} writes succeeded',
+        );
       }
     } catch (e) {
-      if (kDebugMode) debugPrint('HealthSyncService.writeVitalsToHealthStore failed: $e');
+      if (kDebugMode) {
+        debugPrint('HealthSyncService.writeVitalsToHealthStore failed: $e');
+      }
     }
   }
 
@@ -310,9 +359,7 @@ class HealthSyncService {
   /// Must be called after permissions are granted — scheduling succeeds either
   /// way, but the background isolate will read zero samples without permission.
   static Future<void> enableBackgroundSync() async {
-    await Workmanager().initialize(
-      healthSyncBackgroundDispatcher,
-    );
+    await Workmanager().initialize(healthSyncBackgroundDispatcher);
     await Workmanager().registerPeriodicTask(
       backgroundTaskName,
       backgroundTaskName,

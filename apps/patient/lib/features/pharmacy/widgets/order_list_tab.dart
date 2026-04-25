@@ -101,7 +101,9 @@ class OrderListTabState extends State<OrderListTab> {
                   Text(
                     order['order_number'] ?? '#${order['id']}',
                     style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold),
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   PharmacyStatusChip(status: order['status'] ?? 'PENDING'),
                 ],
@@ -121,9 +123,10 @@ class OrderListTabState extends State<OrderListTab> {
 
               // Prescription photo
               if (order['prescription_photo_url'] != null) ...[
-                const Text('Prescription',
-                    style:
-                        TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                const Text(
+                  'Prescription',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 8),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
@@ -143,7 +146,8 @@ class OrderListTabState extends State<OrderListTab> {
                       height: 100,
                       color: Theme.of(context).colorScheme.surfaceContainerLow,
                       child: const Center(
-                          child: Icon(Icons.broken_image, size: 40)),
+                        child: Icon(Icons.broken_image, size: 40),
+                      ),
                     ),
                   ),
                 ),
@@ -153,9 +157,10 @@ class OrderListTabState extends State<OrderListTab> {
               // Order note
               if (order['order_note'] != null &&
                   order['order_note'].toString().isNotEmpty) ...[
-                const Text('Order Note',
-                    style:
-                        TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                const Text(
+                  'Order Note',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 4),
                 Text(order['order_note']),
                 const SizedBox(height: 16),
@@ -163,24 +168,28 @@ class OrderListTabState extends State<OrderListTab> {
 
               // Items list
               if (itemsList.isNotEmpty) ...[
-                const Text('Items',
-                    style:
-                        TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                const Text(
+                  'Items',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 8),
-                ...itemsList.map((item) => Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                              child: Text(
-                                  '${item['name']} x${item['qty'] ?? 1}')),
-                          Text('\u20B9${item['price'] ?? '-'}',
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w500)),
-                        ],
-                      ),
-                    )),
+                ...itemsList.map(
+                  (item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text('${item['name']} x${item['qty'] ?? 1}'),
+                        ),
+                        Text(
+                          '\u20B9${item['price'] ?? '-'}',
+                          style: const TextStyle(fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 const Divider(),
               ],
 
@@ -189,12 +198,20 @@ class OrderListTabState extends State<OrderListTab> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Total',
-                        style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold)),
-                    Text('\u20B9${order['total_cost']}',
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold)),
+                    const Text(
+                      'Total',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      '\u20B9${order['total_cost']}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -203,9 +220,10 @@ class OrderListTabState extends State<OrderListTab> {
               // Delivery info
               if (order['delivery_type'] == 'delivery') ...[
                 const Divider(),
-                const Text('Delivery Info',
-                    style:
-                        TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                const Text(
+                  'Delivery Info',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 8),
                 if (order['delivery_address'] != null)
                   PharmacyInfoRow(Icons.location_on, order['delivery_address']),
@@ -259,15 +277,19 @@ class OrderListTabState extends State<OrderListTab> {
           children: [
             Icon(Icons.receipt_long, size: 64, color: Colors.grey.shade300),
             const SizedBox(height: 16),
-            Text('No orders yet',
-                style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey.shade500,
-                    fontWeight: FontWeight.w500)),
+            Text(
+              'No orders yet',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey.shade500,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
             const SizedBox(height: 8),
-            Text('Place your first order from the Order tab',
-                style:
-                    TextStyle(fontSize: 13, color: Colors.grey.shade400)),
+            Text(
+              'Place your first order from the Order tab',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade400),
+            ),
           ],
         ),
       );

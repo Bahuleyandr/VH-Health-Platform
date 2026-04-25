@@ -60,7 +60,8 @@ class _RefillScreenState extends State<RefillScreen> {
   }
 
   Future<void> _requestRefill(Map<String, dynamic> prescription) async {
-    final id = (prescription['_id'] as String?) ?? (prescription['id']?.toString());
+    final id =
+        (prescription['_id'] as String?) ?? (prescription['id']?.toString());
     if (id == null || id.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -69,7 +70,8 @@ class _RefillScreenState extends State<RefillScreen> {
       }
       return;
     }
-    final medName = prescription['medicationName'] as String? ??
+    final medName =
+        prescription['medicationName'] as String? ??
         prescription['name'] as String? ??
         'this medication';
 
@@ -107,7 +109,9 @@ class _RefillScreenState extends State<RefillScreen> {
       } else {
         setState(() => _refillStatus[id] = 'error');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(response.message ?? 'Failed to request refill')),
+          SnackBar(
+            content: Text(response.message ?? 'Failed to request refill'),
+          ),
         );
       }
     } catch (e) {
@@ -115,7 +119,9 @@ class _RefillScreenState extends State<RefillScreen> {
       if (mounted) {
         setState(() => _refillStatus[id] = 'error');
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to request refill. Please try again.')),
+          const SnackBar(
+            content: Text('Failed to request refill. Please try again.'),
+          ),
         );
       }
     }
@@ -148,7 +154,11 @@ class _RefillScreenState extends State<RefillScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
+              Icon(
+                Icons.error_outline,
+                size: 48,
+                color: theme.colorScheme.error,
+              ),
               const SizedBox(height: 12),
               Text(_error!, style: theme.textTheme.bodyMedium),
               const SizedBox(height: 12),
@@ -170,9 +180,16 @@ class _RefillScreenState extends State<RefillScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.medication_outlined, size: 48, color: Colors.grey.shade400),
+              Icon(
+                Icons.medication_outlined,
+                size: 48,
+                color: Colors.grey.shade400,
+              ),
               const SizedBox(height: 12),
-              Text('No active prescriptions', style: theme.textTheme.bodyMedium),
+              Text(
+                'No active prescriptions',
+                style: theme.textTheme.bodyMedium,
+              ),
               const SizedBox(height: 8),
               Text(
                 'Your prescriptions from consultations will appear here.',
@@ -190,7 +207,9 @@ class _RefillScreenState extends State<RefillScreen> {
       children: [
         Text(
           'Active Prescriptions',
-          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
@@ -206,8 +225,8 @@ class _RefillScreenState extends State<RefillScreen> {
           itemBuilder: (context, index) {
             return _PrescriptionRefillCard(
               prescription: _prescriptions[index],
-              refillStatus: _refillStatus[
-                  (_prescriptions[index]['_id'] as String?) ??
+              refillStatus:
+                  _refillStatus[(_prescriptions[index]['_id'] as String?) ??
                       _prescriptions[index]['id']?.toString() ??
                       ''],
               onRequestRefill: () => _requestRefill(_prescriptions[index]),
@@ -233,11 +252,13 @@ class _PrescriptionRefillCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final medName = prescription['medicationName'] as String? ??
+    final medName =
+        prescription['medicationName'] as String? ??
         prescription['name'] as String? ??
         'Unknown Medication';
     final dosage = prescription['dosage'] as String? ?? '';
-    final lastFilledRaw = prescription['lastFilledDate'] as String? ??
+    final lastFilledRaw =
+        prescription['lastFilledDate'] as String? ??
         prescription['createdAt'] as String? ??
         '';
     final status = prescription['status'] as String? ?? 'active';
@@ -248,7 +269,9 @@ class _PrescriptionRefillCard extends StatelessWidget {
         final dt = DateTime.parse(lastFilledRaw);
         lastFilled = DateFormat('MMM dd, yyyy').format(dt);
       }
-    } catch (e) { debugPrint('Refill date parse error: $e'); }
+    } catch (e) {
+      debugPrint('Refill date parse error: $e');
+    }
 
     final isSubmitting = refillStatus == 'submitting';
     final isSubmitted = refillStatus == 'submitted';
@@ -264,7 +287,11 @@ class _PrescriptionRefillCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.medication, color: const Color(0xFF42A5F5), size: 20),
+                Icon(
+                  Icons.medication,
+                  color: const Color(0xFF42A5F5),
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -281,20 +308,28 @@ class _PrescriptionRefillCard extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 'Dosage: $dosage',
-                style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade700),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: Colors.grey.shade700,
+                ),
               ),
             ],
             if (lastFilled.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text(
                 'Last filled: $lastFilled',
-                style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: Colors.grey.shade600,
+                ),
               ),
             ],
             const SizedBox(height: 12),
             if (isSubmitted)
               Chip(
-                avatar: const Icon(Icons.check_circle, color: Colors.green, size: 18),
+                avatar: const Icon(
+                  Icons.check_circle,
+                  color: Colors.green,
+                  size: 18,
+                ),
                 label: const Text('Refill Requested'),
                 backgroundColor: Colors.green.shade50,
               )
@@ -309,16 +344,13 @@ class _PrescriptionRefillCard extends StatelessWidget {
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : Icon(
-                          hasError ? Icons.refresh : Icons.replay,
-                          size: 18,
-                        ),
+                      : Icon(hasError ? Icons.refresh : Icons.replay, size: 18),
                   label: Text(
                     isSubmitting
                         ? 'Requesting...'
                         : hasError
-                            ? 'Retry Refill Request'
-                            : 'Request Refill',
+                        ? 'Retry Refill Request'
+                        : 'Request Refill',
                   ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF42A5F5),
@@ -359,7 +391,11 @@ class _StatusChip extends StatelessWidget {
       ),
       child: Text(
         status.toUpperCase(),
-        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: color),
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          color: color,
+        ),
       ),
     );
   }

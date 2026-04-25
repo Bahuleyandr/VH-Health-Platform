@@ -15,21 +15,21 @@ class TermsAgreementNotice extends StatelessWidget {
     final colors = theme.colorScheme;
 
     TextSpan linkSpan(String text, String section) => TextSpan(
-          text: text,
-          style: theme.textTheme.bodySmall?.copyWith(
-            decoration: TextDecoration.underline,
-            color: colors.primary,
-          ),
-          recognizer: TapGestureRecognizer()
-            ..onTap = () {
-              // Ensure navigation happens after current frame
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (context.mounted) {
-                  context.push('/terms', extra: {'section': section});
-                }
-              });
-            },
-        );
+      text: text,
+      style: theme.textTheme.bodySmall?.copyWith(
+        decoration: TextDecoration.underline,
+        color: colors.primary,
+      ),
+      recognizer: TapGestureRecognizer()
+        ..onTap = () {
+          // Ensure navigation happens after current frame
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (context.mounted) {
+              context.push('/terms', extra: {'section': section});
+            }
+          });
+        },
+    );
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),

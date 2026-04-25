@@ -43,11 +43,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   bool _isSubmitting = false;
   Map<String, dynamic>? _bookingResult;
 
-  static const _timeSlots = [
-    '09:00-12:00',
-    '12:00-15:00',
-    '15:00-18:00',
-  ];
+  static const _timeSlots = ['09:00-12:00', '12:00-15:00', '15:00-18:00'];
   static const _timeSlotLabels = [
     'Morning (9 AM - 12 PM)',
     'Afternoon (12 PM - 3 PM)',
@@ -164,20 +160,27 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         fields['selected_tests'] = jsonEncode(_selectedTestIds.toList());
       }
       if (_customTestController.text.trim().isNotEmpty) {
-        fields['custom_test_names'] = InputSanitizer.sanitize(_customTestController.text.trim());
+        fields['custom_test_names'] = InputSanitizer.sanitize(
+          _customTestController.text.trim(),
+        );
       }
       fields['collection_type'] = _collectionType;
       if (_collectionType == 'home') {
         if (_addressController.text.trim().isNotEmpty) {
-          fields['collection_address'] = InputSanitizer.sanitize(_addressController.text.trim());
+          fields['collection_address'] = InputSanitizer.sanitize(
+            _addressController.text.trim(),
+          );
         }
         if (_landmarkController.text.trim().isNotEmpty) {
-          fields['collection_landmark'] = InputSanitizer.sanitize(_landmarkController.text.trim());
+          fields['collection_landmark'] = InputSanitizer.sanitize(
+            _landmarkController.text.trim(),
+          );
         }
       }
       if (_preferredDate != null) {
-        fields['preferred_date'] =
-            DateFormat('yyyy-MM-dd').format(_preferredDate!);
+        fields['preferred_date'] = DateFormat(
+          'yyyy-MM-dd',
+        ).format(_preferredDate!);
       }
       if (_preferredTimeSlot != null) {
         fields['preferred_time_slot'] = _preferredTimeSlot!;
@@ -189,11 +192,13 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
       // Attach slip photo
       final files = <http.MultipartFile>[];
       if (_slipPhoto != null) {
-        files.add(await http.MultipartFile.fromPath(
-          'slip_photo',
-          _slipPhoto!.path,
-          filename: _slipPhotoName ?? 'slip.jpg',
-        ));
+        files.add(
+          await http.MultipartFile.fromPath(
+            'slip_photo',
+            _slipPhoto!.path,
+            filename: _slipPhotoName ?? 'slip.jpg',
+          ),
+        );
       }
 
       final response = await ApiClient.multipart(
@@ -220,11 +225,13 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
 
   void _showError(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: Colors.red.shade700,
-      behavior: SnackBarBehavior.floating,
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: Colors.red.shade700,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   bool get _canProceedStep1 {
@@ -234,8 +241,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   }
 
   bool get _canProceedStep2 {
-    if (_collectionType == 'home' &&
-        _addressController.text.trim().isEmpty) {
+    if (_collectionType == 'home' && _addressController.text.trim().isEmpty) {
       return false;
     }
     return true;
@@ -246,10 +252,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Book Investigation'),
-        elevation: 0,
-      ),
+      appBar: AppBar(title: const Text('Book Investigation'), elevation: 0),
       body: _bookingResult != null
           ? _buildSuccessView(theme)
           : Stepper(
@@ -273,7 +276,8 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
                     children: [
                       if (_currentStep < 2)
                         FilledButton(
-                          onPressed: (_currentStep == 0 && _canProceedStep1) ||
+                          onPressed:
+                              (_currentStep == 0 && _canProceedStep1) ||
                                   (_currentStep == 1 && _canProceedStep2)
                               ? details.onStepContinue
                               : null,
@@ -281,8 +285,9 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
                         )
                       else
                         FilledButton.icon(
-                          onPressed:
-                              _isSubmitting ? null : details.onStepContinue,
+                          onPressed: _isSubmitting
+                              ? null
+                              : details.onStepContinue,
                           icon: _isSubmitting
                               ? const SizedBox(
                                   width: 18,
@@ -294,7 +299,8 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
                                 )
                               : const Icon(Icons.check),
                           label: Text(
-                              _isSubmitting ? 'Booking...' : 'Book Now'),
+                            _isSubmitting ? 'Booking...' : 'Book Now',
+                          ),
                         ),
                       const SizedBox(width: 12),
                       if (_currentStep > 0)
@@ -320,9 +326,9 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
                 ),
                 Step(
                   title: const Text('Collection Preference'),
-                  subtitle: Text(_collectionType == 'home'
-                      ? 'Home Collection'
-                      : 'Visit Lab'),
+                  subtitle: Text(
+                    _collectionType == 'home' ? 'Home Collection' : 'Visit Lab',
+                  ),
                   isActive: _currentStep >= 1,
                   state: _currentStep > 1
                       ? StepState.complete
@@ -351,9 +357,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
           decoration: InputDecoration(
             hintText: 'Search tests...',
             prefixIcon: const Icon(Icons.search),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             isDense: true,
           ),
           onChanged: (v) {
@@ -418,16 +422,13 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         const Divider(height: 24),
 
         // Custom test names
-        Text('Or type test names:',
-            style: theme.textTheme.titleSmall),
+        Text('Or type test names:', style: theme.textTheme.titleSmall),
         const SizedBox(height: 8),
         TextField(
           controller: _customTestController,
           decoration: InputDecoration(
             hintText: 'e.g. CBC, Sugar test, Thyroid',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             isDense: true,
           ),
           maxLines: 2,
@@ -437,8 +438,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         const Divider(height: 24),
 
         // Upload prescription slip
-        Text('Or upload prescription slip:',
-            style: theme.textTheme.titleSmall),
+        Text('Or upload prescription slip:', style: theme.textTheme.titleSmall),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -491,8 +491,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Estimated Cost',
-                    style: theme.textTheme.titleSmall),
+                Text('Estimated Cost', style: theme.textTheme.titleSmall),
                 Text(
                   '₹${_estimatedCost.toStringAsFixed(0)}',
                   style: theme.textTheme.titleMedium?.copyWith(
@@ -529,8 +528,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
             ),
           ],
           selected: {_collectionType},
-          onSelectionChanged: (v) =>
-              setState(() => _collectionType = v.first),
+          onSelectionChanged: (v) => setState(() => _collectionType = v.first),
         ),
         const SizedBox(height: 16),
 
@@ -567,12 +565,12 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         ListTile(
           contentPadding: EdgeInsets.zero,
           leading: const Icon(Icons.calendar_today),
-          title: Text(_preferredDate != null
-              ? DateFormat('EEEE, d MMM yyyy').format(_preferredDate!)
-              : 'Preferred Date'),
-          subtitle: _preferredDate == null
-              ? const Text('Tap to select')
-              : null,
+          title: Text(
+            _preferredDate != null
+                ? DateFormat('EEEE, d MMM yyyy').format(_preferredDate!)
+                : 'Preferred Date',
+          ),
+          subtitle: _preferredDate == null ? const Text('Tap to select') : null,
           onTap: () async {
             final picked = await showDatePicker(
               context: context,
@@ -596,8 +594,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
               label: Text(_timeSlotLabels[i]),
               selected: selected,
               onSelected: (v) {
-                setState(() => _preferredTimeSlot =
-                    v ? _timeSlots[i] : null);
+                setState(() => _preferredTimeSlot = v ? _timeSlots[i] : null);
               },
             );
           }),
@@ -609,9 +606,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
           decoration: InputDecoration(
             labelText: 'Notes (optional)',
             hintText: 'Any special instructions...',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             isDense: true,
           ),
           maxLines: 2,
@@ -635,17 +630,19 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
 
         if (selectedTests.isNotEmpty) ...[
           Text('Selected Tests:', style: theme.textTheme.titleSmall),
-          ...selectedTests.map((t) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Row(
-                  children: [
-                    const Icon(Icons.check, size: 16, color: Colors.green),
-                    const SizedBox(width: 8),
-                    Expanded(child: Text(t['name'] ?? '')),
-                    Text('₹${t['default_cost'] ?? 0}'),
-                  ],
-                ),
-              )),
+          ...selectedTests.map(
+            (t) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                children: [
+                  const Icon(Icons.check, size: 16, color: Colors.green),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(t['name'] ?? '')),
+                  Text('₹${t['default_cost'] ?? 0}'),
+                ],
+              ),
+            ),
+          ),
           const Divider(height: 16),
         ],
 
@@ -660,8 +657,10 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
             children: [
               const Icon(Icons.photo, size: 16),
               const SizedBox(width: 8),
-              Text('Prescription slip attached',
-                  style: theme.textTheme.bodyMedium),
+              Text(
+                'Prescription slip attached',
+                style: theme.textTheme.bodyMedium,
+              ),
             ],
           ),
           const Divider(height: 16),
@@ -676,7 +675,9 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
             ),
             const SizedBox(width: 8),
             Text(
-              _collectionType == 'home' ? 'Home Collection' : 'Walk-in (Visit Lab)',
+              _collectionType == 'home'
+                  ? 'Home Collection'
+                  : 'Walk-in (Visit Lab)',
               style: theme.textTheme.titleSmall,
             ),
           ],
@@ -684,14 +685,17 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         if (_collectionType == 'home' &&
             _addressController.text.trim().isNotEmpty) ...[
           const SizedBox(height: 4),
-          Text('📍 ${_addressController.text.trim()}',
-              style: theme.textTheme.bodySmall),
+          Text(
+            '📍 ${_addressController.text.trim()}',
+            style: theme.textTheme.bodySmall,
+          ),
         ],
         if (_preferredDate != null) ...[
           const SizedBox(height: 4),
           Text(
-              '📅 ${DateFormat('d MMM yyyy').format(_preferredDate!)}${_preferredTimeSlot != null ? ' • $_preferredTimeSlot' : ''}',
-              style: theme.textTheme.bodySmall),
+            '📅 ${DateFormat('d MMM yyyy').format(_preferredDate!)}${_preferredTimeSlot != null ? ' • $_preferredTimeSlot' : ''}',
+            style: theme.textTheme.bodySmall,
+          ),
         ],
 
         if (_selectedTestIds.isNotEmpty) ...[
@@ -705,8 +709,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Estimated Cost',
-                    style: theme.textTheme.titleSmall),
+                Text('Estimated Cost', style: theme.textTheme.titleSmall),
                 Text(
                   '₹${_estimatedCost.toStringAsFixed(0)}',
                   style: theme.textTheme.titleMedium?.copyWith(
@@ -731,8 +734,11 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.check_circle,
-                size: 80, color: theme.colorScheme.primary),
+            Icon(
+              Icons.check_circle,
+              size: 80,
+              color: theme.colorScheme.primary,
+            ),
             const SizedBox(height: 16),
             Text(
               'Investigation Booked!',

@@ -28,7 +28,9 @@ class LabReferenceRange {
     final s = raw.trim().toLowerCase();
     if (s.isEmpty) return null;
 
-    final dash = RegExp(r'(-?\d+(?:\.\d+)?)\s*(?:-|to|–|—)\s*(-?\d+(?:\.\d+)?)');
+    final dash = RegExp(
+      r'(-?\d+(?:\.\d+)?)\s*(?:-|to|–|—)\s*(-?\d+(?:\.\d+)?)',
+    );
     final m1 = dash.firstMatch(s);
     if (m1 != null) {
       final lo = double.tryParse(m1.group(1)!);
@@ -45,7 +47,9 @@ class LabReferenceRange {
     final gt = RegExp(r'^>\s*(-?\d+(?:\.\d+)?)').firstMatch(s);
     if (gt != null) {
       final lo = double.tryParse(gt.group(1)!);
-      if (lo != null) return LabReferenceRange(low: lo, high: lo * 2, unit: unit);
+      if (lo != null) {
+        return LabReferenceRange(low: lo, high: lo * 2, unit: unit);
+      }
     }
     return null;
   }
@@ -107,7 +111,9 @@ class ResultGaugeWidget extends StatelessWidget {
               Expanded(
                 child: Text(
                   testName,
-                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               Container(
@@ -116,11 +122,13 @@ class ResultGaugeWidget extends StatelessWidget {
                   color: statusColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: Text(statusLabel,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: statusColor,
-                      fontWeight: FontWeight.w600,
-                    )),
+                child: Text(
+                  statusLabel,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: statusColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ],
           ),
@@ -146,8 +154,12 @@ class ResultGaugeWidget extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('${range.low} ${unit ?? ''}',
-                  style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor)),
+              Text(
+                '${range.low} ${unit ?? ''}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.hintColor,
+                ),
+              ),
               Column(
                 children: [
                   Text(
@@ -161,8 +173,12 @@ class ResultGaugeWidget extends StatelessWidget {
                     _trendChip(theme, previousValue!, value, unit),
                 ],
               ),
-              Text('${range.high} ${unit ?? ''}',
-                  style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor)),
+              Text(
+                '${range.high} ${unit ?? ''}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.hintColor,
+                ),
+              ),
             ],
           ),
         ],
@@ -173,8 +189,10 @@ class ResultGaugeWidget extends StatelessWidget {
   Widget _trendChip(ThemeData theme, double prev, double curr, String? unit) {
     final diff = curr - prev;
     if (diff.abs() < 0.01) {
-      return Text('unchanged',
-          style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor));
+      return Text(
+        'unchanged',
+        style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
+      );
     }
     final up = diff > 0;
     // Direction is "bad" if higher-is-bad and value went up, or lower-is-bad and value went down.
@@ -186,8 +204,10 @@ class ResultGaugeWidget extends StatelessWidget {
       children: [
         Icon(arrow, size: 12, color: color),
         const SizedBox(width: 2),
-        Text('${_fmt(diff.abs())} vs last',
-            style: theme.textTheme.bodySmall?.copyWith(color: color)),
+        Text(
+          '${_fmt(diff.abs())} vs last',
+          style: theme.textTheme.bodySmall?.copyWith(color: color),
+        ),
       ],
     );
   }

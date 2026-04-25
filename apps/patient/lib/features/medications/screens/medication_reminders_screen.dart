@@ -34,7 +34,8 @@ class _Reminder {
       medicationName: json['medication_name'] as String? ?? '',
       dosage: json['dosage'] as String? ?? '',
       frequency: json['frequency'] as String? ?? '',
-      reminderTimes: (json['reminder_times'] as List<dynamic>?)
+      reminderTimes:
+          (json['reminder_times'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
           [],
@@ -55,7 +56,12 @@ const _frequencyLabels = {
   'as_needed': 'As Needed',
 };
 
-const _frequencyValues = ['once_daily', 'twice_daily', 'thrice_daily', 'as_needed'];
+const _frequencyValues = [
+  'once_daily',
+  'twice_daily',
+  'thrice_daily',
+  'as_needed',
+];
 
 // ── Screen ──────────────────────────────────────────────────────────────────
 
@@ -89,8 +95,9 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
       if (resp.isSuccess) {
         final list = resp.dataAsList();
         setState(() {
-          _reminders =
-              list.map((e) => _Reminder.fromJson(e as Map<String, dynamic>)).toList();
+          _reminders = list
+              .map((e) => _Reminder.fromJson(e as Map<String, dynamic>))
+              .toList();
           _loading = false;
         });
         _syncNotifications();
@@ -114,14 +121,18 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
   Future<void> _syncNotifications() async {
     try {
       await NotificationScheduler.rescheduleAll(
-        _reminders.map((r) => <String, dynamic>{
-          'id': r.id,
-          'medication_name': r.medicationName,
-          'dosage': r.dosage,
-          'reminder_times': r.reminderTimes,
-          'end_date': r.endDate,
-          'is_active': r.isActive,
-        }).toList(),
+        _reminders
+            .map(
+              (r) => <String, dynamic>{
+                'id': r.id,
+                'medication_name': r.medicationName,
+                'dosage': r.dosage,
+                'reminder_times': r.reminderTimes,
+                'end_date': r.endDate,
+                'is_active': r.isActive,
+              },
+            )
+            .toList(),
       );
     } catch (e) {
       if (kDebugMode) debugPrint('Error syncing notifications: $e');
@@ -132,8 +143,9 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
     try {
       if (reminder.isActive) {
         // Deactivate
-        final resp =
-            await ApiClient.delete('/reminders/medication/${reminder.id}');
+        final resp = await ApiClient.delete(
+          '/reminders/medication/${reminder.id}',
+        );
         if (mounted && resp.isSuccess) {
           _loadReminders();
         }
@@ -197,54 +209,62 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(_error!, style: theme.textTheme.bodyLarge),
-                      const SizedBox(height: 12),
-                      FilledButton.tonal(
-                        onPressed: _loadReminders,
-                        child: const Text('Retry'),
-                      ),
-                    ],
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_error!, style: theme.textTheme.bodyLarge),
+                  const SizedBox(height: 12),
+                  FilledButton.tonal(
+                    onPressed: _loadReminders,
+                    child: const Text('Retry'),
                   ),
-                )
-              : _reminders.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.medication_outlined,
-                              size: 64,
-                              color: theme.colorScheme.onSurfaceVariant),
-                          const SizedBox(height: 12),
-                          Text('No medication reminders yet',
-                              style: theme.textTheme.bodyLarge),
-                          const SizedBox(height: 8),
-                          Text('Tap + to add one',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                  color:
-                                      theme.colorScheme.onSurfaceVariant)),
-                        ],
-                      ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _loadReminders,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 12),
-                        itemCount: _reminders.length,
-                        itemBuilder: (context, index) {
-                          final r = _reminders[index];
-                          return _ReminderCard(
-                            reminder: r,
-                            onToggle: () => _toggleReminder(r),
-                            onDelete: () => _deleteReminder(r.id),
-                          );
-                        },
-                      ),
+                ],
+              ),
+            )
+          : _reminders.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.medication_outlined,
+                    size: 64,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'No medication reminders yet',
+                    style: theme.textTheme.bodyLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Tap + to add one',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
+                  ),
+                ],
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _loadReminders,
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                itemCount: _reminders.length,
+                itemBuilder: (context, index) {
+                  final r = _reminders[index];
+                  return _ReminderCard(
+                    reminder: r,
+                    onToggle: () => _toggleReminder(r),
+                    onDelete: () => _deleteReminder(r.id),
+                  );
+                },
+              ),
+            ),
     );
   }
 }
@@ -299,19 +319,27 @@ class _ReminderCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 4),
-            Text('Dosage: ${reminder.dosage}',
-                style: theme.textTheme.bodyMedium),
+            Text(
+              'Dosage: ${reminder.dosage}',
+              style: theme.textTheme.bodyMedium,
+            ),
             const SizedBox(height: 2),
             Text('Frequency: $freq', style: theme.textTheme.bodyMedium),
             const SizedBox(height: 2),
-            Text('Times: $times',
-                style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant)),
+            Text(
+              'Times: $times',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
             if (reminder.notes != null && reminder.notes!.isNotEmpty) ...[
               const SizedBox(height: 4),
-              Text('Notes: ${reminder.notes}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant)),
+              Text(
+                'Notes: ${reminder.notes}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
             ],
           ],
         ),
@@ -393,7 +421,9 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
     final dosage = _dosageCtrl.text.trim();
     if (name.isEmpty || dosage.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Medication name and dosage are required')),
+        const SnackBar(
+          content: Text('Medication name and dosage are required'),
+        ),
       );
       return;
     }
@@ -401,15 +431,19 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
     setState(() => _saving = true);
 
     try {
-      final resp = await ApiClient.post('/reminders/medication', body: {
-        'medication_name': name,
-        'dosage': dosage,
-        'frequency': _frequency,
-        'reminder_times': _times.map(_formatTime).toList(),
-        'start_date': _formatDate(_startDate),
-        if (_endDate != null) 'end_date': _formatDate(_endDate!),
-        if (_notesCtrl.text.trim().isNotEmpty) 'notes': _notesCtrl.text.trim(),
-      });
+      final resp = await ApiClient.post(
+        '/reminders/medication',
+        body: {
+          'medication_name': name,
+          'dosage': dosage,
+          'frequency': _frequency,
+          'reminder_times': _times.map(_formatTime).toList(),
+          'start_date': _formatDate(_startDate),
+          if (_endDate != null) 'end_date': _formatDate(_endDate!),
+          if (_notesCtrl.text.trim().isNotEmpty)
+            'notes': _notesCtrl.text.trim(),
+        },
+      );
 
       if (!mounted) return;
 
@@ -445,8 +479,7 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Add Medication Reminder',
-                style: theme.textTheme.titleLarge),
+            Text('Add Medication Reminder', style: theme.textTheme.titleLarge),
             const SizedBox(height: 20),
 
             // Medication name
@@ -478,9 +511,12 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                 border: OutlineInputBorder(),
               ),
               items: _frequencyValues
-                  .map((v) => DropdownMenuItem(
+                  .map(
+                    (v) => DropdownMenuItem(
                       value: v,
-                      child: Text(_frequencyLabels[v] ?? v)))
+                      child: Text(_frequencyLabels[v] ?? v),
+                    ),
+                  )
                   .toList(),
               onChanged: (v) {
                 if (v != null) setState(() => _frequency = v);
@@ -507,10 +543,8 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                     ),
                     if (_times.length > 1)
                       IconButton(
-                        icon: const Icon(Icons.remove_circle_outline,
-                            size: 20),
-                        onPressed: () =>
-                            setState(() => _times.removeAt(idx)),
+                        icon: const Icon(Icons.remove_circle_outline, size: 20),
+                        onPressed: () => setState(() => _times.removeAt(idx)),
                       ),
                   ],
                 ),
@@ -518,7 +552,8 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
             }),
             TextButton.icon(
               onPressed: () => setState(
-                  () => _times.add(const TimeOfDay(hour: 12, minute: 0))),
+                () => _times.add(const TimeOfDay(hour: 12, minute: 0)),
+              ),
               icon: const Icon(Icons.add, size: 18),
               label: const Text('Add time'),
             ),
@@ -537,9 +572,11 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: _pickEndDate,
-                    child: Text(_endDate != null
-                        ? 'End: ${_formatDate(_endDate!)}'
-                        : 'End: No end date'),
+                    child: Text(
+                      _endDate != null
+                          ? 'End: ${_formatDate(_endDate!)}'
+                          : 'End: No end date',
+                    ),
                   ),
                 ),
               ],

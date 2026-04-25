@@ -15,7 +15,10 @@ class TriviaScreen extends StatefulWidget {
 class _TriviaScreenState extends State<TriviaScreen> {
   late String _currentTriviaKey;
 
-  final List<String> _triviaKeys = List.generate(10, (i) => 'trivia.fact${i + 1}');
+  final List<String> _triviaKeys = List.generate(
+    10,
+    (i) => 'trivia.fact${i + 1}',
+  );
   final String heroTag = 'trivia';
 
   @override
@@ -33,17 +36,28 @@ class _TriviaScreenState extends State<TriviaScreen> {
 
   String _translateTrivia(AppLocalizations l10n) {
     switch (_currentTriviaKey) {
-      case 'trivia.fact1': return l10n.triviaFact1;
-      case 'trivia.fact2': return l10n.triviaFact2;
-      case 'trivia.fact3': return l10n.triviaFact3;
-      case 'trivia.fact4': return l10n.triviaFact4;
-      case 'trivia.fact5': return l10n.triviaFact5;
-      case 'trivia.fact6': return l10n.triviaFact6;
-      case 'trivia.fact7': return l10n.triviaFact7;
-      case 'trivia.fact8': return l10n.triviaFact8;
-      case 'trivia.fact9': return l10n.triviaFact9;
-      case 'trivia.fact10': return l10n.triviaFact10;
-      default: return _currentTriviaKey;
+      case 'trivia.fact1':
+        return l10n.triviaFact1;
+      case 'trivia.fact2':
+        return l10n.triviaFact2;
+      case 'trivia.fact3':
+        return l10n.triviaFact3;
+      case 'trivia.fact4':
+        return l10n.triviaFact4;
+      case 'trivia.fact5':
+        return l10n.triviaFact5;
+      case 'trivia.fact6':
+        return l10n.triviaFact6;
+      case 'trivia.fact7':
+        return l10n.triviaFact7;
+      case 'trivia.fact8':
+        return l10n.triviaFact8;
+      case 'trivia.fact9':
+        return l10n.triviaFact9;
+      case 'trivia.fact10':
+        return l10n.triviaFact10;
+      default:
+        return _currentTriviaKey;
     }
   }
 

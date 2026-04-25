@@ -73,8 +73,7 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
       }
       if (results[2].isSuccess) {
         final d = results[2].data;
-        conditions =
-            d is List ? d : (d is Map ? (d['conditions'] ?? []) : []);
+        conditions = d is List ? d : (d is Map ? (d['conditions'] ?? []) : []);
       }
 
       setState(() {
@@ -102,7 +101,8 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
     if (_isLoading) {
       return Center(
         child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation(cs.primary)),
+          valueColor: AlwaysStoppedAnimation(cs.primary),
+        ),
       );
     }
 
@@ -111,12 +111,18 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.info_outline,
-                size: 48, color: cs.onSurface.withAlpha(100)),
+            Icon(
+              Icons.info_outline,
+              size: 48,
+              color: cs.onSurface.withAlpha(100),
+            ),
             const SizedBox(height: 12),
-            Text(_error!,
-                style: theme.textTheme.bodyLarge
-                    ?.copyWith(color: cs.onSurfaceVariant)),
+            Text(
+              _error!,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
+            ),
             if (_patientId != null) ...[
               const SizedBox(height: 16),
               ElevatedButton(
@@ -138,12 +144,18 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.health_and_safety_outlined,
-                size: 48, color: cs.onSurface.withAlpha(100)),
+            Icon(
+              Icons.health_and_safety_outlined,
+              size: 48,
+              color: cs.onSurface.withAlpha(100),
+            ),
             const SizedBox(height: 12),
-            Text(l10n.summaryNoData,
-                style: theme.textTheme.bodyLarge
-                    ?.copyWith(color: cs.onSurfaceVariant)),
+            Text(
+              l10n.summaryNoData,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
+            ),
           ],
         ),
       );
@@ -157,7 +169,10 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
           // Health Overview
           if (hasSummary) ...[
             _sectionHeader(
-                l10n.summaryOverview, Icons.monitor_heart_outlined, cs),
+              l10n.summaryOverview,
+              Icons.monitor_heart_outlined,
+              cs,
+            ),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(14),
@@ -165,14 +180,22 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (_summary!['total_records'] != null)
-                      _summaryRow('Total Records',
-                          _summary!['total_records'].toString(), theme),
+                      _summaryRow(
+                        'Total Records',
+                        _summary!['total_records'].toString(),
+                        theme,
+                      ),
                     if (_summary!['last_visit'] != null)
-                      _summaryRow('Last Visit',
-                          _formatDate(_summary!['last_visit']), theme),
+                      _summaryRow(
+                        'Last Visit',
+                        _formatDate(_summary!['last_visit']),
+                        theme,
+                      ),
                     if (_summary!['record_types'] != null)
                       ..._buildRecordTypeSummary(
-                          _summary!['record_types'], theme),
+                        _summary!['record_types'],
+                        theme,
+                      ),
                   ],
                 ),
               ),
@@ -182,66 +205,72 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
 
           // Allergies
           _sectionHeader(
-              l10n.summaryAllergies, Icons.warning_amber_outlined, cs),
+            l10n.summaryAllergies,
+            Icons.warning_amber_outlined,
+            cs,
+          ),
           if (!hasAllergies)
             Card(
               child: ListTile(
-                leading:
-                    Icon(Icons.check_circle_outline, color: cs.tertiary),
+                leading: Icon(Icons.check_circle_outline, color: cs.tertiary),
                 title: Text(l10n.summaryNoAllergies),
               ),
             )
           else
-            ...(_allergies.map((a) => Card(
-                  child: ListTile(
-                    leading: Icon(Icons.warning_amber, color: cs.error),
-                    title:
-                        Text(a['name'] ?? a['allergen'] ?? 'Unknown'),
-                    subtitle: a['severity'] != null
-                        ? Text('Severity: ${a['severity']}')
-                        : null,
-                  ),
-                ))),
+            ...(_allergies.map(
+              (a) => Card(
+                child: ListTile(
+                  leading: Icon(Icons.warning_amber, color: cs.error),
+                  title: Text(a['name'] ?? a['allergen'] ?? 'Unknown'),
+                  subtitle: a['severity'] != null
+                      ? Text('Severity: ${a['severity']}')
+                      : null,
+                ),
+              ),
+            )),
           const SizedBox(height: 16),
 
           // Conditions
-          _sectionHeader(l10n.summaryConditions,
-              Icons.local_hospital_outlined, cs),
+          _sectionHeader(
+            l10n.summaryConditions,
+            Icons.local_hospital_outlined,
+            cs,
+          ),
           if (!hasConditions)
             Card(
               child: ListTile(
-                leading:
-                    Icon(Icons.check_circle_outline, color: cs.tertiary),
+                leading: Icon(Icons.check_circle_outline, color: cs.tertiary),
                 title: Text(l10n.summaryNoConditions),
               ),
             )
           else
-            ...(_conditions.map((c) => Card(
-                  child: ListTile(
-                    leading: Icon(Icons.local_hospital_outlined,
-                        color: (c['active'] == true ||
-                                c['status'] == 'active')
-                            ? cs.error
-                            : cs.onSurfaceVariant),
-                    title: Text(
-                        c['name'] ?? c['condition'] ?? 'Unknown'),
-                    subtitle: c['diagnosed_date'] != null
-                        ? Text(
-                            'Since: ${_formatDate(c['diagnosed_date'])}')
-                        : null,
-                    trailing: (c['active'] == true ||
-                            c['status'] == 'active')
-                        ? Chip(
-                            label: const Text('Active'),
-                            backgroundColor: cs.errorContainer,
-                            labelStyle: TextStyle(
-                                color: cs.onErrorContainer,
-                                fontSize: 11),
-                            visualDensity: VisualDensity.compact,
-                          )
-                        : null,
+            ...(_conditions.map(
+              (c) => Card(
+                child: ListTile(
+                  leading: Icon(
+                    Icons.local_hospital_outlined,
+                    color: (c['active'] == true || c['status'] == 'active')
+                        ? cs.error
+                        : cs.onSurfaceVariant,
                   ),
-                ))),
+                  title: Text(c['name'] ?? c['condition'] ?? 'Unknown'),
+                  subtitle: c['diagnosed_date'] != null
+                      ? Text('Since: ${_formatDate(c['diagnosed_date'])}')
+                      : null,
+                  trailing: (c['active'] == true || c['status'] == 'active')
+                      ? Chip(
+                          label: const Text('Active'),
+                          backgroundColor: cs.errorContainer,
+                          labelStyle: TextStyle(
+                            color: cs.onErrorContainer,
+                            fontSize: 11,
+                          ),
+                          visualDensity: VisualDensity.compact,
+                        )
+                      : null,
+                ),
+              ),
+            )),
         ],
       ),
     );
@@ -254,11 +283,14 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
         children: [
           Icon(icon, size: 20, color: cs.primary),
           const SizedBox(width: 8),
-          Text(title,
-              style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: cs.onSurface)),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: cs.onSurface,
+            ),
+          ),
         ],
       ),
     );
@@ -271,9 +303,12 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: theme.textTheme.bodyMedium),
-          Text(value,
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(fontWeight: FontWeight.w600)),
+          Text(
+            value,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
@@ -282,8 +317,7 @@ class _HealthSummaryTabState extends State<HealthSummaryTab> {
   List<Widget> _buildRecordTypeSummary(dynamic types, ThemeData theme) {
     if (types is Map) {
       return types.entries
-          .map((e) =>
-              _summaryRow(e.key.toString(), e.value.toString(), theme))
+          .map((e) => _summaryRow(e.key.toString(), e.value.toString(), theme))
           .toList();
     }
     return [];

@@ -32,21 +32,32 @@ class PharmacyDeliveryOption extends StatelessWidget {
               : theme.colorScheme.surfaceContainerHighest.withAlpha(128),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: selected ? const Color(0xFF7E57C2) : theme.colorScheme.outlineVariant,
+            color: selected
+                ? const Color(0xFF7E57C2)
+                : theme.colorScheme.outlineVariant,
             width: selected ? 2 : 1,
           ),
         ),
         child: Column(
           children: [
-            Icon(icon,
-                color: selected ? const Color(0xFF7E57C2) : theme.colorScheme.onSurfaceVariant,
-                size: 28),
+            Icon(
+              icon,
+              color: selected
+                  ? const Color(0xFF7E57C2)
+                  : theme.colorScheme.onSurfaceVariant,
+              size: 28,
+            ),
             const SizedBox(height: 4),
-            Text(label,
-                style: TextStyle(
-                    color: selected ? const Color(0xFF7E57C2) : theme.colorScheme.onSurfaceVariant,
-                    fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                    fontSize: 13)),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected
+                    ? const Color(0xFF7E57C2)
+                    : theme.colorScheme.onSurfaceVariant,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                fontSize: 13,
+              ),
+            ),
           ],
         ),
       ),
@@ -58,7 +69,11 @@ class PharmacyOrderCard extends StatelessWidget {
   final Map<String, dynamic> order;
   final VoidCallback onTap;
 
-  const PharmacyOrderCard({super.key, required this.order, required this.onTap});
+  const PharmacyOrderCard({
+    super.key,
+    required this.order,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -83,9 +98,13 @@ class PharmacyOrderCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(orderNum,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 15)),
+                  Text(
+                    orderNum,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
                   PharmacyStatusChip(status: status),
                 ],
               ),
@@ -97,14 +116,21 @@ class PharmacyOrderCard extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   if (date != null)
-                    Text(_formatCardDate(date),
-                        style: TextStyle(
-                            color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),
+                    Text(
+                      _formatCardDate(date),
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                      ),
+                    ),
                   if (cost != null)
-                    Text('\u20B9$cost',
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF7E57C2))),
+                    Text(
+                      '\u20B9$cost',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF7E57C2),
+                      ),
+                    ),
                 ],
               ),
             ],
@@ -147,9 +173,14 @@ class PharmacyStatusChip extends StatelessWidget {
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Text(label,
-          style: TextStyle(
-              color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }
@@ -166,15 +197,25 @@ class PharmacyMiniStatusTracker extends StatelessWidget {
         children: [
           Icon(Icons.cancel, color: Colors.red.shade400, size: 16),
           const SizedBox(width: 4),
-          Text('Order Cancelled',
-              style: TextStyle(color: Colors.red.shade400, fontSize: 12)),
+          Text(
+            'Order Cancelled',
+            style: TextStyle(color: Colors.red.shade400, fontSize: 12),
+          ),
         ],
       );
     }
 
-    const steps = ['PENDING', 'CONFIRMED', 'PREPARING', 'DISPATCHED', 'DELIVERED'];
+    const steps = [
+      'PENDING',
+      'CONFIRMED',
+      'PREPARING',
+      'DISPATCHED',
+      'DELIVERED',
+    ];
     // Fold legacy 'PLACED' into the canonical 'PENDING' for indexing.
-    final normalized = status.toUpperCase() == 'PLACED' ? 'PENDING' : status.toUpperCase();
+    final normalized = status.toUpperCase() == 'PLACED'
+        ? 'PENDING'
+        : status.toUpperCase();
     final currentIdx = steps.indexOf(normalized);
 
     return Row(
@@ -198,7 +239,9 @@ class PharmacyMiniStatusTracker extends StatelessWidget {
           height: 10,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: done ? const Color(0xFF7E57C2) : theme.colorScheme.outlineVariant,
+            color: done
+                ? const Color(0xFF7E57C2)
+                : theme.colorScheme.outlineVariant,
           ),
         );
       }),
@@ -224,11 +267,14 @@ class PharmacyStatusTracker extends StatelessWidget {
           children: [
             Icon(Icons.cancel, color: Colors.red.shade400, size: 32),
             const SizedBox(width: 12),
-            const Text('Order Cancelled',
-                style: TextStyle(
-                    color: Colors.red,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16)),
+            const Text(
+              'Order Cancelled',
+              style: TextStyle(
+                color: Colors.red,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
           ],
         ),
       );
@@ -242,7 +288,9 @@ class PharmacyStatusTracker extends StatelessWidget {
       ('DELIVERED', 'Delivered', Icons.done_all),
     ];
     // Legacy alias: 'PLACED' → 'PENDING' for lookup.
-    final normalized = status.toUpperCase() == 'PLACED' ? 'PENDING' : status.toUpperCase();
+    final normalized = status.toUpperCase() == 'PLACED'
+        ? 'PENDING'
+        : status.toUpperCase();
     final currentIdx = steps.indexWhere((s) => s.$1 == normalized);
 
     return Column(
@@ -265,9 +313,13 @@ class PharmacyStatusTracker extends StatelessWidget {
                         ? const Color(0xFF7E57C2)
                         : theme.colorScheme.surfaceContainerHighest,
                   ),
-                  child: Icon(icon,
-                      size: 16,
-                      color: done ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant),
+                  child: Icon(
+                    icon,
+                    size: 16,
+                    color: done
+                        ? theme.colorScheme.onPrimary
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 if (i < steps.length - 1)
                   Container(
@@ -282,12 +334,16 @@ class PharmacyStatusTracker extends StatelessWidget {
             const SizedBox(width: 12),
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text(label,
-                  style: TextStyle(
-                    fontWeight: current ? FontWeight.bold : FontWeight.normal,
-                    color: done ? theme.colorScheme.onSurface : theme.colorScheme.onSurfaceVariant,
-                    fontSize: 14,
-                  )),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontWeight: current ? FontWeight.bold : FontWeight.normal,
+                  color: done
+                      ? theme.colorScheme.onSurface
+                      : theme.colorScheme.onSurfaceVariant,
+                  fontSize: 14,
+                ),
+              ),
             ),
           ],
         );
@@ -311,8 +367,14 @@ class PharmacyInfoRow extends StatelessWidget {
           Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant),
           const SizedBox(width: 8),
           Expanded(
-              child: Text(text,
-                  style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13))),
+            child: Text(
+              text,
+              style: TextStyle(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontSize: 13,
+              ),
+            ),
+          ),
         ],
       ),
     );

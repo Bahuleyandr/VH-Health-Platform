@@ -96,24 +96,30 @@ class _LoginFormState extends State<LoginForm> {
 
       // Check stored user data to determine navigation
       final storedIsNewUser = await _secureStorage.read(key: 'isNewUser');
-  // ignore: unused_local_variable
+      // ignore: unused_local_variable
       final storedJwt = await _secureStorage.read(key: 'jwt');
-      
+
       String targetRoute;
-      
+
       if (storedIsNewUser != null) {
         // Backend login was successful, use its determination
         final isNewUser = storedIsNewUser.toLowerCase() == 'true';
         targetRoute = isNewUser ? '/profile/setup' : '/dashboard';
         if (kDebugMode) {
-          developer.log('📊 Backend determined: ${isNewUser ? 'New User' : 'Existing User'}', name: 'Auth');
+          developer.log(
+            '📊 Backend determined: ${isNewUser ? 'New User' : 'Existing User'}',
+            name: 'Auth',
+          );
         }
       } else {
         // Backend login might have failed, use fallback logic
         if (kDebugMode) {
-          developer.log('⚠️ Backend data not available, using fallback logic', name: 'Auth');
+          developer.log(
+            '⚠️ Backend data not available, using fallback logic',
+            name: 'Auth',
+          );
         }
-        
+
         // Simple fallback: check if we have any stored user data
         final storedPhone = await _secureStorage.read(key: 'user_phone');
         if (storedPhone != null && storedPhone != user.phoneNumber) {
@@ -140,7 +146,6 @@ class _LoginFormState extends State<LoginForm> {
           context.go('/home');
         }
       }
-
     } catch (e) {
       if (kDebugMode) {
         developer.log('❌ Error in OTP success handler: $e', name: 'Auth');
@@ -184,7 +189,7 @@ class _LoginFormState extends State<LoginForm> {
                         child: Column(
                           children: [
                             const SizedBox(height: 16),
-                            
+
                             // Back button when showing OTP
                             if (_showOtpWidget)
                               Align(
@@ -195,19 +200,19 @@ class _LoginFormState extends State<LoginForm> {
                                   tooltip: "Back to phone input",
                                 ),
                               ),
-                            
+
                             // Logo
                             Image.asset(
                               'assets/images/hospital_icon.png',
                               height: 100,
                             ),
                             const SizedBox(height: 16),
-                            
+
                             // Title
                             Text(
-                              _showOtpWidget 
-                                ? "Verify Your Phone" 
-                                : l10n.authLoginTitle,
+                              _showOtpWidget
+                                  ? "Verify Your Phone"
+                                  : l10n.authLoginTitle,
                               style: theme.textTheme.headlineSmall,
                               textAlign: TextAlign.center,
                             ),
@@ -220,7 +225,7 @@ class _LoginFormState extends State<LoginForm> {
                                 readOnly: _isLoading,
                               ),
                               const SizedBox(height: 24),
-                              
+
                               // Send OTP Button
                               SizedBox(
                                 width: double.infinity,
@@ -234,10 +239,14 @@ class _LoginFormState extends State<LoginForm> {
                                   ),
                                   icon: _isLoading
                                       ? const SizedBox.shrink()
-                                      : const Icon(Icons.send_outlined, size: 18),
+                                      : const Icon(
+                                          Icons.send_outlined,
+                                          size: 18,
+                                        ),
                                   label: _isLoading
                                       ? Row(
-                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
                                           children: [
                                             const SizedBox(
                                               width: 20,
@@ -276,7 +285,9 @@ class _LoginFormState extends State<LoginForm> {
                                 children: [
                                   Expanded(child: Divider()),
                                   Padding(
-                                    padding: EdgeInsets.symmetric(horizontal: 16),
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                    ),
                                     child: Text(
                                       "OR",
                                       style: TextStyle(
@@ -289,18 +300,23 @@ class _LoginFormState extends State<LoginForm> {
                                 ],
                               ),
                               const SizedBox(height: 16),
-                              
+
                               SizedBox(
                                 width: double.infinity,
                                 height: 50,
                                 child: OutlinedButton.icon(
-                                  onPressed: _isLoading ? null : _continueAsGuest,
+                                  onPressed: _isLoading
+                                      ? null
+                                      : _continueAsGuest,
                                   style: OutlinedButton.styleFrom(
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                   ),
-                                  icon: const Icon(Icons.person_outline, size: 20),
+                                  icon: const Icon(
+                                    Icons.person_outline,
+                                    size: 20,
+                                  ),
                                   label: Text(
                                     l10n.authContinueAsGuest,
                                     style: const TextStyle(
@@ -323,7 +339,7 @@ class _LoginFormState extends State<LoginForm> {
                 ],
               ),
             ),
-            
+
             // SOS Button
             Positioned(
               bottom: 20,

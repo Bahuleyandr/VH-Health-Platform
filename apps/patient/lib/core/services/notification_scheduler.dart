@@ -23,8 +23,9 @@ class NotificationScheduler {
 
     tz.initializeTimeZones();
 
-    const androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
@@ -39,12 +40,14 @@ class NotificationScheduler {
 
     await _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.requestNotificationsPermission();
 
     await _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.createNotificationChannel(
           const AndroidNotificationChannel(
             'medication_reminders',
@@ -114,7 +117,9 @@ class NotificationScheduler {
           payload: jsonEncode({'reminderId': id}),
         );
       } catch (e) {
-        if (kDebugMode) debugPrint('Failed to schedule notification $notificationId: $e');
+        if (kDebugMode) {
+          debugPrint('Failed to schedule notification $notificationId: $e');
+        }
       }
     }
   }
@@ -127,14 +132,17 @@ class NotificationScheduler {
   }
 
   /// Cancel all then reschedule active reminders.
-  static Future<void> rescheduleAll(List<Map<String, dynamic>> reminders) async {
+  static Future<void> rescheduleAll(
+    List<Map<String, dynamic>> reminders,
+  ) async {
     await cancelAll();
     for (final r in reminders) {
       await scheduleReminder(
         id: r['id'] as int,
         medicationName: (r['medication_name'] as String?) ?? '',
         dosage: (r['dosage'] as String?) ?? '',
-        reminderTimes: (r['reminder_times'] as List<dynamic>?)
+        reminderTimes:
+            (r['reminder_times'] as List<dynamic>?)
                 ?.map((e) => e.toString())
                 .toList() ??
             [],
@@ -151,8 +159,14 @@ class NotificationScheduler {
 
   static tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {
     final now = tz.TZDateTime.now(tz.local);
-    var scheduled =
-        tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
+    var scheduled = tz.TZDateTime(
+      tz.local,
+      now.year,
+      now.month,
+      now.day,
+      hour,
+      minute,
+    );
     if (scheduled.isBefore(now)) {
       scheduled = scheduled.add(const Duration(days: 1));
     }

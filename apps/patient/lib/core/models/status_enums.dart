@@ -24,8 +24,10 @@ enum AppointmentStatus {
     );
   }
 
-  bool get isActive => this == scheduled || this == confirmed || this == inProgress;
-  bool get isTerminal => this == completed || this == cancelled || this == noShow;
+  bool get isActive =>
+      this == scheduled || this == confirmed || this == inProgress;
+  bool get isTerminal =>
+      this == completed || this == cancelled || this == noShow;
 }
 
 /// Pharmacy order statuses returned by the backend.
@@ -91,6 +93,7 @@ enum InvestigationStatus {
     );
   }
 
-  bool get isActive => this != completed && this != cancelled && this != reportReady;
+  bool get isActive =>
+      this != completed && this != cancelled && this != reportReady;
   bool get isTerminal => this == completed || this == cancelled;
 }

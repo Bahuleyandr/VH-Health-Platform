@@ -70,7 +70,9 @@ class NotificationProvider extends ChangeNotifier {
         _unreadCount = 0;
         notifyListeners();
       } else {
-        debugPrint('❌ Failed to mark notifications as read: ${response.statusCode}');
+        debugPrint(
+          '❌ Failed to mark notifications as read: ${response.statusCode}',
+        );
       }
     } catch (e) {
       debugPrint('❌ Error marking notifications as read: $e');

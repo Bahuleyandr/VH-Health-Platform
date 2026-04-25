@@ -92,7 +92,10 @@ class _OrderFormTabState extends State<OrderFormTab> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library, color: Color(0xFF7E57C2)),
+              leading: const Icon(
+                Icons.photo_library,
+                color: Color(0xFF7E57C2),
+              ),
               title: const Text('Choose from Gallery'),
               onTap: () {
                 Navigator.pop(ctx);
@@ -111,7 +114,10 @@ class _OrderFormTabState extends State<OrderFormTab> {
 
   Future<void> _placeOrder() async {
     if (_prescriptionPhoto == null && _noteController.text.trim().isEmpty) {
-      _showSnack('Please upload a prescription or describe your order', isError: true);
+      _showSnack(
+        'Please upload a prescription or describe your order',
+        isError: true,
+      );
       return;
     }
 
@@ -121,29 +127,37 @@ class _OrderFormTabState extends State<OrderFormTab> {
       // Build multipart files list
       final List<http.MultipartFile> files = [];
       if (_prescriptionPhoto != null) {
-        files.add(await http.MultipartFile.fromPath(
-          'prescription',
-          _prescriptionPhoto!.path,
-          filename: _prescriptionName ?? 'prescription.jpg',
-        ));
+        files.add(
+          await http.MultipartFile.fromPath(
+            'prescription',
+            _prescriptionPhoto!.path,
+            filename: _prescriptionName ?? 'prescription.jpg',
+          ),
+        );
       }
 
       // Build form fields
-      final Map<String, String> fields = {
-        'delivery_type': _deliveryType,
-      };
+      final Map<String, String> fields = {'delivery_type': _deliveryType};
       if (_noteController.text.trim().isNotEmpty) {
-        fields['order_note'] = InputSanitizer.sanitize(_noteController.text.trim());
+        fields['order_note'] = InputSanitizer.sanitize(
+          _noteController.text.trim(),
+        );
       }
       if (_deliveryType == 'delivery') {
         if (_addressController.text.trim().isNotEmpty) {
-          fields['delivery_address'] = InputSanitizer.sanitize(_addressController.text.trim());
+          fields['delivery_address'] = InputSanitizer.sanitize(
+            _addressController.text.trim(),
+          );
         }
         if (_landmarkController.text.trim().isNotEmpty) {
-          fields['delivery_landmark'] = InputSanitizer.sanitize(_landmarkController.text.trim());
+          fields['delivery_landmark'] = InputSanitizer.sanitize(
+            _landmarkController.text.trim(),
+          );
         }
         if (_phoneController.text.trim().isNotEmpty) {
-          fields['delivery_phone'] = InputSanitizer.sanitizePhone(_phoneController.text.trim());
+          fields['delivery_phone'] = InputSanitizer.sanitizePhone(
+            _phoneController.text.trim(),
+          );
         }
       }
 
@@ -180,7 +194,10 @@ class _OrderFormTabState extends State<OrderFormTab> {
       }
     } catch (e) {
       if (mounted) {
-        _showSnack('Error: ${e.toString().replaceFirst("Exception: ", "")}', isError: true);
+        _showSnack(
+          'Error: ${e.toString().replaceFirst("Exception: ", "")}',
+          isError: true,
+        );
       }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
@@ -204,8 +221,13 @@ class _OrderFormTabState extends State<OrderFormTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (orderNumber.isNotEmpty)
-              Text('Order Number: $orderNumber',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              Text(
+                'Order Number: $orderNumber',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
             const SizedBox(height: 12),
             const Text(
               'Our pharmacist will review your prescription and confirm your order shortly. '
@@ -226,10 +248,12 @@ class _OrderFormTabState extends State<OrderFormTab> {
 
   void _showSnack(String msg, {bool isError = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: isError ? Colors.red.shade700 : Colors.green.shade700,
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: isError ? Colors.red.shade700 : Colors.green.shade700,
+      ),
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -244,8 +268,10 @@ class _OrderFormTabState extends State<OrderFormTab> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Prescription upload
-          const Text('Upload Prescription',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const Text(
+            'Upload Prescription',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
 
           GestureDetector(
@@ -267,10 +293,12 @@ class _OrderFormTabState extends State<OrderFormTab> {
                       children: [
                         ClipRRect(
                           borderRadius: BorderRadius.circular(10),
-                          child: Image.file(_prescriptionPhoto!,
-                              width: double.infinity,
-                              height: 200,
-                              fit: BoxFit.cover),
+                          child: Image.file(
+                            _prescriptionPhoto!,
+                            width: double.infinity,
+                            height: 200,
+                            fit: BoxFit.cover,
+                          ),
                         ),
                         Positioned(
                           top: 8,
@@ -286,8 +314,11 @@ class _OrderFormTabState extends State<OrderFormTab> {
                                 color: Colors.red,
                                 shape: BoxShape.circle,
                               ),
-                              child: const Icon(Icons.close,
-                                  color: Colors.white, size: 16),
+                              child: const Icon(
+                                Icons.close,
+                                color: Colors.white,
+                                size: 16,
+                              ),
                             ),
                           ),
                         ),
@@ -296,14 +327,20 @@ class _OrderFormTabState extends State<OrderFormTab> {
                   : const Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.camera_alt,
-                            size: 36, color: Color(0xFF7E57C2)),
+                        Icon(
+                          Icons.camera_alt,
+                          size: 36,
+                          color: Color(0xFF7E57C2),
+                        ),
                         SizedBox(height: 8),
-                        Text('Tap to upload prescription',
-                            style: TextStyle(color: Colors.grey)),
-                        Text('Camera or Gallery',
-                            style:
-                                TextStyle(color: Colors.grey, fontSize: 12)),
+                        Text(
+                          'Tap to upload prescription',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                        Text(
+                          'Camera or Gallery',
+                          style: TextStyle(color: Colors.grey, fontSize: 12),
+                        ),
                       ],
                     ),
             ),
@@ -312,26 +349,33 @@ class _OrderFormTabState extends State<OrderFormTab> {
           const SizedBox(height: 16),
 
           // OR describe order
-          const Text('Or Describe Your Order',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+          const Text(
+            'Or Describe Your Order',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          ),
           const SizedBox(height: 8),
           TextField(
             controller: _noteController,
             maxLines: 3,
             decoration: InputDecoration(
               hintText: 'e.g., Dolo 650 - 2 strips, Pan 40 - 1 strip...',
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 12,
+              ),
             ),
           ),
 
           const SizedBox(height: 20),
 
           // Delivery preference
-          const Text('Delivery Preference',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const Text(
+            'Delivery Preference',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -366,7 +410,8 @@ class _OrderFormTabState extends State<OrderFormTab> {
                 hintText: 'House/Flat, Street, Area...',
                 prefixIcon: const Icon(Icons.location_on),
                 border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -377,7 +422,8 @@ class _OrderFormTabState extends State<OrderFormTab> {
                 hintText: 'Near...',
                 prefixIcon: const Icon(Icons.place),
                 border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -388,7 +434,8 @@ class _OrderFormTabState extends State<OrderFormTab> {
                 labelText: 'Contact Phone',
                 prefixIcon: const Icon(Icons.phone),
                 border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ],
@@ -406,19 +453,27 @@ class _OrderFormTabState extends State<OrderFormTab> {
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2))
-                  : const Icon(Icons.shopping_cart_checkout,
-                      color: Colors.white),
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Icon(
+                      Icons.shopping_cart_checkout,
+                      color: Colors.white,
+                    ),
               label: Text(
                 _isSubmitting ? 'Placing Order...' : 'Place Order',
-                style:
-                    const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF7E57C2),
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ),

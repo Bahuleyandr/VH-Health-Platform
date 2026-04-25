@@ -8,9 +8,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 /// [isSessionExpired] to true. The router redirect guard should check
 /// this flag and navigate to the login screen.
 class SessionTimeoutProvider extends ChangeNotifier {
-  SessionTimeoutProvider({
-    this.timeoutDuration = const Duration(minutes: 30),
-  });
+  SessionTimeoutProvider({this.timeoutDuration = const Duration(minutes: 30)});
 
   final Duration timeoutDuration;
 

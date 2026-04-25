@@ -62,7 +62,9 @@ class ApiCacheManager {
   static Future<String> _decrypt(String ciphertext) async {
     final key = await _getEncryptionKey();
     final parts = ciphertext.split(':');
-    if (parts.length != 2) throw const FormatException('Invalid encrypted data');
+    if (parts.length != 2) {
+      throw const FormatException('Invalid encrypted data');
+    }
     final iv = encrypt.IV.fromBase64(parts[0]);
     final encrypter = encrypt.Encrypter(
       encrypt.AES(key, mode: encrypt.AESMode.gcm),
@@ -127,10 +129,7 @@ class ApiCacheManager {
       }
       final envelope = jsonDecode(decrypted) as Map<String, dynamic>;
       final cachedAt = DateTime.parse(envelope['cachedAt'] as String);
-      return CachedData(
-        data: envelope['data'],
-        cachedAt: cachedAt,
-      );
+      return CachedData(data: envelope['data'], cachedAt: cachedAt);
     } catch (e) {
       if (kDebugMode) debugPrint('ApiCacheManager.load failed for $path: $e');
       return null;

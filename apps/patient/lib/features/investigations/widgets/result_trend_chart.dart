@@ -33,7 +33,9 @@ class ResultTrendChart extends StatelessWidget {
     final diff = latest - previous;
     final up = diff > 0.001;
     final down = diff < -0.001;
-    final arrow = up ? Icons.arrow_upward : (down ? Icons.arrow_downward : Icons.remove);
+    final arrow = up
+        ? Icons.arrow_upward
+        : (down ? Icons.arrow_downward : Icons.remove);
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -56,7 +58,9 @@ class ResultTrendChart extends StatelessWidget {
           children: [
             Text(
               _fmt(latest) + (unit != null ? ' $unit' : ''),
-              style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
             ),
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -64,7 +68,9 @@ class ResultTrendChart extends StatelessWidget {
                 Icon(arrow, size: 12, color: theme.hintColor),
                 Text(
                   '${values.length} results',
-                  style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.hintColor,
+                  ),
                 ),
               ],
             ),

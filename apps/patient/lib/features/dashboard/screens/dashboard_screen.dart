@@ -58,7 +58,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? cachedName;
   // ignore: unused_field
   Color _focusColor = Colors.blue;
-  
+
   // Offline support
   String? _staleLabel;
   StreamSubscription<bool>? _connectivitySub;
@@ -175,7 +175,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _apptPollFailures = 0; // reset on any successful response
     } catch (e) {
       _apptPollFailures++;
-      if (kDebugMode) debugPrint('Appointment poll failed (#$_apptPollFailures): $e');
+      if (kDebugMode) {
+        debugPrint('Appointment poll failed (#$_apptPollFailures): $e');
+      }
     }
   }
 
@@ -275,7 +277,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Map<String, dynamic>? active;
           for (final b in bookings) {
             final status = b['status']?.toString().toUpperCase() ?? '';
-            if (status != 'COMPLETED' && status != 'CANCELLED' && status != 'REPORT_READY') {
+            if (status != 'COMPLETED' &&
+                status != 'CANCELLED' &&
+                status != 'REPORT_READY') {
               active = Map<String, dynamic>.from(b);
               break;
             }
@@ -296,7 +300,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           final List<dynamic> prescriptions = rxRes.data ?? [];
           Map<String, dynamic>? recent;
           for (final rx in prescriptions) {
-            final pharmacyOpted = rx['pharmacy_opted'] ?? rx['pharmacyOpted'] ?? false;
+            final pharmacyOpted =
+                rx['pharmacy_opted'] ?? rx['pharmacyOpted'] ?? false;
             if (pharmacyOpted == false || pharmacyOpted == 'false') {
               recent = Map<String, dynamic>.from(rx);
               break;
@@ -310,7 +315,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _smartPollFailures = 0; // reset on any partial success
     } catch (e) {
       _smartPollFailures++;
-      if (kDebugMode) debugPrint('Smart poll failed (#$_smartPollFailures): $e');
+      if (kDebugMode) {
+        debugPrint('Smart poll failed (#$_smartPollFailures): $e');
+      }
     }
   }
 
@@ -382,14 +389,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         icon: LucideIcons.heartPulse,
         label: 'Vitals',
         color: const Color(0xFFEF9A9A),
-        description: 'Log and track daily vitals like blood pressure, heart rate, and SpO2',
+        description:
+            'Log and track daily vitals like blood pressure, heart rate, and SpO2',
         onTap: (ctx) => _openFeature(ctx, '/vitals'),
       ),
       FeatureIconData(
         icon: LucideIcons.refreshCw,
         label: 'Refills',
         color: const Color(0xFF81D4FA),
-        description: 'Request prescription refills from your active medications',
+        description:
+            'Request prescription refills from your active medications',
         onTap: (ctx) => _openFeature(ctx, '/refill'),
       ),
       FeatureIconData(
@@ -422,7 +431,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           cachedName = results[2] ?? widget.name;
         });
       }
-    } catch (e) { debugPrint('Dashboard error: $e'); }
+    } catch (e) {
+      debugPrint('Dashboard error: $e');
+    }
   }
 
   Future<void> _maybeFetchFromBackend() async {
@@ -431,7 +442,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!mounted || fetched == 'true') return;
       await Future.delayed(const Duration(seconds: 1));
       if (mounted) _fetchAndStoreDashboard();
-    } catch (e) { debugPrint('Dashboard error: $e'); }
+    } catch (e) {
+      debugPrint('Dashboard error: $e');
+    }
   }
 
   Future<void> _fetchAndStoreDashboard() async {
@@ -448,7 +461,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final name = data['name'] ?? widget.name;
         final last = data['lastAppointment'];
         final next = data['nextAppointment'];
-        final nextDetail = data['nextAppointmentDetail'] as Map<String, dynamic>?;
+        final nextDetail =
+            data['nextAppointmentDetail'] as Map<String, dynamic>?;
         final healthPts = data['healthPoints'] as Map<String, dynamic>?;
 
         setState(() {
@@ -476,8 +490,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             final freshName = freshData['name'] ?? widget.name;
             final freshLast = freshData['lastAppointment'];
             final freshNext = freshData['nextAppointment'];
-            final nextDetail = freshData['nextAppointmentDetail'] as Map<String, dynamic>?;
-            final healthPts = freshData['healthPoints'] as Map<String, dynamic>?;
+            final nextDetail =
+                freshData['nextAppointmentDetail'] as Map<String, dynamic>?;
+            final healthPts =
+                freshData['healthPoints'] as Map<String, dynamic>?;
             setState(() {
               _staleLabel = null;
               cachedName = freshName;
@@ -489,7 +505,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
         });
       }
-    } catch (e) { debugPrint('Dashboard error: $e'); }
+    } catch (e) {
+      debugPrint('Dashboard error: $e');
+    }
   }
 
   void _openFeature(BuildContext context, String routeName) {
@@ -514,9 +532,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _triggerSOS() async {
     final l10n = AppLocalizations.of(context)!;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(l10n.authSosTriggered)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(l10n.authSosTriggered)));
     await SOSService.triggerSOS();
   }
 
@@ -531,7 +549,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Hello, ${nameToShow == 'Guest' ? nameToShow : '$nameToShow!'}'),
+        title: Text(
+          'Hello, ${nameToShow == 'Guest' ? nameToShow : '$nameToShow!'}',
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.brightness_6),
@@ -561,118 +581,128 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-              // Today's appointment status card (real-time)
-              if (_todayAppointment != null && !isGuest)
-                TodayAppointmentCard(
-                  appointment: _todayAppointment!,
-                  statusLabel: _statusLabel(_appointmentStatus),
-                  statusColor: _statusColor(_appointmentStatus),
-                  statusIcon: _statusIcon(_appointmentStatus),
-                ),
+                      // Today's appointment status card (real-time)
+                      if (_todayAppointment != null && !isGuest)
+                        TodayAppointmentCard(
+                          appointment: _todayAppointment!,
+                          statusLabel: _statusLabel(_appointmentStatus),
+                          statusColor: _statusColor(_appointmentStatus),
+                          statusIcon: _statusIcon(_appointmentStatus),
+                        ),
 
-              // Personal Wellness Score (animated 0-100 ring)
-              if (!isGuest) const WellnessScoreWidget(),
+                      // Personal Wellness Score (animated 0-100 ring)
+                      if (!isGuest) const WellnessScoreWidget(),
 
-              // Smart Health Insights (up to 2 cards)
-              if (!isGuest) const HealthInsightsStrip(),
+                      // Smart Health Insights (up to 2 cards)
+                      if (!isGuest) const HealthInsightsStrip(),
 
-              // Gamification widgets
-              if (!isGuest && _nextAppointmentDetail != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: NextVisitProgressWidget(
-                    detail: _nextAppointmentDetail,
-                    onTap: () => _openFeature(context, '/appointments'),
-                    onSchedule: () => _openFeature(context, '/appointments'),
-                  ),
-                ),
-              if (!isGuest && _healthPoints != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: HealthPointsWidget(
-                    data: _healthPoints,
-                    onTap: () => _openFeature(context, '/health-points'),
-                  ),
-                ),
+                      // Gamification widgets
+                      if (!isGuest && _nextAppointmentDetail != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: NextVisitProgressWidget(
+                            detail: _nextAppointmentDetail,
+                            onTap: () => _openFeature(context, '/appointments'),
+                            onSchedule: () =>
+                                _openFeature(context, '/appointments'),
+                          ),
+                        ),
+                      if (!isGuest && _healthPoints != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: HealthPointsWidget(
+                            data: _healthPoints,
+                            onTap: () =>
+                                _openFeature(context, '/health-points'),
+                          ),
+                        ),
 
-              // Smart contextual widgets
-              if (!isGuest) ...[
-                if (_activePharmacyOrder != null)
-                  SmartPharmacyCard(
-                    order: _activePharmacyOrder!,
-                    onTap: () => _openFeature(context, '/pharmacy'),
-                  ),
-                if (_activeInvestigationBooking != null)
-                  SmartInvestigationCard(
-                    booking: _activeInvestigationBooking!,
-                    onTap: () => _openFeature(context, '/investigations'),
-                  ),
-                if (_recentPrescription != null)
-                  SmartPrescriptionCard(
-                    prescription: _recentPrescription!,
-                    onOrderTap: () => _openFeature(context, '/pharmacy'),
-                    onViewTap: () => _openFeature(context, '/records'),
-                  ),
-              ],
+                      // Smart contextual widgets
+                      if (!isGuest) ...[
+                        if (_activePharmacyOrder != null)
+                          SmartPharmacyCard(
+                            order: _activePharmacyOrder!,
+                            onTap: () => _openFeature(context, '/pharmacy'),
+                          ),
+                        if (_activeInvestigationBooking != null)
+                          SmartInvestigationCard(
+                            booking: _activeInvestigationBooking!,
+                            onTap: () =>
+                                _openFeature(context, '/investigations'),
+                          ),
+                        if (_recentPrescription != null)
+                          SmartPrescriptionCard(
+                            prescription: _recentPrescription!,
+                            onOrderTap: () =>
+                                _openFeature(context, '/pharmacy'),
+                            onViewTap: () => _openFeature(context, '/records'),
+                          ),
+                      ],
 
-              // Quick action buttons
-              if (!isGuest)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    children: [
-                      QuickActionButton(
-                        icon: LucideIcons.calendarPlus,
-                        label: 'Book',
-                        color: cs.primary,
-                        onTap: () => _openFeature(context, '/appointments'),
+                      // Quick action buttons
+                      if (!isGuest)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            children: [
+                              QuickActionButton(
+                                icon: LucideIcons.calendarPlus,
+                                label: 'Book',
+                                color: cs.primary,
+                                onTap: () =>
+                                    _openFeature(context, '/appointments'),
+                              ),
+                              QuickActionButton(
+                                icon: LucideIcons.fileText,
+                                label: 'Records',
+                                color: cs.tertiary,
+                                onTap: () => _openFeature(context, '/records'),
+                              ),
+                              QuickActionButton(
+                                icon: LucideIcons.pill,
+                                label: 'Pharmacy',
+                                color: cs.secondary,
+                                onTap: () => _openFeature(context, '/pharmacy'),
+                              ),
+                              QuickActionButton(
+                                icon: Icons.favorite,
+                                label: 'SOS',
+                                color: Colors.red,
+                                onTap: _triggerSOS,
+                              ),
+                            ],
+                          ),
+                        ),
+
+                      // Feature dial — fixed height so it never compresses as
+                      // above-dial widgets stack up.
+                      SizedBox(
+                        height: screenHeight * 0.42,
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: CircularFeatureDial(
+                            features: _features,
+                            size: MediaQuery.of(context).size.width * 0.75,
+                            onFocusColorChanged: (color) {
+                              setState(() => _focusColor = color);
+                            },
+                          ),
+                        ),
                       ),
-                      QuickActionButton(
-                        icon: LucideIcons.fileText,
-                        label: 'Records',
-                        color: cs.tertiary,
-                        onTap: () => _openFeature(context, '/records'),
-                      ),
-                      QuickActionButton(
-                        icon: LucideIcons.pill,
-                        label: 'Pharmacy',
-                        color: cs.secondary,
-                        onTap: () => _openFeature(context, '/pharmacy'),
-                      ),
-                      QuickActionButton(
-                        icon: Icons.favorite,
-                        label: 'SOS',
-                        color: Colors.red,
-                        onTap: _triggerSOS,
-                      ),
-                    ],
-                  ),
-                ),
 
-              // Feature dial — fixed height so it never compresses as
-              // above-dial widgets stack up.
-              SizedBox(
-                height: screenHeight * 0.42,
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: CircularFeatureDial(
-                    features: _features,
-                    size: MediaQuery.of(context).size.width * 0.75,
-                    onFocusColorChanged: (color) {
-                      setState(() => _focusColor = color);
-                    },
-                  ),
-                ),
-              ),
-
-              // Appointment card
-              if (!isGuest)
-                AppointmentCard(
-                  lastAppointment: lastAppointment,
-                  nextAppointment: nextAppointment,
-                  onViewHistory: () => _openFeature(context, '/appointments'),
-                  onScheduleNew: () => _openFeature(context, '/appointments'),
-                ),
+                      // Appointment card
+                      if (!isGuest)
+                        AppointmentCard(
+                          lastAppointment: lastAppointment,
+                          nextAppointment: nextAppointment,
+                          onViewHistory: () =>
+                              _openFeature(context, '/appointments'),
+                          onScheduleNew: () =>
+                              _openFeature(context, '/appointments'),
+                        ),
                     ],
                   ),
                 ),
@@ -691,4 +721,3 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 }
-

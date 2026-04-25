@@ -34,11 +34,11 @@ class _TermsDisclaimerScreenState extends State<TermsDisclaimerScreen> {
   void _scrollTo(String section) {
     // Add a check to ensure the widget is mounted and laid out
     if (!mounted) return;
-    
+
     // Delay execution to next frame to ensure layout is complete
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      
+
       final key = switch (section.toLowerCase()) {
         'terms' => _termsKey,
         'conditions' => _conditionsKey,
@@ -59,15 +59,15 @@ class _TermsDisclaimerScreenState extends State<TermsDisclaimerScreen> {
   }
 
   Widget _sectionHeader(String text, {GlobalKey? key}) => Container(
-        key: key,
-        padding: const EdgeInsets.only(top: 24, bottom: 8),
-        child: Text(
-          text,
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-        ),
-      );
+    key: key,
+    padding: const EdgeInsets.only(top: 24, bottom: 8),
+    child: Text(
+      text,
+      style: Theme.of(
+        context,
+      ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+    ),
+  );
 
   Widget _buildMarkdownSection(String? data) {
     final content = (data ?? '').trim();
@@ -79,9 +79,7 @@ class _TermsDisclaimerScreenState extends State<TermsDisclaimerScreen> {
           const H1Config(),
           const H2Config(),
           const H3Config(),
-          LinkConfig(
-            onTap: (url) => debugPrint('Link tapped: $url'),
-          ),
+          LinkConfig(onTap: (url) => debugPrint('Link tapped: $url')),
           const BlockquoteConfig(),
         ],
       ),
@@ -110,7 +108,10 @@ class _TermsDisclaimerScreenState extends State<TermsDisclaimerScreen> {
           child: Column(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -128,7 +129,7 @@ class _TermsDisclaimerScreenState extends State<TermsDisclaimerScreen> {
               Expanded(
                 child: ListView(
                   shrinkWrap: true,
-                  physics: const AlwaysScrollableScrollPhysics(), 
+                  physics: const AlwaysScrollableScrollPhysics(),
                   controller: _scrollCtrl,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   children: [

@@ -201,34 +201,43 @@ void main() {
       expect(prefs.getInt('accent_color'), Colors.blue.toARGB32());
     });
 
-    test('setDynamicAccentColor(null) removes from SharedPreferences', () async {
-      final provider = ThemeProvider();
+    test(
+      'setDynamicAccentColor(null) removes from SharedPreferences',
+      () async {
+        final provider = ThemeProvider();
 
-      await provider.setDynamicAccentColor(Colors.blue);
-      await provider.setDynamicAccentColor(null);
+        await provider.setDynamicAccentColor(Colors.blue);
+        await provider.setDynamicAccentColor(null);
 
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getInt('accent_color'), isNull);
-    });
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getInt('accent_color'), isNull);
+      },
+    );
 
-    test('updateAccentFromDial sets color when dynamic colors enabled', () async {
-      final provider = ThemeProvider();
+    test(
+      'updateAccentFromDial sets color when dynamic colors enabled',
+      () async {
+        final provider = ThemeProvider();
 
-      provider.updateAccentFromDial(Colors.green);
-      await Future<void>.delayed(Duration.zero);
+        provider.updateAccentFromDial(Colors.green);
+        await Future<void>.delayed(Duration.zero);
 
-      expect(provider.dynamicAccentColor, Colors.green);
-    });
+        expect(provider.dynamicAccentColor, Colors.green);
+      },
+    );
 
-    test('updateAccentFromDial does nothing when dynamic colors disabled', () async {
-      final provider = ThemeProvider();
+    test(
+      'updateAccentFromDial does nothing when dynamic colors disabled',
+      () async {
+        final provider = ThemeProvider();
 
-      await provider.setEnableDynamicColors(false);
-      provider.updateAccentFromDial(Colors.green);
-      await Future<void>.delayed(Duration.zero);
+        await provider.setEnableDynamicColors(false);
+        provider.updateAccentFromDial(Colors.green);
+        await Future<void>.delayed(Duration.zero);
 
-      expect(provider.dynamicAccentColor, isNull);
-    });
+        expect(provider.dynamicAccentColor, isNull);
+      },
+    );
   });
 
   group('ThemeProvider — enableDynamicColors', () {

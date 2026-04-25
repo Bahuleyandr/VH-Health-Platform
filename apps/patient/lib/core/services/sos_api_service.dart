@@ -58,9 +58,7 @@ class SosApiService {
   static Future<void> cancelAlert(String alertId) async {
     final response = await ApiClient.post('/sos/cancel/$alertId');
     if (!response.isSuccess) {
-      throw SosException(
-        response.message ?? 'Failed to cancel SOS alert',
-      );
+      throw SosException(response.message ?? 'Failed to cancel SOS alert');
     }
   }
 

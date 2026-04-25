@@ -18,7 +18,8 @@ class SmartPrescriptionCard extends StatelessWidget {
     final theme = Theme.of(context);
     final doctorName = prescription['doctor_name']?.toString() ?? 'Doctor';
     final rxNumber = prescription['prescription_number']?.toString() ?? '';
-    final itemCount = (prescription['items'] as List?)?.length ??
+    final itemCount =
+        (prescription['items'] as List?)?.length ??
         prescription['medicine_count'] ??
         prescription['item_count'] ??
         0;
@@ -39,7 +40,11 @@ class SmartPrescriptionCard extends StatelessWidget {
               color: Colors.purple.withValues(alpha: 0.15),
               shape: BoxShape.circle,
             ),
-            child: const Icon(LucideIcons.fileText, color: Colors.purple, size: 22),
+            child: const Icon(
+              LucideIcons.fileText,
+              color: Colors.purple,
+              size: 22,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -48,7 +53,9 @@ class SmartPrescriptionCard extends StatelessWidget {
               children: [
                 Text(
                   'New Prescription${rxNumber.isNotEmpty ? ' $rxNumber' : ''}',
-                  style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 2),

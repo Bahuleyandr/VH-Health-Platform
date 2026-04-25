@@ -44,7 +44,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       context: context,
       initialDate: isBirthday
           ? (_birthday ?? DateTime(1990))
-          : (_anniversary ?? DateTime.now().subtract(const Duration(days: 365))),
+          : (_anniversary ??
+                DateTime.now().subtract(const Duration(days: 365))),
       firstDate: isBirthday ? DateTime(1900) : DateTime(1950),
       lastDate: DateTime.now(),
     );
@@ -58,7 +59,12 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     final theme = Theme.of(context);
 
     try {
-      final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80, maxWidth: 1200, maxHeight: 1200);
+      final picked = await _picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+        maxWidth: 1200,
+        maxHeight: 1200,
+      );
       if (picked != null && mounted) setState(() => _photo = File(picked.path));
     } catch (e) {
       debugPrint('Photo pick failed: $e');
@@ -83,7 +89,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     final data = {
       'name': InputSanitizer.sanitizeName(_nameController.text.trim()),
       'gender': _gender,
-      'email': _emailController.text.trim().isNotEmpty ? _emailController.text.trim() : null,
+      'email': _emailController.text.trim().isNotEmpty
+          ? _emailController.text.trim()
+          : null,
       'birthday': _birthday?.toIso8601String().split('T').first,
       'anniversary': _anniversary?.toIso8601String().split('T').first,
       'phone': widget.phone,
@@ -99,29 +107,36 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(success ? l10n.profileSetupSaved : l10n.profileSetupSaveFailed),
-        backgroundColor: success ? theme.colorScheme.primary : theme.colorScheme.error,
+        content: Text(
+          success ? l10n.profileSetupSaved : l10n.profileSetupSaveFailed,
+        ),
+        backgroundColor: success
+            ? theme.colorScheme.primary
+            : theme.colorScheme.error,
         behavior: SnackBarBehavior.floating,
       ),
     );
 
     if (success) {
-  const storage = FlutterSecureStorage();
-  await storage.write(key: 'user_name', value: _nameController.text.trim());
-  await storage.write(key: 'isNewUser', value: 'false');
-  AppRouter.setUserData(widget.phone, _nameController.text.trim());
-  if (mounted) context.go('/home'); // ignore: use_build_context_synchronously
-}
+      const storage = FlutterSecureStorage();
+      await storage.write(key: 'user_name', value: _nameController.text.trim());
+      await storage.write(key: 'isNewUser', value: 'false');
+      AppRouter.setUserData(widget.phone, _nameController.text.trim());
+      if (mounted) {
+        context.go('/home'); // ignore: use_build_context_synchronously
+      }
+    }
     if (mounted) setState(() => _isSubmitting = false);
   }
 
   void _skip() {
-  AppRouter.setUserData(widget.phone, 'User');
-  context.go('/home');
-}
+    AppRouter.setUserData(widget.phone, 'User');
+    context.go('/home');
+  }
 
-  String _formatDate(DateTime? date) =>
-      date == null ? '' : MaterialLocalizations.of(context).formatFullDate(date);
+  String _formatDate(DateTime? date) => date == null
+      ? ''
+      : MaterialLocalizations.of(context).formatFullDate(date);
 
   @override
   Widget build(BuildContext context) {
@@ -147,17 +162,25 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                       child: CircleAvatar(
                         radius: 60,
                         backgroundColor: colorScheme.surfaceContainerHighest,
-                        backgroundImage: _photo != null ? FileImage(_photo!) : null,
+                        backgroundImage: _photo != null
+                            ? FileImage(_photo!)
+                            : null,
                         child: _photo == null
                             ? Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.camera_alt_outlined,
-                                      size: 40, color: colorScheme.onSurfaceVariant),
+                                  Icon(
+                                    Icons.camera_alt_outlined,
+                                    size: 40,
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
                                   const SizedBox(height: 4),
-                                  Text(l10n.profileUploadProfilePic,
-                                      style: textTheme.bodySmall
-                                          ?.copyWith(color: colorScheme.onSurfaceVariant)),
+                                  Text(
+                                    l10n.profileUploadProfilePic,
+                                    style: textTheme.bodySmall?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
                                 ],
                               )
                             : null,
@@ -172,7 +195,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                       decoration: InputDecoration(
                         labelText: l10n.profileNameLabel,
                         hintText: l10n.profileNameHint,
-                        prefixIcon: Icon(Icons.person_outline, color: colorScheme.primary),
+                        prefixIcon: Icon(
+                          Icons.person_outline,
+                          color: colorScheme.primary,
+                        ),
                       ),
                       validator: (v) => v == null || v.trim().isEmpty
                           ? l10n.profileNameValidationRequired
@@ -185,16 +211,32 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                     DropdownButtonFormField<String>(
                       initialValue: _gender,
                       items: [
-                        DropdownMenuItem(value: 'MALE', child: Text(l10n.profileGenderMale)),
-                        DropdownMenuItem(value: 'FEMALE', child: Text(l10n.profileGenderFemale)),
-                        DropdownMenuItem(value: 'OTHER', child: Text(l10n.profileGenderOther)),
+                        DropdownMenuItem(
+                          value: 'MALE',
+                          child: Text(l10n.profileGenderMale),
+                        ),
+                        DropdownMenuItem(
+                          value: 'FEMALE',
+                          child: Text(l10n.profileGenderFemale),
+                        ),
+                        DropdownMenuItem(
+                          value: 'OTHER',
+                          child: Text(l10n.profileGenderOther),
+                        ),
                       ],
-                      onChanged: _isSubmitting ? null : (val) => setState(() => _gender = val),
+                      onChanged: _isSubmitting
+                          ? null
+                          : (val) => setState(() => _gender = val),
                       decoration: InputDecoration(
                         labelText: l10n.profileGenderLabel,
-                        prefixIcon: Icon(Icons.wc_outlined, color: colorScheme.primary),
+                        prefixIcon: Icon(
+                          Icons.wc_outlined,
+                          color: colorScheme.primary,
+                        ),
                       ),
-                      validator: (v) => v == null ? l10n.profileGenderValidationRequired : null,
+                      validator: (v) => v == null
+                          ? l10n.profileGenderValidationRequired
+                          : null,
                       style: textTheme.bodyLarge,
                     ),
                     const SizedBox(height: 16),
@@ -206,7 +248,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                       decoration: InputDecoration(
                         labelText: l10n.profileEmailLabel,
                         hintText: l10n.profileEmailHintOptional,
-                        prefixIcon: Icon(Icons.email_outlined, color: colorScheme.primary),
+                        prefixIcon: Icon(
+                          Icons.email_outlined,
+                          color: colorScheme.primary,
+                        ),
                       ),
                       validator: (v) {
                         if (v == null || v.trim().isEmpty) return null;
@@ -251,8 +296,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                             onPressed: _isSubmitting ? null : _skip,
                             child: Padding(
                               padding: const EdgeInsets.symmetric(vertical: 12),
-                              child:
-                                  Text(l10n.commonSkipButton, style: textTheme.labelLarge),
+                              child: Text(
+                                l10n.commonSkipButton,
+                                style: textTheme.labelLarge,
+                              ),
                             ),
                           ),
                         ),
@@ -264,14 +311,18 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                                 ? const SizedBox(
                                     width: 20,
                                     height: 20,
-                                    child:
-                                        CircularProgressIndicator(strokeWidth: 2.5),
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                    ),
                                   )
                                 : Padding(
-                                    padding:
-                                        const EdgeInsets.symmetric(vertical: 12),
-                                    child: Text(l10n.commonSubmitButton,
-                                        style: textTheme.labelLarge),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                    child: Text(
+                                      l10n.commonSubmitButton,
+                                      style: textTheme.labelLarge,
+                                    ),
                                   ),
                           ),
                         ),
@@ -295,11 +346,7 @@ class _DateTile extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onTap;
 
-  const _DateTile({
-    required this.label,
-    required this.icon,
-    this.onTap,
-  });
+  const _DateTile({required this.label, required this.icon, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -313,9 +360,13 @@ class _DateTile extends StatelessWidget {
       onTap: onTap,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: colorScheme.outline.withAlpha((255 * 0.5).round())), // Corrected line
+        side: BorderSide(
+          color: colorScheme.outline.withAlpha((255 * 0.5).round()),
+        ), // Corrected line
       ),
-      tileColor: colorScheme.surface.withAlpha((255 * 0.5).round()), // Corrected line
+      tileColor: colorScheme.surface.withAlpha(
+        (255 * 0.5).round(),
+      ), // Corrected line
     );
   }
 }

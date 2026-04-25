@@ -95,9 +95,10 @@ class AppRouter {
         return null;
       }
 
-      final isAuthRoute = location == '/login' ||
-                         location == '/terms' ||
-                         location == '/profile-setup';
+      final isAuthRoute =
+          location == '/login' ||
+          location == '/terms' ||
+          location == '/profile-setup';
 
       // Session idle timeout — force logout if expired
       try {
@@ -121,9 +122,13 @@ class AppRouter {
       if (isLoggedIn && location == '/login') {
         // Start idle timer now that we know the user is authenticated
         try {
-          Provider.of<SessionTimeoutProvider>(context, listen: false)
-              .startTracking();
-        } catch (e) { debugPrint('Router: $e'); }
+          Provider.of<SessionTimeoutProvider>(
+            context,
+            listen: false,
+          ).startTracking();
+        } catch (e) {
+          debugPrint('Router: $e');
+        }
 
         // Load user data from secure storage if not already loaded
         if (_userPhone == null || _userName == null) {
@@ -147,9 +152,14 @@ class AppRouter {
       // User is logged in and on a protected page — ensure timer is running
       if (isLoggedIn && !isAuthRoute) {
         try {
-          final sp = Provider.of<SessionTimeoutProvider>(context, listen: false);
+          final sp = Provider.of<SessionTimeoutProvider>(
+            context,
+            listen: false,
+          );
           if (!sp.isSessionExpired) sp.recordActivity();
-        } catch (e) { debugPrint('Router: $e'); }
+        } catch (e) {
+          debugPrint('Router: $e');
+        }
       }
 
       return null;
@@ -157,23 +167,15 @@ class AppRouter {
 
     routes: [
       // Splash screen
-      GoRoute(
-        path: '/',
-        builder: (context, state) => const SplashScreen(),
-      ),
+      GoRoute(path: '/', builder: (context, state) => const SplashScreen()),
 
       // Auth routes
-      GoRoute(
-        path: '/login',
-        builder: (context, state) => const LoginScreen(),
-      ),
+      GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(
         path: '/terms',
         builder: (context, state) {
           final extra = state.extra as Map<String, dynamic>?;
-          return TermsDisclaimerScreen(
-            section: extra?['section'],
-          );
+          return TermsDisclaimerScreen(section: extra?['section']);
         },
       ),
       GoRoute(
@@ -249,22 +251,17 @@ class AppRouter {
         path: '/appointments',
         builder: (context, state) {
           final extra = state.extra as Map<String, dynamic>?;
-          return AppointmentsScreen(
-            phone: extra?['phone'] ?? _phone(context),
-          );
+          return AppointmentsScreen(phone: extra?['phone'] ?? _phone(context));
         },
       ),
       GoRoute(
         path: '/pharmacy',
-        builder: (context, state) => PharmacyScreen(
-          phone: _phone(context),
-        ),
+        builder: (context, state) => PharmacyScreen(phone: _phone(context)),
       ),
       GoRoute(
         path: '/investigations',
-        builder: (context, state) => InvestigationsScreen(
-          phone: _phone(context),
-        ),
+        builder: (context, state) =>
+            InvestigationsScreen(phone: _phone(context)),
       ),
       GoRoute(
         path: '/book-investigation',
@@ -272,9 +269,7 @@ class AppRouter {
       ),
       GoRoute(
         path: '/ask-a-doubt',
-        builder: (context, state) => AskADoubtScreen(
-          phone: _phone(context),
-        ),
+        builder: (context, state) => AskADoubtScreen(phone: _phone(context)),
       ),
       GoRoute(
         path: '/feedback-history',
@@ -286,10 +281,8 @@ class AppRouter {
       ),
       GoRoute(
         path: '/departments',
-        builder: (context, state) => DepartmentsScreen(
-          phone: _phone(context),
-          name: _name(context),
-        ),
+        builder: (context, state) =>
+            DepartmentsScreen(phone: _phone(context), name: _name(context)),
       ),
       GoRoute(
         path: '/about-us',
@@ -301,9 +294,7 @@ class AppRouter {
       ),
       GoRoute(
         path: '/calendar',
-        builder: (context, state) => CalendarScreen(
-          uid: _phone(context),
-        ),
+        builder: (context, state) => CalendarScreen(uid: _phone(context)),
       ),
       GoRoute(
         path: '/steps',
@@ -311,48 +302,30 @@ class AppRouter {
       ),
       GoRoute(
         path: '/vitals',
-        builder: (context, state) => VitalsScreen(
-          phone: _phone(context),
-        ),
+        builder: (context, state) => VitalsScreen(phone: _phone(context)),
       ),
       GoRoute(
         path: '/refill',
-        builder: (context, state) => RefillScreen(
-          phone: _phone(context),
-        ),
+        builder: (context, state) => RefillScreen(phone: _phone(context)),
       ),
       GoRoute(
         path: '/family',
-        builder: (context, state) => FamilyScreen(
-          phone: _phone(context),
-        ),
+        builder: (context, state) => FamilyScreen(phone: _phone(context)),
       ),
       GoRoute(
         path: '/reminders',
         builder: (context, state) => const MedicationRemindersScreen(),
       ),
-      GoRoute(
-        path: '/abdm',
-        builder: (context, state) => const AbdmScreen(),
-      ),
+      GoRoute(path: '/abdm', builder: (context, state) => const AbdmScreen()),
       GoRoute(
         path: '/health-points',
         builder: (context, state) => const HealthPointsScreen(),
       ),
-      GoRoute(
-        path: '/records',
-        redirect: (_, _) => '/health',
-      ),
+      GoRoute(path: '/records', redirect: (_, _) => '/health'),
 
       // Alternative route names for backward compatibility
-      GoRoute(
-        path: '/your-health',
-        redirect: (_, _) => '/health',
-      ),
-      GoRoute(
-        path: '/dashboard',
-        redirect: (_, _) => '/home',
-      ),
+      GoRoute(path: '/your-health', redirect: (_, _) => '/health'),
+      GoRoute(path: '/dashboard', redirect: (_, _) => '/home'),
     ],
 
     // Error page

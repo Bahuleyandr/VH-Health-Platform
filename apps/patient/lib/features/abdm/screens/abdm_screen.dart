@@ -51,10 +51,7 @@ class _AbdmScreenState extends State<AbdmScreen>
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: const [
-                _MyAbhaTab(),
-                _ConsentRequestsTab(),
-              ],
+              children: const [_MyAbhaTab(), _ConsentRequestsTab()],
             ),
           ),
         ],
@@ -225,7 +222,11 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          Icon(Icons.health_and_safety, size: 64, color: theme.colorScheme.primary),
+          Icon(
+            Icons.health_and_safety,
+            size: 64,
+            color: theme.colorScheme.primary,
+          ),
           const SizedBox(height: 16),
           Text(
             'Ayushman Bharat Health Account',
@@ -269,10 +270,7 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
         children: [
           Icon(Icons.verified, size: 64, color: theme.colorScheme.primary),
           const SizedBox(height: 16),
-          Text(
-            'Your ABHA Number',
-            style: theme.textTheme.titleMedium,
-          ),
+          Text('Your ABHA Number', style: theme.textTheme.titleMedium),
           const SizedBox(height: 12),
           Card(
             child: Padding(
@@ -522,7 +520,9 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('$action Consent?'),
-        content: Text('Are you sure you want to ${action.toLowerCase()} this consent request?'),
+        content: Text(
+          'Are you sure you want to ${action.toLowerCase()} this consent request?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -590,8 +590,11 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.handshake_outlined, size: 48,
-                color: theme.colorScheme.onSurfaceVariant),
+            Icon(
+              Icons.handshake_outlined,
+              size: 48,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
             const SizedBox(height: 12),
             Text(
               'No consent requests',
@@ -618,7 +621,8 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
         itemBuilder: (context, index) {
           final consent = _consents[index] as Map<String, dynamic>;
           final status = (consent['status'] as String?) ?? 'UNKNOWN';
-          final purpose = (consent['purpose'] as String?) ?? 'Health data access';
+          final purpose =
+              (consent['purpose'] as String?) ?? 'Health data access';
           final requester = (consent['requester'] as String?) ?? 'Unknown';
           final dateFrom = consent['dateFrom'] as String?;
           final dateTo = consent['dateTo'] as String?;
@@ -650,14 +654,12 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        backgroundColor:
-                            _statusColor(status).withAlpha(26),
+                        backgroundColor: _statusColor(status).withAlpha(26),
                         side: BorderSide(
                           color: _statusColor(status).withAlpha(76),
                         ),
                         padding: EdgeInsets.zero,
-                        materialTapTargetSize:
-                            MaterialTapTargetSize.shrinkWrap,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                     ],
                   ),
@@ -680,7 +682,10 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
                       children: [
                         OutlinedButton(
                           onPressed: () => _confirmAction(
-                              'Deny', id, AbdmApiService.denyConsent),
+                            'Deny',
+                            id,
+                            AbdmApiService.denyConsent,
+                          ),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: Colors.red,
                           ),
@@ -689,7 +694,10 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
                         const SizedBox(width: 8),
                         FilledButton(
                           onPressed: () => _confirmAction(
-                              'Grant', id, AbdmApiService.grantConsent),
+                            'Grant',
+                            id,
+                            AbdmApiService.grantConsent,
+                          ),
                           child: const Text('Grant'),
                         ),
                       ],
@@ -701,7 +709,10 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
                       alignment: Alignment.centerRight,
                       child: OutlinedButton(
                         onPressed: () => _confirmAction(
-                            'Revoke', id, AbdmApiService.revokeConsent),
+                          'Revoke',
+                          id,
+                          AbdmApiService.revokeConsent,
+                        ),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.red,
                         ),
