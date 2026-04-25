@@ -5579,3 +5579,18 @@ model wards {
   beds          beds[]
   departments   departments? @relation(fields: [department_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
+
+model clinical_protocols {
+  id                 Int      @id @default(autoincrement())
+  name               String   @db.VarChar(255)
+  category           String   @db.VarChar(100)
+  trigger_conditions Json     @default("{}")
+  recommendations    Json     @default("{}")
+  priority           String   @default("medium") @db.VarChar(20)
+  is_active          Boolean  @default(true)
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([category], map: "idx_clinical_protocols_category")
+  @@index([priority], map: "idx_clinical_protocols_priority")
+}
