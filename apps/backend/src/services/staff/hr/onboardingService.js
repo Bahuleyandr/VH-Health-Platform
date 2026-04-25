@@ -48,33 +48,25 @@ export const getOnboardingChecklist = async (staffId) => {
 
   const [staff] = user.staff;
 
-  // Load per-staff onboarding tasks. The raw version here previously
-  // failed with a try/catch fallback because description/assigned_to/
-  // due_date/priority didn't exist on the schema — batch 91 added them.
-  let taskRows;
-  try {
-    taskRows = await prisma.staff_onboarding_tasks.findMany({
-      where: { staff_id: Number(staffId) },
-      select: {
-        id: true,
-        task_name: true,
-        description: true,
-        completed: true,
-        completed_date: true,
-        assigned_to: true,
-        due_date: true,
-        priority: true,
-      },
-      orderBy: [
-        { priority: 'desc' },
-        { due_date: 'asc' },
-      ],
-    });
-  } catch {
-    taskRows = null;
-  }
+  const taskRows = await prisma.staff_onboarding_tasks.findMany({
+    where: { staff_id: Number(staffId) },
+    select: {
+      id: true,
+      task_name: true,
+      description: true,
+      completed: true,
+      completed_date: true,
+      assigned_to: true,
+      due_date: true,
+      priority: true,
+    },
+    orderBy: [
+      { priority: 'desc' },
+      { due_date: 'asc' },
+    ],
+  });
 
-  const onboardingTasks = taskRows && taskRows.length > 0
+  const onboardingTasks = taskRows.length > 0
     ? taskRows.map((task) => ({
       ...task,
       completed_date: fmtDate(task.completed_date),

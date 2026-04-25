@@ -91,53 +91,40 @@ function formatAlertResponse(alert, nearbyServices, severity, isTestAlert) {
 }
 
 export const getEmergencyContacts = async (phone) => {
-  try {
-    const rows = await prisma.$queryRaw`
-      SELECT emergency_contact, name, phone, allergies
-      FROM users
-      WHERE phone = ${phone}
-      LIMIT 1
-    `;
-
-    if (rows.length === 0) {
-      return { emergencyContact: null };
-    }
-
-    return {
-      emergencyContact: rows[0].emergency_contact,
-      patientName: rows[0].name,
-      phone: rows[0].phone,
-      allergies: rows[0].allergies,
-    };
-  } catch (err) {
-    logger.error('Error fetching emergency contacts:', err);
-    throw err;
-  }
+  const user = await prisma.users.findFirst({
+    where: { phone },
+    select: {
+      emergency_contact: true,
+      name: true,
+      phone: true,
+      allergies: true,
+    },
+  });
+  if (!user) return { emergencyContact: null };
+  return {
+    emergencyContact: user.emergency_contact,
+    patientName: user.name,
+    phone: user.phone,
+    allergies: user.allergies,
+  };
 };
 
 export const updateEmergencyContacts = async (phone, contactData) => {
-  try {
-    const existing = await prisma.users.findFirst({ where: { phone }, select: { id: true } });
-    if (!existing) throw new Error('User not found');
+  const contactValue = contactData.emergency_contact || contactData.emergencyContact || null;
 
-    const contactValue = contactData.emergency_contact || contactData.emergencyContact || null;
+  const result = await prisma.users.updateMany({
+    where: { phone },
+    data: { emergency_contact: contactValue, updated_at: new Date() },
+  });
 
-    const rows = await prisma.$queryRaw`
-      UPDATE users
-      SET emergency_contact = ${contactValue},
-          updated_at = NOW()
-      WHERE phone = ${phone}
-      RETURNING phone, emergency_contact
-    `;
+  if (result.count === 0) throw new Error('User not found');
 
-    if (rows.length === 0) throw new Error('Failed to update emergency contacts');
-
-    logger.info(`Emergency contacts updated for user: ${phone}`);
-    return { success: true, message: 'Emergency contacts updated successfully', data: rows[0] };
-  } catch (error) {
-    logger.error('Error updating emergency contacts:', error);
-    throw error;
-  }
+  logger.info(`Emergency contacts updated for user: ${phone}`);
+  return {
+    success: true,
+    message: 'Emergency contacts updated successfully',
+    data: { phone, emergency_contact: contactValue },
+  };
 };
 
 export const cancelAlert = async (alertId, uid) => {
@@ -167,6 +154,8 @@ export const getMyAlerts = async (uid, { limit = 20, offset = 0 } = {}) => {
 };
 
 export const getNearbyServices = async (latitude, longitude) => {
+  // locationService hits an external geocoding API; fall back to empty
+  // arrays on failure so SOS UX never blocks on a degraded third party.
   try {
     return await locationService.findNearbyEmergencyServices(latitude, longitude);
   } catch (err) {
