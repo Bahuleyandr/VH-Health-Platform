@@ -10,6 +10,36 @@ import { collectAdmissionClinicalContext } from './clinicalTimelineService.js';
 
 const PROMPT_VERSION = 'clinical-discharge-v1';
 
+// Fallback tenant when the request doesn't carry one. clinical_ai_generations.tenant_id
+// is NOT NULL in the schema, so we always need a value. Matches the historical
+// raw-SQL fallback ('00000000-0000-4000-8000-000000000001').
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
+
+// Common Prisma `select` shapes — keep these in one place so every read returns
+// the same projection the pre-ORM raw SQL did.
+const ADMISSION_LOOKUP_SELECT = {
+  encounter_id: true,
+  patient_uid: true,
+  status: true,
+};
+
+const ADMISSION_FOR_SIGN_SELECT = {
+  encounter_id: true,
+  patient_uid: true,
+};
+
+const DISCHARGE_NOTE_SELECT = {
+  id: true,
+  is_signed: true,
+};
+
+const DISCHARGE_NOTE_FOR_SIGN_SELECT = {
+  id: true,
+  is_signed: true,
+  ai_generation_id: true,
+  content: true,
+};
+
 function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -305,40 +335,42 @@ async function saveAiGeneration(context, summary, requestedBy, sourceHash, tenan
       total_tokens: summary.ai_metadata.total_tokens || 0,
     },
   };
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO clinical_ai_generations
-       (tenant_id, patient_uid, admission_id, task_type, module_key, provider, model, prompt_version,
-        source_hash, status, used_ai, safety_flags, citations, draft, generated_by,
-        prompt_tokens, completion_tokens, total_tokens, estimated_cost_minor,
-        latency_ms, provider_request_id, finish_reason, metadata, created_at, updated_at)
-     VALUES ($1::uuid, $2::uuid, $3, 'discharge_summary', $4, $5, $6, $7, $8, 'draft',
-             $9, $10::jsonb, $11::jsonb, $12::jsonb, $13::uuid,
-             $14, $15, $16, $17, $18, $19, $20, $21::jsonb, NOW(), NOW())
-     RETURNING id, provider, model, used_ai, status, created_at`,
-    tenantId || '00000000-0000-4000-8000-000000000001',
-    context.admission.patient_uid,
-    context.admission.id,
-    summary.ai_metadata.module_key || 'discharge_summary',
-    summary.ai_metadata.provider,
-    summary.ai_metadata.model,
-    PROMPT_VERSION,
-    sourceHash,
-    summary.ai_metadata.used_ai,
-    JSON.stringify(summary.safety_flags || []),
-    JSON.stringify(summary.source_citations || []),
-    JSON.stringify(summary),
-    requestedBy || null,
-    summary.ai_metadata.prompt_tokens || 0,
-    summary.ai_metadata.completion_tokens || 0,
-    summary.ai_metadata.total_tokens || 0,
-    summary.ai_metadata.estimated_cost_minor || null,
-    summary.ai_metadata.latency_ms || null,
-    summary.ai_metadata.provider_request_id || null,
-    summary.ai_metadata.finish_reason || null,
-    JSON.stringify(metadata)
-  );
 
-  return rows[0];
+  return prisma.clinical_ai_generations.create({
+    data: {
+      tenant_id: tenantId || DEFAULT_TENANT_ID,
+      patient_uid: context.admission.patient_uid,
+      admission_id: context.admission.id,
+      task_type: 'discharge_summary',
+      module_key: summary.ai_metadata.module_key || 'discharge_summary',
+      provider: summary.ai_metadata.provider,
+      model: summary.ai_metadata.model,
+      prompt_version: PROMPT_VERSION,
+      source_hash: sourceHash,
+      status: 'draft',
+      used_ai: summary.ai_metadata.used_ai,
+      safety_flags: summary.safety_flags || [],
+      citations: summary.source_citations || [],
+      draft: summary,
+      generated_by: requestedBy || null,
+      prompt_tokens: summary.ai_metadata.prompt_tokens || 0,
+      completion_tokens: summary.ai_metadata.completion_tokens || 0,
+      total_tokens: summary.ai_metadata.total_tokens || 0,
+      estimated_cost_minor: summary.ai_metadata.estimated_cost_minor || null,
+      latency_ms: summary.ai_metadata.latency_ms || null,
+      provider_request_id: summary.ai_metadata.provider_request_id || null,
+      finish_reason: summary.ai_metadata.finish_reason || null,
+      metadata,
+    },
+    select: {
+      id: true,
+      provider: true,
+      model: true,
+      used_ai: true,
+      status: true,
+      created_at: true,
+    },
+  });
 }
 
 export async function collectClinicalData(admissionId) {
@@ -399,12 +431,11 @@ export async function saveDischargeSummary(admissionId, summary, savedBy) {
   if (!savedBy) throw AppError.badRequest('savedBy is required');
   if (!summary || typeof summary !== 'object') throw AppError.badRequest('summary is required');
 
-  const admRows = await prisma.$queryRawUnsafe(
-    `SELECT encounter_id, patient_uid, status FROM admissions WHERE id = $1`,
-    admissionId
-  );
-  if (!admRows.length) throw AppError.notFound('Admission not found');
-  const admission = admRows[0];
+  const admission = await prisma.admissions.findUnique({
+    where: { id: admissionId },
+    select: ADMISSION_LOOKUP_SELECT,
+  });
+  if (!admission) throw AppError.notFound('Admission not found');
 
   const content = {
     ...summary,
@@ -414,60 +445,64 @@ export async function saveDischargeSummary(admissionId, summary, savedBy) {
     reviewed_at: new Date().toISOString(),
   };
 
-  const existing = await prisma.$queryRawUnsafe(
-    `SELECT id, is_signed
-     FROM clinical_notes
-     WHERE encounter_id = $1::uuid AND note_type = 'discharge' AND is_addendum = false
-     ORDER BY version DESC, id DESC
-     LIMIT 1`,
-    admission.encounter_id
-  );
+  // Match the pre-ORM ORDER BY version DESC, id DESC LIMIT 1.
+  const existing = await prisma.clinical_notes.findFirst({
+    where: {
+      encounter_id: admission.encounter_id,
+      note_type: 'discharge',
+      is_addendum: false,
+    },
+    select: DISCHARGE_NOTE_SELECT,
+    orderBy: [{ version: 'desc' }, { id: 'desc' }],
+  });
 
   let result;
-  if (existing.length) {
-    if (existing[0].is_signed) {
+  if (existing) {
+    if (existing.is_signed) {
       throw AppError.badRequest('Signed discharge summary cannot be modified. Add an addendum instead.');
     }
 
-    const rows = await prisma.$queryRawUnsafe(
-      `UPDATE clinical_notes
-       SET content = $1::jsonb,
-           version = version + 1,
-           ai_generation_id = $2,
-           updated_at = NOW()
-       WHERE id = $3
-       RETURNING id`,
-      JSON.stringify(content),
-      content.draft_generation_id || null,
-      existing[0].id
-    );
-    result = { noteId: rows[0].id, action: 'updated' };
+    const updated = await prisma.clinical_notes.update({
+      where: { id: existing.id },
+      data: {
+        content,
+        version: { increment: 1 },
+        ai_generation_id: content.draft_generation_id || null,
+        updated_at: new Date(),
+      },
+      select: { id: true },
+    });
+    result = { noteId: updated.id, action: 'updated' };
   } else {
-    const rows = await prisma.$queryRawUnsafe(
-      `INSERT INTO clinical_notes
-         (encounter_id, patient_uid, author_uid, author_role, note_type, title,
-          content, version, is_addendum, is_signed, ai_generation_id, created_at, updated_at)
-       VALUES ($1::uuid, $2::uuid, $3::uuid, 'DOCTOR', 'discharge', 'Draft discharge summary',
-               $4::jsonb, 1, false, false, $5, NOW(), NOW())
-       RETURNING id`,
-      admission.encounter_id,
-      admission.patient_uid,
-      savedBy,
-      JSON.stringify(content),
-      content.draft_generation_id || null
-    );
-    result = { noteId: rows[0].id, action: 'created' };
+    const created = await prisma.clinical_notes.create({
+      data: {
+        encounter_id: admission.encounter_id,
+        patient_uid: admission.patient_uid,
+        author_uid: savedBy,
+        author_role: 'DOCTOR',
+        note_type: 'discharge',
+        title: 'Draft discharge summary',
+        content,
+        version: 1,
+        is_addendum: false,
+        is_signed: false,
+        ai_generation_id: content.draft_generation_id || null,
+      },
+      select: { id: true },
+    });
+    result = { noteId: created.id, action: 'created' };
   }
 
   if (content.draft_generation_id) {
-    await prisma.$queryRawUnsafe(
-      `UPDATE clinical_ai_generations
-       SET draft = $1::jsonb, reviewed_by = $2::uuid, status = 'reviewed', updated_at = NOW()
-       WHERE id = $3`,
-      JSON.stringify(content),
-      savedBy,
-      content.draft_generation_id
-    );
+    await prisma.clinical_ai_generations.update({
+      where: { id: content.draft_generation_id },
+      data: {
+        draft: content,
+        reviewed_by: savedBy,
+        status: 'reviewed',
+        updated_at: new Date(),
+      },
+    });
   }
 
   await publishEvent({
@@ -488,77 +523,96 @@ export async function saveDischargeSummary(admissionId, summary, savedBy) {
 export async function signDischargeSummary(admissionId, doctorUid) {
   if (!doctorUid) throw AppError.badRequest('doctorUid is required');
 
-  const admRows = await prisma.$queryRawUnsafe(
-    `SELECT encounter_id, patient_uid FROM admissions WHERE id = $1`,
-    admissionId
-  );
-  if (!admRows.length) throw AppError.notFound('Admission not found');
-  const admission = admRows[0];
+  const admission = await prisma.admissions.findUnique({
+    where: { id: admissionId },
+    select: ADMISSION_FOR_SIGN_SELECT,
+  });
+  if (!admission) throw AppError.notFound('Admission not found');
 
-  const noteRows = await prisma.$queryRawUnsafe(
-    `SELECT id, is_signed, ai_generation_id
-     FROM clinical_notes
-     WHERE encounter_id = $1::uuid AND note_type = 'discharge' AND is_addendum = false
-     ORDER BY version DESC, id DESC
-     LIMIT 1`,
-    admission.encounter_id
-  );
-  if (!noteRows.length) throw AppError.notFound('No discharge summary found. Generate one first.');
-  if (noteRows[0].is_signed) throw AppError.badRequest('Discharge summary is already signed');
+  // We need the existing content because the pre-ORM SQL did
+  // `jsonb_set(content, '{is_signed}', 'true') / jsonb_set(..., '{signed_at}', to_jsonb(NOW()))`.
+  // Prisma doesn't express jsonb_set, so we read the row, mutate the object in JS,
+  // and write it back.
+  const note = await prisma.clinical_notes.findFirst({
+    where: {
+      encounter_id: admission.encounter_id,
+      note_type: 'discharge',
+      is_addendum: false,
+    },
+    select: DISCHARGE_NOTE_FOR_SIGN_SELECT,
+    orderBy: [{ version: 'desc' }, { id: 'desc' }],
+  });
+  if (!note) throw AppError.notFound('No discharge summary found. Generate one first.');
+  if (note.is_signed) throw AppError.badRequest('Discharge summary is already signed');
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE clinical_notes
-     SET is_signed = true, signed_at = NOW(), signed_by = $1::uuid, updated_at = NOW(),
-         content = jsonb_set(
-           jsonb_set(content, '{is_signed}', 'true'::jsonb, true),
-           '{signed_at}', to_jsonb(NOW()), true
-         )
-     WHERE id = $2
-     RETURNING id, signed_at`,
-    doctorUid,
-    noteRows[0].id
-  );
+  // Single shared timestamp so the column value matches the JSON value the
+  // original `to_jsonb(NOW())` produced.
+  const signedAt = new Date();
+  // content may be null on pathological rows; default to {} so we don't NPE.
+  const baseContent = (note.content && typeof note.content === 'object' && !Array.isArray(note.content))
+    ? note.content
+    : {};
+  const updatedContent = {
+    ...baseContent,
+    is_signed: true,
+    signed_at: signedAt.toISOString(),
+  };
 
-  if (noteRows[0].ai_generation_id) {
-    await prisma.$queryRawUnsafe(
-      `UPDATE clinical_ai_generations
-       SET status = 'signed', reviewed_by = $1::uuid, signed_note_id = $2, updated_at = NOW()
-       WHERE id = $3`,
-      doctorUid,
-      noteRows[0].id,
-      noteRows[0].ai_generation_id
-    );
+  const signed = await prisma.clinical_notes.update({
+    where: { id: note.id },
+    data: {
+      is_signed: true,
+      signed_at: signedAt,
+      signed_by: doctorUid,
+      updated_at: signedAt,
+      content: updatedContent,
+    },
+    select: { id: true, signed_at: true },
+  });
+
+  if (note.ai_generation_id) {
+    await prisma.clinical_ai_generations.update({
+      where: { id: note.ai_generation_id },
+      data: {
+        status: 'signed',
+        reviewed_by: doctorUid,
+        signed_note_id: note.id,
+        updated_at: signedAt,
+      },
+    });
   }
 
-  await prisma.$queryRawUnsafe(
-    `INSERT INTO audit_logs (uid, action, resource, resource_id, metadata, created_at)
-     VALUES ($1::uuid, 'SIGN_DISCHARGE_SUMMARY', 'clinical_notes', $2, $3::jsonb, NOW())`,
-    doctorUid,
-    String(noteRows[0].id),
-    JSON.stringify({
-      admission_id: admissionId,
-      patient_uid: admission.patient_uid,
-      ai_generation_id: noteRows[0].ai_generation_id || null,
-    })
-  );
+  await prisma.audit_logs.create({
+    data: {
+      uid: doctorUid,
+      action: 'SIGN_DISCHARGE_SUMMARY',
+      resource: 'clinical_notes',
+      resource_id: String(note.id),
+      metadata: {
+        admission_id: admissionId,
+        patient_uid: admission.patient_uid,
+        ai_generation_id: note.ai_generation_id || null,
+      },
+    },
+  });
 
   await publishEvent({
     eventType: 'clinical_document.discharge_summary.signed',
     aggregateType: 'clinical_note',
-    aggregateId: noteRows[0].id,
+    aggregateId: note.id,
     patientUid: admission.patient_uid,
     payload: {
       admission_id: admissionId,
       signed_by: doctorUid,
-      signed_at: rows[0].signed_at,
-      ai_generation_id: noteRows[0].ai_generation_id || null,
+      signed_at: signed.signed_at,
+      ai_generation_id: note.ai_generation_id || null,
     },
   });
 
   return {
-    noteId: noteRows[0].id,
+    noteId: note.id,
     signed: true,
-    signedAt: rows[0].signed_at,
+    signedAt: signed.signed_at,
   };
 }
 

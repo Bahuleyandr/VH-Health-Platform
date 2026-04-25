@@ -24,6 +24,42 @@ const REQUIRED_CONTENT_FIELDS = {
   consultation_note: ['summary', 'assessment', 'plan'],
 };
 
+// Column projection used by every read/write that returns a full note row.
+// Mirrors the pre-ORM RETURNING / SELECT lists exactly so the public API
+// shape is preserved.
+const NOTE_SELECT = {
+  id: true,
+  encounter_id: true,
+  patient_uid: true,
+  author_uid: true,
+  author_role: true,
+  note_type: true,
+  content: true,
+  version: true,
+  parent_note_id: true,
+  is_addendum: true,
+  is_signed: true,
+  signed_at: true,
+  signed_by: true,
+  created_at: true,
+  updated_at: true,
+};
+
+// Slimmer projection used by the version-history sub-list inside
+// getNoteDetail (matches the pre-ORM SELECT list verbatim).
+const VERSION_HISTORY_SELECT = {
+  id: true,
+  author_uid: true,
+  author_role: true,
+  content: true,
+  version: true,
+  is_addendum: true,
+  is_signed: true,
+  signed_at: true,
+  signed_by: true,
+  created_at: true,
+};
+
 /**
  * Validate content structure for a given note_type.
  */
@@ -64,29 +100,36 @@ export async function createNote(data) {
 
   validateNoteContent(note_type, content);
 
-  // If encounter_id is provided, verify it exists
+  // If encounter_id is provided, verify it exists. admissions.encounter_id is uuid.
   if (encounter_id) {
-    const encRows = await prisma.$queryRawUnsafe(
-      `SELECT id FROM admissions WHERE encounter_id = $1`,
-      encounter_id
-    );
-    if (encRows.length === 0) {
+    const enc = await prisma.admissions.findFirst({
+      where: { encounter_id },
+      select: { id: true },
+    });
+    if (!enc) {
       throw AppError.notFound('Encounter not found');
     }
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO clinical_notes
-       (encounter_id, patient_uid, author_uid, author_role, note_type, content, version, is_addendum, is_signed, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, 1, false, false, NOW())
-     RETURNING id, encounter_id, patient_uid, author_uid, author_role, note_type, content,
-               version, parent_note_id, is_addendum, is_signed, signed_at, signed_by,
-               created_at, updated_at`,
-    encounter_id || null, patient_uid, author_uid, author_role, note_type, JSON.stringify(content)
-  );
+  // Schema defaults: version=1, is_addendum=false, is_signed=false, created_at=now().
+  // We pass them explicitly to mirror the pre-ORM INSERT verbatim.
+  const created = await prisma.clinical_notes.create({
+    data: {
+      encounter_id: encounter_id ?? null,
+      patient_uid,
+      author_uid,
+      author_role,
+      note_type,
+      content,
+      version: 1,
+      is_addendum: false,
+      is_signed: false,
+    },
+    select: NOTE_SELECT,
+  });
 
-  logger.info(`Clinical note created: id=${rows[0].id}, type=${note_type}, patient=${patient_uid}, author=${author_uid}`);
-  return rows[0];
+  logger.info(`Clinical note created: id=${created.id}, type=${note_type}, patient=${patient_uid}, author=${author_uid}`);
+  return created;
 }
 
 // ===================================================================
@@ -110,52 +153,56 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
     throw AppError.badRequest('Author UID and role are required');
   }
 
-  // Fetch original note
-  const original = await prisma.$queryRawUnsafe(
-    `SELECT id, encounter_id, patient_uid, note_type, version, parent_note_id
-     FROM clinical_notes WHERE id = $1`,
-    noteId
-  );
+  // Fetch original note (just the fields we need to derive the addendum metadata).
+  const parentNote = await prisma.clinical_notes.findUnique({
+    where: { id: Number(noteId) },
+    select: {
+      id: true,
+      encounter_id: true,
+      patient_uid: true,
+      note_type: true,
+      version: true,
+      parent_note_id: true,
+    },
+  });
 
-  if (original.length === 0) {
+  if (!parentNote) {
     throw AppError.notFound('Clinical note not found');
   }
 
-  const parentNote = original[0];
-  // The root note is either this note (if it has no parent) or its parent
+  // The root note is either this note (if it has no parent) or its parent.
   const rootNoteId = parentNote.parent_note_id || parentNote.id;
 
-  // Get the latest version number for this chain
-  const versionRows = await prisma.$queryRawUnsafe(
-    `SELECT COALESCE(MAX(version), 0) AS max_version FROM clinical_notes
-     WHERE id = $1 OR parent_note_id = $1`,
-    rootNoteId
-  );
+  // Get the latest version number for this chain — replaces COALESCE(MAX(version), 0)
+  // with prisma.aggregate({ _max: { version: true } }) and a `?? 0` fallback when
+  // the chain is empty (defensive — the root row itself is always part of the chain).
+  const versionAgg = await prisma.clinical_notes.aggregate({
+    where: {
+      OR: [{ id: rootNoteId }, { parent_note_id: rootNoteId }],
+    },
+    _max: { version: true },
+  });
 
-  const nextVersion = versionRows[0].max_version + 1;
+  const nextVersion = (versionAgg._max.version ?? 0) + 1;
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO clinical_notes
-       (encounter_id, patient_uid, author_uid, author_role, note_type, content,
-        version, parent_note_id, is_addendum, is_signed, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, false, NOW())
-     RETURNING id, encounter_id, patient_uid, author_uid, author_role, note_type, content,
-               version, parent_note_id, is_addendum, is_signed, signed_at, signed_by,
-               created_at, updated_at`,
-    
-      parentNote.encounter_id,
-      parentNote.patient_uid,
-      authorUid,
-      authorRole,
-      parentNote.note_type,
-      JSON.stringify(addendumContent),
-      nextVersion,
-      rootNoteId,
-    
-  );
+  const created = await prisma.clinical_notes.create({
+    data: {
+      encounter_id: parentNote.encounter_id,
+      patient_uid: parentNote.patient_uid,
+      author_uid: authorUid,
+      author_role: authorRole,
+      note_type: parentNote.note_type,
+      content: addendumContent,
+      version: nextVersion,
+      parent_note_id: rootNoteId,
+      is_addendum: true,
+      is_signed: false,
+    },
+    select: NOTE_SELECT,
+  });
 
-  logger.info(`Addendum added to note ${rootNoteId}: addendum_id=${rows[0].id}, version=${nextVersion}, author=${authorUid}`);
-  return rows[0];
+  logger.info(`Addendum added to note ${rootNoteId}: addendum_id=${created.id}, version=${nextVersion}, author=${authorUid}`);
+  return created;
 }
 
 // ===================================================================
@@ -173,31 +220,33 @@ export async function signNote(noteId, signerUid) {
     throw AppError.badRequest('Signer UID is required');
   }
 
-  const existing = await prisma.$queryRawUnsafe(
-    `SELECT id, is_signed, signed_at FROM clinical_notes WHERE id = $1`,
-    noteId
-  );
+  const existing = await prisma.clinical_notes.findUnique({
+    where: { id: Number(noteId) },
+    select: { id: true, is_signed: true, signed_at: true },
+  });
 
-  if (existing.length === 0) {
+  if (!existing) {
     throw AppError.notFound('Clinical note not found');
   }
 
-  if (existing[0].is_signed) {
+  if (existing.is_signed) {
     throw AppError.conflict('Note is already signed and cannot be modified');
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE clinical_notes
-     SET is_signed = true, signed_at = NOW(), signed_by = $2, updated_at = NOW()
-     WHERE id = $1
-     RETURNING id, encounter_id, patient_uid, author_uid, author_role, note_type, content,
-               version, parent_note_id, is_addendum, is_signed, signed_at, signed_by,
-               created_at, updated_at`,
-    noteId, signerUid
-  );
+  const now = new Date();
+  const updated = await prisma.clinical_notes.update({
+    where: { id: Number(noteId) },
+    data: {
+      is_signed: true,
+      signed_at: now,
+      signed_by: signerUid,
+      updated_at: now,
+    },
+    select: NOTE_SELECT,
+  });
 
   logger.info(`Clinical note signed: id=${noteId}, signed_by=${signerUid}`);
-  return rows[0];
+  return updated;
 }
 
 // ===================================================================
@@ -213,59 +262,34 @@ export async function signNote(noteId, signerUid) {
 export async function getPatientNotes(patientUid, filters = {}) {
   const { note_type, date_from, date_to, author_uid, page = 1, limit = 20 } = filters;
 
-  const conditions = ['cn.patient_uid = $1'];
-  const params = [patientUid];
-  let paramIdx = 2;
-
-  if (note_type) {
-    conditions.push(`cn.note_type = $${paramIdx}`);
-    params.push(note_type);
-    paramIdx++;
+  // Build the typed where clause — conditional spreads mirror the pre-ORM
+  // dynamic-WHERE construction (the same fields, the same comparators).
+  const where = { patient_uid: patientUid };
+  if (note_type) where.note_type = note_type;
+  if (author_uid) where.author_uid = author_uid;
+  if (date_from || date_to) {
+    where.created_at = {};
+    if (date_from) where.created_at.gte = new Date(date_from);
+    if (date_to) where.created_at.lte = new Date(date_to);
   }
 
-  if (date_from) {
-    conditions.push(`cn.created_at >= $${paramIdx}`);
-    params.push(date_from);
-    paramIdx++;
-  }
-
-  if (date_to) {
-    conditions.push(`cn.created_at <= $${paramIdx}`);
-    params.push(date_to);
-    paramIdx++;
-  }
-
-  if (author_uid) {
-    conditions.push(`cn.author_uid = $${paramIdx}`);
-    params.push(author_uid);
-    paramIdx++;
-  }
-
-  const whereClause = conditions.join(' AND ');
-  const offset = (Math.max(1, parseInt(page, 10)) - 1) * parseInt(limit, 10);
   const safeLimit = Math.min(Math.max(1, parseInt(limit, 10)), 100);
+  const safePage = Math.max(1, parseInt(page, 10));
+  const offset = (safePage - 1) * parseInt(limit, 10);
 
-  // Count total
-  const countRows = await prisma.$queryRawUnsafe(
-    `SELECT COUNT(*) AS total FROM clinical_notes cn WHERE ${whereClause}`,
-    ...params
-  );
-  const total = parseInt(countRows[0].total, 10);
-
-  // Fetch paginated
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT cn.id, cn.encounter_id, cn.patient_uid, cn.author_uid, cn.author_role,
-            cn.note_type, cn.content, cn.version, cn.parent_note_id, cn.is_addendum,
-            cn.is_signed, cn.signed_at, cn.signed_by, cn.created_at, cn.updated_at
-     FROM clinical_notes cn
-     WHERE ${whereClause}
-     ORDER BY cn.created_at DESC
-     LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
-    ...params, safeLimit, offset
-  );
+  const [total, notes] = await Promise.all([
+    prisma.clinical_notes.count({ where }),
+    prisma.clinical_notes.findMany({
+      where,
+      select: NOTE_SELECT,
+      orderBy: { created_at: 'desc' },
+      skip: offset,
+      take: safeLimit,
+    }),
+  ]);
 
   return {
-    notes: rows,
+    notes,
     pagination: {
       page: parseInt(page, 10),
       limit: safeLimit,
@@ -285,16 +309,11 @@ export async function getPatientNotes(patientUid, filters = {}) {
  * @returns {Array} Notes sorted by created_at
  */
 export async function getEncounterNotes(encounterId) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT cn.id, cn.encounter_id, cn.patient_uid, cn.author_uid, cn.author_role,
-            cn.note_type, cn.content, cn.version, cn.parent_note_id, cn.is_addendum,
-            cn.is_signed, cn.signed_at, cn.signed_by, cn.created_at, cn.updated_at
-     FROM clinical_notes cn
-     WHERE cn.encounter_id = $1
-     ORDER BY cn.created_at ASC`,
-    encounterId
-  );
-  return rows;
+  return prisma.clinical_notes.findMany({
+    where: { encounter_id: encounterId },
+    select: NOTE_SELECT,
+    orderBy: { created_at: 'asc' },
+  });
 }
 
 // ===================================================================
@@ -307,31 +326,30 @@ export async function getEncounterNotes(encounterId) {
  * @returns {Object} Note with version_history array
  */
 export async function getNoteDetail(noteId) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT cn.id, cn.encounter_id, cn.patient_uid, cn.author_uid, cn.author_role,
-            cn.note_type, cn.content, cn.version, cn.parent_note_id, cn.is_addendum,
-            cn.is_signed, cn.signed_at, cn.signed_by, cn.created_at, cn.updated_at
-     FROM clinical_notes cn
-     WHERE cn.id = $1`,
-    noteId
-  );
+  const id = Number(noteId);
+  const note = await prisma.clinical_notes.findUnique({
+    where: { id },
+    select: NOTE_SELECT,
+  });
 
-  if (rows.length === 0) {
+  if (!note) {
     throw AppError.notFound('Clinical note not found');
   }
 
-  const note = rows[0];
-
-  // Get version history (all addenda / versions for the same root note)
+  // Get version history (all addenda / versions for the same root note,
+  // excluding the note we just fetched). The pre-ORM query was:
+  //   WHERE (id = $1 OR parent_note_id = $1) AND id != $2
   const rootId = note.parent_note_id || note.id;
-  const versions = await prisma.$queryRawUnsafe(
-    `SELECT id, author_uid, author_role, content, version, is_addendum,
-            is_signed, signed_at, signed_by, created_at
-     FROM clinical_notes
-     WHERE (id = $1 OR parent_note_id = $1) AND id != $2
-     ORDER BY version ASC`,
-    rootId, noteId
-  );
+  const versions = await prisma.clinical_notes.findMany({
+    where: {
+      AND: [
+        { OR: [{ id: rootId }, { parent_note_id: rootId }] },
+        { id: { not: id } },
+      ],
+    },
+    select: VERSION_HISTORY_SELECT,
+    orderBy: { version: 'asc' },
+  });
 
   return {
     ...note,
