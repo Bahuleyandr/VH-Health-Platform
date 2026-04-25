@@ -1,4 +1,11 @@
 // src/services/emr/orderEntryService.js
+// CPOE (Computerized Provider Order Entry) service — typed Prisma ORM.
+// Batch 56: migrated from `prisma.$queryRawUnsafe` to typed Prisma for the
+// `clinical_orders` model. The `order_sets` table (used by applyOrderSet,
+// getOrderSets, createOrderSet) lives only in raw migration 023 and is
+// not declared in `prisma/schema.prisma` — those three sites stay raw
+// (template-tag form, no array-as-spread foot-gun) until the schema gets
+// an `order_sets` model.
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
@@ -14,6 +21,33 @@ import { scheduleMedications } from '../clinical/marService.js';
 const VALID_ORDER_TYPES = ['medication', 'investigation', 'nursing', 'diet', 'activity', 'consultation'];
 const VALID_PRIORITIES = ['stat', 'urgent', 'routine', 'prn'];
 
+// Columns returned by the pre-batch-56 `RETURNING` clauses. Mirrored as
+// a Prisma `select` so the public response shape is unchanged. The full
+// shape covers every column any state-transition mutator returned —
+// individual mutators all returned the union of fields they touched plus
+// the base order columns; one shared select keeps the response stable.
+const ORDER_RETURNING_SELECT = {
+  id: true,
+  order_number: true,
+  encounter_id: true,
+  patient_uid: true,
+  order_type: true,
+  priority: true,
+  details: true,
+  status: true,
+  ordered_by: true,
+  verified_by: true,
+  verified_at: true,
+  completed_by: true,
+  completed_at: true,
+  cancelled_by: true,
+  cancel_reason: true,
+  start_date: true,
+  end_date: true,
+  notes: true,
+  created_at: true,
+};
+
 /**
  * Generate a unique order number: ORD-YYYYMMDD-XXXX
  */
@@ -21,16 +55,16 @@ async function generateOrderNumber() {
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const prefix = `ORD-${today}-`;
 
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT order_number FROM clinical_orders
-     WHERE order_number LIKE $1
-     ORDER BY id DESC LIMIT 1`,
-    `${prefix}%`
-  );
+  // Last order issued today (LIKE 'ORD-YYYYMMDD-%' ORDER BY id DESC LIMIT 1).
+  const last = await prisma.clinical_orders.findFirst({
+    where: { order_number: { startsWith: prefix } },
+    select: { order_number: true },
+    orderBy: { id: 'desc' },
+  });
 
   let seq = 1;
-  if (rows.length > 0) {
-    const lastSeq = parseInt(rows[0].order_number.split('-').pop(), 10);
+  if (last) {
+    const lastSeq = parseInt(last.order_number.split('-').pop(), 10);
     if (!isNaN(lastSeq)) seq = lastSeq + 1;
   }
 
@@ -111,28 +145,25 @@ export async function createOrder(data) {
 
   const orderNumber = await generateOrderNumber();
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO clinical_orders
-       (order_number, encounter_id, patient_uid, order_type, priority, details, status,
-        ordered_by, start_date, end_date, notes, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, 'ordered', $7, $8, $9, $10, NOW())
-     RETURNING id, order_number, encounter_id, patient_uid, order_type, priority, details,
-               status, ordered_by, start_date, end_date, notes, created_at`,
-    
-      orderNumber,
-      encounter_id || null,
+  // `details` is a Json column — pass the object directly (Prisma serialises).
+  // `status` defaults to 'ordered' in the schema; pre-ORM SQL set it explicitly,
+  // so we preserve that for clarity.
+  const order = await prisma.clinical_orders.create({
+    data: {
+      order_number: orderNumber,
+      encounter_id: encounter_id ?? null,
       patient_uid,
       order_type,
       priority,
-      JSON.stringify(details),
+      details,
+      status: 'ordered',
       ordered_by,
-      start_date || null,
-      end_date || null,
-      notes || null,
-    
-  );
-
-  const order = rows[0];
+      start_date: start_date ? new Date(start_date) : null,
+      end_date: end_date ? new Date(end_date) : null,
+      notes: notes ?? null,
+    },
+    select: ORDER_RETURNING_SELECT,
+  });
 
   // Dispatch integrations (fire-and-forget, do not block response)
   dispatchOrderIntegrations(order).catch((err) => {
@@ -168,6 +199,9 @@ async function dispatchOrderIntegrations(order) {
   if (order.order_type === 'medication') {
     // Create MAR entries via existing marService
     try {
+      // `details` comes back from typed Prisma as a parsed object, but
+      // keep the string-fallback for safety in case any caller passes a
+      // pre-stringified payload.
       const details = typeof order.details === 'string' ? JSON.parse(order.details) : order.details;
       await scheduleMedications(order.patient_uid, null, [
         {
@@ -206,30 +240,31 @@ export async function verifyOrder(orderId, verifiedBy) {
     throw AppError.badRequest('verifiedBy is required');
   }
 
-  const existing = await prisma.$queryRawUnsafe(
-    `SELECT id, status FROM clinical_orders WHERE id = $1`,
-    orderId
-  );
+  const existing = await prisma.clinical_orders.findUnique({
+    where: { id: Number(orderId) },
+    select: { id: true, status: true },
+  });
 
-  if (existing.length === 0) {
+  if (!existing) {
     throw AppError.notFound('Order not found');
   }
 
-  if (existing[0].status !== 'ordered') {
-    throw AppError.badRequest(`Cannot verify order in status '${existing[0].status}'. Order must be in 'ordered' status.`);
+  if (existing.status !== 'ordered') {
+    throw AppError.badRequest(`Cannot verify order in status '${existing.status}'. Order must be in 'ordered' status.`);
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE clinical_orders
-     SET status = 'verified', verified_by = $2, verified_at = NOW()
-     WHERE id = $1
-     RETURNING id, order_number, encounter_id, patient_uid, order_type, priority, details,
-               status, ordered_by, verified_by, verified_at, start_date, end_date, notes, created_at`,
-    orderId, verifiedBy
-  );
+  const updated = await prisma.clinical_orders.update({
+    where: { id: existing.id },
+    data: {
+      status: 'verified',
+      verified_by: verifiedBy,
+      verified_at: new Date(),
+    },
+    select: ORDER_RETURNING_SELECT,
+  });
 
-  logger.info(`Order ${rows[0].order_number} verified by ${verifiedBy}`);
-  return rows[0];
+  logger.info(`Order ${updated.order_number} verified by ${verifiedBy}`);
+  return updated;
 }
 
 // ===================================================================
@@ -247,32 +282,32 @@ export async function completeOrder(orderId, completedBy) {
     throw AppError.badRequest('completedBy is required');
   }
 
-  const existing = await prisma.$queryRawUnsafe(
-    `SELECT id, status FROM clinical_orders WHERE id = $1`,
-    orderId
-  );
+  const existing = await prisma.clinical_orders.findUnique({
+    where: { id: Number(orderId) },
+    select: { id: true, status: true },
+  });
 
-  if (existing.length === 0) {
+  if (!existing) {
     throw AppError.notFound('Order not found');
   }
 
   const allowedStatuses = ['ordered', 'verified', 'in_progress'];
-  if (!allowedStatuses.includes(existing[0].status)) {
-    throw AppError.badRequest(`Cannot complete order in status '${existing[0].status}'`);
+  if (!allowedStatuses.includes(existing.status)) {
+    throw AppError.badRequest(`Cannot complete order in status '${existing.status}'`);
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE clinical_orders
-     SET status = 'completed', completed_by = $2, completed_at = NOW()
-     WHERE id = $1
-     RETURNING id, order_number, encounter_id, patient_uid, order_type, priority, details,
-               status, ordered_by, verified_by, verified_at, completed_by, completed_at,
-               start_date, end_date, notes, created_at`,
-    orderId, completedBy
-  );
+  const updated = await prisma.clinical_orders.update({
+    where: { id: existing.id },
+    data: {
+      status: 'completed',
+      completed_by: completedBy,
+      completed_at: new Date(),
+    },
+    select: ORDER_RETURNING_SELECT,
+  });
 
-  logger.info(`Order ${rows[0].order_number} completed by ${completedBy}`);
-  return rows[0];
+  logger.info(`Order ${updated.order_number} completed by ${completedBy}`);
+  return updated;
 }
 
 // ===================================================================
@@ -291,30 +326,31 @@ export async function cancelOrder(orderId, cancelledBy, reason) {
     throw AppError.badRequest('cancelledBy and reason are required');
   }
 
-  const existing = await prisma.$queryRawUnsafe(
-    `SELECT id, status FROM clinical_orders WHERE id = $1`,
-    orderId
-  );
+  const existing = await prisma.clinical_orders.findUnique({
+    where: { id: Number(orderId) },
+    select: { id: true, status: true },
+  });
 
-  if (existing.length === 0) {
+  if (!existing) {
     throw AppError.notFound('Order not found');
   }
 
-  if (['completed', 'cancelled', 'discontinued'].includes(existing[0].status)) {
-    throw AppError.badRequest(`Cannot cancel order in status '${existing[0].status}'`);
+  if (['completed', 'cancelled', 'discontinued'].includes(existing.status)) {
+    throw AppError.badRequest(`Cannot cancel order in status '${existing.status}'`);
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE clinical_orders
-     SET status = 'cancelled', cancelled_by = $2, cancel_reason = $3
-     WHERE id = $1
-     RETURNING id, order_number, encounter_id, patient_uid, order_type, priority, details,
-               status, ordered_by, cancelled_by, cancel_reason, start_date, end_date, notes, created_at`,
-    orderId, cancelledBy, reason
-  );
+  const updated = await prisma.clinical_orders.update({
+    where: { id: existing.id },
+    data: {
+      status: 'cancelled',
+      cancelled_by: cancelledBy,
+      cancel_reason: reason,
+    },
+    select: ORDER_RETURNING_SELECT,
+  });
 
-  logger.info(`Order ${rows[0].order_number} cancelled by ${cancelledBy}: ${reason}`);
-  return rows[0];
+  logger.info(`Order ${updated.order_number} cancelled by ${cancelledBy}: ${reason}`);
+  return updated;
 }
 
 // ===================================================================
@@ -333,31 +369,33 @@ export async function discontinueOrder(orderId, discontinuedBy, reason) {
     throw AppError.badRequest('discontinuedBy and reason are required');
   }
 
-  const existing = await prisma.$queryRawUnsafe(
-    `SELECT id, status FROM clinical_orders WHERE id = $1`,
-    orderId
-  );
+  const existing = await prisma.clinical_orders.findUnique({
+    where: { id: Number(orderId) },
+    select: { id: true, status: true },
+  });
 
-  if (existing.length === 0) {
+  if (!existing) {
     throw AppError.notFound('Order not found');
   }
 
   const allowedStatuses = ['ordered', 'verified', 'in_progress'];
-  if (!allowedStatuses.includes(existing[0].status)) {
-    throw AppError.badRequest(`Cannot discontinue order in status '${existing[0].status}'`);
+  if (!allowedStatuses.includes(existing.status)) {
+    throw AppError.badRequest(`Cannot discontinue order in status '${existing.status}'`);
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE clinical_orders
-     SET status = 'discontinued', cancelled_by = $2, cancel_reason = $3, end_date = NOW()
-     WHERE id = $1
-     RETURNING id, order_number, encounter_id, patient_uid, order_type, priority, details,
-               status, ordered_by, cancelled_by, cancel_reason, start_date, end_date, notes, created_at`,
-    orderId, discontinuedBy, reason
-  );
+  const updated = await prisma.clinical_orders.update({
+    where: { id: existing.id },
+    data: {
+      status: 'discontinued',
+      cancelled_by: discontinuedBy,
+      cancel_reason: reason,
+      end_date: new Date(),
+    },
+    select: ORDER_RETURNING_SELECT,
+  });
 
-  logger.info(`Order ${rows[0].order_number} discontinued by ${discontinuedBy}: ${reason}`);
-  return rows[0];
+  logger.info(`Order ${updated.order_number} discontinued by ${discontinuedBy}: ${reason}`);
+  return updated;
 }
 
 // ===================================================================
@@ -373,58 +411,32 @@ export async function discontinueOrder(orderId, discontinuedBy, reason) {
 export async function getPatientOrders(patientUid, filters = {}) {
   const { order_type, status, date_from, date_to, page = 1, limit = 20 } = filters;
 
-  const conditions = ['co.patient_uid = $1'];
-  const params = [patientUid];
-  let paramIdx = 2;
-
-  if (order_type) {
-    conditions.push(`co.order_type = $${paramIdx}`);
-    params.push(order_type);
-    paramIdx++;
+  const where = { patient_uid: patientUid };
+  if (order_type) where.order_type = order_type;
+  if (status) where.status = status;
+  if (date_from || date_to) {
+    where.created_at = {};
+    if (date_from) where.created_at.gte = new Date(date_from);
+    if (date_to) where.created_at.lte = new Date(date_to);
   }
 
-  if (status) {
-    conditions.push(`co.status = $${paramIdx}`);
-    params.push(status);
-    paramIdx++;
-  }
-
-  if (date_from) {
-    conditions.push(`co.created_at >= $${paramIdx}`);
-    params.push(date_from);
-    paramIdx++;
-  }
-
-  if (date_to) {
-    conditions.push(`co.created_at <= $${paramIdx}`);
-    params.push(date_to);
-    paramIdx++;
-  }
-
-  const whereClause = conditions.join(' AND ');
   const safeLimit = Math.min(Math.max(1, parseInt(limit, 10)), 100);
-  const offset = (Math.max(1, parseInt(page, 10)) - 1) * safeLimit;
+  const safePage = Math.max(1, parseInt(page, 10));
+  const offset = (safePage - 1) * safeLimit;
 
-  const countRows = await prisma.$queryRawUnsafe(
-    `SELECT COUNT(*) AS total FROM clinical_orders co WHERE ${whereClause}`,
-    params
-  );
-  const total = parseInt(countRows[0].total, 10);
-
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT co.id, co.order_number, co.encounter_id, co.patient_uid, co.order_type,
-            co.priority, co.details, co.status, co.ordered_by, co.verified_by, co.verified_at,
-            co.completed_by, co.completed_at, co.cancelled_by, co.cancel_reason,
-            co.start_date, co.end_date, co.notes, co.created_at
-     FROM clinical_orders co
-     WHERE ${whereClause}
-     ORDER BY co.created_at DESC
-     LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
-    ...params, safeLimit, offset
-  );
+  const [total, orders] = await Promise.all([
+    prisma.clinical_orders.count({ where }),
+    prisma.clinical_orders.findMany({
+      where,
+      select: ORDER_RETURNING_SELECT,
+      orderBy: { created_at: 'desc' },
+      take: safeLimit,
+      skip: offset,
+    }),
+  ]);
 
   return {
-    orders: rows,
+    orders,
     pagination: {
       page: parseInt(page, 10),
       limit: safeLimit,
@@ -444,16 +456,11 @@ export async function getPatientOrders(patientUid, filters = {}) {
  * @returns {Array} Orders sorted by created_at
  */
 export async function getEncounterOrders(encounterId) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, order_number, encounter_id, patient_uid, order_type, priority, details,
-            status, ordered_by, verified_by, verified_at, completed_by, completed_at,
-            cancelled_by, cancel_reason, start_date, end_date, notes, created_at
-     FROM clinical_orders
-     WHERE encounter_id = $1
-     ORDER BY created_at DESC`,
-    encounterId
-  );
-  return rows;
+  return prisma.clinical_orders.findMany({
+    where: { encounter_id: encounterId },
+    select: ORDER_RETURNING_SELECT,
+    orderBy: { created_at: 'desc' },
+  });
 }
 
 // ===================================================================
@@ -473,10 +480,12 @@ export async function applyOrderSet(patientUid, encounterId, orderSetId, ordered
     throw AppError.badRequest('patientUid, orderSetId, and orderedBy are required');
   }
 
-  const setRows = await prisma.$queryRawUnsafe(
-    `SELECT id, name, orders, is_active FROM order_sets WHERE id = $1`,
-    orderSetId
-  );
+  // `order_sets` is not declared in prisma/schema.prisma (lives only in
+  // raw migration 023). Keep the read raw — template-tag form so the
+  // single bound id can't trip the array-as-spread foot-gun.
+  const setRows = await prisma.$queryRaw`
+    SELECT id, name, orders, is_active FROM order_sets WHERE id = ${Number(orderSetId)}
+  `;
 
   if (setRows.length === 0) {
     throw AppError.notFound('Order set not found');
@@ -531,25 +540,23 @@ export async function applyOrderSet(patientUid, encounterId, orderSetId, ordered
  * @returns {Array} Order sets
  */
 export async function getOrderSets(category) {
-  const conditions = ['is_active = true'];
-  const params = [];
-  let paramIdx = 1;
-
+  // `order_sets` is not in prisma/schema.prisma — see applyOrderSet for
+  // context. Use the template-tag form so each branch's binds are typed
+  // and we don't repeat the pre-batch-56 array-as-spread bug.
   if (category) {
-    conditions.push(`category = $${paramIdx}`);
-    params.push(category);
-    paramIdx++;
+    return prisma.$queryRaw`
+      SELECT id, name, description, category, orders, created_by, is_active, created_at
+      FROM order_sets
+      WHERE is_active = true AND category = ${category}
+      ORDER BY name ASC
+    `;
   }
-
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, name, description, category, orders, created_by, is_active, created_at
-     FROM order_sets
-     WHERE ${conditions.join(' AND ')}
-     ORDER BY name ASC`,
-    params
-  );
-
-  return rows;
+  return prisma.$queryRaw`
+    SELECT id, name, description, category, orders, created_by, is_active, created_at
+    FROM order_sets
+    WHERE is_active = true
+    ORDER BY name ASC
+  `;
 }
 
 // ===================================================================
@@ -582,12 +589,12 @@ export async function createOrderSet(data) {
     }
   }
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO order_sets (name, description, category, orders, created_by, is_active, created_at)
-     VALUES ($1, $2, $3, $4, $5, true, NOW())
-     RETURNING id, name, description, category, orders, created_by, is_active, created_at`,
-    name, description || null, category, JSON.stringify(orders), created_by
-  );
+  // `order_sets` not in Prisma schema — keep raw, template-tag form.
+  const rows = await prisma.$queryRaw`
+    INSERT INTO order_sets (name, description, category, orders, created_by, is_active, created_at)
+    VALUES (${name}, ${description ?? null}, ${category}, ${JSON.stringify(orders)}::jsonb, ${created_by}, true, NOW())
+    RETURNING id, name, description, category, orders, created_by, is_active, created_at
+  `;
 
   logger.info(`Order set created: id=${rows[0].id}, name=${name}, category=${category}, by=${created_by}`);
   return rows[0];
