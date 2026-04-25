@@ -1,7 +1,12 @@
 // src/services/emr/admissionService.js
-// ADT (Admission/Discharge/Transfer) service — raw pg queries (project convention)
+// ADT (Admission/Discharge/Transfer) service — typed Prisma ORM.
+// Batch 55: migrated from raw `dbTx.query` / `prisma.$queryRawUnsafe`
+// to typed Prisma. The only remaining raw-SQL sites are the
+// `SELECT ... FOR UPDATE` row locks inside transactions, which Prisma's
+// typed surface still can't express; everything else (audit_logs,
+// admissions/beds/bed_transfers/patient_consents CRUD, stats) is now
+// going through the typed client.
 import prisma from '../../lib/prisma.js';
-import { createPrismaDb } from '../../lib/prismaCompat.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
@@ -17,8 +22,23 @@ const VALID_PRIORITIES = ['routine', 'urgent', 'emergent'];
 const VALID_CODE_STATUSES = ['full_code', 'dnr', 'dni', 'comfort_care'];
 const VALID_DISCHARGE_TYPES = ['home', 'transfer', 'lama', 'expired', 'aor'];
 
-const ADMISSION_RETURNING = `id, encounter_id, patient_uid, status, ward, bed_id, bed_number,
-    attending_doctor, admitted_at, discharged_at, code_status, created_at, updated_at`;
+// Columns returned by the pre-batch-55 `RETURNING` clause. Mirrored as
+// a Prisma `select` so the public response shape is unchanged.
+const ADMISSION_RETURNING_SELECT = {
+  id: true,
+  encounter_id: true,
+  patient_uid: true,
+  status: true,
+  ward: true,
+  bed_id: true,
+  bed_number: true,
+  attending_doctor: true,
+  admitted_at: true,
+  discharged_at: true,
+  code_status: true,
+  created_at: true,
+  updated_at: true,
+};
 
 // Compute days-since-admission when actual LOS not persisted
 function computeLos(admittedAt, dischargedAt) {
@@ -61,90 +81,104 @@ async function admitPatient(data) {
     throw AppError.badRequest(`Invalid code_status: ${code_status}`);
   }
 
-  const consentRows = await prisma.$queryRawUnsafe(
-    `SELECT id FROM patient_consents
-     WHERE patient_uid = $1::uuid AND consent_type = 'treatment' AND status = 'active'
-     LIMIT 1`, patient_uid);
-  if (!consentRows.length) {
+  const consent = await prisma.patient_consents.findFirst({
+    where: { patient_uid, consent_type: 'treatment', status: 'active' },
+    select: { id: true },
+  });
+  if (!consent) {
     throw AppError.forbidden('Active treatment consent required before admission', 'CONSENT_REQUIRED');
   }
 
-  const existingAdmission = await prisma.$queryRawUnsafe(
-    `SELECT id FROM admissions WHERE patient_uid = $1::uuid AND status IN ('admitted', 'transferred') LIMIT 1`,
-    patient_uid);
-  if (existingAdmission.length > 0) {
+  const existingAdmission = await prisma.admissions.findFirst({
+    where: { patient_uid, status: { in: ['admitted', 'transferred'] } },
+    select: { id: true },
+  });
+  if (existingAdmission) {
     throw AppError.conflict('Patient already has an active admission');
   }
 
   return prisma.$transaction(async (tx) => {
-    const dbTx = createPrismaDb(tx);
-
     // Resolve patient_uid → users.id (beds.patient_id is int FK)
-    const { rows: userRows } = await dbTx.query(
-      `SELECT id, name FROM users WHERE uid = $1::uuid LIMIT 1`,
-      [patient_uid]
-    );
-    if (!userRows.length) throw AppError.notFound('Patient not found');
-    const patientIntId = userRows[0].id;
-    const patientName = userRows[0].name;
+    const patientUser = await tx.users.findUnique({
+      where: { uid: patient_uid },
+      select: { id: true, name: true },
+    });
+    if (!patientUser) throw AppError.notFound('Patient not found');
+    const patientIntId = patientUser.id;
+    const patientName = patientUser.name;
 
-    const { rows } = await dbTx.query(
-      `INSERT INTO admissions (
-        patient_uid, admitting_doctor, attending_doctor, department, ward, bed_id,
-        chief_complaint, admitting_diagnosis, admission_type, status, priority,
-        insurance_info, emergency_contact, allergies, code_status,
-        expected_los_days, created_by, admitted_at, created_at
-      ) VALUES (
-        $1::uuid, $2::uuid, $3::uuid, $4, $5, $6,
-        $7, $8, $9, 'admitted', $10,
-        $11::jsonb, $12::jsonb, $13, $14,
-        $15, $16::uuid, NOW(), NOW()
-      )
-      RETURNING ${ADMISSION_RETURNING}`,
-      [
-        patient_uid, admitting_doctor, attending_doctor || null, department || null, ward || null, bed_id || null,
-        chief_complaint, admitting_diagnosis || null, admission_type, priority,
-        insurance_info ? JSON.stringify(insurance_info) : null,
-        emergency_contact ? JSON.stringify(emergency_contact) : null,
-        allergies, code_status,
-        expected_los_days || null, created_by,
-      ]
-    );
-
-    const admission = rows[0];
+    const admission = await tx.admissions.create({
+      data: {
+        patient_uid,
+        admitting_doctor,
+        attending_doctor: attending_doctor ?? null,
+        department: department ?? null,
+        ward: ward ?? null,
+        bed_id: bed_id ?? null,
+        chief_complaint,
+        admitting_diagnosis: admitting_diagnosis ?? null,
+        admission_type,
+        status: 'admitted',
+        priority,
+        insurance_info: insurance_info ?? null,
+        emergency_contact: emergency_contact ?? null,
+        allergies,
+        code_status,
+        expected_los_days: expected_los_days ?? null,
+        created_by,
+        admitted_at: new Date(),
+      },
+      select: ADMISSION_RETURNING_SELECT,
+    });
 
     if (bed_id) {
-      const { rows: bedRows } = await dbTx.query(
-        `SELECT id, status, bed_number FROM beds WHERE id = $1 FOR UPDATE`,
-        [bed_id]
-      );
+      // FOR UPDATE lock on the bed row to serialise concurrent admits.
+      // Prisma typed methods can't issue row locks, so we keep the SELECT
+      // raw inside the transaction; the subsequent UPDATE is typed.
+      const bedRows = await tx.$queryRaw`
+        SELECT id, status, bed_number FROM beds WHERE id = ${bed_id} FOR UPDATE
+      `;
       if (!bedRows.length) throw AppError.notFound('Bed not found');
       if (bedRows[0].status !== 'available') {
         throw AppError.badRequest(`Bed ${bedRows[0].bed_number} is not available (current status: ${bedRows[0].status})`);
       }
 
-      await dbTx.query(
-        `UPDATE beds
-         SET status = 'occupied', patient_id = $1, patient_name = $2, admitted_at = NOW(),
-             assigned_at = NOW(), updated_at = NOW()
-         WHERE id = $3`,
-        [patientIntId, patientName, bed_id]
-      );
+      await tx.beds.update({
+        where: { id: bed_id },
+        data: {
+          status: 'occupied',
+          patient_id: patientIntId,
+          patient_name: patientName,
+          admitted_at: new Date(),
+          assigned_at: new Date(),
+          updated_at: new Date(),
+        },
+      });
 
-      await dbTx.query(
-        `INSERT INTO bed_transfers (patient_uid, admission_id, from_bed_id, to_bed_id, reason, transferred_by)
-         VALUES ($1::uuid, $2, NULL, $3, 'Admission', $4::uuid)`,
-        [patient_uid, admission.id, bed_id, created_by]
-      );
+      await tx.bed_transfers.create({
+        data: {
+          patient_uid,
+          admission_id: admission.id,
+          from_bed_id: null,
+          to_bed_id: bed_id,
+          reason: 'Admission',
+          transferred_by: created_by,
+        },
+      });
     }
 
-    await dbTx.query(
-      `INSERT INTO audit_logs (uid, action, resource, resource_id, metadata, ip_address, created_at)
-       VALUES ($1::uuid, 'ADMIT_PATIENT', 'admission', $2, $3::jsonb, $4, NOW())`,
-      [created_by, String(admission.id), JSON.stringify({
-        patient_uid, admission_type, priority, department, ward, bed_id,
-      }), null]
-    );
+    await tx.audit_logs.create({
+      data: {
+        uid: created_by,
+        action: 'ADMIT_PATIENT',
+        resource: 'admission',
+        resource_id: String(admission.id),
+        metadata: {
+          patient_uid, admission_type, priority, department, ward, bed_id,
+        },
+        ip_address: null,
+      },
+    });
 
     logger.info(`Patient ${patient_uid} admitted — admission #${admission.id}, encounter ${admission.encounter_id}`);
     return admission;
@@ -161,12 +195,11 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
   if (!dischargedBy) throw AppError.badRequest('dischargedBy is required');
 
   return prisma.$transaction(async (tx) => {
-    const dbTx = createPrismaDb(tx);
-
-    const { rows: admRows } = await dbTx.query(
-      `SELECT id, patient_uid, bed_id, status, admitted_at FROM admissions WHERE id = $1 FOR UPDATE`,
-      [admissionId]
-    );
+    // FOR UPDATE lock on the admission to serialise concurrent state changes.
+    const admRows = await tx.$queryRaw`
+      SELECT id, patient_uid, bed_id, status, admitted_at
+      FROM admissions WHERE id = ${admissionId} FOR UPDATE
+    `;
     if (!admRows.length) throw AppError.notFound('Admission not found');
 
     const admission = admRows[0];
@@ -180,49 +213,65 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
       : discharge_type === 'expired' ? 'expired'
       : 'discharged';
 
-    const { rows: updated } = await dbTx.query(
-      `UPDATE admissions
-       SET status = $1, discharged_at = NOW(), discharge_type = $2,
-           discharge_summary = $3::jsonb, updated_at = NOW()
-       WHERE id = $4
-       RETURNING ${ADMISSION_RETURNING}`,
-      [targetStatus, discharge_type,
-        discharge_summary ? JSON.stringify(discharge_summary) : null,
-        admissionId]
-    );
+    const updated = await tx.admissions.update({
+      where: { id: admission.id },
+      data: {
+        status: targetStatus,
+        discharged_at: new Date(),
+        discharge_type,
+        discharge_summary: discharge_summary ?? null,
+        updated_at: new Date(),
+      },
+      select: ADMISSION_RETURNING_SELECT,
+    });
 
     if (admission.bed_id) {
-      const { rows: bedCheck } = await dbTx.query(
-        `SELECT id, status FROM beds WHERE id = $1 FOR UPDATE`,
-        [admission.bed_id]
-      );
+      // FOR UPDATE lock on the bed row before flipping it back to available.
+      const bedCheck = await tx.$queryRaw`
+        SELECT id, status FROM beds WHERE id = ${admission.bed_id} FOR UPDATE
+      `;
       if (bedCheck.length && bedCheck[0].status === 'occupied') {
-        await dbTx.query(
-          `UPDATE beds
-           SET status = 'available', patient_id = NULL, patient_name = NULL,
-               admitted_at = NULL, updated_at = NOW()
-           WHERE id = $1`,
-          [admission.bed_id]
-        );
+        await tx.beds.update({
+          where: { id: admission.bed_id },
+          data: {
+            status: 'available',
+            patient_id: null,
+            patient_name: null,
+            admitted_at: null,
+            updated_at: new Date(),
+          },
+        });
 
-        await dbTx.query(
-          `INSERT INTO bed_transfers (patient_uid, admission_id, from_bed_id, to_bed_id, reason, transferred_by)
-           VALUES ($1::uuid, $2, $3, $3, 'Discharge', $4::uuid)`,
-          [admission.patient_uid, admissionId, admission.bed_id, dischargedBy]
-        );
+        await tx.bed_transfers.create({
+          data: {
+            patient_uid: admission.patient_uid,
+            admission_id: admission.id,
+            // Pre-batch-55 raw SQL stored from_bed_id == to_bed_id == admission.bed_id
+            // for discharge transfers; preserved here so audit history matches.
+            from_bed_id: admission.bed_id,
+            to_bed_id: admission.bed_id,
+            reason: 'Discharge',
+            transferred_by: dischargedBy,
+          },
+        });
       }
     }
 
-    await dbTx.query(
-      `INSERT INTO audit_logs (uid, action, resource, resource_id, metadata, ip_address, created_at)
-       VALUES ($1::uuid, 'DISCHARGE_PATIENT', 'admission', $2, $3::jsonb, $4, NOW())`,
-      [dischargedBy, String(admissionId), JSON.stringify({
-        discharge_type, los_days: losDays, patient_uid: admission.patient_uid,
-      }), null]
-    );
+    await tx.audit_logs.create({
+      data: {
+        uid: dischargedBy,
+        action: 'DISCHARGE_PATIENT',
+        resource: 'admission',
+        resource_id: String(admissionId),
+        metadata: {
+          discharge_type, los_days: losDays, patient_uid: admission.patient_uid,
+        },
+        ip_address: null,
+      },
+    });
 
     logger.info(`Admission #${admissionId} discharged (${discharge_type}), LOS ${losDays} days`);
-    return { ...updated[0], los_days: losDays };
+    return { ...updated, los_days: losDays };
   });
 }
 
@@ -231,12 +280,11 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
   if (!transferredBy) throw AppError.badRequest('transferredBy is required');
 
   return prisma.$transaction(async (tx) => {
-    const dbTx = createPrismaDb(tx);
-
-    const { rows: admRows } = await dbTx.query(
-      `SELECT id, patient_uid, bed_id, ward, status FROM admissions WHERE id = $1 FOR UPDATE`,
-      [admissionId]
-    );
+    // FOR UPDATE lock on the admission row.
+    const admRows = await tx.$queryRaw`
+      SELECT id, patient_uid, bed_id, ward, status
+      FROM admissions WHERE id = ${admissionId} FOR UPDATE
+    `;
     if (!admRows.length) throw AppError.notFound('Admission not found');
 
     const admission = admRows[0];
@@ -246,133 +294,195 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
 
     const fromBedId = admission.bed_id;
 
-    // Lock target bed + lookup ward name
-    const { rows: targetBedRows } = await dbTx.query(
-      `SELECT b.id, b.status, b.bed_number, w.name AS ward_name
-       FROM beds b
-       LEFT JOIN wards w ON b.ward_id = w.id
-       WHERE b.id = $1 FOR UPDATE OF b`,
-      [toBedId]
-    );
-    if (!targetBedRows.length) throw AppError.notFound('Target bed not found');
-    if (targetBedRows[0].status !== 'available') {
-      throw AppError.badRequest(`Target bed ${targetBedRows[0].bed_number} is not available (current status: ${targetBedRows[0].status})`);
+    // FOR UPDATE OF b — lock target bed only (not the joined ward row).
+    // The original raw SQL used a LEFT JOIN to fetch the ward name; replaced
+    // here with a typed lock-then-include via two queries so the join can be
+    // expressed via Prisma.
+    const targetBedLocked = await tx.$queryRaw`
+      SELECT id, status, bed_number FROM beds WHERE id = ${toBedId} FOR UPDATE
+    `;
+    if (!targetBedLocked.length) throw AppError.notFound('Target bed not found');
+    if (targetBedLocked[0].status !== 'available') {
+      throw AppError.badRequest(`Target bed ${targetBedLocked[0].bed_number} is not available (current status: ${targetBedLocked[0].status})`);
     }
+
+    const targetBed = await tx.beds.findUnique({
+      where: { id: toBedId },
+      select: {
+        id: true,
+        bed_number: true,
+        wards: { select: { name: true } },
+      },
+    });
+    const targetBedNumber = targetBed?.bed_number ?? targetBedLocked[0].bed_number;
+    const targetWardName = targetBed?.wards?.name ?? null;
 
     // Resolve patient int id for beds FK
-    const { rows: uRows } = await dbTx.query(
-      `SELECT id, name FROM users WHERE uid = $1::uuid LIMIT 1`,
-      [admission.patient_uid]
-    );
-    const patientIntId = uRows[0]?.id ?? null;
-    const patientName = uRows[0]?.name ?? null;
+    const patientUser = await tx.users.findUnique({
+      where: { uid: admission.patient_uid },
+      select: { id: true, name: true },
+    });
+    const patientIntId = patientUser?.id ?? null;
+    const patientName = patientUser?.name ?? null;
 
     if (fromBedId) {
-      await dbTx.query(
-        `UPDATE beds
-         SET status = 'available', patient_id = NULL, patient_name = NULL,
-             admitted_at = NULL, updated_at = NOW()
-         WHERE id = $1`,
-        [fromBedId]
-      );
+      await tx.beds.update({
+        where: { id: fromBedId },
+        data: {
+          status: 'available',
+          patient_id: null,
+          patient_name: null,
+          admitted_at: null,
+          updated_at: new Date(),
+        },
+      });
     }
 
-    await dbTx.query(
-      `UPDATE beds
-       SET status = 'occupied', patient_id = $1, patient_name = $2,
-           admitted_at = NOW(), assigned_at = NOW(), updated_at = NOW()
-       WHERE id = $3`,
-      [patientIntId, patientName, toBedId]
-    );
+    await tx.beds.update({
+      where: { id: toBedId },
+      data: {
+        status: 'occupied',
+        patient_id: patientIntId,
+        patient_name: patientName,
+        admitted_at: new Date(),
+        assigned_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
 
-    await dbTx.query(
-      `INSERT INTO bed_transfers (patient_uid, admission_id, from_bed_id, to_bed_id, reason, transferred_by)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid)`,
-      [admission.patient_uid, admissionId, fromBedId || null, toBedId, reason || 'Transfer', transferredBy]
-    );
-
-    const newWard = toWardId || targetBedRows[0].ward_name || admission.ward;
-
-    const { rows: updated } = await dbTx.query(
-      `UPDATE admissions
-       SET bed_id = $1, ward = $2, bed_number = $3, status = 'transferred', updated_at = NOW()
-       WHERE id = $4
-       RETURNING ${ADMISSION_RETURNING}`,
-      [toBedId, newWard, targetBedRows[0].bed_number, admissionId]
-    );
-
-    await dbTx.query(
-      `INSERT INTO audit_logs (uid, action, resource, resource_id, metadata, ip_address, created_at)
-       VALUES ($1::uuid, 'TRANSFER_PATIENT', 'admission', $2, $3::jsonb, $4, NOW())`,
-      [transferredBy, String(admissionId), JSON.stringify({
-        from_bed_id: fromBedId, to_bed_id: toBedId, to_ward: newWard, reason,
+    await tx.bed_transfers.create({
+      data: {
         patient_uid: admission.patient_uid,
-      }), null]
-    );
+        admission_id: admissionId,
+        from_bed_id: fromBedId ?? null,
+        to_bed_id: toBedId,
+        reason: reason || 'Transfer',
+        transferred_by: transferredBy,
+      },
+    });
+
+    const newWard = toWardId || targetWardName || admission.ward;
+
+    const updated = await tx.admissions.update({
+      where: { id: admissionId },
+      data: {
+        bed_id: toBedId,
+        ward: newWard,
+        bed_number: targetBedNumber,
+        status: 'transferred',
+        updated_at: new Date(),
+      },
+      select: ADMISSION_RETURNING_SELECT,
+    });
+
+    await tx.audit_logs.create({
+      data: {
+        uid: transferredBy,
+        action: 'TRANSFER_PATIENT',
+        resource: 'admission',
+        resource_id: String(admissionId),
+        metadata: {
+          from_bed_id: fromBedId, to_bed_id: toBedId, to_ward: newWard, reason,
+          patient_uid: admission.patient_uid,
+        },
+        ip_address: null,
+      },
+    });
 
     logger.info(`Admission #${admissionId} transferred: bed ${fromBedId} -> ${toBedId}`);
-    return updated[0];
+    return updated;
   });
 }
 
 async function getActiveAdmissions(filters = {}) {
   const { ward, doctor, department, status, page = 1, limit = 20 } = filters;
-  const conditions = [];
-  const params = [];
-  let idx = 1;
 
+  const where = {};
   if (status) {
-    conditions.push(`a.status = $${idx}`);
-    params.push(status);
-    idx++;
+    where.status = status;
   } else {
-    conditions.push(`a.status IN ('admitted', 'transferred')`);
+    where.status = { in: ['admitted', 'transferred'] };
   }
-
-  if (ward) {
-    conditions.push(`a.ward = $${idx}`);
-    params.push(ward);
-    idx++;
-  }
+  if (ward) where.ward = ward;
+  if (department) where.department = department;
   if (doctor) {
-    conditions.push(`(a.admitting_doctor = $${idx}::uuid OR a.attending_doctor = $${idx}::uuid)`);
-    params.push(doctor);
-    idx++;
-  }
-  if (department) {
-    conditions.push(`a.department = $${idx}`);
-    params.push(department);
-    idx++;
+    where.OR = [
+      { admitting_doctor: doctor },
+      { attending_doctor: doctor },
+    ];
   }
 
-  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
   const safeLimit = Math.min(100, Math.max(1, parseInt(limit, 10)));
-  const offset = (Math.max(1, parseInt(page, 10)) - 1) * safeLimit;
+  const safePage = Math.max(1, parseInt(page, 10));
+  const offset = (safePage - 1) * safeLimit;
 
-  const countRows = await prisma.$queryRawUnsafe(
-    `SELECT COUNT(*)::int AS total FROM admissions a ${where}`,
-    ...params
-  );
+  const [total, rows] = await Promise.all([
+    prisma.admissions.count({ where }),
+    prisma.admissions.findMany({
+      where,
+      select: {
+        id: true,
+        encounter_id: true,
+        patient_uid: true,
+        admitting_doctor: true,
+        attending_doctor: true,
+        department: true,
+        ward: true,
+        bed_id: true,
+        bed_number: true,
+        chief_complaint: true,
+        admitting_diagnosis: true,
+        admission_type: true,
+        status: true,
+        priority: true,
+        code_status: true,
+        allergies: true,
+        admitted_at: true,
+        expected_los_days: true,
+      },
+      orderBy: { admitted_at: 'desc' },
+      take: safeLimit,
+      skip: offset,
+    }),
+  ]);
 
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT a.id, a.encounter_id, a.patient_uid, a.admitting_doctor, a.attending_doctor,
-            a.department, a.ward, a.bed_id, a.bed_number, a.chief_complaint, a.admitting_diagnosis,
-            a.admission_type, a.status, a.priority, a.code_status, a.allergies,
-            a.admitted_at, a.expected_los_days,
-            u.name AS patient_name, u.phone AS patient_phone,
-            w.name AS bed_ward_name
-     FROM admissions a
-     LEFT JOIN users u ON a.patient_uid = u.uid
-     LEFT JOIN beds b ON a.bed_id = b.id
-     LEFT JOIN wards w ON b.ward_id = w.id
-     ${where}
-     ORDER BY a.admitted_at DESC
-     LIMIT $${idx} OFFSET $${idx + 1}`,
-    ...params, safeLimit, offset);
+  // Enrich with users (patient name/phone) + beds.wards (bed_ward_name) in
+  // bulk — avoids the N+1 you'd get with per-row Prisma includes when the
+  // FK isn't declared (admissions has no relation to users in the schema).
+  const patientUids = Array.from(new Set(rows.map((r) => r.patient_uid).filter(Boolean)));
+  const bedIds = Array.from(new Set(rows.map((r) => r.bed_id).filter((id) => id != null)));
 
-  const total = countRows[0]?.total || 0;
+  const [patients, beds] = await Promise.all([
+    patientUids.length
+      ? prisma.users.findMany({
+          where: { uid: { in: patientUids } },
+          select: { uid: true, name: true, phone: true },
+        })
+      : [],
+    bedIds.length
+      ? prisma.beds.findMany({
+          where: { id: { in: bedIds } },
+          select: { id: true, wards: { select: { name: true } } },
+        })
+      : [],
+  ]);
+
+  const patientByUid = new Map(patients.map((p) => [p.uid, p]));
+  const bedById = new Map(beds.map((b) => [b.id, b]));
+
+  const admissions = rows.map((row) => {
+    const patient = patientByUid.get(row.patient_uid);
+    const bed = row.bed_id != null ? bedById.get(row.bed_id) : null;
+    return {
+      ...row,
+      patient_name: patient?.name ?? null,
+      patient_phone: patient?.phone ?? null,
+      bed_ward_name: bed?.wards?.name ?? null,
+    };
+  });
+
   return {
-    admissions: rows,
+    admissions,
     pagination: {
       page: parseInt(page, 10),
       limit: safeLimit,
@@ -383,24 +493,56 @@ async function getActiveAdmissions(filters = {}) {
 }
 
 async function getAdmissionDetail(admissionId, requestContext = {}) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT a.*,
-            u.name AS patient_name, u.phone AS patient_phone, u.gender AS patient_gender,
-            u.email AS patient_email, u.birthday AS patient_birthday,
-            w.name AS bed_ward_name,
-            ad.name AS admitting_doctor_name,
-            atd.name AS attending_doctor_name
-     FROM admissions a
-     LEFT JOIN users u ON a.patient_uid = u.uid
-     LEFT JOIN beds b ON a.bed_id = b.id
-     LEFT JOIN wards w ON b.ward_id = w.id
-     LEFT JOIN users ad ON a.admitting_doctor = ad.uid
-     LEFT JOIN users atd ON a.attending_doctor = atd.uid
-     WHERE a.id = $1`, admissionId);
+  const admission = await prisma.admissions.findUnique({
+    where: { id: Number(admissionId) },
+  });
+  if (!admission) throw AppError.notFound('Admission not found');
 
-  if (!rows.length) throw AppError.notFound('Admission not found');
+  // Patient + bed/ward + admitting/attending doctor names in parallel.
+  // The pre-batch-48 raw SQL joined `staff` on `uid`, but staff has no
+  // `uid` (only user_id uuid) — batch 48 fixed that to join `users`,
+  // which is what we use here. Doctors are users with role≥DOCTOR; we
+  // only need the display name.
+  const doctorUids = [admission.admitting_doctor, admission.attending_doctor]
+    .filter(Boolean);
+  const [patient, bed, doctors] = await Promise.all([
+    admission.patient_uid
+      ? prisma.users.findUnique({
+          where: { uid: admission.patient_uid },
+          select: { name: true, phone: true, gender: true, email: true, birthday: true },
+        })
+      : null,
+    admission.bed_id != null
+      ? prisma.beds.findUnique({
+          where: { id: admission.bed_id },
+          select: { wards: { select: { name: true } } },
+        })
+      : null,
+    doctorUids.length
+      ? prisma.users.findMany({
+          where: { uid: { in: doctorUids } },
+          select: { uid: true, name: true },
+        })
+      : [],
+  ]);
 
-  const row = rows[0];
+  const doctorByUid = new Map(doctors.map((d) => [d.uid, d.name]));
+
+  const row = {
+    ...admission,
+    patient_name: patient?.name ?? null,
+    patient_phone: patient?.phone ?? null,
+    patient_gender: patient?.gender ?? null,
+    patient_email: patient?.email ?? null,
+    patient_birthday: patient?.birthday ?? null,
+    bed_ward_name: bed?.wards?.name ?? null,
+    admitting_doctor_name: admission.admitting_doctor
+      ? doctorByUid.get(admission.admitting_doctor) ?? null
+      : null,
+    attending_doctor_name: admission.attending_doctor
+      ? doctorByUid.get(admission.attending_doctor) ?? null
+      : null,
+  };
   row.los_days = computeLos(row.admitted_at, row.discharged_at);
 
   if (requestContext.userId) {
@@ -421,14 +563,30 @@ async function getAdmissionDetail(admissionId, requestContext = {}) {
 async function getPatientAdmissionHistory(patientUid) {
   if (!patientUid) throw AppError.badRequest('patient_uid is required');
 
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT a.id, a.encounter_id, a.admitting_doctor, a.attending_doctor,
-            a.department, a.ward, a.bed_id, a.bed_number, a.chief_complaint, a.admitting_diagnosis,
-            a.admission_type, a.status, a.priority, a.code_status,
-            a.admitted_at, a.discharged_at, a.discharge_type, a.expected_los_days
-     FROM admissions a
-     WHERE a.patient_uid = $1::uuid
-     ORDER BY a.admitted_at DESC`, patientUid);
+  const rows = await prisma.admissions.findMany({
+    where: { patient_uid: patientUid },
+    select: {
+      id: true,
+      encounter_id: true,
+      admitting_doctor: true,
+      attending_doctor: true,
+      department: true,
+      ward: true,
+      bed_id: true,
+      bed_number: true,
+      chief_complaint: true,
+      admitting_diagnosis: true,
+      admission_type: true,
+      status: true,
+      priority: true,
+      code_status: true,
+      admitted_at: true,
+      discharged_at: true,
+      discharge_type: true,
+      expected_los_days: true,
+    },
+    orderBy: { admitted_at: 'desc' },
+  });
 
   return rows.map((r) => ({ ...r, los_days: computeLos(r.admitted_at, r.discharged_at) }));
 }
@@ -440,12 +598,11 @@ async function updateCodeStatus(admissionId, codeStatus, updatedBy) {
   if (!updatedBy) throw AppError.badRequest('updatedBy is required');
 
   return prisma.$transaction(async (tx) => {
-    const dbTx = createPrismaDb(tx);
-
-    const { rows: admRows } = await dbTx.query(
-      `SELECT id, code_status, patient_uid, status FROM admissions WHERE id = $1 FOR UPDATE`,
-      [admissionId]
-    );
+    // FOR UPDATE lock on admission row.
+    const admRows = await tx.$queryRaw`
+      SELECT id, code_status, patient_uid, status
+      FROM admissions WHERE id = ${admissionId} FOR UPDATE
+    `;
     if (!admRows.length) throw AppError.notFound('Admission not found');
     if (!['admitted', 'transferred'].includes(admRows[0].status)) {
       throw AppError.badRequest('Cannot update code status for a non-active admission');
@@ -453,22 +610,27 @@ async function updateCodeStatus(admissionId, codeStatus, updatedBy) {
 
     const previousStatus = admRows[0].code_status;
 
-    const { rows: updated } = await dbTx.query(
-      `UPDATE admissions SET code_status = $1, updated_at = NOW() WHERE id = $2
-       RETURNING ${ADMISSION_RETURNING}`,
-      [codeStatus, admissionId]
-    );
+    const updated = await tx.admissions.update({
+      where: { id: admissionId },
+      data: { code_status: codeStatus, updated_at: new Date() },
+      select: ADMISSION_RETURNING_SELECT,
+    });
 
-    await dbTx.query(
-      `INSERT INTO audit_logs (uid, action, resource, resource_id, metadata, ip_address, created_at)
-       VALUES ($1::uuid, 'UPDATE_CODE_STATUS', 'admission', $2, $3::jsonb, $4, NOW())`,
-      [updatedBy, String(admissionId), JSON.stringify({
-        previous: previousStatus, new: codeStatus, patient_uid: admRows[0].patient_uid,
-      }), null]
-    );
+    await tx.audit_logs.create({
+      data: {
+        uid: updatedBy,
+        action: 'UPDATE_CODE_STATUS',
+        resource: 'admission',
+        resource_id: String(admissionId),
+        metadata: {
+          previous: previousStatus, new: codeStatus, patient_uid: admRows[0].patient_uid,
+        },
+        ip_address: null,
+      },
+    });
 
     logger.info(`Admission #${admissionId} code status changed: ${previousStatus} -> ${codeStatus}`);
-    return updated[0];
+    return updated;
   });
 }
 
@@ -477,12 +639,11 @@ async function updateAttendingDoctor(admissionId, doctorUid, updatedBy) {
   if (!updatedBy) throw AppError.badRequest('updatedBy is required');
 
   return prisma.$transaction(async (tx) => {
-    const dbTx = createPrismaDb(tx);
-
-    const { rows: admRows } = await dbTx.query(
-      `SELECT id, attending_doctor, patient_uid, status FROM admissions WHERE id = $1 FOR UPDATE`,
-      [admissionId]
-    );
+    // FOR UPDATE lock on admission row.
+    const admRows = await tx.$queryRaw`
+      SELECT id, attending_doctor, patient_uid, status
+      FROM admissions WHERE id = ${admissionId} FOR UPDATE
+    `;
     if (!admRows.length) throw AppError.notFound('Admission not found');
     if (!['admitted', 'transferred'].includes(admRows[0].status)) {
       throw AppError.badRequest('Cannot update attending doctor for a non-active admission');
@@ -490,94 +651,109 @@ async function updateAttendingDoctor(admissionId, doctorUid, updatedBy) {
 
     const previousDoctor = admRows[0].attending_doctor;
 
-    const { rows: updated } = await dbTx.query(
-      `UPDATE admissions SET attending_doctor = $1::uuid, updated_at = NOW() WHERE id = $2
-       RETURNING ${ADMISSION_RETURNING}`,
-      [doctorUid, admissionId]
-    );
+    const updated = await tx.admissions.update({
+      where: { id: admissionId },
+      data: { attending_doctor: doctorUid, updated_at: new Date() },
+      select: ADMISSION_RETURNING_SELECT,
+    });
 
-    await dbTx.query(
-      `INSERT INTO audit_logs (uid, action, resource, resource_id, metadata, ip_address, created_at)
-       VALUES ($1::uuid, 'UPDATE_ATTENDING_DOCTOR', 'admission', $2, $3::jsonb, $4, NOW())`,
-      [updatedBy, String(admissionId), JSON.stringify({
-        previous_doctor: previousDoctor, new_doctor: doctorUid, patient_uid: admRows[0].patient_uid,
-      }), null]
-    );
+    await tx.audit_logs.create({
+      data: {
+        uid: updatedBy,
+        action: 'UPDATE_ATTENDING_DOCTOR',
+        resource: 'admission',
+        resource_id: String(admissionId),
+        metadata: {
+          previous_doctor: previousDoctor, new_doctor: doctorUid, patient_uid: admRows[0].patient_uid,
+        },
+        ip_address: null,
+      },
+    });
 
     logger.info(`Admission #${admissionId} attending doctor changed: ${previousDoctor} -> ${doctorUid}`);
-    return updated[0];
+    return updated;
   });
 }
 
 async function getAdmissionStats(dateFrom, dateTo) {
-  const params = [];
-  let dateFilter = '';
-  let idx = 1;
+  // Date filter for admissions.admitted_at — preserved bounds: [dateFrom, dateTo].
+  const admittedAtFilter = {};
+  if (dateFrom) admittedAtFilter.gte = new Date(dateFrom);
+  if (dateTo) admittedAtFilter.lte = new Date(dateTo);
+  const adWhere = Object.keys(admittedAtFilter).length
+    ? { admitted_at: admittedAtFilter }
+    : {};
+  const dischargeWhere = Object.keys(admittedAtFilter).length
+    ? { admitted_at: admittedAtFilter, discharge_type: { not: null } }
+    : { discharge_type: { not: null } };
 
-  if (dateFrom) {
-    dateFilter += ` AND a.admitted_at >= $${idx}`;
-    params.push(dateFrom);
-    idx++;
+  // One scan to compute total/discharged/admitted/transferred counts and
+  // avg LOS — Prisma aggregate can't do COUNT FILTER (...) so reduce in JS.
+  const [allAdmissions, dischargeGroups, typeGroups, totalBeds, occupiedBeds] = await Promise.all([
+    prisma.admissions.findMany({
+      where: adWhere,
+      select: { status: true, admitted_at: true, discharged_at: true },
+    }),
+    prisma.admissions.groupBy({
+      by: ['discharge_type'],
+      where: dischargeWhere,
+      _count: { _all: true },
+    }),
+    prisma.admissions.groupBy({
+      by: ['admission_type'],
+      where: adWhere,
+      _count: { _all: true },
+    }),
+    prisma.beds.count(),
+    prisma.beds.count({ where: { status: 'occupied' } }),
+  ]);
+
+  let totalAdmissions = 0;
+  let totalDischarged = 0;
+  let currentlyAdmitted = 0;
+  let currentlyTransferred = 0;
+  const losDaysSamples = [];
+  for (const a of allAdmissions) {
+    totalAdmissions += 1;
+    if (['discharged', 'lama', 'expired'].includes(a.status)) totalDischarged += 1;
+    if (a.status === 'admitted') currentlyAdmitted += 1;
+    if (a.status === 'transferred') currentlyTransferred += 1;
+    if (a.discharged_at && a.admitted_at) {
+      // Mirror the pre-batch-55 SQL: GREATEST(1, CEIL(epoch / 86400.0)).
+      const epochSec = (new Date(a.discharged_at) - new Date(a.admitted_at)) / 1000;
+      losDaysSamples.push(Math.max(1, Math.ceil(epochSec / 86400)));
+    }
   }
-  if (dateTo) {
-    dateFilter += ` AND a.admitted_at <= $${idx}`;
-    params.push(dateTo);
-    idx++;
-  }
+  const avgLosDays = losDaysSamples.length
+    ? Math.round((losDaysSamples.reduce((s, v) => s + v, 0) / losDaysSamples.length) * 10) / 10
+    : null;
 
-  // LOS computed inline from admitted_at/discharged_at since actual_los_days isn't persisted
-  const statsRows = await prisma.$queryRawUnsafe(
-    `SELECT
-       COUNT(*)::int AS total_admissions,
-       COUNT(*) FILTER (WHERE a.status IN ('discharged','lama','expired'))::int AS total_discharged,
-       ROUND(AVG(
-         CASE WHEN a.discharged_at IS NOT NULL
-              THEN GREATEST(1, CEIL(EXTRACT(EPOCH FROM (a.discharged_at - a.admitted_at)) / 86400.0))
-         END
-       ), 1) AS avg_los_days,
-       COUNT(*) FILTER (WHERE a.status = 'admitted')::int AS currently_admitted,
-       COUNT(*) FILTER (WHERE a.status = 'transferred')::int AS currently_transferred
-     FROM admissions a
-     WHERE 1=1 ${dateFilter}`,
-    ...params
-  );
+  // Discharge-type breakdown sorted by count desc, drop nulls (the WHERE
+  // clause already excludes them but groupBy can still surface a null bucket
+  // for empty result sets).
+  const dischargeTypeBreakdown = dischargeGroups
+    .filter((g) => g.discharge_type != null)
+    .map((g) => ({ discharge_type: g.discharge_type, count: g._count._all }))
+    .sort((a, b) => b.count - a.count);
 
-  const dischargeBreakdown = await prisma.$queryRawUnsafe(
-    `SELECT a.discharge_type, COUNT(*)::int AS count
-     FROM admissions a
-     WHERE a.discharge_type IS NOT NULL ${dateFilter}
-     GROUP BY a.discharge_type
-     ORDER BY count DESC`,
-    ...params
-  );
+  const admissionTypeBreakdown = typeGroups
+    .map((g) => ({ admission_type: g.admission_type, count: g._count._all }))
+    .sort((a, b) => b.count - a.count);
 
-  const admissionTypeBreakdown = await prisma.$queryRawUnsafe(
-    `SELECT a.admission_type, COUNT(*)::int AS count
-     FROM admissions a
-     WHERE 1=1 ${dateFilter}
-     GROUP BY a.admission_type
-     ORDER BY count DESC`,
-    ...params
-  );
-
-  const bedStats = await prisma.$queryRawUnsafe(
-    `SELECT
-       COUNT(*)::int AS total_beds,
-       COUNT(*) FILTER (WHERE status = 'occupied')::int AS occupied_beds
-     FROM beds`
-  );
-
-  const bed = bedStats[0] || { total_beds: 0, occupied_beds: 0 };
-  const occupancyRate = bed.total_beds > 0
-    ? Math.round((bed.occupied_beds / bed.total_beds) * 100 * 100) / 100
+  const occupancyRate = totalBeds > 0
+    ? Math.round((occupiedBeds / totalBeds) * 100 * 100) / 100
     : 0;
 
   return {
-    ...(statsRows[0] || {}),
+    total_admissions: totalAdmissions,
+    total_discharged: totalDischarged,
+    avg_los_days: avgLosDays,
+    currently_admitted: currentlyAdmitted,
+    currently_transferred: currentlyTransferred,
     occupancy_rate: occupancyRate,
-    total_beds: bed.total_beds,
-    occupied_beds: bed.occupied_beds,
-    discharge_type_breakdown: dischargeBreakdown,
+    total_beds: totalBeds,
+    occupied_beds: occupiedBeds,
+    discharge_type_breakdown: dischargeTypeBreakdown,
     admission_type_breakdown: admissionTypeBreakdown,
   };
 }
