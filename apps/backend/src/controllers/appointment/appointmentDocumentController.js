@@ -31,7 +31,7 @@ export const uploadAppointmentDocument = async (req, res) => {
     let fileUrl = null;
     try {
       await uploadFileToR2(req.file.buffer, fileKey, req.file.mimetype);
-      fileUrl = await getSignedFileUrl(fileKey, 3600).catch(() => null);
+      fileUrl = await getSignedFileUrl(fileKey, 3600, { baseUrl: `${req.protocol}://${req.get('host')}` }).catch(() => null);
     } catch (uploadErr) {
       logger.warn('R2 upload failed:', uploadErr.message);
       return error(res, 'File upload failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -91,7 +91,7 @@ export const getAppointmentDocuments = async (req, res) => {
 
     const docs = await Promise.all(result.map(async (doc) => {
       if (doc.file_key) {
-        doc.file_url = await getSignedFileUrl(doc.file_key, 3600).catch(() => null);
+        doc.file_url = await getSignedFileUrl(doc.file_key, 3600, { baseUrl: `${req.protocol}://${req.get('host')}` }).catch(() => null);
       }
       return doc;
     }));
@@ -145,7 +145,7 @@ export const getPatientAllRecords = async (req, res) => {
     const allDocs = [...apptDocs, ...ownRecords];
     const withUrls = await Promise.all(allDocs.map(async (doc) => {
       if (doc.file_key) {
-        doc.file_url = await getSignedFileUrl(doc.file_key, 3600).catch(() => null);
+        doc.file_url = await getSignedFileUrl(doc.file_key, 3600, { baseUrl: `${req.protocol}://${req.get('host')}` }).catch(() => null);
       }
       return doc;
     }));
@@ -180,7 +180,7 @@ export const uploadPatientRecord = async (req, res) => {
     let fileUrl = null;
     try {
       await uploadFileToR2(req.file.buffer, fileKey, req.file.mimetype);
-      fileUrl = await getSignedFileUrl(fileKey, 3600).catch(() => null);
+      fileUrl = await getSignedFileUrl(fileKey, 3600, { baseUrl: `${req.protocol}://${req.get('host')}` }).catch(() => null);
     } catch (uploadErr) {
       logger.warn('Patient upload R2 failed:', uploadErr.message);
       return error(res, 'File upload failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -258,7 +258,7 @@ export const getAllDocumentsAdmin = async (req, res) => {
 
     const docs = await Promise.all(result.map(async (doc) => {
       if (doc.file_key) {
-        doc.file_url = await getSignedFileUrl(doc.file_key, 3600).catch(() => null);
+        doc.file_url = await getSignedFileUrl(doc.file_key, 3600, { baseUrl: `${req.protocol}://${req.get('host')}` }).catch(() => null);
       }
       return doc;
     }));

@@ -44,12 +44,15 @@ const R2_AVAILABLE = !!(CF_ACCOUNT_ID && CF_R2_BUCKET && CF_R2_URL && CF_R2_ACCE
 const LOCAL_DIR = process.env.STORAGE_LOCAL_DIR
   || path.resolve(__dirname, '../../storage/local-r2');
 
-// Public base URL the patient app can reach. For Android emulator dev,
-// 10.0.2.2 maps to the host machine's localhost; for other rigs override
-// via STORAGE_PUBLIC_BASE_URL.
+// Fallback base URL when no request context is available (cron jobs,
+// background tasks). The preferred path is for callers in HTTP context
+// to pass `{ baseUrl }` derived from `req.protocol + req.get('host')` so
+// the URL matches whatever host the client used to reach us — works for
+// localhost, Android emulator (10.0.2.2:5000), real device on a LAN IP,
+// or a tunnel like ngrok without any env-var dance.
 const PUBLIC_BASE_URL = process.env.STORAGE_PUBLIC_BASE_URL
   || process.env.PUBLIC_BASE_URL
-  || 'http://10.0.2.2:5000';
+  || 'http://localhost:5000';
 
 // Token-signing secret. Reuses JWT_SECRET so we don't add another env var.
 // Validated at first signed-URL request — startup doesn't crash without it.
@@ -279,13 +282,19 @@ export async function copyObject(sourceKey, destinationKey) {
   return await s3Client.send(command);
 }
 
-export async function getSignedFileUrl(key, expiresInSeconds = 3600) {
+// `options.baseUrl` lets HTTP-context callers (controllers) pass the
+// request-derived host so the signed URL points back at whatever the
+// client actually used (localhost, 10.0.2.2:5000, a LAN IP, etc.).
+// Without it we fall back to PUBLIC_BASE_URL — fine for cron/background
+// callers since they don't surface the URL to a user.
+export async function getSignedFileUrl(key, expiresInSeconds = 3600, options = {}) {
   if (!R2_AVAILABLE) {
     const token = signLocalToken(key, expiresInSeconds);
     // Path-encode each segment so '/' separators are preserved (the route
     // uses a wildcard splat and rebuilds the key by joining segments).
     const safeKey = key.split('/').map(encodeURIComponent).join('/');
-    return `${PUBLIC_BASE_URL}/api/v1/storage/file/${safeKey}?token=${token}`;
+    const baseUrl = options.baseUrl || PUBLIC_BASE_URL;
+    return `${baseUrl}/api/v1/storage/file/${safeKey}?token=${token}`;
   }
   return withRetry(async () => {
     const command = new GetObjectCommand({

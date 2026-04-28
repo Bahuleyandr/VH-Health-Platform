@@ -135,18 +135,19 @@ export const getMyBookings = async (req, res) => {
       LIMIT $2 OFFSET $3
     `, patientId, limit, offset);
 
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
     const bookings = await Promise.all(result.map(async b => {
-      if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600).catch(() => null);
-      if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600).catch(() => null);
+      if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600, { baseUrl }).catch(() => null);
+      if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600, { baseUrl }).catch(() => null);
       return b;
     }));
 
     success(res, bookings, 'My bookings fetched', HTTP_STATUS.OK, { limit, offset });
   } catch (e) {
-    // The investigation_bookings table is part of an incomplete feature
-    // (booking lifecycle was never migrated). Until we build that schema
-    // out properly, return an empty list rather than 500-ing the dashboard
-    // — the patient genuinely has no bookings, the response is honest.
+    // Vestigial fallback from before migration 098 created
+    // investigation_bookings — kept as defensive code in case a fresh DB
+    // somehow lands without the migration applied. Should never trigger
+    // on a properly-migrated cluster.
     if (e?.meta?.code === '42P01') {
       return success(res, [], 'My bookings fetched', HTTP_STATUS.OK, { limit: 0, offset: 0 });
     }
@@ -189,9 +190,10 @@ export const getBookingQueue = async (req, res) => {
         ib.created_at ASC
     `, ...params);
 
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
     const bookings = await Promise.all(result.map(async b => {
-      if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600).catch(() => null);
-      if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600).catch(() => null);
+      if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600, { baseUrl }).catch(() => null);
+      if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600, { baseUrl }).catch(() => null);
       return b;
     }));
 
@@ -432,8 +434,19 @@ export const getBookingDetail = async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const booking = await prisma.$queryRawUnsafe(`
-      SELECT ib.id, ib.investigation_id, ib.patient_id, ib.patient_name, ib.patient_phone,
-        ib.test_name, ib.status, ib.scheduled_date, ib.phlebotomist_id, ib.notes,
+      SELECT ib.id, ib.booking_number, ib.investigation_id,
+        ib.patient_id, ib.patient_name, ib.patient_phone,
+        ib.test_name, ib.selected_tests, ib.actual_tests, ib.custom_test_names,
+        ib.status, ib.notes, ib.confirmation_notes, ib.collection_notes, ib.result_notes,
+        ib.collection_type, ib.collection_address, ib.collection_landmark,
+        ib.collection_lat, ib.collection_lng,
+        ib.preferred_date, ib.preferred_time_slot, ib.scheduled_date,
+        ib.estimated_cost, ib.final_cost,
+        ib.slip_photo_key, ib.result_file_key,
+        ib.phlebotomist_id, ib.assigned_collector, ib.collector_phone,
+        ib.confirmed_by, ib.confirmed_at, ib.dispatched_at, ib.collected_at,
+        ib.processing_started_at, ib.result_uploaded_at,
+        ib.sla_confirm_target, ib.sla_dispatch_target, ib.sla_collect_target, ib.sla_result_target,
         ib.created_at, ib.updated_at,
         (SELECT json_agg(t) FROM investigation_test_catalog t WHERE t.id = ANY(ib.selected_tests)) as test_details,
         cu.name as confirmed_by_name,
@@ -447,9 +460,10 @@ export const getBookingDetail = async (req, res) => {
 
     const history = await prisma.$queryRawUnsafe('SELECT id, booking_id, from_status, to_status, changed_by, changed_by_role, notes, created_at FROM investigation_booking_history WHERE booking_id=$1 ORDER BY created_at', id);
 
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
     const b = booking[0];
-    if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600).catch(() => null);
-    if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600).catch(() => null);
+    if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600, { baseUrl }).catch(() => null);
+    if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600, { baseUrl }).catch(() => null);
 
     success(res, { booking: b, history: history }, 'Booking detail');
   } catch (e) {

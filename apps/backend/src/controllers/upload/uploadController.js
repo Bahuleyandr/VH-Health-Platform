@@ -66,7 +66,8 @@ export const getFileByKey = async (req, res) => {
       return error(res, 'Not authorized to access this file', HTTP_STATUS.FORBIDDEN);
     }
 
-    const signedUrl = await getSignedFileUrl(fileKey, SIGNED_URL_TTL_SECONDS);
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const signedUrl = await getSignedFileUrl(fileKey, SIGNED_URL_TTL_SECONDS, { baseUrl });
 
     return success(res, {
       quarantined: false,
@@ -97,7 +98,12 @@ export const uploadFile = async (req, res) => {
     const ts = Date.now();
     const originalName = req.file.originalname || 'file';
     const ext = originalName.includes('.') ? originalName.split('.').pop() : 'bin';
-    const safeName = originalName.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 200) || `file.${ext}`;
+    // Strip leading dots so `..pdf` / `.htaccess` style names can't survive
+    // even though the path-traversal guard in r2Storage would catch a real
+    // attempt; defense in depth against accidentally-hidden files on the
+    // local-disk fallback's filesystem listing too.
+    const safeName = (originalName.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '_').slice(0, 200))
+      || `file.${ext}`;
     const storageKey = `uploads/${callerUid}/${ts}_${safeName}`;
     const contentType = req.file.mimetype || 'application/octet-stream';
 

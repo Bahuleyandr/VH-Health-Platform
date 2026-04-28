@@ -298,8 +298,9 @@ app.use('/api/v1/internal', validateApiKey, internalRoutes);
 // token in the query string IS the auth (semantics match Cloudflare R2
 // signed URLs). Only exercised when R2 env vars are absent (dev/CI
 // fallback); prod with R2 returns r2.cloudflarestorage.com URLs that bypass
-// the backend entirely.
-app.use('/api/v1/storage', storageRoutes);
+// the backend entirely. `genericLimiter` guards against trivial DoS / mass
+// download attempts even though the token itself is unforgeable.
+app.use('/api/v1/storage', genericLimiter, storageRoutes);
 
 // Root health check — rate limited, minimal info in production. Proves the
 // Prisma driver is live with a cheap `SELECT 1`; circuit-breaker state is

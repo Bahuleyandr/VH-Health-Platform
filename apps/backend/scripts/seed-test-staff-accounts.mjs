@@ -41,71 +41,77 @@ async function main() {
 
   const summary = [];
   for (const acc of ACCOUNTS) {
-    // Find existing user by phone OR by linked employee_id.
-    const existing = await prisma.$queryRawUnsafe(
-      `SELECT u.uid, u.id, u.role
-       FROM users u
-       LEFT JOIN staff s ON s.user_id = u.uid
-       WHERE s.employee_id = $1 OR u.phone = $2
-       LIMIT 1`,
-      acc.emp, acc.phone
-    );
+    // Wrap each account's lookup + upsert in a transaction so a concurrent
+    // run can't get two halves of the work in via interleaved statements
+    // (e.g. find no user → other run inserts → this run inserts → UNIQUE
+    // violation on phone). The whole "ensure exactly one user + one staff
+    // row for this employee" thing rolls back as a unit on conflict.
+    const action = await prisma.$transaction(async (tx) => {
+      const existing = await tx.$queryRawUnsafe(
+        `SELECT u.uid, u.id, u.role
+         FROM users u
+         LEFT JOIN staff s ON s.user_id = u.uid
+         WHERE s.employee_id = $1 OR u.phone = $2
+         LIMIT 1`,
+        acc.emp, acc.phone
+      );
 
-    let uid;
-    if (existing.length) {
-      uid = existing[0].uid;
-      await prisma.$executeRawUnsafe(
-        `UPDATE users
-            SET role = $1,
-                encrypted_password = $2,
-                name = COALESCE(NULLIF(name, ''), $3),
-                phone = $4,
-                is_active = TRUE,
-                status = 'active',
-                updated_at = NOW()
-          WHERE uid = $5::uuid`,
-        acc.role, hash, acc.name, acc.phone, uid
-      );
-      summary.push({ emp: acc.emp, role: acc.role, action: 'updated' });
-    } else {
-      const inserted = await prisma.$queryRawUnsafe(
-        `INSERT INTO users
-           (uid, phone, name, role, encrypted_password, is_active, status, registered_at, updated_at)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, TRUE, 'active', NOW(), NOW())
-         RETURNING uid`,
-        acc.phone, acc.name, acc.role, hash
-      );
-      uid = inserted[0].uid;
-      summary.push({ emp: acc.emp, role: acc.role, action: 'inserted' });
-    }
+      let uid;
+      let didInsert = false;
+      if (existing.length) {
+        uid = existing[0].uid;
+        await tx.$executeRawUnsafe(
+          `UPDATE users
+              SET role = $1,
+                  encrypted_password = $2,
+                  name = COALESCE(NULLIF(name, ''), $3),
+                  phone = $4,
+                  is_active = TRUE,
+                  status = 'active',
+                  updated_at = NOW()
+            WHERE uid = $5::uuid`,
+          acc.role, hash, acc.name, acc.phone, uid
+        );
+      } else {
+        const inserted = await tx.$queryRawUnsafe(
+          `INSERT INTO users
+             (uid, phone, name, role, encrypted_password, is_active, status, registered_at, updated_at)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, TRUE, 'active', NOW(), NOW())
+           RETURNING uid`,
+          acc.phone, acc.name, acc.role, hash
+        );
+        uid = inserted[0].uid;
+        didInsert = true;
+      }
 
-    // Ensure a staff record exists for this user.
-    const staffExists = await prisma.$queryRawUnsafe(
-      `SELECT id FROM staff WHERE employee_id = $1 OR user_id = $2::uuid LIMIT 1`,
-      acc.emp, uid
-    );
-    if (staffExists.length === 0) {
-      await prisma.$executeRawUnsafe(
-        `INSERT INTO staff
-           (user_id, employee_id, name, designation, position, department, is_active, created_at, updated_at)
-         VALUES ($1::uuid, $2, $3, $4, $5, $6, TRUE, NOW(), NOW())`,
-        uid, acc.emp, acc.name, acc.designation, acc.position, acc.dept
+      const staffExists = await tx.$queryRawUnsafe(
+        `SELECT id FROM staff WHERE employee_id = $1 OR user_id = $2::uuid LIMIT 1`,
+        acc.emp, uid
       );
-    } else {
-      // Re-assert the basics in case of drift.
-      await prisma.$executeRawUnsafe(
-        `UPDATE staff
-            SET employee_id = $1,
-                name = $2,
-                designation = $3,
-                position = $4,
-                department = $5,
-                is_active = TRUE,
-                updated_at = NOW()
-          WHERE id = $6`,
-        acc.emp, acc.name, acc.designation, acc.position, acc.dept, staffExists[0].id
-      );
-    }
+      if (staffExists.length === 0) {
+        await tx.$executeRawUnsafe(
+          `INSERT INTO staff
+             (user_id, employee_id, name, designation, position, department, is_active, created_at, updated_at)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, TRUE, NOW(), NOW())`,
+          uid, acc.emp, acc.name, acc.designation, acc.position, acc.dept
+        );
+      } else {
+        await tx.$executeRawUnsafe(
+          `UPDATE staff
+              SET employee_id = $1,
+                  name = $2,
+                  designation = $3,
+                  position = $4,
+                  department = $5,
+                  is_active = TRUE,
+                  updated_at = NOW()
+            WHERE id = $6`,
+          acc.emp, acc.name, acc.designation, acc.position, acc.dept, staffExists[0].id
+        );
+      }
+      return didInsert ? 'inserted' : 'updated';
+    });
+    summary.push({ emp: acc.emp, role: acc.role, action });
   }
 
   console.log('\n┌──────────┬─────────────────┬──────────┐');
