@@ -11,6 +11,14 @@ class FeatureScreenScaffold extends StatefulWidget {
   final Widget? floatingActionButton;
   final List<Widget>? actions;
 
+  /// Whether the body is wrapped in a SingleChildScrollView. Default
+  /// is `false` because almost every screen here uses a Column with
+  /// Expanded children (lists, tabs, page views) — those collapse to
+  /// zero height when wrapped in a scroll view. Set explicitly to
+  /// `true` only for screens whose child is short, fixed-height content
+  /// (e.g. a settings/info card list with no Expanded children).
+  final bool scrollable;
+
   const FeatureScreenScaffold({
     super.key,
     required this.title,
@@ -20,6 +28,7 @@ class FeatureScreenScaffold extends StatefulWidget {
     this.heroTag,
     this.floatingActionButton,
     this.actions,
+    this.scrollable = false,
   });
 
   static const Map<String, Color> featureColors = {
@@ -144,51 +153,31 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
                           ),
                         ),
                       ),
-                      // Main scrollable content
-                      SingleChildScrollView(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Center(
-                          child: Container(
-                            constraints: BoxConstraints(
-                              maxWidth: isWide ? 600 : double.infinity,
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(24),
-                              child: BackdropFilter(
-                                filter: ImageFilter.blur(
-                                  sigmaX: 12,
-                                  sigmaY: 12,
-                                ),
-                                child: Container(
-                                  padding: const EdgeInsets.all(24),
-                                  decoration: BoxDecoration(
-                                    color: theme.colorScheme.surface.withAlpha(
-                                      179,
-                                    ), // ~0.7 alpha
-                                    borderRadius: BorderRadius.circular(24),
-                                    border: Border.all(
-                                      color: widget.color.withAlpha(
-                                        51,
-                                      ), // ~0.2 alpha
-                                      width: 1,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: widget.color.withAlpha(
-                                          26,
-                                        ), // ~0.1 alpha
-                                        blurRadius: 10,
-                                        offset: const Offset(0, 8),
-                                      ),
-                                    ],
-                                  ),
+                      // Main content — scroll-wrapped or full-height
+                      // depending on widget.scrollable. Tabbed / list /
+                      // page-view children need full-height parents.
+                      widget.scrollable
+                          ? SingleChildScrollView(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Center(
+                                child: _GlassCard(
+                                  isWide: isWide,
+                                  color: widget.color,
+                                  surface: theme.colorScheme.surface,
                                   child: widget.child,
                                 ),
                               ),
+                            )
+                          : Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                              child: _GlassCard(
+                                isWide: isWide,
+                                color: widget.color,
+                                surface: theme.colorScheme.surface,
+                                fillHeight: true,
+                                child: widget.child,
+                              ),
                             ),
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -198,5 +187,59 @@ class _FeatureScreenScaffoldState extends State<FeatureScreenScaffold>
         ),
       ),
     );
+  }
+}
+
+/// Frosted-glass card used by [FeatureScreenScaffold]. Pulled out so
+/// the scrollable / non-scrollable branches in the parent can share the
+/// same visual treatment.
+class _GlassCard extends StatelessWidget {
+  final bool isWide;
+  final Color color;
+  final Color surface;
+  final Widget child;
+  final bool fillHeight;
+
+  const _GlassCard({
+    required this.isWide,
+    required this.color,
+    required this.surface,
+    required this.child,
+    this.fillHeight = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final card = Container(
+      constraints: BoxConstraints(
+        maxWidth: isWide ? 600 : double.infinity,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: surface.withAlpha(179), // ~0.7 alpha
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: color.withAlpha(51), // ~0.2 alpha
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: color.withAlpha(26), // ~0.1 alpha
+                  blurRadius: 10,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
+    return fillHeight ? SizedBox.expand(child: card) : card;
   }
 }

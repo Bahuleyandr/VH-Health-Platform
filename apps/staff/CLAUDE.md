@@ -60,7 +60,7 @@ lib/
 | Leave balance | `/staff/hr/leave-balance/:staffId` | GET |
 | Upload investigation | `/staff/medical/investigations` | POST |
 | Upload consultation | `/staff/medical/consultations` | POST |
-| Update pharmacy order | `/staff/pharmacy/orders` | PUT |
+| Update pharmacy order | `/staff/pharmacy/orders` | POST |
 | Staff profile | `/staff/:identifier` (GET), `/staff/:id` (PUT) | GET, PUT |
 | Appointments list | `/appointments/list` | GET |
 
@@ -116,6 +116,4 @@ prioritised list.
 
 ## Future Directions
 
-See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current roadmap and
-[`../FINISH_BUILDING.md`](../FINISH_BUILDING.md) for the cross-repo
-master plan (Phase 0.5 = current; ranked open items at the bottom).
+See [`../../AUDIT.md`](../../AUDIT.md) for the cross-stack state and [`../../SESSION_HANDOFF.md`](../../SESSION_HANDOFF.md) for the most recent session bootstrap. The roadmap docs that used to live here (`docs/ROADMAP.md`, `../FINISH_BUILDING.md`) are no longer maintained — AUDIT.md superseded them.

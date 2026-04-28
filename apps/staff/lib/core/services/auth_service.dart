@@ -20,7 +20,7 @@ class AuthService {
       final raw = response.raw as Map<String, dynamic>;
       if (raw['success'] == true) {
         final data = raw['data'] as Map<String, dynamic>? ?? {};
-        final token = data['token'] ?? data['jwt'];
+        final token = data['accessToken'] ?? data['token'] ?? data['jwt'];
         if (token != null) {
           await ApiConfig.saveJwt(token.toString());
           await ApiConfig.saveEmployeeId(employeeId);
@@ -60,7 +60,7 @@ class AuthService {
       final raw = response.raw as Map<String, dynamic>;
       if (raw['success'] == true) {
         final data = raw['data'] as Map<String, dynamic>? ?? {};
-        final token = data['token'] ?? data['jwt'];
+        final token = data['accessToken'] ?? data['token'] ?? data['jwt'];
         if (token != null) {
           await ApiConfig.saveJwt(token.toString());
           await ApiConfig.saveEmployeeId(employeeId);
@@ -125,7 +125,7 @@ class AuthService {
       final raw = response.raw as Map<String, dynamic>;
       if (raw['success'] == true) {
         final data = raw['data'] as Map<String, dynamic>? ?? {};
-        final token = data['token'] ?? data['jwt'];
+        final token = data['accessToken'] ?? data['token'] ?? data['jwt'];
         if (token != null) {
           await ApiConfig.saveJwt(token.toString());
           await ApiConfig.saveEmployeeId(employeeId);

@@ -20,7 +20,7 @@ class ApiConfig {
 
   // ── Staff-specific authenticated headers (uses staff_jwt key) ──────────
   static Future<Map<String, String>> authenticatedHeaders() async {
-    final jwt = await _storage.read(key: 'staff_jwt');
+    final jwt = await _storage.read(key: 'jwt');
     return {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
@@ -30,7 +30,7 @@ class ApiConfig {
 
   // ── Staff credential storage ───────────────────────────────────────────
   static Future<void> saveJwt(String jwt) async {
-    await _storage.write(key: 'staff_jwt', value: jwt);
+    await _storage.write(key: 'jwt', value: jwt);
   }
 
   static Future<void> saveStaffId(String staffId) async {
@@ -70,7 +70,7 @@ class ApiConfig {
   }
 
   static Future<bool> isLoggedIn() async {
-    final jwt = await _storage.read(key: 'staff_jwt');
+    final jwt = await _storage.read(key: 'jwt');
     return jwt != null && jwt.isNotEmpty;
   }
 }

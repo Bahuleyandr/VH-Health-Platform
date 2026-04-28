@@ -258,11 +258,23 @@ class _YourHealthScreenState extends State<YourHealthScreen>
     // Show upload FAB only on My Uploads tab (index 2)
     final showUploadFab = !_isGuest && _tabController.index == 2;
 
-    return FeatureScreenScaffold(
-      title: l10n.yourHealthTitle,
-      icon: Icons.monitor_heart_outlined,
-      color: _color,
-      heroTag: 'yourHealth',
+    if (_isGuest) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(l10n.yourHealthTitle),
+          leading: BackButton(onPressed: () => context.go('/home')),
+        ),
+        body: _buildGuestView(theme, cs, l10n),
+      );
+    }
+
+    // Tabbed view needs a bounded-height parent for TabBarView; wrap in
+    // a regular Scaffold rather than FeatureScreenScaffold (the latter
+    // wraps its child in SingleChildScrollView, which collapses the
+    // TabBarView's Expanded to zero height — the screen rendered as
+    // pure black before this fix).
+    return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       floatingActionButton: showUploadFab
           ? FloatingActionButton.extended(
               onPressed: () => _myUploadsKey.currentState?.showUploadSheet(),
@@ -270,41 +282,72 @@ class _YourHealthScreenState extends State<YourHealthScreen>
               label: const Text('Upload Record'),
             )
           : null,
-      child: _isGuest
-          ? _buildGuestView(theme, cs, l10n)
-          : Column(
-              children: [
-                TabBar(
-                  controller: _tabController,
-                  labelColor: cs.primary,
-                  unselectedLabelColor: cs.onSurfaceVariant,
-                  indicatorColor: cs.primary,
-                  isScrollable: true,
-                  onTap: (_) => setState(() {}), // Rebuild to toggle FAB
-                  tabs: [
-                    Tab(text: l10n.yourHealthTabRecords),
-                    const Tab(text: 'Hospital Docs'),
-                    const Tab(text: 'My Uploads'),
-                    const Tab(text: 'Prescriptions'),
-                    Tab(text: l10n.yourHealthTabConsultations),
-                    Tab(text: l10n.yourHealthTabSummary),
-                  ],
-                ),
-                Expanded(
-                  child: TabBarView(
-                    controller: _tabController,
-                    children: [
-                      _buildRecordsTab(theme, cs, l10n),
-                      const HospitalDocumentsTab(),
-                      MyUploadsTab(key: _myUploadsKey),
-                      PrescriptionsTab(phone: widget.phone),
-                      const ConsultationsTab(),
-                      const HealthSummaryTab(),
-                    ],
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Header row — keeps the spirit of FeatureScreenScaffold's
+            // bar (icon + title) without the scroll wrapping that breaks
+            // the tabbed body.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 8, 16, 0),
+              child: Row(
+                children: [
+                  Hero(
+                    tag: 'yourHealth',
+                    child: Material(
+                      color: Colors.transparent,
+                      child: Icon(
+                        Icons.monitor_heart_outlined,
+                        size: 28,
+                        color: _color,
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      l10n.yourHealthTitle,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            TabBar(
+              controller: _tabController,
+              labelColor: cs.primary,
+              unselectedLabelColor: cs.onSurfaceVariant,
+              indicatorColor: cs.primary,
+              isScrollable: true,
+              tabAlignment: TabAlignment.start,
+              onTap: (_) => setState(() {}), // Rebuild to toggle FAB
+              tabs: [
+                Tab(text: l10n.yourHealthTabRecords),
+                const Tab(text: 'Hospital Docs'),
+                const Tab(text: 'My Uploads'),
+                const Tab(text: 'Prescriptions'),
+                Tab(text: l10n.yourHealthTabConsultations),
+                Tab(text: l10n.yourHealthTabSummary),
               ],
             ),
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildRecordsTab(theme, cs, l10n),
+                  const HospitalDocumentsTab(),
+                  MyUploadsTab(key: _myUploadsKey),
+                  PrescriptionsTab(phone: widget.phone),
+                  const ConsultationsTab(),
+                  const HealthSummaryTab(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

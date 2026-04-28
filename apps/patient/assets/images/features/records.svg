@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
+  <!-- Folder back tab -->
+  <path d="M10 28 H 38 L 44 22 H 78 a 6 6 0 0 1 6 6 V 36 H 10 Z"
+    fill="currentColor" fill-opacity="0.95"/>
+  <!-- Folder front -->
+  <path d="M10 36 H 86 V 76 a 8 8 0 0 1 -8 8 H 18 a 8 8 0 0 1 -8 -8 Z"
+    fill="white" stroke="currentColor" stroke-width="3"/>
+  <!-- Document inside (peeking out of folder) -->
+  <rect x="26" y="44" width="44" height="36" rx="3"
+    fill="currentColor" fill-opacity="0.20"
+    stroke="currentColor" stroke-width="2"/>
+  <!-- Lines on the document (text rows) -->
+  <line x1="32" y1="54" x2="60" y2="54" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+  <line x1="32" y1="62" x2="64" y2="62" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+  <line x1="32" y1="70" x2="50" y2="70" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+  <!-- Tiny medical cross at top-right of doc (signals "health record") -->
+  <g transform="translate(60,46)">
+    <rect x="-1.5" y="-4" width="3" height="8" fill="currentColor"/>
+    <rect x="-4" y="-1.5" width="8" height="3" fill="currentColor"/>
+  </g>
+</svg>

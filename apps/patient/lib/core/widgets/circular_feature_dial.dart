@@ -15,6 +15,12 @@ class FeatureIconData {
   final String? badge;
   final String? description;
 
+  /// Optional asset path to a hand-drawn SVG illustration. When set,
+  /// the [FeatureGrid] renders the SVG instead of [icon] for a richer
+  /// per-category look. Falls back to [icon] when null (so legacy code
+  /// + the circular dial keep working unchanged).
+  final String? svgAsset;
+
   FeatureIconData({
     required this.icon,
     required this.label,
@@ -23,6 +29,7 @@ class FeatureIconData {
     this.hasNew = false,
     this.badge,
     this.description,
+    this.svgAsset,
   });
 }
 

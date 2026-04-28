@@ -16,15 +16,43 @@ import 'package:flutter/material.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 
+/// Set true the first time we show (or attempt to show) the check-in
+/// sheet in this app session. Prevents the modal from re-popping every
+/// time the user navigates back to the dashboard from another tab —
+/// the dashboard widget rebuilds on each visit (NoTransitionPage), and
+/// without this guard initState would re-trigger the prompt.
+///
+/// Resets only when the app process is killed; one nudge per launch.
+/// If the user submits the check-in, the backend's `checkedInToday`
+/// flag also gates re-showing across launches today.
+bool _checkInPromptedThisSession = false;
+
+@visibleForTesting
+void resetDailyCheckInGate() {
+  _checkInPromptedThisSession = false;
+}
+
 /// Entry point used by the dashboard. Returns silently if the user has
-/// already checked in today or the status call fails.
+/// already been prompted this session, has already checked in today, or
+/// the status call fails.
 Future<void> maybeShowDailyCheckIn(BuildContext context) async {
+  if (_checkInPromptedThisSession) return;
   try {
     final res = await ApiClient.get('/gamification/checkin/status');
     if (!context.mounted || !res.isSuccess) return;
     final data = res.dataAsMap();
     final already = data['checkedInToday'] == true;
-    if (already) return;
+    if (already) {
+      // Don't re-ask for the rest of the session even if the dashboard
+      // remounts — the user is already checked in today.
+      _checkInPromptedThisSession = true;
+      return;
+    }
+
+    // Mark BEFORE awaiting the modal so a parallel rebuild (e.g. tab
+    // switch racing with the post-frame callback) can't open a second
+    // sheet on top of the first.
+    _checkInPromptedThisSession = true;
 
     await showModalBottomSheet<void>(
       context: context,

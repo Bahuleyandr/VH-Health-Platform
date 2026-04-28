@@ -79,6 +79,27 @@ class AppRouter {
     }
   }
 
+  /// Wraps a page in a [CustomTransitionPage] with a short cross-fade.
+  /// Used for the splash → login / login → profile-setup transitions so
+  /// they don't appear as a hard cut.
+  static CustomTransitionPage<T> _fadePage<T>({
+    required GoRouterState state,
+    required Widget child,
+  }) {
+    return CustomTransitionPage<T>(
+      key: state.pageKey,
+      child: child,
+      transitionDuration: const Duration(milliseconds: 280),
+      reverseTransitionDuration: const Duration(milliseconds: 200),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        return FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: child,
+        );
+      },
+    );
+  }
+
   static final router = GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: '/',
@@ -86,8 +107,22 @@ class AppRouter {
 
     // Handle auth redirects
     redirect: (context, state) async {
+      // The router historically gated on FirebaseAuth.currentUser only,
+      // which conflated Firebase OTP state with backend session state. A
+      // Firebase signOut (token expiry, debug-only dev login that bypasses
+      // Firebase, etc.) would bounce a perfectly authenticated user back
+      // to /login. We now consider either signal sufficient: Firebase
+      // user OR a JWT in secure storage.
       final currentUser = FirebaseAuth.instance.currentUser;
-      final isLoggedIn = currentUser != null;
+      bool isLoggedIn = currentUser != null;
+      if (!isLoggedIn) {
+        try {
+          final jwt = await const FlutterSecureStorage().read(key: 'jwt');
+          isLoggedIn = jwt != null && jwt.isNotEmpty;
+        } catch (_) {
+          // Storage read failure → fall through to Firebase-only signal.
+        }
+      }
       final location = state.matchedLocation;
 
       // Skip redirect on splash screen to let it handle navigation
@@ -166,11 +201,23 @@ class AppRouter {
     },
 
     routes: [
-      // Splash screen
-      GoRoute(path: '/', builder: (context, state) => const SplashScreen()),
+      // Splash screen — fade to next route instead of a hard cut.
+      GoRoute(
+        path: '/',
+        pageBuilder: (context, state) => _fadePage(
+          state: state,
+          child: const SplashScreen(),
+        ),
+      ),
 
       // Auth routes
-      GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
+      GoRoute(
+        path: '/login',
+        pageBuilder: (context, state) => _fadePage(
+          state: state,
+          child: const LoginScreen(),
+        ),
+      ),
       GoRoute(
         path: '/terms',
         builder: (context, state) {
@@ -180,9 +227,12 @@ class AppRouter {
       ),
       GoRoute(
         path: '/profile-setup',
-        builder: (context, state) {
+        pageBuilder: (context, state) {
           final phone = state.extra as String? ?? '';
-          return ProfileSetupScreen(phone: phone);
+          return _fadePage(
+            state: state,
+            child: ProfileSetupScreen(phone: phone),
+          );
         },
       ),
       GoRoute(

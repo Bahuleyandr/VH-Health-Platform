@@ -32,7 +32,10 @@ class MedicalApiService {
     if (resp.isSuccess && resp.raw is Map) {
       final raw = resp.raw as Map<String, dynamic>;
       if (raw['success'] == true) {
-        return (raw['data'] as Map<String, dynamic>?) ?? raw;
+        final data = raw['data'];
+        if (data is Map<String, dynamic>) return data;
+        if (data is List) return {'data': data};
+        return raw;
       }
     }
     throw Exception(resp.message ?? 'Request failed (${resp.statusCode})');

@@ -39,7 +39,7 @@ class WebSocketService {
 
   Future<void> _doConnect() async {
     try {
-      final jwt = await _storage.read(key: 'staff_jwt');
+      final jwt = await _storage.read(key: 'jwt');
       if (jwt == null || jwt.isEmpty) {
         debugPrint('WebSocket: No JWT found, cannot connect');
         return;
