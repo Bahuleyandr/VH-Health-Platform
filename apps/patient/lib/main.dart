@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
@@ -55,17 +56,24 @@ Future<void> main() async {
   await NotificationScheduler.initialize();
 
   // Sync medication reminders from backend and reschedule local notifications.
-  try {
-    final remindersResp = await ApiClient.get('/reminders/medication');
-    if (remindersResp.isSuccess && remindersResp.data is List) {
-      final reminders = (remindersResp.data as List)
-          .cast<Map<String, dynamic>>();
-      await NotificationScheduler.rescheduleAll(reminders);
+  // Fire-and-forget: never block runApp() on this. Even with a JWT in storage,
+  // a slow / unreachable backend would otherwise stall the splash for the full
+  // VHHttpClient retry budget (~30s). The dashboard reschedules reminders
+  // post-login anyway, so a missed pre-runApp sync is recoverable.
+  unawaited(() async {
+    try {
+      final jwt = await const FlutterSecureStorage().read(key: 'jwt');
+      if (jwt == null || jwt.isEmpty) return;
+      final remindersResp = await ApiClient.get('/reminders/medication');
+      if (remindersResp.isSuccess && remindersResp.data is List) {
+        final reminders = (remindersResp.data as List)
+            .cast<Map<String, dynamic>>();
+        await NotificationScheduler.rescheduleAll(reminders);
+      }
+    } catch (e) {
+      debugPrint('Medication reminder sync skipped: $e');
     }
-  } catch (e) {
-    // User may not be logged in yet — silently skip.
-    debugPrint('Medication reminder sync skipped: $e');
-  }
+  }());
 
   // Start network connectivity monitoring.
   ConnectivityService.startMonitoring();

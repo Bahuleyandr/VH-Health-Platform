@@ -240,7 +240,7 @@ final response = await ApiClient.multipart('/upload',
 | Upload file | `/upload` | POST |
 | Download by key | `/upload/by-key/:storageKey` | GET |
 | **Notifications** | | |
-| List | `/notifications/:phone` | GET |
+| List | `/notifications/my` | GET |
 | Mark read | `/notifications/:id/read` | PATCH |
 | **Feedback** | | |
 | Submit feedback | `/feedback` | POST |
@@ -374,6 +374,4 @@ need plugin-channel mock setup that isn't in place yet — see
 
 ## Future Directions
 
-See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current roadmap and
-[`../FINISH_BUILDING.md`](../FINISH_BUILDING.md) for the cross-repo
-master plan (Phase 0.5 = current; ranked open items at the bottom).
+See [`../../AUDIT.md`](../../AUDIT.md) for the cross-stack state and [`../../SESSION_HANDOFF.md`](../../SESSION_HANDOFF.md) for the most recent session bootstrap. The roadmap docs that used to live here (`docs/ROADMAP.md`, `../FINISH_BUILDING.md`) are no longer maintained — AUDIT.md superseded them.

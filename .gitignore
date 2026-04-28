@@ -39,3 +39,11 @@ node_modules/
 
 # Added by ggshield
 .cache_ggshield
+
+# Local Claude Code session config (per-developer launch.json + agents).
+# If team-shared agents/slash commands are ever added, carve them out
+# explicitly with `!.claude/agents/` etc.
+.claude/
+
+# Playwright / test runner artifacts (screenshots, .last-run.json, etc.)
+test-results/

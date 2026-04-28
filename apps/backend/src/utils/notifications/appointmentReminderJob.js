@@ -149,7 +149,10 @@ export async function processPendingScheduledNotifications() {
       logger.info(`[ScheduledNotif] Processed ${pending.length} pending notifications`);
     }
   } catch (err) {
-    logger.error('[ScheduledNotif] processPendingScheduledNotifications error:', err.message);
+    // Use template literal so winston doesn't swallow the message via
+    // its multi-arg meta-object handling (the second-arg form was
+    // logging just the prefix with an empty body before this fix).
+    logger.error(`[ScheduledNotif] processPendingScheduledNotifications error: ${err?.message || err}`);
   }
 }
 

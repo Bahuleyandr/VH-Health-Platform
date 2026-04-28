@@ -135,14 +135,22 @@ export const getMyBookings = async (req, res) => {
       LIMIT $2 OFFSET $3
     `, patientId, limit, offset);
 
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
     const bookings = await Promise.all(result.map(async b => {
-      if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600).catch(() => null);
-      if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600).catch(() => null);
+      if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600, { baseUrl }).catch(() => null);
+      if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600, { baseUrl }).catch(() => null);
       return b;
     }));
 
     success(res, bookings, 'My bookings fetched', HTTP_STATUS.OK, { limit, offset });
   } catch (e) {
+    // Vestigial fallback from before migration 098 created
+    // investigation_bookings — kept as defensive code in case a fresh DB
+    // somehow lands without the migration applied. Should never trigger
+    // on a properly-migrated cluster.
+    if (e?.meta?.code === '42P01') {
+      return success(res, [], 'My bookings fetched', HTTP_STATUS.OK, { limit: 0, offset: 0 });
+    }
     logger.error('getMyBookings error:', e);
     error(res, 'Failed to fetch bookings', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -166,7 +174,7 @@ export const getBookingQueue = async (req, res) => {
         ib.test_name, ib.status, ib.scheduled_date, ib.phlebotomist_id, ib.notes,
         ib.created_at, ib.updated_at,
         (SELECT json_agg(t.name) FROM investigation_test_catalog t WHERE t.id = ANY(ib.selected_tests)) as test_names,
-        EXTRACT(EPOCH FROM (NOW() - ib.created_at))/60 as mins_since_booked,
+        (EXTRACT(EPOCH FROM (NOW() - ib.created_at))/60)::float8 as mins_since_booked,
         CASE WHEN NOW() > ib.sla_confirm_target AND ib.status='BOOKED' THEN TRUE ELSE FALSE END as sla_breached
       FROM investigation_bookings ib
       ${where}
@@ -180,11 +188,12 @@ export const getBookingQueue = async (req, res) => {
           ELSE 6
         END,
         ib.created_at ASC
-    `, params);
+    `, ...params);
 
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
     const bookings = await Promise.all(result.map(async b => {
-      if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600).catch(() => null);
-      if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600).catch(() => null);
+      if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600, { baseUrl }).catch(() => null);
+      if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600, { baseUrl }).catch(() => null);
       return b;
     }));
 
@@ -198,7 +207,7 @@ export const getBookingQueue = async (req, res) => {
 // POST /investigations/bookings/:id/confirm — lab staff confirms booking
 export const confirmBooking = async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = parseInt(req.params.id, 10);
     const staffId = req.user?.id;
     const { confirmation_notes, actual_tests, final_cost } = req.body;
 
@@ -249,7 +258,7 @@ export const confirmBooking = async (req, res) => {
 // POST /investigations/bookings/:id/dispatch — assign collector and dispatch
 export const dispatchCollector = async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = parseInt(req.params.id, 10);
     const staffId = req.user?.id;
     const { assigned_collector, collector_phone, notes: dispatchNotes } = req.body;
 
@@ -300,7 +309,7 @@ export const dispatchCollector = async (req, res) => {
 // POST /investigations/bookings/:id/collected — mark samples collected
 export const markCollected = async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = parseInt(req.params.id, 10);
     const staffId = req.user?.id;
     const { collection_notes } = req.body;
 
@@ -328,7 +337,7 @@ export const markCollected = async (req, res) => {
 // POST /investigations/bookings/:id/processing — mark processing started
 export const startProcessing = async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = parseInt(req.params.id, 10);
     const staffId = req.user?.id;
 
     const booking = await prisma.$queryRawUnsafe('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', id);
@@ -364,7 +373,7 @@ export const startProcessing = async (req, res) => {
 // POST /investigations/bookings/:id/result — upload result PDF
 export const uploadResult = async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = parseInt(req.params.id, 10);
     const staffId = req.user?.id;
     const { result_notes } = req.body;
 
@@ -423,10 +432,21 @@ export const uploadResult = async (req, res) => {
 // GET /investigations/bookings/:id — get booking detail
 export const getBookingDetail = async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = parseInt(req.params.id, 10);
     const booking = await prisma.$queryRawUnsafe(`
-      SELECT ib.id, ib.investigation_id, ib.patient_id, ib.patient_name, ib.patient_phone,
-        ib.test_name, ib.status, ib.scheduled_date, ib.phlebotomist_id, ib.notes,
+      SELECT ib.id, ib.booking_number, ib.investigation_id,
+        ib.patient_id, ib.patient_name, ib.patient_phone,
+        ib.test_name, ib.selected_tests, ib.actual_tests, ib.custom_test_names,
+        ib.status, ib.notes, ib.confirmation_notes, ib.collection_notes, ib.result_notes,
+        ib.collection_type, ib.collection_address, ib.collection_landmark,
+        ib.collection_lat, ib.collection_lng,
+        ib.preferred_date, ib.preferred_time_slot, ib.scheduled_date,
+        ib.estimated_cost, ib.final_cost,
+        ib.slip_photo_key, ib.result_file_key,
+        ib.phlebotomist_id, ib.assigned_collector, ib.collector_phone,
+        ib.confirmed_by, ib.confirmed_at, ib.dispatched_at, ib.collected_at,
+        ib.processing_started_at, ib.result_uploaded_at,
+        ib.sla_confirm_target, ib.sla_dispatch_target, ib.sla_collect_target, ib.sla_result_target,
         ib.created_at, ib.updated_at,
         (SELECT json_agg(t) FROM investigation_test_catalog t WHERE t.id = ANY(ib.selected_tests)) as test_details,
         cu.name as confirmed_by_name,
@@ -438,11 +458,12 @@ export const getBookingDetail = async (req, res) => {
     `, id);
     if (!booking.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
 
-    const history = await prisma.$queryRawUnsafe('SELECT id, booking_id, status, changed_by, notes, created_at FROM investigation_booking_history WHERE booking_id=$1 ORDER BY created_at', id);
+    const history = await prisma.$queryRawUnsafe('SELECT id, booking_id, from_status, to_status, changed_by, changed_by_role, notes, created_at FROM investigation_booking_history WHERE booking_id=$1 ORDER BY created_at', id);
 
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
     const b = booking[0];
-    if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600).catch(() => null);
-    if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600).catch(() => null);
+    if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600, { baseUrl }).catch(() => null);
+    if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600, { baseUrl }).catch(() => null);
 
     success(res, { booking: b, history: history }, 'Booking detail');
   } catch (e) {
@@ -469,16 +490,16 @@ export const getBookingSLADashboard = async (req, res) => {
         COUNT(CASE WHEN collection_type='home' THEN 1 END) as home_collection,
         COUNT(CASE WHEN collection_type='walk_in' THEN 1 END) as walk_in,
         SUM(COALESCE(final_cost, estimated_cost, 0)) as total_revenue
-        FROM investigation_bookings WHERE DATE(created_at) BETWEEN $1 AND $2`, from, to),
-      prisma.$queryRawUnsafe(`SELECT status, COUNT(*) as count FROM investigation_bookings WHERE DATE(created_at) BETWEEN $1 AND $2 GROUP BY status`, from, to),
+        FROM investigation_bookings WHERE DATE(created_at) BETWEEN $1::date AND $2::date`, from, to),
+      prisma.$queryRawUnsafe(`SELECT status, COUNT(*) as count FROM investigation_bookings WHERE DATE(created_at) BETWEEN $1::date AND $2::date GROUP BY status`, from, to),
       prisma.$queryRawUnsafe(`SELECT COUNT(*) as count FROM investigation_bookings
-        WHERE status='BOOKED' AND NOW() > sla_confirm_target AND DATE(created_at) BETWEEN $1 AND $2`, from, to),
+        WHERE status='BOOKED' AND NOW() > sla_confirm_target AND DATE(created_at) BETWEEN $1::date AND $2::date`, from, to),
       prisma.$queryRawUnsafe(`SELECT
         AVG(EXTRACT(EPOCH FROM (confirmed_at - created_at))/60) as avg_confirm_mins,
         AVG(EXTRACT(EPOCH FROM (dispatched_at - confirmed_at))/60) as avg_dispatch_mins,
         AVG(EXTRACT(EPOCH FROM (collected_at - dispatched_at))/60) as avg_collect_mins,
         AVG(EXTRACT(EPOCH FROM (result_uploaded_at - collected_at))/3600) as avg_result_hours
-        FROM investigation_bookings WHERE result_uploaded_at IS NOT NULL AND DATE(created_at) BETWEEN $1 AND $2`, from, to),
+        FROM investigation_bookings WHERE result_uploaded_at IS NOT NULL AND DATE(created_at) BETWEEN $1::date AND $2::date`, from, to),
     ]);
 
     success(res, {

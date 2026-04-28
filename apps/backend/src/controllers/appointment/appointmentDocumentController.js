@@ -31,7 +31,7 @@ export const uploadAppointmentDocument = async (req, res) => {
     let fileUrl = null;
     try {
       await uploadFileToR2(req.file.buffer, fileKey, req.file.mimetype);
-      fileUrl = await getSignedFileUrl(fileKey, 3600).catch(() => null);
+      fileUrl = await getSignedFileUrl(fileKey, 3600, { baseUrl: `${req.protocol}://${req.get('host')}` }).catch(() => null);
     } catch (uploadErr) {
       logger.warn('R2 upload failed:', uploadErr.message);
       return error(res, 'File upload failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -91,7 +91,7 @@ export const getAppointmentDocuments = async (req, res) => {
 
     const docs = await Promise.all(result.map(async (doc) => {
       if (doc.file_key) {
-        doc.file_url = await getSignedFileUrl(doc.file_key, 3600).catch(() => null);
+        doc.file_url = await getSignedFileUrl(doc.file_key, 3600, { baseUrl: `${req.protocol}://${req.get('host')}` }).catch(() => null);
       }
       return doc;
     }));
@@ -110,8 +110,22 @@ export const getPatientAllRecords = async (req, res) => {
   try {
     const patientId = req.user?.id;
 
+    // Both `appointment_documents` and `patient_records` are part of an
+    // unfinished records-management feature — the migrations were never
+    // written. Using Promise.allSettled (per-query) so a missing table on
+    // one side doesn't blank out the other. Each catch returns []; we
+    // silently degrade to "no records" until the schema is built.
+    const safeQuery = async (sql, ...params) => {
+      try {
+        return await prisma.$queryRawUnsafe(sql, ...params);
+      } catch (e) {
+        if (e?.meta?.code === '42P01') {return [];}
+        throw e;
+      }
+    };
+
     const [apptDocs, ownRecords] = await Promise.all([
-      prisma.$queryRawUnsafe(`
+      safeQuery(`
         SELECT ad.id, ad.appointment_id, ad.patient_id, ad.doctor_id, ad.uploaded_by, ad.upload_role, ad.document_type, ad.file_key, ad.file_url, ad.file_name, ad.file_size, ad.file_mime, ad.notes, ad.created_at, 'appointment' as source,
           a.appointment_date, a.appointment_time,
           d.name as doctor_name, doc.department as doctor_department
@@ -122,7 +136,7 @@ export const getPatientAllRecords = async (req, res) => {
         WHERE ad.patient_id=$1 AND ad.is_visible_to_patient=TRUE
         ORDER BY ad.created_at DESC
       `, patientId),
-      prisma.$queryRawUnsafe(
+      safeQuery(
         `SELECT id, patient_id, document_type, title, file_key, file_url, file_name, file_size, file_mime, source_hospital, record_date, notes, created_at, 'patient_upload' as source FROM patient_records WHERE patient_id=$1 ORDER BY created_at DESC`,
         patientId
       ),
@@ -131,7 +145,7 @@ export const getPatientAllRecords = async (req, res) => {
     const allDocs = [...apptDocs, ...ownRecords];
     const withUrls = await Promise.all(allDocs.map(async (doc) => {
       if (doc.file_key) {
-        doc.file_url = await getSignedFileUrl(doc.file_key, 3600).catch(() => null);
+        doc.file_url = await getSignedFileUrl(doc.file_key, 3600, { baseUrl: `${req.protocol}://${req.get('host')}` }).catch(() => null);
       }
       return doc;
     }));
@@ -166,7 +180,7 @@ export const uploadPatientRecord = async (req, res) => {
     let fileUrl = null;
     try {
       await uploadFileToR2(req.file.buffer, fileKey, req.file.mimetype);
-      fileUrl = await getSignedFileUrl(fileKey, 3600).catch(() => null);
+      fileUrl = await getSignedFileUrl(fileKey, 3600, { baseUrl: `${req.protocol}://${req.get('host')}` }).catch(() => null);
     } catch (uploadErr) {
       logger.warn('Patient upload R2 failed:', uploadErr.message);
       return error(res, 'File upload failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -244,7 +258,7 @@ export const getAllDocumentsAdmin = async (req, res) => {
 
     const docs = await Promise.all(result.map(async (doc) => {
       if (doc.file_key) {
-        doc.file_url = await getSignedFileUrl(doc.file_key, 3600).catch(() => null);
+        doc.file_url = await getSignedFileUrl(doc.file_key, 3600, { baseUrl: `${req.protocol}://${req.get('host')}` }).catch(() => null);
       }
       return doc;
     }));

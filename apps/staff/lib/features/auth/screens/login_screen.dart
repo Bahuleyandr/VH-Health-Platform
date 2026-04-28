@@ -1,8 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import '../../../core/providers/session_timeout_provider.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../services/login_service.dart';
+
+// All seeded staff IDs use the `EMP-NNNN` format. Showing `EMP-` as a
+// non-editable prefix on the field means the user only types the digits.
+// If a different prefix becomes necessary later, change this constant +
+// the validator below — LoginService's regex already accepts any 2-6
+// letter prefix so the rest of the stack doesn't care.
+const String _empIdPrefix = 'EMP-';
 
 enum _LoginMode { password, pin, quickLogin }
 
@@ -47,8 +57,13 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _loadSavedCredentials() async {
     final saved = await AuthService.getSavedCredentials();
     if (saved != null && saved['employeeId'] != null && mounted) {
+      // Saved value is the full ID (e.g. 'EMP-1001'); strip the prefix so
+      // the field reflects only what the user types.
+      final raw = saved['employeeId']!;
       setState(() {
-        _empIdController.text = saved['employeeId']!;
+        _empIdController.text = raw.startsWith(_empIdPrefix)
+            ? raw.substring(_empIdPrefix.length)
+            : raw;
       });
     }
     // Check if device is registered for quick login
@@ -73,26 +88,44 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
       _isLockedOut = false;
     });
+    // Reassemble the full ID (`EMP-NNNN`) — the field only collects the
+    // digit portion now; LoginService still validates the full string.
+    final employeeId = '$_empIdPrefix${_empIdController.text.trim()}';
     try {
       if (_mode == _LoginMode.quickLogin) {
         final deviceToken = await AuthService.getDeviceToken();
         await AuthService.quickLogin(
-          employeeId: _empIdController.text,
+          employeeId: employeeId,
           pin: _pinController.text.isNotEmpty ? _pinController.text : null,
           deviceToken: deviceToken,
         );
       } else if (_mode == _LoginMode.password) {
         await LoginService.loginWithPassword(
-          employeeId: _empIdController.text,
+          employeeId: employeeId,
           password: _passwordController.text,
         );
       } else {
         await LoginService.loginWithPin(
-          employeeId: _empIdController.text,
+          employeeId: employeeId,
           pin: _pinController.text,
         );
       }
-      if (mounted) context.go('/dashboard');
+      if (mounted) {
+        // Reset the idle-timeout flag BEFORE navigating. Without this, if a
+        // previous session timed out (which sets `_expired = true` and wipes
+        // the JWT via clearAll), the router's redirect guard would see
+        // `isSessionExpired == true` on the very next /dashboard navigation
+        // and bounce the freshly-logged-in user back to /login. Calling
+        // resetSession() here flips `_expired` to false synchronously so the
+        // redirect chain resolves to /dashboard on the first hop.
+        try {
+          context.read<SessionTimeoutProvider>().resetSession();
+        } catch (_) {
+          // Provider may not be in scope under unusual mount conditions —
+          // the on-/login redirect path will still call startTracking().
+        }
+        context.go('/dashboard');
+      }
     } catch (e) {
       final msg = e.toString().replaceFirst('Exception: ', '');
       setState(() {
@@ -184,16 +217,29 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 24),
 
-                        // Employee ID
+                        // Employee ID — `EMP-` is a non-editable prefix; the
+                        // submit handler reassembles the full ID before send.
                         TextFormField(
                           controller: _empIdController,
                           decoration: const InputDecoration(
                             labelText: 'Employee ID',
-                            hintText: 'e.g. EMP-001',
+                            hintText: '1001',
+                            prefixText: _empIdPrefix,
                             prefixIcon: Icon(Icons.badge_outlined),
                           ),
-                          textCapitalization: TextCapitalization.characters,
-                          validator: LoginService.validateEmployeeId,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                            LengthLimitingTextInputFormatter(6),
+                          ],
+                          validator: (value) {
+                            final n = (value ?? '').trim();
+                            if (n.isEmpty) return 'Employee number is required';
+                            if (!RegExp(r'^\d{1,6}$').hasMatch(n)) {
+                              return 'Numbers only (1–6 digits)';
+                            }
+                            return null;
+                          },
                         ),
                         const SizedBox(height: 16),
 

@@ -6,6 +6,18 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+// BigInt JSON serialization. Postgres BIGSERIAL columns come back as
+// JS BigInt via Prisma raw queries; without this every endpoint that
+// returns one would throw "Do not know how to serialize a BigInt".
+// Most application IDs comfortably fit in Number (< 2^53), so we
+// emit them as numbers when safe and fall back to string for the rare
+// out-of-range case.
+// eslint-disable-next-line no-extend-native
+BigInt.prototype.toJSON = function bigIntToJSON() {
+  const n = Number(this);
+  return Number.isSafeInteger(n) ? n : this.toString();
+};
+
 import http from 'http';
 import app from '../app.js';
 import { initRedis, disconnectRedis } from '../lib/redis.js';

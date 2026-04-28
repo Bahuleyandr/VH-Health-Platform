@@ -378,8 +378,4 @@ SQL, JWT auth, or test infrastructure:
 
 ## Future Directions
 
-See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current A+/S-tier roadmap
-and [`../FINISH_BUILDING.md`](../FINISH_BUILDING.md) for the cross-repo
-master plan (Phase 0.5 = current pass; ranked open items at the bottom).
-When starting a new Claude session, read both and pick from the ranked
-open items.
+See [`../../AUDIT.md`](../../AUDIT.md) for the current state of the patient app + backend (last full sweep 2026-04-26 evening + night, all 39 endpoints green) and [`../../SESSION_HANDOFF.md`](../../SESSION_HANDOFF.md) for the most recent session bootstrap. Phase 0.5 conventions are above; the roadmap docs that used to live here (`docs/ROADMAP.md`, `../FINISH_BUILDING.md`) are no longer maintained — AUDIT.md superseded them.

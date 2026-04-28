@@ -71,6 +71,8 @@ import prescriptionRoutes from './routes/prescription/index.js';
 import recordRoutes from './routes/record/index.js';
 import searchRoutes from './routes/searchRoutes.js';
 import staffRoutes from './routes/staff/index.js';
+import storageRoutes from './routes/storage/storageRoutes.js';
+import uploadRoutes from './routes/upload/uploadRoutes.js';
 import userRoutes from './routes/user/index.js';
 import patientChatbotRoutes from './routes/patient/chatbotRoutes.js';
 import patientVirtualWardRoutes from './routes/patient/virtualWardRoutes.js';
@@ -291,6 +293,15 @@ if (!isProduction) {
 app.use('/metrics', genericLimiter, metricsRoutes);
 app.use('/api/v1/internal', validateApiKey, internalRoutes);
 
+// Local-disk storage stream — mounted BEFORE both validateApiKey and jwtAuth
+// so the patient client can download files via a plain HTTP GET. The HMAC
+// token in the query string IS the auth (semantics match Cloudflare R2
+// signed URLs). Only exercised when R2 env vars are absent (dev/CI
+// fallback); prod with R2 returns r2.cloudflarestorage.com URLs that bypass
+// the backend entirely. `genericLimiter` guards against trivial DoS / mass
+// download attempts even though the token itself is unforgeable.
+app.use('/api/v1/storage', genericLimiter, storageRoutes);
+
 // Root health check — rate limited, minimal info in production. Proves the
 // Prisma driver is live with a cheap `SELECT 1`; circuit-breaker state is
 // not included here to keep this probe as fast as possible (use
@@ -417,6 +428,7 @@ app.use('/api/v1/delivery', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMI
 app.use('/api/v1/departments', publicCache(300), departmentRoutes);
 app.use('/api/v1/doctors', publicCache(300), doctorRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
+app.use('/api/v1/upload', patientRateLimiter, uploadRoutes);
 
 // Patient reminders (medication) — JWT via global jwtAuth above
 app.use('/api/v1/reminders', patientRateLimiter, reminderRoutes);

@@ -26,7 +26,13 @@ class LogoutButton extends StatelessWidget {
     this.color,
   });
 
-  Future<void> _confirmAndLogout(BuildContext context) async {
+  /// Public entry point for the confirm-and-logout flow. Lives here so
+  /// the dashboard overflow menu (and any future caller) can reuse the
+  /// exact same dialog + cleanup sequence without duplicating it.
+  static Future<void> confirmAndLogout(BuildContext context) =>
+      _confirmAndLogout(context);
+
+  static Future<void> _confirmAndLogout(BuildContext context) async {
     final confirm = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -97,14 +103,14 @@ class LogoutButton extends StatelessWidget {
         return IconButton(
           tooltip: label,
           icon: Icon(icon, color: color ?? theme.colorScheme.onSurface),
-          onPressed: () => _confirmAndLogout(context),
+          onPressed: () => confirmAndLogout(context),
         );
 
       case LogoutButtonStyle.listTile:
         return ListTile(
           leading: Icon(icon, color: theme.colorScheme.error),
           title: Text(label, style: TextStyle(color: theme.colorScheme.error)),
-          onTap: () => _confirmAndLogout(context),
+          onTap: () => confirmAndLogout(context),
         );
     }
   }

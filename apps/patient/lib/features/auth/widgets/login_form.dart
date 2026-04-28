@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'dart:developer' as developer;
 
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 import 'package:vhhealth/core/navigation/app_router.dart';
+import 'package:vhhealth_core/config/api_config.dart';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
@@ -48,6 +51,81 @@ class _LoginFormState extends State<LoginForm> {
     // Do NOT set user data — guest has no JWT and cannot call
     // authenticated endpoints.
     context.go('/about-us');
+  }
+
+  /// Debug-only shortcut that skips Firebase OTP. Calls the backend's
+  /// /auth/dev/patient-login (which is itself only mounted when
+  /// NODE_ENV !== 'production'), stores the returned JWT, and navigates
+  /// to the dashboard. Used for emulator / CI runs where a real phone-OTP
+  /// round-trip cannot complete.
+  Future<void> _devLogin() async {
+    if (!kDebugMode) return;
+    if (_isLoading) return;
+
+    try {
+      final url = Uri.parse('${ApiConfig.baseUrl}/auth/dev/patient-login');
+      final resp = await http
+          .post(
+            url,
+            headers: ApiConfig.jsonHeaders,
+            body: jsonEncode({
+              'phone': '+919999999999',
+              'name': 'Dev Patient',
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (resp.statusCode != 200) {
+        developer.log(
+          'Dev login HTTP ${resp.statusCode}: ${resp.body}',
+          name: 'Auth',
+        );
+        if (!mounted) return;
+        _showSnackBar(
+          'Dev login failed (${resp.statusCode}).',
+          Theme.of(context).colorScheme.error,
+        );
+        return;
+      }
+
+      final body = jsonDecode(resp.body) as Map<String, dynamic>;
+      final data = body['data'] as Map<String, dynamic>?;
+      final token = data?['accessToken'] as String?;
+      final user = data?['user'] as Map<String, dynamic>?;
+      final phone = (user?['phone'] as String?) ?? '+919999999999';
+      final name = (user?['name'] as String?) ?? 'Dev Patient';
+      final isNewUser = data?['isNewUser'] == true;
+
+      if (token == null || token.isEmpty) {
+        if (!mounted) return;
+        _showSnackBar(
+          'Dev login response missing token.',
+          Theme.of(context).colorScheme.error,
+        );
+        return;
+      }
+
+      await _secureStorage.write(key: 'jwt', value: token);
+      await _secureStorage.write(key: 'user_phone', value: phone);
+      await _secureStorage.write(key: 'isNewUser', value: isNewUser.toString());
+
+      if (!mounted) return;
+      AppRouter.setUserData(phone, name);
+      // /profile-setup needs the phone via state.extra so the form's
+      // submit can pass it to /complete-profile.
+      if (isNewUser) {
+        context.go('/profile-setup', extra: phone);
+      } else {
+        context.go('/home');
+      }
+    } catch (e, st) {
+      developer.log('Dev login error: $e', name: 'Auth', stackTrace: st);
+      if (!mounted) return;
+      _showSnackBar(
+        'Dev login error: $e',
+        Theme.of(context).colorScheme.error,
+      );
+    }
   }
 
   Future<void> _triggerSOS() async {
@@ -102,9 +180,14 @@ class _LoginFormState extends State<LoginForm> {
       String targetRoute;
 
       if (storedIsNewUser != null) {
-        // Backend login was successful, use its determination
+        // Backend login was successful, use its determination.
+        // Route names must match app_router.dart exactly: /profile-setup
+        // and /home are the canonical paths. Earlier this code wrote
+        // '/profile/setup' (no such route) which then never matched the
+        // string-equality check below, so new users were sent to /home
+        // and skipped profile setup entirely.
         final isNewUser = storedIsNewUser.toLowerCase() == 'true';
-        targetRoute = isNewUser ? '/profile/setup' : '/dashboard';
+        targetRoute = isNewUser ? '/profile-setup' : '/home';
         if (kDebugMode) {
           developer.log(
             '📊 Backend determined: ${isNewUser ? 'New User' : 'Existing User'}',
@@ -124,7 +207,7 @@ class _LoginFormState extends State<LoginForm> {
         final storedPhone = await _secureStorage.read(key: 'user_phone');
         if (storedPhone != null && storedPhone != user.phoneNumber) {
           // Different user, likely existing
-          targetRoute = '/dashboard';
+          targetRoute = '/home';
         } else {
           // Default to profile setup for safety
           targetRoute = '/profile-setup';
@@ -326,6 +409,36 @@ class _LoginFormState extends State<LoginForm> {
                                   ),
                                 ),
                               ),
+                              if (kDebugMode) ...[
+                                const SizedBox(height: 12),
+                                SizedBox(
+                                  width: double.infinity,
+                                  height: 50,
+                                  child: OutlinedButton.icon(
+                                    onPressed: _isLoading ? null : _devLogin,
+                                    style: OutlinedButton.styleFrom(
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      foregroundColor: Colors.deepOrange,
+                                      side: const BorderSide(
+                                        color: Colors.deepOrange,
+                                      ),
+                                    ),
+                                    icon: const Icon(
+                                      Icons.developer_mode,
+                                      size: 20,
+                                    ),
+                                    label: const Text(
+                                      'Dev login (skip OTP)',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
 
                             const SizedBox(height: 24),

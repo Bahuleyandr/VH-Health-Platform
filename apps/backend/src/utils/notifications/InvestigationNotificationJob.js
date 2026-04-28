@@ -57,9 +57,9 @@ export async function sendInvestigationNotifications() {
 
         // 3. In-app notification
         await prisma.$queryRawUnsafe(
-          `INSERT INTO notifications (phone, title, body, type, created_at, is_read)
-           VALUES ($1, $2, $3, $4, NOW(), false)`,
-          row.phone || 'unknown', 'Investigation Report Ready', message, 'investigation'
+          `INSERT INTO notifications (phone, title, body, type, user_id, created_at, updated_at, is_read)
+           VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), false)`,
+          row.phone || 'unknown', 'Investigation Report Ready', message, 'investigation', row.user_id || null
         );
 
         // 4. Mark as notified

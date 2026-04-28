@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
+  <!-- Big speech bubble -->
+  <path d="M16 18 H 76 a 10 10 0 0 1 10 10 V 60 a 10 10 0 0 1 -10 10 H 44 L 26 86 V 70 H 16 a 10 10 0 0 1 -10 -10 V 28 a 10 10 0 0 1 10 -10 Z"
+    fill="currentColor" fill-opacity="0.92"/>
+  <!-- Question mark inside (white) -->
+  <path d="M38 36 a 10 10 0 1 1 14 8 c -3 2 -4 4 -4 7"
+    stroke="white" stroke-width="5" stroke-linecap="round" fill="none"/>
+  <circle cx="48" cy="60" r="3.5" fill="white"/>
+  <!-- Small accent bubble (a "second voice" feel) -->
+  <circle cx="80" cy="14" r="6" fill="currentColor" fill-opacity="0.55"/>
+  <circle cx="88" cy="6" r="3.5" fill="currentColor" fill-opacity="0.4"/>
+</svg>

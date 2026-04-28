@@ -53,6 +53,16 @@ router.use('/admin/otp', adminOtpRoutes); // Admin OTP at /api/v1/auth/admin/otp
 router.use('/admin', adminAuthRoutes); // Admin auth at /api/v1/auth/admin/* (USERNAME/PASSWORD)
 router.use('/staff', staffAuthRoutes); // Staff auth at /api/v1/auth/staff/* (EMPLOYEE ID + PIN)
 
+// Dev-only shortcuts — mounted only when NODE_ENV !== 'production'.
+// Lets the patient app obtain a real JWT without a Firebase OTP round-trip
+// (needed for emulator / CI runs where a phone-verified Firebase session
+// cannot exist). The route file is not imported in production.
+if (process.env.NODE_ENV !== 'production') {
+  const { default: devAuthRoutes } = await import('./devAuthRoutes.js');
+  router.use('/dev', devAuthRoutes);
+  logger.info('  - Dev Auth:    /api/v1/auth/dev/* (DEV ONLY — JWT shortcut for emulator/CI)');
+}
+
 // Apply RBAC wrapper to the entire auth module
 const protectedRouter = wrapAutoRBAC(router, 'authenticationModule', {}, {
   requireUID: false,

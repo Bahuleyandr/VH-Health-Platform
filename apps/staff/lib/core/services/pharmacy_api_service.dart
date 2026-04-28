@@ -30,7 +30,7 @@ class PharmacyApiService {
 
   // ─── Pharmacy Orders ──────────────────────────────────────────────────────
 
-  /// PUT /staff/pharmacy/orders (legacy)
+  /// POST /staff/pharmacy/orders (legacy)
   static Future<Map<String, dynamic>> updatePharmacyOrder({
     required String phone,
     required String orderId,

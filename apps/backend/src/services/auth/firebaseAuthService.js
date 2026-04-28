@@ -10,19 +10,32 @@ import { normalizePhone } from '../../utils/phoneUtils.js';
 import { OTPService } from '../otpService.js';
 
 
+// Local pg-shape shim: returns the raw `rows` array directly for any
+// query that produces rows (SELECT / WITH / `… RETURNING …`), so call
+// sites can use array semantics (`result.length`, `result[0]`).
+//
+// Earlier this returned `{ rows, rowCount }` which mixed object and
+// array-like access patterns across the file — half the callers used
+// `result.rows[0]`, the other half `result[0]` / `result.length`.
+// The latter group silently failed (object has no `length`), which
+// was the root cause of the new-user signup flow being broken at
+// completeUserProfile + linkFirebaseAccount.
 const query = async (sql, params = []) => {
   const normalizedSql = sql.trim();
   const upperSql = normalizedSql.toUpperCase();
   const usesReturning = /\bRETURNING\b/i.test(normalizedSql);
-  const isReadQuery = upperSql.startsWith('SELECT') || upperSql.startsWith('WITH') || usesReturning;
+  const isReadQuery =
+    upperSql.startsWith('SELECT') ||
+    upperSql.startsWith('WITH') ||
+    usesReturning;
 
   if (isReadQuery) {
     const rows = await prisma.$queryRawUnsafe(normalizedSql, ...params);
-    return { rows, rowCount: Array.isArray(rows) ? rows.length : 0 };
+    return Array.isArray(rows) ? rows : [];
   }
 
-  const rowCount = await prisma.$executeRawUnsafe(normalizedSql, ...params);
-  return { rows: [], rowCount: Number(rowCount) || 0 };
+  await prisma.$executeRawUnsafe(normalizedSql, ...params);
+  return [];
 };
 
 
@@ -67,11 +80,11 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req) => {
         decodedToken.email_verified || false
       ]
     );
-    user = insertResult.rows[0];
+    user = insertResult[0];
     isNewUser = true;
     logger.info(`🔥 New Firebase user created: ${phone} (${firebaseUid})`);
   } else {
-    user = userResult.rows[0];
+    user = userResult[0];
     
     // Update Firebase UID if missing
     if (!user.firebase_uid) {
@@ -126,17 +139,20 @@ export const completeUserProfile = async (profileData) => {
   const { phone, name, gender, email, birthday, anniversary, address, emergency_contact } = profileData;
   const normalizedPhone = normalizePhone(phone);
   
-  // Update user profile
+  // Update user profile. Explicit ::date casts on birthday/anniversary
+  // so a `null`-coerced-to-text bind doesn't crash with the
+  // "column is of type date but expression is of type text" error
+  // Postgres throws when the JS-side value is a string.
   const result = await query(
-    `UPDATE users SET 
-      name = $1, gender = $2, email = $3, birthday = $4,
-      anniversary = $5, address = $6, emergency_contact = $7,
+    `UPDATE users SET
+      name = $1, gender = $2, email = $3, birthday = $4::date,
+      anniversary = $5::date, address = $6, emergency_contact = $7,
       profile_completed_at = NOW()
     WHERE phone = $8
     RETURNING id, uid, name, phone, email, role, gender, is_active`,
     [
-      name, gender, email, birthday,
-      anniversary, address, emergency_contact,
+      name, gender, email, birthday || null,
+      anniversary || null, address || null, emergency_contact || null,
       normalizedPhone
     ]
   );
@@ -198,7 +214,7 @@ export const linkFirebaseAccount = async (phone, idToken, otp) => {
     throw error;
   }
   
-  const user = userResult.rows[0];
+  const user = userResult[0];
   
   // Link Firebase UID to existing user
   await query(
@@ -307,7 +323,7 @@ export const verifyTokenStatus = async (idToken) => {
       issuedAt: new Date(decodedToken.iat * 1000),
       expiresAt: new Date(decodedToken.exp * 1000)
     },
-    user: userExists ? userResult.rows[0] : null
+    user: userExists ? userResult[0] : null
   };
 };
 
@@ -338,7 +354,7 @@ export const getHealthStatus = async () => {
   return {
     status: 'healthy',
     firebaseConnection: 'connected',
-    statistics: stats.rows[0],
+    statistics: stats[0],
     deviceStatistics: deviceStats,
     timestamp: new Date().toISOString()
   };
@@ -421,7 +437,7 @@ export const legacyRegisterUser = async (userData) => {
     ]
   );
   
-  const user = insertResult.rows[0];
+  const user = insertResult[0];
   
   // Generate token
   const token = generateToken({

@@ -44,7 +44,7 @@ export async function getHealthRecordsByUid(uid, filters = {}) {
                u.name AS patient_name, u.uid AS patient_uid
         FROM health_records hr
         LEFT JOIN users u ON hr.phone = u.phone
-        WHERE u.uid = ${uid}
+        WHERE u.uid = ${uid}::uuid
           AND LOWER(hr.file_type) = LOWER(${type})
         ORDER BY hr.created_at DESC
         LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
@@ -58,7 +58,7 @@ export async function getHealthRecordsByUid(uid, filters = {}) {
                u.name AS patient_name, u.uid AS patient_uid
         FROM health_records hr
         LEFT JOIN users u ON hr.phone = u.phone
-        WHERE u.uid = ${uid}
+        WHERE u.uid = ${uid}::uuid
         ORDER BY hr.created_at DESC
         LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
       `;

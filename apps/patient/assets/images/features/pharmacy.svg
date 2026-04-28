@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
+  <!-- Capsule pill at a friendly tilt — two halves with a clear seam -->
+  <g transform="rotate(-30 48 48)">
+    <!-- Top (color) half -->
+    <path d="M14 48 a 22 22 0 0 1 22 -22 h 24 a 22 22 0 0 1 22 22 v 0 H 14 z"
+      fill="currentColor" fill-opacity="0.95"/>
+    <!-- Bottom (white) half -->
+    <path d="M14 48 a 22 22 0 0 0 22 22 h 24 a 22 22 0 0 0 22 -22 v 0 H 14 z"
+      fill="white"/>
+    <!-- Seam line -->
+    <line x1="14" y1="48" x2="82" y2="48" stroke="currentColor" stroke-opacity="0.6" stroke-width="1.5"/>
+    <!-- Highlight on the colored half (gives it a lifted feel) -->
+    <ellipse cx="36" cy="36" rx="14" ry="3" fill="white" fill-opacity="0.35"/>
+    <!-- Small dot pattern on the white half (tablets!) -->
+    <circle cx="46" cy="60" r="1.6" fill="currentColor" fill-opacity="0.55"/>
+    <circle cx="56" cy="62" r="1.6" fill="currentColor" fill-opacity="0.55"/>
+    <circle cx="66" cy="60" r="1.6" fill="currentColor" fill-opacity="0.55"/>
+  </g>
+</svg>
