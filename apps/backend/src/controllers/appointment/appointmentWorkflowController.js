@@ -351,13 +351,19 @@ export const getAvailableSlots = async (req, res) => {
       return error(res, 'doctor_id and date are required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    // Doctor can be referenced by users.id OR doctors.id
+    // Doctor can be referenced by users.id OR doctors.id. The query
+    // param arrives as a string ('1'); explicit ::int cast keeps the
+    // comparison against integer columns valid.
+    const doctorIdInt = parseInt(doctor_id, 10);
+    if (!Number.isFinite(doctorIdInt)) {
+      return error(res, 'doctor_id must be numeric', HTTP_STATUS.BAD_REQUEST);
+    }
     const doctorQuery = await prisma.$queryRawUnsafe(
       `SELECT doc.id, doc.user_id, doc.department, doc.specialty AS specialization, doc.available_days, doc.available_hours, u.name as doctor_name
        FROM doctors doc
        JOIN users u ON doc.user_id = u.id
        WHERE doc.id = $1 OR doc.user_id = $1`,
-      doctor_id
+      doctorIdInt
     );
     if (!doctorQuery.length) {
       return error(res, 'Doctor not found', HTTP_STATUS.NOT_FOUND);
@@ -525,7 +531,10 @@ export const registerWalkIn = async (req, res) => {
  */
 export const getAppointmentHistory = async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) {
+      return error(res, 'Invalid appointment id', HTTP_STATUS.BAD_REQUEST);
+    }
     const result = await prisma.$queryRawUnsafe(`
       SELECT ash.id, ash.appointment_id, ash.from_status, ash.to_status, ash.changed_by, ash.changed_by_role, ash.reason, ash.created_at, u.name as changed_by_name
       FROM appointment_status_history ash
@@ -534,7 +543,8 @@ export const getAppointmentHistory = async (req, res) => {
       ORDER BY ash.created_at ASC
     `, id);
     success(res, result, 'History fetched');
-  } catch (_err) {
-    error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  } catch (err) {
+    logger.error('getAppointmentHistory error:', err);
+    error(res, 'Failed to fetch appointment history', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };

@@ -637,10 +637,78 @@ export class StaffAuthService {
       await query(`
         INSERT INTO admin_activity_logs (
           admin_uid, action, description, details, ip_address, created_at
-        ) VALUES ($1, $2, $3, $4, $5, NOW())
+        ) VALUES ($1::uuid, $2, $3, $4::jsonb, $5, NOW())
       `, [uid, action, description, JSON.stringify(details), req.ip || '']);
     } catch (error) {
       logger.error('Failed to log activity:', error);
     }
+  }
+
+  static async getTodayAttendance(staffUid) {
+    if (!staffUid) {
+      return { check_in_time: null, check_out_time: null, type: null, location: null };
+    }
+    const result = await query(`
+      SELECT id, staff_id, staff_uid, type, location, check_in_time, check_out_time,
+             attendance_type, attendance_status, minutes_late, notes, created_at, timestamp
+      FROM staff_attendance
+      WHERE staff_uid = $1::uuid
+        AND DATE(timestamp) = CURRENT_DATE
+      ORDER BY timestamp DESC
+      LIMIT 1
+    `, [staffUid]);
+    return result.rows[0] || { check_in_time: null, check_out_time: null, type: null, location: null };
+  }
+
+  /**
+   * List attendance rows for a staff member in a date range.
+   * The staff app's dashboard hits this immediately on login (typically
+   * with a 7-day window starting today). Returns `{ items, total, page, limit }`
+   * shape so the client can paginate without a follow-up count query.
+   */
+  static async getAttendanceHistory(staffUid, { startDate, endDate, page = 1, limit = 30 } = {}) {
+    if (!staffUid) {
+      return { items: [], total: 0, page, limit };
+    }
+    const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 30, 1), 200);
+    const safePage = Math.max(parseInt(page, 10) || 1, 1);
+    const offset = (safePage - 1) * safeLimit;
+
+    // Date filters are optional; default to last 30 days when both unset so
+    // the response stays small even if the client forgets to scope.
+    const params = [staffUid];
+    let where = 'WHERE staff_uid = $1::uuid';
+    if (startDate) {
+      params.push(startDate);
+      where += ` AND DATE(timestamp) >= $${params.length}::date`;
+    }
+    if (endDate) {
+      params.push(endDate);
+      where += ` AND DATE(timestamp) <= $${params.length}::date`;
+    }
+    if (!startDate && !endDate) {
+      where += " AND timestamp >= NOW() - INTERVAL '30 days'";
+    }
+
+    params.push(safeLimit, offset);
+    const items = await query(`
+      SELECT id, staff_id, staff_uid, type, location, check_in_time, check_out_time,
+             attendance_type, attendance_status, minutes_late, notes, created_at, timestamp
+      FROM staff_attendance
+      ${where}
+      ORDER BY timestamp DESC
+      LIMIT $${params.length - 1} OFFSET $${params.length}
+    `, params);
+
+    const totalRow = await query(
+      `SELECT COUNT(*)::int AS total FROM staff_attendance ${where}`,
+      params.slice(0, params.length - 2)
+    );
+    return {
+      items: items.rows,
+      total: totalRow.rows[0]?.total || 0,
+      page: safePage,
+      limit: safeLimit
+    };
   }
 }

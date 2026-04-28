@@ -46,34 +46,41 @@ export const firebaseLoginValidator = [
 
 // User profile validator
 export const userProfileValidator = [
+  // Accept either bare 10-digit (legacy) or E.164 (`+91…`, what the
+  // patient app sends post-Firebase OTP). The service layer normalises
+  // before the DB lookup.
   body('phone')
-    .matches(/^\d{10}$/)
-    .withMessage('Phone number must be exactly 10 digits'),
+    .matches(/^(\+\d{10,15}|\d{10})$/)
+    .withMessage('Phone number must be 10 digits or E.164 (+CC…)'),
   body('name')
     .notEmpty()
     .withMessage('Name is required')
     .isLength({ min: 2, max: 100 })
     .withMessage('Name must be between 2 and 100 characters')
     .trim(),
+  // `.optional({ values: 'falsy' })` so null / '' / undefined all skip
+  // the chain. Without this, the patient app's profile-setup form
+  // (which sends `null` for unfilled date fields) was being rejected
+  // with a "must be a valid date" error.
   body('gender')
-    .optional()
+    .optional({ values: 'falsy' })
     .isIn(['MALE', 'FEMALE', 'OTHER'])
     .withMessage('Gender must be MALE, FEMALE, or OTHER'),
   body('email')
-    .optional()
+    .optional({ values: 'falsy' })
     .isEmail()
     .normalizeEmail()
     .withMessage('Please provide a valid email'),
   body('birthday')
-    .optional()
+    .optional({ values: 'falsy' })
     .isISO8601()
     .withMessage('Birthday must be a valid date (YYYY-MM-DD)'),
   body('anniversary')
-    .optional()
+    .optional({ values: 'falsy' })
     .isISO8601()
     .withMessage('Anniversary must be a valid date (YYYY-MM-DD)'),
   body('address')
-    .optional()
+    .optional({ values: 'falsy' })
     .isLength({ max: 500 })
     .withMessage('Address must be less than 500 characters')
     .trim()
@@ -81,34 +88,41 @@ export const userProfileValidator = [
 
 // User registration validator
 export const userRegistrationValidator = [
+  // Accept either bare 10-digit (legacy) or E.164 (`+91…`, what the
+  // patient app sends post-Firebase OTP). The service layer normalises
+  // before the DB lookup.
   body('phone')
-    .matches(/^\d{10}$/)
-    .withMessage('Phone number must be exactly 10 digits'),
+    .matches(/^(\+\d{10,15}|\d{10})$/)
+    .withMessage('Phone number must be 10 digits or E.164 (+CC…)'),
   body('name')
     .notEmpty()
     .withMessage('Name is required')
     .isLength({ min: 2, max: 100 })
     .withMessage('Name must be between 2 and 100 characters')
     .trim(),
+  // `.optional({ values: 'falsy' })` so null / '' / undefined all skip
+  // the chain. Without this, the patient app's profile-setup form
+  // (which sends `null` for unfilled date fields) was being rejected
+  // with a "must be a valid date" error.
   body('gender')
-    .optional()
+    .optional({ values: 'falsy' })
     .isIn(['MALE', 'FEMALE', 'OTHER'])
     .withMessage('Gender must be MALE, FEMALE, or OTHER'),
   body('email')
-    .optional()
+    .optional({ values: 'falsy' })
     .isEmail()
     .normalizeEmail()
     .withMessage('Please provide a valid email'),
   body('birthday')
-    .optional()
+    .optional({ values: 'falsy' })
     .isISO8601()
     .withMessage('Birthday must be a valid date (YYYY-MM-DD)'),
   body('anniversary')
-    .optional()
+    .optional({ values: 'falsy' })
     .isISO8601()
     .withMessage('Anniversary must be a valid date (YYYY-MM-DD)'),
   body('address')
-    .optional()
+    .optional({ values: 'falsy' })
     .isLength({ max: 500 })
     .withMessage('Address must be less than 500 characters')
     .trim()
@@ -270,7 +284,7 @@ export const staffPasswordLoginValidator = [
   body('employeeId')
     .notEmpty()
     .withMessage('Employee ID is required')
-    .matches(/^[A-Z0-9]{3,20}$/)
+    .matches(/^[A-Z0-9-]{3,20}$/)
     .withMessage('Invalid employee ID format'),
   body('password')
     .notEmpty()
@@ -282,7 +296,7 @@ export const deviceRegistrationValidator = [
   body('employeeId')
     .notEmpty()
     .withMessage('Employee ID is required')
-    .matches(/^[A-Z0-9]{3,20}$/)
+    .matches(/^[A-Z0-9-]{3,20}$/)
     .withMessage('Invalid employee ID format'),
   body('password')
     .notEmpty()

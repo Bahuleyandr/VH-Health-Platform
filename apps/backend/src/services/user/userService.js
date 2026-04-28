@@ -224,12 +224,22 @@ export class UserService {
     };
   }
 
-  // Get user by ID or UID
+  // Get user by ID, UID, or phone (E.164). Patient app's /users/:phone
+  // route hits this endpoint with `+91…` strings — those aren't UUIDs
+  // and aren't numeric IDs, so we treat anything starting with `+` (or
+  // matching the bare 10-digit Indian phone form) as a phone lookup.
   static async getUserById(identifier, userRole) {
-    const isNumericId = /^\d+$/.test(String(identifier));
-    const identifierCondition = isNumericId
-      ? Prisma.sql`u.id = ${parseInt(identifier, 10)}`
-      : Prisma.sql`u.uid = ${identifier}::uuid`;
+    const id = String(identifier);
+    const isNumericId = /^\d+$/.test(id) && id.length < 12;
+    const looksLikePhone = id.startsWith('+') || /^\d{10}$/.test(id);
+    let identifierCondition;
+    if (isNumericId) {
+      identifierCondition = Prisma.sql`u.id = ${parseInt(id, 10)}`;
+    } else if (looksLikePhone) {
+      identifierCondition = Prisma.sql`u.phone = ${id}`;
+    } else {
+      identifierCondition = Prisma.sql`u.uid = ${id}::uuid`;
+    }
 
     const result = await prisma.$queryRaw`
       SELECT

@@ -110,8 +110,22 @@ export const getPatientAllRecords = async (req, res) => {
   try {
     const patientId = req.user?.id;
 
+    // Both `appointment_documents` and `patient_records` are part of an
+    // unfinished records-management feature — the migrations were never
+    // written. Using Promise.allSettled (per-query) so a missing table on
+    // one side doesn't blank out the other. Each catch returns []; we
+    // silently degrade to "no records" until the schema is built.
+    const safeQuery = async (sql, ...params) => {
+      try {
+        return await prisma.$queryRawUnsafe(sql, ...params);
+      } catch (e) {
+        if (e?.meta?.code === '42P01') {return [];}
+        throw e;
+      }
+    };
+
     const [apptDocs, ownRecords] = await Promise.all([
-      prisma.$queryRawUnsafe(`
+      safeQuery(`
         SELECT ad.id, ad.appointment_id, ad.patient_id, ad.doctor_id, ad.uploaded_by, ad.upload_role, ad.document_type, ad.file_key, ad.file_url, ad.file_name, ad.file_size, ad.file_mime, ad.notes, ad.created_at, 'appointment' as source,
           a.appointment_date, a.appointment_time,
           d.name as doctor_name, doc.department as doctor_department
@@ -122,7 +136,7 @@ export const getPatientAllRecords = async (req, res) => {
         WHERE ad.patient_id=$1 AND ad.is_visible_to_patient=TRUE
         ORDER BY ad.created_at DESC
       `, patientId),
-      prisma.$queryRawUnsafe(
+      safeQuery(
         `SELECT id, patient_id, document_type, title, file_key, file_url, file_name, file_size, file_mime, source_hospital, record_date, notes, created_at, 'patient_upload' as source FROM patient_records WHERE patient_id=$1 ORDER BY created_at DESC`,
         patientId
       ),

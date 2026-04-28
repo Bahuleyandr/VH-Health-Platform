@@ -16,15 +16,21 @@ router.get('/', async (req, res) => {
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT id, name, phone, relationship, date_of_birth AS "dateOfBirth", created_at AS "createdAt"
+      `SELECT id::int AS id, name, phone, relationship, date_of_birth AS "dateOfBirth", created_at AS "createdAt"
        FROM family_members
-       WHERE patient_uid = $1
+       WHERE patient_uid = $1::uuid
        ORDER BY created_at DESC`,
       uid
     );
 
     return success(res, rows, 'Family members retrieved');
   } catch (err) {
+    // family_members table is part of an unfinished feature — return
+    // empty so the Family screen renders. Adds will fail until the
+    // table exists, but the screen should at least load.
+    if (err?.meta?.code === '42P01') {
+      return success(res, [], 'Family members retrieved');
+    }
     logger.error('Get family members error:', err);
     return error(res, 'Failed to retrieve family members', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -44,8 +50,8 @@ router.post('/', async (req, res) => {
 
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO family_members (patient_uid, name, phone, relationship, date_of_birth)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, name, phone, relationship, date_of_birth AS "dateOfBirth", created_at AS "createdAt"`,
+       VALUES ($1::uuid, $2, $3, $4, $5::date)
+       RETURNING id::int AS id, name, phone, relationship, date_of_birth AS "dateOfBirth", created_at AS "createdAt"`,
       uid,
       name.trim(),
       phone?.trim() || null,
@@ -69,7 +75,7 @@ router.delete('/:id', async (req, res) => {
     const { id } = req.params;
 
     const result = await prisma.$queryRawUnsafe(
-      `DELETE FROM family_members WHERE id = $1 AND patient_uid = $2 RETURNING id, name`,
+      `DELETE FROM family_members WHERE id = $1 AND patient_uid = $2::uuid RETURNING id::int AS id, name`,
       parseInt(id, 10),
       uid
     );

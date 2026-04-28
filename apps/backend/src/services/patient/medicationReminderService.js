@@ -10,7 +10,7 @@ export async function createReminder(patientUid, data) {
   const result = await prisma.$queryRawUnsafe(`
     INSERT INTO medication_reminders
       (patient_uid, medication_name, dosage, frequency, reminder_times, start_date, end_date, notes)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)
     RETURNING id, patient_uid, medication_name, dosage, frequency, reminder_times,
               start_date, end_date, is_active, notes, created_at
   `, patientUid, medication_name, dosage, frequency, reminder_times, start_date, end_date || null, notes || null);
@@ -26,7 +26,7 @@ export async function getActiveReminders(patientUid) {
     SELECT id, patient_uid, medication_name, dosage, frequency, reminder_times,
            start_date, end_date, is_active, notes, created_at
     FROM medication_reminders
-    WHERE patient_uid = $1 AND is_active = true
+    WHERE patient_uid = $1::uuid AND is_active = true
     ORDER BY created_at DESC
   `, patientUid);
 
@@ -48,8 +48,9 @@ export async function updateReminder(id, patientUid, data) {
         reminder_times = COALESCE($6, reminder_times),
         start_date = COALESCE($7, start_date),
         end_date = $8,
-        notes = $9
-    WHERE id = $1 AND patient_uid = $2
+        notes = $9,
+        updated_at = NOW()
+    WHERE id = $1 AND patient_uid = $2::uuid
     RETURNING id, patient_uid, medication_name, dosage, frequency, reminder_times,
               start_date, end_date, is_active, notes, created_at
   `, id, patientUid, medication_name, dosage, frequency, reminder_times, start_date, end_date, notes || null);
@@ -68,8 +69,9 @@ export async function updateReminder(id, patientUid, data) {
 export async function deactivateReminder(id, patientUid) {
   const result = await prisma.$queryRawUnsafe(`
     UPDATE medication_reminders
-    SET is_active = false
-    WHERE id = $1 AND patient_uid = $2
+    SET is_active = false,
+        updated_at = NOW()
+    WHERE id = $1 AND patient_uid = $2::uuid
     RETURNING id, patient_uid, medication_name, is_active
   `, id, patientUid);
 
@@ -108,7 +110,7 @@ export async function getDueReminders(patientUid) {
       SELECT id, patient_uid, medication_name, dosage, frequency, reminder_times,
              start_date, end_date, is_active, notes, created_at
       FROM medication_reminders
-      WHERE patient_uid = $1
+      WHERE patient_uid = $1::uuid
         AND is_active = true
         AND start_date <= CURRENT_DATE
         AND (end_date IS NULL OR end_date >= CURRENT_DATE)
@@ -125,7 +127,7 @@ export async function getDueReminders(patientUid) {
       SELECT id, patient_uid, medication_name, dosage, frequency, reminder_times,
              start_date, end_date, is_active, notes, created_at
       FROM medication_reminders
-      WHERE patient_uid = $1
+      WHERE patient_uid = $1::uuid
         AND is_active = true
         AND start_date <= CURRENT_DATE
         AND (end_date IS NULL OR end_date >= CURRENT_DATE)
@@ -138,6 +140,6 @@ export async function getDueReminders(patientUid) {
     params = [patientUid, currentTime, endTime];
   }
 
-  const result = await prisma.$queryRawUnsafe(query, params);
+  const result = await prisma.$queryRawUnsafe(query, ...params);
   return result;
 }

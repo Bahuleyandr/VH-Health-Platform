@@ -69,14 +69,13 @@ export const getAppointmentsByUID = async (req, res) => {
       FROM appointments a
       LEFT JOIN users d ON a.doctor_id = d.id
       LEFT JOIN doctors dp ON d.id = dp.user_id
-      WHERE a.uid = $1
+      WHERE a.uid = $1::uuid
       ORDER BY a.appointment_date DESC
     `, uid);
 
-    if (result.length === 0) {
-      return error(res, 'No appointments found for this UID', HTTP_STATUS.NOT_FOUND);
-    }
-
+    // An empty result is not a "not found" — the user just has no
+    // appointments. Return 200 with [] so the dashboard smart-polling
+    // doesn't treat an empty list as a transient failure to retry.
     success(res, result, 'Appointments fetched successfully');
   } catch (err) {
     logger.error('Error fetching appointments by UID:', err);

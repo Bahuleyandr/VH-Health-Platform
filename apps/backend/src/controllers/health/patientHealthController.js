@@ -293,7 +293,9 @@ export async function recordPatientVitals(req, res) {
 export async function getVitalsSyncStatus(req, res) {
   try {
     const { patient_id } = req.params;
-    if (req.user?.role === 'PATIENT' && String(req.user?.uid) !== String(patient_id)) {
+    if (req.user?.role === 'PATIENT'
+        && String(req.user?.id) !== String(patient_id)
+        && String(req.user?.uid) !== String(patient_id)) {
       return error(res, 'Access denied — you can only view your own sync status', HTTP_STATUS.FORBIDDEN);
     }
 
@@ -329,8 +331,13 @@ export async function getPatientVitals(req, res) {
   try {
     const { patient_id } = req.params;
 
-    // Patients can only access their own vitals
-    if (req.user?.role === 'PATIENT' && String(req.user?.uid) !== String(patient_id)) {
+    // Patients can only access their own vitals. Patient app passes the
+    // numeric `users.id`; allow either int id or uid match (some legacy
+    // callers in the staff app pass the uuid). Sibling endpoints in
+    // this file already do the same — this one was the outlier.
+    if (req.user?.role === 'PATIENT'
+        && String(req.user?.id) !== String(patient_id)
+        && String(req.user?.uid) !== String(patient_id)) {
       return error(res, 'Access denied — you can only view your own vitals', HTTP_STATUS.FORBIDDEN);
     }
 
@@ -344,6 +351,20 @@ export async function getPatientVitals(req, res) {
       requestId: req.id
     });
 
+    // patient_vitals keys on uuid; if caller sent the int id (the
+    // patient app does), resolve users.id → users.uid first.
+    let patientUid = patient_id;
+    if (/^\d+$/.test(String(patient_id))) {
+      const lookup = await prisma.$queryRawUnsafe(
+        'SELECT uid FROM users WHERE id = $1',
+        parseInt(patient_id, 10)
+      );
+      if (lookup.length === 0) {
+        return success(res, [], 'Patient vitals retrieved successfully');
+      }
+      patientUid = lookup[0].uid;
+    }
+
     const supportsSourceColumns = await hasVitalsSourceColumns();
     const sourceColumns = supportsSourceColumns
       ? ', source, recorded_at_source AS "recordedAtSource"'
@@ -356,7 +377,7 @@ export async function getPatientVitals(req, res) {
        WHERE patient_uid = $1::uuid
        ORDER BY recorded_at DESC
        LIMIT 100`,
-      patient_id
+      patientUid
     );
 
     success(res, rows, 'Patient vitals retrieved successfully');

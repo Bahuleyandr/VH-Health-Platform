@@ -328,10 +328,22 @@ export const getInvestigationsByPhone = async (req, res) => {
 
     // Get paginated results
     const result = await prisma.$queryRawUnsafe(
-      `SELECT id, uid, phone, patient_name, doctor_name, test_name, test_category,
-        status, priority, notes, result_summary, lab_name, sample_collected_at,
-        report_ready_at, created_at, updated_at
-       FROM investigations WHERE phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`, phone, limit, offset);
+      `SELECT i.id, i.uid, i.phone,
+        p.name AS patient_name,
+        d.name AS doctor_name,
+        i.test_name,
+        i.investigation_type AS test_category,
+        i.status, i.priority, i.notes, i.result_summary,
+        NULL::text AS lab_name,
+        i.requested_at AS sample_collected_at,
+        i.result_uploaded_at AS report_ready_at,
+        i.created_at, i.updated_at
+       FROM investigations i
+       LEFT JOIN users p ON i.patient_id = p.id
+       LEFT JOIN users d ON i.doctor_id = d.id
+       WHERE i.phone = $1
+       ORDER BY i.created_at DESC
+       LIMIT $2 OFFSET $3`, phone, limit, offset);
 
     // Get total count for pagination
     const countResult = await prisma.$queryRawUnsafe(
@@ -380,8 +392,9 @@ export const getInvestigationsByUID = async (req, res) => {
       return error(res, 'Access denied: Cannot view other patient records', 403);
     }
 
-    // Resolve UID to phone
-    const userResult = await prisma.$queryRawUnsafe('SELECT phone FROM users WHERE uid = $1', uid);
+    // Resolve UID to phone — explicit ::uuid cast avoids the "operator
+    // does not exist: uuid = text" error when Prisma binds the param.
+    const userResult = await prisma.$queryRawUnsafe('SELECT phone FROM users WHERE uid = $1::uuid', uid);
     if (userResult.length === 0) {
       return error(res, 'User not found', 404);
     }
@@ -395,10 +408,22 @@ export const getInvestigationsByUID = async (req, res) => {
     
     // Get paginated results
     const result = await prisma.$queryRawUnsafe(
-      `SELECT id, uid, phone, patient_name, doctor_name, test_name, test_category,
-        status, priority, notes, result_summary, lab_name, sample_collected_at,
-        report_ready_at, created_at, updated_at
-       FROM investigations WHERE phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`, phone, limit, offset);
+      `SELECT i.id, i.uid, i.phone,
+        p.name AS patient_name,
+        d.name AS doctor_name,
+        i.test_name,
+        i.investigation_type AS test_category,
+        i.status, i.priority, i.notes, i.result_summary,
+        NULL::text AS lab_name,
+        i.requested_at AS sample_collected_at,
+        i.result_uploaded_at AS report_ready_at,
+        i.created_at, i.updated_at
+       FROM investigations i
+       LEFT JOIN users p ON i.patient_id = p.id
+       LEFT JOIN users d ON i.doctor_id = d.id
+       WHERE i.phone = $1
+       ORDER BY i.created_at DESC
+       LIMIT $2 OFFSET $3`, phone, limit, offset);
     
     // Get total count
     const countResult = await prisma.$queryRawUnsafe(
@@ -452,6 +477,12 @@ export const getTestCatalog = async (req, res) => {
     );
     success(res, result, 'Test catalog');
   } catch (err) {
+    // investigation_test_catalog is part of the booking schema that
+    // hasn't been built yet (sibling of investigation_bookings). Return
+    // an empty catalog so the booking screen renders rather than 500ing.
+    if (err?.meta?.code === '42P01') {
+      return success(res, [], 'Test catalog');
+    }
     logger.error('Get Test Catalog Error:', err);
     error(res, 'Failed to fetch test catalog', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
