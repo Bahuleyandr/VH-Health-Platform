@@ -446,7 +446,8 @@ export const getAvailableSlots = async (req, res) => {
  */
 export const registerWalkIn = async (req, res) => {
   try {
-    const staffId = req.user?.id;
+    // appointments.created_by is uuid; req.user.uid is the uuid, req.user.id is the int.
+    const staffUid = req.user?.uid;
     const {
       patient_name, patient_phone, patient_id,
       doctor_id, department,
@@ -491,32 +492,32 @@ export const registerWalkIn = async (req, res) => {
       );
       const tokenNumber = String(parseInt(tokenResult[0].next_token));
 
+      // appointments table has no `confirmed_by` or `phone` column — patient
+      // phone lives on the users row. created_by is the staff uuid.
       const apptRows = await tx.$queryRawUnsafe(
         `INSERT INTO appointments
            (patient_id, doctor_id, appointment_date, appointment_time, reason, notes,
-            status, confirmed_by, confirmed_at, token_number, department, created_by, phone)
-         VALUES ($1, $2, NOW(), $3, $4, $5, 'CONFIRMED', $6, NOW(), $7, $8, $9, $10)
+            status, confirmed_at, token_number, department, created_by)
+         VALUES ($1, $2, NOW(), $3, $4, $5, 'CONFIRMED', NOW(), $6, $7, $8::uuid)
          RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, reason, notes,
-                   status, confirmed_by, confirmed_at, token_number, department, phone, created_at`,
+                   status, confirmed_at, token_number, department, created_at`,
         patientId,
         doctor_id || null,
         appointment_time || 'Walk-in',
         reason || 'Walk-in consultation',
         notes || null,
-        staffId,
         tokenNumber,
         department || null,
-        staffId,
-        patient_phone || null,
+        staffUid,
       );
       const appt = apptRows[0];
 
       await tx.$executeRawUnsafe(
         `INSERT INTO appointment_status_history
            (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
-         VALUES ($1, NULL, 'CONFIRMED', $2, 'staff', 'Walk-in registration')`,
+         VALUES ($1, NULL, 'CONFIRMED', $2::uuid, 'staff', 'Walk-in registration')`,
         appt.id,
-        staffId,
+        staffUid,
       );
 
       return { ...appt, token_number: tokenNumber };
