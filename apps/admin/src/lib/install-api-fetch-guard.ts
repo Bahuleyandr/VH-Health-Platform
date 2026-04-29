@@ -114,6 +114,10 @@ function applyAliasesWithQuery(path: string): string {
     u.pathname = pathname.replace('/admin/staff/attendance/', '/admin/attendance/');
     return u.pathname + u.search;
   }
+  if (pathname === '/admin/alerts/system') {
+    u.pathname = '/admin/alerts';
+    return u.pathname + u.search;
+  }
 
   // ---- USERS ----
   if (pathname.startsWith('/admin/users') || pathname === '/users') {
@@ -171,6 +175,24 @@ function applyAliasesWithQuery(path: string): string {
     u.pathname = '/notifications/stats/summary';
     return u.pathname + u.search;
   }
+  if (pathname === '/notifications/announce') {
+    u.pathname = '/notifications/admin/announcement';
+    return u.pathname + u.search;
+  }
+  if (pathname === '/notifications/targeted') {
+    u.pathname = '/notifications/admin/targeted';
+    return u.pathname + u.search;
+  }
+
+  // ---- RECORDS ----
+  if (pathname.startsWith('/health-records')) {
+    u.pathname = pathname.replace('/health-records', '/records/health-records');
+    return u.pathname + u.search;
+  }
+  if (pathname.startsWith('/consultations')) {
+    u.pathname = pathname.replace('/consultations', '/records/consultations');
+    return u.pathname + u.search;
+  }
 
   // ---- LOGS ----
   if (pathname.startsWith('/logs/audit')) {
@@ -219,7 +241,7 @@ function applyAliasesWithQuery(path: string): string {
     return u.pathname + u.search;
   }
   if (pathname === '/staffMedicalRoutes') {
-    u.pathname = '/staff/medical/routes';
+    u.pathname = '/staff/medical/investigations';
     return u.pathname + u.search;
   }
 

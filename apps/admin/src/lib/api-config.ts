@@ -121,7 +121,7 @@ export const API_ENDPOINTS = {
       records: "/api/v1/admin/stats/records", // GET - getRecordStats()
       emergency: "/api/v1/admin/stats/emergency", // GET - getEmergencyStats()
       staff: "/api/v1/admin/stats/staff", // GET - getStaffStats()
-      appointmentSummary: "/api/v1/admin/stats/appointment-summary", // GET - getAppointmentSummary()
+      appointmentSummary: "/api/v1/admin/appointments/summary", // GET - getAppointmentSummary()
     },
 
     // Activity & Monitoring (matching activityService.js)
@@ -163,7 +163,8 @@ export const API_ENDPOINTS = {
       performanceReport: "/api/v1/admin/sos/performance-report", // GET - getPerformanceReport()
       updateConfig: "/api/v1/admin/sos/update-config", // POST - updateSystemConfig()
       broadcast: "/api/v1/admin/sos/broadcast", // POST - broadcastEmergencyAlert()
-      escalate: "/api/v1/admin/sos/escalate", // POST - escalateAlert()
+      escalate: (alertId: string | number) =>
+        `/api/v1/admin/sos/escalate/${encodeURIComponent(String(alertId))}`, // POST - escalateAlert()
     },
 
     // Upload/File Management (matching uploadService.js)
@@ -212,9 +213,9 @@ export const API_ENDPOINTS = {
 
     // Search & lookup
     search: "/api/v1/staff/search", // GET
-    activity: "/api/v1/activity", // GET
-    advancedSearch: "/api/v1/advanced", // GET
-    bulkSearch: "/api/v1/bulk-search", // POST
+    activity: "/api/v1/users/lookup/activity", // GET
+    advancedSearch: "/api/v1/users/lookup/advanced", // GET
+    bulkSearch: "/api/v1/users/lookup/bulk-search", // POST
   },
 
   // Doctors
@@ -345,9 +346,9 @@ export const API_ENDPOINTS = {
   records: {
     list: "/api/v1/records", // GET/POST
     byId: "/api/v1/records/:id", // GET/PUT
-    byPhone: "/api/v1/health-records/:phone", // GET
-    create: "/api/v1/health-records", // POST
-    consultations: "/api/v1/consultations/:phoneNumber", // GET
+    byPhone: "/api/v1/records/health-records/:phone", // GET
+    create: "/api/v1/records/health-records", // POST
+    consultations: "/api/v1/records/consultations/:phoneNumber", // GET
 
     // Admin
     adminAnalytics: "/api/v1/records/admin/analytics", // GET
@@ -365,7 +366,11 @@ export const API_ENDPOINTS = {
     staffRoutes: "/api/v1/staff/routes", // GET/POST/PUT (protected)
     attendanceRoutes: "/api/v1/staff/attendance/routes", // GET/POST (protected)
     hrRoutes: "/api/v1/staff/hr/routes", // GET/POST/PUT (protected)
-    medicalRoutes: "/api/v1/staff/medical/routes", // POST (protected)
+    medicalRoutes: "/api/v1/staff/medical/investigations", // POST (protected)
+    medical: {
+      consultations: "/api/v1/staff/medical/consultations", // POST
+      investigations: "/api/v1/staff/medical/investigations", // POST/multipart
+    },
 
     admin: {
       analytics: { 
@@ -390,9 +395,18 @@ export const API_ENDPOINTS = {
     slaDashboard: "/api/v1/investigations/sla-dashboard",
     pending: "/api/v1/investigations/status/pending",
     admin: {
-      analytics: "/api/v1/investigations/admin/analytics",
-      pending: "/api/v1/investigations/admin/pending",
+      analytics: "/api/v1/admin/investigations/summary",
+      pending: "/api/v1/investigations/status/pending",
     },
+  },
+
+  // ABDM
+  abdm: {
+    status: "/api/v1/abdm/status", // GET
+    consentRequests: "/api/v1/abdm/consent-requests", // GET
+    patientByAbha: "/api/v1/abdm/patient-by-abha/:abhaNumber", // GET
+    registerAbha: "/api/v1/abdm/register-abha", // POST
+    verifyAbha: "/api/v1/abdm/verify-abha", // POST
   },
 
   // SOS/Emergency
@@ -499,7 +513,7 @@ export const PROTECTED_ROUTES: string[] = [
   "/api/v1/staff/routes",
   "/api/v1/staff/attendance/routes",
   "/api/v1/staff/hr/routes",
-  "/api/v1/staff/medical/routes",
+  "/api/v1/staff/medical/*",
   
   // Other protected routes
   "/api/v1/auth/adminManagement",
@@ -516,9 +530,10 @@ export const PROTECTED_ROUTES: string[] = [
   "/api/v1/debug/routes",
   "/api/v1/rbac/*",
   "/api/v1/appointments/admin/*",
-  "/api/v1/notifications/admin",
+  "/api/v1/notifications/admin/*",
   "/api/v1/records/admin/*",
-  "/api/v1/analytics/*",
+  "/api/v1/admin/analytics/*",
+  "/api/v1/abdm/*",
   "/api/v1/devices",
   "/api/v1/feedback",
   "/api/v1/billing/*",

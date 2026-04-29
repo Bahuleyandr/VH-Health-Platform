@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { fetchAdminAPI } from "@/lib/api";
+import { API_ENDPOINTS } from "@/lib/api-config";
 
 type NotificationType = "info" | "warning" | "critical" | "success";
 type TargetType = "all" | "department" | "role" | "user";
@@ -66,12 +67,12 @@ export function NotificationComposer({ onSuccess }: NotificationComposerProps) {
 
       // Use announcement endpoint for "all", targeted for specific
       if (target === "all") {
-        await fetchAdminAPI("/notifications/announce", {
+        await fetchAdminAPI(API_ENDPOINTS.notifications.announcement, {
           method: "POST",
           body: payload,
         });
       } else {
-        await fetchAdminAPI("/notifications/targeted", {
+        await fetchAdminAPI(API_ENDPOINTS.notifications.targeted, {
           method: "POST",
           body: payload,
         });

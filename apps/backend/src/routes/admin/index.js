@@ -185,6 +185,19 @@ wrapAutoRBAC(router, 'adminDashboard', {
     ],
 
     [
+      '/stats/doctors',
+      async (_req, res) => {
+        try {
+          const data = await getDoctorStats();
+          res.json({ success: true, data });
+        } catch (e) {
+          logger.error('Doctor stats error:', e);
+          res.status(500).json({ success: false, message: 'Failed to get doctor stats' });
+        }
+      },
+    ],
+
+    [
       '/stats/appointments',
       async (_req, res) => {
         try {
@@ -193,6 +206,32 @@ wrapAutoRBAC(router, 'adminDashboard', {
         } catch (e) {
           logger.error('Appointment stats error:', e);
           res.status(500).json({ success: false, message: 'Failed to get appointment stats' });
+        }
+      },
+    ],
+
+    [
+      '/stats/records',
+      async (_req, res) => {
+        try {
+          const data = await getRecordStats();
+          res.json({ success: true, data });
+        } catch (e) {
+          logger.error('Record stats error:', e);
+          res.status(500).json({ success: false, message: 'Failed to get record stats' });
+        }
+      },
+    ],
+
+    [
+      '/stats/emergency',
+      async (_req, res) => {
+        try {
+          const data = await getEmergencyStats();
+          res.json({ success: true, data });
+        } catch (e) {
+          logger.error('Emergency stats error:', e);
+          res.status(500).json({ success: false, message: 'Failed to get emergency stats' });
         }
       },
     ],

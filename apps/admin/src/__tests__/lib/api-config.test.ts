@@ -234,6 +234,12 @@ describe("API_ENDPOINTS — dynamic endpoints", () => {
       "/api/v1/emr/timeline/P001",
     );
   });
+
+  it("admin.sos.escalate returns correct path", () => {
+    expect(API_ENDPOINTS.admin.sos.escalate(123)).toBe(
+      "/api/v1/admin/sos/escalate/123",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

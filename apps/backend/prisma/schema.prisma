@@ -8,84 +8,96 @@ datasource db {
 }
 
 model users {
-  id                                                       Int                         @id @default(autoincrement())
-  uid                                                      String                      @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  phone                                                    String                      @unique @db.VarChar(15)
-  name                                                     String?                     @db.VarChar(255)
-  gender                                                   String?                     @db.VarChar(20)
-  address                                                  String?
-  email                                                    String?                     @db.VarChar(255)
-  birthday                                                 DateTime?                   @db.Date
-  anniversary                                              DateTime?                   @db.Date
-  profile_picture                                          String?
-  role                                                     String?                     @default("PATIENT") @db.VarChar(50)
-  is_active                                                Boolean                     @default(true)
-  registered_at                                            DateTime                    @default(now()) @db.Timestamp(6)
-  updated_at                                               DateTime                    @updatedAt @db.Timestamp(6)
-  e2e_public_key                                           String?
-  e2e_key_updated_at                                       DateTime?                   @db.Timestamptz(6)
-  tenant_id                                                String                      @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  preferred_language                                       String                      @default("en") @db.VarChar(5)
-  encrypted_password                                       String?
-  last_sign_in_at                                          DateTime?                   @db.Timestamptz(6)
-  pan_number                                               String?                     @db.VarChar(20)
-  abha_address                                             String?                     @db.VarChar(100)
-  abha_number                                              String?                     @db.VarChar(20)
-  device_token                                             String?
-  role_updated_at                                          DateTime?                   @db.Timestamp(6)
-  status                                                   String                      @default("active") @db.VarChar(50)
-  status_reason                                            String?
-  status_updated_at                                        DateTime?                   @db.Timestamp(6)
-  status_updated_by                                        String?                     @db.Uuid
-  emergency_contact                                        Json?
-  blood_group                                              String?                     @db.VarChar(10)
-  allergies                                                String?
-  medical_history                                          String?
-  annual_review_reminders                                  annual_review_reminders[]
-  annual_tax_summaries                                     annual_tax_summaries[]
-  appointments_appointments_doctor_idTousers               appointments[]              @relation("appointments_doctor_idTousers")
-  appointments_appointments_patient_idTousers              appointments[]              @relation("appointments_patient_idTousers")
-  attendance_logs                                          attendance_logs[]
-  beds                                                     beds[]
-  doctors                                                  doctors[]
-  full_final_settlements                                   full_final_settlements[]
-  hr_activity_logs                                         hr_activity_logs[]
-  investigations_investigations_patient_idTousers          investigations[]            @relation("investigations_patient_idTousers")
-  investigations_investigations_requested_byTousers        investigations[]            @relation("investigations_requested_byTousers")
-  investment_declarations                                  investment_declarations[]
-  leave_applications                                       leave_applications[]
-  leave_encashments                                        leave_encashments[]
-  medical_records_medical_records_created_byTousers        medical_records[]           @relation("medical_records_created_byTousers")
-  medical_records_medical_records_deleted_byTousers        medical_records[]           @relation("medical_records_deleted_byTousers")
-  medical_records                                          medical_records[]
-  medical_records_medical_records_patient_idTousers        medical_records[]           @relation("medical_records_patient_idTousers")
-  medical_records_medical_records_updated_byTousers        medical_records[]           @relation("medical_records_updated_byTousers")
-  medication_reminders                                     medication_reminders[]
-  payroll_runs_payroll_runs_generated_byTousers            payroll_runs[]              @relation("payroll_runs_generated_byTousers")
-  payroll_runs_payroll_runs_locked_byTousers               payroll_runs[]              @relation("payroll_runs_locked_byTousers")
-  payslips                                                 payslips[]
-  pharmacy_order_history                                   pharmacy_order_history[]
-  pharmacy_orders_pharmacy_orders_dispensed_byTousers      pharmacy_orders[]           @relation("pharmacy_orders_dispensed_byTousers")
-  pharmacy_orders_pharmacy_orders_patient_idTousers        pharmacy_orders[]           @relation("pharmacy_orders_patient_idTousers")
-  pharmacy_orders_pharmacy_orders_prescribed_byTousers     pharmacy_orders[]           @relation("pharmacy_orders_prescribed_byTousers")
-  referrals_referrals_accepted_byTousers                   referrals[]                 @relation("referrals_accepted_byTousers")
-  referrals_referrals_patient_uidTousers                   referrals[]                 @relation("referrals_patient_uidTousers")
-  referrals_referrals_referred_to_doctorTousers            referrals[]                 @relation("referrals_referred_to_doctorTousers")
-  referrals_referrals_referring_doctorTousers              referrals[]                 @relation("referrals_referring_doctorTousers")
-  salary_advances_salary_advances_approved_byTousers       salary_advances[]           @relation("salary_advances_approved_byTousers")
-  salary_advances_salary_advances_staff_uidTousers         salary_advances[]           @relation("salary_advances_staff_uidTousers")
-  salary_arrears                                           salary_arrears[]
-  salary_revisions_salary_revisions_admin_signed_byTousers salary_revisions[]          @relation("salary_revisions_admin_signed_byTousers")
-  salary_revisions_salary_revisions_hr_signed_byTousers    salary_revisions[]          @relation("salary_revisions_hr_signed_byTousers")
-  salary_revisions_salary_revisions_proposed_byTousers     salary_revisions[]          @relation("salary_revisions_proposed_byTousers")
-  salary_revisions_salary_revisions_rejected_byTousers     salary_revisions[]          @relation("salary_revisions_rejected_byTousers")
-  salary_revisions_salary_revisions_staff_uidTousers       salary_revisions[]          @relation("salary_revisions_staff_uidTousers")
-  staff                                                    staff[]
-  staff_attendance                                         staff_attendance[]
-  staff_onboarding_tasks                                   staff_onboarding_tasks[]
-  staff_performance_reviews                                staff_performance_reviews[]
-  staff_salary                                             staff_salary?
-  tenants                                                  tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                                                                   Int                          @id @default(autoincrement())
+  uid                                                                  String                       @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  phone                                                                String                       @unique @db.VarChar(15)
+  name                                                                 String?                      @db.VarChar(255)
+  gender                                                               String?                      @db.VarChar(20)
+  address                                                              String?
+  email                                                                String?                      @db.VarChar(255)
+  birthday                                                             DateTime?                    @db.Date
+  anniversary                                                          DateTime?                    @db.Date
+  profile_picture                                                      String?
+  role                                                                 String?                      @default("PATIENT") @db.VarChar(50)
+  is_active                                                            Boolean                      @default(true)
+  registered_at                                                        DateTime                     @default(now()) @db.Timestamp(6)
+  updated_at                                                           DateTime                     @updatedAt @db.Timestamp(6)
+  e2e_public_key                                                       String?
+  e2e_key_updated_at                                                   DateTime?                    @db.Timestamptz(6)
+  tenant_id                                                            String                       @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  preferred_language                                                   String                       @default("en") @db.VarChar(5)
+  encrypted_password                                                   String?
+  last_sign_in_at                                                      DateTime?                    @db.Timestamptz(6)
+  pan_number                                                           String?                      @db.VarChar(20)
+  abha_address                                                         String?                      @db.VarChar(100)
+  abha_number                                                          String?                      @db.VarChar(20)
+  device_token                                                         String?
+  role_updated_at                                                      DateTime?                    @db.Timestamp(6)
+  status                                                               String                       @default("active") @db.VarChar(50)
+  status_reason                                                        String?
+  status_updated_at                                                    DateTime?                    @db.Timestamp(6)
+  status_updated_by                                                    String?                      @db.Uuid
+  emergency_contact                                                    Json?
+  blood_group                                                          String?                      @db.VarChar(10)
+  allergies                                                            String?
+  medical_history                                                      String?
+  profile_completed_at                                                 DateTime?                    @db.Timestamptz(6)
+  abdm_consents                                                        abdm_consents[]
+  abdm_data_requests                                                   abdm_data_requests[]
+  annual_review_reminders                                              annual_review_reminders[]
+  annual_tax_summaries                                                 annual_tax_summaries[]
+  appointment_documents_appointment_documents_doctor_idTousers         appointment_documents[]      @relation("appointment_documents_doctor_idTousers")
+  appointment_documents_appointment_documents_patient_idTousers        appointment_documents[]      @relation("appointment_documents_patient_idTousers")
+  appointment_documents_appointment_documents_uploaded_byTousers       appointment_documents[]      @relation("appointment_documents_uploaded_byTousers")
+  appointment_status_history                                           appointment_status_history[]
+  appointments_appointments_doctor_idTousers                           appointments[]               @relation("appointments_doctor_idTousers")
+  appointments_appointments_patient_idTousers                          appointments[]               @relation("appointments_patient_idTousers")
+  attendance_logs                                                      attendance_logs[]
+  beds                                                                 beds[]
+  doctors                                                              doctors[]
+  family_members                                                       family_members[]
+  full_final_settlements                                               full_final_settlements[]
+  hr_activity_logs                                                     hr_activity_logs[]
+  investigation_bookings_investigation_bookings_patient_idTousers      investigation_bookings[]     @relation("investigation_bookings_patient_idTousers")
+  investigation_bookings_investigation_bookings_phlebotomist_idTousers investigation_bookings[]     @relation("investigation_bookings_phlebotomist_idTousers")
+  investigations_investigations_patient_idTousers                      investigations[]             @relation("investigations_patient_idTousers")
+  investigations_investigations_requested_byTousers                    investigations[]             @relation("investigations_requested_byTousers")
+  investment_declarations                                              investment_declarations[]
+  leave_applications                                                   leave_applications[]
+  leave_encashments                                                    leave_encashments[]
+  medical_records_medical_records_created_byTousers                    medical_records[]            @relation("medical_records_created_byTousers")
+  medical_records_medical_records_deleted_byTousers                    medical_records[]            @relation("medical_records_deleted_byTousers")
+  medical_records                                                      medical_records[]
+  medical_records_medical_records_patient_idTousers                    medical_records[]            @relation("medical_records_patient_idTousers")
+  medical_records_medical_records_updated_byTousers                    medical_records[]            @relation("medical_records_updated_byTousers")
+  medication_reminders                                                 medication_reminders[]
+  patient_records                                                      patient_records[]
+  payroll_runs_payroll_runs_generated_byTousers                        payroll_runs[]               @relation("payroll_runs_generated_byTousers")
+  payroll_runs_payroll_runs_locked_byTousers                           payroll_runs[]               @relation("payroll_runs_locked_byTousers")
+  payslips                                                             payslips[]
+  pharmacy_order_history                                               pharmacy_order_history[]
+  pharmacy_orders_pharmacy_orders_dispensed_byTousers                  pharmacy_orders[]            @relation("pharmacy_orders_dispensed_byTousers")
+  pharmacy_orders_pharmacy_orders_patient_idTousers                    pharmacy_orders[]            @relation("pharmacy_orders_patient_idTousers")
+  pharmacy_orders_pharmacy_orders_prescribed_byTousers                 pharmacy_orders[]            @relation("pharmacy_orders_prescribed_byTousers")
+  referrals_referrals_accepted_byTousers                               referrals[]                  @relation("referrals_accepted_byTousers")
+  referrals_referrals_patient_uidTousers                               referrals[]                  @relation("referrals_patient_uidTousers")
+  referrals_referrals_referred_to_doctorTousers                        referrals[]                  @relation("referrals_referred_to_doctorTousers")
+  referrals_referrals_referring_doctorTousers                          referrals[]                  @relation("referrals_referring_doctorTousers")
+  salary_advances_salary_advances_approved_byTousers                   salary_advances[]            @relation("salary_advances_approved_byTousers")
+  salary_advances_salary_advances_staff_uidTousers                     salary_advances[]            @relation("salary_advances_staff_uidTousers")
+  salary_arrears                                                       salary_arrears[]
+  salary_revisions_salary_revisions_admin_signed_byTousers             salary_revisions[]           @relation("salary_revisions_admin_signed_byTousers")
+  salary_revisions_salary_revisions_hr_signed_byTousers                salary_revisions[]           @relation("salary_revisions_hr_signed_byTousers")
+  salary_revisions_salary_revisions_proposed_byTousers                 salary_revisions[]           @relation("salary_revisions_proposed_byTousers")
+  salary_revisions_salary_revisions_rejected_byTousers                 salary_revisions[]           @relation("salary_revisions_rejected_byTousers")
+  salary_revisions_salary_revisions_staff_uidTousers                   salary_revisions[]           @relation("salary_revisions_staff_uidTousers")
+  scheduled_notifications                                              scheduled_notifications[]
+  staff                                                                staff[]
+  staff_attendance                                                     staff_attendance[]
+  staff_onboarding_tasks                                               staff_onboarding_tasks[]
+  staff_performance_reviews                                            staff_performance_reviews[]
+  staff_salary                                                         staff_salary?
+  tenants                                                              tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([phone])
   @@index([uid])
@@ -389,33 +401,35 @@ model patient_feedback {
 }
 
 model appointments {
-  id                                   Int       @id @default(autoincrement())
-  uid                                  String?   @db.Uuid
-  phone                                String    @db.VarChar(15)
+  id                                   Int                          @id @default(autoincrement())
+  uid                                  String?                      @db.Uuid
+  phone                                String                       @db.VarChar(15)
   patient_id                           Int?
   doctor_id                            Int?
-  doctor_name                          String    @default("") @db.VarChar(100)
-  patient_name                         String?   @db.VarChar(255)
-  appointment_date                     DateTime  @db.Date
-  appointment_time                     String    @db.VarChar(10)
-  status                               String    @default("SCHEDULED") @db.VarChar(50)
+  doctor_name                          String                       @default("") @db.VarChar(100)
+  patient_name                         String?                      @db.VarChar(255)
+  appointment_date                     DateTime                     @db.Date
+  appointment_time                     String                       @db.VarChar(10)
+  status                               String                       @default("SCHEDULED") @db.VarChar(50)
   reason                               String?
   notes                                String?
-  created_at                           DateTime  @default(now()) @db.Timestamp(6)
-  updated_at                           DateTime  @updatedAt @db.Timestamp(6)
-  admin_override                       Boolean   @default(false)
+  created_at                           DateTime                     @default(now()) @db.Timestamp(6)
+  updated_at                           DateTime                     @updatedAt @db.Timestamp(6)
+  admin_override                       Boolean                      @default(false)
   override_reason                      String?
-  created_by                           String?   @db.Uuid
-  updated_by                           String?   @db.Uuid
-  reminder_sent                        Boolean   @default(false)
-  reminder_1h_sent                     Boolean   @default(false)
-  reminder_24h_sent                    Boolean   @default(false)
-  token_number                         String?   @db.VarChar(20)
-  department                           String?   @db.VarChar(100)
-  confirmed_at                         DateTime? @db.Timestamptz(6)
-  sla_target_at                        DateTime? @db.Timestamptz(6)
-  users_appointments_doctor_idTousers  users?    @relation("appointments_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction)
-  users_appointments_patient_idTousers users?    @relation("appointments_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
+  created_by                           String?                      @db.Uuid
+  updated_by                           String?                      @db.Uuid
+  reminder_sent                        Boolean                      @default(false)
+  reminder_1h_sent                     Boolean                      @default(false)
+  reminder_24h_sent                    Boolean                      @default(false)
+  token_number                         String?                      @db.VarChar(20)
+  department                           String?                      @db.VarChar(100)
+  confirmed_at                         DateTime?                    @db.Timestamptz(6)
+  sla_target_at                        DateTime?                    @db.Timestamptz(6)
+  appointment_documents                appointment_documents[]
+  appointment_status_history           appointment_status_history[]
+  users_appointments_doctor_idTousers  users?                       @relation("appointments_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction)
+  users_appointments_patient_idTousers users?                       @relation("appointments_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
 
   @@index([phone])
   @@index([uid])
@@ -524,6 +538,7 @@ model investigations {
   cancelled_by                             String?                             @db.Uuid
   cancellation_reason                      String?
   clinical_ai_lab_autoverifications        clinical_ai_lab_autoverifications[]
+  investigation_bookings                   investigation_bookings[]
   users_investigations_patient_idTousers   users?                              @relation("investigations_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
   users_investigations_requested_byTousers users?                              @relation("investigations_requested_byTousers", fields: [requested_by], references: [uid], onUpdate: NoAction)
 
@@ -1487,7 +1502,7 @@ model health_milestone_claims {
 }
 
 model migrations {
-  id          Int       @id @default(autoincrement())
+  id          Int       @id @default(dbgenerated("nextval('_migrations_id_seq'::regclass)"))
   name        String    @unique @db.VarChar(255)
   executed_at DateTime? @default(now()) @db.Timestamp(6)
 
@@ -4175,16 +4190,17 @@ model clinical_ai_voice_ivr_sessions {
 }
 
 model clinical_alerts {
-  id           Int       @id @default(autoincrement())
-  patient_id   Int?
-  alert_type   String?   @db.VarChar(100)
-  vital_name   String?   @db.VarChar(100)
-  vital_value  Decimal?  @db.Decimal(10, 2)
-  severity     String?   @db.VarChar(50)
-  message      String?
-  acknowledged Boolean?  @default(false)
-  created_by   Int?
-  created_at   DateTime? @default(now()) @db.Timestamptz(6)
+  id              Int       @id @default(autoincrement())
+  patient_id      Int?
+  alert_type      String?   @db.VarChar(100)
+  vital_name      String?   @db.VarChar(100)
+  vital_value     Decimal?  @db.Decimal(10, 2)
+  severity        String?   @db.VarChar(50)
+  message         String?
+  acknowledged    Boolean?  @default(false)
+  created_by      Int?
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  acknowledged_at DateTime? @db.Timestamptz(6)
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -5127,6 +5143,10 @@ model prescriptions {
   frequency       String?   @db.VarChar(100)
   status          String?   @default("active") @db.VarChar(50)
   created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  duration_days   Int?
+  issued_at       DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([patient_uid, status, issued_at], map: "idx_prescriptions_patient_status_issued")
 }
 
 model quality_incidents {
@@ -5192,6 +5212,11 @@ model referrals {
   response_notes                            String?
   created_at                                DateTime  @default(now()) @db.Timestamptz(6)
   updated_at                                DateTime  @default(now()) @db.Timestamptz(6)
+  priority                                  String?   @default("ROUTINE") @db.VarChar(50)
+  requester_id                              String?   @db.Uuid
+  performer_id                              String?   @db.Uuid
+  clinical_notes                            String?
+  notes                                     String?
   users_referrals_accepted_byTousers        users?    @relation("referrals_accepted_byTousers", fields: [accepted_by], references: [uid], onUpdate: NoAction)
   users_referrals_patient_uidTousers        users     @relation("referrals_patient_uidTousers", fields: [patient_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
   users_referrals_referred_to_doctorTousers users?    @relation("referrals_referred_to_doctorTousers", fields: [referred_to_doctor], references: [uid], onUpdate: NoAction)
@@ -5639,4 +5664,253 @@ model medication_reminders {
   users           users     @relation(fields: [patient_uid], references: [uid], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([start_date], map: "idx_medication_reminders_start_date")
+}
+
+model abdm_consents {
+  id               Int       @id @default(autoincrement())
+  consent_id       String?   @unique @db.VarChar(100)
+  patient_uid      String    @db.Uuid
+  hip_id           String?   @db.VarChar(100)
+  hiu_id           String?   @db.VarChar(100)
+  purpose          String?   @db.VarChar(100)
+  hi_types         String[]
+  date_range_from  DateTime? @db.Timestamptz(6)
+  date_range_to    DateTime? @db.Timestamptz(6)
+  expiry_date      DateTime? @db.Timestamptz(6)
+  status           String    @default("REQUESTED") @db.VarChar(50)
+  requester_name   String?   @db.VarChar(255)
+  consent_artifact Json?
+  granted_at       DateTime? @db.Timestamptz(6)
+  revoked_at       DateTime? @db.Timestamptz(6)
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
+  users            users     @relation(fields: [patient_uid], references: [uid], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([created_at(sort: Desc)], map: "idx_abdm_consents_created_at")
+  @@index([patient_uid], map: "idx_abdm_consents_patient_uid")
+  @@index([status], map: "idx_abdm_consents_status")
+}
+
+model abdm_data_requests {
+  id              Int       @id @default(autoincrement())
+  transaction_id  String?   @unique @db.VarChar(100)
+  consent_id      String?   @db.VarChar(100)
+  patient_uid     String?   @db.Uuid
+  hi_types        String[]
+  date_range_from DateTime? @db.Timestamptz(6)
+  date_range_to   DateTime? @db.Timestamptz(6)
+  key_material    Json?
+  status          String    @default("PROCESSING") @db.VarChar(50)
+  delivered_at    DateTime? @db.Timestamptz(6)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @default(now()) @db.Timestamptz(6)
+  users           users?    @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
+
+  @@index([consent_id], map: "idx_abdm_data_requests_consent_id")
+  @@index([patient_uid], map: "idx_abdm_data_requests_patient_uid")
+  @@index([status], map: "idx_abdm_data_requests_status")
+}
+
+model appointment_documents {
+  id                                             BigInt       @id @default(autoincrement())
+  appointment_id                                 Int
+  patient_id                                     Int
+  doctor_id                                      Int?
+  uploaded_by                                    Int?
+  upload_role                                    String?      @db.VarChar(40)
+  document_type                                  String?      @db.VarChar(80)
+  file_key                                       String
+  file_url                                       String?
+  file_name                                      String?
+  file_size                                      BigInt?
+  file_mime                                      String?      @db.VarChar(100)
+  notes                                          String?
+  is_visible_to_patient                          Boolean      @default(true)
+  created_at                                     DateTime     @default(now()) @db.Timestamp(6)
+  updated_at                                     DateTime     @default(now()) @db.Timestamp(6)
+  appointments                                   appointments @relation(fields: [appointment_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "apptdocs_appointment_fk")
+  users_appointment_documents_doctor_idTousers   users?       @relation("appointment_documents_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction, map: "apptdocs_doctor_fk")
+  users_appointment_documents_patient_idTousers  users        @relation("appointment_documents_patient_idTousers", fields: [patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "apptdocs_patient_fk")
+  users_appointment_documents_uploaded_byTousers users?       @relation("appointment_documents_uploaded_byTousers", fields: [uploaded_by], references: [id], onUpdate: NoAction, map: "apptdocs_uploader_fk")
+
+  @@index([appointment_id], map: "idx_apptdocs_appointment")
+}
+
+model appointment_status_history {
+  id              BigInt       @id @default(autoincrement())
+  appointment_id  Int
+  from_status     String?      @db.VarChar(40)
+  to_status       String       @db.VarChar(40)
+  changed_by      Int?
+  changed_by_role String?      @db.VarChar(40)
+  reason          String?
+  created_at      DateTime     @default(now()) @db.Timestamp(6)
+  appointments    appointments @relation(fields: [appointment_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "appt_status_hist_appointment_fk")
+  users           users?       @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "appt_status_hist_user_fk")
+
+  @@index([appointment_id, created_at], map: "idx_appt_status_hist_appointment_id_time")
+}
+
+model canary_checks {
+  id         BigInt   @id @default(autoincrement())
+  checked_at DateTime @default(now()) @db.Timestamptz(6)
+  status     String   @db.VarChar(40)
+  detail     Json?
+
+  @@index([checked_at(sort: Desc)], map: "idx_canary_checks_recent")
+}
+
+model family_members {
+  id            BigInt    @id @default(autoincrement())
+  patient_uid   String    @db.Uuid
+  name          String    @db.VarChar(255)
+  phone         String?   @db.VarChar(20)
+  relationship  String?   @db.VarChar(50)
+  date_of_birth DateTime? @db.Date
+  created_at    DateTime  @default(now()) @db.Timestamp(6)
+  updated_at    DateTime  @default(now()) @db.Timestamp(6)
+  users         users     @relation(fields: [patient_uid], references: [uid], onDelete: Cascade, onUpdate: NoAction, map: "family_members_patient_fk")
+
+  @@index([patient_uid], map: "idx_family_members_patient_uid")
+}
+
+model hipaa_access_log {
+  id               BigInt   @id @default(autoincrement())
+  accessed_by      String?  @db.Uuid
+  accessed_by_role String?  @db.VarChar(40)
+  patient_id       String?  @db.VarChar(64)
+  record_type      String?  @db.VarChar(80)
+  action           String?  @db.VarChar(40)
+  ip_address       String?  @db.VarChar(60)
+  request_id       String?  @db.VarChar(80)
+  accessed_at      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([accessed_at(sort: Desc)], map: "idx_hipaa_access_recent")
+}
+
+model investigation_booking_history {
+  id                     BigInt                 @id @default(autoincrement())
+  booking_id             BigInt
+  from_status            String?                @db.VarChar(40)
+  to_status              String                 @db.VarChar(40)
+  changed_by             Int?
+  changed_by_role        String?                @db.VarChar(40)
+  notes                  String?
+  created_at             DateTime               @default(now()) @db.Timestamp(6)
+  investigation_bookings investigation_bookings @relation(fields: [booking_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "invbookhist_booking_fk")
+
+  @@index([booking_id, created_at], map: "idx_invbookhist_booking_id_time")
+}
+
+model investigation_bookings {
+  id                                                  BigInt                          @id @default(autoincrement())
+  booking_number                                      String?                         @unique @db.VarChar(40)
+  patient_id                                          Int
+  patient_name                                        String?                         @db.VarChar(255)
+  patient_phone                                       String?                         @db.VarChar(20)
+  investigation_id                                    Int?
+  test_name                                           String?                         @db.VarChar(255)
+  selected_tests                                      Int[]
+  custom_test_names                                   String?
+  actual_tests                                        Int[]
+  slip_photo_key                                      String?
+  notes                                               String?
+  collection_type                                     String?                         @default("home") @db.VarChar(20)
+  collection_address                                  String?
+  collection_landmark                                 String?
+  collection_lat                                      Decimal?                        @db.Decimal(10, 7)
+  collection_lng                                      Decimal?                        @db.Decimal(10, 7)
+  collector_lat                                       Decimal?                        @db.Decimal(10, 7)
+  collector_lng                                       Decimal?                        @db.Decimal(10, 7)
+  estimated_collection_mins                           Int?
+  collection_distance_km                              Decimal?                        @db.Decimal(8, 3)
+  collection_tracking_active                          Boolean                         @default(false)
+  preferred_date                                      DateTime?                       @db.Date
+  preferred_time_slot                                 String?                         @db.VarChar(50)
+  scheduled_date                                      DateTime?                       @db.Date
+  estimated_cost                                      Decimal?                        @db.Decimal(10, 2)
+  final_cost                                          Decimal?                        @db.Decimal(10, 2)
+  status                                              String                          @default("BOOKED") @db.VarChar(40)
+  phlebotomist_id                                     Int?
+  assigned_collector                                  Int?
+  collector_phone                                     String?                         @db.VarChar(20)
+  confirmed_by                                        Int?
+  confirmed_at                                        DateTime?                       @db.Timestamptz(6)
+  confirmation_notes                                  String?
+  sla_dispatch_target                                 DateTime?                       @db.Timestamptz(6)
+  sla_collect_target                                  DateTime?                       @db.Timestamptz(6)
+  sla_result_target                                   DateTime?                       @db.Timestamptz(6)
+  dispatched_at                                       DateTime?                       @db.Timestamptz(6)
+  collected_at                                        DateTime?                       @db.Timestamptz(6)
+  collected_by                                        Int?
+  collection_notes                                    String?
+  processing_started_at                               DateTime?                       @db.Timestamptz(6)
+  result_uploaded_at                                  DateTime?                       @db.Timestamptz(6)
+  result_uploaded_by                                  Int?
+  result_file_key                                     String?
+  result_notes                                        String?
+  created_at                                          DateTime                        @default(now()) @db.Timestamp(6)
+  updated_at                                          DateTime                        @default(now()) @db.Timestamp(6)
+  sla_confirm_target                                  DateTime?                       @db.Timestamptz(6)
+  investigation_booking_history                       investigation_booking_history[]
+  investigations                                      investigations?                 @relation(fields: [investigation_id], references: [id], onUpdate: NoAction, map: "investigation_bookings_investigation_fk")
+  users_investigation_bookings_patient_idTousers      users                           @relation("investigation_bookings_patient_idTousers", fields: [patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "investigation_bookings_patient_fk")
+  users_investigation_bookings_phlebotomist_idTousers users?                          @relation("investigation_bookings_phlebotomist_idTousers", fields: [phlebotomist_id], references: [id], onUpdate: NoAction, map: "investigation_bookings_phlebotomist_fk")
+
+  @@index([created_at], map: "idx_invbook_created_at")
+  @@index([patient_id], map: "idx_invbook_patient_id")
+  @@index([status], map: "idx_invbook_status")
+}
+
+model investigation_test_catalog {
+  id                        BigInt   @id @default(autoincrement())
+  name                      String   @db.VarChar(255)
+  code                      String?  @unique @db.VarChar(50)
+  category                  String?  @db.VarChar(100)
+  description               String?
+  normal_range              String?
+  unit                      String?  @db.VarChar(50)
+  default_cost              Decimal  @default(0) @db.Decimal(10, 2)
+  home_collection_surcharge Decimal  @default(50) @db.Decimal(10, 2)
+  turnaround_hours          Int      @default(24)
+  requires_fasting          Boolean  @default(false)
+  patient_instructions      String?
+  sample_type               String?  @db.VarChar(50)
+  is_active                 Boolean  @default(true)
+  created_at                DateTime @default(now()) @db.Timestamp(6)
+  updated_at                DateTime @default(now()) @db.Timestamp(6)
+}
+
+model patient_records {
+  id              BigInt    @id @default(autoincrement())
+  patient_id      Int
+  document_type   String?   @db.VarChar(80)
+  title           String?   @db.VarChar(255)
+  file_key        String
+  file_url        String?
+  file_name       String?
+  file_size       BigInt?
+  file_mime       String?   @db.VarChar(100)
+  source_hospital String?   @db.VarChar(255)
+  record_date     DateTime? @db.Date
+  notes           String?
+  created_at      DateTime  @default(now()) @db.Timestamp(6)
+  updated_at      DateTime  @default(now()) @db.Timestamp(6)
+  users           users     @relation(fields: [patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "patrec_patient_fk")
+
+  @@index([patient_id, created_at(sort: Desc)], map: "idx_patrec_patient_created")
+}
+
+model scheduled_notifications {
+  id         BigInt    @id @default(autoincrement())
+  user_id    Int
+  type       String    @db.VarChar(64)
+  data       Json?
+  send_at    DateTime  @db.Timestamptz(6)
+  status     String    @default("pending") @db.VarChar(20)
+  sent_at    DateTime? @db.Timestamptz(6)
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "scheduled_notifications_user_fk")
+
+  @@index([user_id, status], map: "idx_scheduled_notifications_user")
 }

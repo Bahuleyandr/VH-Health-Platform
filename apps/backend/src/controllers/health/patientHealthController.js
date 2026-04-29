@@ -282,6 +282,93 @@ export async function recordPatientVitals(req, res) {
   }
 }
 
+export async function recordStaffVitals(req, res) {
+  try {
+    const { patient_id, vital_signs = {}, measurements = {} } = req.body || {};
+    if (!patient_id) {
+      return error(res, 'patient_id is required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    if (req.user?.role === 'PATIENT' && String(req.user?.id) !== String(patient_id)) {
+      return error(res, 'Access denied — patients can only record their own vitals', HTTP_STATUS.FORBIDDEN);
+    }
+
+    const patientId = Number.parseInt(patient_id, 10);
+    if (!Number.isInteger(patientId) || patientId <= 0) {
+      return error(res, 'patient_id must be a positive integer', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const patient = await prisma.$queryRawUnsafe(
+      'SELECT id, uid FROM users WHERE id = $1 AND COALESCE(is_active, true) = true LIMIT 1',
+      patientId
+    );
+    if (patient.length === 0) {
+      return error(res, HEALTH_MESSAGES.PATIENT_NOT_FOUND, HTTP_STATUS.NOT_FOUND);
+    }
+
+    const vitalSigns = vital_signs && typeof vital_signs === 'object' ? vital_signs : {};
+    const measurementValues = measurements && typeof measurements === 'object' ? measurements : {};
+    const numberOrNull = (value, parser = Number.parseFloat) => {
+      if (value === null || value === undefined || value === '') return null;
+      const parsed = parser(String(value), 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const bloodPressure = vitalSigns.blood_pressure || vitalSigns.bloodPressure || null;
+    const heartRate = numberOrNull(
+      vitalSigns.heart_rate ?? vitalSigns.heartRate ?? vitalSigns.pulse,
+      Number.parseInt
+    );
+    const temperature = numberOrNull(vitalSigns.temperature);
+    const bloodSugar = numberOrNull(
+      vitalSigns.blood_sugar ?? vitalSigns.bloodSugar,
+      Number.parseInt
+    );
+    const spO2 = numberOrNull(vitalSigns.spo2 ?? vitalSigns.spO2, Number.parseInt);
+    const weight = numberOrNull(measurementValues.weight);
+
+    if (!bloodPressure && heartRate == null && temperature == null &&
+        bloodSugar == null && weight == null && spO2 == null) {
+      return error(res, 'At least one vital sign or measurement is required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const result = await prisma.$queryRawUnsafe(
+      `INSERT INTO patient_vitals
+         (patient_uid, blood_pressure, heart_rate, temperature, blood_sugar, weight, spo2, source)
+       VALUES ($1::uuid, $2::jsonb, $3, $4, $5, $6, $7, 'manual')
+       RETURNING id, recorded_at, source`,
+      patient[0].uid,
+      bloodPressure ? JSON.stringify(bloodPressure) : null,
+      heartRate,
+      temperature,
+      bloodSugar,
+      weight,
+      spO2
+    );
+
+    logPhiAccess({
+      userId: req.user?.uid,
+      userRole: req.user?.role,
+      patientId: patient[0].uid,
+      recordType: 'STAFF_RECORDED_VITALS',
+      action: 'CREATE',
+      ip: req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
+      requestId: req.id
+    });
+
+    success(res, {
+      id: result[0].id,
+      patientId: patient[0].id,
+      patientUid: patient[0].uid,
+      recordedAt: result[0].recorded_at,
+      source: result[0].source || 'manual',
+    }, 'Vitals recorded successfully');
+  } catch (err) {
+    logger.error('Record staff vitals error:', err);
+    error(res, 'Failed to record vitals', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+}
+
 /**
  * GET /health/patient/:patient_id/sync-status
  *

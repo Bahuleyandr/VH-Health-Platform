@@ -121,6 +121,10 @@ callbackRouter.post('/health-info/on-request', async (req, res, next) => {
 
 const patientRouter = Router();
 
+function canViewAbdmAdmin(role) {
+  return role === 'SUPER_ADMIN' || isStaff(role) || isAdmin(role);
+}
+
 /**
  * POST /abdm/register-abha
  * Link ABHA number to patient account (patient or admin).
@@ -190,7 +194,7 @@ patientRouter.post('/verify-abha', async (req, res, next) => {
  */
 patientRouter.get('/patient-by-abha/:abhaNumber', async (req, res, next) => {
   try {
-    if (!isStaff(req.user?.role) && !isAdmin(req.user?.role)) {
+    if (!canViewAbdmAdmin(req.user?.role)) {
       return error(res, 'Only staff or admin can lookup patients by ABHA', 403);
     }
 
@@ -203,6 +207,48 @@ patientRouter.get('/patient-by-abha/:abhaNumber', async (req, res, next) => {
       return error(res, err.message, err.statusCode);
     }
     logger.error('Failed to lookup patient by ABHA', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * GET /abdm/status
+ * Admin/staff integration overview for the admin dashboard.
+ */
+patientRouter.get('/status', async (req, res, next) => {
+  try {
+    if (!canViewAbdmAdmin(req.user?.role)) {
+      return error(res, 'Only staff or admin can view ABDM status', 403);
+    }
+
+    const status = await abdmService.getAdminStatus();
+    return success(res, status, 'ABDM status retrieved', 200);
+  } catch (err) {
+    if (err.isOperational) {
+      return error(res, err.message, err.statusCode);
+    }
+    logger.error('Failed to get ABDM status', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * GET /abdm/consent-requests
+ * Admin/staff list of ABDM consent requests.
+ */
+patientRouter.get('/consent-requests', async (req, res, next) => {
+  try {
+    if (!canViewAbdmAdmin(req.user?.role)) {
+      return error(res, 'Only staff or admin can view ABDM consent requests', 403);
+    }
+
+    const requests = await abdmService.listConsentRequests(req.query || {});
+    return success(res, requests, 'ABDM consent requests retrieved', 200);
+  } catch (err) {
+    if (err.isOperational) {
+      return error(res, err.message, err.statusCode);
+    }
+    logger.error('Failed to list ABDM consent requests', { error: err.message });
     next(err);
   }
 });

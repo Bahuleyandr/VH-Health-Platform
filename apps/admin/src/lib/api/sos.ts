@@ -33,8 +33,5 @@ export function escalateAlert<T = unknown>(
   alertId: string | number, 
   reason?: string
 ) {
-  return postJSON<T>(API_ENDPOINTS.admin.sos.escalate, { 
-    alertId, 
-    reason 
-  });
+  return postJSON<T>(API_ENDPOINTS.admin.sos.escalate(alertId), { reason });
 }

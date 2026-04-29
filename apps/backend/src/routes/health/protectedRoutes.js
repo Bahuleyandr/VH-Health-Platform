@@ -52,6 +52,13 @@ router.post('/patient/vitals',
   patientHealthController.recordPatientVitals
 );
 
+// Legacy staff-app vitals endpoint. The staff app historically posted
+// structured vitals to /health/records; keep that URL backed by the current
+// patient_vitals schema.
+router.post('/records',
+  patientHealthController.recordStaffVitals
+);
+
 router.get('/patient/:patient_id/vitals',
   patientIdValidator,
   patientHealthController.getPatientVitals

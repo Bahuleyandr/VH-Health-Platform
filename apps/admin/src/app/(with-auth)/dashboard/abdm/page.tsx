@@ -15,6 +15,7 @@ import {
   Users,
 } from "lucide-react";
 import { fetchAdminAPI } from "@/lib/api";
+import { API_ENDPOINTS } from "@/lib/api-config";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -113,7 +114,7 @@ export default function ABDMPage() {
   } = useQuery<ABDMStatus>({
     queryKey: ["abdm-status"],
     queryFn: async () => {
-      const res = await fetchAdminAPI<unknown>("/abdm/status");
+      const res = await fetchAdminAPI<unknown>(API_ENDPOINTS.abdm.status);
       return unwrap<ABDMStatus>(res);
     },
   });
@@ -127,7 +128,7 @@ export default function ABDMPage() {
   } = useQuery<ConsentRequest[]>({
     queryKey: ["abdm-consent-requests"],
     queryFn: async () => {
-      const res = await fetchAdminAPI<unknown>("/abdm/consent-requests");
+      const res = await fetchAdminAPI<unknown>(API_ENDPOINTS.abdm.consentRequests);
       return unwrap<ConsentRequest[]>(res);
     },
     enabled: activeTab === "consent",

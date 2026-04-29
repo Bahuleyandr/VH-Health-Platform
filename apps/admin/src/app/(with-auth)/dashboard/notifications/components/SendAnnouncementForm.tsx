@@ -3,6 +3,7 @@
 
 import { useState, useRef } from "react";
 import { fetchAdminAPI } from "@/lib/api";
+import { API_ENDPOINTS } from "@/lib/api-config";
 import { toast } from "sonner";
 
 interface SendAnnouncementFormProps {
@@ -33,7 +34,7 @@ export function SendAnnouncementForm({ onSuccess }: SendAnnouncementFormProps) {
     }
 
     try {
-      await fetchAdminAPI("/notifications/announce", {
+      await fetchAdminAPI(API_ENDPOINTS.notifications.announcement, {
         method: "POST",
         body: {
           title,

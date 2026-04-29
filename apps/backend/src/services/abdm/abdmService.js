@@ -8,6 +8,124 @@ import { AppError } from '../../utils/AppError.js';
 import abdmGateway from './abdmGateway.js';
 
 class ABDMService {
+  async getAdminStatus() {
+    const checkedAt = new Date().toISOString();
+    const defaultConsentCounts = {
+      total: 0,
+      pending: 0,
+      granted: 0,
+      denied: 0,
+    };
+
+    let abhaCounts = {
+      abha_registrations: 0,
+      health_records_linked: 0,
+    };
+    try {
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT
+           COUNT(*) FILTER (WHERE abha_number IS NOT NULL OR abha_address IS NOT NULL)::int AS abha_registrations,
+           COUNT(*) FILTER (WHERE abha_number IS NOT NULL OR abha_address IS NOT NULL)::int AS health_records_linked
+         FROM users
+         WHERE COALESCE(is_active, true) = true`
+      );
+      abhaCounts = rows[0] || abhaCounts;
+    } catch (err) {
+      logger.warn('ABDM admin status ABHA counts unavailable', { error: err.message });
+    }
+
+    const consentTableAvailable = await this._tableExists('abdm_consents');
+    let consentCounts = defaultConsentCounts;
+    if (consentTableAvailable) {
+      try {
+        const rows = await prisma.$queryRawUnsafe(
+          `SELECT
+             COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE status = 'REQUESTED')::int AS pending,
+             COUNT(*) FILTER (WHERE status = 'GRANTED')::int AS granted,
+             COUNT(*) FILTER (WHERE status = 'DENIED')::int AS denied
+           FROM abdm_consents`
+        );
+        consentCounts = rows[0] || defaultConsentCounts;
+      } catch (err) {
+        logger.warn('ABDM admin status consent counts unavailable', { error: err.message });
+      }
+    }
+
+    return {
+      connected: Boolean(ABDM_CONFIG.enabled),
+      bridge_url: ABDM_CONFIG.bridgeUrl,
+      gateway_url: ABDM_CONFIG.gatewayUrl,
+      hip_id: ABDM_CONFIG.hipId || null,
+      hip_name: ABDM_CONFIG.hipName,
+      last_heartbeat: checkedAt,
+      abha_registrations: Number(abhaCounts.abha_registrations || 0),
+      health_records_linked: Number(abhaCounts.health_records_linked || 0),
+      consent_requests_total: Number(consentCounts.total || 0),
+      consent_requests_pending: Number(consentCounts.pending || 0),
+      consent_requests_granted: Number(consentCounts.granted || 0),
+      consent_requests_denied: Number(consentCounts.denied || 0),
+      services: [
+        {
+          name: 'ABDM Gateway',
+          status: ABDM_CONFIG.enabled ? 'up' : 'down',
+          last_check: checkedAt,
+        },
+        {
+          name: 'ABDM Bridge',
+          status: ABDM_CONFIG.enabled ? 'up' : 'down',
+          last_check: checkedAt,
+        },
+        {
+          name: 'Consent Store',
+          status: consentTableAvailable ? 'up' : 'degraded',
+          last_check: checkedAt,
+        },
+      ],
+    };
+  }
+
+  async listConsentRequests({ status = null, limit = 50, offset = 0 } = {}) {
+    if (!(await this._tableExists('abdm_consents'))) {
+      return [];
+    }
+
+    const normalizedStatus = status ? String(status).toUpperCase() : null;
+    const allowedStatuses = new Set(['REQUESTED', 'GRANTED', 'DENIED', 'EXPIRED', 'REVOKED']);
+    if (normalizedStatus && !allowedStatuses.has(normalizedStatus)) {
+      throw AppError.badRequest('Invalid ABDM consent status filter', 'INVALID_CONSENT_STATUS');
+    }
+
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 100);
+    const safeOffset = Math.max(Number.parseInt(offset, 10) || 0, 0);
+
+    return prisma.$queryRawUnsafe(
+      `SELECT
+         c.id::text AS id,
+         c.consent_id AS request_id,
+         c.patient_uid::text AS patient_id,
+         COALESCE(u.name, u.phone, c.patient_uid::text) AS patient_name,
+         c.purpose,
+         c.hip_id,
+         COALESCE($4::text, c.hip_id) AS hip_name,
+         c.hiu_id,
+         c.status,
+         c.date_range_from,
+         c.date_range_to,
+         c.expiry_date,
+         c.created_at,
+         COALESCE(c.granted_at, c.revoked_at, c.created_at) AS updated_at
+       FROM abdm_consents c
+       LEFT JOIN users u ON u.uid = c.patient_uid
+       WHERE ($1::text IS NULL OR c.status = $1::text)
+       ORDER BY c.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      normalizedStatus,
+      safeLimit,
+      safeOffset,
+      ABDM_CONFIG.hipName
+    );
+  }
 
   /**
    * Link an ABHA ID to a patient account. Verifies via ABDM gateway first.
@@ -658,6 +776,19 @@ class ABDMService {
     }
 
     return consent;
+  }
+
+  async _tableExists(tableName) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM information_schema.tables
+          WHERE table_schema = 'public'
+            AND table_name = $1
+       ) AS exists`,
+      tableName
+    );
+    return Boolean(rows[0]?.exists);
   }
 
   /**

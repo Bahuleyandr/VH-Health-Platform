@@ -201,12 +201,11 @@ class AdminService {
   }
 
   async escalateSosAlert(alertId: string, body?: { reason?: string }) {
-    // config has a string endpoint; include alertId in the POST body
-    const path = API_ENDPOINTS.admin.sos.escalate;
+    const path = API_ENDPOINTS.admin.sos.escalate(alertId);
     return this.request(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ alertId, ...(body ?? {}) }),
+      body: JSON.stringify(body ?? {}),
     });
   }
 
