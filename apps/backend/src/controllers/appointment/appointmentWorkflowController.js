@@ -492,18 +492,19 @@ export const registerWalkIn = async (req, res) => {
       );
       const tokenNumber = String(parseInt(tokenResult[0].next_token));
 
-      // appointments table has no `confirmed_by` or `phone` column — patient
-      // phone lives on the users row. created_by is the staff uuid.
+      // appointments has no `confirmed_by` column. created_by is uuid.
+      // phone, appointment_date, appointment_time, updated_at are NOT NULL.
       const apptRows = await tx.$queryRawUnsafe(
         `INSERT INTO appointments
-           (patient_id, doctor_id, appointment_date, appointment_time, reason, notes,
-            status, confirmed_at, token_number, department, created_by)
-         VALUES ($1, $2, NOW(), $3, $4, $5, 'CONFIRMED', NOW(), $6, $7, $8::uuid)
-         RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, reason, notes,
+           (patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
+            status, confirmed_at, token_number, department, created_by, updated_at)
+         VALUES ($1, $2, NOW(), $3, $4, $5, $6, 'CONFIRMED', NOW(), $7, $8, $9::uuid, NOW())
+         RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
                    status, confirmed_at, token_number, department, created_at`,
         patientId,
         doctor_id || null,
         appointment_time || 'Walk-in',
+        patient_phone || '',
         reason || 'Walk-in consultation',
         notes || null,
         tokenNumber,
