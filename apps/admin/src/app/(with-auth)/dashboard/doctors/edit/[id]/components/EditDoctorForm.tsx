@@ -92,10 +92,16 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
 
     const formData = new FormData(e.currentTarget);
 
-    // Build available_hours from enabled days only
-    const availableHours: ScheduleMap = {};
+    // Build available_hours from enabled days only.
+    // Backend column + validator expect "HH:mm-HH:mm" strings, not the
+    // {start, end} object shape the form keeps in local state. Serialise
+    // here so the wire format matches what the rest of the system expects.
+    const availableHours: Record<string, string> = {};
     for (const day of Array.from(enabledDays)) {
-      availableHours[day] = hours[day];
+      const h = hours[day];
+      if (h?.start && h?.end) {
+        availableHours[day] = `${h.start}-${h.end}`;
+      }
     }
 
     const profileData = {
