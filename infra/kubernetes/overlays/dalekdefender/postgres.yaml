@@ -1,0 +1,88 @@
+# Single-instance Postgres for the Dalekdefender deployment.
+# This is intentionally NOT CloudNativePG (the prod overlay has that) — for
+# a 1-node k3s test rig with no replicas, plain StatefulSet + PVC is plenty
+# and matches how Khata runs Postgres on the same cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vhhealth-postgres
+  namespace: vhhealth
+  labels:
+    app.kubernetes.io/name: vhhealth-postgres
+spec:
+  clusterIP: None
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+  selector:
+    app.kubernetes.io/name: vhhealth-postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vhhealth-postgres
+  namespace: vhhealth
+  labels:
+    app.kubernetes.io/name: vhhealth-postgres
+spec:
+  serviceName: vhhealth-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vhhealth-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vhhealth-postgres
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: vhhealth
+            - name: POSTGRES_DB
+              value: vhhealth
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vhhealth-postgres
+                  key: POSTGRES_PASSWORD
+            # Speeds up dev queries; safe for a non-prod single-node rig.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "vhhealth", "-d", "vhhealth"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "vhhealth", "-d", "vhhealth"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi
+        storageClassName: local-path

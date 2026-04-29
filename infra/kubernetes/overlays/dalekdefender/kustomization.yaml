@@ -1,0 +1,11 @@
+# Self-contained overlay for Dalekdefender (single-node k3s on the home
+# tailnet). Deliberately does NOT inherit from infra/kubernetes/base/ —
+# that base assumes CloudNativePG, SealedSecrets, cert-manager, etc.,
+# none of which are installed on this cluster.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - postgres.yaml
+  - backend.yaml
