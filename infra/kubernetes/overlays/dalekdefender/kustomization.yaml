@@ -9,3 +9,4 @@ resources:
   - namespace.yaml
   - postgres.yaml
   - backend.yaml
+  - admin.yaml
