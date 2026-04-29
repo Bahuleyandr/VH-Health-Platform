@@ -1,9 +1,9 @@
 // src/app/api/login/route.ts
 
 import { NextResponse } from "next/server";
+import { getServerBackendUrl } from "@/lib/api-config";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.vhhealth.app";
+const API_BASE_URL = getServerBackendUrl();
 const SERVER_API_KEY = process.env.BACKEND_API_KEY || process.env.API_KEY || "";
 
 /**
