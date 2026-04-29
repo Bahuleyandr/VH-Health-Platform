@@ -24,6 +24,10 @@ COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 COPY src ./src
 COPY prisma ./prisma
+# scripts referenced by src/utils/scheduler.js (backup-db, cleanup-backups,
+# purge-archives) — without these the container crashes at boot with
+# ERR_MODULE_NOT_FOUND on the first scheduler import.
+COPY admin ./admin
 
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 RUN chown -R appuser:appgroup /app
