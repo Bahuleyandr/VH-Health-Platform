@@ -115,10 +115,16 @@ class WebSocketService {
 
   String _buildWsUrl() {
     // Convert https://api.vhhealth.app/api/v1 -> wss://api.vhhealth.app/ws
-    // Token is sent via first message frame, NOT in URL
+    // and http://10.0.2.2:5000/api/v1 -> ws://10.0.2.2:5000/ws (dev).
+    // Preserve a non-default port so emulator/local dev works; without
+    // this the URL collapses to ws://host/ws (port 80) and times out.
+    // Token is sent via first message frame, NOT in URL.
     final base = Uri.parse(ApiConfig.baseUrl);
     final scheme = base.scheme == 'https' ? 'wss' : 'ws';
-    return '$scheme://${base.host}/ws';
+    final defaultPort = base.scheme == 'https' ? 443 : 80;
+    final hasExplicitPort = base.hasPort && base.port != defaultPort;
+    final authority = hasExplicitPort ? '${base.host}:${base.port}' : base.host;
+    return '$scheme://$authority/ws';
   }
 
   void _onData(dynamic raw) {

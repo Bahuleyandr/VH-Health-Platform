@@ -60,23 +60,28 @@ class AppRouter {
   static String? get userName => _userName;
 
   /// Read user phone from Provider (preferred) with static fallback.
+  /// Treats an *empty* Provider value as a miss — login flows that only
+  /// update the static (dev login, legacy OTP) need to fall through.
   static String _phone(BuildContext context) {
     try {
-      return context.read<UserProvider>().phone;
+      final fromProvider = context.read<UserProvider>().phone;
+      if (fromProvider.isNotEmpty) return fromProvider;
     } catch (e) {
       debugPrint('AppRouter._phone provider fallback: $e');
-      return _userPhone ?? '';
     }
+    return _userPhone ?? '';
   }
 
   /// Read user name from Provider (preferred) with static fallback.
+  /// Same empty-aware fallback as [_phone].
   static String _name(BuildContext context) {
     try {
-      return context.read<UserProvider>().name;
+      final fromProvider = context.read<UserProvider>().name;
+      if (fromProvider.isNotEmpty) return fromProvider;
     } catch (e) {
       debugPrint('AppRouter._name provider fallback: $e');
-      return _userName ?? 'Guest';
     }
+    return _userName ?? 'Guest';
   }
 
   /// Wraps a page in a [CustomTransitionPage] with a short cross-fade.
