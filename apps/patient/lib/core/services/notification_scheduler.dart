@@ -36,7 +36,7 @@ class NotificationScheduler {
       iOS: iosSettings,
     );
 
-    await _plugin.initialize(initSettings);
+    await _plugin.initialize(settings: initSettings);
 
     await _plugin
         .resolvePlatformSpecificImplementation<
@@ -104,15 +104,13 @@ class NotificationScheduler {
 
       try {
         await _plugin.zonedSchedule(
-          notificationId,
-          'Medication Reminder',
+          id: notificationId,
+          title: 'Medication Reminder',
           // Generic message to prevent PHI on lock screen
-          'Time for your medication. Open the app for details.',
-          scheduledTime,
-          notificationDetails,
+          body: 'Time for your medication. Open the app for details.',
+          scheduledDate: scheduledTime,
+          notificationDetails: notificationDetails,
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-          uiLocalNotificationDateInterpretation:
-              UILocalNotificationDateInterpretation.absoluteTime,
           matchDateTimeComponents: DateTimeComponents.time,
           payload: jsonEncode({'reminderId': id}),
         );
@@ -127,7 +125,7 @@ class NotificationScheduler {
   /// Cancel all notifications for a given reminder.
   static Future<void> cancelReminder(int reminderId) async {
     for (var i = 0; i < 100; i++) {
-      await _plugin.cancel(reminderId * 100 + i);
+      await _plugin.cancel(id: reminderId * 100 + i);
     }
   }
 

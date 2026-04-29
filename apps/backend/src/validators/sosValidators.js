@@ -33,8 +33,18 @@ export const getMyAlerts = [
 
 // Patient: Get nearby services
 export const getNearbyServices = [
-  query('latitude').isFloat({ min: -90, max: 90 }).withMessage('Valid latitude required'),
-  query('longitude').isFloat({ min: -180, max: 180 }).withMessage('Valid longitude required'),
+  query('latitude').optional().isFloat({ min: -90, max: 90 }).withMessage('Valid latitude required'),
+  query('lat').optional().isFloat({ min: -90, max: 90 }).withMessage('Valid latitude required'),
+  query('longitude').optional().isFloat({ min: -180, max: 180 }).withMessage('Valid longitude required'),
+  query('lng').optional().isFloat({ min: -180, max: 180 }).withMessage('Valid longitude required'),
+  query().custom((_, { req }) => {
+    const hasLatitude = req.query.latitude !== undefined || req.query.lat !== undefined;
+    const hasLongitude = req.query.longitude !== undefined || req.query.lng !== undefined;
+    if (!hasLatitude || !hasLongitude) {
+      throw new Error('Latitude and longitude are required');
+    }
+    return true;
+  }),
   query('radius').optional().isInt({ min: 1, max: 100 }).withMessage('Radius must be between 1 and 100 km')
 ];
 

@@ -8,6 +8,26 @@ import { isAdmin } from '../utils/roleHelpers.js';
 import { normalizePhone } from '../utils/phoneUtils.js';
 import { success, error } from '../utils/responseHelper.js';
 
+export const parseNearbyCoordinates = (query = {}) => {
+  const rawLatitude = query.latitude ?? query.lat;
+  const rawLongitude = query.longitude ?? query.lng;
+  const latitude = Number.parseFloat(rawLatitude);
+  const longitude = Number.parseFloat(rawLongitude);
+
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return null;
+  }
+
+  return { latitude, longitude };
+};
+
 // Patient Controllers
 export const createEmergencyAlert = async (req, res) => {
   const errors = validationResult(req);
@@ -115,14 +135,13 @@ export const getMyAlerts = async (req, res) => {
 
 export const getNearbyServices = async (req, res) => {
   try {
-    const latitude = parseFloat(req.query.latitude);
-    const longitude = parseFloat(req.query.longitude);
+    const coordinates = parseNearbyCoordinates(req.query);
 
-    if (isNaN(latitude) || isNaN(longitude)) {
+    if (!coordinates) {
       return error(res, 'Latitude and longitude are required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const services = await sosService.getNearbyServices(latitude, longitude);
+    const services = await sosService.getNearbyServices(coordinates.latitude, coordinates.longitude);
     success(res, { services }, 'Nearby services retrieved');
   } catch (err) {
     logger.error('Nearby Services Error:', err);

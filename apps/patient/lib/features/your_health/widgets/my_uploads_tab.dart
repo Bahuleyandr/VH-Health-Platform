@@ -286,7 +286,7 @@ class MyUploadsTabState extends State<MyUploadsTab> {
                     icon: const Icon(Icons.attach_file),
                     label: Text(pickedFileName ?? 'Pick File *'),
                     onPressed: () async {
-                      final result = await FilePicker.platform.pickFiles(
+                      final result = await FilePicker.pickFiles(
                         type: FileType.custom,
                         allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
                       );

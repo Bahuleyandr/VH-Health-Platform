@@ -35,10 +35,8 @@ class BiometricGateService {
 
       return await _auth.authenticate(
         localizedReason: reason,
-        options: const AuthenticationOptions(
-          stickyAuth: true,
-          biometricOnly: false, // allow PIN fallback
-        ),
+        biometricOnly: false, // allow PIN fallback
+        persistAcrossBackgrounding: true,
       );
     } catch (e) {
       if (kDebugMode) debugPrint('BiometricGateService: $e');

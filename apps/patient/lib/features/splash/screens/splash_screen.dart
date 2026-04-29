@@ -243,7 +243,7 @@ class _SplashScreenState extends State<SplashScreen>
           if (canAuth && supported) {
             final didAuth = await _localAuth.authenticate(
               localizedReason: 'Please authenticate to continue',
-              options: const AuthenticationOptions(biometricOnly: true),
+              biometricOnly: true,
             );
 
             if (didAuth && mounted) {

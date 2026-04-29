@@ -119,7 +119,7 @@ class SettingsController {
       try {
         final auth = await _auth.authenticate(
           localizedReason: loc.settingsBiometricLogin,
-          options: const AuthenticationOptions(biometricOnly: true),
+          biometricOnly: true,
         );
         if (!auth) return;
       } catch (e) {

@@ -51,9 +51,12 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
         '${dir.path}/vh_badge_${widget.achievement.id}.png',
       ).writeAsBytes(Uint8List.fromList(bytes));
 
-      await Share.shareXFiles(
-        [XFile(file.path, mimeType: 'image/png')],
-        text: 'I earned the "${widget.achievement.title}" badge on VH Health!',
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path, mimeType: 'image/png')],
+          text:
+              'I earned the "${widget.achievement.title}" badge on VH Health!',
+        ),
       );
     } catch (e) {
       if (kDebugMode) debugPrint('AchievementShareCard: share error: $e');

@@ -41,11 +41,11 @@ This tracker is the canonical platform-level remediation list. It focuses on rel
 
 ## P3 - Product And Docs Polish
 
-- [ ] Update root README, admin README, deployment guide, release docs, and stale workflow comments.
-- [ ] Add patient/staff/admin smoke E2E journeys for login, dashboard, booking, uploads, and Clinical AI review.
-- [ ] Triage patient audit backlog: SOS nearby-services 400, profile setup recheck, investigation booking walkthrough, pull-to-refresh, medication reminder surface, and empty states.
-- [ ] Add bundle/performance work for heavy admin routes, especially Clinical AI.
-- [ ] Plan and execute breaking Flutter plugin migrations still blocked by major-version constraints: connectivity_plus 7, device_info_plus 13, file_picker 11, flutter_local_notifications 21, flutter_secure_storage 10, go_router 17, local_auth 3, mobile_scanner 7, pin_code_fields 9, share_plus 13, timezone 0.11, and vector_math 2.3 override cleanup.
+- [x] Update root README, admin README, deployment guide, release docs, and stale workflow comments.
+- [x] Add patient/staff/admin smoke E2E journeys for login, dashboard, booking, uploads, and Clinical AI review.
+- [x] Triage patient audit backlog: SOS nearby-services 400, profile setup recheck, investigation booking walkthrough, pull-to-refresh, medication reminder surface, and empty states.
+- [x] Add bundle/performance work for heavy admin routes, especially Clinical AI.
+- [x] Plan and execute resolvable breaking Flutter plugin migrations; document remaining resolver-blocked majors for device_info_plus 13, share_plus 13, vector_math 2.3, and platform override cleanup.
 
 ## Owner Actions Outside Code
 
@@ -65,6 +65,7 @@ This tracker is the canonical platform-level remediation list. It focuses on rel
 - [x] Admin: `npm run type-check`
 - [x] Admin: `npm test`
 - [x] Admin: `npm run build`
+- [x] Admin: `npm run check:clinical-ai-bundle`
 - [x] Mobile: `dart pub get`
 - [x] Mobile: `dart run melos bootstrap`
 - [x] Mobile: `dart run melos run analyze`
@@ -79,8 +80,8 @@ This tracker is the canonical platform-level remediation list. It focuses on rel
 ## Validation Notes - 2026-04-29
 
 - Backend lint now passes with zero warnings and `--max-warnings=0`.
-- Backend full test suite passes: 111 suites, 1561 passed, 8 skipped, 1569 total.
-- Admin direct ESLint, type-check, Jest, and Next production build pass.
+- Backend full test suite passes: 112 suites, 1564 passed, 8 skipped, 1572 total.
+- Admin direct ESLint, type-check, Jest, Next production build, and Clinical AI bundle guard pass.
 - Flutter format, analyze, and tests pass across patient, staff, and core.
 - Disposable Postgres CI setup passes after `prisma db push --force-reset --skip-generate` plus `node scripts/ci-setup-db.mjs`; validation also confirms `appointment_status_history` from migration `106` exists.
 - Kubernetes migration-job command path passes against disposable Postgres after `prisma db push --skip-generate --accept-data-loss=false` plus `node scripts/ci-setup-db.mjs`.
@@ -95,3 +96,8 @@ This tracker is the canonical platform-level remediation list. It focuses on rel
 - Backend tests should be run against the disposable local test database, for example by setting `DATABASE_URL=postgresql://postgres@127.0.0.1:55432/vhhealth_test` and `TEST_DATABASE_URL` to the same value. The local `.env.local` database URL points at the developer database on port `5433` and timed out during this validation pass.
 - P2 architecture cleanup is complete for the planned remediation scope: Clinical AI admin panels are split into lazy module files, the Clinical AI backend route surface is decomposed into route-family modules, `emr.ts` no longer owns the Clinical AI API surface, touched Clinical AI raw SQL flows go through the shared helper, route-health logs are coherent, and dev-only auth fails closed unless explicitly enabled.
 - P2 validation pass: backend route syntax checks passed for all Clinical AI route modules; backend lint passed; targeted Clinical AI Jest passed against the disposable local database; admin lint, type-check, and production build passed. `ensure-test-db.mjs` now resets the disposable test schema and reuses the tolerant CI hybrid migration setup so local targeted backend test runs do not fail on older migration seed conflicts.
+- P3 product/docs pass updated the root/admin README, deployment guide, April release notes, smoke journey documentation, Flutter plugin migration notes, and stale admin Playwright CI comments.
+- P3 smoke coverage now includes patient SOS `lat/lng` compatibility, staff stats/investigation queue/SLA routes, admin Clinical AI status/modules/reviews/audit routes, and browser-level admin uploads/Clinical AI journeys.
+- P3 patient backlog triage found the concrete SOS nearby-services alias bug and fixed it. Profile setup, investigation booking, dashboard refresh, and medication reminders already had working surfaces; remaining empty-state refinement is product polish, not a release blocker.
+- P3 Clinical AI performance guard adds `npm run check:clinical-ai-bundle` and wires it into admin CI after `next build`.
+- P3 Flutter plugin pass upgraded all resolver-accepted major packages and migrated affected APIs. `device_info_plus` 13, `share_plus` 13, `vector_math` 2.3, and secure-storage platform override cleanup remain documented follow-up constraints rather than forced dependency overrides.

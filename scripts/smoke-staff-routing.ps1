@@ -216,7 +216,10 @@ $recipientToken = New-SmokeToken -Uid $RecipientUid
 $results = [System.Collections.Generic.List[object]]::new()
 
 Invoke-SmokeRequest $results "config_campus_locations" "GET" "/api/v1/config/campus-locations" | Out-Null
+Invoke-SmokeRequest $results "staff_stats_summary" "GET" "/api/v1/staff/stats/summary" | Out-Null
 Invoke-SmokeRequest $results "dietary_worklist" "GET" "/api/v1/dietary/worklist?limit=1" | Out-Null
+Invoke-SmokeRequest $results "investigations_queue" "GET" "/api/v1/investigations/bookings/queue?limit=1" | Out-Null
+Invoke-SmokeRequest $results "investigations_sla" "GET" "/api/v1/investigations/bookings/sla" | Out-Null
 
 $dietCreate = Invoke-SmokeRequest $results "dietary_create" "POST" "/api/v1/dietary/orders" @{
   patient_uid = $PatientUid

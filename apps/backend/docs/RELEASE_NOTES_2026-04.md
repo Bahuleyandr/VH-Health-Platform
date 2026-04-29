@@ -4,6 +4,28 @@
 > production-readiness pass. Aimed at hospital ops + clinical leads:
 > what changed, how to act, where to read more.
 
+## 2026-04-29 remediation baseline update
+
+- **Release health:** backend now exposes `/health/live` and `/health/ready`
+  while preserving `/health/ping` and `/health/deep`. Readiness checks database
+  connectivity plus migration `106` table `appointment_status_history`.
+- **CI and security:** backend/admin/mobile gates now cover lint, tests, builds,
+  Swagger validation, gitleaks fallback scanning, Dart format checking, and
+  manifest validation.
+- **Mobile release:** patient and staff release workflows require `VH_BASE_URL`,
+  `VH_API_KEY`, and Android signing secrets. Patient Android NDK is pinned to
+  `28.2.13676358`.
+- **Runtime safety:** Kubernetes caps backend cluster mode at `CLUSTER_WORKERS=2`
+  and `src/cluster.js` clamps invalid values.
+- **Clinical AI architecture:** admin module panels are split and lazily loaded;
+  backend Clinical AI routes are decomposed into route-family modules; admin CI
+  now runs a Clinical AI bundle guard.
+- **Product polish:** patient, staff, and admin smoke journey coverage was
+  expanded. SOS nearby-services accepts both `latitude/longitude` and `lat/lng`.
+- **Flutter plugins:** resolvable major plugin migrations were applied and
+  remaining resolver-blocked majors are documented in
+  `docs/FLUTTER_PLUGIN_MAJOR_MIGRATIONS.md`.
+
 ## Highlights
 
 - **Clinical safety:** live 5-rights MAR scanner now reachable; CDS hard-block
@@ -21,14 +43,14 @@
 
 ### Clinical safety (staff app + backend)
 
-- **MAR 5-rights scanner now invocable.** A new *Due Medications* screen on
+- **MAR 5-rights scanner now invocable.** A new _Due Medications_ screen on
   nurse + admin dashboards (`/mar/due`) lists scheduled + held doses in a
   rolling window around "now" with patient name + bed context. Tap a row
   → bedside scan flow (`/mar/scan/:maId`). Prior to this, the scanner
   existed but nothing in the app fed it a `ma_id` — so the feature was
   effectively dead code.
 - **Drug-identifier table.** `drug_identifiers (code, code_type, canonical_name,
-  generic_name, brand_name, strength, dosage_form)` (migration 009) replaces
+generic_name, brand_name, strength, dosage_form)` (migration 009) replaces
   the substring match previously used to check the "right drug." A scanned
   barcode that resolves strict-matches on ingredient/brand tokens; if it
   doesn't resolve, falls back to the legacy substring check so existing
@@ -51,9 +73,9 @@
   (jsonb). Each observation row now carries a `loinc_valid` flag surfaced
   by the new `loincValidator` integration.
 - **Terminology validators.** New `services/terminology/rxnormValidator.js`
-  + `services/terminology/snomedValidator.js` alongside the existing LOINC
-  one. Wired into prescription + diagnosis POST: malformed codes → 400,
-  not-in-allowlist → warn + accept.
+  - `services/terminology/snomedValidator.js` alongside the existing LOINC
+    one. Wired into prescription + diagnosis POST: malformed codes → 400,
+    not-in-allowlist → warn + accept.
 - **FHIR R4.** `GET /fhir/Patient/:id` + `GET /fhir/Appointment/:id` now
   return validated resources with required-element + bound-value-set
   checks. Official HL7 Java IG Publisher runs in CI on sample bundles

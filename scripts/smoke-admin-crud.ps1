@@ -268,6 +268,10 @@ Invoke-SmokeRequest $results "system_settings_get" "GET" "/api/v1/system/setting
 Invoke-SmokeRequest $results "system_settings_put" "PUT" "/api/v1/system/settings" @{
   maintenanceMode = $false
 } | Out-Null
+Invoke-SmokeRequest $results "clinical_ai_status" "GET" "/api/v1/admin/clinical-ai/status?days=1" | Out-Null
+Invoke-SmokeRequest $results "clinical_ai_modules" "GET" "/api/v1/admin/clinical-ai/modules" | Out-Null
+Invoke-SmokeRequest $results "clinical_ai_reviews" "GET" "/api/v1/admin/clinical-ai/reviews?limit=1" | Out-Null
+Invoke-SmokeRequest $results "clinical_ai_audit" "GET" "/api/v1/admin/clinical-ai/audit?limit=1" | Out-Null
 
 $results | Format-Table -AutoSize
 

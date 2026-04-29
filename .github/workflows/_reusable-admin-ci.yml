@@ -58,7 +58,7 @@ jobs:
           scan-ref: apps/admin
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          exit-code: '1'
+          exit-code: "1"
           skip-dirs: apps/admin/node_modules
 
       - run: npm run lint
@@ -68,6 +68,8 @@ jobs:
       - run: npm test
 
       - run: npx next build
+
+      - run: npm run check:clinical-ai-bundle
 
       - name: Notify Discord on failure
         if: failure() && inputs.notify_on_failure

@@ -97,7 +97,7 @@ class OtpHeader extends StatelessWidget {
   }
 }
 
-class OtpInput extends StatelessWidget {
+class OtpInput extends StatefulWidget {
   final TextEditingController controller;
   final Function(String) onChanged;
   final Function(String) onCompleted;
@@ -110,32 +110,61 @@ class OtpInput extends StatelessWidget {
   });
 
   @override
+  State<OtpInput> createState() => _OtpInputState();
+}
+
+class _OtpInputState extends State<OtpInput> {
+  late PinInputController _pinController;
+
+  @override
+  void initState() {
+    super.initState();
+    _pinController = PinInputController(textController: widget.controller);
+  }
+
+  @override
+  void didUpdateWidget(covariant OtpInput oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      _pinController.dispose();
+      _pinController = PinInputController(textController: widget.controller);
+    }
+  }
+
+  @override
+  void dispose() {
+    _pinController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return PinCodeTextField(
-      appContext: context,
+    return MaterialPinField(
       length: 6,
-      controller: controller,
+      pinController: _pinController,
       keyboardType: TextInputType.number,
-      animationType: AnimationType.fade,
       autoFocus: true,
-      pinTheme: PinTheme(
-        shape: PinCodeFieldShape.box,
+      theme: MaterialPinTheme(
+        shape: MaterialPinShape.outlined,
         borderRadius: BorderRadius.circular(12),
-        fieldHeight: 55,
-        fieldWidth: 45,
+        cellSize: const Size(45, 55),
         borderWidth: 2,
-        activeColor: Colors.teal,
-        selectedColor: Colors.orange,
-        inactiveColor: Colors.grey[300]!,
-        activeFillColor: Colors.teal.withValues(alpha: 0.1),
-        selectedFillColor: Colors.orange.withValues(alpha: 0.1),
-        inactiveFillColor: Colors.grey[50]!,
+        focusedBorderWidth: 2,
+        borderColor: Colors.grey[300]!,
+        focusedBorderColor: Colors.orange,
+        filledBorderColor: Colors.teal,
+        completeBorderColor: Colors.teal,
+        fillColor: Colors.grey[50]!,
+        focusedFillColor: Colors.orange.withValues(alpha: 0.1),
+        filledFillColor: Colors.teal.withValues(alpha: 0.1),
+        completeFillColor: Colors.teal.withValues(alpha: 0.1),
+        followingFillColor: Colors.grey[50]!,
+        cursorColor: Colors.teal,
+        entryAnimation: MaterialPinAnimation.fade,
+        animationDuration: const Duration(milliseconds: 300),
       ),
-      enableActiveFill: true,
-      cursorColor: Colors.teal,
-      animationDuration: const Duration(milliseconds: 300),
-      onChanged: onChanged,
-      onCompleted: onCompleted,
+      onChanged: widget.onChanged,
+      onCompleted: widget.onCompleted,
     );
   }
 }

@@ -40,7 +40,10 @@ class CodeBlueNotifier {
       requestSoundPermission: true,
     );
     await _plugin.initialize(
-      const InitializationSettings(android: androidInit, iOS: iosInit),
+      settings: const InitializationSettings(
+        android: androidInit,
+        iOS: iosInit,
+      ),
     );
 
     // Register the high-importance channel used for Code Blue full-screen intents.
@@ -92,10 +95,10 @@ class CodeBlueNotifier {
     final body = parts.isNotEmpty ? parts.join(' · ') : 'Respond immediately';
 
     await _plugin.show(
-      _notificationId,
-      'CODE BLUE',
-      body,
-      const NotificationDetails(
+      id: _notificationId,
+      title: 'CODE BLUE',
+      body: body,
+      notificationDetails: const NotificationDetails(
         android: AndroidNotificationDetails(
           _channelId,
           'Code Blue',

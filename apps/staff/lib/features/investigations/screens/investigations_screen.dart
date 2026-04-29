@@ -248,7 +248,7 @@ class _UploadTabState extends State<_UploadTab> {
                   ? null
                   : () async {
                       try {
-                        final result = await FilePicker.platform.pickFiles(
+                        final result = await FilePicker.pickFiles(
                           type: FileType.custom,
                           allowedExtensions: [
                             'pdf',

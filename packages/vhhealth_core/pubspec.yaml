@@ -12,7 +12,7 @@ dependencies:
   flutter:
     sdk: flutter
   http: ^1.4.0
-  flutter_secure_storage: ^9.2.4
+  flutter_secure_storage: ^10.0.0
   geolocator: ^14.0.1
   url_launcher: ^6.3.1
   web_socket_channel: ^3.0.1
@@ -26,7 +26,7 @@ dependencies:
   # patient app gets the same ChangeNotifier + sync-badge UX).
   sqflite: ^2.4.2+1
   path: ^1.9.0
-  connectivity_plus: ^6.1.4
+  connectivity_plus: ^7.1.1
   # Used by OfflineSyncBadge for the "synced 2 minutes ago" label.
   intl: ^0.20.2
   # Device integrity — used by DeviceIntegrityService to detect

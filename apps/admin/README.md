@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VH Health Admin Portal
 
-## Getting Started
+Next.js admin portal for hospital operations, user management, appointments,
+uploads, investigations, payroll, audit, and Clinical AI governance.
 
-First, run the development server:
+## Local Commands
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run lint
+npm run type-check
+npm test
+npm run build
+npm run check:clinical-ai-bundle
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The dev server runs on `http://localhost:3001`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Typical local/CI values:
 
-## Learn More
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:5000
+NEXT_PUBLIC_WS_URL=ws://localhost:5000
+NEXT_PUBLIC_API_KEY=test-api-key
+NEXT_PUBLIC_X_API_KEY=test-api-key
+NEXT_PUBLIC_APP_ORIGIN=http://localhost:3001
+NEXT_PUBLIC_APP_NAME="VHHealth Admin"
+```
 
-To learn more about Next.js, take a look at the following resources:
+Do not commit real secrets. Production API keys, JWT/session secrets, and Sentry
+DSNs belong in the deployment secret store or GitHub Actions secrets.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Test Surface
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `npm run lint` uses direct ESLint, not deprecated `next lint`.
+- `npm run type-check` runs `tsc --noEmit`.
+- `npm test` runs Jest.
+- `npm run build` runs the production Next build.
+- `npm run check:clinical-ai-bundle` guards the heavy Clinical AI route against
+  static panel imports and enforces a route JS budget when `.next` build
+  artifacts include the route.
+- `npm run test:e2e` runs Playwright local smoke journeys. Authenticated
+  journeys currently depend on seeded local backend/admin fixture data.
 
-## Deploy on Vercel
+## Clinical AI Bundle Guard
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The Clinical AI dashboard intentionally loads module panels through
+`next/dynamic` plus viewport-triggered rendering. The guard in
+`scripts/check-clinical-ai-bundle.mjs` fails if the page starts statically
+importing heavy module panels again.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Override the default route budget when needed:
+
+```bash
+ADMIN_CLINICAL_AI_ROUTE_JS_BUDGET_KB=220 npm run check:clinical-ai-bundle
+```

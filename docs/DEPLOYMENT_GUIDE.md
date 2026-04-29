@@ -6,6 +6,7 @@
 > Kubernetes basics.
 >
 > Companion docs:
+>
 > - [`HARDWARE_REQUIREMENTS.md`](HARDWARE_REQUIREMENTS.md) — procurement spec
 > - [`../apps/backend/docs/DISASTER-RECOVERY.md`](../apps/backend/docs/DISASTER-RECOVERY.md) — DR scenarios
 > - [`../apps/backend/docs/DB-MIGRATION-PLAN.md`](../apps/backend/docs/DB-MIGRATION-PLAN.md) — data cutover from legacy deployment
@@ -46,16 +47,38 @@ Key properties:
 
 Namespace layout:
 
-| Namespace | Purpose |
-|-----------|---------|
-| `vhhealth` | Application pods: backend, admin, migration Jobs |
-| `vhhealth-platform` | Stateful platform: CNPG, Redis, MinIO, cloudflared |
-| `ingress-nginx` | Ingress controller DaemonSet |
-| `cnpg-system` | CloudNativePG operator |
-| `sealed-secrets` | Sealed-secrets controller |
-| `argocd` | ArgoCD control plane |
-| `harbor` | In-cluster container registry (pull-through to ghcr) |
-| `monitoring` | Prometheus + Alertmanager + Grafana + Loki |
+| Namespace           | Purpose                                              |
+| ------------------- | ---------------------------------------------------- |
+| `vhhealth`          | Application pods: backend, admin, migration Jobs     |
+| `vhhealth-platform` | Stateful platform: CNPG, Redis, MinIO, cloudflared   |
+| `ingress-nginx`     | Ingress controller DaemonSet                         |
+| `cnpg-system`       | CloudNativePG operator                               |
+| `sealed-secrets`    | Sealed-secrets controller                            |
+| `argocd`            | ArgoCD control plane                                 |
+| `harbor`            | In-cluster container registry (pull-through to ghcr) |
+| `monitoring`        | Prometheus + Alertmanager + Grafana + Loki           |
+
+---
+
+## 0.1 Current release baseline
+
+As of the 2026-04 remediation baseline, production readiness depends on the
+following invariants:
+
+- Backend liveness probes use `GET /health/live`.
+- Backend readiness probes use `GET /health/ready`, which checks database
+  connectivity and migration `106` table `appointment_status_history`.
+- Legacy `GET /health/ping` and `GET /health/deep` remain available for older
+  monitors, but new manifests should not point Kubernetes probes at them.
+- Backend Kubernetes Deployment sets `CLUSTER_WORKERS=2`; increasing it needs a
+  capacity review so pods do not oversubscribe host CPUs.
+- CI database setup reads SQL from `apps/backend/src/migrations`.
+- Mobile release workflows require GitHub Actions variable `VH_BASE_URL`,
+  secret `VH_API_KEY`, and patient/staff Android signing secrets.
+- Admin CI runs lint, type-check, Jest, production build, and the Clinical AI
+  bundle guard.
+- Smoke journey commands are documented in
+  [`SMOKE_E2E_JOURNEYS.md`](SMOKE_E2E_JOURNEYS.md).
 
 ---
 
@@ -318,6 +341,7 @@ Minimum required before backend will start:
 - `cloudflared-token` (Cloudflare Tunnel credentials JSON)
 
 Optional but recommended:
+
 - `vhhealth-chatbot` (LLM provider config)
 - `vhhealth-clinical-ai` (clinical AI provider config)
 - `admin-env` (BACKEND_API_KEY, NEXT_PUBLIC_ALLOWED_ORIGIN, etc.)
@@ -442,20 +466,21 @@ follows the normal non-MFA path. Revert the flag after recovery.
 
 Links to live runbooks under `apps/backend/docs/RUNBOOKS/`:
 
-| Scenario | Runbook |
-|----------|---------|
-| Postgres primary is down / data loss | [`db-restore.md`](../apps/backend/docs/RUNBOOKS/db-restore.md) |
-| R2 bucket / object issues | [`r2-restore.md`](../apps/backend/docs/RUNBOOKS/r2-restore.md) |
-| Credential exposure / rotation | [`credential-incident-response.md`](../apps/backend/docs/RUNBOOKS/credential-incident-response.md) |
-| Secret / cert / key rotation | [`cert-rotation.md`](../apps/backend/docs/RUNBOOKS/cert-rotation.md) |
-| Code Blue mis-fire | [`code-blue-misfire.md`](../apps/backend/docs/RUNBOOKS/code-blue-misfire.md) |
-| Chatbot provider switch | [`chatbot-provider-switch.md`](../apps/backend/docs/RUNBOOKS/chatbot-provider-switch.md) |
-| Clinical AI provider switch | [`clinical-ai-provider-switch.md`](../apps/backend/docs/RUNBOOKS/clinical-ai-provider-switch.md) |
-| DR scenarios (node/quorum/full-cluster loss) | [`DISASTER-RECOVERY.md`](../apps/backend/docs/DISASTER-RECOVERY.md) |
+| Scenario                                     | Runbook                                                                                            |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Postgres primary is down / data loss         | [`db-restore.md`](../apps/backend/docs/RUNBOOKS/db-restore.md)                                     |
+| R2 bucket / object issues                    | [`r2-restore.md`](../apps/backend/docs/RUNBOOKS/r2-restore.md)                                     |
+| Credential exposure / rotation               | [`credential-incident-response.md`](../apps/backend/docs/RUNBOOKS/credential-incident-response.md) |
+| Secret / cert / key rotation                 | [`cert-rotation.md`](../apps/backend/docs/RUNBOOKS/cert-rotation.md)                               |
+| Code Blue mis-fire                           | [`code-blue-misfire.md`](../apps/backend/docs/RUNBOOKS/code-blue-misfire.md)                       |
+| Chatbot provider switch                      | [`chatbot-provider-switch.md`](../apps/backend/docs/RUNBOOKS/chatbot-provider-switch.md)           |
+| Clinical AI provider switch                  | [`clinical-ai-provider-switch.md`](../apps/backend/docs/RUNBOOKS/clinical-ai-provider-switch.md)   |
+| DR scenarios (node/quorum/full-cluster loss) | [`DISASTER-RECOVERY.md`](../apps/backend/docs/DISASTER-RECOVERY.md)                                |
 
 **Rolling upgrade (every image build on `main`):**
 Automatic via ArgoCD image updater (planned) or manual bump in
 `infra/kubernetes/apps/<app>/kustomization.yaml`:
+
 ```bash
 # Manual tag bump for backend
 kustomize edit set image ghcr.io/bahuleyan/vhhealth-backend=ghcr.io/bahuleyan/vhhealth-backend:v1.5.2
@@ -465,6 +490,7 @@ git push
 ```
 
 **Node replacement:**
+
 1. `kubectl drain vhh-k8s-02 --ignore-daemonsets`
 2. Power off, swap server, reinstall Ubuntu 24.04.
 3. Re-run `ansible-playbook -l vhh-k8s-02` — role joins it back to RKE2.

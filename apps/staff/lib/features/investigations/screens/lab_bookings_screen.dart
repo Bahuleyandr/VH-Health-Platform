@@ -746,7 +746,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
             children: [
               OutlinedButton.icon(
                 onPressed: () async {
-                  final result = await FilePicker.platform.pickFiles(
+                  final result = await FilePicker.pickFiles(
                     type: FileType.custom,
                     allowedExtensions: ['pdf', 'jpg', 'png', 'doc', 'docx'],
                   );

@@ -1,4 +1,4 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig, devices } from "@playwright/test";
 
 /**
  * Playwright config for admin-portal E2E tests.
@@ -20,45 +20,44 @@ import { defineConfig, devices } from '@playwright/test';
  *   - `smoke.spec.ts` runs unauthenticated (blank storage) via the
  *     explicit `storageState: {...}` override in that spec.
  *
- * CI: add a workflow job that
- *   (a) runs the seed SQL that creates the test admin (see
- *       `e2e/auth.setup.ts` header),
- *   (b) runs `npm run dev` against a test backend, and
- *   (c) runs `npx playwright test --reporter=github`.
+ * CI note:
+ *   The reusable admin workflow runs lint, type-check, tests, build, and the
+ *   Clinical AI bundle guard. Playwright authenticated journeys remain a local
+ *   smoke gate until the seeded backend fixture is promoted into CI.
  */
 export default defineConfig({
-  testDir: './e2e',
+  testDir: "./e2e",
   timeout: 30_000,
   expect: { timeout: 5_000 },
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
+  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3001',
-    trace: 'on-first-retry',
-    screenshot: 'only-on-failure',
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3001",
+    trace: "on-first-retry",
+    screenshot: "only-on-failure",
   },
   projects: [
     {
-      name: 'setup',
+      name: "setup",
       testMatch: /auth\.setup\.ts/,
     },
     {
-      name: 'chromium',
+      name: "chromium",
       use: {
-        ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/admin.json',
+        ...devices["Desktop Chrome"],
+        storageState: "playwright/.auth/admin.json",
       },
-      dependencies: ['setup'],
+      dependencies: ["setup"],
       testIgnore: /auth\.setup\.ts/,
     },
   ],
   webServer: process.env.CI
     ? {
-        command: 'npm run dev',
-        url: 'http://localhost:3001',
+        command: "npm run dev",
+        url: "http://localhost:3001",
         reuseExistingServer: false,
         timeout: 120_000,
       }

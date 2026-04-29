@@ -111,7 +111,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     }
 
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf', 'doc', 'docx', 'jpg', 'png'],
       );

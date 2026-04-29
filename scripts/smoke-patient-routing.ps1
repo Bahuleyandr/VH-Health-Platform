@@ -426,6 +426,7 @@ $sosJson = Get-JsonContent $sosCreate
 $sosAlertId = Get-JsonProperty (Get-JsonProperty $sosJson "data") "alert_id"
 Invoke-SmokeRequest $results "sos_my_alerts" "GET" "/api/v1/sos/my-alerts" | Out-Null
 Invoke-SmokeRequest $results "sos_nearby_services" "GET" "/api/v1/sos/nearby-services?latitude=13.0827&longitude=80.2707" | Out-Null
+Invoke-SmokeRequest $results "sos_nearby_services_lat_lng" "GET" "/api/v1/sos/nearby-services?lat=13.0827&lng=80.2707" | Out-Null
 if ($sosAlertId) {
   Invoke-SmokeRequest $results "sos_cancel" "POST" "/api/v1/sos/cancel/$sosAlertId" | Out-Null
 } else {
