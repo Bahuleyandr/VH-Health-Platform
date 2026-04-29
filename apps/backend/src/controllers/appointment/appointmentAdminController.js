@@ -26,12 +26,15 @@ export const getAppointmentSLADashboard = async (req, res) => {
         COUNT(CASE WHEN status='SCHEDULED' AND confirmed_at IS NULL THEN 1 END)::int as pending_confirmation
         FROM appointments WHERE DATE(appointment_date) BETWEEN $1::date AND $2::date`, from, to),
 
-      // SLA metrics
+      // SLA metrics — appointments table uses `confirmed_at` for the
+      // first-contact / acknowledgement timestamp (the legacy
+      // `first_contact_at` column was dropped during the appointment
+      // lifecycle rename; this query was never updated).
       prisma.$queryRawUnsafe(`SELECT
         COUNT(*)::int as total_with_sla,
-        COUNT(CASE WHEN first_contact_at <= sla_target_at THEN 1 END)::int as within_sla,
-        COUNT(CASE WHEN first_contact_at > sla_target_at THEN 1 END)::int as breached_sla,
-        ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(first_contact_at, NOW()) - created_at))/60)::numeric, 1) as avg_response_minutes
+        COUNT(CASE WHEN confirmed_at <= sla_target_at THEN 1 END)::int as within_sla,
+        COUNT(CASE WHEN confirmed_at > sla_target_at THEN 1 END)::int as breached_sla,
+        ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(confirmed_at, NOW()) - created_at))/60)::numeric, 1) as avg_response_minutes
         FROM appointments WHERE created_at >= NOW() - INTERVAL '7 days' AND sla_target_at IS NOT NULL`),
 
       // Status breakdown

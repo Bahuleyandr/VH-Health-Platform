@@ -52,7 +52,6 @@ export const confirmAppointment = async (req, res) => {
         confirmed_by = $1,
         confirmed_at = NOW(),
         confirmation_notes = $2,
-        first_contact_at = COALESCE(first_contact_at, NOW()),
         token_number = $3,
         appointment_date = $4,
         appointment_time = $5,
@@ -488,8 +487,8 @@ export const registerWalkIn = async (req, res) => {
     const result = await client.query(`
       INSERT INTO appointments
         (patient_id, doctor_id, appointment_date, appointment_time, reason, notes,
-         status, confirmed_by, confirmed_at, first_contact_at, token_number, department, created_by, phone)
-      VALUES ($1, $2, NOW(), $3, $4, $5, 'CONFIRMED', $6, NOW(), NOW(), $7, $8, $9, $10)
+         status, confirmed_by, confirmed_at, token_number, department, created_by, phone)
+      VALUES ($1, $2, NOW(), $3, $4, $5, 'CONFIRMED', $6, NOW(), $7, $8, $9, $10)
       RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, reason, notes, status, confirmed_by, confirmed_at, token_number, department, phone, created_at
     `, [
       patientId,

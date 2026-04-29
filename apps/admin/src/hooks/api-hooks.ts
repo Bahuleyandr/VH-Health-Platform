@@ -16,8 +16,12 @@ export const useCreateDepartment = () => {
   return useMutation({
     mutationFn: (data: { name: string; description?: string }) =>
       api.createDepartment(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["departments"] });
+    onSuccess: async () => {
+      // refetchQueries (not just invalidate) so the awaiting caller knows
+      // the new row has actually landed before it dismisses the form. The
+      // global staleTime=60s means a plain invalidate-and-walk-away can
+      // still show the cached empty list right after a successful create.
+      await queryClient.refetchQueries({ queryKey: ["departments"] });
       toast.success("Department created successfully");
     },
     onError: (error: Error) => {

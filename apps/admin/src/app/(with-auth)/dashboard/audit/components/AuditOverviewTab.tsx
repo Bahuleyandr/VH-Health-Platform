@@ -30,12 +30,17 @@ export function AuditOverviewTab({ data: dash, isLoading, onOpenTrail }: Props) 
         )}
       </div>
 
-      {/* SLA Breaches */}
+      {/* SLA Breaches — header copy adapts to data state so the page doesn't
+          flash "Action Required" before we know whether there even are any. */}
       <section>
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
-          <XCircle size={14} className="text-red-500" />
-          SLA Breaches — Action Required
-          {(dash?.sla_breaches?.length ?? 0) > 0 && (
+          <XCircle size={14} className={isLoading ? "text-gray-400" : "text-red-500"} />
+          {isLoading
+            ? "SLA Status"
+            : (dash?.sla_breaches?.length ?? 0) > 0
+              ? "SLA Breaches — Action Required"
+              : "SLA Status"}
+          {!isLoading && (dash?.sla_breaches?.length ?? 0) > 0 && (
             <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full">{dash?.sla_breaches?.length}</span>
           )}
         </h2>
