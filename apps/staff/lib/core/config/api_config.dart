@@ -70,7 +70,26 @@ class ApiConfig {
   }
 
   static Future<bool> isLoggedIn() async {
-    final jwt = await _storage.read(key: 'jwt');
-    return jwt != null && jwt.isNotEmpty;
+    try {
+      final jwt = await _storage.read(key: 'jwt');
+      if (jwt == null || jwt.isEmpty) return false;
+      // Basic JWT shape: header.payload.signature with non-empty parts.
+      // Without this, any non-empty garbage in storage (e.g. after a
+      // FlutterSecureStorage bad-base64 / decrypt-failed event) was being
+      // treated as a valid login → splash routed to /dashboard before the
+      // user ever signed in.
+      final parts = jwt.split('.');
+      if (parts.length != 3 || parts.any((p) => p.isEmpty)) {
+        await _storage.delete(key: 'jwt');
+        return false;
+      }
+      return true;
+    } catch (_) {
+      // SecureStorage corruption / keystore error → log out for safety.
+      try {
+        await _storage.delete(key: 'jwt');
+      } catch (_) {}
+      return false;
+    }
   }
 }

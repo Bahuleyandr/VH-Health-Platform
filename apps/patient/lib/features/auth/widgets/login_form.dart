@@ -12,6 +12,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import 'package:provider/provider.dart';
+import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/phone_input_field.dart';
 import 'package:vhhealth/core/widgets/terms_agreement_notice.dart';
@@ -78,10 +80,14 @@ class _LoginFormState extends State<LoginForm> {
           name: 'Auth',
         );
         if (!mounted) return;
-        _showSnackBar(
-          'Dev login failed (${resp.statusCode}).',
-          Theme.of(context).colorScheme.error,
-        );
+        // 401 = the dev/* routes aren't mounted; the operator forgot
+        // ENABLE_DEV_AUTH=true. 404 = same shape but expressed differently
+        // by the auth router. Steer the operator at the actual fix.
+        final hint = resp.statusCode == 401 || resp.statusCode == 404
+            ? 'Dev login is disabled on the backend. Set '
+                  'ENABLE_DEV_AUTH=true in apps/backend/.env and restart.'
+            : 'Dev login failed (${resp.statusCode}).';
+        _showSnackBar(hint, Theme.of(context).colorScheme.error);
         return;
       }
 
@@ -108,6 +114,10 @@ class _LoginFormState extends State<LoginForm> {
 
       if (!mounted) return;
       AppRouter.setUserData(phone, name);
+      // Sync UserProvider too — pages that read it directly (Your Health
+      // guest-gate) treat empty as "not logged in" otherwise.
+      await context.read<UserProvider>().setUser(phone, name);
+      if (!mounted) return;
       // /profile-setup needs the phone via state.extra so the form's
       // submit can pass it to /complete-profile.
       if (isNewUser) {
@@ -216,6 +226,10 @@ class _LoginFormState extends State<LoginForm> {
         // Store user data before navigation
         final phoneNumber = user.phoneNumber ?? '';
         AppRouter.setUserData(phoneNumber, 'User');
+        // Sync UserProvider so guest-gated pages (Your Health) treat the
+        // user as logged-in immediately, not "Guest".
+        await context.read<UserProvider>().setUser(phoneNumber, 'User');
+        if (!mounted) return;
 
         if (targetRoute == '/profile-setup') {
           context.go('/profile-setup', extra: phoneNumber);
