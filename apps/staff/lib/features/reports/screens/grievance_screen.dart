@@ -52,9 +52,15 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
         grievanceType: _grievanceType,
         subject: _subjectCtrl.text.trim(),
         description: _descCtrl.text.trim(),
-        againstWhom: _againstCtrl.text.trim().isNotEmpty ? _againstCtrl.text.trim() : null,
-        department: _deptCtrl.text.trim().isNotEmpty ? _deptCtrl.text.trim() : null,
-        incidentDate: _incidentDate != null ? DateFormat('yyyy-MM-dd').format(_incidentDate!) : null,
+        againstWhom: _againstCtrl.text.trim().isNotEmpty
+            ? _againstCtrl.text.trim()
+            : null,
+        department: _deptCtrl.text.trim().isNotEmpty
+            ? _deptCtrl.text.trim()
+            : null,
+        incidentDate: _incidentDate != null
+            ? DateFormat('yyyy-MM-dd').format(_incidentDate!)
+            : null,
         isAnonymous: _isAnonymous,
       );
       final data = result['data'] as Map<String, dynamic>? ?? result;
@@ -66,10 +72,12 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: Colors.red,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -88,20 +96,34 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Container(
-                  width: 80, height: 80,
-                  decoration: const BoxDecoration(color: Colors.purple, shape: BoxShape.circle),
-                  child: const Icon(Icons.lock_outline, color: Colors.white, size: 40),
+                  width: 80,
+                  height: 80,
+                  decoration: const BoxDecoration(
+                    color: Colors.purple,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.lock_outline,
+                    color: Colors.white,
+                    size: 40,
+                  ),
                 ),
                 const SizedBox(height: 20),
-                const Text('Grievance Submitted',
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                const Text(
+                  'Grievance Submitted',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
                 if (_grievanceNumber != null) ...[
                   const SizedBox(height: 8),
-                  Text(_grievanceNumber!,
-                      style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold,
-                        color: Colors.purple, letterSpacing: 1,
-                      )),
+                  Text(
+                    _grievanceNumber!,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.purple,
+                      letterSpacing: 1,
+                    ),
+                  ),
                 ],
                 const SizedBox(height: 12),
                 Text(
@@ -117,10 +139,17 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.purple,
                     minimumSize: const Size(200, 46),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
-                  child: const Text('Done',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  child: const Text(
+                    'Done',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -149,32 +178,43 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: Colors.purple.shade200),
                 ),
-                child: const Row(children: [
-                  Icon(Icons.lock_outline, color: Colors.purple, size: 18),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'This form is seen only by HR and senior management. You may submit anonymously.',
-                      style: TextStyle(fontSize: 12, color: Colors.purple),
+                child: const Row(
+                  children: [
+                    Icon(Icons.lock_outline, color: Colors.purple, size: 18),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'This form is seen only by HR and senior management. You may submit anonymously.',
+                        style: TextStyle(fontSize: 12, color: Colors.purple),
+                      ),
                     ),
-                  ),
-                ]),
+                  ],
+                ),
               ),
 
               const SizedBox(height: 16),
-              const Text('Grievance Type *', style: TextStyle(fontWeight: FontWeight.w600)),
+              const Text(
+                'Grievance Type *',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 initialValue: _grievanceType,
                 decoration: const InputDecoration(border: OutlineInputBorder()),
                 items: _types.entries
-                    .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                    .map(
+                      (e) =>
+                          DropdownMenuItem(value: e.key, child: Text(e.value)),
+                    )
                     .toList(),
                 onChanged: (v) => setState(() => _grievanceType = v!),
               ),
 
               const SizedBox(height: 16),
-              const Text('Subject *', style: TextStyle(fontWeight: FontWeight.w600)),
+              const Text(
+                'Subject *',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _subjectCtrl,
@@ -182,21 +222,28 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                   hintText: 'Brief summary of your concern',
                   border: OutlineInputBorder(),
                 ),
-                validator: (v) => (v?.trim().isEmpty ?? true) ? 'Subject is required' : null,
+                validator: (v) =>
+                    (v?.trim().isEmpty ?? true) ? 'Subject is required' : null,
                 maxLength: 200,
               ),
 
               const SizedBox(height: 8),
-              const Text('Describe your grievance *', style: TextStyle(fontWeight: FontWeight.w600)),
+              const Text(
+                'Describe your grievance *',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _descCtrl,
                 decoration: const InputDecoration(
-                  hintText: 'Please provide as much detail as you feel comfortable sharing...',
+                  hintText:
+                      'Please provide as much detail as you feel comfortable sharing...',
                   border: OutlineInputBorder(),
                 ),
                 maxLines: 6,
-                validator: (v) => (v?.trim().isEmpty ?? true) ? 'Description is required' : null,
+                validator: (v) => (v?.trim().isEmpty ?? true)
+                    ? 'Description is required'
+                    : null,
               ),
 
               const SizedBox(height: 16),
@@ -232,31 +279,46 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                   if (d != null) setState(() => _incidentDate = d);
                 },
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 14,
+                  ),
                   decoration: BoxDecoration(
                     border: Border.all(color: Colors.grey.shade400),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Row(children: [
-                    const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-                    const SizedBox(width: 8),
-                    Text(
-                      _incidentDate != null
-                          ? 'When did this occur: ${DateFormat('d MMMM yyyy').format(_incidentDate!)}'
-                          : 'When did this occur? (optional)',
-                      style: TextStyle(
-                        color: _incidentDate != null ? Colors.black : Colors.grey.shade600,
-                        fontSize: 13,
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.calendar_today,
+                        size: 16,
+                        color: Colors.grey,
                       ),
-                    ),
-                    if (_incidentDate != null) ...[
-                      const Spacer(),
-                      GestureDetector(
-                        onTap: () => setState(() => _incidentDate = null),
-                        child: const Icon(Icons.clear, size: 16, color: Colors.grey),
+                      const SizedBox(width: 8),
+                      Text(
+                        _incidentDate != null
+                            ? 'When did this occur: ${DateFormat('d MMMM yyyy').format(_incidentDate!)}'
+                            : 'When did this occur? (optional)',
+                        style: TextStyle(
+                          color: _incidentDate != null
+                              ? Colors.black
+                              : Colors.grey.shade600,
+                          fontSize: 13,
+                        ),
                       ),
+                      if (_incidentDate != null) ...[
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: () => setState(() => _incidentDate = null),
+                          child: const Icon(
+                            Icons.clear,
+                            size: 16,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
                     ],
-                  ]),
+                  ),
                 ),
               ),
 
@@ -268,19 +330,36 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: Colors.grey.shade300),
                 ),
-                child: Row(children: [
-                  Checkbox(
-                    value: _isAnonymous,
-                    onChanged: (v) => setState(() => _isAnonymous = v!),
-                    activeColor: Colors.purple,
-                  ),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Text('Submit Anonymously',
-                        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                    Text('Your identity will not be disclosed',
-                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-                  ])),
-                ]),
+                child: Row(
+                  children: [
+                    Checkbox(
+                      value: _isAnonymous,
+                      onChanged: (v) => setState(() => _isAnonymous = v!),
+                      activeColor: Colors.purple,
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Submit Anonymously',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                          Text(
+                            'Your identity will not be disclosed',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
 
               const SizedBox(height: 24),
@@ -291,12 +370,23 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                   onPressed: _submitting ? null : _submit,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.purple,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   child: _submitting
-                      ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                      : const Text('Submit Grievance',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                      ? const CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        )
+                      : const Text(
+                          'Submit Grievance',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
                 ),
               ),
               const SizedBox(height: 16),

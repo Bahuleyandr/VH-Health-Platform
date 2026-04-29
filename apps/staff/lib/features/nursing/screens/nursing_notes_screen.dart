@@ -51,10 +51,7 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: const [
-                _AddNoteTab(),
-                _RecentNotesTab(),
-              ],
+              children: const [_AddNoteTab(), _RecentNotesTab()],
             ),
           ),
         ],
@@ -172,18 +169,17 @@ class _AddNoteTabState extends State<_AddNoteTab> {
               color: const Color(0xFF00695C).withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                  color: const Color(0xFF00695C).withValues(alpha: 0.3)),
+                color: const Color(0xFF00695C).withValues(alpha: 0.3),
+              ),
             ),
             child: const Row(
               children: [
-                Icon(Icons.info_outline,
-                    color: Color(0xFF00695C), size: 18),
+                Icon(Icons.info_outline, color: Color(0xFF00695C), size: 18),
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'Backend integration coming soon. Notes are previewed locally.',
-                    style:
-                        TextStyle(color: Color(0xFF00695C), fontSize: 12),
+                    style: TextStyle(color: Color(0xFF00695C), fontSize: 12),
                   ),
                 ),
               ],
@@ -224,8 +220,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                     prefixIcon: Icon(Icons.category_outlined),
                   ),
                   items: _noteTypes
-                      .map((t) =>
-                          DropdownMenuItem(value: t, child: Text(t)))
+                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
                       .toList(),
                   onChanged: (v) => setState(() => _noteType = v),
                   validator: (v) => v == null ? 'Select note type' : null,
@@ -238,7 +233,9 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                   child: Text(
                     'Priority',
                     style: TextStyle(
-                        color: AppTheme.textSecondary, fontSize: 13),
+                      color: AppTheme.textSecondary,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -266,7 +263,8 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                                   : color.withValues(alpha: 0.08),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
-                                  color: color.withValues(alpha: 0.4)),
+                                color: color.withValues(alpha: 0.4),
+                              ),
                             ),
                             child: Text(
                               p.toUpperCase(),
@@ -274,8 +272,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
-                                color:
-                                    selected ? Colors.white : color,
+                                color: selected ? Colors.white : color,
                               ),
                             ),
                           ),
@@ -316,11 +313,15 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(
-                              color: Colors.white, strokeWidth: 2))
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
                       : const Icon(Icons.save, color: Colors.white),
                   label: Text(_submitting ? 'Saving...' : 'Save Note'),
                   style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF00695C)),
+                    backgroundColor: const Color(0xFF00695C),
+                  ),
                 ),
               ],
             ),
@@ -346,9 +347,10 @@ class _RecentNotesTab extends StatelessWidget {
           Text(
             'Recent Notes',
             style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary),
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textPrimary,
+            ),
           ),
           SizedBox(height: 8),
           Padding(

@@ -50,7 +50,6 @@ jobs:
 
       - name: Format check
         run: melos run format
-        continue-on-error: true
 
       - name: Analyze
         run: melos run analyze

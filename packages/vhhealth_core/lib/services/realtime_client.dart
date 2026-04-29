@@ -103,7 +103,8 @@ class RealtimeClient {
         return;
       }
 
-      final url = '${buildWsUrl(ApiConfig.baseUrl)}?token=${Uri.encodeComponent(jwt)}';
+      final url =
+          '${buildWsUrl(ApiConfig.baseUrl)}?token=${Uri.encodeComponent(jwt)}';
       final channel = WebSocketChannel.connect(Uri.parse(url));
       _channel = channel;
       await channel.ready;
@@ -114,10 +115,8 @@ class RealtimeClient {
       _wsSub = channel.stream.listen(
         _onMessage,
         onError: (_) => _handleDisconnect(reason: 'error'),
-        onDone: () => _handleDisconnect(
-          reason: 'done',
-          code: channel.closeCode,
-        ),
+        onDone: () =>
+            _handleDisconnect(reason: 'done', code: channel.closeCode),
         cancelOnError: true,
       );
 
@@ -170,11 +169,15 @@ class RealtimeClient {
     if (controller == null || controller.isClosed) return;
 
     final data = msg['data'];
-    controller.add(RealtimeEvent(
-      channel: event,
-      data: data is Map<String, dynamic> ? data : <String, dynamic>{'value': data},
-      at: DateTime.now(),
-    ));
+    controller.add(
+      RealtimeEvent(
+        channel: event,
+        data: data is Map<String, dynamic>
+            ? data
+            : <String, dynamic>{'value': data},
+        at: DateTime.now(),
+      ),
+    );
   }
 
   void _handleDisconnect({required String reason, int? code}) {
@@ -222,7 +225,9 @@ class RealtimeClient {
     _shouldReconnect = false;
     try {
       onSessionExpired?.call();
-    } catch (_) {/* swallow */}
+    } catch (_) {
+      /* swallow */
+    }
   }
 
   /// Subscribe to [channel] and return a broadcast stream of its events.
@@ -258,8 +263,12 @@ class RealtimeClient {
 
   void _sendSubscribe(String channel) {
     try {
-      _channel?.sink.add(jsonEncode({'action': 'subscribe', 'channel': channel}));
-    } catch (_) {/* will retry on next connect */}
+      _channel?.sink.add(
+        jsonEncode({'action': 'subscribe', 'channel': channel}),
+      );
+    } catch (_) {
+      /* will retry on next connect */
+    }
   }
 
   /// Stop receiving events on [channel] and tell the server to drop it.
@@ -269,7 +278,9 @@ class RealtimeClient {
     final c = _controllers.remove(channel);
     c?.close();
     try {
-      _channel?.sink.add(jsonEncode({'action': 'unsubscribe', 'channel': channel}));
+      _channel?.sink.add(
+        jsonEncode({'action': 'unsubscribe', 'channel': channel}),
+      );
     } catch (_) {}
   }
 

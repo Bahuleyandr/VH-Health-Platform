@@ -229,10 +229,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              widget.otherStaffUid,
-              style: const TextStyle(fontSize: 16),
-            ),
+            Text(widget.otherStaffUid, style: const TextStyle(fontSize: 16)),
             const Text(
               'Staff Member',
               style: TextStyle(fontSize: 11, color: Colors.white70),
@@ -268,7 +265,11 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
+              const Icon(
+                Icons.error_outline,
+                size: 48,
+                color: AppTheme.errorRed,
+              ),
               const SizedBox(height: 16),
               Text(
                 'Failed to load conversation',
@@ -279,8 +280,8 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
                 _error!,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.outline,
-                    ),
+                  color: Theme.of(context).colorScheme.outline,
+                ),
               ),
               const SizedBox(height: 16),
               ElevatedButton.icon(
@@ -308,15 +309,15 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
             Text(
               'No messages yet',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
+                color: Theme.of(context).colorScheme.outline,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               'Start the conversation below',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
+                color: Theme.of(context).colorScheme.outline,
+              ),
             ),
           ],
         ),
@@ -374,14 +375,18 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
-                          color: _priorityColor(_selectedPriority)
-                              .withValues(alpha: 0.1),
+                          color: _priorityColor(
+                            _selectedPriority,
+                          ).withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: _priorityColor(_selectedPriority)
-                                .withValues(alpha: 0.4),
+                            color: _priorityColor(
+                              _selectedPriority,
+                            ).withValues(alpha: 0.4),
                           ),
                         ),
                         child: Row(
@@ -481,8 +486,9 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
                           borderSide: BorderSide.none,
                         ),
                         filled: true,
-                        fillColor:
-                            Theme.of(context).colorScheme.surfaceContainerHighest,
+                        fillColor: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 10,
@@ -557,8 +563,9 @@ class _MessageBubble extends StatelessWidget {
           maxWidth: MediaQuery.of(context).size.width * 0.75,
         ),
         child: Column(
-          crossAxisAlignment:
-              isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isMine
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -583,9 +590,7 @@ class _MessageBubble extends StatelessWidget {
                               ? Icons.warning
                               : Icons.priority_high,
                           size: 12,
-                          color: isMine
-                              ? Colors.white70
-                              : priorityColor,
+                          color: isMine ? Colors.white70 : priorityColor,
                         ),
                         const SizedBox(width: 4),
                         Text(
@@ -593,9 +598,7 @@ class _MessageBubble extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
-                            color: isMine
-                                ? Colors.white70
-                                : priorityColor,
+                            color: isMine ? Colors.white70 : priorityColor,
                           ),
                         ),
                       ],
@@ -616,10 +619,7 @@ class _MessageBubble extends StatelessWidget {
                   ],
                   Text(
                     message.body,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: textColor,
-                    ),
+                    style: TextStyle(fontSize: 14, color: textColor),
                   ),
                 ],
               ),
@@ -630,17 +630,12 @@ class _MessageBubble extends StatelessWidget {
               children: [
                 Text(
                   timeLabel,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: timeColor,
-                  ),
+                  style: TextStyle(fontSize: 10, color: timeColor),
                 ),
                 if (isMine) ...[
                   const SizedBox(width: 4),
                   Icon(
-                    message.isRead
-                        ? Icons.done_all
-                        : Icons.done,
+                    message.isRead ? Icons.done_all : Icons.done,
                     size: 12,
                     color: message.isRead
                         ? AppTheme.accentCyan

@@ -59,8 +59,10 @@ class CampusConfig {
         final data = (raw['data'] as Map<String, dynamic>?) ?? raw;
         updateFromBackend(data);
         _fetched = true;
-        debugPrint('[CampusConfig] Updated from backend: '
-            'lat=$_latitude, lng=$_longitude, radius=$_radiusMeters');
+        debugPrint(
+          '[CampusConfig] Updated from backend: '
+          'lat=$_latitude, lng=$_longitude, radius=$_radiusMeters',
+        );
       }
     } catch (e) {
       // Silently fall back to defaults — attendance will use hardcoded location.

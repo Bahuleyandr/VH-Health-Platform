@@ -28,26 +28,41 @@ class ReportsHubScreen extends StatelessWidget {
                 border: Border.all(color: Colors.amber.shade300),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Row(children: [
-                Icon(Icons.shield_outlined, color: Colors.amber.shade700, size: 20),
-                const SizedBox(width: 8),
-                const Expanded(child: Text(
-                  'All reports are handled confidentially. Retaliation against reporters is strictly prohibited.',
-                  style: TextStyle(fontSize: 12),
-                )),
-              ]),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.shield_outlined,
+                    color: Colors.amber.shade700,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'All reports are handled confidentially. Retaliation against reporters is strictly prohibited.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 20),
-            const Text('What would you like to report?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const Text(
+              'What would you like to report?',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 12),
 
             _HubCard(
               icon: Icons.warning_amber_rounded,
               color: Colors.orange,
               title: 'Incident Report',
-              subtitle: 'Patient fall, medication error, near-miss, equipment failure, or any adverse event',
+              subtitle:
+                  'Patient fall, medication error, near-miss, equipment failure, or any adverse event',
               urgencyNote: 'Sentinel/Severe events are escalated immediately',
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const IncidentReportScreen())),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const IncidentReportScreen()),
+              ),
             ),
             const SizedBox(height: 12),
 
@@ -55,21 +70,30 @@ class ReportsHubScreen extends StatelessWidget {
               icon: Icons.support_agent_outlined,
               color: Colors.purple,
               title: 'Staff Grievance',
-              subtitle: 'Harassment, unfair treatment, unsafe working conditions, or policy violations',
+              subtitle:
+                  'Harassment, unfair treatment, unsafe working conditions, or policy violations',
               urgencyNote: 'Can be submitted anonymously. HR only.',
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GrievanceScreen())),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const GrievanceScreen()),
+              ),
             ),
             const SizedBox(height: 20),
 
             OutlinedButton.icon(
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyReportsScreen())),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const MyReportsScreen()),
+              ),
               icon: const Icon(Icons.history),
               label: const Text('My Reports & Status'),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 48),
                 foregroundColor: const Color(0xFF007A64),
                 side: const BorderSide(color: Color(0xFF007A64)),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
             ),
           ],
@@ -122,11 +146,30 @@ class _HubCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     const SizedBox(height: 3),
-                    Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
                     const SizedBox(height: 4),
-                    Text(urgencyNote, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w500)),
+                    Text(
+                      urgencyNote,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: color,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ],
                 ),
               ),

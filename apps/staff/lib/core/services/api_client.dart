@@ -29,34 +29,31 @@ class ApiClient {
     String path, {
     Map<String, String>? queryParameters,
     Duration? timeout,
-  }) =>
-      VHHttpClient.get(path, queryParameters: queryParameters, timeout: timeout);
+  }) => VHHttpClient.get(
+    path,
+    queryParameters: queryParameters,
+    timeout: timeout,
+  );
 
   static Future<ApiResponse> post(
     String path, {
     Map<String, dynamic>? body,
     Duration? timeout,
-  }) =>
-      VHHttpClient.post(path, body: body, timeout: timeout);
+  }) => VHHttpClient.post(path, body: body, timeout: timeout);
 
   static Future<ApiResponse> put(
     String path, {
     Map<String, dynamic>? body,
     Duration? timeout,
-  }) =>
-      VHHttpClient.put(path, body: body, timeout: timeout);
+  }) => VHHttpClient.put(path, body: body, timeout: timeout);
 
   static Future<ApiResponse> patch(
     String path, {
     Map<String, dynamic>? body,
     Duration? timeout,
-  }) =>
-      VHHttpClient.patch(path, body: body, timeout: timeout);
+  }) => VHHttpClient.patch(path, body: body, timeout: timeout);
 
-  static Future<ApiResponse> delete(
-    String path, {
-    Duration? timeout,
-  }) =>
+  static Future<ApiResponse> delete(String path, {Duration? timeout}) =>
       VHHttpClient.delete(path, timeout: timeout);
 
   static Future<ApiResponse> multipart(
@@ -65,12 +62,11 @@ class ApiClient {
     List<http.MultipartFile> files = const [],
     Future<List<http.MultipartFile>> Function()? fileBuilder,
     Duration? timeout,
-  }) =>
-      VHHttpClient.multipart(
-        path,
-        fields: fields,
-        files: files,
-        fileBuilder: fileBuilder,
-        timeout: timeout,
-      );
+  }) => VHHttpClient.multipart(
+    path,
+    fields: fields,
+    files: files,
+    fileBuilder: fileBuilder,
+    timeout: timeout,
+  );
 }

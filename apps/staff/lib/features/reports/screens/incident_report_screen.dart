@@ -44,8 +44,18 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
   static const _severities = [
     ('low', 'Low', Color(0xFF388E3C), 'Minor, no harm caused'),
     ('moderate', 'Moderate', Color(0xFFF57C00), 'Some impact, managed locally'),
-    ('severe', 'Severe', Color(0xFFD32F2F), 'Significant harm, requires investigation'),
-    ('sentinel', 'Sentinel', Color(0xFF7B0000), 'Unexpected death or serious harm'),
+    (
+      'severe',
+      'Severe',
+      Color(0xFFD32F2F),
+      'Significant harm, requires investigation',
+    ),
+    (
+      'sentinel',
+      'Sentinel',
+      Color(0xFF7B0000),
+      'Unexpected death or serious harm',
+    ),
   ];
 
   @override
@@ -63,8 +73,11 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final dt = DateTime(
-      _incidentDate.year, _incidentDate.month, _incidentDate.day,
-      _incidentTime.hour, _incidentTime.minute,
+      _incidentDate.year,
+      _incidentDate.month,
+      _incidentDate.day,
+      _incidentTime.hour,
+      _incidentTime.minute,
     );
 
     setState(() => _submitting = true);
@@ -75,13 +88,19 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
         title: _titleCtrl.text.trim(),
         description: _descCtrl.text.trim(),
         incidentDate: dt.toIso8601String(),
-        location: _locationCtrl.text.trim().isNotEmpty ? _locationCtrl.text.trim() : null,
+        location: _locationCtrl.text.trim().isNotEmpty
+            ? _locationCtrl.text.trim()
+            : null,
         patientInvolved: _patientInvolved,
         patientName: _patientInvolved && _patientNameCtrl.text.trim().isNotEmpty
             ? _patientNameCtrl.text.trim()
             : null,
-        witnesses: _witnessesCtrl.text.trim().isNotEmpty ? _witnessesCtrl.text.trim() : null,
-        immediateActionTaken: _actionCtrl.text.trim().isNotEmpty ? _actionCtrl.text.trim() : null,
+        witnesses: _witnessesCtrl.text.trim().isNotEmpty
+            ? _witnessesCtrl.text.trim()
+            : null,
+        immediateActionTaken: _actionCtrl.text.trim().isNotEmpty
+            ? _actionCtrl.text.trim()
+            : null,
         isAnonymous: _isAnonymous,
       );
       final data = result['data'] as Map<String, dynamic>? ?? result;
@@ -93,10 +112,12 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: Colors.red,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -120,7 +141,10 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Severity *', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+              const Text(
+                'Severity *',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+              ),
               const SizedBox(height: 8),
               ..._severities.map((entry) {
                 final (key, label, color, desc) = entry;
@@ -131,51 +155,84 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                     onTap: () => setState(() => _severity = key),
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         border: Border.all(
                           color: selected ? color : Colors.grey.shade300,
                           width: selected ? 2 : 1,
                         ),
                         borderRadius: BorderRadius.circular(10),
-                        color: selected ? color.withValues(alpha: 0.08) : Colors.white,
+                        color: selected
+                            ? color.withValues(alpha: 0.08)
+                            : Colors.white,
                       ),
-                      child: Row(children: [
-                        Container(
-                          width: 12, height: 12,
-                          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(label, style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: selected ? color : Colors.black87,
-                            )),
-                            Text(desc, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-                          ]),
-                        ),
-                        if (selected) Icon(Icons.check_circle, color: color, size: 20),
-                      ]),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 12,
+                            height: 12,
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  label,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: selected ? color : Colors.black87,
+                                  ),
+                                ),
+                                Text(
+                                  desc,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (selected)
+                            Icon(Icons.check_circle, color: color, size: 20),
+                        ],
+                      ),
                     ),
                   ),
                 );
               }),
 
               const SizedBox(height: 16),
-              const Text('Incident Type *', style: TextStyle(fontWeight: FontWeight.w600)),
+              const Text(
+                'Incident Type *',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 initialValue: _incidentType,
                 decoration: const InputDecoration(border: OutlineInputBorder()),
                 items: _incidentTypes.entries
-                    .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                    .map(
+                      (e) =>
+                          DropdownMenuItem(value: e.key, child: Text(e.value)),
+                    )
                     .toList(),
                 onChanged: (v) => setState(() => _incidentType = v!),
               ),
 
               const SizedBox(height: 16),
-              const Text('Brief Title *', style: TextStyle(fontWeight: FontWeight.w600)),
+              const Text(
+                'Brief Title *',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _titleCtrl,
@@ -183,87 +240,126 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                   hintText: 'e.g. Patient fell near bed 12B',
                   border: OutlineInputBorder(),
                 ),
-                validator: (v) => (v?.trim().isEmpty ?? true) ? 'Title is required' : null,
+                validator: (v) =>
+                    (v?.trim().isEmpty ?? true) ? 'Title is required' : null,
                 maxLength: 200,
               ),
 
               const SizedBox(height: 8),
-              const Text('What happened? *', style: TextStyle(fontWeight: FontWeight.w600)),
+              const Text(
+                'What happened? *',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _descCtrl,
                 decoration: const InputDecoration(
-                  hintText: 'Describe the incident in detail — what happened, who was involved, what the conditions were...',
+                  hintText:
+                      'Describe the incident in detail — what happened, who was involved, what the conditions were...',
                   border: OutlineInputBorder(),
                 ),
                 maxLines: 5,
-                validator: (v) => (v?.trim().isEmpty ?? true) ? 'Description is required' : null,
+                validator: (v) => (v?.trim().isEmpty ?? true)
+                    ? 'Description is required'
+                    : null,
               ),
 
               const SizedBox(height: 16),
-              Row(children: [
-                Expanded(child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Date *', style: TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 6),
-                    InkWell(
-                      onTap: () async {
-                        final d = await showDatePicker(
-                          context: context,
-                          initialDate: _incidentDate,
-                          firstDate: DateTime.now().subtract(const Duration(days: 30)),
-                          lastDate: DateTime.now(),
-                        );
-                        if (d != null) setState(() => _incidentDate = d);
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey.shade400),
-                          borderRadius: BorderRadius.circular(8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Date *',
+                          style: TextStyle(fontWeight: FontWeight.w600),
                         ),
-                        child: Row(children: [
-                          const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-                          const SizedBox(width: 6),
-                          Text(DateFormat('d MMM yyyy').format(_incidentDate),
-                              style: const TextStyle(fontSize: 13)),
-                        ]),
-                      ),
-                    ),
-                  ],
-                )),
-                const SizedBox(width: 12),
-                Expanded(child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Time *', style: TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 6),
-                    InkWell(
-                      onTap: () async {
-                        final t = await showTimePicker(
-                          context: context,
-                          initialTime: _incidentTime,
-                        );
-                        if (t != null) setState(() => _incidentTime = t);
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey.shade400),
-                          borderRadius: BorderRadius.circular(8),
+                        const SizedBox(height: 6),
+                        InkWell(
+                          onTap: () async {
+                            final d = await showDatePicker(
+                              context: context,
+                              initialDate: _incidentDate,
+                              firstDate: DateTime.now().subtract(
+                                const Duration(days: 30),
+                              ),
+                              lastDate: DateTime.now(),
+                            );
+                            if (d != null) setState(() => _incidentDate = d);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.grey.shade400),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.calendar_today,
+                                  size: 16,
+                                  color: Colors.grey,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  DateFormat(
+                                    'd MMM yyyy',
+                                  ).format(_incidentDate),
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                        child: Row(children: [
-                          const Icon(Icons.access_time, size: 16, color: Colors.grey),
-                          const SizedBox(width: 6),
-                          Text(_incidentTime.format(context),
-                              style: const TextStyle(fontSize: 13)),
-                        ]),
-                      ),
+                      ],
                     ),
-                  ],
-                )),
-              ]),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Time *',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 6),
+                        InkWell(
+                          onTap: () async {
+                            final t = await showTimePicker(
+                              context: context,
+                              initialTime: _incidentTime,
+                            );
+                            if (t != null) setState(() => _incidentTime = t);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.grey.shade400),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.access_time,
+                                  size: 16,
+                                  color: Colors.grey,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _incidentTime.format(context),
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
 
               const SizedBox(height: 16),
               TextFormField(
@@ -277,15 +373,20 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
               ),
 
               const SizedBox(height: 16),
-              Row(children: [
-                const Text('Patient Involved', style: TextStyle(fontWeight: FontWeight.w600)),
-                const Spacer(),
-                Switch(
-                  value: _patientInvolved,
-                  onChanged: (v) => setState(() => _patientInvolved = v),
-                  activeThumbColor: const Color(0xFF007A64),
-                ),
-              ]),
+              Row(
+                children: [
+                  const Text(
+                    'Patient Involved',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const Spacer(),
+                  Switch(
+                    value: _patientInvolved,
+                    onChanged: (v) => setState(() => _patientInvolved = v),
+                    activeThumbColor: const Color(0xFF007A64),
+                  ),
+                ],
+              ),
               if (_patientInvolved) ...[
                 const SizedBox(height: 8),
                 TextFormField(
@@ -327,19 +428,36 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: Colors.grey.shade300),
                 ),
-                child: Row(children: [
-                  Checkbox(
-                    value: _isAnonymous,
-                    onChanged: (v) => setState(() => _isAnonymous = v!),
-                    activeColor: const Color(0xFF007A64),
-                  ),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Text('Submit Anonymously',
-                        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                    Text('Your name will not be attached to this report',
-                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-                  ])),
-                ]),
+                child: Row(
+                  children: [
+                    Checkbox(
+                      value: _isAnonymous,
+                      onChanged: (v) => setState(() => _isAnonymous = v!),
+                      activeColor: const Color(0xFF007A64),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Submit Anonymously',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                          Text(
+                            'Your name will not be attached to this report',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
 
               const SizedBox(height: 24),
@@ -350,12 +468,23 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                   onPressed: _submitting ? null : _submit,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF007A64),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   child: _submitting
-                      ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                      : const Text('Submit Incident Report',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                      ? const CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        )
+                      : const Text(
+                          'Submit Incident Report',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -376,20 +505,30 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                width: 80, height: 80,
-                decoration: const BoxDecoration(color: Color(0xFF007A64), shape: BoxShape.circle),
+                width: 80,
+                height: 80,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF007A64),
+                  shape: BoxShape.circle,
+                ),
                 child: const Icon(Icons.check, color: Colors.white, size: 44),
               ),
               const SizedBox(height: 20),
-              const Text('Report Submitted',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              const Text(
+                'Report Submitted',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              ),
               if (_reportNumber != null) ...[
                 const SizedBox(height: 8),
-                Text(_reportNumber!,
-                    style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold,
-                      color: Color(0xFF007A64), letterSpacing: 1,
-                    )),
+                Text(
+                  _reportNumber!,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF007A64),
+                    letterSpacing: 1,
+                  ),
+                ),
               ],
               const SizedBox(height: 12),
               Text(
@@ -405,10 +544,17 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF007A64),
                   minimumSize: const Size(200, 46),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
-                child: const Text('Done',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                child: const Text(
+                  'Done',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
             ],
           ),

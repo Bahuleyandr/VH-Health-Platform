@@ -211,9 +211,7 @@ class _GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final card = Container(
-      constraints: BoxConstraints(
-        maxWidth: isWide ? 600 : double.infinity,
-      ),
+      constraints: BoxConstraints(maxWidth: isWide ? 600 : double.infinity),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
         child: BackdropFilter(

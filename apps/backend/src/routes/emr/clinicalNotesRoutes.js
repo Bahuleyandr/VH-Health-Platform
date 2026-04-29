@@ -1,6 +1,6 @@
 // src/routes/emr/clinicalNotesRoutes.js
 import express from 'express';
-import clinicalNotesService from '../../services/emr/clinicalNotesService.js';
+import * as clinicalNotesService from '../../services/emr/clinicalNotesService.js';
 import { createDowntimeSnapshot } from '../../services/emr/clinicalTimelineService.js';
 import { publishEvent } from '../../services/events/eventOutboxService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';

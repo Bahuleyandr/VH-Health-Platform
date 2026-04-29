@@ -218,7 +218,7 @@ export const bulkAttendanceCorrection = async (req, res) => {
 // Override Attendance
 export const overrideAttendance = async (req, res) => {
   try {
-    const { staff_id, date, check_in, check_out, reason } = req.body;
+    const { staff_id, check_in, check_out, reason } = req.body;
     const overriddenBy = req.user?.uid;
 
     const result = await prisma.$queryRawUnsafe(`

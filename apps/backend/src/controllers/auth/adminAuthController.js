@@ -3,7 +3,7 @@
 import bcrypt from 'bcrypt';
 import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
-import SECURITY_CONFIG from '../../config/securityConfig.js';
+import { SECURITY_CONFIG } from '../../config/securityConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AuthService } from '../../services/auth/authService.js';
@@ -620,7 +620,7 @@ export const mfaVerifyChallenge = async (req, res) => {
       for (let i = 0; i < codes.length; i++) {
         const hash = codes[i];
         if (!hash) continue;
-        // eslint-disable-next-line no-await-in-loop
+
         if (await bcrypt.compare(String(code), hash)) {
           matchedIdx = i;
           break;

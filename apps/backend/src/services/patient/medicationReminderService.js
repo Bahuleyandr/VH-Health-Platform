@@ -1,5 +1,5 @@
 import prisma from '../../lib/prisma.js';
-import AppError from '../../utils/AppError.js';
+import { AppError } from '../../utils/AppError.js';
 
 /**
  * Create a new medication reminder for a patient.

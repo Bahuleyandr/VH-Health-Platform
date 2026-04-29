@@ -23,7 +23,7 @@ import {
   type ClinicalAiModulePatch,
   type ClinicalAiSafetyFlag,
   type ClinicalAiSafetyReviewSummary,
-} from "@/lib/api/emr";
+} from "@/lib/api/clinicalAiAdmin";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   ApprovalsPanel,
@@ -37,71 +37,8 @@ import {
   SelfHealingPanel,
   TranslationsPanel,
 } from "./components/GovernancePanels";
-import {
-  AIExpansionHeader,
-  AbnormalResultTriagePanel,
-  AdmissionAiDraftWorkbenchPanel,
-  AmbientDocumentationPanel,
-  FamilyUpdateGeneratorPanel,
-  NursingAmbientDocumentationPanel,
-  AiRoiDashboardPanel,
-  AntimicrobialStewardshipPanel,
-  AppealLetterGeneratorPanel,
-  LabAutoverificationPanel,
-  PediatricDosingSafetyPanel,
-  PayerContractVariancePanel,
-  PatientTeachBackPanel,
-  ChartCompletionPanel,
-  ChargeCapturePanel,
-  ClinicalTaskExtractorPanel,
-  DeteriorationPanel,
-  DocumentIntelligencePanel,
-  DriftCanaryPanel,
-  ForecastWorkbenchPanel,
-  ImagingAIPanel,
-  InfectionControlSentinelPanel,
-  OperationalPredictionPanel,
-  PolypharmacyPanel,
-  PrivacySentinelPanel,
-  PriorAuthorizationPanel,
-  PromptExperimentsPanel,
-  RcaDraftsPanel,
-  RosterOptimizerPanel,
-  StaffBurnoutRiskPanel,
-  SepsisBundleSentinelPanel,
-  TrialCatalogSyncPanel,
-  TrialMatchesPanel,
-  VirtualWardPanel,
-} from "./components/AIExpansionPanels";
-import {
-  AcuityStaffingForecastPanel,
-  AiAgentLifecyclePanel,
-  AiExplainabilityDashboardPanel,
-  BiomedDeviceMaintenancePanel,
-  BloodBankForecastPanel,
-  ClinicalKnowledgeGraphPanel,
-  CybersecurityAnomalyPanel,
-  DatasetLabelingStudioPanel,
-  EdTriagePredictorPanel,
-  FederatedLearningCoordinatorPanel,
-  HospitalCommandCenterPanel,
-  HousekeepingBedTurnoverPanel,
-  IcuVentilatorBundlePanel,
-  InventoryIntelligencePanel,
-  ModelRegistryWorkbenchPanel,
-  MultimodalPatientTimelinePanel,
-  ObstetricRiskPanel,
-  OtBlockSchedulingPanel,
-  PathwayBundleCompliancePanel,
-  PharmacogenomicsPanel,
-  PolicyRegulationWatcherPanel,
-  ProcurementNegotiationPanel,
-  RadiologyReportQaPanel,
-  RadiologyWorklistPrioritizerPanel,
-  SyntheticCaseGeneratorPanel,
-  TrainingSimulationCoachPanel,
-  VoicePatientAssistantIvrPanel,
-} from "./components/deferredModulePanels";
+import { AIExpansionHeader } from "./components/AIExpansionHeader";
+import { ClinicalAiExpansionPanels } from "./components/ClinicalAiExpansionPanels";
 
 function fmt(value?: string | null) {
   if (!value) return "-";
@@ -1008,132 +945,7 @@ export default function ClinicalAiGovernancePage() {
       <SelfHealingPanel />
 
       <AIExpansionHeader />
-
-      <PromptExperimentsPanel />
-
-      <DriftCanaryPanel />
-
-      <DeteriorationPanel />
-
-      <ImagingAIPanel />
-
-      <VirtualWardPanel />
-
-      <DocumentIntelligencePanel />
-
-      <AdmissionAiDraftWorkbenchPanel />
-
-      <ChartCompletionPanel />
-
-      <ClinicalTaskExtractorPanel />
-
-      <AbnormalResultTriagePanel />
-
-      <InfectionControlSentinelPanel />
-
-      <AntimicrobialStewardshipPanel />
-
-      <PatientTeachBackPanel />
-
-      <AppealLetterGeneratorPanel />
-
-      <PayerContractVariancePanel />
-
-      <LabAutoverificationPanel />
-
-      <PediatricDosingSafetyPanel />
-
-      <AiRoiDashboardPanel />
-
-      <SepsisBundleSentinelPanel />
-
-      <PrivacySentinelPanel />
-
-      <AmbientDocumentationPanel />
-
-      <NursingAmbientDocumentationPanel />
-
-      <FamilyUpdateGeneratorPanel />
-
-      <RosterOptimizerPanel />
-
-      <StaffBurnoutRiskPanel />
-
-      <PolypharmacyPanel />
-
-      <TrialCatalogSyncPanel />
-
-      <TrialMatchesPanel />
-
-      <RcaDraftsPanel />
-
-      <ForecastWorkbenchPanel />
-
-      <OperationalPredictionPanel />
-
-      <ChargeCapturePanel />
-
-      <PriorAuthorizationPanel />
-
-      {/* ------------------------------------------------------------------
-           Batch 15: Deferred admin UI panels shipped for the remaining 27
-           clinical AI modules, closing the "Admin UI panel deferred" backlog.
-           Rows 10–15, 17–19, 21–26, 28–30, 32–39 in AI_FEATURE_TRACKER.md.
-           Ordered roughly by tracker row number for easier cross-reference.
-         ------------------------------------------------------------------ */}
-      <AcuityStaffingForecastPanel />
-
-      <EdTriagePredictorPanel />
-
-      <PathwayBundleCompliancePanel />
-
-      <IcuVentilatorBundlePanel />
-
-      <RadiologyReportQaPanel />
-
-      <RadiologyWorklistPrioritizerPanel />
-
-      <BloodBankForecastPanel />
-
-      <PharmacogenomicsPanel />
-
-      <ObstetricRiskPanel />
-
-      <HospitalCommandCenterPanel />
-
-      <HousekeepingBedTurnoverPanel />
-
-      <OtBlockSchedulingPanel />
-
-      <InventoryIntelligencePanel />
-
-      <BiomedDeviceMaintenancePanel />
-
-      <CybersecurityAnomalyPanel />
-
-      <TrainingSimulationCoachPanel />
-
-      <PolicyRegulationWatcherPanel />
-
-      <ProcurementNegotiationPanel />
-
-      <ModelRegistryWorkbenchPanel />
-
-      <DatasetLabelingStudioPanel />
-
-      <SyntheticCaseGeneratorPanel />
-
-      <FederatedLearningCoordinatorPanel />
-
-      <AiAgentLifecyclePanel />
-
-      <ClinicalKnowledgeGraphPanel />
-
-      <MultimodalPatientTimelinePanel />
-
-      <VoicePatientAssistantIvrPanel />
-
-      <AiExplainabilityDashboardPanel />
+      <ClinicalAiExpansionPanels />
 
       <section className="space-y-3">
         <div className="flex items-center gap-2">

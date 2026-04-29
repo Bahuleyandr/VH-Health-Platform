@@ -13,10 +13,7 @@ import 'device_integrity_service.dart';
 /// intentionally encapsulated.
 @immutable
 class DeviceTrustResult {
-  const DeviceTrustResult({
-    required this.score,
-    required this.signals,
-  });
+  const DeviceTrustResult({required this.score, required this.signals});
 
   final int score;
 
@@ -50,8 +47,8 @@ abstract class DeviceTrustProbe {
     if (!Platform.isAndroid && !Platform.isIOS) return false;
     // iOS simulator sets SIMULATOR_DEVICE_NAME.
     if (Platform.isIOS) {
-      return Platform.environment.containsKey('SIMULATOR_DEVICE_NAME')
-          || Platform.environment['SIMULATOR_ROOT'] != null;
+      return Platform.environment.containsKey('SIMULATOR_DEVICE_NAME') ||
+          Platform.environment['SIMULATOR_ROOT'] != null;
     }
     // Android — no reliable cross-package check without `device_info_plus`;
     // return false by default and let the consumer install a richer probe.
@@ -122,9 +119,6 @@ class DeviceTrust {
       score -= 10;
     }
 
-    return DeviceTrustResult(
-      score: score.clamp(0, 100),
-      signals: signals,
-    );
+    return DeviceTrustResult(score: score.clamp(0, 100), signals: signals);
   }
 }

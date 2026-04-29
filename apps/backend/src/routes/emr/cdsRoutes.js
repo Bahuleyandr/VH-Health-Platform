@@ -1,6 +1,6 @@
 // src/routes/emr/cdsRoutes.js
 import express from 'express';
-import cdsEngine from '../../services/emr/cdsEngine.js';
+import * as cdsEngine from '../../services/emr/cdsEngine.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 

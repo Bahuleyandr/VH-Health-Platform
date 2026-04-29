@@ -1671,9 +1671,11 @@ describe('future-proof clinical AI and privacy foundations', () => {
 
   it('classifies policy/regulation diffs by impact and severity, and gates by module', async () => {
     await enableModule('policy_regulation_watcher');
+    const billingPolicyRef = 'test-billing-policy-v1';
+    const privacyPolicyRef = 'test-privacy-policy-v2';
 
     const billingDiff = await admin.post('/api/v1/admin/clinical-ai/policy-diffs/evaluate').send({
-      policy_key: 'test-billing-policy-v1',
+      policy_key: billingPolicyRef,
       policy_title: 'Billing claim denial policy [test]',
       previous_text: 'SECTION 1\nOriginal billing claim rules.',
       current_text: 'SECTION 1\nUpdated billing claim rules with new denial codes and appeal process.',
@@ -1683,7 +1685,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expect(['billing', 'mixed']).toContain(billingDiff.body.data.impact_area);
 
     const privacyDiff = await admin.post('/api/v1/admin/clinical-ai/policy-diffs/evaluate').send({
-      policy_key: 'test-privacy-policy-v2',
+      policy_key: privacyPolicyRef,
       policy_title: 'PHI disclosure policy [test]',
       previous_text: 'SECTION 1\nBaseline policy language.',
       current_text: 'SECTION 1\nExpanded PHI disclosure, HIPAA rules, privacy breach reporting, GDPR retention, confidentiality, and deidentified data handling requirements.',

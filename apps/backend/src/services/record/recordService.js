@@ -5,7 +5,6 @@ import { DEFAULT_PAGINATION } from '../../config/recordConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import { getPrivacyFilterForRole } from './accessControlService.js';
 
 function isValidUUID(uuid) {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -115,7 +114,7 @@ export async function getHealthRecordsByPhone(phone, filters = {}) {
 
 export async function createHealthRecord(data, createdBy, _createdByRole) {
   try {
-    const { phone, file_key, file_name, file_type, privacy_level = 'RESTRICTED', notes } = data;
+    const { phone, file_key, file_name, file_type, privacy_level = 'RESTRICTED' } = data;
     const createdByUuid = createdBy && isValidUUID(createdBy) ? createdBy : null;
 
     const record = await prisma.health_records.create({

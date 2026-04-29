@@ -116,7 +116,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         final inTime = DateTime.parse(checkIn.toString());
         final outTime = DateTime.parse(checkOut.toString());
         return outTime.difference(inTime).inMinutes / 60.0;
-      } catch (e) { debugPrint('schedule_screen.dart: $e'); }
+      } catch (e) {
+        debugPrint('schedule_screen.dart: $e');
+      }
     }
     return null;
   }
@@ -221,7 +223,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   padding: const EdgeInsets.all(16),
                   child: Text(
                     'Could not load schedule: $_error',
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
                   ),
                 ),
               )
@@ -243,7 +247,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                     side: isToday
-                        ? const BorderSide(color: AppTheme.primaryBlue, width: 2)
+                        ? const BorderSide(
+                            color: AppTheme.primaryBlue,
+                            width: 2,
+                          )
                         : BorderSide.none,
                   ),
                   child: Padding(
@@ -287,16 +294,22 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                   children: [
                                     Row(
                                       children: [
-                                        const Icon(Icons.login,
-                                            size: 16, color: Colors.green),
+                                        const Icon(
+                                          Icons.login,
+                                          size: 16,
+                                          color: Colors.green,
+                                        ),
                                         const SizedBox(width: 4),
                                         Text(
                                           _formatTime(checkIn?.toString()),
                                           style: const TextStyle(fontSize: 14),
                                         ),
                                         const SizedBox(width: 16),
-                                        const Icon(Icons.logout,
-                                            size: 16, color: Colors.red),
+                                        const Icon(
+                                          Icons.logout,
+                                          size: 16,
+                                          color: Colors.red,
+                                        ),
                                         const SizedBox(width: 4),
                                         Text(
                                           _formatTime(checkOut?.toString()),
@@ -336,8 +349,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                             color: rec != null
                                 ? Colors.green
                                 : (day.isAfter(DateTime.now())
-                                    ? Colors.grey.shade300
-                                    : Colors.orange.shade300),
+                                      ? Colors.grey.shade300
+                                      : Colors.orange.shade300),
                           ),
                         ),
                       ],

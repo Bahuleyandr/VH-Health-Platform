@@ -25,15 +25,15 @@ class AuthService {
           await ApiConfig.saveJwt(token.toString());
           await ApiConfig.saveEmployeeId(employeeId);
 
-          final staffId = data['staff']?['_id'] ??
-              data['staff']?['id'] ??
-              data['uid'];
+          final staffId =
+              data['staff']?['_id'] ?? data['staff']?['id'] ?? data['uid'];
           if (staffId != null) {
             await ApiConfig.saveStaffId(staffId.toString());
           }
 
           // Save staff role for role-based feature access
-          final role = data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';
+          final role =
+              data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';
           await ApiConfig.saveRole(role.toString());
 
           // Save phone if available (needed for device/notification registration)
@@ -65,15 +65,15 @@ class AuthService {
           await ApiConfig.saveJwt(token.toString());
           await ApiConfig.saveEmployeeId(employeeId);
 
-          final staffId = data['staff']?['_id'] ??
-              data['staff']?['id'] ??
-              data['uid'];
+          final staffId =
+              data['staff']?['_id'] ?? data['staff']?['id'] ?? data['uid'];
           if (staffId != null) {
             await ApiConfig.saveStaffId(staffId.toString());
           }
 
           // Save staff role for role-based feature access
-          final role = data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';
+          final role =
+              data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';
           await ApiConfig.saveRole(role.toString());
 
           // Save phone if available (needed for device/notification registration)
@@ -130,14 +130,14 @@ class AuthService {
           await ApiConfig.saveJwt(token.toString());
           await ApiConfig.saveEmployeeId(employeeId);
 
-          final staffId = data['staff']?['_id'] ??
-              data['staff']?['id'] ??
-              data['uid'];
+          final staffId =
+              data['staff']?['_id'] ?? data['staff']?['id'] ?? data['uid'];
           if (staffId != null) {
             await ApiConfig.saveStaffId(staffId.toString());
           }
 
-          final role = data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';
+          final role =
+              data['staff']?['role'] ?? data['role'] ?? 'GENERAL_STAFF';
           await ApiConfig.saveRole(role.toString());
         }
         return data.isNotEmpty ? data : raw;

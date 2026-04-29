@@ -2,7 +2,7 @@ import logger from '../src/logging/logger.js';
 import fs from 'fs';
 
 const f = 'src/services/emr/admissionService.js';
-let s = fs.readFileSync(f, 'utf8');
+const s = fs.readFileSync(f, 'utf8');
 
 // Fix prisma.$queryRawUnsafe(`sql`, [arg1, arg2]) -> prisma.$queryRawUnsafe(`sql`, arg1, arg2)
 const re = /(prisma\.\$queryRawUnsafe\(\s*`[^`]+`\s*,)\s*\[([^\]]+)\]\s*\)/g;

@@ -2,19 +2,18 @@
 import express from 'express';
 import multer from 'multer';
 import { validationResult } from 'express-validator';
-import handoverService from '../../services/clinical/handoverService.js';
-import marService from '../../services/clinical/marService.js';
-import marFiveRightsService from '../../services/clinical/marFiveRightsService.js';
-import news2Service from '../../services/clinical/news2Service.js';
-import voiceSoapService from '../../services/ai/voiceSoapService.js';
+import * as handoverService from '../../services/clinical/handoverService.js';
+import * as marService from '../../services/clinical/marService.js';
+import * as marFiveRightsService from '../../services/clinical/marFiveRightsService.js';
+import * as news2Service from '../../services/clinical/news2Service.js';
+import * as voiceSoapService from '../../services/ai/voiceSoapService.js';
 import { describeSttConfig } from '../../services/ai/sttService.js';
 import { reviewPolypharmacy } from '../../services/ai/polypharmacyAiService.js';
 import { scoreDeterioration } from '../../services/ai/deteriorationEarlyWarningService.js';
 import { createAmbientEncounter, listAmbientEncounters } from '../../services/ai/ambientDocumentationService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import {
-  requiredUUID, requiredString, requiredNumber, optionalString, optionalNumber,
-  optionalEnum, paramId,
+  requiredUUID, requiredString, requiredNumber, optionalString, paramId,
 } from '../../validators/sharedValidators.js';
 
 // Dedicated audio uploader — memory-backed, 20MB cap, audio-mime allowlist.

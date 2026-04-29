@@ -25,7 +25,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
     'CT',
     'MRI',
     'Ultrasound',
-    'PET'
+    'PET',
   ];
 
   @override
@@ -35,16 +35,31 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
   }
 
   Future<void> _fetchWorklist() async {
-    if (mounted) setState(() { _loading = true; _error = null; });
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final data = await RadiologyApiService.getWorklist(
         status: _statusFilter == 'all' ? null : _statusFilter,
         modality: _modalityFilter == 'all' ? null : _modalityFilter,
       );
       final list = data['orders'] as List? ?? data['data'] as List? ?? [];
-      if (mounted) setState(() { _orders = list; _loading = false; });
+      if (mounted) {
+        setState(() {
+          _orders = list;
+          _loading = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _loading = false; });
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -111,8 +126,10 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
               initialValue: _statusFilter,
               decoration: const InputDecoration(
                 labelText: 'Status',
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 isDense: true,
               ),
               items: _statusOptions.map((s) {
@@ -135,8 +152,10 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
               initialValue: _modalityFilter,
               decoration: const InputDecoration(
                 labelText: 'Modality',
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 isDense: true,
               ),
               items: _modalityOptions.map((m) {
@@ -166,8 +185,11 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.error_outline,
-                  size: 48, color: AppTheme.errorRed),
+              const Icon(
+                Icons.error_outline,
+                size: 48,
+                color: AppTheme.errorRed,
+              ),
               const SizedBox(height: 16),
               Text(
                 _error!,
@@ -191,20 +213,27 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
     return RefreshIndicator(
       onRefresh: _fetchWorklist,
       child: _orders.isEmpty
-          ? ListView(children: const [
-              SizedBox(height: 120),
-              Center(
-                child: Column(
-                  children: [
-                    Icon(Icons.image_not_supported,
-                        size: 64, color: Colors.grey),
-                    SizedBox(height: 12),
-                    Text('No radiology orders',
-                        style: TextStyle(color: Colors.grey, fontSize: 16)),
-                  ],
+          ? ListView(
+              children: const [
+                SizedBox(height: 120),
+                Center(
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.image_not_supported,
+                        size: 64,
+                        color: Colors.grey,
+                      ),
+                      SizedBox(height: 12),
+                      Text(
+                        'No radiology orders',
+                        style: TextStyle(color: Colors.grey, fontSize: 16),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ])
+              ],
+            )
           : ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: _orders.length,
@@ -220,9 +249,11 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
     final status = o['status']?.toString();
     final priority = o['priority']?.toString();
     final patientUid = o['patient_uid']?.toString() ?? '';
-    final displayUid =
-        patientUid.length > 8 ? '${patientUid.substring(0, 8)}...' : patientUid;
-    final orderedDate = o['created_at']?.toString() ?? o['ordered_date']?.toString() ?? '';
+    final displayUid = patientUid.length > 8
+        ? '${patientUid.substring(0, 8)}...'
+        : patientUid;
+    final orderedDate =
+        o['created_at']?.toString() ?? o['ordered_date']?.toString() ?? '';
     String dateStr = '';
     if (orderedDate.isNotEmpty) {
       try {
@@ -255,8 +286,10 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                     ),
                   ),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: _priorityColor(priority).withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(20),
@@ -275,26 +308,43 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  const Icon(Icons.person, size: 14, color: AppTheme.textSecondary),
+                  const Icon(
+                    Icons.person,
+                    size: 14,
+                    color: AppTheme.textSecondary,
+                  ),
                   const SizedBox(width: 4),
-                  Text(displayUid,
-                      style: const TextStyle(
-                          fontSize: 12, color: AppTheme.textSecondary)),
+                  Text(
+                    displayUid,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
                   const SizedBox(width: 16),
-                  const Icon(Icons.accessibility_new,
-                      size: 14, color: AppTheme.textSecondary),
+                  const Icon(
+                    Icons.accessibility_new,
+                    size: 14,
+                    color: AppTheme.textSecondary,
+                  ),
                   const SizedBox(width: 4),
-                  Text(o['body_part']?.toString() ?? '-',
-                      style: const TextStyle(
-                          fontSize: 12, color: AppTheme.textSecondary)),
+                  Text(
+                    o['body_part']?.toString() ?? '-',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
               Row(
                 children: [
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: _statusColor(status).withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(20),
@@ -310,9 +360,10 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                   ),
                   const Spacer(),
                   if (dateStr.isNotEmpty)
-                    Text(dateStr,
-                        style: const TextStyle(
-                            fontSize: 11, color: Colors.grey)),
+                    Text(
+                      dateStr,
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
                 ],
               ),
             ],
@@ -364,14 +415,19 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _detailRow('Patient UID', o['patient_uid']?.toString() ?? '-'),
+                  _detailRow(
+                    'Patient UID',
+                    o['patient_uid']?.toString() ?? '-',
+                  ),
                   _detailRow('Study Type', o['study_type']?.toString() ?? '-'),
                   _detailRow('Modality', o['modality']?.toString() ?? '-'),
                   _detailRow('Body Part', o['body_part']?.toString() ?? '-'),
                   _detailRow('Priority', o['priority']?.toString() ?? '-'),
                   _detailRow('Status', _statusLabel(status)),
-                  _detailRow('Clinical Indication',
-                      o['clinical_indication']?.toString() ?? '-'),
+                  _detailRow(
+                    'Clinical Indication',
+                    o['clinical_indication']?.toString() ?? '-',
+                  ),
                   if (o['notes'] != null)
                     _detailRow('Notes', o['notes'].toString()),
                   if (o['report'] != null)
@@ -427,14 +483,19 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
         children: [
           SizedBox(
             width: 140,
-            child: Text(label,
-                style: const TextStyle(
-                    color: AppTheme.textSecondary, fontSize: 13)),
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 13,
+              ),
+            ),
           ),
           Expanded(
-            child: Text(value,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w500, fontSize: 13)),
+            child: Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+            ),
           ),
         ],
       ),
@@ -551,9 +612,9 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
     try {
       await RadiologyApiService.cancelOrder(id);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Order cancelled')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Order cancelled')));
       }
       _fetchWorklist();
     } catch (e) {
@@ -590,7 +651,10 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              const Text('Status', style: TextStyle(fontWeight: FontWeight.w500)),
+              const Text(
+                'Status',
+                style: TextStyle(fontWeight: FontWeight.w500),
+              ),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -608,8 +672,10 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                 }).toList(),
               ),
               const SizedBox(height: 16),
-              const Text('Modality',
-                  style: TextStyle(fontWeight: FontWeight.w500)),
+              const Text(
+                'Modality',
+                style: TextStyle(fontWeight: FontWeight.w500),
+              ),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,

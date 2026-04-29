@@ -1,6 +1,6 @@
 // src/routes/emr/diagnosisRoutes.js
 import express from 'express';
-import diagnosisService from '../../services/emr/diagnosisService.js';
+import * as diagnosisService from '../../services/emr/diagnosisService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 

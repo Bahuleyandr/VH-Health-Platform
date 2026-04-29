@@ -57,8 +57,7 @@ class SettingsScreen extends StatelessWidget {
     if (confirmed == true && context.mounted) {
       try {
         final employeeId = await ApiConfig.getEmployeeId() ?? '';
-        await HrApiService.setupPin(
-            employeeId: employeeId, pin: pinCtrl.text);
+        await HrApiService.setupPin(employeeId: employeeId, pin: pinCtrl.text);
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -148,8 +147,8 @@ class SettingsScreen extends StatelessWidget {
                   themeProvider.themeMode == ThemeMode.dark
                       ? Icons.dark_mode
                       : themeProvider.themeMode == ThemeMode.light
-                          ? Icons.light_mode
-                          : Icons.brightness_auto,
+                      ? Icons.light_mode
+                      : Icons.brightness_auto,
                   color: AppTheme.primaryBlue,
                 ),
                 title: const Text('Theme'),
@@ -220,8 +219,10 @@ class SettingsScreen extends StatelessWidget {
                 icon: Icons.pin_outlined,
                 title: 'Set Up PIN',
                 subtitle: 'Set or update your 4–6 digit quick-access PIN',
-                trailing: const Icon(Icons.chevron_right,
-                    color: AppTheme.textSecondary),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: AppTheme.textSecondary,
+                ),
                 onTap: () => _showSetupPinDialog(context),
               ),
               const Divider(height: 1, indent: 56),
@@ -231,8 +232,10 @@ class SettingsScreen extends StatelessWidget {
                 icon: Icons.devices,
                 title: 'Manage Devices',
                 subtitle: 'View and remove registered devices',
-                trailing: const Icon(Icons.chevron_right,
-                    color: AppTheme.textSecondary),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: AppTheme.textSecondary,
+                ),
                 onTap: () => _showManageDevicesSheet(context),
               ),
             ],
@@ -246,8 +249,10 @@ class SettingsScreen extends StatelessWidget {
                 icon: Icons.person_outlined,
                 title: 'Profile',
                 subtitle: 'View and edit your staff profile',
-                trailing: const Icon(Icons.chevron_right,
-                    color: AppTheme.textSecondary),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: AppTheme.textSecondary,
+                ),
                 onTap: () => context.go('/profile'),
               ),
               const Divider(height: 1, indent: 56),
@@ -255,8 +260,10 @@ class SettingsScreen extends StatelessWidget {
                 icon: Icons.fingerprint,
                 title: 'Attendance',
                 subtitle: 'Check in/out and view history',
-                trailing: const Icon(Icons.chevron_right,
-                    color: AppTheme.textSecondary),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: AppTheme.textSecondary,
+                ),
                 onTap: () => context.go('/attendance'),
               ),
               const Divider(height: 1, indent: 56),
@@ -264,8 +271,10 @@ class SettingsScreen extends StatelessWidget {
                 icon: Icons.event_available,
                 title: 'Leave',
                 subtitle: 'Apply for leave and check balance',
-                trailing: const Icon(Icons.chevron_right,
-                    color: AppTheme.textSecondary),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: AppTheme.textSecondary,
+                ),
                 onTap: () => context.go('/leave'),
               ),
             ],
@@ -279,8 +288,10 @@ class SettingsScreen extends StatelessWidget {
                 icon: Icons.info_outlined,
                 title: 'About VHHealth Staff',
                 subtitle: 'Version 1.0.0 · App info & features',
-                trailing: const Icon(Icons.chevron_right,
-                    color: AppTheme.textSecondary),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: AppTheme.textSecondary,
+                ),
                 onTap: () => context.push('/about'),
               ),
             ],
@@ -334,9 +345,7 @@ class _SettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Column(children: children),
-    );
+    return Card(child: Column(children: children));
   }
 }
 
@@ -359,13 +368,21 @@ class _SettingsTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       leading: Icon(icon, color: AppTheme.primaryBlue),
-      title: Text(title,
-          style: const TextStyle(
-              fontWeight: FontWeight.w500, color: AppTheme.textPrimary)),
+      title: Text(
+        title,
+        style: const TextStyle(
+          fontWeight: FontWeight.w500,
+          color: AppTheme.textPrimary,
+        ),
+      ),
       subtitle: subtitle != null
-          ? Text(subtitle!,
-              style:
-                  const TextStyle(color: AppTheme.textSecondary, fontSize: 12))
+          ? Text(
+              subtitle!,
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 12,
+              ),
+            )
           : null,
       trailing: trailing,
       onTap: onTap,
@@ -394,8 +411,7 @@ class _BiometricToggleTileState extends State<_BiometricToggleTile> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content:
-                Text(value ? '✅ Biometric enabled' : 'Biometric disabled'),
+            content: Text(value ? '✅ Biometric enabled' : 'Biometric disabled'),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -418,16 +434,23 @@ class _BiometricToggleTileState extends State<_BiometricToggleTile> {
   Widget build(BuildContext context) {
     return ListTile(
       leading: const Icon(Icons.fingerprint, color: AppTheme.primaryBlue),
-      title: const Text('Biometric Login',
-          style: TextStyle(
-              fontWeight: FontWeight.w500, color: AppTheme.textPrimary)),
-      subtitle: const Text('Use fingerprint or face to sign in',
-          style: TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+      title: const Text(
+        'Biometric Login',
+        style: TextStyle(
+          fontWeight: FontWeight.w500,
+          color: AppTheme.textPrimary,
+        ),
+      ),
+      subtitle: const Text(
+        'Use fingerprint or face to sign in',
+        style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+      ),
       trailing: _loading
           ? const SizedBox(
               width: 24,
               height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2))
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
           : Switch(
               value: _enabled,
               activeThumbColor: AppTheme.primaryBlue,
@@ -509,13 +532,15 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
               children: [
                 const Icon(Icons.devices, color: AppTheme.primaryBlue),
                 const SizedBox(width: 8),
-                const Text('Registered Devices',
-                    style: TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.bold)),
+                const Text(
+                  'Registered Devices',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
                 const Spacer(),
                 IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context)),
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
               ],
             ),
           ),
@@ -524,49 +549,56 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                    ? Center(child: Text(_error!))
-                    : _devices.isEmpty
-                        ? const Center(
-                            child: Text('No devices registered',
-                                style: TextStyle(
-                                    color: AppTheme.textSecondary)))
-                        : ListView.builder(
-                            controller: scrollCtrl,
-                            itemCount: _devices.length,
-                            itemBuilder: (_, i) {
-                              final d = _devices[i];
-                              final name = d['deviceName']?.toString() ??
-                                  d['name']?.toString() ??
-                                  'Unknown Device';
-                              final id = d['_id']?.toString() ??
-                                  d['id']?.toString() ??
-                                  d['deviceId']?.toString() ??
-                                  '';
-                              final platform =
-                                  d['platform']?.toString() ?? '';
-                              return ListTile(
-                                leading: Icon(
-                                  platform.toLowerCase().contains('ios')
-                                      ? Icons.phone_iphone
-                                      : Icons.phone_android,
-                                  color: AppTheme.primaryBlue,
+                ? Center(child: Text(_error!))
+                : _devices.isEmpty
+                ? const Center(
+                    child: Text(
+                      'No devices registered',
+                      style: TextStyle(color: AppTheme.textSecondary),
+                    ),
+                  )
+                : ListView.builder(
+                    controller: scrollCtrl,
+                    itemCount: _devices.length,
+                    itemBuilder: (_, i) {
+                      final d = _devices[i];
+                      final name =
+                          d['deviceName']?.toString() ??
+                          d['name']?.toString() ??
+                          'Unknown Device';
+                      final id =
+                          d['_id']?.toString() ??
+                          d['id']?.toString() ??
+                          d['deviceId']?.toString() ??
+                          '';
+                      final platform = d['platform']?.toString() ?? '';
+                      return ListTile(
+                        leading: Icon(
+                          platform.toLowerCase().contains('ios')
+                              ? Icons.phone_iphone
+                              : Icons.phone_android,
+                          color: AppTheme.primaryBlue,
+                        ),
+                        title: Text(name),
+                        subtitle: platform.isNotEmpty
+                            ? Text(
+                                platform,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppTheme.textSecondary,
                                 ),
-                                title: Text(name),
-                                subtitle: platform.isNotEmpty
-                                    ? Text(platform,
-                                        style: const TextStyle(
-                                            fontSize: 12,
-                                            color:
-                                                AppTheme.textSecondary))
-                                    : null,
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.delete_outline,
-                                      color: AppTheme.errorRed),
-                                  onPressed: () => _removeDevice(id),
-                                ),
-                              );
-                            },
+                              )
+                            : null,
+                        trailing: IconButton(
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: AppTheme.errorRed,
                           ),
+                          onPressed: () => _removeDevice(id),
+                        ),
+                      );
+                    },
+                  ),
           ),
         ],
       ),

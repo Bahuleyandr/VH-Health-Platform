@@ -18,7 +18,7 @@ import {
  * @returns {Promise<Object>} Loaded routes with system utilities
  */
 async function initializeRoutes() {
-  logger.info('🚀 Initializing VH Health Route System...');
+  logger.info('Initializing VH Health route system');
   
   try {
 
@@ -30,13 +30,13 @@ async function initializeRoutes() {
     
     // Validate loaded routes
     const validation = validateLoadedRoutes(routes);
-    logger.info(`📊 Route validation: ${validation.validRoutes} valid, ${validation.stubRoutes} stubbed, ${validation.missingRoutes.length} missing`);
+    logger.info(`Route validation: ${validation.validRoutes} valid, ${validation.stubRoutes} stubbed, ${validation.missingRoutes.length} missing`);
     
     // Perform initial health check
     const healthReport = routeHealthService.performHealthCheck(routes);
     
     // Generate documentation
-    const documentation = routeDocumentationService.generateDocumentation(routes);
+    routeDocumentationService.generateDocumentation(routes);
     
     // Get loading statistics
     const stats = getRouteLoadingStats(routes);
@@ -46,7 +46,7 @@ async function initializeRoutes() {
     
     // Handle critical issues
     if (healthReport.criticalIssues.length > 0) {
-      logger.error('❌ Critical route loading issues detected. System may be unstable.');
+      logger.error('Critical route loading issues detected. System may be unstable.');
       // In development, we might want to continue, but log the issues
       if (process.env.NODE_ENV === 'production') {
         throw new Error(`Critical routes failed to load: ${healthReport.criticalIssues.map(i => i.route).join(', ')}`);
@@ -58,12 +58,12 @@ async function initializeRoutes() {
       routeHealthService.startHealthMonitoring(routes);
     }
     
-    logger.info('✅ VH Health Route System initialized successfully');
+    logger.info('VH Health route system initialized successfully');
     
 if (process.env.NODE_ENV === 'development') {
   setInterval(() => {
     const stats = getSystemStatistics();
-    logger.info(`📊 [DEV] Route Health: ${stats.health?.overallHealth} | Routes: ${stats.health?.healthyRoutes}/${stats.health?.totalRoutes}`);
+    logger.info(`Development route health: ${stats.health?.overallHealth} | Routes: ${stats.health?.healthyRoutes}/${stats.health?.totalRoutes}`);
   }, 1000 * 60 * 5); // every 5 minutes
 }
 
@@ -116,7 +116,7 @@ if (process.env.NODE_ENV === 'development') {
     };
     
   } catch (error) {
-    logger.error('❌ Failed to initialize route system:', error.message);
+    logger.error('Failed to initialize route system:', error.message);
     throw error;
   }
 }
@@ -130,21 +130,21 @@ function logSystemStatus(healthReport, stats) {
   const totalEndpoints = Object.values(ROUTE_METADATA).reduce((sum, meta) => sum + meta.endpoints, 0);
   const developmentInfo = process.env.NODE_ENV === 'development' ? ' (including development routes)' : '';
   
-  logger.info(`🏥 VH Health Route System Status:`);
-  logger.info(`   📊 Routes: ${stats.totalRoutes} loaded, ${healthReport.healthyRoutes} healthy, ${healthReport.stubRoutes} stubbed`);
-  logger.info(`   🔗 Endpoints: ${totalEndpoints} total${developmentInfo}`);
-  logger.info(`   🏥 Categories: ${Object.keys(stats.byCategory).length} (${Object.keys(stats.byCategory).join(', ')})`);
-  logger.info(`   🔒 Security Levels: ${Object.keys(stats.byStatus).length} different levels`);
-  logger.info(`   📈 Overall Health: ${healthReport.overallHealth.toUpperCase()}`);
+  logger.info('VH Health route system status');
+  logger.info(`Routes: ${stats.totalRoutes} loaded, ${healthReport.healthyRoutes} healthy, ${healthReport.stubRoutes} stubbed`);
+  logger.info(`Endpoints: ${totalEndpoints} total${developmentInfo}`);
+  logger.info(`Categories: ${Object.keys(stats.byCategory).length} (${Object.keys(stats.byCategory).join(', ')})`);
+  logger.info(`Security levels: ${Object.keys(stats.byStatus).length}`);
+  logger.info(`Overall health: ${healthReport.overallHealth.toUpperCase()}`);
   
   if (healthReport.criticalIssues.length > 0) {
-    logger.warn(`   ⚠️  Critical Issues: ${healthReport.criticalIssues.length}`);
+    logger.warn(`Critical route issues: ${healthReport.criticalIssues.length}`);
   }
   
   if (healthReport.recommendations.length > 0) {
     const urgentRecs = healthReport.recommendations.filter(rec => rec.priority === 'urgent').length;
     if (urgentRecs > 0) {
-      logger.warn(`   🚨 Urgent Recommendations: ${urgentRecs}`);
+      logger.warn(`Urgent route recommendations: ${urgentRecs}`);
     }
   }
 }

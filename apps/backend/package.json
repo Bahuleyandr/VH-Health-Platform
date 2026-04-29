@@ -10,7 +10,7 @@
     "build:prod": "echo 'No build needed — direct start used.'",
     "build:sentry": "node src/scripts/build-production.js",
     "debug": "node --inspect --enable-source-maps src/app.js",
-    "lint": "eslint . --ext .js && npm run lint:raw-params && npm run secrets:scan",
+    "lint": "eslint . --ext .js --max-warnings=0 && npm run lint:raw-params && npm run secrets:scan",
     "lint:fix": "eslint . --ext .js --fix",
     "lint:raw-params": "node scripts/lint-raw-params.mjs",
     "check:schema-drift": "node scripts/check-schema-drift.mjs",
@@ -150,7 +150,8 @@
       "^@middleware/(.*)$": "<rootDir>/src/middleware/$1",
       "^@logging/(.*)$": "<rootDir>/src/logging/$1",
       "^@config/(.*)$": "<rootDir>/src/config/$1",
-      "^@scripts/(.*)$": "<rootDir>/src/scripts/$1"
+      "^@scripts/(.*)$": "<rootDir>/src/scripts/$1",
+      "^uuid$": "<rootDir>/src/tests/mocks/uuid.cjs"
     },
     "maxWorkers": 1,
     "workerThreads": false,
@@ -159,6 +160,10 @@
     ]
   },
   "overrides": {
+    "@google-cloud/firestore": "^8.5.0",
+    "gaxios": "^7.1.4",
+    "google-gax": "^5.0.6",
+    "uuid": "^14.0.0",
     "lodash": ">=4.17.21",
     "minimatch": "^3.1.2",
     "rollup": "^2.80.0",

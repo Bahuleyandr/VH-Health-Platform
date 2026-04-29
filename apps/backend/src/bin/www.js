@@ -12,7 +12,7 @@ dotenv.config();
 // Most application IDs comfortably fit in Number (< 2^53), so we
 // emit them as numbers when safe and fall back to string for the rare
 // out-of-range case.
-// eslint-disable-next-line no-extend-native
+
 BigInt.prototype.toJSON = function bigIntToJSON() {
   const n = Number(this);
   return Number.isSafeInteger(n) ? n : this.toString();

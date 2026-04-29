@@ -31,7 +31,9 @@ class _QueueScreenState extends State<QueueScreen> {
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _load());
     _tickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_consultationStart != null && mounted) {
-        setState(() => _elapsed = DateTime.now().difference(_consultationStart!));
+        setState(
+          () => _elapsed = DateTime.now().difference(_consultationStart!),
+        );
       }
     });
   }
@@ -49,17 +51,37 @@ class _QueueScreenState extends State<QueueScreen> {
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
       // Fetch all relevant statuses
-      final scheduled = await ScheduleApiService.getAppointments(date: today, status: 'scheduled', limit: 50);
-      final confirmed = await ScheduleApiService.getAppointments(date: today, status: 'confirmed', limit: 50);
-      final inProgress = await ScheduleApiService.getAppointments(date: today, status: 'in-progress', limit: 50);
-      final completed = await ScheduleApiService.getAppointments(date: today, status: 'completed', limit: 50);
+      final scheduled = await ScheduleApiService.getAppointments(
+        date: today,
+        status: 'scheduled',
+        limit: 50,
+      );
+      final confirmed = await ScheduleApiService.getAppointments(
+        date: today,
+        status: 'confirmed',
+        limit: 50,
+      );
+      final inProgress = await ScheduleApiService.getAppointments(
+        date: today,
+        status: 'in-progress',
+        limit: 50,
+      );
+      final completed = await ScheduleApiService.getAppointments(
+        date: today,
+        status: 'completed',
+        limit: 50,
+      );
 
       List<Map<String, dynamic>> extractList(Map<String, dynamic> data) {
-        final raw = data['appointments'] as List? ?? data['data'] as List? ?? [];
+        final raw =
+            data['appointments'] as List? ?? data['data'] as List? ?? [];
         return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
       }
 
-      final waitingList = [...extractList(scheduled), ...extractList(confirmed)];
+      final waitingList = [
+        ...extractList(scheduled),
+        ...extractList(confirmed),
+      ];
       // Sort by time
       waitingList.sort((a, b) {
         final aTime = a['dateTime']?.toString() ?? a['date']?.toString() ?? '';
@@ -115,7 +137,10 @@ class _QueueScreenState extends State<QueueScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: AppTheme.errorRed),
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: AppTheme.errorRed,
+          ),
         );
       }
     }
@@ -123,7 +148,8 @@ class _QueueScreenState extends State<QueueScreen> {
 
   Future<void> _completeCurrent() async {
     if (_current == null) return;
-    final id = _current!['_id']?.toString() ?? _current!['id']?.toString() ?? '';
+    final id =
+        _current!['_id']?.toString() ?? _current!['id']?.toString() ?? '';
     if (id.isEmpty) return;
 
     try {
@@ -136,17 +162,22 @@ class _QueueScreenState extends State<QueueScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: AppTheme.errorRed),
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: AppTheme.errorRed,
+          ),
         );
       }
     }
   }
 
   void _showPatientDetails(Map<String, dynamic> appointment) async {
-    final phone = appointment['patientPhone']?.toString() ??
+    final phone =
+        appointment['patientPhone']?.toString() ??
         appointment['patient']?['phone']?.toString() ??
         '';
-    final patientName = appointment['patientName']?.toString() ??
+    final patientName =
+        appointment['patientName']?.toString() ??
         appointment['patient']?['name']?.toString() ??
         'Unknown';
 
@@ -190,108 +221,141 @@ class _QueueScreenState extends State<QueueScreen> {
   Widget build(BuildContext context) {
     return StaffScaffold(
       title: 'Patient Queue',
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.refresh),
-          onPressed: _load,
-        ),
-      ],
+      actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _load)],
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
-                      const SizedBox(height: 8),
-                      Text(_error!, style: const TextStyle(color: AppTheme.textSecondary)),
-                      TextButton(onPressed: _load, child: const Text('Retry')),
-                    ],
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    color: AppTheme.errorRed,
+                    size: 40,
                   ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  child: ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      // Current consultation
-                      if (_current != null) ...[
-                        const _SectionHeader('In Consultation', AppTheme.primaryBlue),
-                        _CurrentConsultationCard(
-                          appointment: _current!,
-                          elapsed: _elapsed,
-                          formatDuration: _formatDuration,
-                          onComplete: _completeCurrent,
-                          onTap: () => _showPatientDetails(_current!),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
+                  const SizedBox(height: 8),
+                  Text(
+                    _error!,
+                    style: const TextStyle(color: AppTheme.textSecondary),
+                  ),
+                  TextButton(onPressed: _load, child: const Text('Retry')),
+                ],
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  // Current consultation
+                  if (_current != null) ...[
+                    const _SectionHeader(
+                      'In Consultation',
+                      AppTheme.primaryBlue,
+                    ),
+                    _CurrentConsultationCard(
+                      appointment: _current!,
+                      elapsed: _elapsed,
+                      formatDuration: _formatDuration,
+                      onComplete: _completeCurrent,
+                      onTap: () => _showPatientDetails(_current!),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
 
-                      // Call next button
-                      if (_current == null && _waiting.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: SizedBox(
-                            width: double.infinity,
-                            height: 48,
-                            child: ElevatedButton.icon(
-                              onPressed: _callNext,
-                              icon: const Icon(Icons.campaign, color: Colors.white),
-                              label: const Text('Call Next Patient', style: TextStyle(fontSize: 16)),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppTheme.primaryBlue,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ),
+                  // Call next button
+                  if (_current == null && _waiting.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton.icon(
+                          onPressed: _callNext,
+                          icon: const Icon(Icons.campaign, color: Colors.white),
+                          label: const Text(
+                            'Call Next Patient',
+                            style: TextStyle(fontSize: 16),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryBlue,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
                             ),
                           ),
                         ),
+                      ),
+                    ),
 
-                      // Waiting list
-                      _SectionHeader('Waiting (${_waiting.length})', AppTheme.warningAmber),
-                      if (_waiting.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 24),
-                          child: Center(child: Text('No patients waiting', style: TextStyle(color: AppTheme.textSecondary))),
-                        )
-                      else
-                        ..._waiting.asMap().entries.map((entry) {
-                          final i = entry.key;
-                          final appt = entry.value;
-                          return _QueueCard(
-                            position: i + 1,
-                            appointment: appt,
-                            waitTime: _waitTime(appt),
-                            onTap: () => _showPatientDetails(appt),
-                            trailing: _current == null && i == 0
-                                ? IconButton(
-                                    icon: const Icon(Icons.play_arrow, color: AppTheme.primaryBlue),
-                                    onPressed: _callNext,
-                                    tooltip: 'Call',
-                                  )
-                                : null,
-                          );
-                        }),
-
-                      const SizedBox(height: 16),
-
-                      // Completed
-                      _SectionHeader('Completed (${_completed.length})', AppTheme.successGreen),
-                      if (_completed.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 24),
-                          child: Center(child: Text('No completed consultations', style: TextStyle(color: AppTheme.textSecondary))),
-                        )
-                      else
-                        ..._completed.take(10).map((appt) => _QueueCard(
-                              appointment: appt,
-                              onTap: () => _showPatientDetails(appt),
-                              completed: true,
-                            )),
-                    ],
+                  // Waiting list
+                  _SectionHeader(
+                    'Waiting (${_waiting.length})',
+                    AppTheme.warningAmber,
                   ),
-                ),
+                  if (_waiting.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Center(
+                        child: Text(
+                          'No patients waiting',
+                          style: TextStyle(color: AppTheme.textSecondary),
+                        ),
+                      ),
+                    )
+                  else
+                    ..._waiting.asMap().entries.map((entry) {
+                      final i = entry.key;
+                      final appt = entry.value;
+                      return _QueueCard(
+                        position: i + 1,
+                        appointment: appt,
+                        waitTime: _waitTime(appt),
+                        onTap: () => _showPatientDetails(appt),
+                        trailing: _current == null && i == 0
+                            ? IconButton(
+                                icon: const Icon(
+                                  Icons.play_arrow,
+                                  color: AppTheme.primaryBlue,
+                                ),
+                                onPressed: _callNext,
+                                tooltip: 'Call',
+                              )
+                            : null,
+                      );
+                    }),
+
+                  const SizedBox(height: 16),
+
+                  // Completed
+                  _SectionHeader(
+                    'Completed (${_completed.length})',
+                    AppTheme.successGreen,
+                  ),
+                  if (_completed.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Center(
+                        child: Text(
+                          'No completed consultations',
+                          style: TextStyle(color: AppTheme.textSecondary),
+                        ),
+                      ),
+                    )
+                  else
+                    ..._completed
+                        .take(10)
+                        .map(
+                          (appt) => _QueueCard(
+                            appointment: appt,
+                            onTap: () => _showPatientDetails(appt),
+                            completed: true,
+                          ),
+                        ),
+                ],
+              ),
+            ),
     );
   }
 }
@@ -309,9 +373,23 @@ class _SectionHeader extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         children: [
-          Container(width: 4, height: 20, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2))),
+          Container(
+            width: 4,
+            height: 20,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
           const SizedBox(width: 8),
-          Text(title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: color)),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
         ],
       ),
     );
@@ -336,11 +414,14 @@ class _CurrentConsultationCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // ignore: unused_local_variable
-    final name = appointment['patientName']?.toString() ??
+    final name =
+        appointment['patientName']?.toString() ??
         appointment['patient']?['name']?.toString() ??
         'Unknown';
-    final type = appointment['type']?.toString() ??
-        appointment['appointmentType']?.toString() ?? '';
+    final type =
+        appointment['type']?.toString() ??
+        appointment['appointmentType']?.toString() ??
+        '';
 
     return Card(
       color: AppTheme.primaryBlue.withValues(alpha: 0.05),
@@ -367,14 +448,31 @@ class _CurrentConsultationCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.textPrimary)),
-                        if (type.isNotEmpty) Text(type, style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
+                        Text(
+                          name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: AppTheme.textPrimary,
+                          ),
+                        ),
+                        if (type.isNotEmpty)
+                          Text(
+                            type,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppTheme.textSecondary,
+                            ),
+                          ),
                       ],
                     ),
                   ),
                   // Timer
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: AppTheme.primaryBlue,
                       borderRadius: BorderRadius.circular(20),
@@ -384,7 +482,14 @@ class _CurrentConsultationCard extends StatelessWidget {
                       children: [
                         const Icon(Icons.timer, color: Colors.white, size: 16),
                         const SizedBox(width: 4),
-                        Text(formatDuration(elapsed), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                        Text(
+                          formatDuration(elapsed),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -395,12 +500,18 @@ class _CurrentConsultationCard extends StatelessWidget {
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: onComplete,
-                  icon: const Icon(Icons.check_circle, color: Colors.white, size: 18),
+                  icon: const Icon(
+                    Icons.check_circle,
+                    color: Colors.white,
+                    size: 18,
+                  ),
                   label: const Text('Complete Consultation'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.successGreen,
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                 ),
               ),
@@ -431,12 +542,18 @@ class _QueueCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = appointment['patientName']?.toString() ??
+    final name =
+        appointment['patientName']?.toString() ??
         appointment['patient']?['name']?.toString() ??
         'Unknown';
-    final type = appointment['type']?.toString() ??
-        appointment['appointmentType']?.toString() ?? '';
-    final time = appointment['dateTime']?.toString() ?? appointment['date']?.toString() ?? '';
+    final type =
+        appointment['type']?.toString() ??
+        appointment['appointmentType']?.toString() ??
+        '';
+    final time =
+        appointment['dateTime']?.toString() ??
+        appointment['date']?.toString() ??
+        '';
 
     String displayTime = '';
     try {
@@ -463,35 +580,87 @@ class _QueueCard extends StatelessWidget {
                   height: 32,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: completed ? AppTheme.successGreen.withValues(alpha: 0.1) : AppTheme.warningAmber.withValues(alpha: 0.1),
+                    color: completed
+                        ? AppTheme.successGreen.withValues(alpha: 0.1)
+                        : AppTheme.warningAmber.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: Text('$position', style: TextStyle(fontWeight: FontWeight.bold, color: completed ? AppTheme.successGreen : AppTheme.warningAmber)),
+                  child: Text(
+                    '$position',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: completed
+                          ? AppTheme.successGreen
+                          : AppTheme.warningAmber,
+                    ),
+                  ),
                 )
               else if (completed)
-                const Icon(Icons.check_circle, color: AppTheme.successGreen, size: 28),
+                const Icon(
+                  Icons.check_circle,
+                  color: AppTheme.successGreen,
+                  size: 28,
+                ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.textPrimary)),
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
                     Row(
                       children: [
                         if (displayTime.isNotEmpty) ...[
-                          Text(displayTime, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-                          if (type.isNotEmpty) const Text(' · ', style: TextStyle(color: AppTheme.textSecondary)),
+                          Text(
+                            displayTime,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textSecondary,
+                            ),
+                          ),
+                          if (type.isNotEmpty)
+                            const Text(
+                              ' · ',
+                              style: TextStyle(color: AppTheme.textSecondary),
+                            ),
                         ],
-                        if (type.isNotEmpty) Text(type, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                        if (type.isNotEmpty)
+                          Text(
+                            type,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textSecondary,
+                            ),
+                          ),
                       ],
                     ),
                   ],
                 ),
               ),
               if (waitTime != null && waitTime!.isNotEmpty)
-                Text(waitTime!, style: TextStyle(fontSize: 11, color: completed ? AppTheme.successGreen : AppTheme.warningAmber, fontWeight: FontWeight.w500)),
+                Text(
+                  waitTime!,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: completed
+                        ? AppTheme.successGreen
+                        : AppTheme.warningAmber,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ?trailing,
-              if (!completed && trailing == null) const Icon(Icons.chevron_right, color: AppTheme.textSecondary, size: 20),
+              if (!completed && trailing == null)
+                const Icon(
+                  Icons.chevron_right,
+                  color: AppTheme.textSecondary,
+                  size: 20,
+                ),
             ],
           ),
         ),
@@ -528,16 +697,29 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
     if (widget.phone.isNotEmpty) {
       _fetchRecords();
     } else {
-      setState(() { _loading = false; _error = 'No phone number available'; });
+      setState(() {
+        _loading = false;
+        _error = 'No phone number available';
+      });
     }
   }
 
   Future<void> _fetchRecords() async {
     try {
       final data = await MedicalApiService.getHealthRecords(widget.phone);
-      if (mounted) setState(() { _records = data; _loading = false; });
+      if (mounted) {
+        setState(() {
+          _records = data;
+          _loading = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString().replaceFirst('Exception: ', ''); _loading = false; });
+      if (mounted) {
+        setState(() {
+          _error = e.toString().replaceFirst('Exception: ', '');
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -560,25 +742,47 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
               margin: const EdgeInsets.only(top: 8),
               width: 40,
               height: 4,
-              decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
             // Header
             Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
-                  const CircleAvatar(backgroundColor: AppTheme.primaryBlue, child: Icon(Icons.person, color: Colors.white)),
+                  const CircleAvatar(
+                    backgroundColor: AppTheme.primaryBlue,
+                    child: Icon(Icons.person, color: Colors.white),
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(widget.patientName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                        if (widget.phone.isNotEmpty) Text(widget.phone, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+                        Text(
+                          widget.patientName,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                          ),
+                        ),
+                        if (widget.phone.isNotEmpty)
+                          Text(
+                            widget.phone,
+                            style: const TextStyle(
+                              color: AppTheme.textSecondary,
+                              fontSize: 13,
+                            ),
+                          ),
                       ],
                     ),
                   ),
-                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
                 ],
               ),
             ),
@@ -588,23 +792,28 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
                   : _error != null
-                      ? Center(child: Text(_error!, style: const TextStyle(color: AppTheme.textSecondary)))
-                      : ListView(
-                          controller: scrollController,
-                          padding: const EdgeInsets.all(16),
-                          children: [
-                            // Patient info from records
-                            if (_records != null) ...[
-                              _buildInfoSection(),
-                              const SizedBox(height: 16),
-                            ],
-                            // Quick actions
-                            _buildQuickActions(),
-                            const SizedBox(height: 16),
-                            // Recent records
-                            if (_records != null) _buildRecentRecords(),
-                          ],
-                        ),
+                  ? Center(
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(color: AppTheme.textSecondary),
+                      ),
+                    )
+                  : ListView(
+                      controller: scrollController,
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        // Patient info from records
+                        if (_records != null) ...[
+                          _buildInfoSection(),
+                          const SizedBox(height: 16),
+                        ],
+                        // Quick actions
+                        _buildQuickActions(),
+                        const SizedBox(height: 16),
+                        // Recent records
+                        if (_records != null) _buildRecentRecords(),
+                      ],
+                    ),
             ),
           ],
         ),
@@ -614,7 +823,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
 
   Widget _buildInfoSection() {
     final patient = _records!['patient'] as Map<String, dynamic>? ?? _records!;
-            // ignore: unused_local_variable
+    // ignore: unused_local_variable
     final name = patient['name']?.toString() ?? widget.patientName;
     final age = patient['age']?.toString() ?? '';
     final gender = patient['gender']?.toString() ?? '';
@@ -626,18 +835,43 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Patient Info', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.primaryBlue)),
+            const Text(
+              'Patient Info',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+                color: AppTheme.primaryBlue,
+              ),
+            ),
             const SizedBox(height: 8),
             if (age.isNotEmpty || gender.isNotEmpty)
-              Text('${gender.isNotEmpty ? gender : ''} ${age.isNotEmpty ? '• Age: $age' : ''}'.trim(),
-                  style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
+              Text(
+                '${gender.isNotEmpty ? gender : ''} ${age.isNotEmpty ? '• Age: $age' : ''}'
+                    .trim(),
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppTheme.textSecondary,
+                ),
+              ),
             if (allergies != null && allergies.toString().isNotEmpty) ...[
               const SizedBox(height: 6),
               Row(
                 children: [
-                  const Icon(Icons.warning_amber, color: AppTheme.errorRed, size: 16),
+                  const Icon(
+                    Icons.warning_amber,
+                    color: AppTheme.errorRed,
+                    size: 16,
+                  ),
                   const SizedBox(width: 4),
-                  Expanded(child: Text('Allergies: $allergies', style: const TextStyle(color: AppTheme.errorRed, fontSize: 13))),
+                  Expanded(
+                    child: Text(
+                      'Allergies: $allergies',
+                      style: const TextStyle(
+                        color: AppTheme.errorRed,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -652,13 +886,23 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
       spacing: 8,
       runSpacing: 8,
       children: [
-        _ActionChip(Icons.medication, 'Write Prescription', AppTheme.primaryTeal, () {
-          Navigator.pop(context);
-          // Navigate to prescriptions - could pass patient info
-        }),
-        _ActionChip(Icons.biotech, 'Order Investigation', AppTheme.accentCyan, () {
-          Navigator.pop(context);
-        }),
+        _ActionChip(
+          Icons.medication,
+          'Write Prescription',
+          AppTheme.primaryTeal,
+          () {
+            Navigator.pop(context);
+            // Navigate to prescriptions - could pass patient info
+          },
+        ),
+        _ActionChip(
+          Icons.biotech,
+          'Order Investigation',
+          AppTheme.accentCyan,
+          () {
+            Navigator.pop(context);
+          },
+        ),
         _ActionChip(Icons.note_add, 'Add Notes', AppTheme.warningAmber, () {
           Navigator.pop(context);
         }),
@@ -667,31 +911,77 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
   }
 
   Widget _buildRecentRecords() {
-    final records = _records!['records'] as List? ??
-        _records!['healthRecords'] as List? ?? [];
+    final records =
+        _records!['records'] as List? ??
+        _records!['healthRecords'] as List? ??
+        [];
 
     if (records.isEmpty) {
-      return const Center(child: Text('No health records found', style: TextStyle(color: AppTheme.textSecondary)));
+      return const Center(
+        child: Text(
+          'No health records found',
+          style: TextStyle(color: AppTheme.textSecondary),
+        ),
+      );
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Recent Records', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.primaryBlue)),
+        const Text(
+          'Recent Records',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            color: AppTheme.primaryBlue,
+          ),
+        ),
         const SizedBox(height: 8),
         ...records.take(5).map((r) {
           final record = r as Map<String, dynamic>;
-          final type = record['type']?.toString() ?? record['recordType']?.toString() ?? 'Record';
-          final date = record['date']?.toString() ?? record['createdAt']?.toString() ?? '';
-          final notes = record['notes']?.toString() ?? record['description']?.toString() ?? '';
+          final type =
+              record['type']?.toString() ??
+              record['recordType']?.toString() ??
+              'Record';
+          final date =
+              record['date']?.toString() ??
+              record['createdAt']?.toString() ??
+              '';
+          final notes =
+              record['notes']?.toString() ??
+              record['description']?.toString() ??
+              '';
           return Card(
             margin: const EdgeInsets.only(bottom: 6),
             child: ListTile(
               dense: true,
-              leading: const Icon(Icons.description, color: AppTheme.primaryBlue, size: 20),
-              title: Text(type, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
-              subtitle: Text(notes.isNotEmpty ? notes : date, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
-              trailing: date.isNotEmpty ? Text(date.length > 10 ? date.substring(0, 10) : date, style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)) : null,
+              leading: const Icon(
+                Icons.description,
+                color: AppTheme.primaryBlue,
+                size: 20,
+              ),
+              title: Text(
+                type,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w500,
+                  fontSize: 13,
+                ),
+              ),
+              subtitle: Text(
+                notes.isNotEmpty ? notes : date,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12),
+              ),
+              trailing: date.isNotEmpty
+                  ? Text(
+                      date.length > 10 ? date.substring(0, 10) : date,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppTheme.textSecondary,
+                      ),
+                    )
+                  : null,
             ),
           );
         }),

@@ -103,8 +103,12 @@ void main() {
       m.onScan('PT-00001');
       m.onScan('NDC-0093-0058-01');
       expect(m.step, MarStep.verify);
-      expect(m.onScan('REJECTED-BARCODE'), isFalse,
-          reason: 'Additional scans must be ignored while backend verify is in-flight');
+      expect(
+        m.onScan('REJECTED-BARCODE'),
+        isFalse,
+        reason:
+            'Additional scans must be ignored while backend verify is in-flight',
+      );
       expect(m.step, MarStep.verify);
       // Captured state unchanged.
       expect(m.wristbandId, 'PT-00001');
@@ -129,13 +133,17 @@ void main() {
       m.onScan('WRONG-NDC');
       m.onVerifyResponse({
         'rightPatient': true,
-        'rightDrug': false,  // <-- single failing right must block
+        'rightDrug': false, // <-- single failing right must block
         'rightDose': true,
         'rightRoute': true,
         'rightTime': true,
       });
-      expect(m.step, MarStep.verify,
-          reason: 'Must not auto-advance; nurse must see the block banner and act');
+      expect(
+        m.step,
+        MarStep.verify,
+        reason:
+            'Must not auto-advance; nurse must see the block banner and act',
+      );
       expect(m.lastVerification['rightDrug'], isFalse);
     });
 
@@ -144,11 +152,17 @@ void main() {
       m.onScan('PT-00001');
       m.reset();
       m.onVerifyResponse({
-        'rightPatient': true, 'rightDrug': true,
-        'rightDose': true, 'rightRoute': true, 'rightTime': true,
+        'rightPatient': true,
+        'rightDrug': true,
+        'rightDose': true,
+        'rightRoute': true,
+        'rightTime': true,
       });
-      expect(m.step, MarStep.scanWristband,
-          reason: 'Stale response must not silently advance to done');
+      expect(
+        m.step,
+        MarStep.scanWristband,
+        reason: 'Stale response must not silently advance to done',
+      );
     });
 
     test('reset clears captured patient+drug and returns to scanWristband', () {
@@ -165,8 +179,11 @@ void main() {
       m.onScan('PT-00001');
       m.onScan('NDC-0093-0058-01');
       m.onVerifyResponse({
-        'rightPatient': true, 'rightDrug': true,
-        'rightDose': true, 'rightRoute': true, 'rightTime': true,
+        'rightPatient': true,
+        'rightDrug': true,
+        'rightDose': true,
+        'rightRoute': true,
+        'rightTime': true,
       });
       expect(m.step, MarStep.done);
       expect(m.onScan('ANOTHER-WRISTBAND'), isFalse);

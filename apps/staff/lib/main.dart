@@ -94,15 +94,18 @@ void main() async {
   ConnectivitySyncService.instance.syncPending();
 
   // Catch async errors not handled by Flutter framework.
-  runZonedGuarded(() {
-    runApp(const VHHealthStaffApp());
-  }, (error, stack) {
-    FirebaseCrashlytics.instance.recordError(
-      _sanitiseForCrashlytics(error),
-      stack,
-      fatal: true,
-    );
-  });
+  runZonedGuarded(
+    () {
+      runApp(const VHHealthStaffApp());
+    },
+    (error, stack) {
+      FirebaseCrashlytics.instance.recordError(
+        _sanitiseForCrashlytics(error),
+        stack,
+        fatal: true,
+      );
+    },
+  );
 }
 
 /// Redact potential PHI (phone numbers, emails) from error messages
@@ -165,7 +168,9 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
         // Realtime fabric lifecycle owner. Widgets should listen via
         // `context.read<RealtimeProvider>().events(channel)` instead of
         // calling `RealtimeClient.instance.connect()` directly.
-        ChangeNotifierProvider(create: (_) => RealtimeProvider()..ensureConnected()),
+        ChangeNotifierProvider(
+          create: (_) => RealtimeProvider()..ensureConnected(),
+        ),
         ChangeNotifierProvider(
           create: (_) => SessionTimeoutProvider(
             timeoutDuration: const Duration(minutes: 15),

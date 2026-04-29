@@ -43,8 +43,18 @@ class _PayslipScreenState extends State<PayslipScreen> {
 
   String _monthName(int m) {
     const months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
     ];
     if (m < 1 || m > 12) return '—';
     return months[m - 1];
@@ -79,7 +89,10 @@ class _PayslipScreenState extends State<PayslipScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [const Color(0xFF007A64), const Color(0xFF007A64).withValues(alpha: 0.8)],
+                  colors: [
+                    const Color(0xFF007A64),
+                    const Color(0xFF007A64).withValues(alpha: 0.8),
+                  ],
                   begin: Alignment.centerLeft,
                   end: Alignment.centerRight,
                 ),
@@ -107,77 +120,101 @@ class _PayslipScreenState extends State<PayslipScreen> {
           _QuickActionBanner(
             icon: Icons.receipt_long_outlined,
             label: '📋 Tax Declaration (80C/80D)',
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const InvestmentDeclarationScreen())),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const InvestmentDeclarationScreen(),
+              ),
+            ),
             color: const Color(0xFF1565C0),
           ),
           // Payslip Queries quick-action card
           _QuickActionBanner(
             icon: Icons.chat_bubble_outline,
             label: '💬 Payslip Queries',
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PayslipQueryScreen())),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PayslipQueryScreen()),
+            ),
             color: const Color(0xFF6A1B9A),
           ),
           Expanded(
             child: _loading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF007A64)))
-          : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
+                ? const Center(
+                    child: CircularProgressIndicator(color: Color(0xFF007A64)),
+                  )
+                : _error != null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            size: 48,
+                            color: Colors.red.shade300,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            _error!,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            onPressed: _load,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Retry'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF007A64),
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : _payslips.isEmpty
+                ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
+                        Icon(
+                          Icons.receipt_long_outlined,
+                          size: 64,
+                          color: Colors.grey.shade300,
+                        ),
                         const SizedBox(height: 12),
                         Text(
-                          _error!,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.red),
+                          'No payslips available yet',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey.shade600,
+                          ),
                         ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          onPressed: _load,
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Retry'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF007A64),
-                            foregroundColor: Colors.white,
+                        const SizedBox(height: 6),
+                        Text(
+                          'Payslips are issued on the 5th of each month',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade400,
                           ),
                         ),
                       ],
                     ),
-                  ),
-                )
-              : _payslips.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.receipt_long_outlined, size: 64, color: Colors.grey.shade300),
-                          const SizedBox(height: 12),
-                          Text(
-                            'No payslips available yet',
-                            style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Payslips are issued on the 5th of each month',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
-                          ),
-                        ],
-                      ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _load,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _payslips.length,
-                        itemBuilder: (ctx, i) {
-                          final p = _payslips[i] as Map<String, dynamic>;
-                          return _PayslipCard(payslip: p, monthName: _monthName);
-                        },
-                      ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: _load,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _payslips.length,
+                      itemBuilder: (ctx, i) {
+                        final p = _payslips[i] as Map<String, dynamic>;
+                        return _PayslipCard(payslip: p, monthName: _monthName);
+                      },
                     ),
+                  ),
           ),
         ],
       ),
@@ -229,7 +266,11 @@ class _PayslipCard extends StatelessWidget {
                       color: const Color(0xFF007A64).withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.receipt_long, color: Color(0xFF007A64), size: 20),
+                    child: const Icon(
+                      Icons.receipt_long,
+                      color: Color(0xFF007A64),
+                      size: 20,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -248,11 +289,16 @@ class _PayslipCard extends StatelessWidget {
                             if (isNew) ...[
                               const SizedBox(width: 8),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                  vertical: 2,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Colors.blue.shade50,
                                   borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: Colors.blue.shade200),
+                                  border: Border.all(
+                                    color: Colors.blue.shade200,
+                                  ),
                                 ),
                                 child: Text(
                                   'NEW',
@@ -283,7 +329,10 @@ class _PayslipCard extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               Container(
-                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 10,
+                  horizontal: 12,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.grey.shade50,
                   borderRadius: BorderRadius.circular(8),

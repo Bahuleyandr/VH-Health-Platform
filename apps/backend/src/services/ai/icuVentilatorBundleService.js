@@ -135,10 +135,6 @@ function medicationName(event) {
   );
 }
 
-function statusOf(event) {
-  return normalizedText(payloadValue(event, 'status') || event?.sub_type);
-}
-
 function eventCitation(event, label = null) {
   if (!event) return null;
   return {

@@ -6,14 +6,18 @@ class PharmacyApiService {
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  static Future<Map<String, dynamic>> _get(String path,
-      {Map<String, String>? query}) async {
+  static Future<Map<String, dynamic>> _get(
+    String path, {
+    Map<String, String>? query,
+  }) async {
     final resp = await ApiClient.get(path, queryParameters: query);
     return _handle(resp);
   }
 
   static Future<Map<String, dynamic>> _post(
-      String path, Map<String, dynamic> body) async {
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     final resp = await ApiClient.post(path, body: body);
     return _handle(resp);
   }
@@ -47,9 +51,10 @@ class PharmacyApiService {
 
   /// GET /pharmacy-orders/orders/queue — pharmacy order queue
   static Future<List<dynamic>> getPharmacyOrderQueue({String? status}) async {
-    final resp = await _get('/pharmacy-orders/orders/queue', query: {
-      'status': ?status,
-    });
+    final resp = await _get(
+      '/pharmacy-orders/orders/queue',
+      query: {'status': ?status},
+    );
     final data = resp['data'];
     if (data is List) return data;
     return [];
@@ -57,7 +62,9 @@ class PharmacyApiService {
 
   /// POST /pharmacy-orders/orders/:id/confirm
   static Future<Map<String, dynamic>> confirmPharmacyOrder(
-      int id, Map<String, dynamic> data) async {
+    int id,
+    Map<String, dynamic> data,
+  ) async {
     return _post('/pharmacy-orders/orders/$id/confirm', data);
   }
 
@@ -68,7 +75,9 @@ class PharmacyApiService {
 
   /// POST /pharmacy-orders/orders/:id/dispatch
   static Future<Map<String, dynamic>> dispatchPharmacyOrder(
-      int id, Map<String, dynamic> data) async {
+    int id,
+    Map<String, dynamic> data,
+  ) async {
     return _post('/pharmacy-orders/orders/$id/dispatch', data);
   }
 
@@ -79,7 +88,9 @@ class PharmacyApiService {
 
   /// POST /pharmacy-orders/orders/:id/cancel
   static Future<Map<String, dynamic>> cancelPharmacyOrder(
-      int id, String reason) async {
+    int id,
+    String reason,
+  ) async {
     return _post('/pharmacy-orders/orders/$id/cancel', {
       'cancellation_reason': reason,
     });

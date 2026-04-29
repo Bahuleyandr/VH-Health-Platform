@@ -46,10 +46,9 @@ class _SplashScreenState extends State<SplashScreen>
       vsync: this,
       duration: const Duration(seconds: 1),
     )..repeat(reverse: true);
-    _pulse = Tween<double>(
-      begin: 0.9,
-      end: 1.1,
-    ).animate(CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut));
+    _pulse = Tween<double>(begin: 0.9, end: 1.1).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
 
     // Entry fade — the logo + title fade in over the first ~500ms, the
     // "tap" hint fades in slightly later (~900ms onwards) so it doesn't
@@ -72,7 +71,8 @@ class _SplashScreenState extends State<SplashScreen>
     // can't complete a real Firebase OTP. With VH_AUTO_DEV_LOGIN=true at
     // build time, we bypass the tap-to-continue + login flow and route
     // straight to the dashboard with a JWT from /auth/dev/patient-login.
-    final autoDev = kDebugMode &&
+    final autoDev =
+        kDebugMode &&
         const bool.fromEnvironment('VH_AUTO_DEV_LOGIN', defaultValue: false);
     if (autoDev) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _autoDevLogin());
@@ -154,7 +154,11 @@ class _SplashScreenState extends State<SplashScreen>
         context.go('/home');
       }
     } catch (e, st) {
-      developer.log('Auto dev-login failed: $e', name: 'Splash', stackTrace: st);
+      developer.log(
+        'Auto dev-login failed: $e',
+        name: 'Splash',
+        stackTrace: st,
+      );
     }
   }
 

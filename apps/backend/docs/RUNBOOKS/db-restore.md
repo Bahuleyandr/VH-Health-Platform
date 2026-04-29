@@ -128,8 +128,8 @@ metadata:
   name: vhhealth-db-url
   namespace: vhhealth
 stringData:
-  DATABASE_URL: "postgresql://vhhealth:$PGPASSWORD@vhhealth-pg-recovery-rw.vhhealth-platform.svc.cluster.local:5432/vhhealth?sslmode=require"
-  DATABASE_READ_URL: "postgresql://vhhealth:$PGPASSWORD@vhhealth-pg-recovery-ro.vhhealth-platform.svc.cluster.local:5432/vhhealth?sslmode=require"
+  DATABASE_URL: "postgresql://vhhealth:<DB_PASSWORD>@vhhealth-pg-recovery-rw.vhhealth-platform.svc.cluster.local:5432/vhhealth?sslmode=require"
+  DATABASE_READ_URL: "postgresql://vhhealth:<DB_PASSWORD>@vhhealth-pg-recovery-ro.vhhealth-platform.svc.cluster.local:5432/vhhealth?sslmode=require"
 EOF
 
 kubeseal < /tmp/db-url-secret.yaml \

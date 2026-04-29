@@ -12,7 +12,10 @@ class InputSanitizer {
   static String stripHtml(String input) {
     // First remove script/style blocks entirely (content + tags)
     var result = input.replaceAll(
-      RegExp(r'<\s*(script|style)[^>]*>[\s\S]*?<\s*/\s*\1\s*>', caseSensitive: false),
+      RegExp(
+        r'<\s*(script|style)[^>]*>[\s\S]*?<\s*/\s*\1\s*>',
+        caseSensitive: false,
+      ),
       '',
     );
     // Remove complete tags (with closing >)

@@ -105,10 +105,12 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
                       value: _selectedFY,
                       isDense: true,
                       items: _fyOptions
-                          .map((fy) => DropdownMenuItem(
-                                value: fy,
-                                child: Text('FY $fy'),
-                              ))
+                          .map(
+                            (fy) => DropdownMenuItem(
+                              value: fy,
+                              child: Text('FY $fy'),
+                            ),
+                          )
                           .toList(),
                       onChanged: (fy) {
                         if (fy != null && fy != _selectedFY) {
@@ -126,33 +128,43 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
           // Body
           Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator(color: Color(0xFF007A64)))
+                ? const Center(
+                    child: CircularProgressIndicator(color: Color(0xFF007A64)),
+                  )
                 : _error != null
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
-                              const SizedBox(height: 12),
-                              Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
-                              const SizedBox(height: 16),
-                              ElevatedButton(
-                                onPressed: _load,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF007A64),
-                                  foregroundColor: Colors.white,
-                                ),
-                                child: const Text('Retry'),
-                              ),
-                            ],
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            size: 48,
+                            color: Colors.red.shade300,
                           ),
-                        ),
-                      )
-                    : _summary == null
-                        ? const Center(child: Text('No data'))
-                        : _buildBody(),
+                          const SizedBox(height: 12),
+                          Text(
+                            _error!,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: _load,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF007A64),
+                              foregroundColor: Colors.white,
+                            ),
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : _summary == null
+                ? const Center(child: Text('No data'))
+                : _buildBody(),
           ),
         ],
       ),
@@ -163,7 +175,8 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
     final s = _summary!;
     final fmt = NumberFormat('#,##,##0.00');
 
-    String fmtAmt(dynamic v) => '₹${fmt.format(double.tryParse(v?.toString() ?? '0') ?? 0)}';
+    String fmtAmt(dynamic v) =>
+        '₹${fmt.format(double.tryParse(v?.toString() ?? '0') ?? 0)}';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -225,23 +238,50 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
           _DetailCard(
             title: '💰 Earnings Breakdown',
             rows: [
-              if ((double.tryParse(s['total_basic']?.toString() ?? '0') ?? 0) > 0)
+              if ((double.tryParse(s['total_basic']?.toString() ?? '0') ?? 0) >
+                  0)
                 _DetailRow('Basic Salary', fmtAmt(s['total_basic'])),
               if ((double.tryParse(s['total_hra']?.toString() ?? '0') ?? 0) > 0)
                 _DetailRow('HRA', fmtAmt(s['total_hra'])),
               if ((double.tryParse(s['total_da']?.toString() ?? '0') ?? 0) > 0)
                 _DetailRow('DA', fmtAmt(s['total_da'])),
-              if ((double.tryParse(s['total_special_allowance']?.toString() ?? '0') ?? 0) > 0)
-                _DetailRow('Special Allowance', fmtAmt(s['total_special_allowance'])),
-              if ((double.tryParse(s['total_transport_allowance']?.toString() ?? '0') ?? 0) > 0)
-                _DetailRow('Transport Allowance', fmtAmt(s['total_transport_allowance'])),
-              if ((double.tryParse(s['total_medical_allowance']?.toString() ?? '0') ?? 0) > 0)
-                _DetailRow('Medical Allowance', fmtAmt(s['total_medical_allowance'])),
-              if ((double.tryParse(s['total_overtime']?.toString() ?? '0') ?? 0) > 0)
+              if ((double.tryParse(
+                        s['total_special_allowance']?.toString() ?? '0',
+                      ) ??
+                      0) >
+                  0)
+                _DetailRow(
+                  'Special Allowance',
+                  fmtAmt(s['total_special_allowance']),
+                ),
+              if ((double.tryParse(
+                        s['total_transport_allowance']?.toString() ?? '0',
+                      ) ??
+                      0) >
+                  0)
+                _DetailRow(
+                  'Transport Allowance',
+                  fmtAmt(s['total_transport_allowance']),
+                ),
+              if ((double.tryParse(
+                        s['total_medical_allowance']?.toString() ?? '0',
+                      ) ??
+                      0) >
+                  0)
+                _DetailRow(
+                  'Medical Allowance',
+                  fmtAmt(s['total_medical_allowance']),
+                ),
+              if ((double.tryParse(s['total_overtime']?.toString() ?? '0') ??
+                      0) >
+                  0)
                 _DetailRow('Overtime Pay', fmtAmt(s['total_overtime'])),
-              if ((double.tryParse(s['total_bonus']?.toString() ?? '0') ?? 0) > 0)
+              if ((double.tryParse(s['total_bonus']?.toString() ?? '0') ?? 0) >
+                  0)
                 _DetailRow('Bonus', fmtAmt(s['total_bonus'])),
-              if ((double.tryParse(s['total_arrears']?.toString() ?? '0') ?? 0) > 0)
+              if ((double.tryParse(s['total_arrears']?.toString() ?? '0') ??
+                      0) >
+                  0)
                 _DetailRow('Arrears', fmtAmt(s['total_arrears'])),
               _DetailRow('Total Gross', fmtAmt(s['total_gross']), isBold: true),
             ],
@@ -255,13 +295,31 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
                 _DetailRow('Provident Fund (PF)', fmtAmt(s['total_pf'])),
               if ((double.tryParse(s['total_esi']?.toString() ?? '0') ?? 0) > 0)
                 _DetailRow('ESI', fmtAmt(s['total_esi'])),
-              if ((double.tryParse(s['total_professional_tax']?.toString() ?? '0') ?? 0) > 0)
-                _DetailRow('Professional Tax', fmtAmt(s['total_professional_tax'])),
+              if ((double.tryParse(
+                        s['total_professional_tax']?.toString() ?? '0',
+                      ) ??
+                      0) >
+                  0)
+                _DetailRow(
+                  'Professional Tax',
+                  fmtAmt(s['total_professional_tax']),
+                ),
               if ((double.tryParse(s['total_tds']?.toString() ?? '0') ?? 0) > 0)
                 _DetailRow('TDS Deducted', fmtAmt(s['total_tds'])),
-              if ((double.tryParse(s['total_advance_deductions']?.toString() ?? '0') ?? 0) > 0)
-                _DetailRow('Salary Advance Deductions', fmtAmt(s['total_advance_deductions'])),
-              _DetailRow('Total Deductions', fmtAmt(s['total_deductions']), isBold: true),
+              if ((double.tryParse(
+                        s['total_advance_deductions']?.toString() ?? '0',
+                      ) ??
+                      0) >
+                  0)
+                _DetailRow(
+                  'Salary Advance Deductions',
+                  fmtAmt(s['total_advance_deductions']),
+                ),
+              _DetailRow(
+                'Total Deductions',
+                fmtAmt(s['total_deductions']),
+                isBold: true,
+              ),
             ],
           ),
 
@@ -271,10 +329,21 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
             rows: [
               _DetailRow('Total Gross Income', fmtAmt(s['total_gross'])),
               _DetailRow('Less: Provident Fund', '- ${fmtAmt(s['total_pf'])}'),
-              _DetailRow('Less: Professional Tax', '- ${fmtAmt(s['total_professional_tax'])}'),
+              _DetailRow(
+                'Less: Professional Tax',
+                '- ${fmtAmt(s['total_professional_tax'])}',
+              ),
               const _DetailRow('Less: Standard Deduction', '- ₹50,000'),
-              _DetailRow('Taxable Income', fmtAmt(s['taxable_income']), isBold: true),
-              _DetailRow('Tax Payable (incl. 4% cess)', fmtAmt(s['tax_payable']), isBold: true),
+              _DetailRow(
+                'Taxable Income',
+                fmtAmt(s['taxable_income']),
+                isBold: true,
+              ),
+              _DetailRow(
+                'Tax Payable (incl. 4% cess)',
+                fmtAmt(s['tax_payable']),
+                isBold: true,
+              ),
             ],
           ),
 
@@ -291,13 +360,20 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.warning_amber_outlined, color: Colors.amber.shade700, size: 18),
+                Icon(
+                  Icons.warning_amber_outlined,
+                  color: Colors.amber.shade700,
+                  size: 18,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'This is indicative only, calculated under the New Tax Regime (FY $_selectedFY slabs). '
                     'Actual Form 16 will be issued by your employer at the end of the financial year.',
-                    style: TextStyle(fontSize: 11, color: Colors.amber.shade900),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.amber.shade900,
+                    ),
                   ),
                 ),
               ],
@@ -313,12 +389,18 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
                 onPressed: _downloadPDF,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF007A64),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 icon: const Icon(Icons.download_outlined, color: Colors.white),
                 label: const Text(
                   'Download Form 16 PDF',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
                 ),
               ),
             ),
@@ -407,33 +489,44 @@ class _DetailCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
             const Divider(height: 16),
-            ...rows.map((row) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      row.label,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: row.isBold ? FontWeight.bold : FontWeight.normal,
-                        color: Colors.grey.shade700,
+            ...rows.map(
+              (row) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        row.label,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: row.isBold
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                          color: Colors.grey.shade700,
+                        ),
                       ),
                     ),
-                  ),
-                  Text(
-                    row.value,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: row.isBold ? FontWeight.bold : FontWeight.normal,
-                      color: row.isBold ? Colors.black87 : Colors.grey.shade800,
+                    Text(
+                      row.value,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: row.isBold
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                        color: row.isBold
+                            ? Colors.black87
+                            : Colors.grey.shade800,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            )),
+            ),
           ],
         ),
       ),

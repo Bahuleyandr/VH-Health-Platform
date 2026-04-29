@@ -1,10 +1,19 @@
 import express from 'express';
 import multer from 'multer';
 import prisma, { setTenant } from '../../lib/prisma.js';
+import { rawQuery } from '../../lib/rawSql.js';
 import logger from '../../logging/logger.js';
 import { validateFileContent } from '../../middleware/uploadMiddleware.js';
 import { error, success } from '../../utils/responseHelper.js';
 import { getClinicalAiRuntimeStatus } from '../../services/ai/localLlmClient.js';
+import overviewRoutes from './clinicalAi/overviewRoutes.js';
+import {
+  getClientIp,
+  normalizeRole,
+  parseClinicalAiWindowDays,
+  requireClinicalAiControl,
+  uuidOrNull,
+} from './clinicalAi/shared.js';
 import {
   deleteClinicalAiTenantModule,
   getClinicalAiBudgetStatus,
@@ -44,7 +53,6 @@ import {
   getCorpusHealth,
   retrieveRelevant,
 } from '../../services/ai/ragService.js';
-import { listTranslations } from '../../services/ai/translationService.js';
 import {
   concludeExperiment,
   createExperiment,
@@ -72,7 +80,6 @@ import {
 import {
   decidePolypharmacyReview,
   listPolypharmacyReviews,
-  reviewPolypharmacy,
 } from '../../services/ai/polypharmacyAiService.js';
 import {
   decideTrialMatch,
@@ -396,53 +403,6 @@ const documentUpload = multer({
     cb(null, true);
   },
 });
-const CLINICAL_AI_CONTROL_ROLES = new Set([
-  'ADMIN',
-  'SUPER_ADMIN',
-  'IT',
-  'IT_ADMIN',
-  'IT_STAFF',
-  'SYSTEM_ADMIN',
-]);
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function normalizeRole(role) {
-  return String(role || '').trim().toUpperCase();
-}
-
-function requireClinicalAiControl(req, res, next) {
-  if (!req.user) {
-    return error(res, 'Authentication required', 401, { safe: true });
-  }
-
-  const role = normalizeRole(req.user.role);
-  if (!CLINICAL_AI_CONTROL_ROLES.has(role)) {
-    return error(res, 'Clinical AI controls require Admin or IT privileges', 403, {
-      safe: true,
-    });
-  }
-
-  return next();
-}
-
-function uuidOrNull(value) {
-  const text = String(value || '').trim();
-  return UUID_RE.test(text) ? text : null;
-}
-
-function getClientIp(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.trim()) {
-    return forwarded.split(',')[0].trim();
-  }
-  if (Array.isArray(forwarded) && forwarded.length > 0) {
-    return String(forwarded[0]).trim();
-  }
-  return req.ip || req.socket?.remoteAddress || req.connection?.remoteAddress || null;
-}
-
 function stableValue(value) {
   if (value === undefined) return null;
   if (value instanceof Date) return value.toISOString();
@@ -488,13 +448,10 @@ function pickGuardrailAuditFields(guardrails = {}) {
   };
 }
 
-function parseClinicalAiWindowDays(value, fallback = 7) {
-  return Math.min(Math.max(parseInt(value, 10) || fallback, 1), 90);
-}
-
 async function getClinicalAiAuditRows({ limit = 50, tenantId = null } = {}) {
   const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500);
-  return prisma.$queryRawUnsafe(
+  return rawQuery(
+    prisma,
     `SELECT id, uid, role, action, resource, resource_id, metadata,
             ip_address, user_agent, created_at
      FROM audit_logs
@@ -546,7 +503,8 @@ async function logClinicalAiAudit(req, action, resourceId, before, after) {
   };
 
   try {
-    await prisma.$queryRawUnsafe(
+    await rawQuery(
+      prisma,
       `INSERT INTO audit_logs
          (uid, role, action, resource, resource_id, metadata, ip_address, user_agent, created_at)
        VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, $7, $8, NOW())`,
@@ -569,6 +527,7 @@ async function logClinicalAiAudit(req, action, resourceId, before, after) {
 }
 
 router.use(requireClinicalAiControl);
+router.use('/', overviewRoutes);
 
 router.get('/status', async (req, res, next) => {
   try {
@@ -1071,7 +1030,8 @@ router.get('/generations', async (req, res, next) => {
     // `tenant_id = $1::uuid` above remains as belt-and-braces filtering; the
     // RLS policy from migration 075 is the defense-in-depth layer.
     const rows = await setTenant(req.tenantId, (tx) =>
-      tx.$queryRawUnsafe(
+      rawQuery(
+        tx,
         `SELECT g.id, g.patient_uid, u.name AS patient_name, g.admission_id,
                 g.task_type, g.module_key, g.provider, g.model, g.prompt_version, g.source_hash,
                 g.status, g.used_ai, g.safety_flags, g.generated_by, g.reviewed_by,
@@ -1135,7 +1095,8 @@ router.get('/safety-flags', async (req, res, next) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
     // RLS POC — transactionally scopes the lateral join to the caller's tenant.
     const rows = await setTenant(req.tenantId, (tx) =>
-      tx.$queryRawUnsafe(
+      rawQuery(
+        tx,
         `SELECT g.id AS generation_id, g.patient_uid, u.name AS patient_name,
                 g.admission_id, g.task_type, g.module_key, g.status,
                 flag->>'severity' AS severity,
@@ -5382,86 +5343,6 @@ router.patch('/operational/charge-capture/:id', async (req, res, next) => {
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_CHARGE_CAPTURE_DECIDED', String(decided.id), null, decided);
     return success(res, decided, 'Charge capture audit decided');
-  } catch (err) {
-    return next(err);
-  }
-});
-
-/**
- * M4 — tenant-scoped translation list for admin dashboard.
- */
-router.get('/translations', async (req, res, next) => {
-  try {
-    const result = await listTranslations({
-      tenantId: req.tenantId,
-      targetLanguage: req.query?.language || null,
-      limit: req.query?.limit,
-    });
-    return success(res, result, 'Clinical AI translations retrieved');
-  } catch (err) {
-    return next(err);
-  }
-});
-
-/**
- * M5 — recent longitudinal risk snapshots for the admin overview. Returns
- * the most recent snapshot per admission, banded. Used to triage which
- * patients need care-manager attention.
- */
-router.get('/longitudinal-risk', async (req, res, next) => {
-  try {
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
-    const band = req.query.band ? String(req.query.band).toLowerCase() : null;
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT DISTINCT ON (r.admission_id)
-              r.id, r.admission_id, r.patient_uid, u.name AS patient_name,
-              r.overall_score, r.band, r.adherence_score, r.adherence_source,
-              r.readmission_score, r.comorbidity_score, r.abdm_enrichment,
-              r.recommendations, r.created_at
-       FROM clinical_longitudinal_risk r
-       LEFT JOIN users u ON u.uid = r.patient_uid
-       WHERE r.tenant_id = $1::uuid
-         AND ($2::text IS NULL OR r.band = $2)
-       ORDER BY r.admission_id, r.created_at DESC`,
-      req.tenantId,
-      band
-    ).catch(() => []);
-    const bandOrder = { critical: 0, high: 1, medium: 2, low: 3 };
-    const sorted = rows
-      .sort((a, b) => (bandOrder[a.band] ?? 4) - (bandOrder[b.band] ?? 4))
-      .slice(0, limit);
-    return success(res, { snapshots: sorted, count: sorted.length }, 'Longitudinal risk overview retrieved');
-  } catch (err) {
-    return next(err);
-  }
-});
-
-/**
- * Dead-letter list — generations that failed defenses (status='failed').
- * Always tenant-scoped. Platform admins use this to triage PHI leaks and
- * schema violations that blocked drafts from reaching the review queue.
- */
-router.get('/dead-letter', async (req, res, next) => {
-  try {
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
-    // RLS POC — platform admins (SUPER_ADMIN) can read dead-letter across tenants.
-    // Everyone else is scoped to their own tenant by the RLS policy.
-    const isSuperAdmin = normalizeRole(req.user?.role) === 'SUPER_ADMIN';
-    const rows = await setTenant(req.tenantId, (tx) =>
-      tx.$queryRawUnsafe(
-        `SELECT g.id, g.patient_uid, u.name AS patient_name, g.admission_id,
-                g.task_type, g.module_key, g.provider, g.model, g.status,
-                g.safety_flags, g.metadata, g.created_at
-         FROM clinical_ai_generations g
-         LEFT JOIN users u ON u.uid = g.patient_uid
-         WHERE ($1::uuid IS NULL OR g.tenant_id = $1::uuid)
-           AND g.status = 'failed'
-         ORDER BY g.created_at DESC
-         LIMIT $2`,
-        isSuperAdmin ? null : req.tenantId, limit,
-      ),
-    { superAdmin: isSuperAdmin });
-    return success(res, { generations: rows, count: rows.length }, 'Clinical AI dead-letter queue retrieved');
   } catch (err) {
     return next(err);
   }

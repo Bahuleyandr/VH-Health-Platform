@@ -78,18 +78,16 @@ class _MyHousekeepingScreenState extends State<MyHousekeepingScreen>
           tabs: [
             Tab(text: 'My Logs (${_logs.length})'),
             Tab(
-                text:
-                    'Requests (${_raisedRequests.length + _assignedRequests.length})'),
+              text:
+                  'Requests (${_raisedRequests.length + _assignedRequests.length})',
+            ),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          _LogsTab(
-              logs: _logs,
-              loading: _loadingLogs,
-              onRefresh: _loadLogs),
+          _LogsTab(logs: _logs, loading: _loadingLogs, onRefresh: _loadLogs),
           _RequestsTab(
             raised: _raisedRequests,
             assigned: _assignedRequests,
@@ -110,8 +108,11 @@ class _LogsTab extends StatelessWidget {
   final bool loading;
   final VoidCallback onRefresh;
 
-  const _LogsTab(
-      {required this.logs, required this.loading, required this.onRefresh});
+  const _LogsTab({
+    required this.logs,
+    required this.loading,
+    required this.onRefresh,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -120,13 +121,21 @@ class _LogsTab extends StatelessWidget {
     }
     if (logs.isEmpty) {
       return Center(
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(Icons.cleaning_services_outlined,
-              size: 56, color: Colors.grey.shade400),
-          const SizedBox(height: 12),
-          const Text('No cleaning logs yet',
-              style: TextStyle(fontSize: 16, color: Colors.grey)),
-        ]),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.cleaning_services_outlined,
+              size: 56,
+              color: Colors.grey.shade400,
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'No cleaning logs yet',
+              style: TextStyle(fontSize: 16, color: Colors.grey),
+            ),
+          ],
+        ),
       );
     }
     return RefreshIndicator(
@@ -154,71 +163,105 @@ class _LogCard extends StatelessWidget {
       _ => (color: Colors.grey, label: 'SUBMITTED'),
     };
     final loggedAt = log['logged_at'] != null
-        ? DateFormat('dd MMM, HH:mm')
-            .format(DateTime.parse(log['logged_at'] as String).toLocal())
+        ? DateFormat(
+            'dd MMM, HH:mm',
+          ).format(DateTime.parse(log['logged_at'] as String).toLocal())
         : '';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: Padding(
         padding: const EdgeInsets.all(14),
-        child: Row(children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
                 color: const Color(0xFF007A64).withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8)),
-            child: const Icon(Icons.cleaning_services_outlined,
-                color: Color(0xFF007A64), size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Text(log['log_number'] as String? ?? '',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 13)),
-                const Spacer(),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                  decoration: BoxDecoration(
-                      color: statusStyle.color.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8)),
-                  child: Text(statusStyle.label,
-                      style: TextStyle(
-                          color: statusStyle.color,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold)),
-                ),
-              ]),
-              const SizedBox(height: 3),
-              Text(
-                  log['zone_name'] as String? ??
-                      log['location_text'] as String? ??
-                      'Unknown location',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
-              const SizedBox(height: 2),
-              Row(children: [
-                Text(
-                    (log['cleaning_type'] as String? ?? 'routine')
-                        .replaceAll('_', ' '),
-                    style: const TextStyle(
-                        fontSize: 11, color: Color(0xFF007A64))),
-                const Spacer(),
-                Text(loggedAt,
-                    style: const TextStyle(fontSize: 11, color: Colors.grey)),
-              ]),
-              if (status == 'flagged' && log['flag_reason'] != null) ...[
-                const SizedBox(height: 4),
-                Text('⚠️ ${log['flag_reason']}',
-                    style: const TextStyle(
-                        fontSize: 11, color: Colors.red)),
-              ],
-            ]),
-          ),
-        ]),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.cleaning_services_outlined,
+                color: Color(0xFF007A64),
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        log['log_number'] as String? ?? '',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: statusStyle.color.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          statusStyle.label,
+                          style: TextStyle(
+                            color: statusStyle.color,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    log['zone_name'] as String? ??
+                        log['location_text'] as String? ??
+                        'Unknown location',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Text(
+                        (log['cleaning_type'] as String? ?? 'routine')
+                            .replaceAll('_', ' '),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF007A64),
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        loggedAt,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (status == 'flagged' && log['flag_reason'] != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '⚠️ ${log['flag_reason']}',
+                      style: const TextStyle(fontSize: 11, color: Colors.red),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -266,38 +309,42 @@ class _RequestsTabState extends State<_RequestsTab>
     if (widget.loading) {
       return const Center(child: CircularProgressIndicator());
     }
-    return Column(children: [
-      Container(
-        color: Colors.white,
-        child: TabBar(
-          controller: _subTab,
-          labelColor: const Color(0xFF007A64),
-          unselectedLabelColor: Colors.grey,
-          indicatorColor: const Color(0xFF007A64),
-          tabs: [
-            Tab(text: 'Raised by me (${widget.raised.length})'),
-            Tab(text: 'Assigned to me (${widget.assigned.length})'),
-          ],
+    return Column(
+      children: [
+        Container(
+          color: Colors.white,
+          child: TabBar(
+            controller: _subTab,
+            labelColor: const Color(0xFF007A64),
+            unselectedLabelColor: Colors.grey,
+            indicatorColor: const Color(0xFF007A64),
+            tabs: [
+              Tab(text: 'Raised by me (${widget.raised.length})'),
+              Tab(text: 'Assigned to me (${widget.assigned.length})'),
+            ],
+          ),
         ),
-      ),
-      Expanded(
-        child: TabBarView(
-          controller: _subTab,
-          children: [
-            _RequestList(
+        Expanded(
+          child: TabBarView(
+            controller: _subTab,
+            children: [
+              _RequestList(
                 requests: widget.raised,
                 showComplete: false,
                 onRefresh: widget.onRefresh,
-                onCompleted: widget.onCompleted),
-            _RequestList(
+                onCompleted: widget.onCompleted,
+              ),
+              _RequestList(
                 requests: widget.assigned,
                 showComplete: true,
                 onRefresh: widget.onRefresh,
-                onCompleted: widget.onCompleted),
-          ],
+                onCompleted: widget.onCompleted,
+              ),
+            ],
+          ),
         ),
-      ),
-    ]);
+      ],
+    );
   }
 }
 
@@ -318,12 +365,17 @@ class _RequestList extends StatelessWidget {
   Widget build(BuildContext context) {
     if (requests.isEmpty) {
       return Center(
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(Icons.inbox_outlined, size: 56, color: Colors.grey.shade400),
-          const SizedBox(height: 12),
-          const Text('No requests here',
-              style: TextStyle(fontSize: 16, color: Colors.grey)),
-        ]),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.inbox_outlined, size: 56, color: Colors.grey.shade400),
+            const SizedBox(height: 12),
+            const Text(
+              'No requests here',
+              style: TextStyle(fontSize: 16, color: Colors.grey),
+            ),
+          ],
+        ),
       );
     }
     return RefreshIndicator(
@@ -346,10 +398,11 @@ class _RequestCard extends StatelessWidget {
   final bool showComplete;
   final VoidCallback onCompleted;
 
-  const _RequestCard(
-      {required this.req,
-      required this.showComplete,
-      required this.onCompleted});
+  const _RequestCard({
+    required this.req,
+    required this.showComplete,
+    required this.onCompleted,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -362,86 +415,123 @@ class _RequestCard extends StatelessWidget {
     };
     final status = req['status'] as String? ?? 'open';
     final createdAt = req['created_at'] != null
-        ? DateFormat('dd MMM, HH:mm')
-            .format(DateTime.parse(req['created_at'] as String).toLocal())
+        ? DateFormat(
+            'dd MMM, HH:mm',
+          ).format(DateTime.parse(req['created_at'] as String).toLocal())
         : '';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: Padding(
         padding: const EdgeInsets.all(14),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(
-                  color: urgencyColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                      color: urgencyColor.withValues(alpha: 0.3))),
-              child: Text(urgency.toUpperCase(),
-                  style: TextStyle(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: urgencyColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: urgencyColor.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Text(
+                    urgency.toUpperCase(),
+                    style: TextStyle(
                       color: urgencyColor,
                       fontSize: 10,
-                      fontWeight: FontWeight.bold)),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  req['request_number'] as String? ?? '',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  createdAt,
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            Text(req['request_number'] as String? ?? '',
-                style: const TextStyle(
-                    fontWeight: FontWeight.bold, fontSize: 13)),
-            const Spacer(),
-            Text(createdAt,
-                style: const TextStyle(fontSize: 11, color: Colors.grey)),
-          ]),
-          const SizedBox(height: 6),
-          Text(
+            const SizedBox(height: 6),
+            Text(
               req['zone_name'] as String? ??
                   req['location_text'] as String? ??
                   '',
-              style: const TextStyle(fontSize: 13)),
-          if (req['description'] != null) ...[
-            const SizedBox(height: 4),
-            Text(req['description'] as String,
+              style: const TextStyle(fontSize: 13),
+            ),
+            if (req['description'] != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                req['description'] as String,
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
                 maxLines: 2,
-                overflow: TextOverflow.ellipsis),
-          ],
-          const SizedBox(height: 8),
-          Row(children: [
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8)),
-              child: Text(status.replaceAll('_', ' ').toUpperCase(),
-                  style: TextStyle(
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    status.replaceAll('_', ' ').toUpperCase(),
+                    style: TextStyle(
                       color: Colors.blue.shade700,
                       fontSize: 10,
-                      fontWeight: FontWeight.bold)),
-            ),
-            const Spacer(),
-            if (showComplete && status == 'assigned')
-              ElevatedButton(
-                onPressed: () =>
-                    _showCompleteDialog(context, req['id'].toString()),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF007A64),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
-                child: const Text('Mark Complete',
-                    style: TextStyle(
+                const Spacer(),
+                if (showComplete && status == 'assigned')
+                  ElevatedButton(
+                    onPressed: () =>
+                        _showCompleteDialog(context, req['id'].toString()),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF007A64),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 6,
+                      ),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text(
+                      'Mark Complete',
+                      style: TextStyle(
                         fontSize: 12,
                         color: Colors.white,
-                        fontWeight: FontWeight.bold)),
-              ),
-          ]),
-        ]),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -474,7 +564,9 @@ class _RequestCard extends StatelessWidget {
                   onTap: () async {
                     final picker = ImagePicker();
                     final img = await picker.pickImage(
-                        source: ImageSource.camera, imageQuality: 70);
+                      source: ImageSource.camera,
+                      imageQuality: 70,
+                    );
                     if (img != null) {
                       setDialogState(() => photo = File(img.path));
                     }
@@ -489,17 +581,26 @@ class _RequestCard extends StatelessWidget {
                     child: photo != null
                         ? ClipRRect(
                             borderRadius: BorderRadius.circular(8),
-                            child: Image.file(photo!,
-                                fit: BoxFit.cover,
-                                width: double.infinity))
+                            child: Image.file(
+                              photo!,
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                            ),
+                          )
                         : const Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.camera_alt_outlined,
-                                  color: Colors.grey),
-                              Text('Add completion photo',
-                                  style: TextStyle(
-                                      fontSize: 12, color: Colors.grey)),
+                              Icon(
+                                Icons.camera_alt_outlined,
+                                color: Colors.grey,
+                              ),
+                              Text(
+                                'Add completion photo',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
+                              ),
                             ],
                           ),
                   ),
@@ -528,8 +629,7 @@ class _RequestCard extends StatelessWidget {
                           Navigator.pop(ctx);
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                              content:
-                                  Text('✅ Request marked as completed'),
+                              content: Text('✅ Request marked as completed'),
                               backgroundColor: Color(0xFF007A64),
                             ),
                           );
@@ -537,10 +637,14 @@ class _RequestCard extends StatelessWidget {
                         }
                       } catch (e) {
                         if (ctx.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
                               content: Text(
-                                  e.toString().replaceFirst('Exception: ', '')),
-                              backgroundColor: Colors.red));
+                                e.toString().replaceFirst('Exception: ', ''),
+                              ),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
                         }
                       } finally {
                         if (ctx.mounted) {
@@ -549,15 +653,18 @@ class _RequestCard extends StatelessWidget {
                       }
                     },
               style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF007A64)),
+                backgroundColor: const Color(0xFF007A64),
+              ),
               child: submitting
                   ? const SizedBox(
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2))
-                  : const Text('Submit',
-                      style: TextStyle(color: Colors.white)),
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Text('Submit', style: TextStyle(color: Colors.white)),
             ),
           ],
         ),

@@ -44,8 +44,8 @@ export const getOtpAnalytics = async ({ startDate, endDate, purpose, requestedBy
     params.push(purpose);
   }
   
-  const [usageStats, failureStats, topUsers] = await Promise.all([
-    prisma.$queryRaw`
+  const [usageStatsResult, failureStatsResult, topUsersResult] = await Promise.all([
+    query(`
       SELECT
         DATE(created_at) AS date, purpose, action,
         COUNT(*)::int AS total_count,
@@ -53,24 +53,25 @@ export const getOtpAnalytics = async ({ startDate, endDate, purpose, requestedBy
         COUNT(*) FILTER (WHERE success = false)::int AS failed_count,
         COUNT(DISTINCT phone)::int AS unique_users
       FROM otp_logs
-      WHERE 1=1
+      ${whereClause}
+      GROUP BY DATE(created_at), purpose, action
       ORDER BY date DESC, purpose, action
-    `,
-    prisma.$queryRaw`
+    `, params),
+    query(`
       SELECT failure_reason, COUNT(*)::int AS count, COUNT(DISTINCT phone)::int AS unique_users
-      FROM otp_logs WHERE success = false AND failure_reason IS NOT NULL
+      FROM otp_logs ${whereClause} AND success = false AND failure_reason IS NOT NULL
       GROUP BY failure_reason ORDER BY count DESC
-    `,
-    prisma.$queryRaw`
+    `, params),
+    query(`
       SELECT phone, COUNT(*)::int AS otp_requests, COUNT(DISTINCT purpose)::int AS purposes_used,
              COUNT(*) FILTER (WHERE success = true AND action = 'verify')::int AS successful_verifications
-      FROM otp_logs GROUP BY phone ORDER BY otp_requests DESC LIMIT 20
-    `,
+      FROM otp_logs ${whereClause} GROUP BY phone ORDER BY otp_requests DESC LIMIT 20
+    `, params),
   ]);
   return {
-    usageStatistics: usageStats,
-    failureAnalysis: failureStats,
-    topUsers,
+    usageStatistics: usageStatsResult.rows,
+    failureAnalysis: failureStatsResult.rows,
+    topUsers: topUsersResult.rows,
     queryPeriod: { startDate, endDate, purpose },
     generatedBy: requestedBy,
     timestamp: new Date().toISOString()
@@ -80,63 +81,45 @@ export const getOtpAnalytics = async ({ startDate, endDate, purpose, requestedBy
 // Get OTP logs with filtering
 export const getOtpLogs = async (filters, requestedBy) => {
   const { page, limit, phone, purpose, action, success, startDate, endDate, ipAddress } = filters;
-  
+
   const offset = (page - 1) * limit;
-  let whereClause = 'WHERE 1=1';
-  const params = [limit, offset];
-  let paramIndex = 3;
-  
+  const where = {};
+
   if (phone) {
-    const normalizedPhone = normalizePhone(phone);
-    whereClause += ` AND phone = $${paramIndex}`;
-    params.push(normalizedPhone);
-    paramIndex++;
+    where.phone = normalizePhone(phone);
   }
-  
+
   if (purpose) {
-    whereClause += ` AND purpose = $${paramIndex}`;
-    params.push(purpose);
-    paramIndex++;
+    where.purpose = purpose;
   }
-  
+
   if (action) {
-    whereClause += ` AND action = $${paramIndex}`;
-    params.push(action);
-    paramIndex++;
+    where.action = action;
   }
-  
+
   if (success !== undefined) {
-    whereClause += ` AND success = $${paramIndex}`;
-    params.push(success === 'true');
-    paramIndex++;
+    where.success = success === true || success === 'true';
   }
-  
-  if (startDate) {
-    whereClause += ` AND created_at >= $${paramIndex}`;
-    params.push(startDate);
-    paramIndex++;
+
+  if (startDate || endDate) {
+    where.created_at = {};
+    if (startDate) where.created_at.gte = new Date(startDate);
+    if (endDate) where.created_at.lte = new Date(endDate);
   }
-  
-  if (endDate) {
-    whereClause += ` AND created_at <= $${paramIndex}`;
-    params.push(endDate);
-    paramIndex++;
-  }
-  
+
   if (ipAddress) {
-    whereClause += ` AND ip_address = $${paramIndex}`;
-    params.push(ipAddress);
-    paramIndex++;
+    where.ip_address = ipAddress;
   }
-  
+
   const [logs, totalCount] = await Promise.all([
     prisma.otp_logs.findMany({
+      where,
       select: { id: true, phone: true, purpose: true, action: true, success: true, failure_reason: true, ip_address: true, user_agent: true, created_at: true, created_by: true },
       orderBy: { created_at: 'desc' },
       skip: offset,
       take: parseInt(limit),
     }),
-    prisma.otp_logs.count(),
+    prisma.otp_logs.count({ where }),
   ]);
   return {
     logs,

@@ -23,7 +23,9 @@ class ApiRetry {
 
         final delay = initialDelay * pow(2, attempt - 1).toInt();
         if (kDebugMode) {
-          debugPrint('ApiRetry: attempt $attempt failed, retrying in ${delay.inMilliseconds}ms');
+          debugPrint(
+            'ApiRetry: attempt $attempt failed, retrying in ${delay.inMilliseconds}ms',
+          );
         }
         await Future.delayed(delay);
       }

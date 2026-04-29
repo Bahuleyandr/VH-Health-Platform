@@ -49,16 +49,24 @@ class _TelemedicineScreenState extends State<TelemedicineScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.videocam_off, size: 64, color: Colors.grey.shade600),
+                    Icon(
+                      Icons.videocam_off,
+                      size: 64,
+                      color: Colors.grey.shade600,
+                    ),
                     const SizedBox(height: 16),
                     Text(
                       'Video SDK not yet integrated',
-                      style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey.shade400),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: Colors.grey.shade400,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'Add agora_rtc_engine or flutter_webrtc to enable.',
-                      style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade500),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: Colors.grey.shade500,
+                      ),
                     ),
                   ],
                 ),
@@ -134,7 +142,8 @@ class _ControlButton extends StatelessWidget {
           icon: Icon(icon, size: 28),
           color: color ?? Theme.of(context).colorScheme.primary,
           style: IconButton.styleFrom(
-            backgroundColor: (color ?? Theme.of(context).colorScheme.primary).withAlpha(25),
+            backgroundColor: (color ?? Theme.of(context).colorScheme.primary)
+                .withAlpha(25),
             padding: const EdgeInsets.all(12),
           ),
         ),

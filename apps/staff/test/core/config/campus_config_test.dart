@@ -52,9 +52,7 @@ void main() {
     });
 
     test('updates only latitude when only campusLat is present', () {
-      CampusConfig.updateFromBackend({
-        'campusLat': 10.0,
-      });
+      CampusConfig.updateFromBackend({'campusLat': 10.0});
 
       expect(CampusConfig.latitude, 10.0);
       expect(CampusConfig.longitude, CampusConfig.defaultLongitude);
@@ -62,9 +60,7 @@ void main() {
     });
 
     test('updates only longitude when only campusLng is present', () {
-      CampusConfig.updateFromBackend({
-        'campusLng': 99.99,
-      });
+      CampusConfig.updateFromBackend({'campusLng': 99.99});
 
       expect(CampusConfig.latitude, CampusConfig.defaultLatitude);
       expect(CampusConfig.longitude, 99.99);
@@ -72,9 +68,7 @@ void main() {
     });
 
     test('updates only radius when only campusRadius is present', () {
-      CampusConfig.updateFromBackend({
-        'campusRadius': 1000.0,
-      });
+      CampusConfig.updateFromBackend({'campusRadius': 1000.0});
 
       expect(CampusConfig.latitude, CampusConfig.defaultLatitude);
       expect(CampusConfig.longitude, CampusConfig.defaultLongitude);

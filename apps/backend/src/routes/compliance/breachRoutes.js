@@ -4,7 +4,7 @@
 import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
-import breachService from '../../services/compliance/breachService.js';
+import * as breachService from '../../services/compliance/breachService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { requiredString, requiredEnum, paramId } from '../../validators/sharedValidators.js';
 

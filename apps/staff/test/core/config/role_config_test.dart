@@ -85,20 +85,25 @@ void main() {
       expect(ids, isNot(contains('hr_dashboard')));
     });
 
-    test('lab role sees investigations upload + lab bookings, nothing clinical', () {
-      final feats = RoleFeatures.getFeaturesForRole(StaffRole.lab);
-      final ids = feats.map((f) => f.id).toSet();
-      expect(ids, contains('investigations_upload'));
-      expect(ids, contains('investigation_results'));
-      expect(ids, contains('lab_bookings'));
-      expect(ids, isNot(contains('patient_records')));
-    });
+    test(
+      'lab role sees investigations upload + lab bookings, nothing clinical',
+      () {
+        final feats = RoleFeatures.getFeaturesForRole(StaffRole.lab);
+        final ids = feats.map((f) => f.id).toSet();
+        expect(ids, contains('investigations_upload'));
+        expect(ids, contains('investigation_results'));
+        expect(ids, contains('lab_bookings'));
+        expect(ids, isNot(contains('patient_records')));
+      },
+    );
 
     test('admin + superAdmin get the superset (access to everything)', () {
       final adminFeats = RoleFeatures.getFeaturesForRole(StaffRole.admin);
       final superFeats = RoleFeatures.getFeaturesForRole(StaffRole.superAdmin);
-      expect(adminFeats.map((f) => f.id).toSet(),
-             equals(superFeats.map((f) => f.id).toSet()));
+      expect(
+        adminFeats.map((f) => f.id).toSet(),
+        equals(superFeats.map((f) => f.id).toSet()),
+      );
       final ids = adminFeats.map((f) => f.id).toSet();
       expect(ids, contains('hr_dashboard'));
       expect(ids, contains('pharmacy_orders'));
@@ -120,16 +125,22 @@ void main() {
     test('every role gets between 4 and 5 bottom-nav items', () {
       for (final role in StaffRole.values) {
         final items = RoleFeatures.getBottomNavForRole(role);
-        expect(items.length, inInclusiveRange(4, 5),
-            reason: 'Role $role had ${items.length} bottom-nav items');
+        expect(
+          items.length,
+          inInclusiveRange(4, 5),
+          reason: 'Role $role had ${items.length} bottom-nav items',
+        );
       }
     });
 
     test('every role\'s first bottom-nav item routes to /dashboard', () {
       for (final role in StaffRole.values) {
         final items = RoleFeatures.getBottomNavForRole(role);
-        expect(items.first.route, '/dashboard',
-            reason: 'Role $role did not start with /dashboard');
+        expect(
+          items.first.route,
+          '/dashboard',
+          reason: 'Role $role did not start with /dashboard',
+        );
       }
     });
   });

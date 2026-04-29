@@ -140,7 +140,7 @@ wrapAutoRBAC(
         '/admin/devices',
         async (req, res) => {
           // Implementation moved to controller/service
-          const { success, error } = require('../../utils/responseHelper.js');
+          const { success } = require('../../utils/responseHelper.js');
           success(res, {
             devices: [],
             statistics: [],
@@ -156,7 +156,7 @@ wrapAutoRBAC(
         '/admin/revoke-user-tokens',
         async (req, res) => {
           // Implementation moved to controller/service
-          const { success, error } = require('../../utils/responseHelper.js');
+          const { error } = require('../../utils/responseHelper.js');
           error(res, 'Not implemented', 501);
         }
       ],
@@ -166,7 +166,7 @@ wrapAutoRBAC(
         '/admin/cleanup-devices',
         async (req, res) => {
           // Implementation moved to controller/service
-          const { success, error } = require('../../utils/responseHelper.js');
+          const { error } = require('../../utils/responseHelper.js');
           error(res, 'Not implemented', 501);
         }
       ]

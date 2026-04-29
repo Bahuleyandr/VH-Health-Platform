@@ -766,10 +766,7 @@ class PaginatedData<T> {
   final List<T> items;
   final PaginationMeta pagination;
 
-  const PaginatedData({
-    required this.items,
-    required this.pagination,
-  });
+  const PaginatedData({required this.items, required this.pagination});
 
   factory PaginatedData.fromJson(
     Map<String, dynamic> json,
@@ -779,8 +776,9 @@ class PaginatedData<T> {
       items: (json['items'] as List<dynamic>)
           .map((e) => fromJsonT(e as Map<String, dynamic>))
           .toList(),
-      pagination:
-          PaginationMeta.fromJson(json['pagination'] as Map<String, dynamic>),
+      pagination: PaginationMeta.fromJson(
+        json['pagination'] as Map<String, dynamic>,
+      ),
     );
   }
 }
@@ -836,8 +834,10 @@ class Staff {
       department: json['department'] as String?,
       designation: json['designation'] as String?,
       gender: json['gender'] as String?,
-      profilePicture: (json['profile_picture'] ?? json['profilePicture']) as String?,
-      dateOfJoining: (json['date_of_joining'] ?? json['dateOfJoining']) as String?,
+      profilePicture:
+          (json['profile_picture'] ?? json['profilePicture']) as String?,
+      dateOfJoining:
+          (json['date_of_joining'] ?? json['dateOfJoining']) as String?,
       isActive: (json['is_active'] ?? json['isActive'] ?? true) as bool,
       createdAt: (json['created_at'] ?? json['createdAt']) as String?,
       updatedAt: (json['updated_at'] ?? json['updatedAt']) as String?,
@@ -845,20 +845,20 @@ class Staff {
   }
 
   Map<String, dynamic> toJson() => {
-        if (id != null) 'id': id,
-        if (uid != null) 'uid': uid,
-        'employee_id': employeeId,
-        if (name != null) 'name': name,
-        if (phone != null) 'phone': phone,
-        if (email != null) 'email': email,
-        'role': role,
-        if (department != null) 'department': department,
-        if (designation != null) 'designation': designation,
-        if (gender != null) 'gender': gender,
-        if (profilePicture != null) 'profile_picture': profilePicture,
-        if (dateOfJoining != null) 'date_of_joining': dateOfJoining,
-        'is_active': isActive,
-      };
+    if (id != null) 'id': id,
+    if (uid != null) 'uid': uid,
+    'employee_id': employeeId,
+    if (name != null) 'name': name,
+    if (phone != null) 'phone': phone,
+    if (email != null) 'email': email,
+    'role': role,
+    if (department != null) 'department': department,
+    if (designation != null) 'designation': designation,
+    if (gender != null) 'gender': gender,
+    if (profilePicture != null) 'profile_picture': profilePicture,
+    if (dateOfJoining != null) 'date_of_joining': dateOfJoining,
+    'is_active': isActive,
+  };
 }
 
 // ===================================================================
@@ -908,7 +908,8 @@ class Prescription {
       doctorName: (json['doctor_name'] ?? json['doctorName']) as String?,
       patientName: (json['patient_name'] ?? json['patientName']) as String?,
       diagnosis: json['diagnosis'] as String?,
-      items: (json['items'] as List<dynamic>?)
+      items:
+          (json['items'] as List<dynamic>?)
               ?.map((e) => PrescriptionItem.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
@@ -921,15 +922,15 @@ class Prescription {
   }
 
   Map<String, dynamic> toJson() => {
-        if (id != null) 'id': id,
-        if (appointmentId != null) 'appointment_id': appointmentId,
-        if (doctorId != null) 'doctor_id': doctorId,
-        if (patientId != null) 'patient_id': patientId,
-        if (diagnosis != null) 'diagnosis': diagnosis,
-        'items': items.map((e) => e.toJson()).toList(),
-        if (notes != null) 'notes': notes,
-        'status': status,
-      };
+    if (id != null) 'id': id,
+    if (appointmentId != null) 'appointment_id': appointmentId,
+    if (doctorId != null) 'doctor_id': doctorId,
+    if (patientId != null) 'patient_id': patientId,
+    if (diagnosis != null) 'diagnosis': diagnosis,
+    'items': items.map((e) => e.toJson()).toList(),
+    if (notes != null) 'notes': notes,
+    'status': status,
+  };
 }
 
 class PrescriptionItem {
@@ -949,7 +950,12 @@ class PrescriptionItem {
 
   factory PrescriptionItem.fromJson(Map<String, dynamic> json) {
     return PrescriptionItem(
-      medicationName: (json['medication_name'] ?? json['medicationName'] ?? json['name'] ?? '') as String,
+      medicationName:
+          (json['medication_name'] ??
+                  json['medicationName'] ??
+                  json['name'] ??
+                  '')
+              as String,
       dosage: json['dosage'] as String?,
       frequency: json['frequency'] as String?,
       duration: json['duration'] as String?,
@@ -958,12 +964,12 @@ class PrescriptionItem {
   }
 
   Map<String, dynamic> toJson() => {
-        'medication_name': medicationName,
-        if (dosage != null) 'dosage': dosage,
-        if (frequency != null) 'frequency': frequency,
-        if (duration != null) 'duration': duration,
-        if (instructions != null) 'instructions': instructions,
-      };
+    'medication_name': medicationName,
+    if (dosage != null) 'dosage': dosage,
+    if (frequency != null) 'frequency': frequency,
+    if (duration != null) 'duration': duration,
+    if (instructions != null) 'instructions': instructions,
+  };
 }
 
 // ===================================================================
@@ -1018,8 +1024,10 @@ class Admission {
       department: json['department'] as String?,
       ward: json['ward'] as String?,
       bedNumber: (json['bed_number'] ?? json['bedNumber']) as String?,
-      admissionDate: (json['admission_date'] ?? json['admissionDate']) as String?,
-      dischargeDate: (json['discharge_date'] ?? json['dischargeDate']) as String?,
+      admissionDate:
+          (json['admission_date'] ?? json['admissionDate']) as String?,
+      dischargeDate:
+          (json['discharge_date'] ?? json['dischargeDate']) as String?,
       diagnosis: json['diagnosis'] as String?,
       status: (json['status'] ?? 'ADMITTED') as String,
       notes: json['notes'] as String?,
@@ -1029,18 +1037,18 @@ class Admission {
   }
 
   Map<String, dynamic> toJson() => {
-        if (id != null) 'id': id,
-        if (patientId != null) 'patient_id': patientId,
-        if (doctorId != null) 'doctor_id': doctorId,
-        if (department != null) 'department': department,
-        if (ward != null) 'ward': ward,
-        if (bedNumber != null) 'bed_number': bedNumber,
-        if (admissionDate != null) 'admission_date': admissionDate,
-        if (dischargeDate != null) 'discharge_date': dischargeDate,
-        if (diagnosis != null) 'diagnosis': diagnosis,
-        'status': status,
-        if (notes != null) 'notes': notes,
-      };
+    if (id != null) 'id': id,
+    if (patientId != null) 'patient_id': patientId,
+    if (doctorId != null) 'doctor_id': doctorId,
+    if (department != null) 'department': department,
+    if (ward != null) 'ward': ward,
+    if (bedNumber != null) 'bed_number': bedNumber,
+    if (admissionDate != null) 'admission_date': admissionDate,
+    if (dischargeDate != null) 'discharge_date': dischargeDate,
+    if (diagnosis != null) 'diagnosis': diagnosis,
+    'status': status,
+    if (notes != null) 'notes': notes,
+  };
 }
 
 // ===================================================================
@@ -1086,13 +1094,18 @@ class BillingInvoice {
       uid: json['uid'] as String?,
       patientId: (json['patient_id'] ?? json['patientId']) as int?,
       patientName: (json['patient_name'] ?? json['patientName']) as String?,
-      invoiceNumber: (json['invoice_number'] ?? json['invoiceNumber']) as String?,
+      invoiceNumber:
+          (json['invoice_number'] ?? json['invoiceNumber']) as String?,
       totalAmount: _safeDouble(json['total_amount'] ?? json['totalAmount']),
       paidAmount: _safeDouble(json['paid_amount'] ?? json['paidAmount']),
-      balanceAmount: _safeDouble(json['balance_amount'] ?? json['balanceAmount']),
+      balanceAmount: _safeDouble(
+        json['balance_amount'] ?? json['balanceAmount'],
+      ),
       status: (json['status'] ?? 'PENDING') as String,
-      paymentMethod: (json['payment_method'] ?? json['paymentMethod']) as String?,
-      items: (json['items'] as List<dynamic>?)
+      paymentMethod:
+          (json['payment_method'] ?? json['paymentMethod']) as String?,
+      items:
+          (json['items'] as List<dynamic>?)
               ?.map((e) => BillingItem.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
@@ -1103,15 +1116,15 @@ class BillingInvoice {
   }
 
   Map<String, dynamic> toJson() => {
-        if (id != null) 'id': id,
-        if (patientId != null) 'patient_id': patientId,
-        'total_amount': totalAmount,
-        'paid_amount': paidAmount,
-        'balance_amount': balanceAmount,
-        'status': status,
-        if (paymentMethod != null) 'payment_method': paymentMethod,
-        'items': items.map((e) => e.toJson()).toList(),
-      };
+    if (id != null) 'id': id,
+    if (patientId != null) 'patient_id': patientId,
+    'total_amount': totalAmount,
+    'paid_amount': paidAmount,
+    'balance_amount': balanceAmount,
+    'status': status,
+    if (paymentMethod != null) 'payment_method': paymentMethod,
+    'items': items.map((e) => e.toJson()).toList(),
+  };
 
   /// Safely parse a dynamic value to double, handling int, double, and String.
   static double _safeDouble(dynamic val) {
@@ -1149,10 +1162,10 @@ class BillingItem {
   }
 
   Map<String, dynamic> toJson() => {
-        'description': description,
-        'quantity': quantity,
-        'unit_price': unitPrice,
-        'total_price': totalPrice,
-        if (category != null) 'category': category,
-      };
+    'description': description,
+    'quantity': quantity,
+    'unit_price': unitPrice,
+    'total_price': totalPrice,
+    if (category != null) 'category': category,
+  };
 }

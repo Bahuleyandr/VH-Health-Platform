@@ -116,9 +116,12 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
   List<_ConversationSummary> _buildConversations() {
     final Map<String, _ConversationSummary> byPartner = {};
     for (final msg in _messages) {
-      final partnerUid = msg.senderUid == _myUid ? msg.recipientUid : msg.senderUid;
+      final partnerUid = msg.senderUid == _myUid
+          ? msg.recipientUid
+          : msg.senderUid;
       final existing = byPartner[partnerUid];
-      if (existing == null || msg.createdAt.isAfter(existing.latestMessage.createdAt)) {
+      if (existing == null ||
+          msg.createdAt.isAfter(existing.latestMessage.createdAt)) {
         byPartner[partnerUid] = _ConversationSummary(
           partnerUid: partnerUid,
           latestMessage: msg,
@@ -135,7 +138,9 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
       }
     }
     final list = byPartner.values.toList();
-    list.sort((a, b) => b.latestMessage.createdAt.compareTo(a.latestMessage.createdAt));
+    list.sort(
+      (a, b) => b.latestMessage.createdAt.compareTo(a.latestMessage.createdAt),
+    );
     return list;
   }
 
@@ -216,7 +221,11 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
+              const Icon(
+                Icons.error_outline,
+                size: 48,
+                color: AppTheme.errorRed,
+              ),
               const SizedBox(height: 16),
               Text(
                 'Failed to load messages',
@@ -227,8 +236,8 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                 _error!,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.outline,
-                    ),
+                  color: Theme.of(context).colorScheme.outline,
+                ),
               ),
               const SizedBox(height: 16),
               ElevatedButton.icon(
@@ -258,15 +267,15 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
             Text(
               'No messages yet',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
+                color: Theme.of(context).colorScheme.outline,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               'Tap + New Message to start a conversation',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
+                color: Theme.of(context).colorScheme.outline,
+              ),
             ),
           ],
         ),
@@ -302,7 +311,9 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                     children: [
                       CircleAvatar(
                         radius: 24,
-                        backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.1),
+                        backgroundColor: AppTheme.primaryBlue.withValues(
+                          alpha: 0.1,
+                        ),
                         child: Text(
                           conv.partnerUid.isNotEmpty
                               ? conv.partnerUid[0].toUpperCase()
@@ -396,7 +407,9 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                             if (msg.priority != 'normal') ...[
                               Container(
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 1),
+                                  horizontal: 6,
+                                  vertical: 1,
+                                ),
                                 decoration: BoxDecoration(
                                   color: priorityColor.withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(8),
@@ -421,9 +434,9 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
                                   fontSize: 13,
                                   color: hasUnread
                                       ? AppTheme.textPrimary
-                                      : Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant,
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.onSurfaceVariant,
                                   fontWeight: hasUnread
                                       ? FontWeight.w500
                                       : FontWeight.normal,

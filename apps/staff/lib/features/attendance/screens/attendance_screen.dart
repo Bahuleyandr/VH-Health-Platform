@@ -82,14 +82,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       // Load history
       try {
         final hist = await AttendanceApiService.getAttendanceHistory();
-        _history = hist['records'] as List? ??
+        _history =
+            hist['records'] as List? ??
             hist['history'] as List? ??
             hist['attendance'] as List? ??
             [];
       } catch (e) {
         if (_staffId != null) {
           final hist = await AttendanceApiService.getAttendance(_staffId!);
-          _history = hist['records'] as List? ?? hist['attendance'] as List? ?? [];
+          _history =
+              hist['records'] as List? ?? hist['attendance'] as List? ?? [];
         }
       }
     } catch (e) {
@@ -115,7 +117,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         map[day['date'] as String] = Map<String, dynamic>.from(day as Map);
       }
       if (mounted) setState(() => _calendarData = map);
-    } catch (e) { debugPrint('attendance_screen.dart: $e'); } finally {
+    } catch (e) {
+      debugPrint('attendance_screen.dart: $e');
+    } finally {
       if (mounted) setState(() => _calendarLoading = false);
     }
   }
@@ -130,10 +134,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
     if (locationData.containsKey('error')) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('📍 ${locationData['error']}'),
-          backgroundColor: Colors.red,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('📍 ${locationData['error']}'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
       return;
     }
@@ -142,12 +148,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (!withinCampus) {
       final distance = locationData['distanceFromCampus'] as int? ?? 0;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              '❌ Outside campus (${distance}m away). Attendance can only be marked on campus.'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 4),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '❌ Outside campus (${distance}m away). Attendance can only be marked on campus.',
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
       }
       return;
     }
@@ -168,21 +177,27 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         location: location,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(_checkedIn
-              ? '✅ Checked out successfully'
-              : '✅ Checked in successfully'),
-          backgroundColor: AppTheme.primaryBlue,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _checkedIn
+                  ? '✅ Checked out successfully'
+                  : '✅ Checked in successfully',
+            ),
+            backgroundColor: AppTheme.primaryBlue,
+          ),
+        );
       }
       await _loadTodayStatus();
       await _loadCalendar();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: Colors.red,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _actionLoading = false);
@@ -248,7 +263,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             Text(_error!, style: const TextStyle(color: Colors.red)),
             const SizedBox(height: 12),
             ElevatedButton(
-                onPressed: _loadTodayStatus, child: const Text('Retry')),
+              onPressed: _loadTodayStatus,
+              child: const Text('Retry'),
+            ),
           ],
         ),
       );
@@ -268,15 +285,20 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  Text(timeStr,
-                      style: const TextStyle(
-                          fontSize: 48, fontWeight: FontWeight.bold)),
-                  Text(dateStr,
-                      style: TextStyle(color: Colors.grey.shade600)),
+                  Text(
+                    timeStr,
+                    style: const TextStyle(
+                      fontSize: 48,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(dateStr, style: TextStyle(color: Colors.grey.shade600)),
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 6),
+                      horizontal: 16,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: _checkedIn
                           ? Colors.green.shade100
@@ -323,7 +345,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        LocationService.getLocationStatusMessage(_locationData!),
+                        LocationService.getLocationStatusMessage(
+                          _locationData!,
+                        ),
                         style: const TextStyle(fontSize: 13),
                       ),
                     ),
@@ -342,32 +366,40 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               onPressed: (_actionLoading || _gettingLocation)
                   ? null
                   : (_checkedIn
-                      ? () => _performCheckIn({})
-                      : _getLocationAndCheckIn),
+                        ? () => _performCheckIn({})
+                        : _getLocationAndCheckIn),
               style: ElevatedButton.styleFrom(
-                backgroundColor:
-                    _checkedIn ? Colors.red.shade600 : AppTheme.primaryBlue,
+                backgroundColor: _checkedIn
+                    ? Colors.red.shade600
+                    : AppTheme.primaryBlue,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               icon: (_actionLoading || _gettingLocation)
                   ? const SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2))
-                  : Icon(_checkedIn ? Icons.logout : Icons.login,
-                      color: Colors.white),
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : Icon(
+                      _checkedIn ? Icons.logout : Icons.login,
+                      color: Colors.white,
+                    ),
               label: Text(
                 _gettingLocation
                     ? 'Getting location...'
                     : (_actionLoading
-                        ? 'Processing...'
-                        : (_checkedIn ? 'Check Out' : 'Check In')),
+                          ? 'Processing...'
+                          : (_checkedIn ? 'Check Out' : 'Check In')),
                 style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white),
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
               ),
             ),
           ),
@@ -377,8 +409,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               padding: const EdgeInsets.only(top: 8),
               child: Text(
                 '📍 Location will be verified on check-in',
-                style:
-                    TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
               ),
             ),
 
@@ -426,9 +457,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             },
             calendarStyle: const CalendarStyle(
               todayDecoration: BoxDecoration(
-                  color: Color(0xFF007A64), shape: BoxShape.circle),
+                color: Color(0xFF007A64),
+                shape: BoxShape.circle,
+              ),
               selectedDecoration: BoxDecoration(
-                  color: Color(0xFF005A48), shape: BoxShape.circle),
+                color: Color(0xFF005A48),
+                shape: BoxShape.circle,
+              ),
             ),
             calendarBuilders: CalendarBuilders(
               defaultBuilder: (ctx, day, _) {
@@ -442,8 +477,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   decoration: BoxDecoration(
                     color: _getDayColor(status).withValues(alpha: 0.3),
                     shape: BoxShape.circle,
-                    border: Border.all(
-                        color: _getDayColor(status), width: 1.5),
+                    border: Border.all(color: _getDayColor(status), width: 1.5),
                   ),
                   child: Center(
                     child: Text(
@@ -486,15 +520,18 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Widget _legendItem(Color color, String label) {
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      Container(
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
           width: 12,
           height: 12,
-          decoration:
-              BoxDecoration(color: color, shape: BoxShape.circle)),
-      const SizedBox(width: 4),
-      Text(label, style: const TextStyle(fontSize: 12)),
-    ]);
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 4),
+        Text(label, style: const TextStyle(fontSize: 12)),
+      ],
+    );
   }
 
   Widget _buildSelectedDayDetail() {
@@ -514,39 +551,49 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            Row(children: [
-              Container(
+            Row(
+              children: [
+                Container(
                   width: 8,
                   height: 8,
                   decoration: BoxDecoration(
-                      color: _getDayColor(status),
-                      shape: BoxShape.circle)),
-              const SizedBox(width: 6),
-              Text(
-                status.toUpperCase(),
-                style: TextStyle(
+                    color: _getDayColor(status),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  status.toUpperCase(),
+                  style: TextStyle(
                     color: _getDayColor(status),
                     fontWeight: FontWeight.w600,
-                    fontSize: 12),
-              ),
-            ]),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
             if (dayData['checkIn'] != null) ...[
               const SizedBox(height: 4),
               Text(
-                  'Check-in: ${(dayData['checkIn'] as String).length >= 16 ? (dayData['checkIn'] as String).substring(11, 16) : dayData['checkIn']}'),
+                'Check-in: ${(dayData['checkIn'] as String).length >= 16 ? (dayData['checkIn'] as String).substring(11, 16) : dayData['checkIn']}',
+              ),
             ],
             if (dayData['checkOut'] != null) ...[
               Text(
-                  'Check-out: ${(dayData['checkOut'] as String).length >= 16 ? (dayData['checkOut'] as String).substring(11, 16) : dayData['checkOut']}'),
+                'Check-out: ${(dayData['checkOut'] as String).length >= 16 ? (dayData['checkOut'] as String).substring(11, 16) : dayData['checkOut']}',
+              ),
             ],
             if (dayData['hoursWorked'] != null) ...[
-              Text('Hours: ${dayData['hoursWorked']}h',
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text(
+                'Hours: ${dayData['hoursWorked']}h',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
             ],
             if (dayData['isLate'] == true) ...[
-              const Text('⚠️ Late arrival',
-                  style:
-                      TextStyle(color: Colors.orange, fontSize: 12)),
+              const Text(
+                '⚠️ Late arrival',
+                style: TextStyle(color: Colors.orange, fontSize: 12),
+              ),
             ],
           ],
         ),
@@ -555,14 +602,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Widget _buildMonthlySummary() {
-    final present =
-        _calendarData.values.where((d) => d['status'] == 'present').length;
-    final absent =
-        _calendarData.values.where((d) => d['status'] == 'absent').length;
-    final leave =
-        _calendarData.values.where((d) => d['status'] == 'leave').length;
-    final late =
-        _calendarData.values.where((d) => d['isLate'] == true).length;
+    final present = _calendarData.values
+        .where((d) => d['status'] == 'present')
+        .length;
+    final absent = _calendarData.values
+        .where((d) => d['status'] == 'absent')
+        .length;
+    final leave = _calendarData.values
+        .where((d) => d['status'] == 'leave')
+        .length;
+    final late = _calendarData.values.where((d) => d['isLate'] == true).length;
 
     return Card(
       child: Padding(
@@ -591,14 +640,22 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Widget _summaryCell(String count, String label, Color color) {
-    return Column(children: [
-      Text(count,
+    return Column(
+      children: [
+        Text(
+          count,
           style: TextStyle(
-              fontSize: 24, fontWeight: FontWeight.bold, color: color)),
-      Text(label,
-          style:
-              TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-    ]);
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+        ),
+      ],
+    );
   }
 
   Widget _buildHistoryTab() {
@@ -615,14 +672,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       itemCount: _history.length,
       itemBuilder: (ctx, i) {
         final record = _history[i] as Map<String, dynamic>;
-        final checkIn = record['check_in_time'] as String? ??
+        final checkIn =
+            record['check_in_time'] as String? ??
             record['checkIn'] as String? ??
             '';
-        final checkOut = record['check_out_time'] as String? ??
+        final checkOut =
+            record['check_out_time'] as String? ??
             record['checkOut'] as String? ??
             '';
-        final date =
-            checkIn.isNotEmpty ? checkIn.substring(0, 10) : 'Unknown';
+        final date = checkIn.isNotEmpty ? checkIn.substring(0, 10) : 'Unknown';
 
         return Card(
           child: ListTile(
@@ -634,12 +692,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             subtitle: checkIn.isNotEmpty
                 ? Text(
                     'In: ${checkIn.length >= 16 ? checkIn.substring(11, 16) : checkIn}'
-                    '${checkOut.isNotEmpty ? '  Out: ${checkOut.length >= 16 ? checkOut.substring(11, 16) : checkOut}' : ''}')
+                    '${checkOut.isNotEmpty ? '  Out: ${checkOut.length >= 16 ? checkOut.substring(11, 16) : checkOut}' : ''}',
+                  )
                 : const Text('Absent'),
             trailing: (checkIn.isNotEmpty && checkOut.isNotEmpty)
-                ? Text('${_calcHours(checkIn, checkOut)}h',
-                    style:
-                        const TextStyle(fontWeight: FontWeight.bold))
+                ? Text(
+                    '${_calcHours(checkIn, checkOut)}h',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  )
                 : null,
           ),
         );
@@ -649,8 +709,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   String _calcHours(String checkIn, String checkOut) {
     try {
-      final diff =
-          DateTime.parse(checkOut).difference(DateTime.parse(checkIn));
+      final diff = DateTime.parse(checkOut).difference(DateTime.parse(checkIn));
       final h = diff.inHours;
       final m = diff.inMinutes % 60;
       return m == 0 ? '$h' : '$h:${m.toString().padLeft(2, '0')}';

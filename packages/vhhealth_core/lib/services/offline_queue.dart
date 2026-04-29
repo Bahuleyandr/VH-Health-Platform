@@ -35,9 +35,11 @@ class OfflineQueue {
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await db.execute(
-              "ALTER TABLE pending_writes ADD COLUMN status TEXT DEFAULT 'pending'");
+            "ALTER TABLE pending_writes ADD COLUMN status TEXT DEFAULT 'pending'",
+          );
           await db.execute(
-              'ALTER TABLE pending_writes ADD COLUMN conflict_reason TEXT');
+            'ALTER TABLE pending_writes ADD COLUMN conflict_reason TEXT',
+          );
         }
       },
     );

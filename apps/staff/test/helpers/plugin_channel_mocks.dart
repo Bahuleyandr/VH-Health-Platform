@@ -45,23 +45,23 @@ void mockLocalAuth({
 }) {
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(_kLocalAuthChannel, (call) async {
-    switch (call.method) {
-      case 'canCheckBiometrics':
-      case 'isDeviceSupported':
-        return canAuthenticate;
-      case 'getAvailableBiometrics':
-        return availableBiometrics;
-      case 'authenticate':
-        if (throwOnAuthenticate != null) {
-          throw PlatformException(code: throwOnAuthenticate);
+        switch (call.method) {
+          case 'canCheckBiometrics':
+          case 'isDeviceSupported':
+            return canAuthenticate;
+          case 'getAvailableBiometrics':
+            return availableBiometrics;
+          case 'authenticate':
+            if (throwOnAuthenticate != null) {
+              throw PlatformException(code: throwOnAuthenticate);
+            }
+            return authenticateResult;
+          case 'stopAuthentication':
+            return true;
+          default:
+            return null;
         }
-        return authenticateResult;
-      case 'stopAuthentication':
-        return true;
-      default:
-        return null;
-    }
-  });
+      });
 }
 
 void clearLocalAuthMock() {
@@ -73,24 +73,28 @@ void clearLocalAuthMock() {
 // connectivity_plus
 // ─────────────────────────────────────────────────────────────────────────────
 
-const _kConnectivityMethodChannel =
-    MethodChannel('dev.fluttercommunity.plus/connectivity');
-const _kConnectivityEventChannel =
-    MethodChannel('dev.fluttercommunity.plus/connectivity_status');
+const _kConnectivityMethodChannel = MethodChannel(
+  'dev.fluttercommunity.plus/connectivity',
+);
+const _kConnectivityEventChannel = MethodChannel(
+  'dev.fluttercommunity.plus/connectivity_status',
+);
 
 /// Stub `connectivity_plus` so tests that enqueue offline work + verify
 /// flush-on-reconnect have a deterministic network state.
 ///
 /// - [initialResult] is what `checkConnectivity` returns.
 /// - Subsequent changes should be simulated via [pushConnectivityChange].
-void mockConnectivity({ConnectivityResult initialResult = ConnectivityResult.wifi}) {
+void mockConnectivity({
+  ConnectivityResult initialResult = ConnectivityResult.wifi,
+}) {
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(_kConnectivityMethodChannel, (call) async {
-    if (call.method == 'check') {
-      return _connectivityResultToString(initialResult);
-    }
-    return null;
-  });
+        if (call.method == 'check') {
+          return _connectivityResultToString(initialResult);
+        }
+        return null;
+      });
   // The event channel is a stream; to push events, call [pushConnectivityChange].
 }
 
@@ -103,10 +107,10 @@ Future<void> pushConnectivityChange(ConnectivityResult result) async {
   );
   await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .handlePlatformMessage(
-    _kConnectivityEventChannel.name,
-    envelope,
-    (data) {},
-  );
+        _kConnectivityEventChannel.name,
+        envelope,
+        (data) {},
+      );
 }
 
 String _connectivityResultToString(ConnectivityResult r) {
@@ -146,23 +150,25 @@ void clearConnectivityMock() {
 // it silences the "No implementation found" error and returns plausible
 // empty responses.
 
-const _kMobileScannerChannel = MethodChannel('dev.steenbakker.mobile_scanner/scanner');
+const _kMobileScannerChannel = MethodChannel(
+  'dev.steenbakker.mobile_scanner/scanner',
+);
 
 void mockMobileScanner() {
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(_kMobileScannerChannel, (call) async {
-    switch (call.method) {
-      case 'state':
-        return <String, Object?>{'isRunning': false, 'hasTorch': false};
-      case 'start':
-      case 'stop':
-      case 'toggleTorch':
-      case 'updateScanWindow':
-        return null;
-      default:
-        return null;
-    }
-  });
+        switch (call.method) {
+          case 'state':
+            return <String, Object?>{'isRunning': false, 'hasTorch': false};
+          case 'start':
+          case 'stop':
+          case 'toggleTorch':
+          case 'updateScanWindow':
+            return null;
+          default:
+            return null;
+        }
+      });
 }
 
 void clearMobileScannerMock() {

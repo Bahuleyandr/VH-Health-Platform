@@ -8,11 +8,7 @@ class OrdersScreen extends StatefulWidget {
   final String patientUid;
   final String? patientName;
 
-  const OrdersScreen({
-    super.key,
-    required this.patientUid,
-    this.patientName,
-  });
+  const OrdersScreen({super.key, required this.patientUid, this.patientName});
 
   @override
   State<OrdersScreen> createState() => _OrdersScreenState();
@@ -55,8 +51,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   List<Map<String, dynamic>> get _filteredOrders {
     if (_filterStatus == null) return _orders;
     return _orders
-        .where((o) =>
-            (o['status'] as String?)?.toLowerCase() == _filterStatus)
+        .where((o) => (o['status'] as String?)?.toLowerCase() == _filterStatus)
         .toList();
   }
 
@@ -739,217 +734,204 @@ class _OrdersScreenState extends State<OrdersScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline,
-                          size: 48, color: AppTheme.errorRed),
-                      const SizedBox(height: 12),
-                      Text(_error!, textAlign: TextAlign.center),
-                      const SizedBox(height: 12),
-                      OutlinedButton(
-                        onPressed: _loadOrders,
-                        child: const Text('Retry'),
-                      ),
-                    ],
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    size: 48,
+                    color: AppTheme.errorRed,
                   ),
-                )
-              : Column(
-                  children: [
-                    const SizedBox(height: 8),
-                    _buildStatusFilters(),
-                    const SizedBox(height: 4),
-                    Expanded(
-                      child: filtered.isEmpty
-                          ? const Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.receipt_long,
-                                      size: 64, color: AppTheme.divider),
-                                  SizedBox(height: 12),
-                                  Text(
-                                    'No orders found',
-                                    style: TextStyle(
-                                        color: AppTheme.textSecondary),
-                                  ),
-                                ],
+                  const SizedBox(height: 12),
+                  Text(_error!, textAlign: TextAlign.center),
+                  const SizedBox(height: 12),
+                  OutlinedButton(
+                    onPressed: _loadOrders,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            )
+          : Column(
+              children: [
+                const SizedBox(height: 8),
+                _buildStatusFilters(),
+                const SizedBox(height: 4),
+                Expanded(
+                  child: filtered.isEmpty
+                      ? const Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.receipt_long,
+                                size: 64,
+                                color: AppTheme.divider,
                               ),
-                            )
-                          : RefreshIndicator(
-                              onRefresh: _loadOrders,
-                              child: ListView.builder(
-                                padding: const EdgeInsets.all(12),
-                                itemCount: filtered.length,
-                                itemBuilder: (ctx, i) {
-                                  final order = filtered[i];
-                                  final type =
-                                      order['order_type'] as String?;
-                                  final status =
-                                      order['status'] as String?;
-                                  final orderId = order['id'];
-                                  final color = _orderTypeColor(type);
+                              SizedBox(height: 12),
+                              Text(
+                                'No orders found',
+                                style: TextStyle(color: AppTheme.textSecondary),
+                              ),
+                            ],
+                          ),
+                        )
+                      : RefreshIndicator(
+                          onRefresh: _loadOrders,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.all(12),
+                            itemCount: filtered.length,
+                            itemBuilder: (ctx, i) {
+                              final order = filtered[i];
+                              final type = order['order_type'] as String?;
+                              final status = order['status'] as String?;
+                              final orderId = order['id'];
+                              final color = _orderTypeColor(type);
 
-                                  return Card(
-                                    margin: const EdgeInsets.only(bottom: 10),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(14),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
+                              return Card(
+                                margin: const EdgeInsets.only(bottom: 10),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(14),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
                                         children: [
-                                          Row(
-                                            children: [
-                                              CircleAvatar(
-                                                radius: 18,
-                                                backgroundColor:
-                                                    color.withValues(alpha: 0.15),
-                                                child: Icon(
-                                                    _orderTypeIcon(type),
-                                                    color: color,
-                                                    size: 18),
-                                              ),
-                                              const SizedBox(width: 10),
-                                              Expanded(
-                                                child: Column(
-                                                  crossAxisAlignment:
-                                                      CrossAxisAlignment
-                                                          .start,
-                                                  children: [
-                                                    Text(
-                                                      order['title']
-                                                              as String? ??
-                                                          order['medication']
-                                                              as String? ??
-                                                          order['investigation']
-                                                              as String? ??
-                                                          order['description']
-                                                              as String? ??
-                                                          'Order',
-                                                      style:
-                                                          const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.w600,
-                                                        fontSize: 14,
-                                                      ),
-                                                    ),
-                                                    Text(
-                                                      '${(type ?? 'order').toUpperCase()} - ${_formatTimestamp(order['created_at'] as String?)}',
-                                                      style:
-                                                          const TextStyle(
-                                                        fontSize: 12,
-                                                        color: AppTheme
-                                                            .textSecondary,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                              _statusBadge(status),
-                                            ],
-                                          ),
-                                          if (order['dosage'] != null ||
-                                              order['frequency'] != null) ...[
-                                            const SizedBox(height: 8),
-                                            Text(
-                                              [
-                                                order['dosage'],
-                                                order['route'],
-                                                order['frequency'],
-                                              ]
-                                                  .where((e) => e != null)
-                                                  .join(' | '),
-                                              style: const TextStyle(
-                                                fontSize: 13,
-                                                color:
-                                                    AppTheme.textSecondary,
-                                              ),
+                                          CircleAvatar(
+                                            radius: 18,
+                                            backgroundColor: color.withValues(
+                                              alpha: 0.15,
                                             ),
-                                          ],
-                                          if (order['ordered_by'] !=
-                                              null) ...[
-                                            const SizedBox(height: 4),
-                                            Row(
+                                            child: Icon(
+                                              _orderTypeIcon(type),
+                                              color: color,
+                                              size: 18,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
                                               children: [
-                                                const Icon(Icons.person_outline,
-                                                    size: 13,
-                                                    color: AppTheme
-                                                        .textSecondary),
-                                                const SizedBox(width: 4),
                                                 Text(
-                                                  order['ordered_by']
-                                                      as String,
+                                                  order['title'] as String? ??
+                                                      order['medication']
+                                                          as String? ??
+                                                      order['investigation']
+                                                          as String? ??
+                                                      order['description']
+                                                          as String? ??
+                                                      'Order',
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  '${(type ?? 'order').toUpperCase()} - ${_formatTimestamp(order['created_at'] as String?)}',
                                                   style: const TextStyle(
                                                     fontSize: 12,
-                                                    color: AppTheme
-                                                        .textSecondary,
+                                                    color:
+                                                        AppTheme.textSecondary,
                                                   ),
                                                 ),
                                               ],
                                             ),
-                                          ],
-                                          // Action buttons
-                                          if (orderId is int &&
-                                              (status?.toLowerCase() ==
-                                                      'ordered' ||
-                                                  status?.toLowerCase() ==
-                                                      'verified')) ...[
-                                            const SizedBox(height: 10),
-                                            Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment.end,
-                                              children: [
-                                                if (status?.toLowerCase() ==
-                                                    'ordered')
-                                                  TextButton.icon(
-                                                    onPressed: () =>
-                                                        _verifyOrder(
-                                                            orderId),
-                                                    icon: const Icon(
-                                                        Icons
-                                                            .check_circle_outline,
-                                                        size: 18),
-                                                    label: const Text(
-                                                        'Verify'),
-                                                    style:
-                                                        TextButton.styleFrom(
-                                                      foregroundColor:
-                                                          AppTheme
-                                                              .accentCyan,
-                                                    ),
-                                                  ),
-                                                if (status?.toLowerCase() ==
-                                                    'verified')
-                                                  TextButton.icon(
-                                                    onPressed: () =>
-                                                        _completeOrder(
-                                                            orderId),
-                                                    icon: const Icon(
-                                                        Icons.done_all,
-                                                        size: 18),
-                                                    label: const Text(
-                                                        'Complete'),
-                                                    style:
-                                                        TextButton.styleFrom(
-                                                      foregroundColor:
-                                                          AppTheme
-                                                              .successGreen,
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                          ],
+                                          ),
+                                          _statusBadge(status),
                                         ],
                                       ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                    ),
-                  ],
+                                      if (order['dosage'] != null ||
+                                          order['frequency'] != null) ...[
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          [
+                                            order['dosage'],
+                                            order['route'],
+                                            order['frequency'],
+                                          ].where((e) => e != null).join(' | '),
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            color: AppTheme.textSecondary,
+                                          ),
+                                        ),
+                                      ],
+                                      if (order['ordered_by'] != null) ...[
+                                        const SizedBox(height: 4),
+                                        Row(
+                                          children: [
+                                            const Icon(
+                                              Icons.person_outline,
+                                              size: 13,
+                                              color: AppTheme.textSecondary,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              order['ordered_by'] as String,
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: AppTheme.textSecondary,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                      // Action buttons
+                                      if (orderId is int &&
+                                          (status?.toLowerCase() == 'ordered' ||
+                                              status?.toLowerCase() ==
+                                                  'verified')) ...[
+                                        const SizedBox(height: 10),
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.end,
+                                          children: [
+                                            if (status?.toLowerCase() ==
+                                                'ordered')
+                                              TextButton.icon(
+                                                onPressed: () =>
+                                                    _verifyOrder(orderId),
+                                                icon: const Icon(
+                                                  Icons.check_circle_outline,
+                                                  size: 18,
+                                                ),
+                                                label: const Text('Verify'),
+                                                style: TextButton.styleFrom(
+                                                  foregroundColor:
+                                                      AppTheme.accentCyan,
+                                                ),
+                                              ),
+                                            if (status?.toLowerCase() ==
+                                                'verified')
+                                              TextButton.icon(
+                                                onPressed: () =>
+                                                    _completeOrder(orderId),
+                                                icon: const Icon(
+                                                  Icons.done_all,
+                                                  size: 18,
+                                                ),
+                                                label: const Text('Complete'),
+                                                style: TextButton.styleFrom(
+                                                  foregroundColor:
+                                                      AppTheme.successGreen,
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
                 ),
+              ],
+            ),
     );
   }
 }

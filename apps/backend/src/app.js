@@ -28,10 +28,10 @@ import { prometheusMiddleware } from './middleware/prometheusMiddleware.js';
 import { patientRateLimiter, genericLimiter, adminRateLimiter, dataExportRateLimiter, dashboardRateLimiter } from './middleware/rateLimitMiddleware.js';
 import { requireRole } from './middleware/rbacMiddleware.js';
 import requestIdMiddleware from './middleware/requestIdMiddleware.js';
-import sentryScopeMiddleware from './middleware/sentryScopeMiddleware.js';
+import { sentryScopeMiddleware } from './middleware/sentryScopeMiddleware.js';
 import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
-import { publicCache, privateCache } from './middleware/cacheControlMiddleware.js';
+import { publicCache } from './middleware/cacheControlMiddleware.js';
 import { success, error } from './utils/responseHelper.js';
 
 // ====================================
@@ -57,6 +57,7 @@ import departmentRoutes from './routes/department/index.js';
 import deviceRoutes from './routes/deviceRoutes.js';
 import doctorRoutes from './routes/doctor/index.js';
 import healthRoutes from './routes/health/index.js';
+import uptimeRoutes from './routes/health/uptimeRoutes.js';
 import realtimeRoutes from './routes/realtime/realtimeRoutes.js';
 import realtimeTicketRoutes from './routes/realtime/realtimeTicketRoutes.js';
 import chatbotRoutes from './routes/chatbot/chatbotRoutes.js';
@@ -350,6 +351,7 @@ app.use('/api/v1/abdm', abdmCallbackRoutes);
 // ====================================
 app.get('/health', (req, res) => success(res, { status: 'ok', service: 'vh-health-backend' }));
 app.get('/api/health', (req, res) => success(res, { status: 'ok', service: 'vh-health-backend' }));
+app.use('/health', genericLimiter, uptimeRoutes);
 
 // ====================================
 // API KEY & AUTH MIDDLEWARE

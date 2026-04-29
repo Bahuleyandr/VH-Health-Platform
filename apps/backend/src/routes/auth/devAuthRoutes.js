@@ -1,12 +1,13 @@
 // src/routes/auth/devAuthRoutes.js
 // Development-only auth shortcuts. Mounted in routes/auth/index.js ONLY
-// when NODE_ENV !== 'production'. Lets the patient app obtain a real JWT
-// without a working Firebase OTP flow — needed because emulators / CI
+// when ENABLE_DEV_AUTH=true. Lets the patient app obtain a real JWT
+// without a working Firebase OTP flow - needed because emulators / CI
 // environments cannot complete a real phone-OTP round-trip.
 //
-// SECURITY: must never be reachable in production. The mount-time guard
+// SECURITY: must never be reachable unless explicitly enabled. The mount-time guard
 // in routes/auth/index.js is the single source of truth; this file does
-// not re-check NODE_ENV because the import itself only happens in dev.
+// not re-check NODE_ENV because the import itself only happens after the
+// ENABLE_DEV_AUTH gate passes.
 
 import express from 'express';
 

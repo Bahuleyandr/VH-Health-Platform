@@ -1,6 +1,6 @@
 // src/routes/emr/vitalsRoutes.js
 import express from 'express';
-import vitalsChartService from '../../services/emr/vitalsChartService.js';
+import * as vitalsChartService from '../../services/emr/vitalsChartService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 

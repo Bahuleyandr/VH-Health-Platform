@@ -16,27 +16,27 @@ void _installSecureStorageFake() {
 
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(channel, (MethodCall call) async {
-    final args = Map<String, dynamic>.from(call.arguments as Map);
-    switch (call.method) {
-      case 'read':
-        return store[args['key']];
-      case 'write':
-        store[args['key']] = args['value'] as String;
-        return null;
-      case 'delete':
-        store.remove(args['key']);
-        return null;
-      case 'readAll':
-        return Map<String, String>.from(store);
-      case 'deleteAll':
-        store.clear();
-        return null;
-      case 'containsKey':
-        return store.containsKey(args['key']);
-      default:
-        return null;
-    }
-  });
+        final args = Map<String, dynamic>.from(call.arguments as Map);
+        switch (call.method) {
+          case 'read':
+            return store[args['key']];
+          case 'write':
+            store[args['key']] = args['value'] as String;
+            return null;
+          case 'delete':
+            store.remove(args['key']);
+            return null;
+          case 'readAll':
+            return Map<String, String>.from(store);
+          case 'deleteAll':
+            store.clear();
+            return null;
+          case 'containsKey':
+            return store.containsKey(args['key']);
+          default:
+            return null;
+        }
+      });
 }
 
 String get _refreshUrl => '${ApiConfig.baseUrl}/auth/refresh-token';
@@ -60,22 +60,24 @@ void main() {
       await AuthService.setJwt('old-access');
 
       var callCount = 0;
-      VHHttpClient.setClientForTesting(MockClient((req) async {
-        callCount++;
-        expect(req.url.toString(), _refreshUrl);
-        expect(req.method, 'POST');
-        expect(req.headers['Authorization'], 'Bearer old-access');
-        // No body — bearer rotation path.
-        expect(req.body, isEmpty);
-        return http.Response(
-          jsonEncode({
-            'success': true,
-            'data': {'token': 'new-access'},
-          }),
-          200,
-          headers: {'content-type': 'application/json'},
-        );
-      }));
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          callCount++;
+          expect(req.url.toString(), _refreshUrl);
+          expect(req.method, 'POST');
+          expect(req.headers['Authorization'], 'Bearer old-access');
+          // No body — bearer rotation path.
+          expect(req.body, isEmpty);
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {'token': 'new-access'},
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
 
       final ok = await VHHttpClient.debugTryRefreshToken();
       expect(ok, isTrue);
@@ -87,16 +89,18 @@ void main() {
     test('also accepts `accessToken` field name in response', () async {
       await AuthService.setJwt('old-access');
 
-      VHHttpClient.setClientForTesting(MockClient((req) async {
-        return http.Response(
-          jsonEncode({
-            'success': true,
-            'data': {'accessToken': 'new-access'},
-          }),
-          200,
-          headers: {'content-type': 'application/json'},
-        );
-      }));
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {'accessToken': 'new-access'},
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
 
       final ok = await VHHttpClient.debugTryRefreshToken();
       expect(ok, isTrue);
@@ -106,13 +110,15 @@ void main() {
     test('failure on non-2xx: returns false, keeps old token', () async {
       await AuthService.setJwt('old-access');
 
-      VHHttpClient.setClientForTesting(MockClient((req) async {
-        return http.Response(
-          jsonEncode({'success': false, 'message': 'Expired'}),
-          401,
-          headers: {'content-type': 'application/json'},
-        );
-      }));
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          return http.Response(
+            jsonEncode({'success': false, 'message': 'Expired'}),
+            401,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
 
       final ok = await VHHttpClient.debugTryRefreshToken();
       expect(ok, isFalse);
@@ -122,13 +128,15 @@ void main() {
     test('failure on missing token: returns false', () async {
       await AuthService.setJwt('old-access');
 
-      VHHttpClient.setClientForTesting(MockClient((req) async {
-        return http.Response(
-          jsonEncode({'success': true, 'data': {}}),
-          200,
-          headers: {'content-type': 'application/json'},
-        );
-      }));
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          return http.Response(
+            jsonEncode({'success': true, 'data': {}}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
 
       final ok = await VHHttpClient.debugTryRefreshToken();
       expect(ok, isFalse);
@@ -142,21 +150,23 @@ void main() {
       await AuthService.setRefreshToken('old-refresh');
 
       Map<String, dynamic>? observedBody;
-      VHHttpClient.setClientForTesting(MockClient((req) async {
-        expect(req.url.toString(), _refreshUrl);
-        observedBody = jsonDecode(req.body) as Map<String, dynamic>;
-        return http.Response(
-          jsonEncode({
-            'success': true,
-            'data': {
-              'accessToken': 'new-access',
-              'refreshToken': 'new-refresh',
-            },
-          }),
-          200,
-          headers: {'content-type': 'application/json'},
-        );
-      }));
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          expect(req.url.toString(), _refreshUrl);
+          observedBody = jsonDecode(req.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {
+                'accessToken': 'new-access',
+                'refreshToken': 'new-refresh',
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
 
       final ok = await VHHttpClient.debugTryRefreshToken();
       expect(ok, isTrue);
@@ -169,16 +179,18 @@ void main() {
       await AuthService.setJwt('old-access');
       await AuthService.setRefreshToken('old-refresh');
 
-      VHHttpClient.setClientForTesting(MockClient((req) async {
-        return http.Response(
-          jsonEncode({
-            'success': true,
-            'data': {'accessToken': 'new-access'},
-          }),
-          200,
-          headers: {'content-type': 'application/json'},
-        );
-      }));
+      VHHttpClient.setClientForTesting(
+        MockClient((req) async {
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {'accessToken': 'new-access'},
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
 
       final ok = await VHHttpClient.debugTryRefreshToken();
       expect(ok, isTrue);
@@ -188,109 +200,131 @@ void main() {
   });
 
   group('VHHttpClient — single-flight refresh', () {
-    test('two concurrent refresh calls make exactly one HTTP request',
-        () async {
-      await AuthService.setJwt('old-access');
+    test(
+      'two concurrent refresh calls make exactly one HTTP request',
+      () async {
+        await AuthService.setJwt('old-access');
 
-      var callCount = 0;
-      final completer = Completer<http.Response>();
-      VHHttpClient.setClientForTesting(MockClient((req) async {
-        callCount++;
-        return completer.future;
-      }));
+        var callCount = 0;
+        final completer = Completer<http.Response>();
+        VHHttpClient.setClientForTesting(
+          MockClient((req) async {
+            callCount++;
+            return completer.future;
+          }),
+        );
 
-      // Kick off two concurrent refreshes before the first completes.
-      final f1 = VHHttpClient.debugTryRefreshToken();
-      final f2 = VHHttpClient.debugTryRefreshToken();
+        // Kick off two concurrent refreshes before the first completes.
+        final f1 = VHHttpClient.debugTryRefreshToken();
+        final f2 = VHHttpClient.debugTryRefreshToken();
 
-      // Allow the event loop to schedule both.
-      await Future<void>.delayed(Duration.zero);
+        // Allow the event loop to schedule both.
+        await Future<void>.delayed(Duration.zero);
 
-      completer.complete(http.Response(
-        jsonEncode({
-          'success': true,
-          'data': {'token': 'new-access'},
-        }),
-        200,
-        headers: {'content-type': 'application/json'},
-      ));
-
-      final results = await Future.wait([f1, f2]);
-      expect(results, [true, true]);
-      expect(callCount, 1, reason: 'Single-flight should dedupe concurrent refreshes');
-    });
-  });
-
-  group('VHHttpClient — 401 retry on GET', () {
-    test('401 → refresh → retry succeeds (one extra request with new token)',
-        () async {
-      await AuthService.setJwt('old-access');
-
-      var getCount = 0;
-      VHHttpClient.setClientForTesting(MockClient((req) async {
-        if (req.url.toString() == _refreshUrl) {
-          // The refresh call itself
-          return http.Response(
+        completer.complete(
+          http.Response(
             jsonEncode({
               'success': true,
               'data': {'token': 'new-access'},
             }),
             200,
             headers: {'content-type': 'application/json'},
-          );
-        }
-        // The original GET — fail first, succeed on retry
-        getCount++;
-        if (getCount == 1) {
-          expect(req.headers['Authorization'], 'Bearer old-access');
-          return http.Response(
-            jsonEncode({'success': false, 'message': 'Token expired'}),
-            401,
-            headers: {'content-type': 'application/json'},
-          );
-        }
-        expect(req.headers['Authorization'], 'Bearer new-access');
-        return http.Response(
-          jsonEncode({'success': true, 'data': 'ok'}),
-          200,
-          headers: {'content-type': 'application/json'},
+          ),
         );
-      }));
 
-      final resp = await VHHttpClient.get('/ping');
-      expect(resp.isSuccess, isTrue);
-      expect(getCount, 2, reason: 'Original request should have been retried');
-      expect(await AuthService.getJwt(), 'new-access');
-    });
-
-    test('401 → refresh fails → clears tokens + fires onSessionExpired',
-        () async {
-      await AuthService.setJwt('old-access');
-      await AuthService.setRefreshToken('old-refresh');
-
-      String? expiredMessage;
-      VHHttpClient.onSessionExpired = (msg) => expiredMessage = msg;
-
-      VHHttpClient.setClientForTesting(MockClient((req) async {
-        if (req.url.toString() == _refreshUrl) {
-          return http.Response(
-            jsonEncode({'success': false}),
-            401,
-            headers: {'content-type': 'application/json'},
-          );
-        }
-        return http.Response(
-          jsonEncode({'success': false, 'message': 'Expired'}),
-          401,
-          headers: {'content-type': 'application/json'},
+        final results = await Future.wait([f1, f2]);
+        expect(results, [true, true]);
+        expect(
+          callCount,
+          1,
+          reason: 'Single-flight should dedupe concurrent refreshes',
         );
-      }));
+      },
+    );
+  });
 
-      final resp = await VHHttpClient.get('/ping');
-      expect(resp.isUnauthorized, isTrue);
-      expect(expiredMessage, isNotNull);
-      expect(await AuthService.getJwt(), isNull);
-      expect(await AuthService.getRefreshToken(), isNull);
-    });
+  group('VHHttpClient — 401 retry on GET', () {
+    test(
+      '401 → refresh → retry succeeds (one extra request with new token)',
+      () async {
+        await AuthService.setJwt('old-access');
+
+        var getCount = 0;
+        VHHttpClient.setClientForTesting(
+          MockClient((req) async {
+            if (req.url.toString() == _refreshUrl) {
+              // The refresh call itself
+              return http.Response(
+                jsonEncode({
+                  'success': true,
+                  'data': {'token': 'new-access'},
+                }),
+                200,
+                headers: {'content-type': 'application/json'},
+              );
+            }
+            // The original GET — fail first, succeed on retry
+            getCount++;
+            if (getCount == 1) {
+              expect(req.headers['Authorization'], 'Bearer old-access');
+              return http.Response(
+                jsonEncode({'success': false, 'message': 'Token expired'}),
+                401,
+                headers: {'content-type': 'application/json'},
+              );
+            }
+            expect(req.headers['Authorization'], 'Bearer new-access');
+            return http.Response(
+              jsonEncode({'success': true, 'data': 'ok'}),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }),
+        );
+
+        final resp = await VHHttpClient.get('/ping');
+        expect(resp.isSuccess, isTrue);
+        expect(
+          getCount,
+          2,
+          reason: 'Original request should have been retried',
+        );
+        expect(await AuthService.getJwt(), 'new-access');
+      },
+    );
+
+    test(
+      '401 → refresh fails → clears tokens + fires onSessionExpired',
+      () async {
+        await AuthService.setJwt('old-access');
+        await AuthService.setRefreshToken('old-refresh');
+
+        String? expiredMessage;
+        VHHttpClient.onSessionExpired = (msg) => expiredMessage = msg;
+
+        VHHttpClient.setClientForTesting(
+          MockClient((req) async {
+            if (req.url.toString() == _refreshUrl) {
+              return http.Response(
+                jsonEncode({'success': false}),
+                401,
+                headers: {'content-type': 'application/json'},
+              );
+            }
+            return http.Response(
+              jsonEncode({'success': false, 'message': 'Expired'}),
+              401,
+              headers: {'content-type': 'application/json'},
+            );
+          }),
+        );
+
+        final resp = await VHHttpClient.get('/ping');
+        expect(resp.isUnauthorized, isTrue);
+        expect(expiredMessage, isNotNull);
+        expect(await AuthService.getJwt(), isNull);
+        expect(await AuthService.getRefreshToken(), isNull);
+      },
+    );
   });
 }

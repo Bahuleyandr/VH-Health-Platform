@@ -7,14 +7,18 @@ class LeaveApiService {
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  static Future<Map<String, dynamic>> _get(String path,
-      {Map<String, String>? query}) async {
+  static Future<Map<String, dynamic>> _get(
+    String path, {
+    Map<String, String>? query,
+  }) async {
     final resp = await ApiClient.get(path, queryParameters: query);
     return _handle(resp);
   }
 
   static Future<Map<String, dynamic>> _post(
-      String path, Map<String, dynamic> body) async {
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     final resp = await ApiClient.post(path, body: body);
     return _handle(resp);
   }
@@ -36,8 +40,10 @@ class LeaveApiService {
     String staffId, {
     int? year,
   }) async {
-    return _get('/staff/hr/leave-balance/$staffId',
-        query: year != null ? {'year': year.toString()} : null);
+    return _get(
+      '/staff/hr/leave-balance/$staffId',
+      query: year != null ? {'year': year.toString()} : null,
+    );
   }
 
   /// POST /staff/hr/leave/apply

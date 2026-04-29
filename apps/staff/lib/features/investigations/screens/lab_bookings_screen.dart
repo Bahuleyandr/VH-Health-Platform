@@ -91,7 +91,9 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
         speed: pos.speed * 3.6,
         heading: pos.heading,
       );
-    } catch (e) { debugPrint('lab_bookings_screen.dart: $e'); }
+    } catch (e) {
+      debugPrint('lab_bookings_screen.dart: $e');
+    }
   }
 
   Future<void> _fetchBookings() async {
@@ -118,8 +120,14 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
       _bookings.where((b) => b['status'] == 'BOOKED').toList();
 
   List<dynamic> get _activeBookings => _bookings
-      .where((b) => ['CONFIRMED', 'DISPATCHED', 'COLLECTED', 'PROCESSING']
-          .contains(b['status']))
+      .where(
+        (b) => [
+          'CONFIRMED',
+          'DISPATCHED',
+          'COLLECTED',
+          'PROCESSING',
+        ].contains(b['status']),
+      )
       .toList();
 
   List<dynamic> get _completedBookings =>
@@ -149,28 +157,30 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(_error!,
-                                style: const TextStyle(color: Colors.red)),
-                            const SizedBox(height: 16),
-                            ElevatedButton(
-                              onPressed: _fetchBookings,
-                              child: const Text('Retry'),
-                            ),
-                          ],
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          _error!,
+                          style: const TextStyle(color: Colors.red),
                         ),
-                      )
-                    : TabBarView(
-                        controller: _tabController,
-                        children: [
-                          _buildBookingList(_newBookings, 'BOOKED'),
-                          _buildBookingList(_activeBookings, 'ACTIVE'),
-                          _buildBookingList(_completedBookings, 'COMPLETED'),
-                        ],
-                      ),
+                        const SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: _fetchBookings,
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  )
+                : TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildBookingList(_newBookings, 'BOOKED'),
+                      _buildBookingList(_activeBookings, 'ACTIVE'),
+                      _buildBookingList(_completedBookings, 'COMPLETED'),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -183,11 +193,12 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.inbox_outlined,
-                size: 48, color: Colors.grey.shade400),
+            Icon(Icons.inbox_outlined, size: 48, color: Colors.grey.shade400),
             const SizedBox(height: 8),
-            Text('No $type bookings',
-                style: TextStyle(color: Colors.grey.shade600)),
+            Text(
+              'No $type bookings',
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
           ],
         ),
       );
@@ -211,8 +222,9 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
         (booking['mins_since_booked'] as num?)?.toInt() ?? 0;
     final slaBreach = booking['sla_breached'] == true;
     final createdAt = booking['created_at'] != null
-        ? DateFormat('d MMM, h:mm a')
-            .format(DateTime.parse(booking['created_at']).toLocal())
+        ? DateFormat(
+            'd MMM, h:mm a',
+          ).format(DateTime.parse(booking['created_at']).toLocal())
         : '';
 
     return Card(
@@ -230,7 +242,9 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                   child: Text(
                     booking['booking_number'] ?? '#${booking['id']}',
                     style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 15),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
                   ),
                 ),
                 _statusBadge(status),
@@ -243,20 +257,29 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
               children: [
                 const Icon(Icons.person, size: 14, color: Colors.grey),
                 const SizedBox(width: 4),
-                Text(booking['patient_name'] ?? 'Unknown',
-                    style: const TextStyle(fontSize: 13)),
+                Text(
+                  booking['patient_name'] ?? 'Unknown',
+                  style: const TextStyle(fontSize: 13),
+                ),
                 const Spacer(),
                 if (booking['patient_phone'] != null)
                   GestureDetector(
                     onTap: () => _callPhone(booking['patient_phone']),
                     child: Row(
                       children: [
-                        const Icon(Icons.phone,
-                            size: 14, color: AppTheme.primaryBlue),
+                        const Icon(
+                          Icons.phone,
+                          size: 14,
+                          color: AppTheme.primaryBlue,
+                        ),
                         const SizedBox(width: 2),
-                        Text(booking['patient_phone'] ?? '',
-                            style: const TextStyle(
-                                fontSize: 12, color: AppTheme.primaryBlue)),
+                        Text(
+                          booking['patient_phone'] ?? '',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppTheme.primaryBlue,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -271,20 +294,20 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                 runSpacing: 2,
                 children: testNames.map<Widget>((t) {
                   return Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.blue.shade50,
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Text('$t',
-                        style: const TextStyle(fontSize: 11)),
+                    child: Text('$t', style: const TextStyle(fontSize: 11)),
                   );
                 }).toList(),
               ),
             if (customTests != null && customTests.isNotEmpty)
-              Text('Tests: $customTests',
-                  style: const TextStyle(fontSize: 12)),
+              Text('Tests: $customTests', style: const TextStyle(fontSize: 12)),
 
             const SizedBox(height: 6),
 
@@ -292,21 +315,21 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
             Row(
               children: [
                 Icon(
-                  collectionType == 'home'
-                      ? Icons.home
-                      : Icons.local_hospital,
+                  collectionType == 'home' ? Icons.home : Icons.local_hospital,
                   size: 14,
                   color: Colors.grey.shade600,
                 ),
                 const SizedBox(width: 4),
                 Text(
                   collectionType == 'home' ? 'Home' : 'Walk-in',
-                  style: TextStyle(
-                      fontSize: 12, color: Colors.grey.shade600),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
                 const SizedBox(width: 12),
-                Icon(Icons.access_time, size: 14,
-                    color: slaBreach ? Colors.red : Colors.grey.shade600),
+                Icon(
+                  Icons.access_time,
+                  size: 14,
+                  color: slaBreach ? Colors.red : Colors.grey.shade600,
+                ),
                 const SizedBox(width: 4),
                 Text(
                   minsSinceBooked > 60
@@ -323,9 +346,10 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                   const Icon(Icons.warning, size: 14, color: Colors.red),
                 ],
                 const Spacer(),
-                Text(createdAt,
-                    style:
-                        TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                Text(
+                  createdAt,
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                ),
               ],
             ),
 
@@ -338,11 +362,14 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                   children: [
                     Icon(Icons.photo, size: 14, color: Colors.blue.shade700),
                     const SizedBox(width: 4),
-                    Text('View Prescription Slip',
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.blue.shade700,
-                            decoration: TextDecoration.underline)),
+                    Text(
+                      'View Prescription Slip',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.blue.shade700,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -355,7 +382,9 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
               Text(
                 '₹${booking['final_cost'] ?? booking['estimated_cost']}',
                 style: const TextStyle(
-                    fontWeight: FontWeight.bold, fontSize: 14),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
               ),
             ],
 
@@ -402,7 +431,10 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
       child: Text(
         status.replaceAll('_', ' '),
         style: TextStyle(
-            fontSize: 11, fontWeight: FontWeight.bold, color: color),
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          color: color,
+        ),
       ),
     );
   }
@@ -460,10 +492,19 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.my_location, size: 14, color: Colors.green.shade700),
+                    Icon(
+                      Icons.my_location,
+                      size: 14,
+                      color: Colors.green.shade700,
+                    ),
                     const SizedBox(width: 4),
-                    Text('📍 Sharing location...',
-                        style: TextStyle(fontSize: 12, color: Colors.green.shade700)),
+                    Text(
+                      '📍 Sharing location...',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.green.shade700,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -519,8 +560,10 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                   onPressed: () async {
                     final url = Uri.parse(booking['result_file_url']);
                     if (await canLaunchUrl(url)) {
-                      await launchUrl(url,
-                          mode: LaunchMode.externalApplication);
+                      await launchUrl(
+                        url,
+                        mode: LaunchMode.externalApplication,
+                      );
                     }
                   },
                   icon: const Icon(Icons.download, size: 16),
@@ -714,14 +757,15 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                       if (ctx.mounted) {
                         ScaffoldMessenger.of(ctx).showSnackBar(
                           const SnackBar(
-                            content: Text('File too large. Maximum size is 10 MB.'),
+                            content: Text(
+                              'File too large. Maximum size is 10 MB.',
+                            ),
                           ),
                         );
                       }
                       return;
                     }
-                    setDialogState(
-                        () => pickedFile = result.files.single);
+                    setDialogState(() => pickedFile = result.files.single);
                   }
                 },
                 icon: const Icon(Icons.attach_file),
@@ -789,10 +833,12 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
 
   void _showSnack(String msg, {bool isError = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: isError ? Colors.red : Colors.green,
-      behavior: SnackBarBehavior.floating,
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: isError ? Colors.red : Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 }

@@ -47,7 +47,9 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
       _error = null;
     });
     try {
-      final data = await MedicalApiService.getPatientTimeline(widget.patientUid);
+      final data = await MedicalApiService.getPatientTimeline(
+        widget.patientUid,
+      );
       final list = data['events'] ?? data['timeline'];
       setState(() {
         _events = list is List
@@ -66,8 +68,9 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
   List<Map<String, dynamic>> get _filteredEvents {
     if (_filterType == null || _filterType == 'all') return _events;
     return _events
-        .where((e) =>
-            (e['event_type'] as String?)?.toLowerCase() == _filterType)
+        .where(
+          (e) => (e['event_type'] as String?)?.toLowerCase() == _filterType,
+        )
         .toList();
   }
 
@@ -219,11 +222,11 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                   ),
                   const SizedBox(height: 6),
                   ...(event['details'] as Map).entries.map(
-                        (e) => _detailRow(
-                          _formatKey(e.key.toString()),
-                          e.value?.toString() ?? '-',
-                        ),
-                      ),
+                    (e) => _detailRow(
+                      _formatKey(e.key.toString()),
+                      e.value?.toString() ?? '-',
+                    ),
+                  ),
                 ],
                 const SizedBox(height: 20),
               ],
@@ -253,10 +256,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
-                fontWeight: FontWeight.w500,
-                fontSize: 13,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
             ),
           ),
         ],
@@ -337,10 +337,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                   ),
                   if (!isLast)
                     Expanded(
-                      child: Container(
-                        width: 2,
-                        color: AppTheme.divider,
-                      ),
+                      child: Container(width: 2, color: AppTheme.divider),
                     ),
                 ],
               ),
@@ -360,7 +357,9 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                           children: [
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
                               decoration: BoxDecoration(
                                 color: color.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(6),
@@ -408,8 +407,11 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                           const SizedBox(height: 6),
                           Row(
                             children: [
-                              const Icon(Icons.person_outline,
-                                  size: 13, color: AppTheme.textSecondary),
+                              const Icon(
+                                Icons.person_outline,
+                                size: 13,
+                                color: AppTheme.textSecondary,
+                              ),
                               const SizedBox(width: 4),
                               Text(
                                 event['author'] as String,
@@ -444,59 +446,66 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline,
-                          size: 48, color: AppTheme.errorRed),
-                      const SizedBox(height: 12),
-                      Text(_error!, textAlign: TextAlign.center),
-                      const SizedBox(height: 12),
-                      OutlinedButton(
-                        onPressed: _loadTimeline,
-                        child: const Text('Retry'),
-                      ),
-                    ],
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    size: 48,
+                    color: AppTheme.errorRed,
                   ),
-                )
-              : Column(
-                  children: [
-                    const SizedBox(height: 8),
-                    _buildFilterChips(),
-                    const SizedBox(height: 8),
-                    Expanded(
-                      child: filtered.isEmpty
-                          ? const Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.timeline,
-                                      size: 64, color: AppTheme.divider),
-                                  SizedBox(height: 12),
-                                  Text(
-                                    'No events found',
-                                    style: TextStyle(
-                                        color: AppTheme.textSecondary),
-                                  ),
-                                ],
+                  const SizedBox(height: 12),
+                  Text(_error!, textAlign: TextAlign.center),
+                  const SizedBox(height: 12),
+                  OutlinedButton(
+                    onPressed: _loadTimeline,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            )
+          : Column(
+              children: [
+                const SizedBox(height: 8),
+                _buildFilterChips(),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: filtered.isEmpty
+                      ? const Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.timeline,
+                                size: 64,
+                                color: AppTheme.divider,
                               ),
-                            )
-                          : RefreshIndicator(
-                              onRefresh: _loadTimeline,
-                              child: ListView.builder(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 4),
-                                itemCount: filtered.length,
-                                itemBuilder: (ctx, i) => _buildTimelineItem(
-                                  filtered[i],
-                                  i == filtered.length - 1,
-                                ),
+                              SizedBox(height: 12),
+                              Text(
+                                'No events found',
+                                style: TextStyle(color: AppTheme.textSecondary),
                               ),
+                            ],
+                          ),
+                        )
+                      : RefreshIndicator(
+                          onRefresh: _loadTimeline,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
                             ),
-                    ),
-                  ],
+                            itemCount: filtered.length,
+                            itemBuilder: (ctx, i) => _buildTimelineItem(
+                              filtered[i],
+                              i == filtered.length - 1,
+                            ),
+                          ),
+                        ),
                 ),
+              ],
+            ),
     );
   }
 }

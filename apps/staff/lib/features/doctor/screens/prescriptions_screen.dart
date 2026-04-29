@@ -62,7 +62,8 @@ class _PrescriptionsScreenState extends State<PrescriptionsScreen>
               controller: _tabController,
               children: [
                 _NewEPrescriptionTab(
-                    prefilledAppointment: widget.prefilledAppointment),
+                  prefilledAppointment: widget.prefilledAppointment,
+                ),
                 const _RecentEPrescriptionsTab(),
               ],
             ),
@@ -101,16 +102,16 @@ class _MedicationEntry {
   });
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        if (genericName != null) 'generic_name': genericName,
-        if (catalogId != null) 'catalog_id': catalogId,
-        'dosage': dosage,
-        'frequency': frequency,
-        'duration': duration,
-        'route': route,
-        'instructions': instructions,
-        'quantity': quantity,
-      };
+    'name': name,
+    if (genericName != null) 'generic_name': genericName,
+    if (catalogId != null) 'catalog_id': catalogId,
+    'dosage': dosage,
+    'frequency': frequency,
+    'duration': duration,
+    'route': route,
+    'instructions': instructions,
+    'quantity': quantity,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -175,7 +176,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     'IM',
     'Topical',
     'Inhalation',
-    'Sublingual'
+    'Sublingual',
   ];
 
   @override
@@ -291,8 +292,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             : _clinicalNotesCtrl.text.trim(),
         'medications': meds,
         if (_followUpDate != null)
-          'follow_up_date':
-              DateFormat('yyyy-MM-dd').format(_followUpDate!),
+          'follow_up_date': DateFormat('yyyy-MM-dd').format(_followUpDate!),
         if (_followUpNotesCtrl.text.trim().isNotEmpty)
           'follow_up_notes': _followUpNotesCtrl.text.trim(),
         if (overrideReason != null) 'override': {'reason': overrideReason},
@@ -300,10 +300,14 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       final vitals = _buildVitals();
       if (vitals != null) body['vitals'] = vitals;
 
-      final result = await MedicalApiService.createEPrescription(body,
-          photo: _handwrittenPhoto);
+      final result = await MedicalApiService.createEPrescription(
+        body,
+        photo: _handwrittenPhoto,
+      );
       final rxNum =
-          result['prescription_number'] ?? result['data']?['prescription_number'] ?? '';
+          result['prescription_number'] ??
+          result['data']?['prescription_number'] ??
+          '';
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -373,7 +377,10 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     if (source == null) return;
     final picker = ImagePicker();
     final picked = await picker.pickImage(
-        source: source, maxWidth: 1920, imageQuality: 85);
+      source: source,
+      maxWidth: 1920,
+      imageQuality: 85,
+    );
     if (picked != null) {
       setState(() => _handwrittenPhoto = File(picked.path));
     }
@@ -394,21 +401,25 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             if (_doctorName != null)
               _infoCard('Doctor', _doctorName!, Icons.medical_services),
             if (_patientId == null) ...[
-              _PatientSearchField(onSelected: (id, name) {
-                setState(() {
-                  _patientId = id;
-                  _patientName = name;
-                });
-              }),
+              _PatientSearchField(
+                onSelected: (id, name) {
+                  setState(() {
+                    _patientId = id;
+                    _patientName = name;
+                  });
+                },
+              ),
               const SizedBox(height: 10),
             ],
             if (_doctorId == null) ...[
-              _DoctorSearchField(onSelected: (id, name) {
-                setState(() {
-                  _doctorId = id;
-                  _doctorName = name;
-                });
-              }),
+              _DoctorSearchField(
+                onSelected: (id, name) {
+                  setState(() {
+                    _doctorId = id;
+                    _doctorName = name;
+                  });
+                },
+              ),
               const SizedBox(height: 10),
             ],
 
@@ -424,37 +435,47 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                         : Icons.keyboard_arrow_right,
                     color: const Color(0xFF00838F),
                   ),
-                  const Text('Vitals (optional)',
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF00838F))),
+                  const Text(
+                    'Vitals (optional)',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF00838F),
+                    ),
+                  ),
                 ],
               ),
             ),
             if (_showVitals) ...[
               const SizedBox(height: 8),
-              Row(children: [
-                Expanded(
-                    child: _miniField(_bpSysCtrl, 'BP Systolic', 'mmHg')),
-                const SizedBox(width: 8),
-                Expanded(
-                    child: _miniField(_bpDiaCtrl, 'BP Diastolic', 'mmHg')),
-              ]),
+              Row(
+                children: [
+                  Expanded(
+                    child: _miniField(_bpSysCtrl, 'BP Systolic', 'mmHg'),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _miniField(_bpDiaCtrl, 'BP Diastolic', 'mmHg'),
+                  ),
+                ],
+              ),
               const SizedBox(height: 8),
-              Row(children: [
-                Expanded(child: _miniField(_pulseCtrl, 'Pulse', 'bpm')),
-                const SizedBox(width: 8),
-                Expanded(child: _miniField(_tempCtrl, 'Temp', '°F')),
-              ]),
+              Row(
+                children: [
+                  Expanded(child: _miniField(_pulseCtrl, 'Pulse', 'bpm')),
+                  const SizedBox(width: 8),
+                  Expanded(child: _miniField(_tempCtrl, 'Temp', '°F')),
+                ],
+              ),
               const SizedBox(height: 8),
-              Row(children: [
-                Expanded(child: _miniField(_spo2Ctrl, 'SpO2', '%')),
-                const SizedBox(width: 8),
-                Expanded(child: _miniField(_weightCtrl, 'Weight', 'kg')),
-                const SizedBox(width: 8),
-                Expanded(
-                    child: _miniField(_bsCtrl, 'Blood Sugar', 'mg/dL')),
-              ]),
+              Row(
+                children: [
+                  Expanded(child: _miniField(_spo2Ctrl, 'SpO2', '%')),
+                  const SizedBox(width: 8),
+                  Expanded(child: _miniField(_weightCtrl, 'Weight', 'kg')),
+                  const SizedBox(width: 8),
+                  Expanded(child: _miniField(_bsCtrl, 'Blood Sugar', 'mg/dL')),
+                ],
+              ),
             ],
 
             // ─── Diagnosis ─────────────────────────────────────────────
@@ -477,11 +498,14 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Medications *',
-                    style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.textPrimary)),
+                const Text(
+                  'Medications *',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
                 TextButton.icon(
                   onPressed: () =>
                       setState(() => _medications.add(_MedicationEntry())),
@@ -516,20 +540,22 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                     onPressed: () async {
                       final picked = await showDatePicker(
                         context: context,
-                        initialDate:
-                            DateTime.now().add(const Duration(days: 7)),
+                        initialDate: DateTime.now().add(
+                          const Duration(days: 7),
+                        ),
                         firstDate: DateTime.now(),
-                        lastDate:
-                            DateTime.now().add(const Duration(days: 365)),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
                       );
                       if (picked != null) {
                         setState(() => _followUpDate = picked);
                       }
                     },
                     icon: const Icon(Icons.calendar_today, size: 18),
-                    label: Text(_followUpDate != null
-                        ? 'Follow-up: ${DateFormat('dd MMM yyyy').format(_followUpDate!)}'
-                        : 'Set Follow-up Date'),
+                    label: Text(
+                      _followUpDate != null
+                          ? 'Follow-up: ${DateFormat('dd MMM yyyy').format(_followUpDate!)}'
+                          : 'Set Follow-up Date',
+                    ),
                   ),
                 ),
                 if (_followUpDate != null)
@@ -569,16 +595,21 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             OutlinedButton.icon(
               onPressed: _pickPhoto,
               icon: const Icon(Icons.camera_alt, size: 18),
-              label: Text(_handwrittenPhoto != null
-                  ? 'Photo attached ✓'
-                  : 'Attach Handwritten Prescription (optional)'),
+              label: Text(
+                _handwrittenPhoto != null
+                    ? 'Photo attached ✓'
+                    : 'Attach Handwritten Prescription (optional)',
+              ),
             ),
             if (_handwrittenPhoto != null) ...[
               const SizedBox(height: 8),
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: Image.file(_handwrittenPhoto!,
-                    height: 120, fit: BoxFit.cover),
+                child: Image.file(
+                  _handwrittenPhoto!,
+                  height: 120,
+                  fit: BoxFit.cover,
+                ),
               ),
             ],
 
@@ -593,10 +624,14 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
-                            color: Colors.white, strokeWidth: 2))
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
                     : const Icon(Icons.save, color: Colors.white),
                 label: Text(
-                    _submitting ? 'Creating...' : 'Create Prescription'),
+                  _submitting ? 'Creating...' : 'Create Prescription',
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF00838F),
                   padding: const EdgeInsets.symmetric(vertical: 14),
@@ -622,17 +657,17 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         children: [
           Icon(icon, size: 18, color: const Color(0xFF00838F)),
           const SizedBox(width: 8),
-          Text('$label: ',
-              style: const TextStyle(
-                  fontWeight: FontWeight.bold, fontSize: 13)),
+          Text(
+            '$label: ',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          ),
           Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
         ],
       ),
     );
   }
 
-  Widget _miniField(
-      TextEditingController ctrl, String label, String suffix) {
+  Widget _miniField(TextEditingController ctrl, String label, String suffix) {
     return TextFormField(
       controller: ctrl,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -640,8 +675,10 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
         labelText: label,
         suffixText: suffix,
         isDense: true,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 10,
+        ),
       ),
     );
   }
@@ -715,7 +752,9 @@ class _PatientSearchFieldState extends State<_PatientSearchField> {
                   subtitle: Text(u['phone'] ?? ''),
                   onTap: () {
                     widget.onSelected(
-                        u['id'] as int, u['name']?.toString() ?? '');
+                      u['id'] as int,
+                      u['name']?.toString() ?? '',
+                    );
                     setState(() => _results = []);
                     _ctrl.text = u['name']?.toString() ?? '';
                   },
@@ -792,8 +831,9 @@ class _DoctorSearchFieldState extends State<_DoctorSearchField> {
                   subtitle: Text(d['specialization'] ?? ''),
                   onTap: () {
                     widget.onSelected(
-                        (d['user_id'] ?? d['id']) as int,
-                        d['name']?.toString() ?? '');
+                      (d['user_id'] ?? d['id']) as int,
+                      d['name']?.toString() ?? '',
+                    );
                     setState(() => _results = []);
                     _ctrl.text = d['name']?.toString() ?? '';
                   },
@@ -880,7 +920,9 @@ class _MedicationCardState extends State<_MedicationCard> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF00838F).withValues(alpha: 0.3)),
+        border: Border.all(
+          color: const Color(0xFF00838F).withValues(alpha: 0.3),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -888,15 +930,21 @@ class _MedicationCardState extends State<_MedicationCard> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Medicine ${widget.index + 1}',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF00838F),
-                      fontSize: 13)),
+              Text(
+                'Medicine ${widget.index + 1}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF00838F),
+                  fontSize: 13,
+                ),
+              ),
               if (widget.onRemove != null)
                 IconButton(
-                  icon: const Icon(Icons.remove_circle_outline,
-                      color: AppTheme.errorRed, size: 20),
+                  icon: const Icon(
+                    Icons.remove_circle_outline,
+                    color: AppTheme.errorRed,
+                    size: 20,
+                  ),
                   onPressed: widget.onRemove,
                   visualDensity: VisualDensity.compact,
                 ),
@@ -931,9 +979,10 @@ class _MedicationCardState extends State<_MedicationCard> {
                 borderRadius: BorderRadius.circular(6),
                 boxShadow: [
                   const BoxShadow(
-                      color: Colors.black12,
-                      blurRadius: 4,
-                      offset: Offset(0, 2))
+                    color: Colors.black12,
+                    blurRadius: 4,
+                    offset: Offset(0, 2),
+                  ),
                 ],
               ),
               child: ListView.builder(
@@ -943,11 +992,14 @@ class _MedicationCardState extends State<_MedicationCard> {
                   final s = _suggestions[i];
                   return ListTile(
                     dense: true,
-                    title: Text(s['name'] ?? '',
-                        style: const TextStyle(fontSize: 13)),
+                    title: Text(
+                      s['name'] ?? '',
+                      style: const TextStyle(fontSize: 13),
+                    ),
                     subtitle: Text(
-                        '${s['generic_name'] ?? ''} • ₹${s['unit_price'] ?? 0} / ${s['pack_size'] ?? ''}',
-                        style: const TextStyle(fontSize: 11)),
+                      '${s['generic_name'] ?? ''} • ₹${s['unit_price'] ?? 0} / ${s['pack_size'] ?? ''}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
                     onTap: () {
                       setState(() {
                         _nameCtrl.text = s['name'] ?? '';
@@ -965,102 +1017,126 @@ class _MedicationCardState extends State<_MedicationCard> {
             ),
 
           const SizedBox(height: 8),
-          Row(children: [
-            Expanded(
-              child: TextFormField(
-                initialValue: med.dosage,
-                decoration: const InputDecoration(
-                    labelText: 'Dosage', hintText: '500mg', isDense: true),
-                onChanged: (v) {
-                  med.dosage = v;
-                  widget.onChanged();
-                },
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  initialValue: med.dosage,
+                  decoration: const InputDecoration(
+                    labelText: 'Dosage',
+                    hintText: '500mg',
+                    isDense: true,
+                  ),
+                  onChanged: (v) {
+                    med.dosage = v;
+                    widget.onChanged();
+                  },
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                initialValue: med.frequency.isEmpty ? null : med.frequency,
-                decoration: const InputDecoration(
-                    labelText: 'Frequency', isDense: true),
-                items: widget.frequencies
-                    .map((f) => DropdownMenuItem(
-                        value: f,
-                        child: Text(widget.freqLabels[f] ?? f,
-                            style: const TextStyle(fontSize: 11))))
-                    .toList(),
-                onChanged: (v) {
-                  med.frequency = v ?? '';
-                  widget.onChanged();
-                },
+              const SizedBox(width: 10),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: med.frequency.isEmpty ? null : med.frequency,
+                  decoration: const InputDecoration(
+                    labelText: 'Frequency',
+                    isDense: true,
+                  ),
+                  items: widget.frequencies
+                      .map(
+                        (f) => DropdownMenuItem(
+                          value: f,
+                          child: Text(
+                            widget.freqLabels[f] ?? f,
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) {
+                    med.frequency = v ?? '';
+                    widget.onChanged();
+                  },
+                ),
               ),
-            ),
-          ]),
+            ],
+          ),
           const SizedBox(height: 8),
-          Row(children: [
-            Expanded(
-              child: TextFormField(
-                initialValue: med.duration,
-                decoration: const InputDecoration(
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  initialValue: med.duration,
+                  decoration: const InputDecoration(
                     labelText: 'Duration',
                     hintText: '5 days',
-                    isDense: true),
-                onChanged: (v) {
-                  med.duration = v;
-                  widget.onChanged();
-                },
+                    isDense: true,
+                  ),
+                  onChanged: (v) {
+                    med.duration = v;
+                    widget.onChanged();
+                  },
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                initialValue: med.route,
-                decoration: const InputDecoration(
-                    labelText: 'Route', isDense: true),
-                items: widget.routes
-                    .map((r) => DropdownMenuItem(
-                        value: r,
-                        child: Text(r,
-                            style: const TextStyle(fontSize: 12))))
-                    .toList(),
-                onChanged: (v) {
-                  med.route = v ?? 'Oral';
-                  widget.onChanged();
-                },
+              const SizedBox(width: 10),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: med.route,
+                  decoration: const InputDecoration(
+                    labelText: 'Route',
+                    isDense: true,
+                  ),
+                  items: widget.routes
+                      .map(
+                        (r) => DropdownMenuItem(
+                          value: r,
+                          child: Text(r, style: const TextStyle(fontSize: 12)),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) {
+                    med.route = v ?? 'Oral';
+                    widget.onChanged();
+                  },
+                ),
               ),
-            ),
-          ]),
+            ],
+          ),
           const SizedBox(height: 8),
-          Row(children: [
-            Expanded(
-              flex: 3,
-              child: TextFormField(
-                initialValue: med.instructions,
-                decoration: const InputDecoration(
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: TextFormField(
+                  initialValue: med.instructions,
+                  decoration: const InputDecoration(
                     labelText: 'Instructions',
                     hintText: 'After food',
-                    isDense: true),
-                onChanged: (v) {
-                  med.instructions = v;
-                  widget.onChanged();
-                },
+                    isDense: true,
+                  ),
+                  onChanged: (v) {
+                    med.instructions = v;
+                    widget.onChanged();
+                  },
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              flex: 1,
-              child: TextFormField(
-                initialValue: med.quantity.toString(),
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                    labelText: 'Qty', isDense: true),
-                onChanged: (v) {
-                  med.quantity = int.tryParse(v) ?? 1;
-                  widget.onChanged();
-                },
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 1,
+                child: TextFormField(
+                  initialValue: med.quantity.toString(),
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Qty',
+                    isDense: true,
+                  ),
+                  onChanged: (v) {
+                    med.quantity = int.tryParse(v) ?? 1;
+                    widget.onChanged();
+                  },
+                ),
               ),
-            ),
-          ]),
+            ],
+          ),
         ],
       ),
     );
@@ -1102,7 +1178,9 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
         if (raw['success'] == true) {
           setState(() => _prescriptions = raw['data'] ?? []);
         } else {
-          setState(() => _error = raw['message']?.toString() ?? 'Failed to load');
+          setState(
+            () => _error = raw['message']?.toString() ?? 'Failed to load',
+          );
         }
       } else {
         setState(() => _error = resp.message ?? 'Failed to load');
@@ -1122,11 +1200,12 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline,
-                color: AppTheme.errorRed, size: 40),
+            const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
             const SizedBox(height: 8),
-            Text(_error!,
-                style: const TextStyle(color: AppTheme.textSecondary)),
+            Text(
+              _error!,
+              style: const TextStyle(color: AppTheme.textSecondary),
+            ),
             TextButton(onPressed: _load, child: const Text('Retry')),
           ],
         ),
@@ -1137,17 +1216,25 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.medication_liquid_outlined,
-                size: 56, color: AppTheme.textSecondary),
+            Icon(
+              Icons.medication_liquid_outlined,
+              size: 56,
+              color: AppTheme.textSecondary,
+            ),
             SizedBox(height: 16),
-            Text('No prescriptions yet',
-                style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.textPrimary)),
+            Text(
+              'No prescriptions yet',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary,
+              ),
+            ),
             SizedBox(height: 8),
-            Text('Created prescriptions will appear here',
-                style: TextStyle(color: AppTheme.textSecondary)),
+            Text(
+              'Created prescriptions will appear here',
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
           ],
         ),
       );
@@ -1161,8 +1248,9 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
           final p = _prescriptions[i];
           final meds = p['medications'] as List? ?? [];
           final createdAt = p['created_at'] != null
-              ? DateFormat('dd MMM yyyy, hh:mm a')
-                  .format(DateTime.parse(p['created_at']).toLocal())
+              ? DateFormat(
+                  'dd MMM yyyy, hh:mm a',
+                ).format(DateTime.parse(p['created_at']).toLocal())
               : '';
           return Card(
             margin: const EdgeInsets.only(bottom: 10),
@@ -1170,25 +1258,28 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
               leading: CircleAvatar(
                 backgroundColor: const Color(0xFF00838F),
                 child: Text(
-                  (p['prescription_number'] ?? '')
-                      .toString()
-                      .replaceAll('RX-2026-', ''),
+                  (p['prescription_number'] ?? '').toString().replaceAll(
+                    'RX-2026-',
+                    '',
+                  ),
                   style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold),
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               title: Text(
-                  '${p['prescription_number']} • ${p['patient_name'] ?? ''}'),
+                '${p['prescription_number']} • ${p['patient_name'] ?? ''}',
+              ),
               subtitle: Text(
-                  'Dr. ${p['doctor_name'] ?? ''} • ${meds.length} medicines\n$createdAt',
-                  style: const TextStyle(fontSize: 12)),
+                'Dr. ${p['doctor_name'] ?? ''} • ${meds.length} medicines\n$createdAt',
+                style: const TextStyle(fontSize: 12),
+              ),
               isThreeLine: true,
               trailing: p['pharmacy_opted'] == true
                   ? const Chip(
-                      label: Text('Ordered',
-                          style: TextStyle(fontSize: 10)),
+                      label: Text('Ordered', style: TextStyle(fontSize: 10)),
                       backgroundColor: Color(0xFFE8F5E9),
                     )
                   : null,
@@ -1206,7 +1297,8 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
       builder: (ctx) => DraggableScrollableSheet(
         expand: false,
         initialChildSize: 0.7,
@@ -1217,61 +1309,76 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
           children: [
             Center(
               child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(2))),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
             ),
             const SizedBox(height: 12),
-            Text(rx['prescription_number'] ?? '',
-                style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold)),
+            Text(
+              rx['prescription_number'] ?? '',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 4),
             Text(
-                'Patient: ${rx['patient_name'] ?? ''} • Dr. ${rx['doctor_name'] ?? ''}',
-                style: const TextStyle(color: Colors.grey)),
+              'Patient: ${rx['patient_name'] ?? ''} • Dr. ${rx['doctor_name'] ?? ''}',
+              style: const TextStyle(color: Colors.grey),
+            ),
             const SizedBox(height: 12),
             if (rx['diagnosis'] != null) ...[
-              const Text('Diagnosis',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text(
+                'Diagnosis',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               Text(rx['diagnosis'] ?? ''),
               const SizedBox(height: 12),
             ],
-            const Text('Medications',
-                style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              'Medications',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
-            ...meds.map((m) => Container(
-                  margin: const EdgeInsets.only(bottom: 6),
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[50],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(m['name'] ?? '',
-                          style:
-                              const TextStyle(fontWeight: FontWeight.w600)),
+            ...meds.map(
+              (m) => Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      m['name'] ?? '',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    Text(
+                      '${m['dosage'] ?? ''} • ${m['frequency'] ?? ''} • ${m['duration'] ?? ''} • ${m['route'] ?? ''}',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    if (m['instructions'] != null &&
+                        m['instructions'].toString().isNotEmpty)
                       Text(
-                          '${m['dosage'] ?? ''} • ${m['frequency'] ?? ''} • ${m['duration'] ?? ''} • ${m['route'] ?? ''}',
-                          style: const TextStyle(
-                              fontSize: 12, color: Colors.grey)),
-                      if (m['instructions'] != null &&
-                          m['instructions'].toString().isNotEmpty)
-                        Text(m['instructions'],
-                            style: const TextStyle(
-                                fontSize: 12,
-                                fontStyle: FontStyle.italic)),
-                    ],
-                  ),
-                )),
+                        m['instructions'],
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
             const SizedBox(height: 12),
             if (rx['follow_up_date'] != null)
               Text(
-                  'Follow-up: ${DateFormat('dd MMM yyyy').format(DateTime.parse(rx['follow_up_date']))}',
-                  style: const TextStyle(fontWeight: FontWeight.w500)),
+                'Follow-up: ${DateFormat('dd MMM yyyy').format(DateTime.parse(rx['follow_up_date']))}',
+                style: const TextStyle(fontWeight: FontWeight.w500),
+              ),
           ],
         ),
       ),

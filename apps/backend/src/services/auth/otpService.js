@@ -44,7 +44,7 @@ export const requestOtp = async (phone, purpose, userId, req) => {
   }
 
   // Generate and store OTP
-  const { otp, expiresAt, sessionId } = await storeOTP(normalizedPhone, purpose, userId);
+  const { otp, sessionId } = await storeOTP(normalizedPhone, purpose, userId);
 
   if (!OTP_CONFIG.devMode) {
     logger.info(`📱 OTP generated for ${normalizedPhone} (stored in DB, no SMS sent)`);

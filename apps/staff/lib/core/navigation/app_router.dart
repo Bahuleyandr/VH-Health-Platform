@@ -121,8 +121,10 @@ final GoRouter appRouter = GoRouter(
     if (isLoggedIn && isOnLogin) {
       // Start idle timer now that we know the user is authenticated
       try {
-        Provider.of<SessionTimeoutProvider>(context, listen: false)
-            .startTracking();
+        Provider.of<SessionTimeoutProvider>(
+          context,
+          listen: false,
+        ).startTracking();
       } catch (_) {}
       return '/dashboard';
     }

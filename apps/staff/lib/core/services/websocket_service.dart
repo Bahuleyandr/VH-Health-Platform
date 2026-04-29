@@ -76,11 +76,7 @@ class WebSocketService {
       _startHeartbeat();
 
       // Listen for messages
-      _channel!.stream.listen(
-        _onMessage,
-        onError: _onError,
-        onDone: _onDone,
-      );
+      _channel!.stream.listen(_onMessage, onError: _onError, onDone: _onDone);
     } catch (e) {
       debugPrint('WebSocket: Connection error: $e');
       _isConnected = false;
@@ -167,7 +163,9 @@ class WebSocketService {
       ),
     );
     _retryCount++;
-    debugPrint('WebSocket: Reconnecting in ${delay.inSeconds}s (attempt $_retryCount/$_maxRetries)');
+    debugPrint(
+      'WebSocket: Reconnecting in ${delay.inSeconds}s (attempt $_retryCount/$_maxRetries)',
+    );
 
     _reconnectTimer = Timer(delay, _doConnect);
   }

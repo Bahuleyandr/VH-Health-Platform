@@ -39,7 +39,10 @@ void main() {
     });
 
     test('sanitizePhone keeps only valid chars', () {
-      expect(InputSanitizer.sanitizePhone('+91 9876-543210'), '+91 9876-543210');
+      expect(
+        InputSanitizer.sanitizePhone('+91 9876-543210'),
+        '+91 9876-543210',
+      );
       expect(InputSanitizer.sanitizePhone('abc123'), '123');
     });
 

@@ -191,7 +191,7 @@ export function classifyAssessmentStage(gestationalAgeWeeks) {
  */
 export function detectRiskFactors({
   ageYears = null,
-  gravida = null,
+  gravida: _gravida = null,
   parity = null,
   priorConditions = [],
   currentConditions = [],

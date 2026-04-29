@@ -23,25 +23,25 @@ enum StaffRole {
   }
 
   String get displayName => switch (this) {
-        StaffRole.doctor => 'Doctor',
-        StaffRole.nurse => 'Nurse',
-        StaffRole.hr => 'HR Staff',
-        StaffRole.admin => 'Admin',
-        StaffRole.superAdmin => 'Super Admin',
-        StaffRole.pharmacy => 'Pharmacy',
-        StaffRole.lab => 'Lab Technician',
-        StaffRole.general => 'Staff',
-      };
+    StaffRole.doctor => 'Doctor',
+    StaffRole.nurse => 'Nurse',
+    StaffRole.hr => 'HR Staff',
+    StaffRole.admin => 'Admin',
+    StaffRole.superAdmin => 'Super Admin',
+    StaffRole.pharmacy => 'Pharmacy',
+    StaffRole.lab => 'Lab Technician',
+    StaffRole.general => 'Staff',
+  };
 
   Color get badgeColor => switch (this) {
-        StaffRole.doctor => const Color(0xFF1565C0),
-        StaffRole.nurse => const Color(0xFF00796B),
-        StaffRole.hr => const Color(0xFF6A1B9A),
-        StaffRole.admin || StaffRole.superAdmin => const Color(0xFFC62828),
-        StaffRole.pharmacy => const Color(0xFFE65100),
-        StaffRole.lab => const Color(0xFF0097A7),
-        StaffRole.general => const Color(0xFF37474F),
-      };
+    StaffRole.doctor => const Color(0xFF1565C0),
+    StaffRole.nurse => const Color(0xFF00796B),
+    StaffRole.hr => const Color(0xFF6A1B9A),
+    StaffRole.admin || StaffRole.superAdmin => const Color(0xFFC62828),
+    StaffRole.pharmacy => const Color(0xFFE65100),
+    StaffRole.lab => const Color(0xFF0097A7),
+    StaffRole.general => const Color(0xFF37474F),
+  };
 
   /// Whether this role has admin-level access (ADMIN or SUPER_ADMIN)
   bool get isAdminTier =>
@@ -289,117 +289,117 @@ class RoleFeatures {
   static List<DashboardFeature> getFeaturesForRole(StaffRole role) {
     return switch (role) {
       StaffRole.doctor => [
-          _attendance,
-          _schedule,
-          _queue,
-          _appointments,
-          _appointmentQueue,
-          _patientRecords,
-          _prescriptions,
-          _investigationResults,
-          _theatre,
-          _radiology,
-          _bedBoard,
-          _bloodBank,
-          _leave,
-          _staffDirectory,
-          _messaging,
-          _profile,
-          _settings,
-        ],
+        _attendance,
+        _schedule,
+        _queue,
+        _appointments,
+        _appointmentQueue,
+        _patientRecords,
+        _prescriptions,
+        _investigationResults,
+        _theatre,
+        _radiology,
+        _bedBoard,
+        _bloodBank,
+        _leave,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
       StaffRole.nurse => [
-          _attendance,
-          _schedule,
-          _appointments,
-          _patientRecords,
-          _vitals,
-          _nursingNotes,
-          _handover,
-          _investigationResults,
-          _labBookings,
-          _theatre,
-          _radiology,
-          _bedBoard,
-          _bloodBank,
-          _dietary,
-          _leave,
-          _staffDirectory,
-          _messaging,
-          _profile,
-          _settings,
-        ],
+        _attendance,
+        _schedule,
+        _appointments,
+        _patientRecords,
+        _vitals,
+        _nursingNotes,
+        _handover,
+        _investigationResults,
+        _labBookings,
+        _theatre,
+        _radiology,
+        _bedBoard,
+        _bloodBank,
+        _dietary,
+        _leave,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
       StaffRole.hr => [
-          _attendance,
-          _schedule,
-          _hrDashboard,
-          _staffManagement,
-          _performance,
-          _leave,
-          _staffDirectory,
-          _messaging,
-          _profile,
-          _settings,
-        ],
+        _attendance,
+        _schedule,
+        _hrDashboard,
+        _staffManagement,
+        _performance,
+        _leave,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
       StaffRole.admin || StaffRole.superAdmin => [
-          _attendance,
-          _schedule,
-          _appointments,
-          _appointmentQueue,
-          _patientRecords,
-          _prescriptions,
-          _pharmacyOrders,
-          _investigationsUpload,
-          _investigationResults,
-          _labBookings,
-          _theatre,
-          _radiology,
-          _bedBoard,
-          _bloodBank,
-          _dietary,
-          _leave,
-          _hrDashboard,
-          _staffManagement,
-          _performance,
-          _housekeepingTasks,
-          _staffDirectory,
-          _messaging,
-          _profile,
-          _settings,
-        ],
+        _attendance,
+        _schedule,
+        _appointments,
+        _appointmentQueue,
+        _patientRecords,
+        _prescriptions,
+        _pharmacyOrders,
+        _investigationsUpload,
+        _investigationResults,
+        _labBookings,
+        _theatre,
+        _radiology,
+        _bedBoard,
+        _bloodBank,
+        _dietary,
+        _leave,
+        _hrDashboard,
+        _staffManagement,
+        _performance,
+        _housekeepingTasks,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
       StaffRole.pharmacy => [
-          _attendance,
-          _schedule,
-          _pharmacyOrders,
-          _leave,
-          _staffDirectory,
-          _messaging,
-          _profile,
-          _settings,
-        ],
+        _attendance,
+        _schedule,
+        _pharmacyOrders,
+        _leave,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
       StaffRole.lab => [
-          _attendance,
-          _schedule,
-          _investigationsUpload,
-          _investigationResults,
-          _labBookings,
-          _leave,
-          _staffDirectory,
-          _messaging,
-          _profile,
-          _settings,
-        ],
+        _attendance,
+        _schedule,
+        _investigationsUpload,
+        _investigationResults,
+        _labBookings,
+        _leave,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
       StaffRole.general => [
-          _attendance,
-          _schedule,
-          _appointmentQueue,
-          _housekeepingHub,
-          _housekeepingTasks,
-          _leave,
-          _staffDirectory,
-          _messaging,
-          _profile,
-          _settings,
-        ],
+        _attendance,
+        _schedule,
+        _appointmentQueue,
+        _housekeepingHub,
+        _housekeepingTasks,
+        _leave,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
     };
   }
 
@@ -407,275 +407,275 @@ class RoleFeatures {
   static List<BottomNavItem> getBottomNavForRole(StaffRole role) {
     return switch (role) {
       StaffRole.doctor => [
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard_outlined),
-              activeIcon: Icon(Icons.dashboard),
-              label: 'Home',
-            ),
-            route: '/dashboard',
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.queue_outlined),
-              activeIcon: Icon(Icons.queue),
-              label: 'Queue',
-            ),
-            route: '/queue',
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.queue_outlined),
+            activeIcon: Icon(Icons.queue),
+            label: 'Queue',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.folder_shared_outlined),
-              activeIcon: Icon(Icons.folder_shared),
-              label: 'Records',
-            ),
-            route: '/patient-records',
+          route: '/queue',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.folder_shared_outlined),
+            activeIcon: Icon(Icons.folder_shared),
+            label: 'Records',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.chat_outlined),
-              activeIcon: Icon(Icons.chat),
-              label: 'Messages',
-            ),
-            route: '/messaging',
+          route: '/patient-records',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+            label: 'Messages',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.person_outlined),
-              activeIcon: Icon(Icons.person),
-              label: 'Profile',
-            ),
-            route: '/profile',
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
           ),
-        ],
+          route: '/profile',
+        ),
+      ],
       StaffRole.nurse => [
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard_outlined),
-              activeIcon: Icon(Icons.dashboard),
-              label: 'Home',
-            ),
-            route: '/dashboard',
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.calendar_month_outlined),
-              activeIcon: Icon(Icons.calendar_month),
-              label: 'Appointments',
-            ),
-            route: '/appointments',
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.calendar_month_outlined),
+            activeIcon: Icon(Icons.calendar_month),
+            label: 'Appointments',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.monitor_heart_outlined),
-              activeIcon: Icon(Icons.monitor_heart),
-              label: 'Vitals',
-            ),
-            route: '/vitals',
+          route: '/appointments',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.monitor_heart_outlined),
+            activeIcon: Icon(Icons.monitor_heart),
+            label: 'Vitals',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.chat_outlined),
-              activeIcon: Icon(Icons.chat),
-              label: 'Messages',
-            ),
-            route: '/messaging',
+          route: '/vitals',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+            label: 'Messages',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.person_outlined),
-              activeIcon: Icon(Icons.person),
-              label: 'Profile',
-            ),
-            route: '/profile',
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
           ),
-        ],
+          route: '/profile',
+        ),
+      ],
       StaffRole.hr => [
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard_outlined),
-              activeIcon: Icon(Icons.dashboard),
-              label: 'Home',
-            ),
-            route: '/dashboard',
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.analytics_outlined),
-              activeIcon: Icon(Icons.analytics),
-              label: 'HR Hub',
-            ),
-            route: '/hr-dashboard',
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.analytics_outlined),
+            activeIcon: Icon(Icons.analytics),
+            label: 'HR Hub',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.event_available_outlined),
-              activeIcon: Icon(Icons.event_available),
-              label: 'Leave',
-            ),
-            route: '/leave',
+          route: '/hr-dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.event_available_outlined),
+            activeIcon: Icon(Icons.event_available),
+            label: 'Leave',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.chat_outlined),
-              activeIcon: Icon(Icons.chat),
-              label: 'Messages',
-            ),
-            route: '/messaging',
+          route: '/leave',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+            label: 'Messages',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.person_outlined),
-              activeIcon: Icon(Icons.person),
-              label: 'Profile',
-            ),
-            route: '/profile',
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
           ),
-        ],
+          route: '/profile',
+        ),
+      ],
       StaffRole.admin || StaffRole.superAdmin => [
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard_outlined),
-              activeIcon: Icon(Icons.dashboard),
-              label: 'Home',
-            ),
-            route: '/dashboard',
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.apps_outlined),
-              activeIcon: Icon(Icons.apps),
-              label: 'Features',
-            ),
-            route: '/dashboard',
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.apps_outlined),
+            activeIcon: Icon(Icons.apps),
+            label: 'Features',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.chat_outlined),
-              activeIcon: Icon(Icons.chat),
-              label: 'Messages',
-            ),
-            route: '/messaging',
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+            label: 'Messages',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.settings_outlined),
-              activeIcon: Icon(Icons.settings),
-              label: 'Settings',
-            ),
-            route: '/settings',
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.settings_outlined),
+            activeIcon: Icon(Icons.settings),
+            label: 'Settings',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.person_outlined),
-              activeIcon: Icon(Icons.person),
-              label: 'Profile',
-            ),
-            route: '/profile',
+          route: '/settings',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
           ),
-        ],
+          route: '/profile',
+        ),
+      ],
       StaffRole.pharmacy => [
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard_outlined),
-              activeIcon: Icon(Icons.dashboard),
-              label: 'Home',
-            ),
-            route: '/dashboard',
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.medication_outlined),
-              activeIcon: Icon(Icons.medication),
-              label: 'Orders',
-            ),
-            route: '/pharmacy',
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.medication_outlined),
+            activeIcon: Icon(Icons.medication),
+            label: 'Orders',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.chat_outlined),
-              activeIcon: Icon(Icons.chat),
-              label: 'Messages',
-            ),
-            route: '/messaging',
+          route: '/pharmacy',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+            label: 'Messages',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.person_outlined),
-              activeIcon: Icon(Icons.person),
-              label: 'Profile',
-            ),
-            route: '/profile',
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
           ),
-        ],
+          route: '/profile',
+        ),
+      ],
       StaffRole.lab => [
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard_outlined),
-              activeIcon: Icon(Icons.dashboard),
-              label: 'Home',
-            ),
-            route: '/dashboard',
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.biotech_outlined),
-              activeIcon: Icon(Icons.biotech),
-              label: 'Investigations',
-            ),
-            route: '/investigations',
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.biotech_outlined),
+            activeIcon: Icon(Icons.biotech),
+            label: 'Investigations',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.chat_outlined),
-              activeIcon: Icon(Icons.chat),
-              label: 'Messages',
-            ),
-            route: '/messaging',
+          route: '/investigations',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+            label: 'Messages',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.person_outlined),
-              activeIcon: Icon(Icons.person),
-              label: 'Profile',
-            ),
-            route: '/profile',
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
           ),
-        ],
+          route: '/profile',
+        ),
+      ],
       StaffRole.general => [
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard_outlined),
-              activeIcon: Icon(Icons.dashboard),
-              label: 'Home',
-            ),
-            route: '/dashboard',
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.checklist_outlined),
-              activeIcon: Icon(Icons.checklist),
-              label: 'Tasks',
-            ),
-            route: '/housekeeping-tasks',
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.checklist_outlined),
+            activeIcon: Icon(Icons.checklist),
+            label: 'Tasks',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.chat_outlined),
-              activeIcon: Icon(Icons.chat),
-              label: 'Messages',
-            ),
-            route: '/messaging',
+          route: '/housekeeping-tasks',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+            label: 'Messages',
           ),
-          const BottomNavItem(
-            item: BottomNavigationBarItem(
-              icon: Icon(Icons.person_outlined),
-              activeIcon: Icon(Icons.person),
-              label: 'Profile',
-            ),
-            route: '/profile',
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
           ),
-        ],
+          route: '/profile',
+        ),
+      ],
     };
   }
 }

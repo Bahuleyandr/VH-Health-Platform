@@ -32,7 +32,10 @@ class MtlsClientService {
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
   /// Persist a newly provisioned cert + key.
-  Future<void> installCertificate({required String certPem, required String keyPem}) async {
+  Future<void> installCertificate({
+    required String certPem,
+    required String keyPem,
+  }) async {
     await _storage.write(key: _certStorageKey, value: certPem);
     await _storage.write(key: _keyStorageKey, value: keyPem);
   }
@@ -58,7 +61,11 @@ class MtlsClientService {
   /// Note: `http` package on the web platform doesn't support client certs —
   /// this method returns null there and consumers must fall back.
   Future<http.Client?> buildClient({String? password}) async {
-    if (!Platform.isAndroid && !Platform.isIOS && !Platform.isMacOS && !Platform.isLinux && !Platform.isWindows) {
+    if (!Platform.isAndroid &&
+        !Platform.isIOS &&
+        !Platform.isMacOS &&
+        !Platform.isLinux &&
+        !Platform.isWindows) {
       return null;
     }
     final certPem = await _storage.read(key: _certStorageKey);

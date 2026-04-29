@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import express from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
@@ -44,11 +43,6 @@ async function awardBadge(userUid, badgeType) {
     logger.warn(`Badge award failed: ${err.message}`);
     return false;
   }
-}
-
-// ── Helper: generate voucher code ─────────────────────────────────────────────
-function generateVoucherCode(prefix = 'VH') {
-  return `${prefix}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 }
 
 // ── GET /rewards/badges — list user's earned badges ────────────────────────────

@@ -6,7 +6,8 @@ import 'package:flutter/material.dart';
 class CdsOverrideOutcome {
   CdsOverrideOutcome({this.overrideReason});
   final String? overrideReason;
-  bool get shouldProceed => overrideReason != null && overrideReason!.trim().length >= 5;
+  bool get shouldProceed =>
+      overrideReason != null && overrideReason!.trim().length >= 5;
 }
 
 /// Blocking modal listing CDS blockers (e.g. SEVERE allergy conflicts). The
@@ -62,7 +63,10 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
           Icon(Icons.block, color: Colors.red, size: 28),
           SizedBox(width: 8),
           Expanded(
-            child: Text('Prescription blocked', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: Text(
+              'Prescription blocked',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
@@ -80,8 +84,12 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
             ...widget.blockers.map((b) => _issueTile(b, isBlocker: true)),
             if (widget.warnings.isNotEmpty) ...[
               const SizedBox(height: 8),
-              Text('Warnings',
-                  style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                'Warnings',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               ...widget.warnings.map((w) => _issueTile(w, isBlocker: false)),
             ],
             if (_showOverrideField) ...[
@@ -93,7 +101,9 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
                   decoration: BoxDecoration(
                     color: Colors.orange.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.orange.withValues(alpha: 0.5)),
+                    border: Border.all(
+                      color: Colors.orange.withValues(alpha: 0.5),
+                    ),
                   ),
                   child: const Text(
                     'Allergy conflict: reference the supervising physician who approved '
@@ -133,7 +143,8 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
             ),
             onPressed: _reasonCtrl.text.trim().length >= 5
                 ? () => Navigator.of(context).pop(
-                    CdsOverrideOutcome(overrideReason: _reasonCtrl.text.trim()))
+                    CdsOverrideOutcome(overrideReason: _reasonCtrl.text.trim()),
+                  )
                 : null,
             child: const Text('Override & save'),
           ),
@@ -149,7 +160,11 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(isBlocker ? Icons.error : Icons.warning_amber, color: color, size: 18),
+          Icon(
+            isBlocker ? Icons.error : Icons.warning_amber,
+            color: color,
+            size: 18,
+          ),
           const SizedBox(width: 6),
           Expanded(
             child: Text(

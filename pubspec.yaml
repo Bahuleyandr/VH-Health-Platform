@@ -25,11 +25,11 @@ melos:
 
     format:
       description: "dart format (check only — CI-safe)"
-      run: melos exec -- "dart format --set-exit-if-changed ."
+      run: node scripts/dart-format-check.mjs
 
     format-fix:
       description: "dart format with writes"
-      run: melos exec -- "dart format ."
+      run: node scripts/dart-format-check.mjs --write
 
     codegen:
       description: "build_runner in packages that declare it"

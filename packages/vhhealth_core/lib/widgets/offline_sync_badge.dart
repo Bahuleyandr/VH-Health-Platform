@@ -24,13 +24,11 @@ class OfflineSyncBadge extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
             onTap: () => _openSheet(context),
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: state.color.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(16),
-                border:
-                    Border.all(color: state.color.withValues(alpha: 0.45)),
+                border: Border.all(color: state.color.withValues(alpha: 0.45)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -60,8 +58,11 @@ class OfflineSyncBadge extends StatelessWidget {
       return _BadgeState(
         label: '${s.conflictCount} conflict${s.conflictCount == 1 ? '' : 's'}',
         color: Colors.red.shade700,
-        leading: Icon(Icons.error_outline,
-            size: 14, color: Colors.red.shade700),
+        leading: Icon(
+          Icons.error_outline,
+          size: 14,
+          color: Colors.red.shade700,
+        ),
       );
     }
     if (s.isSyncing) {
@@ -73,8 +74,7 @@ class OfflineSyncBadge extends StatelessWidget {
           height: 12,
           child: CircularProgressIndicator(
             strokeWidth: 2,
-            valueColor:
-                AlwaysStoppedAnimation<Color>(Colors.blue.shade700),
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.blue.shade700),
           ),
         ),
       );
@@ -85,16 +85,14 @@ class OfflineSyncBadge extends StatelessWidget {
             ? 'Offline · ${s.pendingCount} queued'
             : 'Offline',
         color: Colors.orange.shade800,
-        leading: Icon(Icons.cloud_off,
-            size: 14, color: Colors.orange.shade800),
+        leading: Icon(Icons.cloud_off, size: 14, color: Colors.orange.shade800),
       );
     }
     if (s.pendingCount > 0) {
       return _BadgeState(
         label: '${s.pendingCount} pending',
         color: Colors.amber.shade800,
-        leading:
-            Icon(Icons.schedule, size: 14, color: Colors.amber.shade800),
+        leading: Icon(Icons.schedule, size: 14, color: Colors.amber.shade800),
       );
     }
     return null; // all good — hide badge
@@ -116,7 +114,11 @@ class _BadgeState {
   final String label;
   final Color color;
   final Widget leading;
-  _BadgeState({required this.label, required this.color, required this.leading});
+  _BadgeState({
+    required this.label,
+    required this.color,
+    required this.leading,
+  });
 }
 
 /// Bottom sheet showing current sync status + any conflicts requiring
@@ -198,12 +200,15 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
               Row(
                 children: [
                   Expanded(
-                    child: Text('Conflicts',
-                        style: theme.textTheme.titleMedium),
+                    child: Text(
+                      'Conflicts',
+                      style: theme.textTheme.titleMedium,
+                    ),
                   ),
                   TextButton.icon(
-                    onPressed:
-                        s.isOnline && !s.isSyncing ? () => s.syncPending() : null,
+                    onPressed: s.isOnline && !s.isSyncing
+                        ? () => s.syncPending()
+                        : null,
                     icon: const Icon(Icons.sync, size: 18),
                     label: const Text('Sync now'),
                   ),
@@ -232,15 +237,18 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
                       child: Text(
                         'No conflicts. Everything is either synced or waiting to be sent.',
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.7),
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.7,
+                          ),
                         ),
                       ),
                     );
                   }
                   return Column(
                     children: conflicts
-                        .map((c) => _ConflictTile(conflict: c, onChanged: _reload))
+                        .map(
+                          (c) => _ConflictTile(conflict: c, onChanged: _reload),
+                        )
                         .toList(),
                   );
                 },
@@ -290,9 +298,9 @@ class _ConflictTile extends StatelessWidget {
     final reason = conflict['conflict_reason'] as String? ?? 'Conflict';
     final createdAt = conflict['created_at'] as int?;
     final createdLabel = createdAt != null
-        ? DateFormat('dd MMM HH:mm').format(
-            DateTime.fromMillisecondsSinceEpoch(createdAt),
-          )
+        ? DateFormat(
+            'dd MMM HH:mm',
+          ).format(DateTime.fromMillisecondsSinceEpoch(createdAt))
         : '';
 
     return Card(
@@ -323,8 +331,7 @@ class _ConflictTile extends StatelessWidget {
                   Text(
                     createdLabel,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface
-                          .withValues(alpha: 0.6),
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
               ],
@@ -350,8 +357,7 @@ class _ConflictTile extends StatelessWidget {
               children: [
                 TextButton(
                   onPressed: () async {
-                    await ConnectivitySyncService.instance
-                        .discardConflict(id);
+                    await ConnectivitySyncService.instance.discardConflict(id);
                     onChanged();
                   },
                   child: const Text('Discard'),

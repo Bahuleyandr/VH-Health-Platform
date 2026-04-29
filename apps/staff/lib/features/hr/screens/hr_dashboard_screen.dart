@@ -39,20 +39,20 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
       _error = null;
     });
     try {
-      final data =
-          await HrApiService.getHRDashboard(timeframe: _timeframe);
+      final data = await HrApiService.getHRDashboard(timeframe: _timeframe);
 
       // Merge attendance analytics for richer data
       try {
         final analytics = await HrApiService.getAttendanceAnalytics();
         data['attendanceAnalytics'] = analytics;
-      } catch (e) { debugPrint('hr_dashboard_screen.dart: $e'); }
+      } catch (e) {
+        debugPrint('hr_dashboard_screen.dart: $e');
+      }
 
       if (mounted) setState(() => _data = data);
     } catch (e) {
       if (mounted) {
-        setState(() =>
-            _error = e.toString().replaceFirst('Exception: ', ''));
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -71,8 +71,7 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
             _load();
           },
           itemBuilder: (_) => _timeframes.entries
-              .map((e) =>
-                  PopupMenuItem(value: e.key, child: Text(e.value)))
+              .map((e) => PopupMenuItem(value: e.key, child: Text(e.value)))
               .toList(),
         ),
       ],
@@ -81,62 +80,65 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : _error != null
-                ? _ErrorState(error: _error!, onRetry: _load)
-                : ListView(
-                    padding: const EdgeInsets.all(16),
+            ? _ErrorState(error: _error!, onRetry: _load)
+            : ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  // Timeframe chip
+                  Wrap(
                     children: [
-                      // Timeframe chip
-                      Wrap(
-                        children: [
-                          Chip(
-                            label: Text(_timeframes[_timeframe] ?? _timeframe),
-                            avatar:
-                                const Icon(Icons.date_range, size: 16),
-                          ),
-                        ],
+                      Chip(
+                        label: Text(_timeframes[_timeframe] ?? _timeframe),
+                        avatar: const Icon(Icons.date_range, size: 16),
                       ),
-                      const SizedBox(height: 16),
-
-                      // Summary stats grid
-                      _buildStatsGrid(),
-                      const SizedBox(height: 20),
-
-                      // Attendance overview
-                      const _SectionTitle('Attendance Overview'),
-                      const SizedBox(height: 10),
-                      _buildAttendanceCard(),
-                      const SizedBox(height: 20),
-
-                      // Leave summary
-                      const _SectionTitle('Leave Summary'),
-                      const SizedBox(height: 10),
-                      _buildLeaveCard(),
-                      const SizedBox(height: 20),
-
-                      // Quick actions
-                      const _SectionTitle('Quick Actions'),
-                      const SizedBox(height: 10),
-                      _buildQuickActions(context),
                     ],
                   ),
+                  const SizedBox(height: 16),
+
+                  // Summary stats grid
+                  _buildStatsGrid(),
+                  const SizedBox(height: 20),
+
+                  // Attendance overview
+                  const _SectionTitle('Attendance Overview'),
+                  const SizedBox(height: 10),
+                  _buildAttendanceCard(),
+                  const SizedBox(height: 20),
+
+                  // Leave summary
+                  const _SectionTitle('Leave Summary'),
+                  const SizedBox(height: 10),
+                  _buildLeaveCard(),
+                  const SizedBox(height: 20),
+
+                  // Quick actions
+                  const _SectionTitle('Quick Actions'),
+                  const SizedBox(height: 10),
+                  _buildQuickActions(context),
+                ],
+              ),
       ),
     );
   }
 
   Widget _buildStatsGrid() {
-    final totalStaff = _data?['totalStaff'] ??
+    final totalStaff =
+        _data?['totalStaff'] ??
         _data?['summary']?['totalStaff'] ??
         _data?['staffCount'] ??
         '—';
-    final presentToday = _data?['presentToday'] ??
+    final presentToday =
+        _data?['presentToday'] ??
         _data?['summary']?['presentToday'] ??
         _data?['attendance']?['presentToday'] ??
         '—';
-    final onLeave = _data?['onLeave'] ??
+    final onLeave =
+        _data?['onLeave'] ??
         _data?['summary']?['onLeave'] ??
         _data?['leaves']?['currentlyOnLeave'] ??
         '—';
-    final pendingLeave = _data?['pendingLeave'] ??
+    final pendingLeave =
+        _data?['pendingLeave'] ??
         _data?['summary']?['pendingLeaveRequests'] ??
         _data?['leaves']?['pending'] ??
         '—';
@@ -150,35 +152,37 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
       childAspectRatio: 1.6,
       children: [
         _StatTile(
-            label: 'Total Staff',
-            value: totalStaff.toString(),
-            icon: Icons.people,
-            color: AppTheme.primaryBlue),
+          label: 'Total Staff',
+          value: totalStaff.toString(),
+          icon: Icons.people,
+          color: AppTheme.primaryBlue,
+        ),
         _StatTile(
-            label: 'Present Today',
-            value: presentToday.toString(),
-            icon: Icons.check_circle,
-            color: AppTheme.successGreen),
+          label: 'Present Today',
+          value: presentToday.toString(),
+          icon: Icons.check_circle,
+          color: AppTheme.successGreen,
+        ),
         _StatTile(
-            label: 'On Leave',
-            value: onLeave.toString(),
-            icon: Icons.beach_access,
-            color: AppTheme.warningAmber),
+          label: 'On Leave',
+          value: onLeave.toString(),
+          icon: Icons.beach_access,
+          color: AppTheme.warningAmber,
+        ),
         _StatTile(
-            label: 'Pending Leaves',
-            value: pendingLeave.toString(),
-            icon: Icons.pending_actions,
-            color: AppTheme.errorRed),
+          label: 'Pending Leaves',
+          value: pendingLeave.toString(),
+          icon: Icons.pending_actions,
+          color: AppTheme.errorRed,
+        ),
       ],
     );
   }
 
   Widget _buildAttendanceCard() {
-    final attendance =
-        _data?['attendance'] as Map<String, dynamic>? ?? {};
-    final avgRate = attendance['averageAttendanceRate'] ??
-        attendance['rate'] ??
-        '—';
+    final attendance = _data?['attendance'] as Map<String, dynamic>? ?? {};
+    final avgRate =
+        attendance['averageAttendanceRate'] ?? attendance['rate'] ?? '—';
     final lateArrivals = attendance['lateArrivals'] ?? '—';
     final absentees = attendance['absentees'] ?? '—';
 
@@ -255,7 +259,10 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
           title: 'Reports & Grievances',
           subtitle: 'Incident reports, staff grievances',
           color: Colors.orange,
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsHubScreen())),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ReportsHubScreen()),
+          ),
         ),
         const SizedBox(height: 10),
         _ActionTile(
@@ -263,7 +270,10 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
           title: 'My Payslips',
           subtitle: 'View & download last 3 months',
           color: const Color(0xFF007A64),
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PayslipScreen())),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const PayslipScreen()),
+          ),
         ),
       ],
     );
@@ -279,9 +289,10 @@ class _SectionTitle extends StatelessWidget {
     return Text(
       title,
       style: const TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.bold,
-          color: AppTheme.textPrimary),
+        fontSize: 15,
+        fontWeight: FontWeight.bold,
+        color: AppTheme.textPrimary,
+      ),
     );
   }
 }
@@ -308,9 +319,10 @@ class _StatTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 6,
-              offset: const Offset(0, 2))
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
       child: Column(
@@ -319,12 +331,18 @@ class _StatTile extends StatelessWidget {
         children: [
           Icon(icon, color: color, size: 22),
           const SizedBox(height: 6),
-          Text(value,
-              style: TextStyle(
-                  fontSize: 22, fontWeight: FontWeight.bold, color: color)),
-          Text(label,
-              style: const TextStyle(
-                  fontSize: 11, color: AppTheme.textSecondary)),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+          ),
         ],
       ),
     );
@@ -343,12 +361,17 @@ class _DataRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label,
-              style: const TextStyle(
-                  color: AppTheme.textSecondary, fontSize: 13)),
-          Text(value,
-              style: const TextStyle(
-                  fontWeight: FontWeight.bold, color: AppTheme.textPrimary)),
+          Text(
+            label,
+            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textPrimary,
+            ),
+          ),
         ],
       ),
     );
@@ -381,9 +404,10 @@ class _ActionTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 6,
-                offset: const Offset(0, 2))
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
           ],
         ),
         child: Row(
@@ -401,13 +425,20 @@ class _ActionTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.textPrimary)),
-                  Text(subtitle,
-                      style: const TextStyle(
-                          fontSize: 12, color: AppTheme.textSecondary)),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -432,9 +463,11 @@ class _ErrorState extends StatelessWidget {
         children: [
           const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
           const SizedBox(height: 8),
-          Text(error,
-              style: const TextStyle(color: AppTheme.textSecondary),
-              textAlign: TextAlign.center),
+          Text(
+            error,
+            style: const TextStyle(color: AppTheme.textSecondary),
+            textAlign: TextAlign.center,
+          ),
           TextButton(onPressed: onRetry, child: const Text('Retry')),
         ],
       ),

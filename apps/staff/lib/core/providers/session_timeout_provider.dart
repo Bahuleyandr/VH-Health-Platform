@@ -9,9 +9,7 @@ import '../config/api_config.dart';
 /// The app's router redirect guard should check this flag and navigate
 /// to the login screen when it fires.
 class SessionTimeoutProvider extends ChangeNotifier {
-  SessionTimeoutProvider({
-    this.timeoutDuration = const Duration(minutes: 15),
-  });
+  SessionTimeoutProvider({this.timeoutDuration = const Duration(minutes: 15)});
 
   /// How long the user can be idle before automatic logout.
   final Duration timeoutDuration;

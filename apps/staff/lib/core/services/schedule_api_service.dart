@@ -8,20 +8,26 @@ class ScheduleApiService {
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  static Future<Map<String, dynamic>> _get(String path,
-      {Map<String, String>? query}) async {
+  static Future<Map<String, dynamic>> _get(
+    String path, {
+    Map<String, String>? query,
+  }) async {
     final resp = await ApiClient.get(path, queryParameters: query);
     return _handle(resp);
   }
 
   static Future<Map<String, dynamic>> _post(
-      String path, Map<String, dynamic> body) async {
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     final resp = await ApiClient.post(path, body: body);
     return _handle(resp);
   }
 
   static Future<Map<String, dynamic>> _put(
-      String path, Map<String, dynamic> body) async {
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     final resp = await ApiClient.put(path, body: body);
     return _handle(resp);
   }
@@ -54,14 +60,17 @@ class ScheduleApiService {
     int page = 1,
     int limit = 20,
   }) async {
-    return _get('/appointments/list', query: {
-      'department': ?department,
-      'staffId': ?staffId,
-      'date': ?date,
-      'status': ?status,
-      'page': page.toString(),
-      'limit': limit.toString(),
-    });
+    return _get(
+      '/appointments/list',
+      query: {
+        'department': ?department,
+        'staffId': ?staffId,
+        'date': ?date,
+        'status': ?status,
+        'page': page.toString(),
+        'limit': limit.toString(),
+      },
+    );
   }
 
   /// PUT /appointments/:id/status — confirm or reschedule
@@ -83,10 +92,10 @@ class ScheduleApiService {
     String? doctorId,
     String? department,
   }) async {
-    final r = await _get('/appointments/queue/today', query: {
-      'doctor_id': ?doctorId,
-      'department': ?department,
-    });
+    final r = await _get(
+      '/appointments/queue/today',
+      query: {'doctor_id': ?doctorId, 'department': ?department},
+    );
     return r['data'] as List? ?? (r is List ? r as List : []);
   }
 
@@ -96,11 +105,14 @@ class ScheduleApiService {
     String? toDate,
     String? doctorId,
   }) async {
-    final r = await _get('/appointments/pending', query: {
-      'from_date': ?fromDate,
-      'to_date': ?toDate,
-      'doctor_id': ?doctorId,
-    });
+    final r = await _get(
+      '/appointments/pending',
+      query: {
+        'from_date': ?fromDate,
+        'to_date': ?toDate,
+        'doctor_id': ?doctorId,
+      },
+    );
     return r['data'] as List? ?? (r is List ? r as List : []);
   }
 
@@ -122,9 +134,7 @@ class ScheduleApiService {
     int id, {
     String? notes,
   }) async {
-    return _post('/appointments/$id/complete', {
-      'notes': ?notes,
-    });
+    return _post('/appointments/$id/complete', {'notes': ?notes});
   }
 
   /// POST /appointments/:id/cancel
@@ -132,9 +142,7 @@ class ScheduleApiService {
     int id, {
     String? reason,
   }) async {
-    return _post('/appointments/$id/cancel', {
-      'cancellation_reason': ?reason,
-    });
+    return _post('/appointments/$id/cancel', {'cancellation_reason': ?reason});
   }
 
   /// POST /appointments/documents/upload — multipart upload
@@ -151,7 +159,7 @@ class ScheduleApiService {
       'notes': ?notes,
     };
     final files = [
-      await http.MultipartFile.fromPath('file', filePath, filename: fileName)
+      await http.MultipartFile.fromPath('file', filePath, filename: fileName),
     ];
     final resp = await ApiClient.multipart(
       '/appointments/documents/upload',
@@ -176,8 +184,7 @@ class ScheduleApiService {
       if (patientName != null && patientName.isNotEmpty)
         'patient_name': patientName,
       'doctor_id': ?doctorId,
-      if (department != null && department.isNotEmpty)
-        'department': department,
+      if (department != null && department.isNotEmpty) 'department': department,
       'reason': reason ?? 'Walk-in consultation',
       'appointment_time': appointmentTime ?? 'Walk-in',
     };

@@ -7,14 +7,18 @@ class AttendanceApiService {
 
   // ─── Helpers (shared with StaffApiService) ────────────────────────────────
 
-  static Future<Map<String, dynamic>> _get(String path,
-      {Map<String, String>? query}) async {
+  static Future<Map<String, dynamic>> _get(
+    String path, {
+    Map<String, String>? query,
+  }) async {
     final resp = await ApiClient.get(path, queryParameters: query);
     return _handle(resp);
   }
 
   static Future<Map<String, dynamic>> _post(
-      String path, Map<String, dynamic> body) async {
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     final resp = await ApiClient.post(path, body: body);
     return _handle(resp);
   }
@@ -64,8 +68,10 @@ class AttendanceApiService {
     required int year,
     required int month,
   }) async {
-    return _get('/staff/attendance/$staffId/calendar',
-        query: {'year': year.toString(), 'month': month.toString()});
+    return _get(
+      '/staff/attendance/$staffId/calendar',
+      query: {'year': year.toString(), 'month': month.toString()},
+    );
   }
 
   /// POST /staff/attendance/:id/regularize — request attendance correction
@@ -92,12 +98,15 @@ class AttendanceApiService {
     int page = 1,
     int limit = 30,
   }) async {
-    return _get('/staff/attendance/$staffId', query: {
-      'startDate': ?startDate,
-      'endDate': ?endDate,
-      'page': page.toString(),
-      'limit': limit.toString(),
-    });
+    return _get(
+      '/staff/attendance/$staffId',
+      query: {
+        'startDate': ?startDate,
+        'endDate': ?endDate,
+        'page': page.toString(),
+        'limit': limit.toString(),
+      },
+    );
   }
 
   /// GET /auth/staff/attendance/today — today's check-in status
@@ -117,12 +126,15 @@ class AttendanceApiService {
     int? page,
     int? limit,
   }) async {
-    return _get('/auth/staff/attendance/history', query: {
-      'startDate': ?startDate,
-      'endDate': ?endDate,
-      if (page != null) 'page': page.toString(),
-      if (limit != null) 'limit': limit.toString(),
-    });
+    return _get(
+      '/auth/staff/attendance/history',
+      query: {
+        'startDate': ?startDate,
+        'endDate': ?endDate,
+        if (page != null) 'page': page.toString(),
+        if (limit != null) 'limit': limit.toString(),
+      },
+    );
   }
 
   // ─── Break Tracking ────────────────────────────────────────────────────────
@@ -164,8 +176,7 @@ class AttendanceApiService {
 
   /// GET /api/v1/staff/attendance/:staffId/disputes — get my disputes
   static Future<List<dynamic>> getMyDisputes(String staffId) async {
-    final result =
-        await _get('/staff/attendance/$staffId/disputes');
+    final result = await _get('/staff/attendance/$staffId/disputes');
     return result['data'] as List? ?? result as List? ?? [];
   }
 

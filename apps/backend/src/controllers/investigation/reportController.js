@@ -13,7 +13,7 @@ export const generateReport = async (req, res) => {
     const { id } = req.params;
     const userRole = req.user?.role?.toUpperCase();
     const requestedBy = req.user?.uid;
-    
+
     // Check if user has access to this investigation
     const investigation = await investigationService.getInvestigationById(
       id,
@@ -107,8 +107,6 @@ export const generateSummaryReport = async (req, res) => {
 export const exportToExcel = async (req, res) => {
   try {
     const userRole = req.user?.role?.toUpperCase();
-    const requestedBy = req.user?.uid;
-    
     // Only staff can export to Excel
     const allowedRoles = ['DOCTOR', 'NURSE', 'LAB_TECHNICIAN', 'RADIOLOGIST', 'ADMIN'];
     if (!allowedRoles.includes(userRole)) {

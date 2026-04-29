@@ -117,14 +117,19 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: const Row(
               children: [
-                Icon(Icons.info_outline,
-                    color: AppTheme.warningAmber, size: 16),
+                Icon(
+                  Icons.info_outline,
+                  color: AppTheme.warningAmber,
+                  size: 16,
+                ),
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'Showing sample tasks. Backend API coming soon.',
                     style: TextStyle(
-                        color: AppTheme.warningAmber, fontSize: 11),
+                      color: AppTheme.warningAmber,
+                      fontSize: 11,
+                    ),
                   ),
                 ),
               ],
@@ -152,17 +157,20 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
               controller: _tabController,
               children: [
                 _TaskList(
-                    tasks: _tasks,
-                    onComplete: _markComplete,
-                    onStart: _startTask),
+                  tasks: _tasks,
+                  onComplete: _markComplete,
+                  onStart: _startTask,
+                ),
                 _TaskList(
-                    tasks: _pendingTasks,
-                    onComplete: _markComplete,
-                    onStart: _startTask),
+                  tasks: _pendingTasks,
+                  onComplete: _markComplete,
+                  onStart: _startTask,
+                ),
                 _TaskList(
-                    tasks: _completedTasks,
-                    onComplete: _markComplete,
-                    onStart: _startTask),
+                  tasks: _completedTasks,
+                  onComplete: _markComplete,
+                  onStart: _startTask,
+                ),
               ],
             ),
           ),
@@ -195,9 +203,10 @@ class _TaskList extends StatelessWidget {
             Text(
               'No tasks here',
               style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.textPrimary),
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary,
+              ),
             ),
           ],
         ),
@@ -283,7 +292,9 @@ class _TaskCard extends StatelessWidget {
                           ),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
                               color: statusColor.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(8),
@@ -291,9 +302,10 @@ class _TaskCard extends StatelessWidget {
                             child: Text(
                               task.status.replaceAll('_', ' ').toUpperCase(),
                               style: TextStyle(
-                                  fontSize: 9,
-                                  color: statusColor,
-                                  fontWeight: FontWeight.bold),
+                                fontSize: 9,
+                                color: statusColor,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                         ],
@@ -301,21 +313,33 @@ class _TaskCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       Row(
                         children: [
-                          const Icon(Icons.location_on_outlined,
-                              size: 12, color: AppTheme.textSecondary),
+                          const Icon(
+                            Icons.location_on_outlined,
+                            size: 12,
+                            color: AppTheme.textSecondary,
+                          ),
                           const SizedBox(width: 2),
-                          Text(task.location,
-                              style: const TextStyle(
-                                  fontSize: 12,
-                                  color: AppTheme.textSecondary)),
+                          Text(
+                            task.location,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textSecondary,
+                            ),
+                          ),
                           const SizedBox(width: 12),
-                          const Icon(Icons.schedule_outlined,
-                              size: 12, color: AppTheme.textSecondary),
+                          const Icon(
+                            Icons.schedule_outlined,
+                            size: 12,
+                            color: AppTheme.textSecondary,
+                          ),
                           const SizedBox(width: 2),
-                          Text(task.dueTime,
-                              style: const TextStyle(
-                                  fontSize: 12,
-                                  color: AppTheme.textSecondary)),
+                          Text(
+                            task.dueTime,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textSecondary,
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -330,7 +354,9 @@ class _TaskCard extends StatelessWidget {
               children: [
                 Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 3),
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: AppTheme.primaryBlue.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(12),
@@ -338,13 +364,17 @@ class _TaskCard extends StatelessWidget {
                   child: Text(
                     task.category,
                     style: const TextStyle(
-                        fontSize: 10, color: AppTheme.primaryBlue),
+                      fontSize: 10,
+                      color: AppTheme.primaryBlue,
+                    ),
                   ),
                 ),
                 Container(
                   margin: const EdgeInsets.only(left: 6),
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 3),
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: priorityColor.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(12),
@@ -352,9 +382,10 @@ class _TaskCard extends StatelessWidget {
                   child: Text(
                     task.priority.toUpperCase(),
                     style: TextStyle(
-                        fontSize: 10,
-                        color: priorityColor,
-                        fontWeight: FontWeight.bold),
+                      fontSize: 10,
+                      color: priorityColor,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 const Spacer(),
@@ -364,8 +395,9 @@ class _TaskCard extends StatelessWidget {
                   TextButton(
                     onPressed: onStart,
                     style: TextButton.styleFrom(
-                        foregroundColor: AppTheme.accentCyan,
-                        visualDensity: VisualDensity.compact),
+                      foregroundColor: AppTheme.accentCyan,
+                      visualDensity: VisualDensity.compact,
+                    ),
                     child: const Text('Start', style: TextStyle(fontSize: 12)),
                   ),
                   const SizedBox(width: 4),
@@ -378,9 +410,10 @@ class _TaskCard extends StatelessWidget {
                       minimumSize: const Size(80, 32),
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                     ),
-                    child: const Text('Done',
-                        style: TextStyle(
-                            fontSize: 12, color: Colors.white)),
+                    child: const Text(
+                      'Done',
+                      style: TextStyle(fontSize: 12, color: Colors.white),
+                    ),
                   ),
               ],
             ),

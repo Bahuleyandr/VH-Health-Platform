@@ -50,10 +50,7 @@ class _PerformanceScreenState extends State<PerformanceScreen>
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: const [
-                _AddReviewTab(),
-                _ReviewListTab(),
-              ],
+              children: const [_AddReviewTab(), _ReviewListTab()],
             ),
           ),
         ],
@@ -79,9 +76,16 @@ class _AddReviewTabState extends State<_AddReviewTab> {
   bool _submitting = false;
 
   static const _periods = [
-    'Q1 2025', 'Q2 2025', 'Q3 2025', 'Q4 2025',
-    'Q1 2026', 'Q2 2026', 'Q3 2026', 'Q4 2026',
-    'Annual 2025', 'Annual 2026',
+    'Q1 2025',
+    'Q2 2025',
+    'Q3 2025',
+    'Q4 2025',
+    'Q1 2026',
+    'Q2 2026',
+    'Q3 2026',
+    'Q4 2026',
+    'Annual 2025',
+    'Annual 2026',
   ];
 
   @override
@@ -163,8 +167,7 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                     prefixIcon: Icon(Icons.date_range_outlined),
                   ),
                   items: _periods
-                      .map((p) =>
-                          DropdownMenuItem(value: p, child: Text(p)))
+                      .map((p) => DropdownMenuItem(value: p, child: Text(p)))
                       .toList(),
                   onChanged: (v) => setState(() => _reviewPeriod = v!),
                 ),
@@ -174,9 +177,10 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                 const Text(
                   'Overall Rating',
                   style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.textPrimary),
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.textPrimary,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 Row(
@@ -188,13 +192,14 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                         max: 5,
                         divisions: 8,
                         activeColor: const Color(0xFFF57F17),
-                        onChanged: (v) =>
-                            setState(() => _overallRating = v),
+                        onChanged: (v) => setState(() => _overallRating = v),
                       ),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF57F17).withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
@@ -202,8 +207,11 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.star,
-                              color: Color(0xFFF57F17), size: 16),
+                          const Icon(
+                            Icons.star,
+                            color: Color(0xFFF57F17),
+                            size: 16,
+                          ),
                           const SizedBox(width: 4),
                           Text(
                             _overallRating.toStringAsFixed(1),
@@ -257,12 +265,15 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(
-                              color: Colors.white, strokeWidth: 2))
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
                       : const Icon(Icons.save, color: Colors.white),
-                  label:
-                      Text(_submitting ? 'Saving...' : 'Save Review'),
+                  label: Text(_submitting ? 'Saving...' : 'Save Review'),
                   style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFF57F17)),
+                    backgroundColor: const Color(0xFFF57F17),
+                  ),
                 ),
               ],
             ),
@@ -291,9 +302,10 @@ class _RatingLabel extends StatelessWidget {
       child: Text(
         label,
         style: const TextStyle(
-            fontSize: 12,
-            fontStyle: FontStyle.italic,
-            color: AppTheme.textSecondary),
+          fontSize: 12,
+          fontStyle: FontStyle.italic,
+          color: AppTheme.textSecondary,
+        ),
       ),
     );
   }
@@ -324,7 +336,8 @@ class _ReviewListTabState extends State<_ReviewListTab> {
     });
     try {
       final data = await HrApiService.getPerformanceReport();
-      _reviews = data['reviews'] as List? ??
+      _reviews =
+          data['reviews'] as List? ??
           data['reports'] as List? ??
           data['data'] as List? ??
           [];
@@ -343,11 +356,12 @@ class _ReviewListTabState extends State<_ReviewListTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline,
-                color: AppTheme.errorRed, size: 40),
+            const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
             const SizedBox(height: 8),
-            Text(_error!,
-                style: const TextStyle(color: AppTheme.textSecondary)),
+            Text(
+              _error!,
+              style: const TextStyle(color: AppTheme.textSecondary),
+            ),
             TextButton(onPressed: _load, child: const Text('Retry')),
           ],
         ),
@@ -358,14 +372,20 @@ class _ReviewListTabState extends State<_ReviewListTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.star_rate_outlined,
-                size: 56, color: AppTheme.textSecondary),
+            Icon(
+              Icons.star_rate_outlined,
+              size: 56,
+              color: AppTheme.textSecondary,
+            ),
             SizedBox(height: 16),
-            Text('No reviews yet',
-                style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.textPrimary)),
+            Text(
+              'No reviews yet',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary,
+              ),
+            ),
           ],
         ),
       );
@@ -377,7 +397,8 @@ class _ReviewListTabState extends State<_ReviewListTab> {
         itemCount: _reviews.length,
         itemBuilder: (_, i) {
           final r = _reviews[i];
-          final name = r['staffName'] ?? r['staff_id'] ?? r['employeeId'] ?? '—';
+          final name =
+              r['staffName'] ?? r['staff_id'] ?? r['employeeId'] ?? '—';
           final period = r['period'] ?? '—';
           final rating = r['overall_rating'] ?? r['overallRating'] ?? 0;
           final comments = r['comments'] ?? '';
@@ -391,14 +412,19 @@ class _ReviewListTabState extends State<_ReviewListTab> {
                   Row(
                     children: [
                       Expanded(
-                        child: Text(name.toString(),
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: AppTheme.textPrimary)),
+                        child: Text(
+                          name.toString(),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.textPrimary,
+                          ),
+                        ),
                       ),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFF57F17).withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
@@ -406,30 +432,44 @@ class _ReviewListTabState extends State<_ReviewListTab> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.star,
-                                color: Color(0xFFF57F17), size: 14),
+                            const Icon(
+                              Icons.star,
+                              color: Color(0xFFF57F17),
+                              size: 14,
+                            ),
                             const SizedBox(width: 2),
-                            Text(rating.toString(),
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFFF57F17),
-                                    fontSize: 12)),
+                            Text(
+                              rating.toString(),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFF57F17),
+                                fontSize: 12,
+                              ),
+                            ),
                           ],
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Text(period,
-                      style: const TextStyle(
-                          fontSize: 12, color: AppTheme.textSecondary)),
+                  Text(
+                    period,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
                   if (comments.toString().isNotEmpty) ...[
                     const SizedBox(height: 8),
-                    Text(comments.toString(),
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontSize: 13, color: AppTheme.textPrimary)),
+                    Text(
+                      comments.toString(),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
                   ],
                 ],
               ),

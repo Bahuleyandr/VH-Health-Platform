@@ -115,6 +115,8 @@ spec:
               value: "production"
             - name: PORT
               value: "5000"
+            - name: CLUSTER_WORKERS
+              value: "2"
           envFrom:
             - configMapRef:
                 name: vhhealth-backend-config
@@ -129,12 +131,9 @@ spec:
             limits:
               cpu: "2000m"
               memory: "2Gi"
-          # Probes use `/health/live` + `/health/ready` per the brief. The
-          # current backend exposes `/health/ping` + `/health/deep`; when this
-          # Deployment lands, add `/health/live` (alias of /ping) and
-          # `/health/ready` (lighter deep check — DB + migration-applied flag).
-          # Fallback: `/api/v1/health/ping` works today if live/ready haven't
-          # shipped yet; overlay can rewrite the paths until then.
+          # `/health/live` has no DB dependency. `/health/ready` checks DB
+          # reachability plus the migration-106 table required by appointment
+          # lifecycle code before admitting traffic.
           startupProbe:
             httpGet:
               path: /health/live

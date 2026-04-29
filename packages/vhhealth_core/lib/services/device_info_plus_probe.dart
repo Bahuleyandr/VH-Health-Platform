@@ -29,8 +29,9 @@ import 'device_trust_service.dart';
 ///   release-mode debuggers attached via ptrace/gdb are not detected.
 class DeviceInfoPlusProbe extends DeviceTrustProbe {
   DeviceInfoPlusProbe({MethodChannel? developerModeChannel})
-      : _developerModeChannel = developerModeChannel ??
-            const MethodChannel('vhhealth/device_trust_developer_mode');
+    : _developerModeChannel =
+          developerModeChannel ??
+          const MethodChannel('vhhealth/device_trust_developer_mode');
 
   final DeviceInfoPlugin _deviceInfo = DeviceInfoPlugin();
   final MethodChannel _developerModeChannel;
@@ -42,7 +43,9 @@ class DeviceInfoPlusProbe extends DeviceTrustProbe {
         final info = await _deviceInfo.androidInfo;
         // `isPhysicalDevice` is the authoritative check; fingerprint contains
         // 'generic' or 'sdk' on every AOSP-based emulator as a fallback.
-        if (!info.isPhysicalDevice) return true;
+        if (!info.isPhysicalDevice) {
+          return true;
+        }
         final fingerprint = info.fingerprint.toLowerCase();
         if (fingerprint.startsWith('generic/') ||
             fingerprint.startsWith('unknown/') ||
@@ -55,7 +58,9 @@ class DeviceInfoPlusProbe extends DeviceTrustProbe {
       }
       if (Platform.isIOS) {
         final info = await _deviceInfo.iosInfo;
-        if (!info.isPhysicalDevice) return true;
+        if (!info.isPhysicalDevice) {
+          return true;
+        }
         // Simulator fallback — model contains 'Simulator' on the x86 simulator.
         return info.model.toLowerCase().contains('simulator');
       }
@@ -68,10 +73,13 @@ class DeviceInfoPlusProbe extends DeviceTrustProbe {
   @override
   Future<bool> isDeveloperModeOn() async {
     // iOS has no equivalent runtime check; developer-mode is a build-time signing thing.
-    if (!Platform.isAndroid) return false;
+    if (!Platform.isAndroid) {
+      return false;
+    }
     try {
-      final enabled =
-          await _developerModeChannel.invokeMethod<bool>('isDeveloperModeEnabled');
+      final enabled = await _developerModeChannel.invokeMethod<bool>(
+        'isDeveloperModeEnabled',
+      );
       return enabled == true;
     } on MissingPluginException {
       // Host app didn't wire the method channel — fall through to the default
@@ -85,7 +93,9 @@ class DeviceInfoPlusProbe extends DeviceTrustProbe {
       }
       return false;
     } catch (e) {
-      if (kDebugMode) debugPrint('DeviceInfoPlusProbe.isDeveloperModeOn failed: $e');
+      if (kDebugMode) {
+        debugPrint('DeviceInfoPlusProbe.isDeveloperModeOn failed: $e');
+      }
       return false;
     }
   }

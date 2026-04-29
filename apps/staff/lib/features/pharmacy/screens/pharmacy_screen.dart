@@ -121,8 +121,9 @@ class _PharmacyScreenState extends State<PharmacyScreen>
       _allOrders.where((o) => o['status'] == 'PLACED').toList();
 
   List<dynamic> get _activeOrders => _allOrders
-      .where((o) =>
-          ['CONFIRMED', 'PREPARING', 'DISPATCHED'].contains(o['status']))
+      .where(
+        (o) => ['CONFIRMED', 'PREPARING', 'DISPATCHED'].contains(o['status']),
+      )
       .toList();
 
   List<dynamic> get _completedOrders => _allOrders
@@ -131,11 +132,12 @@ class _PharmacyScreenState extends State<PharmacyScreen>
 
   void _snack(String msg, {bool isError = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor:
-          isError ? AppTheme.errorRed : AppTheme.successGreen,
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: isError ? AppTheme.errorRed : AppTheme.successGreen,
+      ),
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -171,7 +173,9 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                   Text(
                     'Confirm ${order['order_number'] ?? ''}',
                     style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold),
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
@@ -202,8 +206,10 @@ class _PharmacyScreenState extends State<PharmacyScreen>
               if (order['order_note'] != null &&
                   order['order_note'].toString().isNotEmpty) ...[
                 const SizedBox(height: 12),
-                Text('Patient Note: ${order['order_note']}',
-                    style: const TextStyle(fontStyle: FontStyle.italic)),
+                Text(
+                  'Patient Note: ${order['order_note']}',
+                  style: const TextStyle(fontStyle: FontStyle.italic),
+                ),
               ],
 
               const SizedBox(height: 16),
@@ -214,7 +220,8 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                   labelText: 'Items (one per line: name, qty, price)',
                   hintText: 'Dolo 650, 2, 60\nPan 40, 1, 95',
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -225,7 +232,8 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                   labelText: 'Total Cost (₹)',
                   prefixText: '₹ ',
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -234,7 +242,8 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                 decoration: InputDecoration(
                   labelText: 'Notes (optional)',
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
               const SizedBox(height: 20),
@@ -249,7 +258,8 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ),
@@ -263,17 +273,14 @@ class _PharmacyScreenState extends State<PharmacyScreen>
 
     // Parse items
     final itemLines = itemsController.text.trim().split('\n');
-    final items = itemLines
-        .where((l) => l.trim().isNotEmpty)
-        .map((line) {
-          final parts = line.split(',').map((s) => s.trim()).toList();
-          return {
-            'name': parts.isNotEmpty ? parts[0] : '',
-            'qty': parts.length > 1 ? int.tryParse(parts[1]) ?? 1 : 1,
-            'price': parts.length > 2 ? double.tryParse(parts[2]) ?? 0 : 0,
-          };
-        })
-        .toList();
+    final items = itemLines.where((l) => l.trim().isNotEmpty).map((line) {
+      final parts = line.split(',').map((s) => s.trim()).toList();
+      return {
+        'name': parts.isNotEmpty ? parts[0] : '',
+        'qty': parts.length > 1 ? int.tryParse(parts[1]) ?? 1 : 1,
+        'price': parts.length > 2 ? double.tryParse(parts[2]) ?? 0 : 0,
+      };
+    }).toList();
 
     try {
       await PharmacyApiService.confirmPharmacyOrder(order['id'], {
@@ -361,14 +368,17 @@ class _PharmacyScreenState extends State<PharmacyScreen>
       builder: (ctx) => AlertDialog(
         title: const Text('Mark Delivered?'),
         content: Text(
-            'Confirm that order ${order['order_number']} has been delivered.'),
+          'Confirm that order ${order['order_number']} has been delivered.',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('No')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('No'),
+          ),
           ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Yes, Delivered')),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Yes, Delivered'),
+          ),
         ],
       ),
     );
@@ -407,13 +417,16 @@ class _PharmacyScreenState extends State<PharmacyScreen>
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('No')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('No'),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Cancel Order',
-                style: TextStyle(color: Colors.white)),
+            child: const Text(
+              'Cancel Order',
+              style: TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -423,7 +436,9 @@ class _PharmacyScreenState extends State<PharmacyScreen>
 
     try {
       await PharmacyApiService.cancelPharmacyOrder(
-          order['id'], reasonCtrl.text.trim());
+        order['id'],
+        reasonCtrl.text.trim(),
+      );
       _snack('Order cancelled');
       _loadOrders();
     } catch (e) {
@@ -461,16 +476,21 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Pharmacy Queue',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16)),
+                      const Text(
+                        'Pharmacy Queue',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
                       const SizedBox(height: 2),
                       Text(
                         '${_newOrders.length} new • ${_activeOrders.length} active',
                         style: const TextStyle(
-                            color: Colors.white70, fontSize: 12),
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
@@ -499,29 +519,30 @@ class _PharmacyScreenState extends State<PharmacyScreen>
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(_error!,
-                                style: const TextStyle(color: Colors.red)),
-                            const SizedBox(height: 12),
-                            ElevatedButton(
-                                onPressed: _loadOrders,
-                                child: const Text('Retry')),
-                          ],
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          _error!,
+                          style: const TextStyle(color: Colors.red),
                         ),
-                      )
-                    : TabBarView(
-                        controller: _tabController,
-                        children: [
-                          _buildOrderList(_newOrders, 'No new orders'),
-                          _buildOrderList(
-                              _activeOrders, 'No active orders'),
-                          _buildOrderList(
-                              _completedOrders, 'No completed orders'),
-                        ],
-                      ),
+                        const SizedBox(height: 12),
+                        ElevatedButton(
+                          onPressed: _loadOrders,
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  )
+                : TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildOrderList(_newOrders, 'No new orders'),
+                      _buildOrderList(_activeOrders, 'No active orders'),
+                      _buildOrderList(_completedOrders, 'No completed orders'),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -531,8 +552,10 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   Widget _buildOrderList(List<dynamic> orders, String emptyMsg) {
     if (orders.isEmpty) {
       return Center(
-        child: Text(emptyMsg,
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 15)),
+        child: Text(
+          emptyMsg,
+          style: TextStyle(color: Colors.grey.shade500, fontSize: 15),
+        ),
       );
     }
 
@@ -553,8 +576,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
     final phone = order['phone'] ?? order['delivery_phone'] ?? '';
     final deliveryType = order['delivery_type'] ?? 'delivery';
     final slaBreach = order['sla_breached'] == true;
-    final minsSincePlaced =
-        (order['mins_since_placed'] as num?)?.round() ?? 0;
+    final minsSincePlaced = (order['mins_since_placed'] as num?)?.round() ?? 0;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -574,9 +596,13 @@ class _PharmacyScreenState extends State<PharmacyScreen>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(orderNum,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 15)),
+                Text(
+                  orderNum,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
                 _buildStatusChip(status),
               ],
             ),
@@ -594,12 +620,19 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                     onTap: () => launchUrl(Uri.parse('tel:$phone')),
                     child: Row(
                       children: [
-                        const Icon(Icons.phone,
-                            size: 14, color: Color(0xFFE65100)),
+                        const Icon(
+                          Icons.phone,
+                          size: 14,
+                          color: Color(0xFFE65100),
+                        ),
                         const SizedBox(width: 4),
-                        Text(phone,
-                            style: const TextStyle(
-                                color: Color(0xFFE65100), fontSize: 13)),
+                        Text(
+                          phone,
+                          style: const TextStyle(
+                            color: Color(0xFFE65100),
+                            fontSize: 13,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -625,20 +658,27 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                 const Spacer(),
                 if (slaBreach)
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.red.shade50,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Text('⚠ SLA breach (${minsSincePlaced}m)',
-                        style: TextStyle(
-                            color: Colors.red.shade700, fontSize: 11)),
+                    child: Text(
+                      '⚠ SLA breach (${minsSincePlaced}m)',
+                      style: TextStyle(
+                        color: Colors.red.shade700,
+                        fontSize: 11,
+                      ),
+                    ),
                   )
                 else if (status == 'PLACED')
-                  Text('${minsSincePlaced}m ago',
-                      style: TextStyle(
-                          color: Colors.grey.shade500, fontSize: 12)),
+                  Text(
+                    '${minsSincePlaced}m ago',
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                  ),
               ],
             ),
 
@@ -646,18 +686,24 @@ class _PharmacyScreenState extends State<PharmacyScreen>
             if (order['order_note'] != null &&
                 order['order_note'].toString().isNotEmpty) ...[
               const SizedBox(height: 8),
-              Text('📝 ${order['order_note']}',
-                  style: const TextStyle(fontSize: 13),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis),
+              Text(
+                '📝 ${order['order_note']}',
+                style: const TextStyle(fontSize: 13),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
             ],
 
             // Total cost (for confirmed+)
             if (order['total_cost'] != null) ...[
               const SizedBox(height: 6),
-              Text('Total: ₹${order['total_cost']}',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 14)),
+              Text(
+                'Total: ₹${order['total_cost']}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
             ],
 
             const SizedBox(height: 12),
@@ -710,10 +756,19 @@ class _PharmacyScreenState extends State<PharmacyScreen>
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.my_location, size: 14, color: Colors.green.shade700),
+                  Icon(
+                    Icons.my_location,
+                    size: 14,
+                    color: Colors.green.shade700,
+                  ),
                   const SizedBox(width: 4),
-                  Text('📍 Sharing location...',
-                      style: TextStyle(fontSize: 12, color: Colors.green.shade700)),
+                  Text(
+                    '📍 Sharing location...',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.green.shade700,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -752,9 +807,14 @@ class _PharmacyScreenState extends State<PharmacyScreen>
         color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Text(label,
-          style: TextStyle(
-              color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }

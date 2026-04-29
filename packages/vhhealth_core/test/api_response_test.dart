@@ -21,10 +21,7 @@ void main() {
     });
 
     test('parses 401 as unauthorized', () {
-      final body = jsonEncode({
-        'success': false,
-        'message': 'Token expired',
-      });
+      final body = jsonEncode({'success': false, 'message': 'Token expired'});
       final resp = ApiResponse.parse(401, body);
 
       expect(resp.isUnauthorized, isTrue);
@@ -133,10 +130,7 @@ void main() {
     });
 
     test('returns empty map when data is null', () {
-      final body = jsonEncode({
-        'success': true,
-        'message': 'OK',
-      });
+      final body = jsonEncode({'success': true, 'message': 'OK'});
       final resp = ApiResponse.parse(200, body);
 
       expect(resp.dataAsMap(), isEmpty);
@@ -154,8 +148,11 @@ void main() {
     test('300+ are not success', () {
       for (final code in [300, 400, 401, 403, 404, 500]) {
         final resp = ApiResponse.parse(code, '{}');
-        expect(resp.isSuccess, isFalse,
-            reason: 'Expected $code to not be success');
+        expect(
+          resp.isSuccess,
+          isFalse,
+          reason: 'Expected $code to not be success',
+        );
       }
     });
   });

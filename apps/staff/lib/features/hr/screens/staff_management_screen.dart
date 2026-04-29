@@ -39,14 +39,11 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     });
     try {
       final data = await HrApiService.getHRDashboard();
-      final list = data['staff'] as List? ??
-          data['staffList'] as List? ??
-          [];
+      final list = data['staff'] as List? ?? data['staffList'] as List? ?? [];
       if (mounted) setState(() => _staff = list);
     } catch (e) {
       if (mounted) {
-        setState(
-            () => _error = e.toString().replaceFirst('Exception: ', ''));
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -113,18 +110,18 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                       '${_selectedDept ?? 'Department'}: '
                       '${_deptSummary!['totalStaff'] ?? _deptSummary!['count'] ?? '—'} staff',
                       style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.primaryBlue),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.primaryBlue,
+                      ),
                     ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, size: 18),
-                    onPressed: () =>
-                        setState(() {
-                          _deptSummary = null;
-                          _selectedDept = null;
-                        }),
+                    onPressed: () => setState(() {
+                      _deptSummary = null;
+                      _selectedDept = null;
+                    }),
                   ),
                 ],
               ),
@@ -136,18 +133,17 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
                   : _error != null
-                      ? _ErrorState(error: _error!, onRetry: _load)
-                      : _filtered.isEmpty
-                          ? _EmptyState(hasSearch: _searchQuery.isNotEmpty)
-                          : ListView.builder(
-                              padding: const EdgeInsets.all(12),
-                              itemCount: _filtered.length,
-                              itemBuilder: (ctx, i) => _StaffCard(
-                                staff: _filtered[i],
-                                onEdit: () =>
-                                    _showEditDialog(context, _filtered[i]),
-                              ),
-                            ),
+                  ? _ErrorState(error: _error!, onRetry: _load)
+                  : _filtered.isEmpty
+                  ? _EmptyState(hasSearch: _searchQuery.isNotEmpty)
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: _filtered.length,
+                      itemBuilder: (ctx, i) => _StaffCard(
+                        staff: _filtered[i],
+                        onEdit: () => _showEditDialog(context, _filtered[i]),
+                      ),
+                    ),
             ),
           ),
         ],
@@ -227,8 +223,7 @@ class _StaffCard extends StatelessWidget {
               backgroundColor: roleColor.withValues(alpha: 0.15),
               child: Text(
                 name.isNotEmpty ? name[0].toUpperCase() : '?',
-                style: TextStyle(
-                    color: roleColor, fontWeight: FontWeight.bold),
+                style: TextStyle(color: roleColor, fontWeight: FontWeight.bold),
               ),
             ),
             const SizedBox(width: 12),
@@ -243,13 +238,16 @@ class _StaffCard extends StatelessWidget {
                         child: Text(
                           name,
                           style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.textPrimary),
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.textPrimary,
+                          ),
                         ),
                       ),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: isActive
                               ? AppTheme.successGreen.withValues(alpha: 0.1)
@@ -277,14 +275,18 @@ class _StaffCard extends StatelessWidget {
                   Text(
                     '$dept • ID: $empId',
                     style: const TextStyle(
-                        fontSize: 12, color: AppTheme.textSecondary),
+                      fontSize: 12,
+                      color: AppTheme.textSecondary,
+                    ),
                   ),
                 ],
               ),
             ),
             IconButton(
-              icon: const Icon(Icons.edit_outlined,
-                  color: AppTheme.textSecondary),
+              icon: const Icon(
+                Icons.edit_outlined,
+                color: AppTheme.textSecondary,
+              ),
               onPressed: onEdit,
             ),
           ],
@@ -312,9 +314,9 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController(
-        text: widget.staff?['name'] ?? widget.staff?['fullName'] ?? '');
-    _deptCtrl = TextEditingController(
-        text: widget.staff?['department'] ?? '');
+      text: widget.staff?['name'] ?? widget.staff?['fullName'] ?? '',
+    );
+    _deptCtrl = TextEditingController(text: widget.staff?['department'] ?? '');
   }
 
   @override
@@ -340,9 +342,11 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(id != null
-                ? '✅ Staff updated successfully'
-                : '✅ Staff added (backend API pending)'),
+            content: Text(
+              id != null
+                  ? '✅ Staff updated successfully'
+                  : '✅ Staff added (backend API pending)',
+            ),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -374,9 +378,8 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
             TextFormField(
               controller: _nameCtrl,
               decoration: const InputDecoration(labelText: 'Full Name'),
-              validator: (v) => (v == null || v.trim().isEmpty)
-                  ? 'Name is required'
-                  : null,
+              validator: (v) =>
+                  (v == null || v.trim().isEmpty) ? 'Name is required' : null,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -413,9 +416,11 @@ class _ErrorState extends StatelessWidget {
         children: [
           const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
           const SizedBox(height: 8),
-          Text(error,
-              style: const TextStyle(color: AppTheme.textSecondary),
-              textAlign: TextAlign.center),
+          Text(
+            error,
+            style: const TextStyle(color: AppTheme.textSecondary),
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: 8),
           const Text(
             'Staff list API may not be available yet.',
@@ -438,15 +443,19 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.people_outline,
-              size: 56, color: AppTheme.textSecondary),
+          const Icon(
+            Icons.people_outline,
+            size: 56,
+            color: AppTheme.textSecondary,
+          ),
           const SizedBox(height: 16),
           Text(
             hasSearch ? 'No staff found' : 'No staff members',
             style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary),
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textPrimary,
+            ),
           ),
           const SizedBox(height: 8),
           Text(

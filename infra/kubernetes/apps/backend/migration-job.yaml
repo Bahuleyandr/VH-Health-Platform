@@ -10,8 +10,8 @@
 #
 # The job runs the backend's own startup script which:
 #   1. Runs `prisma db push` (idempotent schema sync for Prisma's 69 models).
-#   2. Runs `node scripts/ci-setup-db.mjs` (applies the ~100 raw-SQL migrations
-#      in migrations/*.sql — CLAUDE.md Phase 0.5 notes this is required for
+#   2. Runs `node scripts/ci-setup-db.mjs` (applies the raw-SQL migrations
+#      in src/migrations/*.sql — CLAUDE.md Phase 0.5 notes this is required for
 #      the full schema; Prisma alone is ~60% of tables).
 #
 # Security: same non-root + readOnlyRootFilesystem + tmp volumes as the
@@ -61,7 +61,7 @@ spec:
               set -euo pipefail
               echo ">> prisma db push (sync 69 Prisma models)"
               npx --no-install prisma db push --skip-generate --accept-data-loss=false
-              echo ">> ci-setup-db.mjs (apply raw migrations/*.sql)"
+              echo ">> ci-setup-db.mjs (apply raw src/migrations/*.sql)"
               node scripts/ci-setup-db.mjs
               echo ">> migrations complete"
           env:

@@ -6,20 +6,26 @@ class RadiologyApiService {
 
   // --- Helpers ---------------------------------------------------------------
 
-  static Future<Map<String, dynamic>> _get(String path,
-      {Map<String, String>? query}) async {
+  static Future<Map<String, dynamic>> _get(
+    String path, {
+    Map<String, String>? query,
+  }) async {
     final resp = await ApiClient.get(path, queryParameters: query);
     return _handle(resp);
   }
 
   static Future<Map<String, dynamic>> _post(
-      String path, Map<String, dynamic> body) async {
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     final resp = await ApiClient.post(path, body: body);
     return _handle(resp);
   }
 
   static Future<Map<String, dynamic>> _put(
-      String path, Map<String, dynamic> body) async {
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     final resp = await ApiClient.put(path, body: body);
     return _handle(resp);
   }
@@ -43,10 +49,7 @@ class RadiologyApiService {
     String? priority,
     int page = 1,
   }) async {
-    final query = <String, String>{
-      'page': page.toString(),
-      'limit': '20',
-    };
+    final query = <String, String>{'page': page.toString(), 'limit': '20'};
     if (status != null) query['status'] = status;
     if (modality != null) query['modality'] = modality;
     if (priority != null) query['priority'] = priority;
@@ -54,12 +57,14 @@ class RadiologyApiService {
   }
 
   /// GET /radiology/patient/:uid?page=&limit=
-  static Future<Map<String, dynamic>> getPatientHistory(String uid,
-      {int page = 1}) async {
-    return _get('/radiology/patient/$uid', query: {
-      'page': page.toString(),
-      'limit': '20',
-    });
+  static Future<Map<String, dynamic>> getPatientHistory(
+    String uid, {
+    int page = 1,
+  }) async {
+    return _get(
+      '/radiology/patient/$uid',
+      query: {'page': page.toString(), 'limit': '20'},
+    );
   }
 
   /// GET /radiology/:id
@@ -69,13 +74,16 @@ class RadiologyApiService {
 
   /// POST /radiology/orders
   static Future<Map<String, dynamic>> createOrder(
-      Map<String, dynamic> data) async {
+    Map<String, dynamic> data,
+  ) async {
     return _post('/radiology/orders', data);
   }
 
   /// PUT /radiology/:id/report
   static Future<Map<String, dynamic>> submitReport(
-      int id, Map<String, dynamic> reportData) async {
+    int id,
+    Map<String, dynamic> reportData,
+  ) async {
     return _put('/radiology/$id/report', reportData);
   }
 

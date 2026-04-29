@@ -28,8 +28,6 @@ const files = walk('src');
 // The `[` must start the second positional arg — we approximate with a look
 // for `(...),\s*\[` on the same logical line. Template-literal `...\``
 // variants are safe; only `$queryRawUnsafe`/`$executeRawUnsafe` are risky.
-const BAD = /\.\$(queryRawUnsafe|executeRawUnsafe)\([\s\S]*?,\s*\[/;
-
 let offenders = 0;
 for (const file of files) {
   const src = readFileSync(file, 'utf8');

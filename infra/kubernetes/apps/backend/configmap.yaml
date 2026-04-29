@@ -12,6 +12,7 @@ data:
   # Core runtime — keep in sync with apps/backend/src/utils/validateEnv.js
   NODE_ENV: "production"
   PORT: "5000"
+  CLUSTER_WORKERS: "2"
 
   # CORS — comma-separated list of allowed origins (backend reads in cors middleware)
   # Overlay overrides per environment:

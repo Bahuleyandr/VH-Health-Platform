@@ -11,7 +11,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 class HeroSnapshotRow extends StatelessWidget {
   final int? unreadNotifications;
   final String? nextAppointmentLabel; // e.g. "Tomorrow", "in 5 days"
-  final String? lastVitalsLabel;      // e.g. "12h ago", "Log now"
+  final String? lastVitalsLabel; // e.g. "12h ago", "Log now"
 
   const HeroSnapshotRow({
     super.key,
@@ -27,25 +27,31 @@ class HeroSnapshotRow extends StatelessWidget {
 
     final entries = <_SnapshotEntry>[];
     if (nextAppointmentLabel != null && nextAppointmentLabel!.isNotEmpty) {
-      entries.add(_SnapshotEntry(
-        icon: LucideIcons.calendarCheck,
-        text: nextAppointmentLabel!,
-        tint: cs.primary,
-      ));
+      entries.add(
+        _SnapshotEntry(
+          icon: LucideIcons.calendarCheck,
+          text: nextAppointmentLabel!,
+          tint: cs.primary,
+        ),
+      );
     }
     if (unreadNotifications != null && unreadNotifications! > 0) {
-      entries.add(_SnapshotEntry(
-        icon: LucideIcons.bell,
-        text: '$unreadNotifications unread',
-        tint: Colors.amber,
-      ));
+      entries.add(
+        _SnapshotEntry(
+          icon: LucideIcons.bell,
+          text: '$unreadNotifications unread',
+          tint: Colors.amber,
+        ),
+      );
     }
     if (lastVitalsLabel != null && lastVitalsLabel!.isNotEmpty) {
-      entries.add(_SnapshotEntry(
-        icon: LucideIcons.heartPulse,
-        text: lastVitalsLabel!,
-        tint: Colors.pinkAccent,
-      ));
+      entries.add(
+        _SnapshotEntry(
+          icon: LucideIcons.heartPulse,
+          text: lastVitalsLabel!,
+          tint: Colors.pinkAccent,
+        ),
+      );
     }
 
     if (entries.isEmpty) return const SizedBox.shrink();

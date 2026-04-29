@@ -106,10 +106,7 @@ void main() {
       await tester.pumpWidget(
         const MaterialApp(
           home: Scaffold(
-            body: DebouncedButton(
-              onPressed: null,
-              child: Text('Disabled'),
-            ),
+            body: DebouncedButton(onPressed: null, child: Text('Disabled')),
           ),
         ),
       );

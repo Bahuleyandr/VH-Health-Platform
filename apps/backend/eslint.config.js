@@ -17,14 +17,14 @@ const compat = new FlatCompat({ baseDirectory: __dirname });
 export default [
   // 1. Global ignores
   {
-  ignores: [
-    "node_modules/",
-    "dist/",
-    "load-tests/",
-    "ecosystem.config.cjs",
-    "local_plugins/"
-  ],
-},
+    ignores: [
+      'node_modules/',
+      'dist/',
+      'load-tests/',
+      'ecosystem.config.cjs',
+      'local_plugins/',
+    ],
+  },
 
   // 2. Base modern configuration
   eslintRecommended.configs.recommended,
@@ -68,9 +68,11 @@ export default [
       'no-unused-vars': [
         'warn',
         {
+          varsIgnorePattern: '^_',
           argsIgnorePattern: '^_',
           caughtErrors: 'all',
           caughtErrorsIgnorePattern: '^_',
+          ignoreRestSiblings: true,
         },
       ],
       'no-unreachable': 'error',
@@ -79,7 +81,7 @@ export default [
       'no-new-func': 'error',
       'no-var': 'warn',
       'prefer-const': 'warn',
-      'eqeqeq': ['warn', 'always'],
+      'eqeqeq': ['warn', 'always', { null: 'ignore' }],
       'curly': ['warn', 'all'],
       'no-duplicate-imports': 'error',
       'no-implicit-globals': 'error', // 'no-empty-catch' was removed from here.

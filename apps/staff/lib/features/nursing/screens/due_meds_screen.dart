@@ -49,10 +49,7 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
   Widget build(BuildContext context) {
     return StaffScaffold(
       title: 'Due Medications',
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: _buildBody(),
-      ),
+      body: RefreshIndicator(onRefresh: _load, child: _buildBody()),
     );
   }
 
@@ -85,10 +82,8 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: _rows.length,
       separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, i) => _DueMedTile(
-        row: _rows[i],
-        onTap: () => _openScanner(_rows[i]),
-      ),
+      itemBuilder: (context, i) =>
+          _DueMedTile(row: _rows[i], onTap: () => _openScanner(_rows[i])),
     );
   }
 
@@ -111,10 +106,7 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
         Center(child: Text(msg, textAlign: TextAlign.center)),
         const SizedBox(height: 16),
         Center(
-          child: ElevatedButton(
-            onPressed: _load,
-            child: const Text('Retry'),
-          ),
+          child: ElevatedButton(onPressed: _load, child: const Text('Retry')),
         ),
       ],
     );
@@ -143,7 +135,8 @@ class _DueMedTile extends StatelessWidget {
     final patientName = (row['patient_name'] as String?)?.trim();
     final bedNumber = (row['bed_number'] as String?)?.trim();
     final wardName = (row['ward_name'] as String?)?.trim();
-    final med = (row['medication_name'] as String?)?.trim() ?? '(unnamed medication)';
+    final med =
+        (row['medication_name'] as String?)?.trim() ?? '(unnamed medication)';
     final dose = (row['dose'] as String?) ?? (row['dosage'] as String?) ?? '';
     final route = (row['route'] as String?) ?? '';
     final status = (row['status'] as String?) ?? '';
@@ -155,7 +148,9 @@ class _DueMedTile extends StatelessWidget {
     ].join(' · ');
 
     final whoLine = <String>[
-      patientName == null || patientName.isEmpty ? 'Unknown patient' : patientName,
+      patientName == null || patientName.isEmpty
+          ? 'Unknown patient'
+          : patientName,
       if (bedNumber != null && bedNumber.isNotEmpty) 'Bed $bedNumber',
       if (wardName != null && wardName.isNotEmpty) wardName,
     ].join(' · ');
@@ -209,7 +204,9 @@ class _DueMedTile extends StatelessWidget {
     if (minutesDelta == 0) return 'now';
     final abs = minutesDelta.abs();
     final suffix = minutesDelta > 0 ? 'late' : 'in';
-    final value = abs < 60 ? '${abs}m' : '${(abs / 60).toStringAsFixed(abs % 60 == 0 ? 0 : 1)}h';
+    final value = abs < 60
+        ? '${abs}m'
+        : '${(abs / 60).toStringAsFixed(abs % 60 == 0 ? 0 : 1)}h';
     return suffix == 'late' ? '$value late' : 'in $value';
   }
 }

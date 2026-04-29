@@ -55,7 +55,7 @@ export function build837P({
   receiver,
   billingProvider,
   subscriber,
-  patient,
+  patient: _patient,
   claim,
 }) {
   const now = new Date();

@@ -6,20 +6,26 @@ class TheatreApiService {
 
   // --- Helpers ---------------------------------------------------------------
 
-  static Future<Map<String, dynamic>> _get(String path,
-      {Map<String, String>? query}) async {
+  static Future<Map<String, dynamic>> _get(
+    String path, {
+    Map<String, String>? query,
+  }) async {
     final resp = await ApiClient.get(path, queryParameters: query);
     return _handle(resp);
   }
 
   static Future<Map<String, dynamic>> _post(
-      String path, Map<String, dynamic> body) async {
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     final resp = await ApiClient.post(path, body: body);
     return _handle(resp);
   }
 
   static Future<Map<String, dynamic>> _put(
-      String path, Map<String, dynamic> body) async {
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     final resp = await ApiClient.put(path, body: body);
     return _handle(resp);
   }
@@ -63,19 +69,24 @@ class TheatreApiService {
 
   /// POST /theatre/schedule
   static Future<Map<String, dynamic>> scheduleSurgery(
-      Map<String, dynamic> data) async {
+    Map<String, dynamic> data,
+  ) async {
     return _post('/theatre/schedule', data);
   }
 
   /// PUT /theatre/:id/status
   static Future<Map<String, dynamic>> updateStatus(
-      int id, String status) async {
+    int id,
+    String status,
+  ) async {
     return _put('/theatre/$id/status', {'status': status});
   }
 
   /// PUT /theatre/:id/checklist
   static Future<Map<String, dynamic>> updateChecklist(
-      int id, Map<String, dynamic> checklist) async {
+    int id,
+    Map<String, dynamic> checklist,
+  ) async {
     return _put('/theatre/$id/checklist', {'checklist': checklist});
   }
 

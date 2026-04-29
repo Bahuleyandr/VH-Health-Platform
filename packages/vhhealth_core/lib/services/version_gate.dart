@@ -57,16 +57,22 @@ class VersionGate {
     required String currentVersion,
   }) async {
     try {
-      final resp = await VHHttpClient.get('/health/client-requirements', auth: false);
+      final resp = await VHHttpClient.get(
+        '/health/client-requirements',
+        auth: false,
+      );
       if (!resp.isSuccess || resp.data is! Map) {
         return _unknown(currentVersion);
       }
-      final bucket = (resp.data as Map)[role == AppRole.patient ? 'patient' : 'staff'];
+      final bucket =
+          (resp.data as Map)[role == AppRole.patient ? 'patient' : 'staff'];
       if (bucket is! Map) return _unknown(currentVersion);
 
       final min = bucket['min']?.toString() ?? '0.0.0';
       final recommended = bucket['recommended']?.toString() ?? min;
-      final updateUrl = bucket['updateUrl'] is Map ? bucket['updateUrl'] as Map : const {};
+      final updateUrl = bucket['updateUrl'] is Map
+          ? bucket['updateUrl'] as Map
+          : const {};
       final androidUrl = updateUrl['android']?.toString();
       final iosUrl = updateUrl['ios']?.toString();
 

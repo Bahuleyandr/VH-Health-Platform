@@ -26,6 +26,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      VH_BASE_URL: ${{ vars.VH_BASE_URL }}
+      VH_API_KEY: ${{ secrets.VH_API_KEY }}
+      STAFF_ANDROID_KEYSTORE_BASE64: ${{ secrets.STAFF_ANDROID_KEYSTORE_BASE64 }}
+      STAFF_ANDROID_KEY_ALIAS: ${{ secrets.STAFF_ANDROID_KEY_ALIAS }}
+      STAFF_ANDROID_KEY_PASSWORD: ${{ secrets.STAFF_ANDROID_KEY_PASSWORD }}
+      STAFF_ANDROID_STORE_PASSWORD: ${{ secrets.STAFF_ANDROID_STORE_PASSWORD }}
     steps:
       - uses: actions/checkout@v6
 
@@ -42,13 +49,49 @@ jobs:
           dart pub get
           melos bootstrap
 
+      - name: Validate release configuration
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in \
+            VH_BASE_URL \
+            VH_API_KEY \
+            STAFF_ANDROID_KEYSTORE_BASE64 \
+            STAFF_ANDROID_KEY_ALIAS \
+            STAFF_ANDROID_KEY_PASSWORD \
+            STAFF_ANDROID_STORE_PASSWORD
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::${name} is required for staff release builds"
+              missing=1
+            fi
+          done
+          exit "${missing}"
+
+      - name: Configure Android signing
+        run: |
+          set -euo pipefail
+          printf '%s' "$STAFF_ANDROID_KEYSTORE_BASE64" | base64 --decode > apps/staff/android/release-keystore.jks
+          cat > apps/staff/android/key.properties <<EOF
+          storePassword=${STAFF_ANDROID_STORE_PASSWORD}
+          keyPassword=${STAFF_ANDROID_KEY_PASSWORD}
+          keyAlias=${STAFF_ANDROID_KEY_ALIAS}
+          storeFile=release-keystore.jks
+          EOF
+
       - name: Build release APK
         working-directory: apps/staff
-        run: flutter build apk --release
+        run: >
+          flutter build apk --release
+          --dart-define=VH_BASE_URL="${VH_BASE_URL}"
+          --dart-define=VH_API_KEY="${VH_API_KEY}"
 
       - name: Build release AAB
         working-directory: apps/staff
-        run: flutter build appbundle --release
+        run: >
+          flutter build appbundle --release
+          --dart-define=VH_BASE_URL="${VH_BASE_URL}"
+          --dart-define=VH_API_KEY="${VH_API_KEY}"
 
       - uses: softprops/action-gh-release@v3
         with:

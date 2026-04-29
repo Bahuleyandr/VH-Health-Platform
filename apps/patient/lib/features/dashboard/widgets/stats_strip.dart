@@ -9,9 +9,9 @@ import 'package:lucide_icons/lucide_icons.dart';
 /// Each entry self-renders an empty-data placeholder so the strip
 /// always shows something rather than collapsing to zero entries.
 class StatsStrip extends StatelessWidget {
-  final int? wellnessScore;          // 0-100, null = unknown
+  final int? wellnessScore; // 0-100, null = unknown
   final int? healthPoints;
-  final String? healthTier;          // 'BRONZE' | 'SILVER' | 'GOLD' | etc
+  final String? healthTier; // 'BRONZE' | 'SILVER' | 'GOLD' | etc
   final int? stepsToday;
   final int? stepGoal;
   final int? streakDays;
@@ -55,7 +55,9 @@ class StatsStrip extends StatelessWidget {
             tint: Colors.lightBlueAccent,
             label: 'Steps today',
             value: stepsToday != null ? _formatThousands(stepsToday!) : '—',
-            subValue: stepGoal != null ? '/${_formatThousands(stepGoal!)}' : null,
+            subValue: stepGoal != null
+                ? '/${_formatThousands(stepGoal!)}'
+                : null,
             progress: (stepsToday != null && stepGoal != null && stepGoal! > 0)
                 ? (stepsToday! / stepGoal!).clamp(0, 1).toDouble()
                 : null,

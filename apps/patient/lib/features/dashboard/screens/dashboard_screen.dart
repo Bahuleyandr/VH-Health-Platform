@@ -347,9 +347,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
         if (mounted && stepsRes.isSuccess) {
           final data = stepsRes.dataAsMap();
-          final today = data['steps_today'] ?? data['stepsToday'] ?? data['today'];
+          final today =
+              data['steps_today'] ?? data['stepsToday'] ?? data['today'];
           final goal = data['daily_goal'] ?? data['dailyGoal'] ?? data['goal'];
-          final streak = data['streak_days'] ?? data['streakDays'] ?? data['streak'];
+          final streak =
+              data['streak_days'] ?? data['streakDays'] ?? data['streak'];
           if (mounted) {
             setState(() {
               _stepsToday = today is num ? today.toInt() : _stepsToday;
@@ -617,7 +619,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ? context.watch<NotificationProvider>().unreadCount
         : 0;
 
-    final hasUpdates = !isGuest &&
+    final hasUpdates =
+        !isGuest &&
         (_nextAppointmentDetail != null ||
             _healthPoints != null ||
             _activePharmacyOrder != null ||
@@ -631,8 +634,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final hasWellnessSection = !isGuest && _wellnessScore != null;
     final hasStatsSection = !isGuest;
     final hasQuickActionsSection = !isGuest;
-    final hasAppointmentsSection = !isGuest &&
-        (lastAppointment != null || nextAppointment != null);
+    final hasAppointmentsSection =
+        !isGuest && (lastAppointment != null || nextAppointment != null);
 
     // Build the snapshot row labels.
     final nextApptLabel = _formatNextApptLabel();
@@ -679,176 +682,213 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.only(bottom: 32),
                     child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // ── At a glance (stats strip) ────────────────────
-                      if (hasStatsSection)
-                        stagger(StatsStrip(
-                          wellnessScore: _wellnessScore,
-                          healthPoints: _healthPoints?['totalPoints'] is num
-                              ? (_healthPoints!['totalPoints'] as num).toInt()
-                              : null,
-                          healthTier: _healthPoints?['currentTier']?.toString(),
-                          stepsToday: _stepsToday,
-                          stepGoal: _stepGoal,
-                          streakDays: _streakDays,
-                          onWellnessTap: () =>
-                              _openFeature(context, '/health-points'),
-                          onPointsTap: () =>
-                              _openFeature(context, '/health-points'),
-                          onStepsTap: () => _openFeature(context, '/steps'),
-                        )),
-
-                      // ── Today ────────────────────────────────────────
-                      if (hasTodaySection)
-                        stagger(DashboardSection(
-                          label: 'Today',
-                          accent: DashboardAccents.today,
-                          tinted: false,
-                          child: TodayAppointmentCard(
-                            appointment: _todayAppointment!,
-                            statusLabel: _statusLabel(_appointmentStatus),
-                            statusColor: _statusColor(_appointmentStatus),
-                            statusIcon: _statusIcon(_appointmentStatus),
-                          ),
-                        )),
-
-                      // ── Wellness (score ring + insights) ─────────────
-                      // Children self-hide on no-data; render the section
-                      // wrapper anyway so the user sees the heading
-                      // (with a subtle "Loading…" feel via empty card).
-                      if (hasWellnessSection)
-                        stagger(DashboardSection(
-                          label: 'Wellness',
-                          accent: DashboardAccents.wellness,
-                          contentPadding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
-                          child: const Column(
-                            children: [
-                              WellnessScoreWidget(),
-                              HealthInsightsStrip(),
-                            ],
-                          ),
-                        )),
-
-                      // ── Updates (gamification + smart contextual) ────
-                      if (hasUpdates)
-                        stagger(DashboardSection(
-                          label: 'Updates',
-                          accent: DashboardAccents.updates,
-                          contentPadding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
-                          child: Column(
-                            children: [
-                              if (_nextAppointmentDetail != null)
-                                NextVisitProgressWidget(
-                                  detail: _nextAppointmentDetail,
-                                  onTap: () =>
-                                      _openFeature(context, '/appointments'),
-                                  onSchedule: () =>
-                                      _openFeature(context, '/appointments'),
-                                ),
-                              if (_healthPoints != null)
-                                HealthPointsWidget(
-                                  data: _healthPoints,
-                                  onTap: () =>
-                                      _openFeature(context, '/health-points'),
-                                ),
-                              if (_activePharmacyOrder != null)
-                                SmartPharmacyCard(
-                                  order: _activePharmacyOrder!,
-                                  onTap: () =>
-                                      _openFeature(context, '/pharmacy'),
-                                ),
-                              if (_activeInvestigationBooking != null)
-                                SmartInvestigationCard(
-                                  booking: _activeInvestigationBooking!,
-                                  onTap: () => _openFeature(
-                                      context, '/investigations'),
-                                ),
-                              if (_recentPrescription != null)
-                                SmartPrescriptionCard(
-                                  prescription: _recentPrescription!,
-                                  onOrderTap: () =>
-                                      _openFeature(context, '/pharmacy'),
-                                  onViewTap: () =>
-                                      _openFeature(context, '/records'),
-                                ),
-                            ],
-                          ),
-                        )),
-
-                      // ── Quick actions ────────────────────────────────
-                      if (hasQuickActionsSection)
-                        stagger(DashboardSection(
-                          label: 'Quick actions',
-                          accent: DashboardAccents.quickActions,
-                          tinted: false,
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(0, 0, 0, 4),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                              children: [
-                                QuickActionButton(
-                                  icon: LucideIcons.calendarPlus,
-                                  label: 'Book',
-                                  color: DashboardAccents.appointments,
-                                  onTap: () =>
-                                      _openFeature(context, '/appointments'),
-                                ),
-                                QuickActionButton(
-                                  icon: LucideIcons.fileText,
-                                  label: 'Records',
-                                  color: DashboardAccents.wellness,
-                                  onTap: () =>
-                                      _openFeature(context, '/records'),
-                                ),
-                                QuickActionButton(
-                                  icon: LucideIcons.pill,
-                                  label: 'Pharmacy',
-                                  color: DashboardAccents.updates,
-                                  onTap: () =>
-                                      _openFeature(context, '/pharmacy'),
-                                ),
-                                QuickActionButton(
-                                  icon: Icons.favorite,
-                                  label: 'SOS',
-                                  color: Colors.red,
-                                  onTap: _triggerSOS,
-                                ),
-                              ],
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // ── At a glance (stats strip) ────────────────────
+                        if (hasStatsSection)
+                          stagger(
+                            StatsStrip(
+                              wellnessScore: _wellnessScore,
+                              healthPoints: _healthPoints?['totalPoints'] is num
+                                  ? (_healthPoints!['totalPoints'] as num)
+                                        .toInt()
+                                  : null,
+                              healthTier: _healthPoints?['currentTier']
+                                  ?.toString(),
+                              stepsToday: _stepsToday,
+                              stepGoal: _stepGoal,
+                              streakDays: _streakDays,
+                              onWellnessTap: () =>
+                                  _openFeature(context, '/health-points'),
+                              onPointsTap: () =>
+                                  _openFeature(context, '/health-points'),
+                              onStepsTap: () => _openFeature(context, '/steps'),
                             ),
                           ),
-                        )),
 
-                      // ── Explore (feature grid replaces the dial) ─────
-                      stagger(DashboardSection(
-                        label: 'Explore',
-                        accent: DashboardAccents.explore,
-                        tinted: false,
-                        child: FeatureGrid(
-                          features: _features,
-                          badges: featureBadges,
-                        ),
-                      )),
-
-                      // ── Appointments summary ─────────────────────────
-                      if (hasAppointmentsSection)
-                        stagger(DashboardSection(
-                          label: 'Appointments',
-                          accent: DashboardAccents.appointments,
-                          tinted: false,
-                          child: AppointmentCard(
-                            lastAppointment: lastAppointment,
-                            nextAppointment: nextAppointment,
-                            onViewHistory: () =>
-                                _openFeature(context, '/appointments'),
-                            onScheduleNew: () =>
-                                _openFeature(context, '/appointments'),
+                        // ── Today ────────────────────────────────────────
+                        if (hasTodaySection)
+                          stagger(
+                            DashboardSection(
+                              label: 'Today',
+                              accent: DashboardAccents.today,
+                              tinted: false,
+                              child: TodayAppointmentCard(
+                                appointment: _todayAppointment!,
+                                statusLabel: _statusLabel(_appointmentStatus),
+                                statusColor: _statusColor(_appointmentStatus),
+                                statusIcon: _statusIcon(_appointmentStatus),
+                              ),
+                            ),
                           ),
-                        )),
-                    ],
+
+                        // ── Wellness (score ring + insights) ─────────────
+                        // Children self-hide on no-data; render the section
+                        // wrapper anyway so the user sees the heading
+                        // (with a subtle "Loading…" feel via empty card).
+                        if (hasWellnessSection)
+                          stagger(
+                            DashboardSection(
+                              label: 'Wellness',
+                              accent: DashboardAccents.wellness,
+                              contentPadding: const EdgeInsets.fromLTRB(
+                                4,
+                                4,
+                                4,
+                                4,
+                              ),
+                              child: const Column(
+                                children: [
+                                  WellnessScoreWidget(),
+                                  HealthInsightsStrip(),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                        // ── Updates (gamification + smart contextual) ────
+                        if (hasUpdates)
+                          stagger(
+                            DashboardSection(
+                              label: 'Updates',
+                              accent: DashboardAccents.updates,
+                              contentPadding: const EdgeInsets.fromLTRB(
+                                4,
+                                4,
+                                4,
+                                4,
+                              ),
+                              child: Column(
+                                children: [
+                                  if (_nextAppointmentDetail != null)
+                                    NextVisitProgressWidget(
+                                      detail: _nextAppointmentDetail,
+                                      onTap: () => _openFeature(
+                                        context,
+                                        '/appointments',
+                                      ),
+                                      onSchedule: () => _openFeature(
+                                        context,
+                                        '/appointments',
+                                      ),
+                                    ),
+                                  if (_healthPoints != null)
+                                    HealthPointsWidget(
+                                      data: _healthPoints,
+                                      onTap: () => _openFeature(
+                                        context,
+                                        '/health-points',
+                                      ),
+                                    ),
+                                  if (_activePharmacyOrder != null)
+                                    SmartPharmacyCard(
+                                      order: _activePharmacyOrder!,
+                                      onTap: () =>
+                                          _openFeature(context, '/pharmacy'),
+                                    ),
+                                  if (_activeInvestigationBooking != null)
+                                    SmartInvestigationCard(
+                                      booking: _activeInvestigationBooking!,
+                                      onTap: () => _openFeature(
+                                        context,
+                                        '/investigations',
+                                      ),
+                                    ),
+                                  if (_recentPrescription != null)
+                                    SmartPrescriptionCard(
+                                      prescription: _recentPrescription!,
+                                      onOrderTap: () =>
+                                          _openFeature(context, '/pharmacy'),
+                                      onViewTap: () =>
+                                          _openFeature(context, '/records'),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                        // ── Quick actions ────────────────────────────────
+                        if (hasQuickActionsSection)
+                          stagger(
+                            DashboardSection(
+                              label: 'Quick actions',
+                              accent: DashboardAccents.quickActions,
+                              tinted: false,
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(0, 0, 0, 4),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    QuickActionButton(
+                                      icon: LucideIcons.calendarPlus,
+                                      label: 'Book',
+                                      color: DashboardAccents.appointments,
+                                      onTap: () => _openFeature(
+                                        context,
+                                        '/appointments',
+                                      ),
+                                    ),
+                                    QuickActionButton(
+                                      icon: LucideIcons.fileText,
+                                      label: 'Records',
+                                      color: DashboardAccents.wellness,
+                                      onTap: () =>
+                                          _openFeature(context, '/records'),
+                                    ),
+                                    QuickActionButton(
+                                      icon: LucideIcons.pill,
+                                      label: 'Pharmacy',
+                                      color: DashboardAccents.updates,
+                                      onTap: () =>
+                                          _openFeature(context, '/pharmacy'),
+                                    ),
+                                    QuickActionButton(
+                                      icon: Icons.favorite,
+                                      label: 'SOS',
+                                      color: Colors.red,
+                                      onTap: _triggerSOS,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+
+                        // ── Explore (feature grid replaces the dial) ─────
+                        stagger(
+                          DashboardSection(
+                            label: 'Explore',
+                            accent: DashboardAccents.explore,
+                            tinted: false,
+                            child: FeatureGrid(
+                              features: _features,
+                              badges: featureBadges,
+                            ),
+                          ),
+                        ),
+
+                        // ── Appointments summary ─────────────────────────
+                        if (hasAppointmentsSection)
+                          stagger(
+                            DashboardSection(
+                              label: 'Appointments',
+                              accent: DashboardAccents.appointments,
+                              tinted: false,
+                              child: AppointmentCard(
+                                lastAppointment: lastAppointment,
+                                nextAppointment: nextAppointment,
+                                onViewHistory: () =>
+                                    _openFeature(context, '/appointments'),
+                                onScheduleNew: () =>
+                                    _openFeature(context, '/appointments'),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
                 ),
               ),
             ],
@@ -889,9 +929,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final parsed = DateTime.tryParse(next);
       if (parsed != null) {
         final today = DateTime.now();
-        final diff = DateTime(parsed.year, parsed.month, parsed.day)
-            .difference(DateTime(today.year, today.month, today.day))
-            .inDays;
+        final diff = DateTime(
+          parsed.year,
+          parsed.month,
+          parsed.day,
+        ).difference(DateTime(today.year, today.month, today.day)).inDays;
         if (diff <= 0) return 'Visit today';
         if (diff == 1) return 'Visit tomorrow';
         if (diff < 14) return 'Visit in $diff days';

@@ -24,7 +24,9 @@ void main() {
     tearDown(BiometricAuthService.reset);
 
     test('success path returns .success and records the reason', () async {
-      final fake = FakeBiometricAuthService(result: BiometricAuthResult.success);
+      final fake = FakeBiometricAuthService(
+        result: BiometricAuthResult.success,
+      );
       BiometricAuthService.install(fake);
 
       final result = await BiometricAuthService.instance.authenticate(
@@ -84,13 +86,16 @@ void main() {
       expect(ok, true);
     });
 
-    test('authenticate with throwOnAuthenticate surfaces a PlatformException', () async {
-      mockLocalAuth(throwOnAuthenticate: 'NotEnrolled');
-      final auth = LocalAuthentication();
-      expect(
-        () => auth.authenticate(localizedReason: 'test'),
-        throwsA(isA<Exception>()),
-      );
-    });
+    test(
+      'authenticate with throwOnAuthenticate surfaces a PlatformException',
+      () async {
+        mockLocalAuth(throwOnAuthenticate: 'NotEnrolled');
+        final auth = LocalAuthentication();
+        expect(
+          () => auth.authenticate(localizedReason: 'test'),
+          throwsA(isA<Exception>()),
+        );
+      },
+    );
   });
 }

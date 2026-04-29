@@ -31,6 +31,47 @@ router.get('/ping', (_req, res) => {
   });
 });
 
+// GET /health/live — Kubernetes liveness/startup probe alias for /ping.
+router.get('/live', (_req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    timestamp: Date.now(),
+  });
+});
+
+// GET /health/ready — readiness probe for traffic admission.
+router.get('/ready', async (_req, res) => {
+  const checks = {};
+
+  try {
+    const start = Date.now();
+    const [migrationState] = await prisma.$queryRaw`
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'appointment_status_history'
+      ) AS exists
+    `;
+
+    checks.database = { status: 'ok', latency_ms: Date.now() - start };
+    checks.migration_106 = migrationState?.exists
+      ? { status: 'ok', table: 'appointment_status_history' }
+      : { status: 'error', table: 'appointment_status_history', message: 'Migration 106 table missing' };
+  } catch (err) {
+    checks.database = { status: 'error', message: 'Database check failed' };
+    checks.migration_106 = { status: 'unknown', table: 'appointment_status_history' };
+    logger.warn('Readiness probe failed:', err.message);
+  }
+
+  const ready = Object.values(checks).every((c) => c.status === 'ok');
+  res.status(ready ? 200 : 503).json({
+    status: ready ? 'ok' : 'degraded',
+    timestamp: new Date().toISOString(),
+    checks,
+  });
+});
+
 // GET /health/deep — full connectivity check (DB, Redis, R2, Firebase)
 router.get('/deep', async (_req, res) => {
   const checks = {};

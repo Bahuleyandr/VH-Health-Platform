@@ -1487,7 +1487,7 @@ model health_milestone_claims {
 }
 
 model migrations {
-  id          Int       @id @default(dbgenerated("nextval('_migrations_id_seq'::regclass)"))
+  id          Int       @id @default(autoincrement())
   name        String    @unique @db.VarChar(255)
   executed_at DateTime? @default(now()) @db.Timestamp(6)
 

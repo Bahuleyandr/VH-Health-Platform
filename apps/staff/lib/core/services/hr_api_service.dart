@@ -8,14 +8,18 @@ class HrApiService {
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  static Future<Map<String, dynamic>> _get(String path,
-      {Map<String, String>? query}) async {
+  static Future<Map<String, dynamic>> _get(
+    String path, {
+    Map<String, String>? query,
+  }) async {
     final resp = await ApiClient.get(path, queryParameters: query);
     return _handle(resp);
   }
 
   static Future<Map<String, dynamic>> _post(
-      String path, Map<String, dynamic> body) async {
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     final resp = await ApiClient.post(path, body: body);
     return _handle(resp);
   }
@@ -33,15 +37,15 @@ class HrApiService {
   // ─── HR Dashboard ──────────────────────────────────────────────────────────
 
   /// GET /staff/hr/dashboard
-  static Future<Map<String, dynamic>> getHRDashboard(
-      {String timeframe = 'current_month'}) async {
+  static Future<Map<String, dynamic>> getHRDashboard({
+    String timeframe = 'current_month',
+  }) async {
     return _get('/staff/hr/dashboard', query: {'timeframe': timeframe});
   }
 
   /// GET /staff — list of all staff (for replacement picker)
   static Future<List<dynamic>> getStaffList({String? department}) async {
-    final url =
-        '/staff${department != null ? '?department=$department' : ''}';
+    final url = '/staff${department != null ? '?department=$department' : ''}';
     try {
       final result = await _get(url);
       return result['data'] as List? ??
@@ -63,7 +67,9 @@ class HrApiService {
 
   /// PUT /staff/:id — update staff profile
   static Future<Map<String, dynamic>> updateProfile(
-      String id, Map<String, dynamic> updates) async {
+    String id,
+    Map<String, dynamic> updates,
+  ) async {
     final resp = await ApiClient.put('/staff/$id', body: updates);
     return _handle(resp);
   }
@@ -75,10 +81,10 @@ class HrApiService {
     String? department,
     String? period,
   }) async {
-    return _get('/staff/hr/performance-report', query: {
-      'department': ?department,
-      'period': ?period,
-    });
+    return _get(
+      '/staff/hr/performance-report',
+      query: {'department': ?department, 'period': ?period},
+    );
   }
 
   /// POST /staff/hr/performance-review — create a performance review
@@ -102,13 +108,15 @@ class HrApiService {
 
   /// GET /staff/hr/onboarding/:staff_id — onboarding checklist
   static Future<Map<String, dynamic>> getOnboardingChecklist(
-      String staffId) async {
+    String staffId,
+  ) async {
     return _get('/staff/hr/onboarding/$staffId');
   }
 
   /// GET /staff/hr/department/:department/summary — department summary
   static Future<Map<String, dynamic>> getDepartmentSummary(
-      String department) async {
+    String department,
+  ) async {
     return _get('/staff/hr/department/$department/summary');
   }
 
@@ -118,11 +126,14 @@ class HrApiService {
     String? endDate,
     String? department,
   }) async {
-    return _get('/staff/hr/attendance-analytics', query: {
-      'startDate': ?startDate,
-      'endDate': ?endDate,
-      'department': ?department,
-    });
+    return _get(
+      '/staff/hr/attendance-analytics',
+      query: {
+        'startDate': ?startDate,
+        'endDate': ?endDate,
+        'department': ?department,
+      },
+    );
   }
 
   /// GET /staff/hr/export-report — export staff report
@@ -131,11 +142,14 @@ class HrApiService {
     String? department,
     String? reportType,
   }) async {
-    return _get('/staff/hr/export-report', query: {
-      'format': ?format,
-      'department': ?department,
-      'reportType': ?reportType,
-    });
+    return _get(
+      '/staff/hr/export-report',
+      query: {
+        'format': ?format,
+        'department': ?department,
+        'reportType': ?reportType,
+      },
+    );
   }
 
   // ─── Incident Reports ────────────────────────────────────────────────────
@@ -218,8 +232,7 @@ class HrApiService {
 
   /// GET /staff/hr/housekeeping/zones
   static Future<List<dynamic>> getHousekeepingZones() async {
-    final result =
-        await _get('/staff/hr/housekeeping/zones');
+    final result = await _get('/staff/hr/housekeeping/zones');
     return result['data'] as List? ?? result as List? ?? [];
   }
 
@@ -248,8 +261,7 @@ class HrApiService {
 
   /// GET /staff/hr/housekeeping/logs/my
   static Future<List<dynamic>> getMyCleaningLogs() async {
-    final result =
-        await _get('/staff/hr/housekeeping/logs/my');
+    final result = await _get('/staff/hr/housekeeping/logs/my');
     return result['data'] as List? ?? result as List? ?? [];
   }
 
@@ -290,8 +302,7 @@ class HrApiService {
     String? photoKey,
     String? photoUrl,
   }) async {
-    return await _post(
-        '/staff/hr/housekeeping/requests/$requestId/complete', {
+    return await _post('/staff/hr/housekeeping/requests/$requestId/complete', {
       'completion_notes': ?completionNotes,
       'completion_photo_key': ?photoKey,
       'completion_photo_url': ?photoUrl,
@@ -318,10 +329,7 @@ class HrApiService {
   /// GET /staff/hr/payroll/tax-summary?fy=2025-26
   static Future<Map<String, dynamic>> getMyTaxSummary({String? fy}) async {
     final query = fy != null ? {'fy': fy} : null;
-    final result = await _get(
-      '/staff/hr/payroll/tax-summary',
-      query: query,
-    );
+    final result = await _get('/staff/hr/payroll/tax-summary', query: query);
     return (result['data'] as Map<String, dynamic>?) ?? result;
   }
 
@@ -333,9 +341,9 @@ class HrApiService {
 
   /// POST /staff/hr/payroll/declarations/submit
   static Future<Map<String, dynamic>> submitInvestmentDeclaration(
-      Map<String, dynamic> data) async {
-    return await _post(
-        '/staff/hr/payroll/declarations/submit', data);
+    Map<String, dynamic> data,
+  ) async {
+    return await _post('/staff/hr/payroll/declarations/submit', data);
   }
 
   /// GET /staff/hr/payroll/declarations
@@ -346,7 +354,8 @@ class HrApiService {
 
   /// POST /staff/hr/payroll/queries/raise
   static Future<Map<String, dynamic>> raisePayslipQuery(
-      Map<String, dynamic> data) async {
+    Map<String, dynamic> data,
+  ) async {
     return await _post('/staff/hr/payroll/queries/raise', data);
   }
 
@@ -388,13 +397,16 @@ class HrApiService {
     required String platform,
   }) async {
     try {
-      await ApiClient.post('/devices/register', body: {
-        'phone': phone,
-        'fcmToken': fcmToken,
-        'deviceId': '${platform}_staff_${phone.hashCode}',
-        'deviceName': 'VHHealth Staff App',
-        'platform': platform,
-      });
+      await ApiClient.post(
+        '/devices/register',
+        body: {
+          'phone': phone,
+          'fcmToken': fcmToken,
+          'deviceId': '${platform}_staff_${phone.hashCode}',
+          'deviceName': 'VHHealth Staff App',
+          'platform': platform,
+        },
+      );
     } catch (e) {
       debugPrint('HrApiService.registerDevice error: $e');
     }
@@ -456,9 +468,7 @@ class HrApiService {
   static Future<Map<String, dynamic>> verifyDevice({
     required String deviceToken,
   }) async {
-    return _post('/auth/staff/verify-device', {
-      'deviceToken': deviceToken,
-    });
+    return _post('/auth/staff/verify-device', {'deviceToken': deviceToken});
   }
 
   /// GET /auth/staff/profile — get staff profile from auth service
@@ -473,7 +483,8 @@ class HrApiService {
 
   /// DELETE /auth/staff/device/:deviceId — remove a registered device
   static Future<Map<String, dynamic>> removeRegisteredDevice(
-      String deviceId) async {
+    String deviceId,
+  ) async {
     final resp = await ApiClient.delete('/auth/staff/device/$deviceId');
     return _handle(resp);
   }

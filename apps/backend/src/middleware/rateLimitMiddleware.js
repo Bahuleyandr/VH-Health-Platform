@@ -1,5 +1,5 @@
 // src/middleware/rateLimitMiddleware.js
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import expressRateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
 
 /**
@@ -65,7 +65,7 @@ export const getRateLimiter = (profileName = 'default') => {
         );
       };
 
-  return rateLimit({
+  return expressRateLimit({
     windowMs: profile.windowMs,
     max: profile.max,
     message: profile.message,
@@ -91,7 +91,7 @@ export const adminRateLimiter = getRateLimiter('admin'); // Less restrictive, no
  * Compound key: IP + username/employeeId/email from request body.
  * Prevents both single-IP brute force AND distributed attacks targeting one account.
  */
-export const authRateLimiter = rateLimit({
+export const authRateLimiter = expressRateLimit({
   windowMs: RATE_LIMIT_PROFILES.auth.windowMs,
   max: RATE_LIMIT_PROFILES.auth.max,
   message: RATE_LIMIT_PROFILES.auth.message,
@@ -112,7 +112,7 @@ export const authRateLimiter = rateLimit({
  * ✅ OTP rate limiter — keys by phone number extracted from request body.
  * Max 3 OTP requests per phone number per 10 minutes with exponential cooldown.
  */
-export const otpRateLimiter = rateLimit({
+export const otpRateLimiter = expressRateLimit({
   windowMs: RATE_LIMIT_PROFILES.otp.windowMs,
   max: RATE_LIMIT_PROFILES.otp.max,
   message: RATE_LIMIT_PROFILES.otp.message,
@@ -134,7 +134,7 @@ export const otpRateLimiter = rateLimit({
  * ✅ SOS rate limiter — keys by authenticated user UID.
  * Max 3 alerts per user per hour to prevent false alarm flooding.
  */
-export const sosRateLimiter = rateLimit({
+export const sosRateLimiter = expressRateLimit({
   windowMs: RATE_LIMIT_PROFILES.sos.windowMs,
   max: RATE_LIMIT_PROFILES.sos.max,
   message: RATE_LIMIT_PROFILES.sos.message,

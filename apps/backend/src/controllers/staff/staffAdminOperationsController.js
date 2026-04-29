@@ -386,17 +386,17 @@ async function exportAttendanceData(department, start_date, end_date) {
   return [headers, ...rows].map(row => row.join(',')).join('\n');
 }
 
-async function exportPerformanceData(_department, start_date, end_date) {
+async function exportPerformanceData(_department, _start_date, _end_date) {
   // Similar implementation for performance data
   return 'Performance data export not yet implemented';
 }
 
-async function exportLeaveData(_department, start_date, end_date) {
+async function exportLeaveData(_department, _start_date, _end_date) {
   // Similar implementation for leave data
   return 'Leave data export not yet implemented';
 }
 
-async function exportPayrollData(_department, start_date, end_date) {
+async function exportPayrollData(_department, _start_date, _end_date) {
   // Similar implementation for payroll data
   return 'Payroll data export not yet implemented';
 }

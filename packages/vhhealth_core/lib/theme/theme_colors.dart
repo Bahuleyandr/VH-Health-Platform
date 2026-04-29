@@ -26,7 +26,10 @@ class ThemeColors {
     return isDark ? 0.05 : 0.1;
   }
 
-  static double getContainerOpacity(BuildContext context, {bool isProminent = false}) {
+  static double getContainerOpacity(
+    BuildContext context, {
+    bool isProminent = false,
+  }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     if (isProminent) {
       return isDark ? 0.15 : 0.25;

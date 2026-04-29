@@ -74,7 +74,7 @@ export async function createHealthRecord(req, res) {
   }
 
   try {
-    const { phone, _file_key, file_name, file_type, privacy_level = 0, notes } = req.body;
+    const { phone, _file_key, file_name, file_type, privacy_level = 0 } = req.body;
     // Use the user's UUID if available, otherwise null
     const createdBy = req.user?.id || req.user?.uid || null;
     const createdByRole = req.user?.role || 'unknown';

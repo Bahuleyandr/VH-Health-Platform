@@ -51,10 +51,7 @@ class _VitalsScreenState extends State<VitalsScreen>
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: const [
-                _RecordVitalsTab(),
-                _RecentVitalsTab(),
-              ],
+              children: const [_RecordVitalsTab(), _RecentVitalsTab()],
             ),
           ),
         ],
@@ -142,7 +139,9 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('No connection — vitals saved and will sync when online'),
+              content: Text(
+                'No connection — vitals saved and will sync when online',
+              ),
               backgroundColor: AppTheme.warningAmber,
             ),
           );
@@ -219,9 +218,10 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                       Text(
                         'Record Patient Vitals',
                         style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16),
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
                       SizedBox(height: 2),
                       Text(
@@ -251,8 +251,12 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                     prefixIcon: Icon(Icons.person_outlined),
                   ),
                   validator: (v) {
-                    if (v == null || v.trim().isEmpty) return 'Patient ID is required';
-                    if (int.tryParse(v.trim()) == null) return 'Enter a valid number';
+                    if (v == null || v.trim().isEmpty) {
+                      return 'Patient ID is required';
+                    }
+                    if (int.tryParse(v.trim()) == null) {
+                      return 'Enter a valid number';
+                    }
                     return null;
                   },
                 ),
@@ -318,7 +322,9 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                 const SizedBox(height: 10),
                 TextFormField(
                   controller: _tempCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   decoration: const InputDecoration(
                     labelText: 'Temperature',
                     hintText: 'e.g. 98.6',
@@ -365,7 +371,9 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                     Expanded(
                       child: TextFormField(
                         controller: _spo2Ctrl,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         decoration: const InputDecoration(
                           labelText: 'SpO₂',
                           hintText: 'e.g. 98',
@@ -393,7 +401,9 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                 const SizedBox(height: 10),
                 TextFormField(
                   controller: _weightCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   decoration: const InputDecoration(
                     labelText: 'Weight',
                     hintText: 'e.g. 70.5',
@@ -429,11 +439,15 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(
-                              color: Colors.white, strokeWidth: 2))
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
                       : const Icon(Icons.save, color: Colors.white),
                   label: Text(_submitting ? 'Saving...' : 'Save Vitals'),
                   style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFC62828)),
+                    backgroundColor: const Color(0xFFC62828),
+                  ),
                 ),
               ],
             ),
@@ -509,13 +523,17 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
               ElevatedButton(
                 onPressed: _loading ? null : _fetchTrends,
                 style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFC62828)),
+                  backgroundColor: const Color(0xFFC62828),
+                ),
                 child: _loading
                     ? const SizedBox(
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
-                            color: Colors.white, strokeWidth: 2))
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
                     : const Text('Fetch'),
               ),
             ],
@@ -530,32 +548,41 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.error_outline,
-                      color: AppTheme.errorRed, size: 18),
+                  const Icon(
+                    Icons.error_outline,
+                    color: AppTheme.errorRed,
+                    size: 18,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(_error!,
-                        style: const TextStyle(
-                            color: AppTheme.errorRed, fontSize: 13)),
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(
+                        color: AppTheme.errorRed,
+                        fontSize: 13,
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
-          if (_trends != null)
-            Expanded(
-              child: _buildTrendsView(_trends!),
-            ),
+          if (_trends != null) Expanded(child: _buildTrendsView(_trends!)),
           if (_trends == null && !_loading && _error == null)
             const Expanded(
               child: Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.timeline_outlined,
-                        size: 56, color: AppTheme.textSecondary),
+                    Icon(
+                      Icons.timeline_outlined,
+                      size: 56,
+                      color: AppTheme.textSecondary,
+                    ),
                     SizedBox(height: 16),
-                    Text('Enter a patient ID to view vital trends',
-                        style: TextStyle(color: AppTheme.textSecondary)),
+                    Text(
+                      'Enter a patient ID to view vital trends',
+                      style: TextStyle(color: AppTheme.textSecondary),
+                    ),
                   ],
                 ),
               ),
@@ -566,15 +593,18 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
   }
 
   Widget _buildTrendsView(Map<String, dynamic> data) {
-    final records = data['records'] as List? ??
+    final records =
+        data['records'] as List? ??
         data['trends'] as List? ??
         data['vital_trends'] as List? ??
         [];
 
     if (records.isEmpty) {
       return const Center(
-        child: Text('No vital records found for this patient',
-            style: TextStyle(color: AppTheme.textSecondary)),
+        child: Text(
+          'No vital records found for this patient',
+          style: TextStyle(color: AppTheme.textSecondary),
+        ),
       );
     }
 
@@ -584,7 +614,8 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
         final r = records[i] as Map<String, dynamic>;
         final vitals = r['vital_signs'] as Map<String, dynamic>? ?? {};
         final measurements = r['measurements'] as Map<String, dynamic>? ?? {};
-        final date = r['created_at']?.toString() ??
+        final date =
+            r['created_at']?.toString() ??
             r['recorded_at']?.toString() ??
             r['date']?.toString() ??
             '';
@@ -598,13 +629,20 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.monitor_heart,
-                        size: 18, color: Color(0xFFC62828)),
+                    const Icon(
+                      Icons.monitor_heart,
+                      size: 18,
+                      color: Color(0xFFC62828),
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(date,
-                          style: const TextStyle(
-                              fontSize: 12, color: AppTheme.textSecondary)),
+                      child: Text(
+                        date,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -615,9 +653,10 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
                   children: [
                     if (vitals['blood_pressure'] != null)
                       _VitalChip(
-                          'BP',
-                          '${vitals['blood_pressure']['systolic']}/${vitals['blood_pressure']['diastolic']}',
-                          'mmHg'),
+                        'BP',
+                        '${vitals['blood_pressure']['systolic']}/${vitals['blood_pressure']['diastolic']}',
+                        'mmHg',
+                      ),
                     if (vitals['temperature'] != null)
                       _VitalChip('Temp', '${vitals['temperature']}', '°F'),
                     if (vitals['pulse'] != null)
@@ -630,9 +669,13 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
                 ),
                 if (r['notes'] != null && r['notes'].toString().isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  Text(r['notes'].toString(),
-                      style: const TextStyle(
-                          fontSize: 12, color: AppTheme.textSecondary)),
+                  Text(
+                    r['notes'].toString(),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -654,16 +697,22 @@ class _VitalChip extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: const TextStyle(
-                fontSize: 10,
-                color: AppTheme.textSecondary,
-                fontWeight: FontWeight.w500)),
-        Text('$value $unit',
-            style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10,
+            color: AppTheme.textSecondary,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        Text(
+          '$value $unit',
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: AppTheme.textPrimary,
+          ),
+        ),
       ],
     );
   }

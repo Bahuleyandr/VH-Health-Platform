@@ -1,0 +1,70 @@
+name: Reusable Kubernetes Manifest Validation
+
+on:
+  workflow_call:
+    inputs:
+      notify_on_failure:
+        description: Send a Discord notification if the workflow fails.
+        required: false
+        type: boolean
+        default: false
+      notification_label:
+        description: Label to use in the Discord failure message.
+        required: false
+        type: string
+        default: Kubernetes manifest validation
+    secrets:
+      DISCORD_WEBHOOK_URL:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Kubernetes manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KUSTOMIZE_VERSION: 5.8.1
+      KUBECONFORM_VERSION: 0.7.0
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install manifest validators
+        run: |
+          set -euo pipefail
+
+          kustomize_archive="kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          curl -sSfL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/${kustomize_archive}" -o "/tmp/${kustomize_archive}"
+          tar -xzf "/tmp/${kustomize_archive}" -C /tmp kustomize
+          sudo install -m 0755 /tmp/kustomize /usr/local/bin/kustomize
+
+          kubeconform_archive="kubeconform-linux-amd64.tar.gz"
+          curl -sSfL "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/${kubeconform_archive}" -o "/tmp/${kubeconform_archive}"
+          tar -xzf "/tmp/${kubeconform_archive}" -C /tmp kubeconform
+          sudo install -m 0755 /tmp/kubeconform /usr/local/bin/kubeconform
+
+          kustomize version
+          kubeconform -v
+
+      - name: Validate rendered Kubernetes manifests
+        run: node scripts/validate-kubernetes-manifests.mjs
+
+      - name: Notify Discord on failure
+        if: failure() && inputs.notify_on_failure
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured - skipping notification."
+            exit 0
+          fi
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"${{ inputs.notification_label }} failed on \`${{ github.ref_name }}\`\n${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$DISCORD_WEBHOOK_URL" || true

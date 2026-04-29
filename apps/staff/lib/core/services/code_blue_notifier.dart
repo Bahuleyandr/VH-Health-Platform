@@ -46,7 +46,8 @@ class CodeBlueNotifier {
     // Register the high-importance channel used for Code Blue full-screen intents.
     final androidPlugin = _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     await androidPlugin?.createNotificationChannel(
       const AndroidNotificationChannel(
         _channelId,
@@ -120,4 +121,3 @@ class CodeBlueNotifier {
     );
   }
 }
-

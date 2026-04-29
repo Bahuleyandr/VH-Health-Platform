@@ -43,8 +43,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _error = null;
     });
     try {
-      final identifier = await ApiConfig.getEmployeeId() ??
-          await ApiConfig.getStaffId();
+      final identifier =
+          await ApiConfig.getEmployeeId() ?? await ApiConfig.getStaffId();
       if (identifier == null) throw Exception('No identifier found');
 
       final data = await HrApiService.getProfile(identifier);
@@ -56,7 +56,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final authProfile = authData['staff'] ?? authData;
         if (authProfile is Map) {
           authProfile.forEach((k, v) {
-            if (v != null && (staff[k] == null || staff[k].toString().isEmpty)) {
+            if (v != null &&
+                (staff[k] == null || staff[k].toString().isEmpty)) {
               staff[k] = v;
             }
           });
@@ -68,12 +69,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (mounted) {
         setState(() => _profile = staff);
         _phoneCtrl.text =
-            staff['phone']?.toString() ?? staff['phoneNumber']?.toString() ?? '';
+            staff['phone']?.toString() ??
+            staff['phoneNumber']?.toString() ??
+            '';
         _emailCtrl.text = staff['email']?.toString() ?? '';
         _addressCtrl.text = staff['address']?.toString() ?? '';
       }
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) {
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -130,32 +135,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline,
-                          color: AppTheme.errorRed, size: 40),
-                      const SizedBox(height: 8),
-                      Text(_error!,
-                          style: const TextStyle(color: AppTheme.textSecondary)),
-                      TextButton(
-                          onPressed: _loadProfile, child: const Text('Retry')),
-                    ],
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    color: AppTheme.errorRed,
+                    size: 40,
                   ),
-                )
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      _buildAvatarSection(),
-                      const SizedBox(height: 20),
-                      _buildInfoCard(),
-                      const SizedBox(height: 16),
-                      if (_editing) _buildEditCard(),
-                    ],
+                  const SizedBox(height: 8),
+                  Text(
+                    _error!,
+                    style: const TextStyle(color: AppTheme.textSecondary),
                   ),
-                ),
+                  TextButton(
+                    onPressed: _loadProfile,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            )
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  _buildAvatarSection(),
+                  const SizedBox(height: 20),
+                  _buildInfoCard(),
+                  const SizedBox(height: 16),
+                  if (_editing) _buildEditCard(),
+                ],
+              ),
+            ),
     );
   }
 
@@ -183,22 +195,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: Text(
               name.isNotEmpty ? name[0].toUpperCase() : 'S',
               style: const TextStyle(
-                  fontSize: 36,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white),
+                fontSize: 36,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
             ),
           ),
           const SizedBox(height: 12),
-          Text(name,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold)),
+          Text(
+            name,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           if (empId.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: Text('EMP: $empId',
-                  style: const TextStyle(color: Colors.white70, fontSize: 13)),
+              child: Text(
+                'EMP: $empId',
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
             ),
           const SizedBox(height: 10),
           Row(
@@ -221,12 +239,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       'Employee ID': _profile?['employeeId']?.toString() ?? '—',
       'Role': (_profile?['role']?.toString() ?? '—').replaceAll('_', ' '),
       'Department': _profile?['department']?.toString() ?? '—',
-      'Phone': _profile?['phone']?.toString() ??
+      'Phone':
+          _profile?['phone']?.toString() ??
           _profile?['phoneNumber']?.toString() ??
           '—',
       'Email': _profile?['email']?.toString() ?? '—',
       'Shift': _profile?['shift']?.toString() ?? '—',
-      'Joining Date': _profile?['joiningDate']?.toString() ??
+      'Joining Date':
+          _profile?['joiningDate']?.toString() ??
           _profile?['createdAt']?.toString() ??
           '—',
     };
@@ -240,12 +260,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const Text(
               'Staff Information',
               style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  color: AppTheme.textPrimary),
+                fontWeight: FontWeight.bold,
+                fontSize: 15,
+                color: AppTheme.textPrimary,
+              ),
             ),
             const Divider(height: 20),
-            ...fields.entries.map((e) => _FieldRow(label: e.key, value: e.value)),
+            ...fields.entries.map(
+              (e) => _FieldRow(label: e.key, value: e.value),
+            ),
           ],
         ),
       ),
@@ -262,9 +285,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const Text(
               'Edit Profile',
               style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  color: AppTheme.textPrimary),
+                fontWeight: FontWeight.bold,
+                fontSize: 15,
+                color: AppTheme.textPrimary,
+              ),
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -302,7 +326,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2))
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
                   : const Icon(Icons.save, color: Colors.white),
               label: Text(_saving ? 'Saving...' : 'Save Changes'),
             ),
@@ -325,9 +352,14 @@ class _ProfileChip extends StatelessWidget {
         color: Colors.white.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Text(label,
-          style:
-              const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
     );
   }
 }
@@ -346,16 +378,23 @@ class _FieldRow extends StatelessWidget {
         children: [
           SizedBox(
             width: 120,
-            child: Text(label,
-                style: const TextStyle(
-                    color: AppTheme.textSecondary, fontSize: 13)),
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 13,
+              ),
+            ),
           ),
           Expanded(
-            child: Text(value,
-                style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500)),
+            child: Text(
+              value,
+              style: const TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
         ],
       ),

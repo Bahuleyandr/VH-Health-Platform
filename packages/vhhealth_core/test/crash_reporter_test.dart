@@ -40,8 +40,10 @@ void main() {
   group('CrashReporter', () {
     test('default instance is a silent no-op', () async {
       // Should not throw or block; just logs in debug (not observable here).
-      await CrashReporter.instance
-          .recordError(Exception('boom'), StackTrace.current);
+      await CrashReporter.instance.recordError(
+        Exception('boom'),
+        StackTrace.current,
+      );
       await CrashReporter.instance.log('hi');
       await CrashReporter.instance.setUserId('abc');
       await CrashReporter.instance.setCustomKey('screen', 'login');

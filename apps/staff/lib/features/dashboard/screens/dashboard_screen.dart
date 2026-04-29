@@ -53,10 +53,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       // Fetch campus geofence config (no-op after first success)
       futures.add(ScheduleApiService.fetchCampusConfig());
 
-      futures.add(AttendanceApiService.getAttendanceStatus().then(
-        (s) => _attendanceStatus = s,
-        onError: (_) {},
-      ));
+      futures.add(
+        AttendanceApiService.getAttendanceStatus().then(
+          (s) => _attendanceStatus = s,
+          onError: (_) {},
+        ),
+      );
 
       // Appointments for clinical roles
       if (_role == StaffRole.doctor ||
@@ -74,9 +76,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _appointmentCount = data['total'] ?? list.length;
             _upcomingAppointments = list
                 .take(5)
-                .map((a) => a is Map<String, dynamic>
-                    ? a
-                    : <String, dynamic>{})
+                .map((a) => a is Map<String, dynamic> ? a : <String, dynamic>{})
                 .toList();
           }, onError: (_) {}),
         );
@@ -106,7 +106,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       try {
         final roleStr = await AuthService.getRole();
         if (mounted) _role = StaffRole.fromString(roleStr);
-      } catch (e) { debugPrint('dashboard_screen.dart: $e'); }
+      } catch (e) {
+        debugPrint('dashboard_screen.dart: $e');
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -191,7 +193,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       Text(
                         _greeting,
                         style: const TextStyle(
-                            color: Colors.white70, fontSize: 14),
+                          color: Colors.white70,
+                          fontSize: 14,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       const Text(
@@ -208,17 +212,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           Text(
                             today,
                             style: const TextStyle(
-                                color: Colors.white60, fontSize: 12),
+                              color: Colors.white60,
+                              fontSize: 12,
+                            ),
                           ),
                           const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 3),
+                              horizontal: 10,
+                              vertical: 3,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.white.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(20),
                               border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.4)),
+                                color: Colors.white.withValues(alpha: 0.4),
+                              ),
                             ),
                             child: Text(
                               _role.displayName,
@@ -251,8 +260,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           // Attendance status card
                           _AttendanceStatusCard(
                             isCheckedIn: checkedIn,
-                            checkInTime:
-                                _attendanceStatus?['checkInTime'],
+                            checkInTime: _attendanceStatus?['checkInTime'],
                             onTap: () => context.go('/attendance'),
                           ),
                           const SizedBox(height: 16),
@@ -262,20 +270,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             Container(
                               margin: const EdgeInsets.only(bottom: 16),
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 10),
+                                horizontal: 14,
+                                vertical: 10,
+                              ),
                               decoration: BoxDecoration(
-                                color: AppTheme.warningAmber
-                                    .withValues(alpha: 0.1),
+                                color: AppTheme.warningAmber.withValues(
+                                  alpha: 0.1,
+                                ),
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                  color: AppTheme.warningAmber
-                                      .withValues(alpha: 0.4),
+                                  color: AppTheme.warningAmber.withValues(
+                                    alpha: 0.4,
+                                  ),
                                 ),
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(Icons.cloud_off,
-                                      color: AppTheme.warningAmber, size: 20),
+                                  const Icon(
+                                    Icons.cloud_off,
+                                    color: AppTheme.warningAmber,
+                                    size: 20,
+                                  ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
@@ -287,8 +302,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       ),
                                     ),
                                   ),
-                                  const Icon(Icons.sync,
-                                      color: AppTheme.warningAmber, size: 18),
+                                  const Icon(
+                                    Icons.sync,
+                                    color: AppTheme.warningAmber,
+                                    size: 18,
+                                  ),
                                 ],
                               ),
                             ),
@@ -304,21 +322,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 child: Container(
                                   margin: const EdgeInsets.only(bottom: 16),
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 14, vertical: 10),
+                                    horizontal: 14,
+                                    vertical: 10,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: AppTheme.primaryBlue
-                                        .withValues(alpha: 0.08),
+                                    color: AppTheme.primaryBlue.withValues(
+                                      alpha: 0.08,
+                                    ),
                                     borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
-                                      color: AppTheme.primaryBlue
-                                          .withValues(alpha: 0.2),
+                                      color: AppTheme.primaryBlue.withValues(
+                                        alpha: 0.2,
+                                      ),
                                     ),
                                   ),
                                   child: Row(
                                     children: [
-                                      const Icon(Icons.notifications_active,
-                                          color: AppTheme.primaryBlue,
-                                          size: 20),
+                                      const Icon(
+                                        Icons.notifications_active,
+                                        color: AppTheme.primaryBlue,
+                                        size: 20,
+                                      ),
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
@@ -330,9 +354,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           ),
                                         ),
                                       ),
-                                      const Icon(Icons.chevron_right,
-                                          color: AppTheme.primaryBlue,
-                                          size: 18),
+                                      const Icon(
+                                        Icons.chevron_right,
+                                        color: AppTheme.primaryBlue,
+                                        size: 18,
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -360,20 +386,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           // Upcoming appointments (clinical roles)
                           if (_upcomingAppointments.isNotEmpty) ...[
                             _buildSectionHeader(
-                                'Upcoming Appointments', '/appointments'),
+                              'Upcoming Appointments',
+                              '/appointments',
+                            ),
                             const SizedBox(height: 8),
-                            ..._upcomingAppointments
-                                .map(_buildAppointmentCard),
+                            ..._upcomingAppointments.map(_buildAppointmentCard),
                             const SizedBox(height: 16),
                           ],
 
                           // Recent activity
                           if (_recentNotifications.isNotEmpty) ...[
                             _buildSectionHeader(
-                                'Recent Activity', '/notifications'),
+                              'Recent Activity',
+                              '/notifications',
+                            ),
                             const SizedBox(height: 8),
-                            ..._recentNotifications
-                                .map(_buildActivityItem),
+                            ..._recentNotifications.map(_buildActivityItem),
                             const SizedBox(height: 16),
                           ],
 
@@ -390,8 +418,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           GridView.count(
                             crossAxisCount: 3,
                             shrinkWrap: true,
-                            physics:
-                                const NeverScrollableScrollPhysics(),
+                            physics: const NeverScrollableScrollPhysics(),
                             mainAxisSpacing: 12,
                             crossAxisSpacing: 12,
                             childAspectRatio: 1.0,
@@ -421,20 +448,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_role == StaffRole.doctor ||
         _role == StaffRole.nurse ||
         _role.isAdminTier) {
-      stats.add(_StatItem(
-        icon: Icons.calendar_today,
-        label: 'Appointments',
-        value: '$_appointmentCount',
-        color: const Color(0xFF6A1B9A),
-      ));
+      stats.add(
+        _StatItem(
+          icon: Icons.calendar_today,
+          label: 'Appointments',
+          value: '$_appointmentCount',
+          color: const Color(0xFF6A1B9A),
+        ),
+      );
     }
 
-    stats.add(_StatItem(
-      icon: Icons.notifications_active,
-      label: 'Notifications',
-      value: '${_recentNotifications.length}',
-      color: const Color(0xFFE65100),
-    ));
+    stats.add(
+      _StatItem(
+        icon: Icons.notifications_active,
+        label: 'Notifications',
+        value: '${_recentNotifications.length}',
+        color: const Color(0xFFE65100),
+      ),
+    );
 
     if (stats.isEmpty) return const SizedBox.shrink();
 
@@ -458,10 +489,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   Text(
                     s.label,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey,
-                    ),
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                 ],
               ),
@@ -476,70 +504,88 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final actions = <_QuickAction>[];
 
     // Everyone gets attendance
-    actions.add(const _QuickAction(
-      icon: Icons.fingerprint,
-      label: 'Check In/Out',
-      route: '/attendance',
-      color: Color(0xFF1565C0),
-    ));
+    actions.add(
+      const _QuickAction(
+        icon: Icons.fingerprint,
+        label: 'Check In/Out',
+        route: '/attendance',
+        color: Color(0xFF1565C0),
+      ),
+    );
 
     // Schedule for all
-    actions.add(const _QuickAction(
-      icon: Icons.schedule,
-      label: 'Shift Schedule',
-      route: '/schedule',
-      color: Color(0xFF00838F),
-    ));
+    actions.add(
+      const _QuickAction(
+        icon: Icons.schedule,
+        label: 'Shift Schedule',
+        route: '/schedule',
+        color: Color(0xFF00838F),
+      ),
+    );
 
     // Messages for all
-    actions.add(const _QuickAction(
-      icon: Icons.chat_outlined,
-      label: 'Messages',
-      route: '/messaging',
-      color: Color(0xFF1565C0),
-    ));
+    actions.add(
+      const _QuickAction(
+        icon: Icons.chat_outlined,
+        label: 'Messages',
+        route: '/messaging',
+        color: Color(0xFF1565C0),
+      ),
+    );
 
     // Role-specific
     if (_role == StaffRole.doctor) {
-      actions.add(const _QuickAction(
-        icon: Icons.medication_liquid,
-        label: 'Prescriptions',
-        route: '/prescriptions',
-        color: Color(0xFF00838F),
-      ));
-      actions.add(const _QuickAction(
-        icon: Icons.biotech,
-        label: 'Investigations',
-        route: '/investigations',
-        color: Color(0xFF0097A7),
-      ));
+      actions.add(
+        const _QuickAction(
+          icon: Icons.medication_liquid,
+          label: 'Prescriptions',
+          route: '/prescriptions',
+          color: Color(0xFF00838F),
+        ),
+      );
+      actions.add(
+        const _QuickAction(
+          icon: Icons.biotech,
+          label: 'Investigations',
+          route: '/investigations',
+          color: Color(0xFF0097A7),
+        ),
+      );
     } else if (_role == StaffRole.nurse) {
-      actions.add(const _QuickAction(
-        icon: Icons.monitor_heart,
-        label: 'Vitals',
-        route: '/vitals',
-        color: Color(0xFFC62828),
-      ));
-      actions.add(const _QuickAction(
-        icon: Icons.swap_horiz,
-        label: 'Handover',
-        route: '/handover',
-        color: Color(0xFF00695C),
-      ));
+      actions.add(
+        const _QuickAction(
+          icon: Icons.monitor_heart,
+          label: 'Vitals',
+          route: '/vitals',
+          color: Color(0xFFC62828),
+        ),
+      );
+      actions.add(
+        const _QuickAction(
+          icon: Icons.swap_horiz,
+          label: 'Handover',
+          route: '/handover',
+          color: Color(0xFF00695C),
+        ),
+      );
     } else if (_role == StaffRole.pharmacy) {
-      actions.add(const _QuickAction(
-        icon: Icons.medication,
-        label: 'Pharmacy',
-        route: '/pharmacy',
-        color: Color(0xFFE65100),
-      ));
+      actions.add(
+        const _QuickAction(
+          icon: Icons.medication,
+          label: 'Pharmacy',
+          route: '/pharmacy',
+          color: Color(0xFFE65100),
+        ),
+      );
     } else if (_role == StaffRole.lab) {
-      actions.add(const _QuickAction(
-        icon: Icons.upload_file,
-        label: 'Upload Results',
-        route: '/investigations',
-        color: Color(0xFF0097A7),
-      ));
+      actions.add(
+        const _QuickAction(
+          icon: Icons.upload_file,
+          label: 'Upload Results',
+          route: '/investigations',
+          color: Color(0xFF0097A7),
+        ),
+      );
     }
 
     return Wrap(
@@ -578,7 +624,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildAppointmentCard(Map<String, dynamic> apt) {
-    final patientName = apt['patientName'] ?? apt['patient']?['name'] ?? 'Patient';
+    final patientName =
+        apt['patientName'] ?? apt['patient']?['name'] ?? 'Patient';
     final time = apt['time'] ?? apt['scheduledTime'] ?? '';
     final type = apt['type'] ?? apt['appointmentType'] ?? '';
     String timeStr = '';
@@ -602,8 +649,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         subtitle: Text(
-          [if (timeStr.isNotEmpty) timeStr, if (type.toString().isNotEmpty) type]
-              .join(' • '),
+          [
+            if (timeStr.isNotEmpty) timeStr,
+            if (type.toString().isNotEmpty) type,
+          ].join(' • '),
         ),
         trailing: const Icon(Icons.chevron_right, color: Colors.grey),
         onTap: () => context.go('/appointments'),
@@ -630,7 +679,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         } else {
           timeStr = DateFormat('d MMM').format(dt);
         }
-      } catch (e) { debugPrint('dashboard_screen.dart: $e'); }
+      } catch (e) {
+        debugPrint('dashboard_screen.dart: $e');
+      }
     }
 
     return Card(
@@ -715,10 +766,9 @@ class _AttendanceStatusCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: (isCheckedIn
-                      ? AppTheme.successGreen
-                      : AppTheme.warningAmber)
-                  .withValues(alpha: 0.3),
+              color:
+                  (isCheckedIn ? AppTheme.successGreen : AppTheme.warningAmber)
+                      .withValues(alpha: 0.3),
               blurRadius: 12,
               offset: const Offset(0, 4),
             ),
@@ -733,9 +783,7 @@ class _AttendanceStatusCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                isCheckedIn
-                    ? Icons.check_circle
-                    : Icons.radio_button_unchecked,
+                isCheckedIn ? Icons.check_circle : Icons.radio_button_unchecked,
                 color: Colors.white,
                 size: 28,
               ),
@@ -758,13 +806,14 @@ class _AttendanceStatusCard extends StatelessWidget {
                     Text(
                       'Since $checkInTime',
                       style: const TextStyle(
-                          color: Colors.white70, fontSize: 13),
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
                     ),
                   ] else
                     const Text(
                       'Tap to manage attendance',
-                      style:
-                          TextStyle(color: Colors.white70, fontSize: 13),
+                      style: TextStyle(color: Colors.white70, fontSize: 13),
                     ),
                 ],
               ),
@@ -800,9 +849,10 @@ class _FeatureButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withValues(alpha: 0.06),
-                blurRadius: 8,
-                offset: const Offset(0, 2))
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
           ],
         ),
         child: Column(

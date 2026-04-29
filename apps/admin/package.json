@@ -6,7 +6,7 @@
     "dev": "next dev --turbopack -p 3001",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint src --ext .js,.jsx,.ts,.tsx",
     "lint:all": "eslint src --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
     "format": "prettier --write",
@@ -92,6 +92,7 @@
     "undici": "^8.1.0"
   },
   "overrides": {
+    "postcss": "8.5.12",
     "glob": "^10.3.10",
     "rimraf": "^5.0.5",
     "workbox-build": {

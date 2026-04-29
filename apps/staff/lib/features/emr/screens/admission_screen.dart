@@ -88,11 +88,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
       ),
       child: Text(
         status?.toUpperCase() ?? 'UNKNOWN',
-        style: TextStyle(
-          color: fg,
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-        ),
+        style: TextStyle(color: fg, fontSize: 11, fontWeight: FontWeight.w600),
       ),
     );
   }
@@ -213,13 +209,21 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                       ),
                       items: const [
                         DropdownMenuItem(
-                            value: 'Routine', child: Text('Routine')),
+                          value: 'Routine',
+                          child: Text('Routine'),
+                        ),
                         DropdownMenuItem(
-                            value: 'Urgent', child: Text('Urgent')),
+                          value: 'Urgent',
+                          child: Text('Urgent'),
+                        ),
                         DropdownMenuItem(
-                            value: 'Emergency', child: Text('Emergency')),
+                          value: 'Emergency',
+                          child: Text('Emergency'),
+                        ),
                         DropdownMenuItem(
-                            value: 'Critical', child: Text('Critical')),
+                          value: 'Critical',
+                          child: Text('Critical'),
+                        ),
                       ],
                       onChanged: (v) =>
                           setSheetState(() => priority = v ?? priority),
@@ -233,13 +237,18 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                       ),
                       items: const [
                         DropdownMenuItem(
-                            value: 'Full Code', child: Text('Full Code')),
+                          value: 'Full Code',
+                          child: Text('Full Code'),
+                        ),
                         DropdownMenuItem(value: 'DNR', child: Text('DNR')),
                         DropdownMenuItem(
-                            value: 'DNR/DNI', child: Text('DNR/DNI')),
+                          value: 'DNR/DNI',
+                          child: Text('DNR/DNI'),
+                        ),
                         DropdownMenuItem(
-                            value: 'Comfort Care',
-                            child: Text('Comfort Care')),
+                          value: 'Comfort Care',
+                          child: Text('Comfort Care'),
+                        ),
                       ],
                       onChanged: (v) =>
                           setSheetState(() => codeStatus = v ?? codeStatus),
@@ -341,85 +350,92 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline,
-                          size: 48, color: AppTheme.errorRed),
-                      const SizedBox(height: 12),
-                      Text(_error!, textAlign: TextAlign.center),
-                      const SizedBox(height: 12),
-                      OutlinedButton(
-                        onPressed: _loadAdmissions,
-                        child: const Text('Retry'),
-                      ),
-                    ],
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    size: 48,
+                    color: AppTheme.errorRed,
                   ),
-                )
-              : _admissions.isEmpty
-                  ? const Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                  const SizedBox(height: 12),
+                  Text(_error!, textAlign: TextAlign.center),
+                  const SizedBox(height: 12),
+                  OutlinedButton(
+                    onPressed: _loadAdmissions,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            )
+          : _admissions.isEmpty
+          ? const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.bed, size: 64, color: AppTheme.divider),
+                  SizedBox(height: 12),
+                  Text(
+                    'No active admissions',
+                    style: TextStyle(color: AppTheme.textSecondary),
+                  ),
+                ],
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _loadAdmissions,
+              child: ListView.builder(
+                padding: const EdgeInsets.all(12),
+                itemCount: _admissions.length,
+                itemBuilder: (ctx, i) {
+                  final a = _admissions[i];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      leading: CircleAvatar(
+                        backgroundColor: _priorityColor(
+                          a['priority'] as String?,
+                        ).withValues(alpha: 0.15),
+                        child: Icon(
+                          Icons.local_hospital,
+                          color: _priorityColor(a['priority'] as String?),
+                        ),
+                      ),
+                      title: Text(
+                        a['patient_name'] as String? ?? 'Patient',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.bed, size: 64, color: AppTheme.divider),
-                          SizedBox(height: 12),
-                          Text('No active admissions',
-                              style: TextStyle(color: AppTheme.textSecondary)),
+                          Text(
+                            '${a['ward'] ?? ''} ${a['bed'] != null ? '- Bed ${a['bed']}' : ''}',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                          if (a['chief_complaint'] != null)
+                            Text(
+                              a['chief_complaint'] as String,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.textSecondary,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                         ],
                       ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _loadAdmissions,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.all(12),
-                        itemCount: _admissions.length,
-                        itemBuilder: (ctx, i) {
-                          final a = _admissions[i];
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            child: ListTile(
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 8),
-                              leading: CircleAvatar(
-                                backgroundColor:
-                                    _priorityColor(a['priority'] as String?)
-                                        .withValues(alpha: 0.15),
-                                child: Icon(Icons.local_hospital,
-                                    color: _priorityColor(
-                                        a['priority'] as String?)),
-                              ),
-                              title: Text(
-                                a['patient_name'] as String? ?? 'Patient',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w600),
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    '${a['ward'] ?? ''} ${a['bed'] != null ? '- Bed ${a['bed']}' : ''}',
-                                    style: const TextStyle(fontSize: 13),
-                                  ),
-                                  if (a['chief_complaint'] != null)
-                                    Text(
-                                      a['chief_complaint'] as String,
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        color: AppTheme.textSecondary,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                ],
-                              ),
-                              trailing: _statusBadge(a['status'] as String?),
-                              onTap: () => _showAdmissionDetail(a),
-                            ),
-                          );
-                        },
-                      ),
+                      trailing: _statusBadge(a['status'] as String?),
+                      onTap: () => _showAdmissionDetail(a),
                     ),
+                  );
+                },
+              ),
+            ),
     );
   }
 }
@@ -448,8 +464,9 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
 
   Future<void> _loadDetail() async {
     try {
-      final data =
-          await MedicalApiService.getAdmissionDetail(widget.admissionId);
+      final data = await MedicalApiService.getAdmissionDetail(
+        widget.admissionId,
+      );
       setState(() {
         _detail = data;
         _loading = false;
@@ -470,14 +487,19 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
         children: [
           SizedBox(
             width: 120,
-            child: Text(label,
-                style: const TextStyle(
-                    color: AppTheme.textSecondary, fontSize: 13)),
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 13,
+              ),
+            ),
           ),
           Expanded(
-            child: Text(value ?? '-',
-                style: const TextStyle(
-                    fontWeight: FontWeight.w500, fontSize: 13)),
+            child: Text(
+              value ?? '-',
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+            ),
           ),
         ],
       ),
@@ -487,152 +509,167 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints:
-          BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.85,
+      ),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: _loading
-          ? const Center(child: Padding(
-              padding: EdgeInsets.all(40),
-              child: CircularProgressIndicator(),
-            ))
+          ? const Center(
+              child: Padding(
+                padding: EdgeInsets.all(40),
+                child: CircularProgressIndicator(),
+              ),
+            )
           : _error != null
-              ? Padding(
-                  padding: const EdgeInsets.all(40),
-                  child: Center(child: Text('Error: $_error')),
-                )
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+          ? Padding(
+              padding: const EdgeInsets.all(40),
+              child: Center(child: Text('Error: $_error')),
+            )
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppTheme.divider,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    _detail?['patient_name'] as String? ?? 'Patient',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Admission #${widget.admissionId}',
+                    style: const TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const Divider(height: 24),
+
+                  // Patient Info
+                  const Text(
+                    'Patient Information',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  ),
+                  const SizedBox(height: 8),
+                  _infoRow('UID', _detail?['patient_uid'] as String?),
+                  _infoRow('Age/Gender', _detail?['age_gender'] as String?),
+                  _infoRow('Blood Group', _detail?['blood_group'] as String?),
+                  _infoRow('Allergies', _detail?['allergies'] as String?),
+
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Admission Details',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  ),
+                  const SizedBox(height: 8),
+                  _infoRow('Ward', _detail?['ward'] as String?),
+                  _infoRow('Bed', _detail?['bed']?.toString()),
+                  _infoRow('Admitted On', _detail?['admitted_at'] as String?),
+                  _infoRow(
+                    'Chief Complaint',
+                    _detail?['chief_complaint'] as String?,
+                  ),
+                  _infoRow(
+                    'Diagnosis',
+                    _detail?['provisional_diagnosis'] as String?,
+                  ),
+                  _infoRow('Priority', _detail?['priority'] as String?),
+                  _infoRow('Code Status', _detail?['code_status'] as String?),
+                  _infoRow(
+                    'Attending',
+                    _detail?['attending_doctor'] as String?,
+                  ),
+
+                  const SizedBox(height: 16),
+                  // Quick action buttons
+                  const Text(
+                    'Quick Actions',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      Center(
-                        child: Container(
-                          width: 40,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: AppTheme.divider,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
+                      ActionChip(
+                        avatar: const Icon(Icons.monitor_heart, size: 18),
+                        label: const Text('Vitals'),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          final uid = _detail?['patient_uid'] as String?;
+                          final name = _detail?['patient_name'] as String?;
+                          if (uid != null) {
+                            context.go(
+                              '/emr/vitals/$uid${name != null ? '?name=$name' : ''}',
+                            );
+                          }
+                        },
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        _detail?['patient_name'] as String? ?? 'Patient',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.textPrimary,
-                        ),
+                      ActionChip(
+                        avatar: const Icon(Icons.note_add, size: 18),
+                        label: const Text('Notes'),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          final uid = _detail?['patient_uid'] as String?;
+                          final name = _detail?['patient_name'] as String?;
+                          if (uid != null) {
+                            context.go(
+                              '/emr/notes/$uid${name != null ? '?name=$name' : ''}',
+                            );
+                          }
+                        },
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Admission #${widget.admissionId}',
-                        style: const TextStyle(
-                          color: AppTheme.textSecondary,
-                          fontSize: 13,
-                        ),
+                      ActionChip(
+                        avatar: const Icon(Icons.receipt_long, size: 18),
+                        label: const Text('Orders'),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          final uid = _detail?['patient_uid'] as String?;
+                          final name = _detail?['patient_name'] as String?;
+                          if (uid != null) {
+                            context.go(
+                              '/emr/orders/$uid${name != null ? '?name=$name' : ''}',
+                            );
+                          }
+                        },
                       ),
-                      const Divider(height: 24),
-
-                      // Patient Info
-                      const Text('Patient Information',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w600, fontSize: 15)),
-                      const SizedBox(height: 8),
-                      _infoRow('UID', _detail?['patient_uid'] as String?),
-                      _infoRow('Age/Gender',
-                          _detail?['age_gender'] as String?),
-                      _infoRow(
-                          'Blood Group', _detail?['blood_group'] as String?),
-                      _infoRow('Allergies', _detail?['allergies'] as String?),
-
-                      const SizedBox(height: 16),
-                      const Text('Admission Details',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w600, fontSize: 15)),
-                      const SizedBox(height: 8),
-                      _infoRow('Ward', _detail?['ward'] as String?),
-                      _infoRow(
-                          'Bed', _detail?['bed']?.toString()),
-                      _infoRow('Admitted On',
-                          _detail?['admitted_at'] as String?),
-                      _infoRow('Chief Complaint',
-                          _detail?['chief_complaint'] as String?),
-                      _infoRow('Diagnosis',
-                          _detail?['provisional_diagnosis'] as String?),
-                      _infoRow('Priority', _detail?['priority'] as String?),
-                      _infoRow(
-                          'Code Status', _detail?['code_status'] as String?),
-                      _infoRow('Attending',
-                          _detail?['attending_doctor'] as String?),
-
-                      const SizedBox(height: 16),
-                      // Quick action buttons
-                      const Text('Quick Actions',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w600, fontSize: 15)),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          ActionChip(
-                            avatar: const Icon(Icons.monitor_heart, size: 18),
-                            label: const Text('Vitals'),
-                            onPressed: () {
-                              Navigator.pop(context);
-                              final uid = _detail?['patient_uid'] as String?;
-                              final name = _detail?['patient_name'] as String?;
-                              if (uid != null) {
-                                context.go('/emr/vitals/$uid${name != null ? '?name=$name' : ''}');
-                              }
-                            },
-                          ),
-                          ActionChip(
-                            avatar: const Icon(Icons.note_add, size: 18),
-                            label: const Text('Notes'),
-                            onPressed: () {
-                              Navigator.pop(context);
-                              final uid = _detail?['patient_uid'] as String?;
-                              final name = _detail?['patient_name'] as String?;
-                              if (uid != null) {
-                                context.go('/emr/notes/$uid${name != null ? '?name=$name' : ''}');
-                              }
-                            },
-                          ),
-                          ActionChip(
-                            avatar: const Icon(Icons.receipt_long, size: 18),
-                            label: const Text('Orders'),
-                            onPressed: () {
-                              Navigator.pop(context);
-                              final uid = _detail?['patient_uid'] as String?;
-                              final name = _detail?['patient_name'] as String?;
-                              if (uid != null) {
-                                context.go('/emr/orders/$uid${name != null ? '?name=$name' : ''}');
-                              }
-                            },
-                          ),
-                          ActionChip(
-                            avatar: const Icon(Icons.timeline, size: 18),
-                            label: const Text('Timeline'),
-                            onPressed: () {
-                              Navigator.pop(context);
-                              final uid = _detail?['patient_uid'] as String?;
-                              final name = _detail?['patient_name'] as String?;
-                              if (uid != null) {
-                                context.go('/emr/timeline/$uid${name != null ? '?name=$name' : ''}');
-                              }
-                            },
-                          ),
-                        ],
+                      ActionChip(
+                        avatar: const Icon(Icons.timeline, size: 18),
+                        label: const Text('Timeline'),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          final uid = _detail?['patient_uid'] as String?;
+                          final name = _detail?['patient_name'] as String?;
+                          if (uid != null) {
+                            context.go(
+                              '/emr/timeline/$uid${name != null ? '?name=$name' : ''}',
+                            );
+                          }
+                        },
                       ),
-                      const SizedBox(height: 20),
                     ],
                   ),
-                ),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            ),
     );
   }
 }

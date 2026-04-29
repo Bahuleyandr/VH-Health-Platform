@@ -9,7 +9,8 @@ class DisputeScreen extends StatefulWidget {
   State<DisputeScreen> createState() => _DisputeScreenState();
 }
 
-class _DisputeScreenState extends State<DisputeScreen> with SingleTickerProviderStateMixin {
+class _DisputeScreenState extends State<DisputeScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   List<dynamic> _myDisputes = [];
   bool _loading = true;
@@ -51,7 +52,12 @@ class _DisputeScreenState extends State<DisputeScreen> with SingleTickerProvider
 
   Future<void> _submitDispute() async {
     if (_disputeDate == null || _descriptionCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Date and description are required'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Date and description are required'),
+          backgroundColor: Colors.red,
+        ),
+      );
       return;
     }
     setState(() => _submitting = true);
@@ -66,14 +72,33 @@ class _DisputeScreenState extends State<DisputeScreen> with SingleTickerProvider
         requestedCheckOut: _requestedCheckOut,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Dispute submitted. HR will review within 24 hours.'), backgroundColor: Colors.green, duration: Duration(seconds: 4)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              '✅ Dispute submitted. HR will review within 24 hours.',
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 4),
+          ),
+        );
         _descriptionCtrl.clear();
-        setState(() { _disputeDate = null; _requestedCheckIn = null; _requestedCheckOut = null; });
+        setState(() {
+          _disputeDate = null;
+          _requestedCheckIn = null;
+          _requestedCheckOut = null;
+        });
         _tabController.animateTo(1);
         _loadDisputes();
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')), backgroundColor: Colors.red));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -82,9 +107,19 @@ class _DisputeScreenState extends State<DisputeScreen> with SingleTickerProvider
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Attendance Dispute'), backgroundColor: const Color(0xFF007A64), foregroundColor: Colors.white,
-        bottom: TabBar(controller: _tabController, labelColor: Colors.white, indicatorColor: Colors.white,
-          tabs: [const Tab(text: 'Submit'), Tab(text: 'My Disputes (${_myDisputes.length})')]),
+      appBar: AppBar(
+        title: const Text('Attendance Dispute'),
+        backgroundColor: const Color(0xFF007A64),
+        foregroundColor: Colors.white,
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: Colors.white,
+          indicatorColor: Colors.white,
+          tabs: [
+            const Tab(text: 'Submit'),
+            Tab(text: 'My Disputes (${_myDisputes.length})'),
+          ],
+        ),
       ),
       body: TabBarView(
         controller: _tabController,
@@ -109,54 +144,123 @@ class _DisputeScreenState extends State<DisputeScreen> with SingleTickerProvider
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.blue.shade200)),
-            child: const Row(children: [
-              Icon(Icons.info_outline, color: Colors.blue, size: 18),
-              SizedBox(width: 8),
-              Expanded(child: Text('Use this to report attendance recording issues. HR will review and correct your record.', style: TextStyle(fontSize: 12, color: Colors.blue))),
-            ]),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blue.shade200),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.blue, size: 18),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Use this to report attendance recording issues. HR will review and correct your record.',
+                    style: TextStyle(fontSize: 12, color: Colors.blue),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
           const Text('Date', style: TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           InkWell(
             onTap: () async {
-              final d = await showDatePicker(context: context, initialDate: DateTime.now().subtract(const Duration(days: 1)), firstDate: DateTime.now().subtract(const Duration(days: 30)), lastDate: DateTime.now());
+              final d = await showDatePicker(
+                context: context,
+                initialDate: DateTime.now().subtract(const Duration(days: 1)),
+                firstDate: DateTime.now().subtract(const Duration(days: 30)),
+                lastDate: DateTime.now(),
+              );
               if (d != null) setState(() => _disputeDate = d);
             },
             child: Container(
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade400), borderRadius: BorderRadius.circular(8)),
-              child: Row(children: [
-                const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-                const SizedBox(width: 8),
-                Text(_disputeDate != null ? DateFormat('d MMMM yyyy').format(_disputeDate!) : 'Select date of issue', style: TextStyle(color: _disputeDate != null ? Colors.black : Colors.grey.shade600)),
-              ]),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade400),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.calendar_today,
+                    size: 16,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _disputeDate != null
+                        ? DateFormat('d MMMM yyyy').format(_disputeDate!)
+                        : 'Select date of issue',
+                    style: TextStyle(
+                      color: _disputeDate != null
+                          ? Colors.black
+                          : Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 16),
-          const Text('Issue Type', style: TextStyle(fontWeight: FontWeight.w600)),
+          const Text(
+            'Issue Type',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             initialValue: _disputeType,
             decoration: const InputDecoration(border: OutlineInputBorder()),
-            items: disputeTypes.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
+            items: disputeTypes.entries
+                .map(
+                  (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
+                )
+                .toList(),
             onChanged: (v) => setState(() => _disputeType = v!),
           ),
           const SizedBox(height: 16),
-          const Text('Description', style: TextStyle(fontWeight: FontWeight.w600)),
+          const Text(
+            'Description',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
-          TextField(controller: _descriptionCtrl, decoration: const InputDecoration(hintText: 'Explain what happened...', border: OutlineInputBorder()), maxLines: 4),
+          TextField(
+            controller: _descriptionCtrl,
+            decoration: const InputDecoration(
+              hintText: 'Explain what happened...',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 4,
+          ),
           const SizedBox(height: 16),
-          const Text('Correct Times (Optional)', style: TextStyle(fontWeight: FontWeight.w600)),
+          const Text(
+            'Correct Times (Optional)',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 4),
-          Text('If you know what the correct times should be, enter them here.', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          Text(
+            'If you know what the correct times should be, enter them here.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(child: _timePicker('Check-in', _requestedCheckIn, (t) => setState(() => _requestedCheckIn = t))),
+              Expanded(
+                child: _timePicker(
+                  'Check-in',
+                  _requestedCheckIn,
+                  (t) => setState(() => _requestedCheckIn = t),
+                ),
+              ),
               const SizedBox(width: 12),
-              Expanded(child: _timePicker('Check-out', _requestedCheckOut, (t) => setState(() => _requestedCheckOut = t))),
+              Expanded(
+                child: _timePicker(
+                  'Check-out',
+                  _requestedCheckOut,
+                  (t) => setState(() => _requestedCheckOut = t),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 24),
@@ -165,8 +269,25 @@ class _DisputeScreenState extends State<DisputeScreen> with SingleTickerProvider
             height: 52,
             child: ElevatedButton(
               onPressed: _submitting ? null : _submitDispute,
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF007A64), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-              child: _submitting ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 2) : const Text('Submit Dispute', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF007A64),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: _submitting
+                  ? const CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    )
+                  : const Text(
+                      'Submit Dispute',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
             ),
           ),
         ],
@@ -178,21 +299,49 @@ class _DisputeScreenState extends State<DisputeScreen> with SingleTickerProvider
     return InkWell(
       onTap: () async {
         final base = _disputeDate ?? DateTime.now();
-        final t = await showTimePicker(context: context, initialTime: TimeOfDay.now());
+        final t = await showTimePicker(
+          context: context,
+          initialTime: TimeOfDay.now(),
+        );
         if (t != null) {
-          final dt = DateTime(base.year, base.month, base.day, t.hour, t.minute);
+          final dt = DateTime(
+            base.year,
+            base.month,
+            base.day,
+            t.hour,
+            t.minute,
+          );
           onPick(DateFormat('yyyy-MM-dd HH:mm:ss').format(dt));
         }
       },
       child: Container(
         padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade400), borderRadius: BorderRadius.circular(8)),
-        child: Row(children: [
-          const Icon(Icons.access_time, size: 16, color: Colors.grey),
-          const SizedBox(width: 6),
-          Expanded(child: Text(value != null && value.length >= 16 ? value.substring(11, 16) : label, style: TextStyle(color: value != null ? Colors.black : Colors.grey.shade600, fontSize: 13))),
-          if (value != null) GestureDetector(onTap: () => onPick(null), child: const Icon(Icons.clear, size: 14, color: Colors.grey)),
-        ]),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade400),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.access_time, size: 16, color: Colors.grey),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                value != null && value.length >= 16
+                    ? value.substring(11, 16)
+                    : label,
+                style: TextStyle(
+                  color: value != null ? Colors.black : Colors.grey.shade600,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            if (value != null)
+              GestureDetector(
+                onTap: () => onPick(null),
+                child: const Icon(Icons.clear, size: 14, color: Colors.grey),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -200,14 +349,23 @@ class _DisputeScreenState extends State<DisputeScreen> with SingleTickerProvider
   Widget _buildMyDisputesTab() {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_myDisputes.isEmpty) {
-      return Center(child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.check_circle_outline, size: 48, color: Colors.grey.shade400),
-          const SizedBox(height: 8),
-          Text('No disputes filed', style: TextStyle(color: Colors.grey.shade600)),
-        ],
-      ));
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.check_circle_outline,
+              size: 48,
+              color: Colors.grey.shade400,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'No disputes filed',
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
+          ],
+        ),
+      );
     }
 
     return ListView.builder(
@@ -216,7 +374,11 @@ class _DisputeScreenState extends State<DisputeScreen> with SingleTickerProvider
       itemBuilder: (ctx, i) {
         final d = _myDisputes[i] as Map<String, dynamic>;
         final status = d['status'] as String? ?? 'pending';
-        final statusColor = status == 'approved' ? Colors.green : status == 'rejected' ? Colors.red : Colors.orange;
+        final statusColor = status == 'approved'
+            ? Colors.green
+            : status == 'rejected'
+            ? Colors.red
+            : Colors.orange;
 
         return Card(
           child: Padding(
@@ -224,24 +386,67 @@ class _DisputeScreenState extends State<DisputeScreen> with SingleTickerProvider
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [
-                  Expanded(child: Text(d['date'] as String? ?? '', style: const TextStyle(fontWeight: FontWeight.bold))),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(10), border: Border.all(color: statusColor)),
-                    child: Text(status.toUpperCase(), style: TextStyle(fontSize: 10, color: statusColor, fontWeight: FontWeight.bold)),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        d['date'] as String? ?? '',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: statusColor),
+                      ),
+                      child: Text(
+                        status.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: statusColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  (d['dispute_type'] as String? ?? '')
+                      .replaceAll('_', ' ')
+                      .toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey.shade600,
+                    letterSpacing: 0.5,
                   ),
-                ]),
+                ),
                 const SizedBox(height: 4),
-                Text((d['dispute_type'] as String? ?? '').replaceAll('_', ' ').toUpperCase(), style: TextStyle(fontSize: 11, color: Colors.grey.shade600, letterSpacing: 0.5)),
-                const SizedBox(height: 4),
-                Text(d['description'] as String? ?? '', style: const TextStyle(fontSize: 13)),
+                Text(
+                  d['description'] as String? ?? '',
+                  style: const TextStyle(fontSize: 13),
+                ),
                 if (d['reviewer_comment'] != null) ...[
                   const SizedBox(height: 6),
                   Container(
                     padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(6)),
-                    child: Text('HR: ${d['reviewer_comment']}', style: TextStyle(fontSize: 12, color: statusColor.withValues(alpha: 0.8), fontStyle: FontStyle.italic)),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'HR: ${d['reviewer_comment']}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: statusColor.withValues(alpha: 0.8),
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
                   ),
                 ],
               ],

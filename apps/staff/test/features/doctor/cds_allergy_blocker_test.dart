@@ -93,7 +93,9 @@ void main() {
 
     test('single CRITICAL blocker forces hard block', () {
       final d = evaluate(
-        blockers: [{'severity': 'CRITICAL', 'reason': 'Penicillin allergy'}],
+        blockers: [
+          {'severity': 'CRITICAL', 'reason': 'Penicillin allergy'},
+        ],
         warnings: [],
       );
       expect(d.mustBlock, isTrue);
@@ -102,7 +104,9 @@ void main() {
 
     test('single HIGH blocker forces hard block', () {
       final d = evaluate(
-        blockers: [{'severity': 'HIGH', 'reason': 'Warfarin + NSAID'}],
+        blockers: [
+          {'severity': 'HIGH', 'reason': 'Warfarin + NSAID'},
+        ],
         warnings: [],
       );
       expect(d.mustBlock, isTrue);
@@ -111,7 +115,9 @@ void main() {
     test('only MODERATE warnings → warn-only, no block', () {
       final d = evaluate(
         blockers: [],
-        warnings: [{'severity': 'MODERATE', 'reason': 'Monitor INR'}],
+        warnings: [
+          {'severity': 'MODERATE', 'reason': 'Monitor INR'},
+        ],
       );
       expect(d.mustBlock, isFalse);
       expect(d.mustWarn, isTrue);
@@ -121,7 +127,9 @@ void main() {
       // Defensive: backend could misclassify; Flutter side must not hard-block
       // on non-safety severity.
       final d = evaluate(
-        blockers: [{'severity': 'LOW', 'reason': 'Minor interaction'}],
+        blockers: [
+          {'severity': 'LOW', 'reason': 'Minor interaction'},
+        ],
         warnings: [],
       );
       expect(d.mustBlock, isFalse);
@@ -130,22 +138,37 @@ void main() {
 
     test('HIGH blocker + MODERATE warnings → block wins', () {
       final d = evaluate(
-        blockers: [{'severity': 'HIGH', 'reason': 'Allergy'}],
-        warnings: [{'severity': 'MODERATE', 'reason': 'Age'}],
+        blockers: [
+          {'severity': 'HIGH', 'reason': 'Allergy'},
+        ],
+        warnings: [
+          {'severity': 'MODERATE', 'reason': 'Age'},
+        ],
       );
       expect(d.mustBlock, isTrue);
-      expect(d.mustWarn, isFalse,
-          reason: 'A hard block supersedes dismissible warnings');
+      expect(
+        d.mustWarn,
+        isFalse,
+        reason: 'A hard block supersedes dismissible warnings',
+      );
     });
 
-    test('unknown-severity blocker falls back to warn-only (fail-open warn)', () {
-      final d = evaluate(
-        blockers: [{'reason': 'Something weird'}],
-        warnings: [],
-      );
-      expect(d.mustBlock, isFalse);
-      expect(d.mustWarn, isTrue,
-          reason: 'Never silently drop an unknown signal; surface as warning');
-    });
+    test(
+      'unknown-severity blocker falls back to warn-only (fail-open warn)',
+      () {
+        final d = evaluate(
+          blockers: [
+            {'reason': 'Something weird'},
+          ],
+          warnings: [],
+        );
+        expect(d.mustBlock, isFalse);
+        expect(
+          d.mustWarn,
+          isTrue,
+          reason: 'Never silently drop an unknown signal; surface as warning',
+        );
+      },
+    );
   });
 }

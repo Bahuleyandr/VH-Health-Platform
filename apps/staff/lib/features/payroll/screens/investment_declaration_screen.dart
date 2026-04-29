@@ -49,7 +49,9 @@ class _InvestmentDeclarationScreenState
     final now = DateTime.now();
     final m = now.month;
     final y = now.year;
-    _selectedFY = m >= 4 ? '$y-${(y + 1).toString().substring(2)}' : '${y - 1}-${y.toString().substring(2)}';
+    _selectedFY = m >= 4
+        ? '$y-${(y + 1).toString().substring(2)}'
+        : '${y - 1}-${y.toString().substring(2)}';
     _loadDeclarations();
 
     // Add listeners for live totals
@@ -59,10 +61,21 @@ class _InvestmentDeclarationScreenState
   }
 
   List<TextEditingController> get _allControllers => [
-        _ppf, _epfVol, _elss, _lic, _nsc, _homeLoanPrincipal, _tuition,
-        _other80c, _hiSelf, _hiParents, _nps, _homeLoanInterest,
-        _eduLoanInterest, _rentMonthly
-      ];
+    _ppf,
+    _epfVol,
+    _elss,
+    _lic,
+    _nsc,
+    _homeLoanPrincipal,
+    _tuition,
+    _other80c,
+    _hiSelf,
+    _hiParents,
+    _nps,
+    _homeLoanInterest,
+    _eduLoanInterest,
+    _rentMonthly,
+  ];
 
   @override
   void dispose() {
@@ -76,8 +89,15 @@ class _InvestmentDeclarationScreenState
       double.tryParse(c.text.replaceAll(',', '')) ?? 0.0;
 
   double get _total80C {
-    final raw = _val(_ppf) + _val(_epfVol) + _val(_elss) + _val(_lic) +
-        _val(_nsc) + _val(_homeLoanPrincipal) + _val(_tuition) + _val(_other80c);
+    final raw =
+        _val(_ppf) +
+        _val(_epfVol) +
+        _val(_elss) +
+        _val(_lic) +
+        _val(_nsc) +
+        _val(_homeLoanPrincipal) +
+        _val(_tuition) +
+        _val(_other80c);
     return raw.clamp(0.0, 150000.0);
   }
 
@@ -88,8 +108,14 @@ class _InvestmentDeclarationScreenState
   }
 
   double get _npsDeduction => _val(_nps).clamp(0.0, 50000.0);
-  double get _homeLoanInterestDeduction => _val(_homeLoanInterest).clamp(0.0, 200000.0);
-  double get _totalDeductions => _total80C + _total80D + _npsDeduction + _homeLoanInterestDeduction + _val(_eduLoanInterest);
+  double get _homeLoanInterestDeduction =>
+      _val(_homeLoanInterest).clamp(0.0, 200000.0);
+  double get _totalDeductions =>
+      _total80C +
+      _total80D +
+      _npsDeduction +
+      _homeLoanInterestDeduction +
+      _val(_eduLoanInterest);
 
   List<String> get _fyOptions {
     final now = DateTime.now();
@@ -102,11 +128,15 @@ class _InvestmentDeclarationScreenState
   }
 
   Future<void> _loadDeclarations() async {
-    setState(() { _loading = true; });
+    setState(() {
+      _loading = true;
+    });
     try {
       final list = await HrApiService.getMyDeclarations();
       if (mounted) {
-        setState(() { _declarations = list; });
+        setState(() {
+          _declarations = list;
+        });
         // Pre-fill if current FY declaration exists
         final existing = list.firstWhere(
           (d) => d['financial_year'] == _selectedFY,
@@ -116,10 +146,12 @@ class _InvestmentDeclarationScreenState
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: Colors.red.shade600,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: Colors.red.shade600,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -198,7 +230,13 @@ class _InvestmentDeclarationScreenState
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6, offset: const Offset(0, 2))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -207,13 +245,29 @@ class _InvestmentDeclarationScreenState
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               color: const Color(0xFF007A64).withValues(alpha: 0.08),
-              borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(12),
+                topRight: Radius.circular(12),
+              ),
             ),
-            child: Row(children: [
-              const Icon(Icons.label_outline, size: 16, color: Color(0xFF007A64)),
-              const SizedBox(width: 8),
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF007A64), fontSize: 14)),
-            ]),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.label_outline,
+                  size: 16,
+                  color: Color(0xFF007A64),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF007A64),
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -224,7 +278,12 @@ class _InvestmentDeclarationScreenState
     );
   }
 
-  Widget _field(String label, TextEditingController controller, {String? hint, double? max}) {
+  Widget _field(
+    String label,
+    TextEditingController controller, {
+    String? hint,
+    double? max,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: TextFormField(
@@ -237,7 +296,10 @@ class _InvestmentDeclarationScreenState
           prefixText: '₹ ',
           suffixText: max != null ? '(max ₹${_fmtK(max)})' : null,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 10,
+          ),
           isDense: true,
         ),
         style: const TextStyle(fontSize: 14),
@@ -273,9 +335,17 @@ class _InvestmentDeclarationScreenState
               child: DropdownButton<String>(
                 value: _selectedFY,
                 dropdownColor: Colors.white,
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w500,
+                ),
                 iconEnabledColor: Colors.white,
-                items: _fyOptions.map((fy) => DropdownMenuItem(value: fy, child: Text('FY $fy'))).toList(),
+                items: _fyOptions
+                    .map(
+                      (fy) =>
+                          DropdownMenuItem(value: fy, child: Text('FY $fy')),
+                    )
+                    .toList(),
                 onChanged: (fy) {
                   if (fy == null) return;
                   setState(() => _selectedFY = fy);
@@ -310,21 +380,47 @@ class _InvestmentDeclarationScreenState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Estimated Tax Deductions', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  const Text(
+                    'Estimated Tax Deductions',
+                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
                   const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      _TotalChip(label: '80C (max ₹1.5L)', value: _fmtCurrency(_total80C), cap: _total80C >= 150000),
+                      _TotalChip(
+                        label: '80C (max ₹1.5L)',
+                        value: _fmtCurrency(_total80C),
+                        cap: _total80C >= 150000,
+                      ),
                       _TotalChip(label: '80D', value: _fmtCurrency(_total80D)),
-                      _TotalChip(label: 'NPS', value: _fmtCurrency(_npsDeduction)),
+                      _TotalChip(
+                        label: 'NPS',
+                        value: _fmtCurrency(_npsDeduction),
+                      ),
                     ],
                   ),
                   const Divider(color: Colors.white24, height: 20),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                    const Text('Total Deductions', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                    Text(_fmtCurrency(_totalDeductions), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
-                  ]),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Total Deductions',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        _fmtCurrency(_totalDeductions),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -347,7 +443,11 @@ class _InvestmentDeclarationScreenState
 
             _section('Other Deductions', [
               _field('NPS Contribution (80CCD)', _nps, max: 50000),
-              _field('Home Loan Interest (24b)', _homeLoanInterest, max: 200000),
+              _field(
+                'Home Loan Interest (24b)',
+                _homeLoanInterest,
+                max: 200000,
+              ),
               _field('Education Loan Interest (80E)', _eduLoanInterest),
             ]),
 
@@ -356,7 +456,10 @@ class _InvestmentDeclarationScreenState
               SwitchListTile(
                 value: _rentReceipt,
                 onChanged: (v) => setState(() => _rentReceipt = v),
-                title: const Text('Rent Receipts Provided', style: TextStyle(fontSize: 14)),
+                title: const Text(
+                  'Rent Receipts Provided',
+                  style: TextStyle(fontSize: 14),
+                ),
                 activeThumbColor: const Color(0xFF007A64),
                 contentPadding: EdgeInsets.zero,
               ),
@@ -370,17 +473,35 @@ class _InvestmentDeclarationScreenState
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFF007A64),
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
                 child: _submitting
-                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('Submit Declaration', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text(
+                        'Submit Declaration',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
               ),
             ),
             const SizedBox(height: 24),
 
             if (_declarations.isNotEmpty) ...[
-              const Text('Past Declarations', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+              const Text(
+                'Past Declarations',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+              ),
               const SizedBox(height: 8),
               ..._declarations.map((d) => _DeclarationCard(d: d)),
             ],
@@ -395,17 +516,31 @@ class _TotalChip extends StatelessWidget {
   final String label;
   final String value;
   final bool cap;
-  const _TotalChip({required this.label, required this.value, this.cap = false});
+  const _TotalChip({
+    required this.label,
+    required this.value,
+    this.cap = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Column(children: [
-      Text(value, style: TextStyle(
-        color: cap ? Colors.amber.shade300 : Colors.white,
-        fontWeight: FontWeight.bold, fontSize: 15)),
-      const SizedBox(height: 2),
-      Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10)),
-    ]);
+    return Column(
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            color: cap ? Colors.amber.shade300 : Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 15,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 10),
+        ),
+      ],
+    );
   }
 }
 
@@ -415,10 +550,14 @@ class _DeclarationCard extends StatelessWidget {
 
   Color get _statusColor {
     switch (d['status']) {
-      case 'approved': return Colors.green;
-      case 'submitted': return Colors.blue;
-      case 'locked': return Colors.purple;
-      default: return Colors.grey;
+      case 'approved':
+        return Colors.green;
+      case 'submitted':
+        return Colors.blue;
+      case 'locked':
+        return Colors.purple;
+      default:
+        return Colors.grey;
     }
   }
 
@@ -427,10 +566,18 @@ class _DeclarationCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
-        title: Text('FY ${d['financial_year']}', style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text('Submitted: ${d['submitted_at'] != null ? d['submitted_at'].toString().split('T')[0] : '—'}'),
+        title: Text(
+          'FY ${d['financial_year']}',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(
+          'Submitted: ${d['submitted_at'] != null ? d['submitted_at'].toString().split('T')[0] : '—'}',
+        ),
         trailing: Chip(
-          label: Text(d['status'] ?? '—', style: const TextStyle(fontSize: 11, color: Colors.white)),
+          label: Text(
+            d['status'] ?? '—',
+            style: const TextStyle(fontSize: 11, color: Colors.white),
+          ),
           backgroundColor: _statusColor,
           padding: EdgeInsets.zero,
           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,

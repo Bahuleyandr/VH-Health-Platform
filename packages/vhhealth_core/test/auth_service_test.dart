@@ -10,27 +10,27 @@ void _installSecureStorageFake() {
 
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(channel, (MethodCall call) async {
-    final args = Map<String, dynamic>.from(call.arguments as Map);
-    switch (call.method) {
-      case 'read':
-        return store[args['key']];
-      case 'write':
-        store[args['key']] = args['value'] as String;
-        return null;
-      case 'delete':
-        store.remove(args['key']);
-        return null;
-      case 'readAll':
-        return Map<String, String>.from(store);
-      case 'deleteAll':
-        store.clear();
-        return null;
-      case 'containsKey':
-        return store.containsKey(args['key']);
-      default:
-        return null;
-    }
-  });
+        final args = Map<String, dynamic>.from(call.arguments as Map);
+        switch (call.method) {
+          case 'read':
+            return store[args['key']];
+          case 'write':
+            store[args['key']] = args['value'] as String;
+            return null;
+          case 'delete':
+            store.remove(args['key']);
+            return null;
+          case 'readAll':
+            return Map<String, String>.from(store);
+          case 'deleteAll':
+            store.clear();
+            return null;
+          case 'containsKey':
+            return store.containsKey(args['key']);
+          default:
+            return null;
+        }
+      });
 }
 
 void main() {
@@ -102,33 +102,32 @@ void main() {
 
     test('ignores empty refreshToken (preserves existing)', () async {
       await AuthService.setRefreshToken('original-refresh');
-      await AuthService.setTokens(
-        accessToken: 'access-new',
-        refreshToken: '',
-      );
+      await AuthService.setTokens(accessToken: 'access-new', refreshToken: '');
       expect(await AuthService.getJwt(), 'access-new');
       expect(await AuthService.getRefreshToken(), 'original-refresh');
     });
   });
 
   group('AuthService — clearAll', () {
-    test('wipes JWT, refresh token, phone, role, employeeId, staffId',
-        () async {
-      await AuthService.setJwt('access-123');
-      await AuthService.setRefreshToken('refresh-xyz');
-      await AuthService.setUserPhone('+919999999999');
-      await AuthService.setUserRole('PATIENT');
-      await AuthService.setEmployeeId('EMP-001');
-      await AuthService.setStaffId('42');
+    test(
+      'wipes JWT, refresh token, phone, role, employeeId, staffId',
+      () async {
+        await AuthService.setJwt('access-123');
+        await AuthService.setRefreshToken('refresh-xyz');
+        await AuthService.setUserPhone('+919999999999');
+        await AuthService.setUserRole('PATIENT');
+        await AuthService.setEmployeeId('EMP-001');
+        await AuthService.setStaffId('42');
 
-      await AuthService.clearAll();
+        await AuthService.clearAll();
 
-      expect(await AuthService.getJwt(), isNull);
-      expect(await AuthService.getRefreshToken(), isNull);
-      expect(await AuthService.getUserPhone(), isNull);
-      expect(await AuthService.getUserRole(), isNull);
-      expect(await AuthService.getEmployeeId(), isNull);
-      expect(await AuthService.getStaffId(), isNull);
-    });
+        expect(await AuthService.getJwt(), isNull);
+        expect(await AuthService.getRefreshToken(), isNull);
+        expect(await AuthService.getUserPhone(), isNull);
+        expect(await AuthService.getUserRole(), isNull);
+        expect(await AuthService.getEmployeeId(), isNull);
+        expect(await AuthService.getStaffId(), isNull);
+      },
+    );
   });
 }

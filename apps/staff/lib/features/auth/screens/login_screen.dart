@@ -202,9 +202,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(height: 8),
                         Text(
                           'Sign In',
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineSmall
+                          style: Theme.of(context).textTheme.headlineSmall
                               ?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: AppTheme.textPrimary,
@@ -265,7 +263,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                 label: 'Quick',
                                 selected: _mode == _LoginMode.quickLogin,
                                 onTap: () => setState(
-                                    () => _mode = _LoginMode.quickLogin),
+                                  () => _mode = _LoginMode.quickLogin,
+                                ),
                               ),
                             ],
                           ],
@@ -300,11 +299,14 @@ class _LoginScreenState extends State<LoginScreen> {
                               labelText: 'Password',
                               prefixIcon: const Icon(Icons.lock_outlined),
                               suffixIcon: IconButton(
-                                icon: Icon(_obscurePassword
-                                    ? Icons.visibility_outlined
-                                    : Icons.visibility_off_outlined),
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                ),
                                 onPressed: () => setState(
-                                    () => _obscurePassword = !_obscurePassword),
+                                  () => _obscurePassword = !_obscurePassword,
+                                ),
                               ),
                             ),
                             validator: LoginService.validatePassword,
@@ -362,12 +364,14 @@ class _LoginScreenState extends State<LoginScreen> {
                               ? Container(
                                   padding: const EdgeInsets.all(14),
                                   decoration: BoxDecoration(
-                                    color: AppTheme.warningAmber
-                                        .withValues(alpha: 0.12),
+                                    color: AppTheme.warningAmber.withValues(
+                                      alpha: 0.12,
+                                    ),
                                     borderRadius: BorderRadius.circular(10),
                                     border: Border.all(
-                                      color: AppTheme.warningAmber
-                                          .withValues(alpha: 0.5),
+                                      color: AppTheme.warningAmber.withValues(
+                                        alpha: 0.5,
+                                      ),
                                       width: 1.5,
                                     ),
                                   ),
@@ -375,9 +379,11 @@ class _LoginScreenState extends State<LoginScreen> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      const Icon(Icons.lock_clock,
-                                          color: AppTheme.warningAmber,
-                                          size: 22),
+                                      const Icon(
+                                        Icons.lock_clock,
+                                        color: AppTheme.warningAmber,
+                                        size: 22,
+                                      ),
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Column(
@@ -396,16 +402,18 @@ class _LoginScreenState extends State<LoginScreen> {
                                             Text(
                                               _error!,
                                               style: const TextStyle(
-                                                  color: AppTheme.warningAmber,
-                                                  fontSize: 12.5),
+                                                color: AppTheme.warningAmber,
+                                                fontSize: 12.5,
+                                              ),
                                             ),
                                             const SizedBox(height: 6),
                                             const Text(
                                               'Too many failed attempts. Try again in 15 minutes or contact your supervisor.',
                                               style: TextStyle(
-                                                  color: AppTheme.warningAmber,
-                                                  fontSize: 11.5,
-                                                  fontStyle: FontStyle.italic),
+                                                color: AppTheme.warningAmber,
+                                                fontSize: 11.5,
+                                                fontStyle: FontStyle.italic,
+                                              ),
                                             ),
                                           ],
                                         ),
@@ -416,24 +424,31 @@ class _LoginScreenState extends State<LoginScreen> {
                               : Container(
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
-                                    color: AppTheme.errorRed
-                                        .withValues(alpha: 0.08),
+                                    color: AppTheme.errorRed.withValues(
+                                      alpha: 0.08,
+                                    ),
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
-                                        color: AppTheme.errorRed
-                                            .withValues(alpha: 0.3)),
+                                      color: AppTheme.errorRed.withValues(
+                                        alpha: 0.3,
+                                      ),
+                                    ),
                                   ),
                                   child: Row(
                                     children: [
-                                      const Icon(Icons.error_outline,
-                                          color: AppTheme.errorRed, size: 18),
+                                      const Icon(
+                                        Icons.error_outline,
+                                        color: AppTheme.errorRed,
+                                        size: 18,
+                                      ),
                                       const SizedBox(width: 8),
                                       Expanded(
                                         child: Text(
                                           _error!,
                                           style: const TextStyle(
-                                              color: AppTheme.errorRed,
-                                              fontSize: 13),
+                                            color: AppTheme.errorRed,
+                                            fontSize: 13,
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -450,13 +465,17 @@ class _LoginScreenState extends State<LoginScreen> {
                                   height: 22,
                                   width: 22,
                                   child: CircularProgressIndicator(
-                                      color: Colors.white, strokeWidth: 2.5),
+                                    color: Colors.white,
+                                    strokeWidth: 2.5,
+                                  ),
                                 )
-                              : Text(_mode == _LoginMode.password
-                                  ? 'Sign In with Password'
-                                  : _mode == _LoginMode.quickLogin
+                              : Text(
+                                  _mode == _LoginMode.password
+                                      ? 'Sign In with Password'
+                                      : _mode == _LoginMode.quickLogin
                                       ? 'Quick Sign In'
-                                      : 'Sign In with PIN'),
+                                      : 'Sign In with PIN',
+                                ),
                         ),
 
                         const SizedBox(height: 32),
@@ -466,7 +485,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: Text(
                             'VHHealth · Staff Access Only',
                             style: TextStyle(
-                                color: AppTheme.textSecondary, fontSize: 12),
+                              color: AppTheme.textSecondary,
+                              fontSize: 12,
+                            ),
                           ),
                         ),
                       ],
@@ -487,8 +508,11 @@ class _ModeChip extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
-  const _ModeChip(
-      {required this.label, required this.selected, required this.onTap});
+  const _ModeChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {

@@ -6,8 +6,10 @@ output-dir: lib/generated
 output-localization-file: app_localizations.dart
 output-class: AppLocalizations
 
-# ▶ Prevent gen-l10n from using the synthetic-package path
-synthetic-package: false
+# Non-English ARB files intentionally trail English during stabilization.
+# Missing translation warnings are tracked in docs/PLATFORM_REMEDIATION_PLAN.md.
+suppress-warnings: true
+untranslated-messages-file: build/l10n-untranslated-messages.json
 
 preferred-supported-locales:
   - en

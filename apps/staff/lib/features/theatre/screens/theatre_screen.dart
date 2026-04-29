@@ -48,22 +48,52 @@ class _TheatreScreenState extends State<TheatreScreen>
   }
 
   Future<void> _fetchSchedule() async {
-    if (mounted) setState(() { _loading = true; _error = null; });
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final data = await TheatreApiService.getTodaySchedule(date: _dateStr);
-      if (mounted) setState(() { _schedule = data; _loading = false; });
+      if (mounted) {
+        setState(() {
+          _schedule = data;
+          _loading = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _loading = false; });
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loading = false;
+        });
+      }
     }
   }
 
   Future<void> _fetchAvailability() async {
-    if (mounted) setState(() { _loading = true; _error = null; });
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final data = await TheatreApiService.getAvailability(_dateStr);
-      if (mounted) setState(() { _availability = data; _loading = false; });
+      if (mounted) {
+        setState(() {
+          _availability = data;
+          _loading = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _loading = false; });
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -126,10 +156,7 @@ class _TheatreScreenState extends State<TheatreScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [
-          _buildScheduleTab(),
-          _buildAvailabilityTab(),
-        ],
+        children: [_buildScheduleTab(), _buildAvailabilityTab()],
       ),
     );
   }
@@ -141,19 +168,23 @@ class _TheatreScreenState extends State<TheatreScreen>
     return RefreshIndicator(
       onRefresh: _fetchSchedule,
       child: _schedule.isEmpty
-          ? ListView(children: const [
-              SizedBox(height: 120),
-              Center(
-                child: Column(
-                  children: [
-                    Icon(Icons.event_busy, size: 64, color: Colors.grey),
-                    SizedBox(height: 12),
-                    Text('No surgeries scheduled',
-                        style: TextStyle(color: Colors.grey, fontSize: 16)),
-                  ],
+          ? ListView(
+              children: const [
+                SizedBox(height: 120),
+                Center(
+                  child: Column(
+                    children: [
+                      Icon(Icons.event_busy, size: 64, color: Colors.grey),
+                      SizedBox(height: 12),
+                      Text(
+                        'No surgeries scheduled',
+                        style: TextStyle(color: Colors.grey, fontSize: 16),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ])
+              ],
+            )
           : ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: _schedule.length,
@@ -168,8 +199,9 @@ class _TheatreScreenState extends State<TheatreScreen>
   Widget _buildSurgeryCard(Map<String, dynamic> s) {
     final status = s['status']?.toString();
     final patientUid = s['patient_uid']?.toString() ?? '';
-    final displayUid =
-        patientUid.length > 8 ? '${patientUid.substring(0, 8)}...' : patientUid;
+    final displayUid = patientUid.length > 8
+        ? '${patientUid.substring(0, 8)}...'
+        : patientUid;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -194,8 +226,10 @@ class _TheatreScreenState extends State<TheatreScreen>
                     ),
                   ),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: _statusColor(status).withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(20),
@@ -216,18 +250,24 @@ class _TheatreScreenState extends State<TheatreScreen>
                 children: [
                   _infoChip(Icons.person, displayUid),
                   const SizedBox(width: 12),
-                  _infoChip(Icons.meeting_room,
-                      'OT ${s['ot_room']?.toString() ?? '-'}'),
+                  _infoChip(
+                    Icons.meeting_room,
+                    'OT ${s['ot_room']?.toString() ?? '-'}',
+                  ),
                   const SizedBox(width: 12),
-                  _infoChip(Icons.access_time,
-                      s['scheduled_time']?.toString() ?? '-'),
+                  _infoChip(
+                    Icons.access_time,
+                    s['scheduled_time']?.toString() ?? '-',
+                  ),
                 ],
               ),
               const SizedBox(height: 6),
               Text(
                 'Surgeon: ${s['surgeon']?.toString() ?? '-'}',
                 style: const TextStyle(
-                    fontSize: 13, color: AppTheme.textSecondary),
+                  fontSize: 13,
+                  color: AppTheme.textSecondary,
+                ),
               ),
             ],
           ),
@@ -242,9 +282,10 @@ class _TheatreScreenState extends State<TheatreScreen>
       children: [
         Icon(icon, size: 14, color: AppTheme.textSecondary),
         const SizedBox(width: 4),
-        Text(text,
-            style:
-                const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+        Text(
+          text,
+          style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+        ),
       ],
     );
   }
@@ -291,17 +332,35 @@ class _TheatreScreenState extends State<TheatreScreen>
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _detailRow('Patient UID', s['patient_uid']?.toString() ?? '-'),
-                  _detailRow('Procedure Code', s['procedure_code']?.toString() ?? '-'),
+                  _detailRow(
+                    'Patient UID',
+                    s['patient_uid']?.toString() ?? '-',
+                  ),
+                  _detailRow(
+                    'Procedure Code',
+                    s['procedure_code']?.toString() ?? '-',
+                  ),
                   _detailRow('OT Room', s['ot_room']?.toString() ?? '-'),
                   _detailRow('Date', s['scheduled_date']?.toString() ?? '-'),
                   _detailRow('Time', s['scheduled_time']?.toString() ?? '-'),
-                  _detailRow('Duration', '${s['estimated_duration'] ?? '-'} min'),
+                  _detailRow(
+                    'Duration',
+                    '${s['estimated_duration'] ?? '-'} min',
+                  ),
                   _detailRow('Surgeon', s['surgeon']?.toString() ?? '-'),
-                  _detailRow('Anesthetist', s['anesthetist']?.toString() ?? '-'),
+                  _detailRow(
+                    'Anesthetist',
+                    s['anesthetist']?.toString() ?? '-',
+                  ),
                   _detailRow('Status', _statusLabel(status)),
-                  _detailRow('Blood Arranged', s['blood_arranged'] == true ? 'Yes' : 'No'),
-                  _detailRow('Consent', s['consent_obtained'] == true ? 'Yes' : 'No'),
+                  _detailRow(
+                    'Blood Arranged',
+                    s['blood_arranged'] == true ? 'Yes' : 'No',
+                  ),
+                  _detailRow(
+                    'Consent',
+                    s['consent_obtained'] == true ? 'Yes' : 'No',
+                  ),
                   if (s['equipment_needed'] != null)
                     _detailRow('Equipment', s['equipment_needed'].toString()),
                   const SizedBox(height: 24),
@@ -310,7 +369,8 @@ class _TheatreScreenState extends State<TheatreScreen>
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: () => _updateStatus(ctx, id, 'in_progress'),
+                          onPressed: () =>
+                              _updateStatus(ctx, id, 'in_progress'),
                           icon: const Icon(Icons.play_arrow),
                           label: const Text('Start Surgery'),
                         ),
@@ -323,7 +383,8 @@ class _TheatreScreenState extends State<TheatreScreen>
                           icon: const Icon(Icons.check_circle),
                           label: const Text('Mark Complete'),
                           style: ElevatedButton.styleFrom(
-                              backgroundColor: AppTheme.successGreen),
+                            backgroundColor: AppTheme.successGreen,
+                          ),
                         ),
                       ),
                     ],
@@ -372,14 +433,19 @@ class _TheatreScreenState extends State<TheatreScreen>
         children: [
           SizedBox(
             width: 130,
-            child: Text(label,
-                style: const TextStyle(
-                    color: AppTheme.textSecondary, fontSize: 13)),
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 13,
+              ),
+            ),
           ),
           Expanded(
-            child: Text(value,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w500, fontSize: 13)),
+            child: Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+            ),
           ),
         ],
       ),
@@ -387,7 +453,10 @@ class _TheatreScreenState extends State<TheatreScreen>
   }
 
   Future<void> _updateStatus(
-      BuildContext sheetCtx, int id, String status) async {
+    BuildContext sheetCtx,
+    int id,
+    String status,
+  ) async {
     Navigator.pop(sheetCtx);
     try {
       await TheatreApiService.updateStatus(id, status);
@@ -453,20 +522,17 @@ class _TheatreScreenState extends State<TheatreScreen>
                   SwitchListTile(
                     title: const Text('Consent Obtained'),
                     value: consentObtained,
-                    onChanged: (v) =>
-                        setSheetState(() => consentObtained = v),
+                    onChanged: (v) => setSheetState(() => consentObtained = v),
                   ),
                   SwitchListTile(
                     title: const Text('Blood Arranged'),
                     value: bloodArranged,
-                    onChanged: (v) =>
-                        setSheetState(() => bloodArranged = v),
+                    onChanged: (v) => setSheetState(() => bloodArranged = v),
                   ),
                   SwitchListTile(
                     title: const Text('Equipment Checked'),
                     value: equipmentChecked,
-                    onChanged: (v) =>
-                        setSheetState(() => equipmentChecked = v),
+                    onChanged: (v) => setSheetState(() => equipmentChecked = v),
                   ),
                   SwitchListTile(
                     title: const Text('Patient Identified'),
@@ -490,7 +556,8 @@ class _TheatreScreenState extends State<TheatreScreen>
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                  content: Text('Checklist updated')),
+                                content: Text('Checklist updated'),
+                              ),
                             );
                           }
                           _fetchSchedule();
@@ -524,19 +591,23 @@ class _TheatreScreenState extends State<TheatreScreen>
     return RefreshIndicator(
       onRefresh: _fetchAvailability,
       child: _availability.isEmpty
-          ? ListView(children: const [
-              SizedBox(height: 120),
-              Center(
-                child: Column(
-                  children: [
-                    Icon(Icons.meeting_room, size: 64, color: Colors.grey),
-                    SizedBox(height: 12),
-                    Text('No room data available',
-                        style: TextStyle(color: Colors.grey, fontSize: 16)),
-                  ],
+          ? ListView(
+              children: const [
+                SizedBox(height: 120),
+                Center(
+                  child: Column(
+                    children: [
+                      Icon(Icons.meeting_room, size: 64, color: Colors.grey),
+                      SizedBox(height: 12),
+                      Text(
+                        'No room data available',
+                        style: TextStyle(color: Colors.grey, fontSize: 16),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ])
+              ],
+            )
           : GridView.builder(
               padding: const EdgeInsets.all(16),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -548,7 +619,8 @@ class _TheatreScreenState extends State<TheatreScreen>
               itemCount: _availability.length,
               itemBuilder: (context, i) {
                 final room = _availability[i] as Map<String, dynamic>;
-                final available = room['available'] == true ||
+                final available =
+                    room['available'] == true ||
                     room['status']?.toString().toLowerCase() == 'available';
                 final name =
                     room['name']?.toString() ?? 'OT ${room['id'] ?? i + 1}';
@@ -579,12 +651,15 @@ class _TheatreScreenState extends State<TheatreScreen>
                         const SizedBox(height: 4),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 3),
+                            horizontal: 10,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
-                            color: (available
-                                    ? AppTheme.successGreen
-                                    : AppTheme.errorRed)
-                                .withValues(alpha: 0.12),
+                            color:
+                                (available
+                                        ? AppTheme.successGreen
+                                        : AppTheme.errorRed)
+                                    .withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
@@ -614,8 +689,7 @@ class _TheatreScreenState extends State<TheatreScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline,
-                size: 48, color: AppTheme.errorRed),
+            const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
             const SizedBox(height: 16),
             Text(
               _error ?? 'Something went wrong',

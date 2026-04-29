@@ -104,10 +104,7 @@ class _HandoverScreenState extends State<HandoverScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -130,10 +127,7 @@ class _HandoverScreenState extends State<HandoverScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [
-          _buildWriteTab(),
-          _buildRecentTab(),
-        ],
+        children: [_buildWriteTab(), _buildRecentTab()],
       ),
     );
   }
@@ -250,8 +244,11 @@ class _HandoverScreenState extends State<HandoverScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.note_alt_outlined,
-                size: 64, color: Colors.grey.shade400),
+            Icon(
+              Icons.note_alt_outlined,
+              size: 64,
+              color: Colors.grey.shade400,
+            ),
             const SizedBox(height: 12),
             const Text(
               'No recent handover notes',

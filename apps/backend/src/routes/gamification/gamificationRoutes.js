@@ -20,7 +20,7 @@ router.get('/adherence-risk/:patientId', async (req, res) => {
     const result = await scoreAdherenceRisk(pid);
     if (!result) return error(res, 'Patient not found', 404);
     return success(res, result, 'Adherence risk score');
-  } catch (e) {
+  } catch (_e) {
     return error(res, 'Failed to compute adherence risk', 500);
   }
 });

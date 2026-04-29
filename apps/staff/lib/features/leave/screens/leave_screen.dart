@@ -65,12 +65,13 @@ class _LeaveScreenState extends State<LeaveScreen>
       }
 
       final results = await Future.wait([
-        LeaveApiService.getLeaveBalance(staffId)
-            .catchError((_) => <String, dynamic>{}),
-        LeaveApiService.getMyLeaves(staffId)
-            .catchError((_) => <String, dynamic>{'leaves': []}),
-        LeaveApiService.getReplacementRequests()
-            .catchError((_) => <dynamic>[]),
+        LeaveApiService.getLeaveBalance(
+          staffId,
+        ).catchError((_) => <String, dynamic>{}),
+        LeaveApiService.getMyLeaves(
+          staffId,
+        ).catchError((_) => <String, dynamic>{'leaves': []}),
+        LeaveApiService.getReplacementRequests().catchError((_) => <dynamic>[]),
         HrApiService.getStaffList().catchError((_) => <dynamic>[]),
       ]);
 
@@ -78,7 +79,8 @@ class _LeaveScreenState extends State<LeaveScreen>
         setState(() {
           _leaveBalance = results[0] as Map<String, dynamic>?;
           final leavesResult = results[1] as Map<String, dynamic>;
-          _myLeaves = leavesResult['leaves'] as List? ??
+          _myLeaves =
+              leavesResult['leaves'] as List? ??
               leavesResult['data'] as List? ??
               leavesResult['applications'] as List? ??
               leavesResult['history'] as List? ??
@@ -100,17 +102,21 @@ class _LeaveScreenState extends State<LeaveScreen>
 
   Future<void> _submitLeave() async {
     if (_startDate == null || _endDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Please select dates'),
-        backgroundColor: Colors.red,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select dates'),
+          backgroundColor: Colors.red,
+        ),
+      );
       return;
     }
     if (_reasonCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Please provide a reason'),
-        backgroundColor: Colors.red,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please provide a reason'),
+          backgroundColor: Colors.red,
+        ),
+      );
       return;
     }
 
@@ -126,10 +132,12 @@ class _LeaveScreenState extends State<LeaveScreen>
         replacementStaffId: _selectedReplacementId,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('✅ Leave application submitted'),
-          backgroundColor: Colors.green,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Leave application submitted'),
+            backgroundColor: Colors.green,
+          ),
+        );
         _reasonCtrl.clear();
         setState(() {
           _startDate = null;
@@ -142,10 +150,12 @@ class _LeaveScreenState extends State<LeaveScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: Colors.red,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -200,8 +210,10 @@ class _LeaveScreenState extends State<LeaveScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Leave Balance',
-                style: TextStyle(color: Colors.white70, fontSize: 12)),
+            const Text(
+              'Leave Balance',
+              style: TextStyle(color: Colors.white70, fontSize: 12),
+            ),
             const SizedBox(height: 8),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -213,21 +225,30 @@ class _LeaveScreenState extends State<LeaveScreen>
                   return Container(
                     margin: const EdgeInsets.only(right: 10),
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 8),
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Column(
                       children: [
-                        Text('$remaining/$total',
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16)),
-                        Text(type.toString().replaceAll('_', ' '),
-                            style: const TextStyle(
-                                color: Colors.white70, fontSize: 11)),
+                        Text(
+                          '$remaining/$total',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        Text(
+                          type.toString().replaceAll('_', ' '),
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                          ),
+                        ),
                       ],
                     ),
                   );
@@ -247,10 +268,14 @@ class _LeaveScreenState extends State<LeaveScreen>
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
           _balanceItem(
-              'Annual', balance['annual'] ?? balance['annual_leave'] ?? '-'),
+            'Annual',
+            balance['annual'] ?? balance['annual_leave'] ?? '-',
+          ),
           _balanceItem('Sick', balance['sick'] ?? balance['sick_leave'] ?? '-'),
           _balanceItem(
-              'Casual', balance['casual'] ?? balance['casual_leave'] ?? '-'),
+            'Casual',
+            balance['casual'] ?? balance['casual_leave'] ?? '-',
+          ),
           _balanceItem('Used', balance['used'] ?? '-'),
         ],
       ),
@@ -258,15 +283,19 @@ class _LeaveScreenState extends State<LeaveScreen>
   }
 
   Widget _balanceItem(String label, dynamic value) {
-    return Column(children: [
-      Text('$value',
+    return Column(
+      children: [
+        Text(
+          '$value',
           style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF007A64))),
-      Text(label,
-          style: const TextStyle(fontSize: 11, color: Colors.grey)),
-    ]);
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF007A64),
+          ),
+        ),
+        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      ],
+    );
   }
 
   Widget _buildApplyTab() {
@@ -285,34 +314,46 @@ class _LeaveScreenState extends State<LeaveScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Leave type
-          const Text('Leave Type',
-              style: TextStyle(fontWeight: FontWeight.w600)),
+          const Text(
+            'Leave Type',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             initialValue: _leaveType,
             decoration: const InputDecoration(border: OutlineInputBorder()),
             items: leaveTypes
-                .map((t) => DropdownMenuItem(
+                .map(
+                  (t) => DropdownMenuItem(
                     value: t,
-                    child: Text(t[0].toUpperCase() + t.substring(1))))
+                    child: Text(t[0].toUpperCase() + t.substring(1)),
+                  ),
+                )
                 .toList(),
             onChanged: (v) => setState(() => _leaveType = v!),
           ),
           const SizedBox(height: 16),
 
           // Date range
-          const Text('Dates',
-              style: TextStyle(fontWeight: FontWeight.w600)),
+          const Text('Dates', style: TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
-                  child: _datePicker('Start Date', _startDate,
-                      (d) => setState(() => _startDate = d))),
+                child: _datePicker(
+                  'Start Date',
+                  _startDate,
+                  (d) => setState(() => _startDate = d),
+                ),
+              ),
               const SizedBox(width: 12),
               Expanded(
-                  child: _datePicker('End Date', _endDate,
-                      (d) => setState(() => _endDate = d))),
+                child: _datePicker(
+                  'End Date',
+                  _endDate,
+                  (d) => setState(() => _endDate = d),
+                ),
+              ),
             ],
           ),
           if (_startDate != null && _endDate != null)
@@ -320,52 +361,62 @@ class _LeaveScreenState extends State<LeaveScreen>
               padding: const EdgeInsets.only(top: 6),
               child: Text(
                 '${_endDate!.difference(_startDate!).inDays + 1} day(s)',
-                style: const TextStyle(color: AppTheme.primaryBlue, fontSize: 12),
+                style: const TextStyle(
+                  color: AppTheme.primaryBlue,
+                  fontSize: 12,
+                ),
               ),
             ),
           const SizedBox(height: 16),
 
           // Reason
-          const Text('Reason',
-              style: TextStyle(fontWeight: FontWeight.w600)),
+          const Text('Reason', style: TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           TextField(
             controller: _reasonCtrl,
             decoration: const InputDecoration(
-                hintText: 'Brief reason for leave',
-                border: OutlineInputBorder()),
+              hintText: 'Brief reason for leave',
+              border: OutlineInputBorder(),
+            ),
             maxLines: 3,
           ),
           const SizedBox(height: 16),
 
           // Replacement staff
-          const Text('Replacement Staff (Optional)',
-              style: TextStyle(fontWeight: FontWeight.w600)),
+          const Text(
+            'Replacement Staff (Optional)',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 4),
-          Text('Select a colleague to cover for you',
-              style:
-                  TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          Text(
+            'Select a colleague to cover for you',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
           const SizedBox(height: 8),
           InkWell(
             onTap: () => _showStaffPicker(),
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade400),
-                  borderRadius: BorderRadius.circular(8)),
+                border: Border.all(color: Colors.grey.shade400),
+                borderRadius: BorderRadius.circular(8),
+              ),
               child: Row(
                 children: [
-                  const Icon(Icons.person_add_outlined,
-                      size: 18, color: Colors.grey),
+                  const Icon(
+                    Icons.person_add_outlined,
+                    size: 18,
+                    color: Colors.grey,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      _selectedReplacementName ??
-                          'Tap to select replacement',
+                      _selectedReplacementName ?? 'Tap to select replacement',
                       style: TextStyle(
-                          color: _selectedReplacementName != null
-                              ? Colors.black
-                              : Colors.grey.shade600),
+                        color: _selectedReplacementName != null
+                            ? Colors.black
+                            : Colors.grey.shade600,
+                      ),
                     ),
                   ),
                   if (_selectedReplacementName != null)
@@ -374,8 +425,11 @@ class _LeaveScreenState extends State<LeaveScreen>
                         _selectedReplacementId = null;
                         _selectedReplacementName = null;
                       }),
-                      child: const Icon(Icons.clear,
-                          size: 16, color: Colors.grey),
+                      child: const Icon(
+                        Icons.clear,
+                        size: 16,
+                        color: Colors.grey,
+                      ),
                     ),
                 ],
               ),
@@ -389,36 +443,61 @@ class _LeaveScreenState extends State<LeaveScreen>
             child: ElevatedButton(
               onPressed: _submitting ? null : _submitLeave,
               style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryBlue,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12))),
+                backgroundColor: AppTheme.primaryBlue,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
               child: _submitting
                   ? const CircularProgressIndicator(
-                      color: Colors.white, strokeWidth: 2)
-                  : const Text('Submit Leave Application',
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    )
+                  : const Text(
+                      'Submit Leave Application',
                       style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white)),
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
             ),
           ),
           const SizedBox(height: 12),
           Card(
             child: ListTile(
-              leading: const Icon(Icons.timer_outlined, color: Color(0xFF007A64)),
-              title: const Text('Overtime Request', style: TextStyle(fontWeight: FontWeight.w600)),
+              leading: const Icon(
+                Icons.timer_outlined,
+                color: Color(0xFF007A64),
+              ),
+              title: const Text(
+                'Overtime Request',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               subtitle: const Text('Log extra hours worked'),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const OvertimeScreen())),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const OvertimeScreen()),
+              ),
             ),
           ),
           Card(
             child: ListTile(
-              leading: const Icon(Icons.report_problem_outlined, color: Colors.orange),
-              title: const Text('Attendance Dispute', style: TextStyle(fontWeight: FontWeight.w600)),
+              leading: const Icon(
+                Icons.report_problem_outlined,
+                color: Colors.orange,
+              ),
+              title: const Text(
+                'Attendance Dispute',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               subtitle: const Text('Report a recording issue'),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DisputeScreen())),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DisputeScreen()),
+              ),
             ),
           ),
         ],
@@ -426,8 +505,7 @@ class _LeaveScreenState extends State<LeaveScreen>
     );
   }
 
-  Widget _datePicker(
-      String label, DateTime? date, Function(DateTime) onPick) {
+  Widget _datePicker(String label, DateTime? date, Function(DateTime) onPick) {
     return InkWell(
       onTap: () async {
         final picked = await showDatePicker(
@@ -441,23 +519,20 @@ class _LeaveScreenState extends State<LeaveScreen>
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.shade400),
-            borderRadius: BorderRadius.circular(8)),
+          border: Border.all(color: Colors.grey.shade400),
+          borderRadius: BorderRadius.circular(8),
+        ),
         child: Row(
           children: [
-            const Icon(Icons.calendar_today,
-                size: 16, color: Colors.grey),
+            const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
             const SizedBox(width: 6),
             Expanded(
               child: Text(
-                date != null
-                    ? DateFormat('d MMM').format(date)
-                    : label,
+                date != null ? DateFormat('d MMM').format(date) : label,
                 style: TextStyle(
-                    color: date != null
-                        ? Colors.black
-                        : Colors.grey.shade600,
-                    fontSize: 13),
+                  color: date != null ? Colors.black : Colors.grey.shade600,
+                  fontSize: 13,
+                ),
               ),
             ),
           ],
@@ -479,19 +554,16 @@ class _LeaveScreenState extends State<LeaveScreen>
               : ListView.builder(
                   itemCount: _staffList.length,
                   itemBuilder: (c, i) {
-                    final staff =
-                        _staffList[i] as Map<String, dynamic>;
-                    final name = staff['name'] as String? ??
+                    final staff = _staffList[i] as Map<String, dynamic>;
+                    final name =
+                        staff['name'] as String? ??
                         staff['full_name'] as String? ??
                         'Unknown';
-                    final id =
-                        (staff['id'] ?? staff['user_id']).toString();
+                    final id = (staff['id'] ?? staff['user_id']).toString();
                     return ListTile(
-                      leading:
-                          CircleAvatar(child: Text(name[0].toUpperCase())),
+                      leading: CircleAvatar(child: Text(name[0].toUpperCase())),
                       title: Text(name),
-                      subtitle:
-                          Text(staff['department'] as String? ?? ''),
+                      subtitle: Text(staff['department'] as String? ?? ''),
                       onTap: () {
                         setState(() {
                           _selectedReplacementId = id;
@@ -515,8 +587,10 @@ class _LeaveScreenState extends State<LeaveScreen>
           children: [
             Icon(Icons.event_note, size: 48, color: Colors.grey.shade400),
             const SizedBox(height: 12),
-            Text('No leave applications',
-                style: TextStyle(color: Colors.grey.shade600)),
+            Text(
+              'No leave applications',
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
           ],
         ),
       );
@@ -530,31 +604,35 @@ class _LeaveScreenState extends State<LeaveScreen>
         final statusColor = status == 'approved'
             ? Colors.green
             : status == 'rejected'
-                ? Colors.red
-                : Colors.orange;
-        final leaveType =
-            (leave['leave_type'] ?? leave['type'] ?? 'Leave').toString();
+            ? Colors.red
+            : Colors.orange;
+        final leaveType = (leave['leave_type'] ?? leave['type'] ?? 'Leave')
+            .toString();
         return Card(
           child: ListTile(
             title: Text(
-                '${leaveType.toUpperCase().replaceAll('_', ' ')} LEAVE'),
+              '${leaveType.toUpperCase().replaceAll('_', ' ')} LEAVE',
+            ),
             subtitle: Text(
               '${leave['start_date'] ?? ''} to ${leave['end_date'] ?? ''}'
               '${leave['reason'] != null ? '\n${leave['reason']}' : ''}',
             ),
             isThreeLine: leave['reason'] != null,
             trailing: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: statusColor)),
-              child: Text(status.toUpperCase(),
-                  style: TextStyle(
-                      color: statusColor,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold)),
+                color: statusColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: statusColor),
+              ),
+              child: Text(
+                status.toUpperCase(),
+                style: TextStyle(
+                  color: statusColor,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           ),
         );
@@ -570,8 +648,10 @@ class _LeaveScreenState extends State<LeaveScreen>
           children: [
             Icon(Icons.swap_horiz, size: 48, color: Colors.grey.shade400),
             const SizedBox(height: 8),
-            Text('No pending replacement requests',
-                style: TextStyle(color: Colors.grey.shade600)),
+            Text(
+              'No pending replacement requests',
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
           ],
         ),
       );
@@ -582,8 +662,7 @@ class _LeaveScreenState extends State<LeaveScreen>
       itemCount: _replacementRequests.length,
       itemBuilder: (ctx, i) {
         final req = _replacementRequests[i] as Map<String, dynamic>;
-        final requesterName =
-            req['requester_name'] as String? ?? 'Unknown';
+        final requesterName = req['requester_name'] as String? ?? 'Unknown';
         final dates = req['dates'] as String? ?? '';
         final status = req['status'] as String? ?? 'pending';
         final isPending = status == 'pending';
@@ -594,69 +673,90 @@ class _LeaveScreenState extends State<LeaveScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [
-                  const Icon(Icons.person, size: 16),
-                  const SizedBox(width: 4),
-                  Text(requesterName,
-                      style:
-                          const TextStyle(fontWeight: FontWeight.bold)),
-                  const Spacer(),
-                  if (!isPending)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
+                Row(
+                  children: [
+                    const Icon(Icons.person, size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      requesterName,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const Spacer(),
+                    if (!isPending)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
                           color: status == 'accepted'
                               ? Colors.green.shade100
                               : Colors.red.shade100,
-                          borderRadius: BorderRadius.circular(8)),
-                      child: Text(
-                        status.toUpperCase(),
-                        style: TextStyle(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          status.toUpperCase(),
+                          style: TextStyle(
                             fontSize: 10,
                             color: status == 'accepted'
                                 ? Colors.green.shade700
                                 : Colors.red.shade700,
-                            fontWeight: FontWeight.bold),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
-                    ),
-                ]),
+                  ],
+                ),
                 const SizedBox(height: 4),
-                Text('Requesting coverage for: $dates',
-                    style: TextStyle(
-                        fontSize: 12, color: Colors.grey.shade600)),
+                Text(
+                  'Requesting coverage for: $dates',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
                 if (req['requester_message'] != null) ...[
                   const SizedBox(height: 4),
-                  Text('"${req['requester_message']}"',
-                      style: const TextStyle(
-                          fontStyle: FontStyle.italic, fontSize: 12)),
+                  Text(
+                    '"${req['requester_message']}"',
+                    style: const TextStyle(
+                      fontStyle: FontStyle.italic,
+                      fontSize: 12,
+                    ),
+                  ),
                 ],
                 if (isPending) ...[
                   const SizedBox(height: 12),
-                  Row(children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => _respondToReplacement(
-                            req['id'].toString(), 'declined'),
-                        style: OutlinedButton.styleFrom(
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => _respondToReplacement(
+                            req['id'].toString(),
+                            'declined',
+                          ),
+                          style: OutlinedButton.styleFrom(
                             foregroundColor: Colors.red,
-                            side:
-                                const BorderSide(color: Colors.red)),
-                        child: const Text('Decline'),
+                            side: const BorderSide(color: Colors.red),
+                          ),
+                          child: const Text('Decline'),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => _respondToReplacement(
-                            req['id'].toString(), 'accepted'),
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.primaryBlue),
-                        child: const Text('Accept',
-                            style: TextStyle(color: Colors.white)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => _respondToReplacement(
+                            req['id'].toString(),
+                            'accepted',
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryBlue,
+                          ),
+                          child: const Text(
+                            'Accept',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        ),
                       ),
-                    ),
-                  ]),
+                    ],
+                  ),
                 ],
               ],
             ),
@@ -666,28 +766,33 @@ class _LeaveScreenState extends State<LeaveScreen>
     );
   }
 
-  Future<void> _respondToReplacement(
-      String requestId, String status) async {
+  Future<void> _respondToReplacement(String requestId, String status) async {
     try {
       await LeaveApiService.respondToReplacement(
-          requestId: requestId, status: status);
+        requestId: requestId,
+        status: status,
+      );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(status == 'accepted'
-              ? '✅ Request accepted'
-              : '❌ Request declined'),
-          backgroundColor:
-              status == 'accepted' ? Colors.green : Colors.red,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              status == 'accepted'
+                  ? '✅ Request accepted'
+                  : '❌ Request declined',
+            ),
+            backgroundColor: status == 'accepted' ? Colors.green : Colors.red,
+          ),
+        );
         _loadAll();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content:
-              Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: Colors.red,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }

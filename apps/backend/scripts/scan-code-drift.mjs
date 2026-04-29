@@ -102,7 +102,6 @@ function walkJs(dir, out = []) {
 // followed by the first string argument — backtick or single-quote.
 // We grab everything up to the close of the first string literal, then
 // the SQL analyser below tolerates template-interpolation remnants.
-const SQL_RE = /\$(?:query|execute)Raw(?:Unsafe)?\s*[`(]\s*(`(?:\\.|[^`\\])*`|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")/g;
 // Template-tag form: $queryRaw`SELECT ...`  — captured by the backtick alt above.
 // But the first char matched is either ` or ( — if it's `, we already have the template string.
 const TEMPLATE_RE = /\$(?:query|execute)Raw(?:Unsafe)?\s*`((?:\\.|[^`\\])*)`/g;

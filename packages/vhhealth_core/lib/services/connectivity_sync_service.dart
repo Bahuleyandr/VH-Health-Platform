@@ -137,7 +137,9 @@ class ConnectivitySyncService extends ChangeNotifier {
       }
 
       if (kDebugMode) {
-        debugPrint('ConnectivitySync: syncing ${pending.length} pending writes');
+        debugPrint(
+          'ConnectivitySync: syncing ${pending.length} pending writes',
+        );
       }
 
       for (final write in pending) {
@@ -176,15 +178,20 @@ class ConnectivitySyncService extends ChangeNotifier {
               debugPrint('ConnectivitySync: synced id=$id ($endpoint)');
             }
           } else if (resp.statusCode == 409 || resp.statusCode == 422) {
-            final reason = resp.message ?? 'Resource was modified on the server';
+            final reason =
+                resp.message ?? 'Resource was modified on the server';
             await OfflineQueue.markConflict(id, reason);
             if (kDebugMode) {
-              debugPrint('ConnectivitySync: CONFLICT id=$id ($endpoint): $reason');
+              debugPrint(
+                'ConnectivitySync: CONFLICT id=$id ($endpoint): $reason',
+              );
             }
           } else {
             await OfflineQueue.incrementRetry(id);
             if (kDebugMode) {
-              debugPrint('ConnectivitySync: failed id=$id (${resp.statusCode})');
+              debugPrint(
+                'ConnectivitySync: failed id=$id (${resp.statusCode})',
+              );
             }
           }
         } catch (e) {

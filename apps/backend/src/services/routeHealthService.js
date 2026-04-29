@@ -192,7 +192,7 @@ export class RouteHealthService {
   _calculateCategoryHealth(routeStatus) {
     const categoryHealth = {};
     
-    for (const [routeName, health] of Object.entries(routeStatus)) {
+    for (const health of Object.values(routeStatus)) {
       const category = health.category;
       if (!categoryHealth[category]) {
         categoryHealth[category] = { total: 0, healthy: 0, unhealthy: 0, stubbed: 0 };
@@ -229,7 +229,7 @@ export class RouteHealthService {
   _calculatePriorityHealth(routeStatus) {
     const priorityHealth = {};
     
-    for (const [routeName, health] of Object.entries(routeStatus)) {
+    for (const health of Object.values(routeStatus)) {
         const priority = health.priority;
         if (!priorityHealth[priority]) {
           priorityHealth[priority] = { total: 0, healthy: 0, unhealthy: 0, stubbed: 0 };
@@ -269,7 +269,8 @@ export class RouteHealthService {
     
     if (relevantRoutes === 0) {return 'excellent';} // Avoid division by zero
     
-    const healthyCount = healthReport.healthyRoutes + healthReport.stubRoutes;
+    const stubCount = envConfig.enableDevRoutes ? healthReport.stubRoutes : 0;
+    const healthyCount = healthReport.healthyRoutes + stubCount;
     const healthPercentage = (healthyCount / relevantRoutes) * 100;
     
     if (healthReport.criticalIssues.length > 0) {
@@ -335,21 +336,23 @@ export class RouteHealthService {
   }
 
   _logHealthResults(healthReport) {
+    const envConfig = getCurrentEnvironmentConfig();
     const totalRoutes = healthReport.loadedRoutes;
-    const healthyCount = healthReport.healthyRoutes + healthReport.stubRoutes;
+    const stubCount = envConfig.enableDevRoutes ? healthReport.stubRoutes : 0;
+    const healthyCount = healthReport.healthyRoutes + stubCount;
     const healthPercentage = totalRoutes > 0 ? Math.round((healthyCount / totalRoutes) * 100) : 100;
     
-    logger.info(`[Route Health Check] ${healthyCount}/${totalRoutes} routes healthy (${healthPercentage}%) - Status: ${healthReport.overallHealth.toUpperCase()}`);
+    logger.info(`[Route health] ${healthyCount}/${totalRoutes} routes healthy (${healthPercentage}%) - status=${healthReport.overallHealth}`);
     
     if (healthReport.criticalIssues.length > 0) {
-      logger.error(`[Route Health Check] ${healthReport.criticalIssues.length} critical issues detected:`, 
+      logger.error(`[Route health] ${healthReport.criticalIssues.length} critical issues detected:`,
                     healthReport.criticalIssues.map(issue => issue.route).join(', '));
     }
     
     if (healthReport.recommendations.length > 0) {
       const urgentRecs = healthReport.recommendations.filter(rec => rec.priority === 'urgent');
       if (urgentRecs.length > 0) {
-        logger.warn(`[Route Health Check] ${urgentRecs.length} urgent recommendations require attention`);
+        logger.warn(`[Route health] ${urgentRecs.length} urgent recommendations require attention`);
       }
     }
   }
@@ -366,7 +369,7 @@ export class RouteHealthService {
     const envConfig = getCurrentEnvironmentConfig();
     const checkInterval = interval || envConfig.healthCheckInterval;
     
-    logger.info(`🔍 Starting route health monitoring (interval: ${checkInterval/1000}s)`);
+    logger.info(`Route health monitoring started (intervalSeconds=${checkInterval / 1000})`);
     
     const intervalId = setInterval(() => {
       this.performHealthCheck(routes);
@@ -374,7 +377,7 @@ export class RouteHealthService {
     
     return () => {
       clearInterval(intervalId);
-      logger.info('🔍 Route health monitoring stopped');
+      logger.info('Route health monitoring stopped');
     };
   }
 }

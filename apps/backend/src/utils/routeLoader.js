@@ -74,14 +74,14 @@ export async function loadAllRoutes() {
   const allRoutes = {};
   const categories = [...new Set(Object.values(ROUTE_METADATA).map(meta => meta.category))];
 
-  logger.info('🚀 Starting route loading process...');
+  logger.info('Route loading started');
 
   for (const category of categories) {
     try {
       const categoryRoutes = await loadRoutesByCategory(category);
       Object.assign(allRoutes, categoryRoutes);
     } catch (err) {
-      logger.error(`❌ Failed to load ${category} routes:`, err.message);
+      logger.error(`Failed to load ${category} routes:`, err.message);
 
       const criticalRoutes = Object.entries(ROUTE_METADATA)
         .filter(([, metadata]) => metadata.category === category && metadata.priority === 'critical')
@@ -94,7 +94,9 @@ export async function loadAllRoutes() {
   }
 
   const stats = validateLoadedRoutes(allRoutes);
-  logger.info(`📊 Route Health: ${stats.healthPercentage}% (${stats.validRoutes} valid, ${stats.stubRoutes} stubs, ${stats.invalidRoutes.length} invalid)`);
+  logger.info(
+    `Route loading summary: ${stats.validRoutes} valid, ${stats.stubRoutes} stubbed, ${stats.invalidRoutes.length} invalid`,
+  );
 
   return allRoutes;
 }
@@ -108,12 +110,12 @@ export async function loadRoutesByPriority() {
   const priorityOrder = { critical: 1, high: 2, medium: 3, low: 4 };
   routeEntries.sort(([, a], [, b]) => priorityOrder[a.priority] - priorityOrder[b.priority]);
 
-  logger.info('🎯 Loading routes by priority...');
+  logger.info('Loading routes by priority');
 
   for (const [routeName, metadata] of routeEntries) {
     const filePath = ROUTE_FILES[routeName];
     if (!filePath) {
-      logger.warn(`⚠️ No file path defined for route: ${routeName}`);
+      logger.warn(`No file path defined for route: ${routeName}`);
       continue;
     }
 

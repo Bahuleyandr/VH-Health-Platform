@@ -478,7 +478,7 @@ export const getRequestDetail = async (req, res) => {
 // ─── POST /zones — admin create zone ─────────────────────────────────────────
 export const createZone = async (req, res) => {
   try {
-    const { name, zone_type = 'general', floor, building, description } = req.body;
+    const { name, zone_type = 'general', floor, building } = req.body;
 
     if (!name) return error(res, 'name is required', HTTP_STATUS.BAD_REQUEST);
 

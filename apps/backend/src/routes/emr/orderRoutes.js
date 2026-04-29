@@ -1,6 +1,6 @@
 // src/routes/emr/orderRoutes.js
 import express from 'express';
-import orderEntryService from '../../services/emr/orderEntryService.js';
+import * as orderEntryService from '../../services/emr/orderEntryService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 

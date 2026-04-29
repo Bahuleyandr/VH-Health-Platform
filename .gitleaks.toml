@@ -34,12 +34,10 @@ paths = [
   '''(^|/)scripts/scan-secrets\.mjs$''',
   '''(^|/)firebase_options\.dart$''',
   '''(^|/)google-services\.json$''',
-  '''(^|/)apps/backend/deploy/k8s/secrets\.yaml\.example$''',
-  '''(^|/)deploy/k8s/secrets\.yaml\.example$''',
 ]
 regexes = [
   '''test-api-key''',
   '''test-jwt-secret-for-ci-must-be-at-least-32-chars''',
-  '''change-me-in-production''',
+  '''PLACEHOLDER_REPLACE_WITH_KUBESEAL_CIPHERTEXT''',
   '''af2ca5d7aa1663634f6c11eae3a1f4ceb7517720''',
 ]

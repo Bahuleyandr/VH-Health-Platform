@@ -17,7 +17,13 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   String? _error;
   String _selectedStatus = 'all';
 
-  static const _statuses = ['all', 'scheduled', 'confirmed', 'completed', 'cancelled'];
+  static const _statuses = [
+    'all',
+    'scheduled',
+    'confirmed',
+    'completed',
+    'cancelled',
+  ];
 
   @override
   void initState() {
@@ -36,12 +42,12 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         date: today,
         status: _selectedStatus == 'all' ? null : _selectedStatus,
       );
-      final list = data['appointments'] as List? ??
-          data['data'] as List? ??
-          [];
+      final list = data['appointments'] as List? ?? data['data'] as List? ?? [];
       if (mounted) setState(() => _appointments = list);
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) {
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -93,14 +99,18 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                         setState(() => _selectedStatus = s);
                         _load();
                       },
-                      selectedColor: AppTheme.primaryBlue.withValues(alpha: 0.15),
+                      selectedColor: AppTheme.primaryBlue.withValues(
+                        alpha: 0.15,
+                      ),
                       checkmarkColor: AppTheme.primaryBlue,
                       labelStyle: TextStyle(
                         color: selected
                             ? AppTheme.primaryBlue
                             : AppTheme.textSecondary,
                         fontSize: 11,
-                        fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                        fontWeight: selected
+                            ? FontWeight.bold
+                            : FontWeight.normal,
                       ),
                     ),
                   );
@@ -115,48 +125,56 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
                   : _error != null
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.error_outline,
-                                  color: AppTheme.errorRed, size: 40),
-                              const SizedBox(height: 8),
-                              Text(_error!,
-                                  style: const TextStyle(
-                                      color: AppTheme.textSecondary)),
-                              TextButton(
-                                  onPressed: _load,
-                                  child: const Text('Retry')),
-                            ],
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.error_outline,
+                            color: AppTheme.errorRed,
+                            size: 40,
                           ),
-                        )
-                      : _appointments.isEmpty
-                          ? const Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.calendar_today,
-                                      size: 48,
-                                      color: AppTheme.textSecondary),
-                                  SizedBox(height: 12),
-                                  Text('No appointments found',
-                                      style: TextStyle(
-                                          color: AppTheme.textSecondary)),
-                                ],
-                              ),
-                            )
-                          : ListView.builder(
-                              padding: const EdgeInsets.all(16),
-                              itemCount: _appointments.length,
-                              itemBuilder: (ctx, i) => _AppointmentCard(
-                                appointment: _appointments[i],
-                                onConfirm: (id) =>
-                                    _updateStatus(id, 'confirmed'),
-                                onCancel: (id) =>
-                                    _updateStatus(id, 'cancelled'),
-                              ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _error!,
+                            style: const TextStyle(
+                              color: AppTheme.textSecondary,
                             ),
+                          ),
+                          TextButton(
+                            onPressed: _load,
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    )
+                  : _appointments.isEmpty
+                  ? const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.calendar_today,
+                            size: 48,
+                            color: AppTheme.textSecondary,
+                          ),
+                          SizedBox(height: 12),
+                          Text(
+                            'No appointments found',
+                            style: TextStyle(color: AppTheme.textSecondary),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _appointments.length,
+                      itemBuilder: (ctx, i) => _AppointmentCard(
+                        appointment: _appointments[i],
+                        onConfirm: (id) => _updateStatus(id, 'confirmed'),
+                        onCancel: (id) => _updateStatus(id, 'cancelled'),
+                      ),
+                    ),
             ),
           ),
         ],
@@ -178,14 +196,25 @@ class _AppointmentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final id = appointment['_id']?.toString() ?? appointment['id']?.toString() ?? '';
-    final patientName = appointment['patientName']?.toString() ??
+    final id =
+        appointment['_id']?.toString() ?? appointment['id']?.toString() ?? '';
+    final patientName =
+        appointment['patientName']?.toString() ??
         appointment['patient']?['name']?.toString() ??
         'Unknown Patient';
-    final type = appointment['type']?.toString() ?? appointment['appointmentType']?.toString() ?? '—';
-    final dateTime = appointment['dateTime']?.toString() ?? appointment['date']?.toString() ?? '';
+    final type =
+        appointment['type']?.toString() ??
+        appointment['appointmentType']?.toString() ??
+        '—';
+    final dateTime =
+        appointment['dateTime']?.toString() ??
+        appointment['date']?.toString() ??
+        '';
     final status = appointment['status']?.toString() ?? 'scheduled';
-    final doctor = appointment['doctorName']?.toString() ?? appointment['doctor']?.toString() ?? '';
+    final doctor =
+        appointment['doctorName']?.toString() ??
+        appointment['doctor']?.toString() ??
+        '';
     final department = appointment['department']?.toString() ?? '';
 
     final statusColor = switch (status.toLowerCase()) {
@@ -208,14 +237,17 @@ class _AppointmentCard extends StatelessWidget {
                   child: Text(
                     patientName,
                     style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                        color: AppTheme.textPrimary),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      color: AppTheme.textPrimary,
+                    ),
                   ),
                 ),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: statusColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
@@ -223,9 +255,10 @@ class _AppointmentCard extends StatelessWidget {
                   child: Text(
                     status.toUpperCase(),
                     style: TextStyle(
-                        color: statusColor,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold),
+                      color: statusColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
@@ -260,7 +293,11 @@ class _AppointmentCard extends StatelessWidget {
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: id.isEmpty ? null : () => onConfirm(id),
-                      icon: const Icon(Icons.check, size: 16, color: Colors.white),
+                      icon: const Icon(
+                        Icons.check,
+                        size: 16,
+                        color: Colors.white,
+                      ),
                       label: const Text('Confirm'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.successGreen,
@@ -292,9 +329,13 @@ class _InfoRow extends StatelessWidget {
           Icon(icon, size: 14, color: AppTheme.textSecondary),
           const SizedBox(width: 6),
           Expanded(
-            child: Text(text,
-                style: const TextStyle(
-                    fontSize: 13, color: AppTheme.textSecondary)),
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppTheme.textSecondary,
+              ),
+            ),
           ),
         ],
       ),

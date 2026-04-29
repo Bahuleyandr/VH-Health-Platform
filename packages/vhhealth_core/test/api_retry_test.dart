@@ -1,4 +1,3 @@
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_core/services/api_retry.dart';
 
@@ -16,14 +15,11 @@ void main() {
 
     test('retries once on transient failure, then succeeds', () async {
       var calls = 0;
-      final result = await ApiRetry.withRetry(
-        () async {
-          calls++;
-          if (calls < 2) throw Exception('transient');
-          return 'ok';
-        },
-        initialDelay: const Duration(milliseconds: 1),
-      );
+      final result = await ApiRetry.withRetry(() async {
+        calls++;
+        if (calls < 2) throw Exception('transient');
+        return 'ok';
+      }, initialDelay: const Duration(milliseconds: 1));
       expect(result, 'ok');
       expect(calls, 2);
     });

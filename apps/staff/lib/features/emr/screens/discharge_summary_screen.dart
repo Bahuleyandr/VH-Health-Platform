@@ -56,12 +56,21 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   }
 
   Future<void> _generate() async {
-    setState(() { _generating = true; _error = null; });
+    setState(() {
+      _generating = true;
+      _error = null;
+    });
     try {
-      final result = await MedicalApiService.generateDischargeSummary(widget.admissionId);
-      final summary = result['discharge_summary'] as Map<String, dynamic>? ?? {};
+      final result = await MedicalApiService.generateDischargeSummary(
+        widget.admissionId,
+      );
+      final summary =
+          result['discharge_summary'] as Map<String, dynamic>? ?? {};
       _populateControllers(summary);
-      setState(() { _summary = summary; _isSigned = false; });
+      setState(() {
+        _summary = summary;
+        _isSigned = false;
+      });
     } catch (e) {
       setState(() => _error = 'Failed to generate summary: $e');
     } finally {
@@ -71,8 +80,10 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
 
   void _populateControllers(Map<String, dynamic> summary) {
     _hospitalCourseCtrl.text = summary['hospital_course']?.toString() ?? '';
-    _dischargeDiagnosisCtrl.text = summary['discharge_diagnosis']?.toString() ?? '';
-    _dischargeConditionCtrl.text = summary['discharge_condition']?.toString() ?? '';
+    _dischargeDiagnosisCtrl.text =
+        summary['discharge_diagnosis']?.toString() ?? '';
+    _dischargeConditionCtrl.text =
+        summary['discharge_condition']?.toString() ?? '';
     _followUpCtrl.text = summary['follow_up_instructions']?.toString() ?? '';
     _activityCtrl.text = summary['activity_restrictions']?.toString() ?? '';
     _dietCtrl.text = summary['diet_instructions']?.toString() ?? '';
@@ -93,13 +104,19 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   }
 
   Future<void> _save() async {
-    setState(() { _saving = true; _error = null; });
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     try {
       final edited = _buildSummaryFromControllers();
       await MedicalApiService.saveDischargeSummary(widget.admissionId, edited);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Draft saved'), backgroundColor: Colors.green),
+          const SnackBar(
+            content: Text('Draft saved'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
@@ -121,8 +138,14 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
           'Are you sure you want to sign?',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sign')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sign'),
+          ),
         ],
       ),
     );
@@ -131,7 +154,10 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
     // Save latest edits first
     await _save();
 
-    setState(() { _signing = true; _error = null; });
+    setState(() {
+      _signing = true;
+      _error = null;
+    });
     try {
       await MedicalApiService.signDischargeSummary(widget.admissionId);
       setState(() => _isSigned = true);
@@ -165,9 +191,14 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Confirm Discharge'),
-        content: Text('Discharge ${widget.patientName}? This will release the bed and finalize the admission.'),
+        content: Text(
+          'Discharge ${widget.patientName}? This will release the bed and finalize the admission.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(ctx, true),
@@ -187,7 +218,10 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Patient discharged successfully'), backgroundColor: Colors.green),
+          const SnackBar(
+            content: Text('Patient discharged successfully'),
+            backgroundColor: Colors.green,
+          ),
         );
         Navigator.of(context).pop(true); // Return to admission list
       }
@@ -210,7 +244,11 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
             TextButton.icon(
               onPressed: _saving ? null : _save,
               icon: _saving
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   : const Icon(Icons.save_outlined),
               label: const Text('Save Draft'),
             ),
@@ -219,8 +257,8 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _summary == null
-              ? _buildGeneratePrompt(theme)
-              : _buildSummaryEditor(theme),
+          ? _buildGeneratePrompt(theme)
+          : _buildSummaryEditor(theme),
       bottomNavigationBar: _summary != null
           ? SafeArea(
               child: Padding(
@@ -232,7 +270,13 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                         child: OutlinedButton.icon(
                           onPressed: _signing ? null : _sign,
                           icon: _signing
-                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
                               : const Icon(Icons.verified_outlined),
                           label: const Text('Sign Summary'),
                         ),
@@ -263,9 +307,16 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.summarize_outlined, size: 64, color: theme.colorScheme.primary),
+            Icon(
+              Icons.summarize_outlined,
+              size: 64,
+              color: theme.colorScheme.primary,
+            ),
             const SizedBox(height: 16),
-            Text('Generate Discharge Summary', style: theme.textTheme.titleLarge),
+            Text(
+              'Generate Discharge Summary',
+              style: theme.textTheme.titleLarge,
+            ),
             const SizedBox(height: 8),
             Text(
               'This will automatically aggregate all ward notes, vitals, '
@@ -280,7 +331,14 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
             FilledButton.icon(
               onPressed: _generating ? null : _generate,
               icon: _generating
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
                   : const Icon(Icons.auto_awesome),
               label: Text(_generating ? 'Generating...' : 'Generate Summary'),
             ),
@@ -314,8 +372,13 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                 children: [
                   Icon(Icons.verified, color: Colors.green),
                   SizedBox(width: 8),
-                  Text('Signed — This summary is now official and immutable',
-                      style: TextStyle(color: Colors.green, fontWeight: FontWeight.w600)),
+                  Text(
+                    'Signed — This summary is now official and immutable',
+                    style: TextStyle(
+                      color: Colors.green,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -328,12 +391,23 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                 color: Colors.red.shade50,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+              child: Text(
+                _error!,
+                style: TextStyle(color: theme.colorScheme.error),
+              ),
             ),
 
           _buildSection('Hospital Course', _hospitalCourseCtrl, maxLines: 8),
-          _buildSection('Discharge Diagnosis', _dischargeDiagnosisCtrl, maxLines: 3),
-          _buildSection('Discharge Condition', _dischargeConditionCtrl, maxLines: 2),
+          _buildSection(
+            'Discharge Diagnosis',
+            _dischargeDiagnosisCtrl,
+            maxLines: 3,
+          ),
+          _buildSection(
+            'Discharge Condition',
+            _dischargeConditionCtrl,
+            maxLines: 2,
+          ),
           _buildSection('Follow-up Instructions', _followUpCtrl, maxLines: 4),
           _buildSection('Activity Restrictions', _activityCtrl, maxLines: 3),
           _buildSection('Diet Instructions', _dietCtrl, maxLines: 3),
@@ -344,13 +418,17 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
             const SizedBox(height: 16),
             Text('Medications on Discharge', style: theme.textTheme.titleSmall),
             const SizedBox(height: 8),
-            ...(_summary!['medications_on_discharge'] as List).map((med) => Card(
-              child: ListTile(
-                leading: const Icon(Icons.medication),
-                title: Text(med['name']?.toString() ?? 'Unknown'),
-                subtitle: Text('${med['dose'] ?? ''} ${med['route'] ?? ''} ${med['frequency'] ?? ''}'),
+            ...(_summary!['medications_on_discharge'] as List).map(
+              (med) => Card(
+                child: ListTile(
+                  leading: const Icon(Icons.medication),
+                  title: Text(med['name']?.toString() ?? 'Unknown'),
+                  subtitle: Text(
+                    '${med['dose'] ?? ''} ${med['route'] ?? ''} ${med['frequency'] ?? ''}',
+                  ),
+                ),
               ),
-            )),
+            ),
           ],
 
           // Investigations summary (read-only)
@@ -358,13 +436,17 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
             const SizedBox(height: 16),
             Text('Investigations', style: theme.textTheme.titleSmall),
             const SizedBox(height: 8),
-            ...(_summary!['investigations_summary'] as List).map((inv) => Card(
-              child: ListTile(
-                leading: const Icon(Icons.biotech),
-                title: Text(inv['test']?.toString() ?? 'Test'),
-                subtitle: Text('${inv['status'] ?? ''} — ${inv['result'] ?? 'Pending'}'),
+            ...(_summary!['investigations_summary'] as List).map(
+              (inv) => Card(
+                child: ListTile(
+                  leading: const Icon(Icons.biotech),
+                  title: Text(inv['test']?.toString() ?? 'Test'),
+                  subtitle: Text(
+                    '${inv['status'] ?? ''} — ${inv['result'] ?? 'Pending'}',
+                  ),
+                ),
               ),
-            )),
+            ),
           ],
 
           // Procedures (read-only)
@@ -373,12 +455,14 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
             const SizedBox(height: 16),
             Text('Procedures Performed', style: theme.textTheme.titleSmall),
             const SizedBox(height: 8),
-            ...(_summary!['procedures_performed'] as List).map((proc) => Card(
-              child: ListTile(
-                leading: const Icon(Icons.medical_services),
-                title: Text(proc?.toString() ?? 'Procedure'),
+            ...(_summary!['procedures_performed'] as List).map(
+              (proc) => Card(
+                child: ListTile(
+                  leading: const Icon(Icons.medical_services),
+                  title: Text(proc?.toString() ?? 'Procedure'),
+                ),
               ),
-            )),
+            ),
           ],
 
           const SizedBox(height: 24),
@@ -396,7 +480,11 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
     );
   }
 
-  Widget _buildSection(String label, TextEditingController controller, {int maxLines = 4}) {
+  Widget _buildSection(
+    String label,
+    TextEditingController controller, {
+    int maxLines = 4,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: TextField(

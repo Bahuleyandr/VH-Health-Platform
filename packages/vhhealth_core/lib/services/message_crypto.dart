@@ -83,8 +83,11 @@ class MessageCrypto {
     );
     final ctMac = Uint8List(box.cipherText.length + box.mac.bytes.length)
       ..setRange(0, box.cipherText.length, box.cipherText)
-      ..setRange(box.cipherText.length,
-          box.cipherText.length + box.mac.bytes.length, box.mac.bytes);
+      ..setRange(
+        box.cipherText.length,
+        box.cipherText.length + box.mac.bytes.length,
+        box.mac.bytes,
+      );
     return {
       'v': '1',
       'salt': base64Encode(salt),

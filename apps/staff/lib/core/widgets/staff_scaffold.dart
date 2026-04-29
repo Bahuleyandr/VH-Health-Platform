@@ -61,11 +61,15 @@ class StaffScaffold extends StatelessWidget {
           context.go(navItems[index].route);
         }
       },
-      items: navItems.map((item) => BottomNavigationBarItem(
-        icon: Icon(item.icon),
-        activeIcon: Icon(item.activeIcon),
-        label: item.label,
-      )).toList(),
+      items: navItems
+          .map(
+            (item) => BottomNavigationBarItem(
+              icon: Icon(item.icon),
+              activeIcon: Icon(item.activeIcon),
+              label: item.label,
+            ),
+          )
+          .toList(),
     );
   }
 
@@ -73,52 +77,187 @@ class StaffScaffold extends StatelessWidget {
     switch (role) {
       case StaffRole.doctor:
         return [
-          const _NavItem('Home', Icons.dashboard_outlined, Icons.dashboard, '/dashboard'),
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
           const _NavItem('Queue', Icons.queue_outlined, Icons.queue, '/queue'),
-          const _NavItem('Records', Icons.folder_shared_outlined, Icons.folder_shared, '/patient-records'),
-          const _NavItem('Profile', Icons.person_outlined, Icons.person, '/profile'),
+          const _NavItem(
+            'Records',
+            Icons.folder_shared_outlined,
+            Icons.folder_shared,
+            '/patient-records',
+          ),
+          const _NavItem(
+            'Profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
         ];
       case StaffRole.nurse:
         return [
-          const _NavItem('Home', Icons.dashboard_outlined, Icons.dashboard, '/dashboard'),
-          const _NavItem('Vitals', Icons.monitor_heart_outlined, Icons.monitor_heart, '/vitals'),
-          const _NavItem('Notes', Icons.note_alt_outlined, Icons.note_alt, '/nursing-notes'),
-          const _NavItem('Profile', Icons.person_outlined, Icons.person, '/profile'),
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Vitals',
+            Icons.monitor_heart_outlined,
+            Icons.monitor_heart,
+            '/vitals',
+          ),
+          const _NavItem(
+            'Notes',
+            Icons.note_alt_outlined,
+            Icons.note_alt,
+            '/nursing-notes',
+          ),
+          const _NavItem(
+            'Profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
         ];
       case StaffRole.hr:
         return [
-          const _NavItem('Home', Icons.dashboard_outlined, Icons.dashboard, '/dashboard'),
-          const _NavItem('HR Hub', Icons.groups_outlined, Icons.groups, '/hr-dashboard'),
-          const _NavItem('Leave', Icons.event_available_outlined, Icons.event_available, '/leave'),
-          const _NavItem('Profile', Icons.person_outlined, Icons.person, '/profile'),
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'HR Hub',
+            Icons.groups_outlined,
+            Icons.groups,
+            '/hr-dashboard',
+          ),
+          const _NavItem(
+            'Leave',
+            Icons.event_available_outlined,
+            Icons.event_available,
+            '/leave',
+          ),
+          const _NavItem(
+            'Profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
         ];
       case StaffRole.admin || StaffRole.superAdmin:
         return [
-          const _NavItem('Home', Icons.dashboard_outlined, Icons.dashboard, '/dashboard'),
-          const _NavItem('Staff', Icons.groups_outlined, Icons.groups, '/staff-management'),
-          const _NavItem('Directory', Icons.contacts_outlined, Icons.contacts, '/directory'),
-          const _NavItem('Settings', Icons.settings_outlined, Icons.settings, '/settings'),
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Staff',
+            Icons.groups_outlined,
+            Icons.groups,
+            '/staff-management',
+          ),
+          const _NavItem(
+            'Directory',
+            Icons.contacts_outlined,
+            Icons.contacts,
+            '/directory',
+          ),
+          const _NavItem(
+            'Settings',
+            Icons.settings_outlined,
+            Icons.settings,
+            '/settings',
+          ),
         ];
       case StaffRole.pharmacy:
         return [
-          const _NavItem('Home', Icons.dashboard_outlined, Icons.dashboard, '/dashboard'),
-          const _NavItem('Orders', Icons.medication_outlined, Icons.medication, '/pharmacy'),
-          const _NavItem('Attendance', Icons.fingerprint_outlined, Icons.fingerprint, '/attendance'),
-          const _NavItem('Profile', Icons.person_outlined, Icons.person, '/profile'),
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Orders',
+            Icons.medication_outlined,
+            Icons.medication,
+            '/pharmacy',
+          ),
+          const _NavItem(
+            'Attendance',
+            Icons.fingerprint_outlined,
+            Icons.fingerprint,
+            '/attendance',
+          ),
+          const _NavItem(
+            'Profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
         ];
       case StaffRole.lab:
         return [
-          const _NavItem('Home', Icons.dashboard_outlined, Icons.dashboard, '/dashboard'),
-          const _NavItem('Lab', Icons.science_outlined, Icons.science, '/investigations'),
-          const _NavItem('Attendance', Icons.fingerprint_outlined, Icons.fingerprint, '/attendance'),
-          const _NavItem('Profile', Icons.person_outlined, Icons.person, '/profile'),
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Lab',
+            Icons.science_outlined,
+            Icons.science,
+            '/investigations',
+          ),
+          const _NavItem(
+            'Attendance',
+            Icons.fingerprint_outlined,
+            Icons.fingerprint,
+            '/attendance',
+          ),
+          const _NavItem(
+            'Profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
         ];
       case StaffRole.general:
         return [
-          const _NavItem('Home', Icons.dashboard_outlined, Icons.dashboard, '/dashboard'),
-          const _NavItem('Tasks', Icons.checklist_outlined, Icons.checklist, '/tasks'),
-          const _NavItem('Attendance', Icons.fingerprint_outlined, Icons.fingerprint, '/attendance'),
-          const _NavItem('Profile', Icons.person_outlined, Icons.person, '/profile'),
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Tasks',
+            Icons.checklist_outlined,
+            Icons.checklist,
+            '/tasks',
+          ),
+          const _NavItem(
+            'Attendance',
+            Icons.fingerprint_outlined,
+            Icons.fingerprint,
+            '/attendance',
+          ),
+          const _NavItem(
+            'Profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
         ];
     }
   }

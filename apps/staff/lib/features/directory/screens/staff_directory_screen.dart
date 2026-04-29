@@ -38,14 +38,11 @@ class _StaffDirectoryScreenState extends State<StaffDirectoryScreen> {
     try {
       // TODO: Use GET /staff or GET /staff/directory when endpoint is available.
       final data = await HrApiService.getHRDashboard();
-      final list = data['staff'] as List? ??
-          data['staffList'] as List? ??
-          [];
+      final list = data['staff'] as List? ?? data['staffList'] as List? ?? [];
       if (mounted) setState(() => _staff = list);
     } catch (e) {
       if (mounted) {
-        setState(
-            () => _error = e.toString().replaceFirst('Exception: ', ''));
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -70,7 +67,8 @@ class _StaffDirectoryScreenState extends State<StaffDirectoryScreen> {
       grouped.putIfAbsent(dept, () => []).add(s);
     }
     final sorted = Map.fromEntries(
-        grouped.entries.toList()..sort((a, b) => a.key.compareTo(b.key)));
+      grouped.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
+    );
     return sorted;
   }
 
@@ -111,20 +109,22 @@ class _StaffDirectoryScreenState extends State<StaffDirectoryScreen> {
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
                   : _error != null
-                      ? _ErrorState(error: _error!, onRetry: _load)
-                      : _filtered.isEmpty
-                          ? _EmptyState(hasSearch: _searchQuery.isNotEmpty)
-                          : _groupedByDept.isEmpty
-                              ? _EmptyState(hasSearch: _searchQuery.isNotEmpty)
-                              : ListView(
-                                  padding: const EdgeInsets.all(12),
-                                  children: _groupedByDept.entries
-                                      .map((entry) => _DeptSection(
-                                            dept: entry.key,
-                                            members: entry.value,
-                                          ))
-                                      .toList(),
-                                ),
+                  ? _ErrorState(error: _error!, onRetry: _load)
+                  : _filtered.isEmpty
+                  ? _EmptyState(hasSearch: _searchQuery.isNotEmpty)
+                  : _groupedByDept.isEmpty
+                  ? _EmptyState(hasSearch: _searchQuery.isNotEmpty)
+                  : ListView(
+                      padding: const EdgeInsets.all(12),
+                      children: _groupedByDept.entries
+                          .map(
+                            (entry) => _DeptSection(
+                              dept: entry.key,
+                              members: entry.value,
+                            ),
+                          )
+                          .toList(),
+                    ),
             ),
           ),
         ],
@@ -192,24 +192,28 @@ class _StaffTile extends StatelessWidget {
           backgroundColor: roleColor.withValues(alpha: 0.15),
           child: Text(
             name.isNotEmpty ? name[0].toUpperCase() : '?',
-            style:
-                TextStyle(color: roleColor, fontWeight: FontWeight.bold),
+            style: TextStyle(color: roleColor, fontWeight: FontWeight.bold),
           ),
         ),
         title: Text(
           name,
           style: const TextStyle(
-              fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+            fontWeight: FontWeight.w600,
+            color: AppTheme.textPrimary,
+          ),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(role,
-                style: TextStyle(fontSize: 12, color: roleColor)),
+            Text(role, style: TextStyle(fontSize: 12, color: roleColor)),
             if (empId.isNotEmpty)
-              Text('ID: $empId',
-                  style: const TextStyle(
-                      fontSize: 11, color: AppTheme.textSecondary)),
+              Text(
+                'ID: $empId',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: AppTheme.textSecondary,
+                ),
+              ),
           ],
         ),
         trailing: Column(
@@ -217,8 +221,7 @@ class _StaffTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: isActive
                     ? AppTheme.successGreen.withValues(alpha: 0.1)
@@ -229,17 +232,18 @@ class _StaffTile extends StatelessWidget {
                 isActive ? 'Active' : 'Inactive',
                 style: TextStyle(
                   fontSize: 10,
-                  color: isActive
-                      ? AppTheme.successGreen
-                      : AppTheme.errorRed,
+                  color: isActive ? AppTheme.successGreen : AppTheme.errorRed,
                   fontWeight: FontWeight.bold,
                 ),
               ),
             ),
             if (phone.isNotEmpty) ...[
               const SizedBox(height: 4),
-              const Icon(Icons.phone_outlined,
-                  size: 14, color: AppTheme.textSecondary),
+              const Icon(
+                Icons.phone_outlined,
+                size: 14,
+                color: AppTheme.textSecondary,
+              ),
             ],
           ],
         ),
@@ -251,7 +255,12 @@ class _StaffTile extends StatelessWidget {
   }
 
   void _showContact(
-      BuildContext context, String name, String phone, String dept, String role) {
+    BuildContext context,
+    String name,
+    String phone,
+    String dept,
+    String role,
+  ) {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -290,8 +299,11 @@ class _DialogRow extends StatelessWidget {
           Icon(icon, size: 16, color: AppTheme.textSecondary),
           const SizedBox(width: 8),
           Expanded(
-              child: Text(text,
-                  style: const TextStyle(color: AppTheme.textPrimary))),
+            child: Text(
+              text,
+              style: const TextStyle(color: AppTheme.textPrimary),
+            ),
+          ),
         ],
       ),
     );
@@ -311,9 +323,11 @@ class _ErrorState extends StatelessWidget {
         children: [
           const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
           const SizedBox(height: 8),
-          Text(error,
-              style: const TextStyle(color: AppTheme.textSecondary),
-              textAlign: TextAlign.center),
+          Text(
+            error,
+            style: const TextStyle(color: AppTheme.textSecondary),
+            textAlign: TextAlign.center,
+          ),
           const Text(
             'Staff directory API may not be available yet.',
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
@@ -335,15 +349,19 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.people_outline,
-              size: 56, color: AppTheme.textSecondary),
+          const Icon(
+            Icons.people_outline,
+            size: 56,
+            color: AppTheme.textSecondary,
+          ),
           const SizedBox(height: 16),
           Text(
             hasSearch ? 'No staff found' : 'Directory is empty',
             style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary),
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textPrimary,
+            ),
           ),
           const SizedBox(height: 8),
           Text(

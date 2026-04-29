@@ -106,15 +106,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   Text(
                     'No notifications',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'You\'re all caught up!',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
                   ),
                 ],
               ),
@@ -131,7 +131,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 if (index < wsNotifications.length) {
                   final wsItem = wsNotifications[index];
                   final wsTitle = wsItem['title']?.toString() ?? 'Live Update';
-                  final wsBody = wsItem['body']?.toString() ??
+                  final wsBody =
+                      wsItem['body']?.toString() ??
                       wsItem['message']?.toString() ??
                       '';
                   final wsType = wsItem['type']?.toString() ?? '';
@@ -141,7 +142,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
                   return Card(
                     margin: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 4),
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
                     elevation: 1,
                     color: color.withValues(alpha: 0.06),
                     shape: RoundedRectangleBorder(
@@ -164,19 +167,22 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Row(
                                     children: [
                                       Container(
                                         padding: const EdgeInsets.symmetric(
-                                            horizontal: 6, vertical: 2),
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
                                         decoration: BoxDecoration(
-                                          color: Colors.green
-                                              .withValues(alpha: 0.15),
-                                          borderRadius:
-                                              BorderRadius.circular(6),
+                                          color: Colors.green.withValues(
+                                            alpha: 0.15,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
                                         ),
                                         child: const Text(
                                           'LIVE',
@@ -207,9 +213,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         fontSize: 13,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurfaceVariant,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurfaceVariant,
                                       ),
                                     ),
                                   ],
@@ -223,16 +229,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   );
                 }
 
-                final item = provider
-                    .notifications[index - wsNotifications.length];
+                final item =
+                    provider.notifications[index - wsNotifications.length];
                 final type = item.type ?? '';
                 final icon = _iconForType(type);
                 final color = _colorForType(type);
                 final route = _routeForType(type);
 
                 return Card(
-                  margin:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  margin: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
                   elevation: item.isRead ? 0 : 1,
                   color: item.isRead ? null : color.withValues(alpha: 0.04),
                   shape: RoundedRectangleBorder(
@@ -293,9 +301,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       fontSize: 13,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
                                     ),
                                   ),
                                 ],
@@ -306,20 +314,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                       _formatTimestamp(item.timestamp),
                                       style: TextStyle(
                                         fontSize: 11,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .outline,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.outline,
                                       ),
                                     ),
                                     if (type.isNotEmpty) ...[
                                       const SizedBox(width: 8),
                                       Container(
                                         padding: const EdgeInsets.symmetric(
-                                            horizontal: 8, vertical: 2),
+                                          horizontal: 8,
+                                          vertical: 2,
+                                        ),
                                         decoration: BoxDecoration(
                                           color: color.withValues(alpha: 0.1),
-                                          borderRadius:
-                                              BorderRadius.circular(10),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
                                         ),
                                         child: Text(
                                           type.replaceAll('-', ' '),
@@ -336,9 +347,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                       Icon(
                                         Icons.chevron_right,
                                         size: 16,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .outline,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.outline,
                                       ),
                                   ],
                                 ),

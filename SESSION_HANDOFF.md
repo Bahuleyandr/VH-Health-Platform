@@ -146,7 +146,7 @@ End-to-end verified after the rename: Pharmacist login → sees "Pharmacy" badge
 
 ### Test accounts (after running `node --import dotenv/config scripts/seed-test-staff-accounts.mjs`)
 
-All staff log in via `POST /api/v1/auth/staff/login` with `{ employeeId, password: "test1234" }`. The staff app's login form now shows `EMP-` as a non-editable prefix on the Employee ID field — users type only the digits (e.g. `1001`), the submit handler reassembles `EMP-1001` before sending. The full ID is still `EMP-NNNN` everywhere on the wire.
+All staff log in via `POST /api/v1/auth/staff/login` with `{ employeeId, password: "<seed-password>" }`. The staff app's login form now shows `EMP-` as a non-editable prefix on the Employee ID field — users type only the digits (e.g. `1001`), the submit handler reassembles `EMP-1001` before sending. The full ID is still `EMP-NNNN` everywhere on the wire.
 
 | Employee ID | Role           | StaffRole enum     | Notes |
 |-------------|---------------|---------------------|-------|
@@ -171,7 +171,7 @@ Patient testing:
 
 # Backend (run in background)
 cd "D:/Dev/Projects/VH Health/VH-Health-Platform/apps/backend"
-node --import dotenv/config src/bin/www.js
+ENABLE_DEV_AUTH=true node --import dotenv/config src/bin/www.js
 
 # Emulator
 "C:/Users/subas/AppData/Local/Android/Sdk/emulator/emulator.exe" -avd vh-pixel -no-boot-anim
@@ -183,7 +183,7 @@ cd "D:/Dev/Projects/VH Health/VH-Health-Platform/apps/patient"
 
 flutter build apk --debug \
   --dart-define=VH_BASE_URL=http://10.0.2.2:5000/api/v1 \
-  --dart-define=VH_API_KEY="L+Kj8VeNSvI6M9CM3GGfKZfHHkV/uugZ0WuOLQiiPOw=" \
+  --dart-define=VH_API_KEY="<local-api-key>" \
   --dart-define=VH_AUTO_DEV_LOGIN=true \
   --dart-define=VH_DEV_PHONE=+919999999997 \
   --dart-define=VH_DEV_NAME="Fresh Test User"
@@ -204,7 +204,7 @@ adb -s emulator-5554 shell am start -n com.vh.vhhealth/com.vh.vhhealth.MainActiv
 ```bash
 curl -s -X POST http://localhost:5000/api/v1/auth/dev/patient-login \
   -H "Content-Type: application/json" \
-  -H "x-api-key: L+Kj8VeNSvI6M9CM3GGfKZfHHkV/uugZ0WuOLQiiPOw=" \
+  -H "x-api-key: <local-api-key>" \
   -d '{"phone":"+919999999997"}' \
   | python -c "import sys,json;print(json.load(sys.stdin)['data']['accessToken'])"
 ```

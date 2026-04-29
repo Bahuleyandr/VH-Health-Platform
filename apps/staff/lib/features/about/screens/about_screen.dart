@@ -32,18 +32,12 @@ class AboutScreen extends StatelessWidget {
                 const SizedBox(height: 16),
                 const Text(
                   'VHHealth Staff',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 4),
                 const Text(
                   'Version 1.0.0',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: AppTheme.textSecondary,
-                  ),
+                  style: TextStyle(fontSize: 14, color: AppTheme.textSecondary),
                 ),
               ],
             ),
@@ -59,10 +53,7 @@ class AboutScreen extends StatelessWidget {
                 children: [
                   Text(
                     'About',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                   ),
                   SizedBox(height: 8),
                   Text(
@@ -89,10 +80,7 @@ class AboutScreen extends StatelessWidget {
                 children: [
                   Text(
                     'Features',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                   ),
                   SizedBox(height: 12),
                   _FeatureItem(
@@ -145,23 +133,21 @@ class AboutScreen extends StatelessWidget {
                 children: [
                   Text(
                     'Support',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                   ),
                   SizedBox(height: 8),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.email_outlined,
-                        color: AppTheme.primaryBlue),
+                    leading: Icon(
+                      Icons.email_outlined,
+                      color: AppTheme.primaryBlue,
+                    ),
                     title: Text('Email'),
                     subtitle: Text('support@vhhealth.in'),
                   ),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.language,
-                        color: AppTheme.primaryBlue),
+                    leading: Icon(Icons.language, color: AppTheme.primaryBlue),
                     title: Text('Website'),
                     subtitle: Text('www.vhhealth.in'),
                   ),
@@ -174,10 +160,7 @@ class AboutScreen extends StatelessWidget {
           const Center(
             child: Text(
               '© 2026 VH Health. All rights reserved.',
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 12,
-              ),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
             ),
           ),
           const SizedBox(height: 16),

@@ -68,10 +68,7 @@ class _LoginFormState extends State<LoginForm> {
           .post(
             url,
             headers: ApiConfig.jsonHeaders,
-            body: jsonEncode({
-              'phone': '+919999999999',
-              'name': 'Dev Patient',
-            }),
+            body: jsonEncode({'phone': '+919999999999', 'name': 'Dev Patient'}),
           )
           .timeout(const Duration(seconds: 10));
 
@@ -121,10 +118,7 @@ class _LoginFormState extends State<LoginForm> {
     } catch (e, st) {
       developer.log('Dev login error: $e', name: 'Auth', stackTrace: st);
       if (!mounted) return;
-      _showSnackBar(
-        'Dev login error: $e',
-        Theme.of(context).colorScheme.error,
-      );
+      _showSnackBar('Dev login error: $e', Theme.of(context).colorScheme.error);
     }
   }
 

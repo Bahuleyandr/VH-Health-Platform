@@ -139,7 +139,11 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.note_alt_outlined, size: 64, color: AppTheme.divider),
+            const Icon(
+              Icons.note_alt_outlined,
+              size: 64,
+              color: AppTheme.divider,
+            ),
             const SizedBox(height: 12),
             Text(
               'No $type notes found',
@@ -190,8 +194,11 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                     const SizedBox(height: 6),
                     Row(
                       children: [
-                        const Icon(Icons.person_outline,
-                            size: 14, color: AppTheme.textSecondary),
+                        const Icon(
+                          Icons.person_outline,
+                          size: 14,
+                          color: AppTheme.textSecondary,
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           note['author_name'] as String? ?? 'Unknown',
@@ -201,8 +208,11 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                           ),
                         ),
                         const SizedBox(width: 12),
-                        const Icon(Icons.access_time,
-                            size: 14, color: AppTheme.textSecondary),
+                        const Icon(
+                          Icons.access_time,
+                          size: 14,
+                          color: AppTheme.textSecondary,
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           _formatTimestamp(note['created_at'] as String?),
@@ -228,7 +238,10 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                         alignment: Alignment.centerRight,
                         child: TextButton.icon(
                           onPressed: () => _signNoteAction(noteId),
-                          icon: const Icon(Icons.check_circle_outline, size: 18),
+                          icon: const Icon(
+                            Icons.check_circle_outline,
+                            size: 18,
+                          ),
                           label: const Text('Sign Note'),
                           style: TextButton.styleFrom(
                             foregroundColor: AppTheme.successGreen,
@@ -343,7 +356,9 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                 _noteSection('Findings', note['findings'] as String),
               if (note['procedure_details'] != null)
                 _noteSection(
-                    'Procedure Details', note['procedure_details'] as String),
+                  'Procedure Details',
+                  note['procedure_details'] as String,
+                ),
               if (note['complications'] != null)
                 _noteSection('Complications', note['complications'] as String),
               const SizedBox(height: 20),
@@ -403,12 +418,21 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       title: 'New SOAP Note',
       formKey: formKey,
       fields: [
-        _buildTextArea(subjective, 'Subjective',
-            'Patient complaints, symptoms, history...'),
         _buildTextArea(
-            objective, 'Objective', 'Exam findings, vitals, lab results...'),
+          subjective,
+          'Subjective',
+          'Patient complaints, symptoms, history...',
+        ),
         _buildTextArea(
-            assessment, 'Assessment', 'Diagnosis, clinical impression...'),
+          objective,
+          'Objective',
+          'Exam findings, vitals, lab results...',
+        ),
+        _buildTextArea(
+          assessment,
+          'Assessment',
+          'Diagnosis, clinical impression...',
+        ),
         _buildTextArea(plan, 'Plan', 'Treatment plan, orders, follow-up...'),
       ],
       onSubmit: () => _submitNote(
@@ -443,8 +467,11 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
         ),
         const SizedBox(height: 12),
-        _buildTextArea(content, 'Content',
-            'Clinical progress, observations, plan changes...'),
+        _buildTextArea(
+          content,
+          'Content',
+          'Clinical progress, observations, plan changes...',
+        ),
       ],
       onSubmit: () => _submitNote(
         formKey: formKey,
@@ -478,11 +505,17 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
         ),
         const SizedBox(height: 12),
-        _buildTextArea(procedureDetails, 'Procedure Details',
-            'Technique, approach, steps...'),
+        _buildTextArea(
+          procedureDetails,
+          'Procedure Details',
+          'Technique, approach, steps...',
+        ),
         _buildTextArea(findings, 'Findings', 'Intra-procedural findings...'),
         _buildTextArea(
-            complications, 'Complications', 'Any complications encountered...'),
+          complications,
+          'Complications',
+          'Any complications encountered...',
+        ),
       ],
       onSubmit: () => _submitNote(
         formKey: formKey,
@@ -499,7 +532,10 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   }
 
   Widget _buildTextArea(
-      TextEditingController controller, String label, String hint) {
+    TextEditingController controller,
+    String label,
+    String hint,
+  ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
@@ -527,9 +563,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => Container(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(ctx).viewInsets.bottom,
-        ),
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
         decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),

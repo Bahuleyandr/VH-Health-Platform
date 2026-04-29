@@ -54,7 +54,9 @@ class VHHttpClient {
     final uri = _buildUri(path, queryParameters);
     final headers = await _headers(auth: auth);
     final response = await _sendWithRetry(
-      () => _client.get(uri, headers: headers).timeout(timeout ?? _defaultTimeout),
+      () => _client
+          .get(uri, headers: headers)
+          .timeout(timeout ?? _defaultTimeout),
     );
     final parsed = ApiResponse.fromHttp(response);
 
@@ -176,7 +178,9 @@ class VHHttpClient {
     final uri = _buildUri(path);
     final headers = await _headers(auth: auth);
     final response = await _sendWithRetry(
-      () => _client.delete(uri, headers: headers).timeout(timeout ?? _defaultTimeout),
+      () => _client
+          .delete(uri, headers: headers)
+          .timeout(timeout ?? _defaultTimeout),
     );
     final parsed = ApiResponse.fromHttp(response);
 
@@ -215,8 +219,9 @@ class VHHttpClient {
         ..headers.addAll(headers)
         ..fields.addAll(fields)
         ..files.addAll(fileBuilder != null ? await fileBuilder() : files);
-      final streamed =
-          await _client.send(req).timeout(timeout ?? _uploadTimeout);
+      final streamed = await _client
+          .send(req)
+          .timeout(timeout ?? _uploadTimeout);
       final body = await streamed.stream.bytesToString();
       return ApiResponse.parse(streamed.statusCode, body);
     }
@@ -263,7 +268,8 @@ class VHHttpClient {
         if (attempt >= _maxRetryAttempts) return response;
         if (kDebugMode) {
           debugPrint(
-              'VHHttpClient: 5xx (${response.statusCode}) attempt $attempt — retrying');
+            'VHHttpClient: 5xx (${response.statusCode}) attempt $attempt — retrying',
+          );
         }
       } on TimeoutException catch (e) {
         lastError = e;
@@ -288,7 +294,10 @@ class VHHttpClient {
 
   // ── Helpers ───────────────────────────────────────────────────────────
 
-  static Future<Map<String, String>> _headers({bool auth = true, bool json = false}) async {
+  static Future<Map<String, String>> _headers({
+    bool auth = true,
+    bool json = false,
+  }) async {
     if (auth && json) {
       return ApiConfig.authenticatedHeaders();
     } else if (auth) {
@@ -351,14 +360,17 @@ class VHHttpClient {
     final completer = Completer<bool>();
     _refreshInFlight = completer;
 
-    _performRefresh().then((ok) {
-      completer.complete(ok);
-    }).catchError((Object e, StackTrace st) {
-      if (kDebugMode) debugPrint('VHHttpClient: token refresh failed — $e');
-      completer.complete(false);
-    }).whenComplete(() {
-      _refreshInFlight = null;
-    });
+    _performRefresh()
+        .then((ok) {
+          completer.complete(ok);
+        })
+        .catchError((Object e, StackTrace st) {
+          if (kDebugMode) debugPrint('VHHttpClient: token refresh failed — $e');
+          completer.complete(false);
+        })
+        .whenComplete(() {
+          _refreshInFlight = null;
+        });
 
     return completer.future;
   }
@@ -385,7 +397,8 @@ class VHHttpClient {
     final data = parsed.data;
     if (data is! Map) return false;
 
-    final newAccess = (data['accessToken'] as String?) ?? (data['token'] as String?);
+    final newAccess =
+        (data['accessToken'] as String?) ?? (data['token'] as String?);
     if (newAccess == null || newAccess.isEmpty) return false;
 
     final rotatedRefresh = data['refreshToken'] as String?;
@@ -425,7 +438,9 @@ class VHHttpClient {
       if (kDebugMode) {
         debugPrint('VHHttpClient: 401 Unauthorized — session expired');
       }
-      onSessionExpired?.call(response.message ?? 'Session expired. Please log in again.');
+      onSessionExpired?.call(
+        response.message ?? 'Session expired. Please log in again.',
+      );
     }
   }
 }

@@ -59,7 +59,9 @@ class AppTheme {
           foregroundColor: Colors.white,
           elevation: 2,
           minimumSize: const Size(double.infinity, 52),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
           textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
@@ -68,7 +70,9 @@ class AppTheme {
           foregroundColor: primaryBlue,
           side: const BorderSide(color: primaryBlue, width: 1.5),
           minimumSize: const Size(double.infinity, 52),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
           textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
@@ -91,13 +95,19 @@ class AppTheme {
           borderRadius: BorderRadius.circular(10),
           borderSide: const BorderSide(color: errorRed),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         labelStyle: const TextStyle(color: textSecondary),
         hintStyle: const TextStyle(color: Color(0xFF90A4AE)),
       ),
       chipTheme: ChipThemeData(
         backgroundColor: const Color(0xFFE3F2FD),
-        labelStyle: const TextStyle(color: primaryBlue, fontWeight: FontWeight.w500),
+        labelStyle: const TextStyle(
+          color: primaryBlue,
+          fontWeight: FontWeight.w500,
+        ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
       dividerTheme: const DividerThemeData(
@@ -169,7 +179,9 @@ class AppTheme {
           foregroundColor: const Color(0xFF0D1B2A),
           elevation: 2,
           minimumSize: const Size(double.infinity, 52),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
           textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
@@ -178,7 +190,9 @@ class AppTheme {
           foregroundColor: const Color(0xFF90CAF9),
           side: const BorderSide(color: Color(0xFF90CAF9), width: 1.5),
           minimumSize: const Size(double.infinity, 52),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
           textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
@@ -201,14 +215,19 @@ class AppTheme {
           borderRadius: BorderRadius.circular(10),
           borderSide: const BorderSide(color: Color(0xFFEF5350)),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         labelStyle: const TextStyle(color: Color(0xFF9E9EAE)),
         hintStyle: const TextStyle(color: Color(0xFF6E6E82)),
       ),
       chipTheme: ChipThemeData(
         backgroundColor: const Color(0xFF1A2744),
         labelStyle: const TextStyle(
-            color: Color(0xFF90CAF9), fontWeight: FontWeight.w500),
+          color: Color(0xFF90CAF9),
+          fontWeight: FontWeight.w500,
+        ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
       dividerTheme: const DividerThemeData(

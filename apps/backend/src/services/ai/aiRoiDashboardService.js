@@ -187,7 +187,7 @@ export function aggregateRoiMetrics({
   }
 
   const byModule = [];
-  let overall = {
+  const overall = {
     generation_count: 0,
     ai_generation_count: 0,
     fallback_count: 0,

@@ -3,7 +3,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
-import news2Service from '../clinical/news2Service.js';
+import * as news2Service from '../clinical/news2Service.js';
 
 
 const VALID_VITAL_TYPES = [

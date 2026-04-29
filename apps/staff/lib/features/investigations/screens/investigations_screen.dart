@@ -117,8 +117,9 @@ class _UploadTabState extends State<_UploadTab> {
       await MedicalApiService.uploadInvestigation(
         phone: _phoneCtrl.text.trim(),
         testType: _testType!,
-        result:
-            _resultCtrl.text.trim().isEmpty ? null : _resultCtrl.text.trim(),
+        result: _resultCtrl.text.trim().isEmpty
+            ? null
+            : _resultCtrl.text.trim(),
         notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
         date: DateFormat('yyyy-MM-dd').format(DateTime.now()),
         filePath: _file?.path,
@@ -167,19 +168,25 @@ class _UploadTabState extends State<_UploadTab> {
               decoration: BoxDecoration(
                 color: AppTheme.accentCyan.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(8),
-                border:
-                    Border.all(color: AppTheme.accentCyan.withValues(alpha: 0.3)),
+                border: Border.all(
+                  color: AppTheme.accentCyan.withValues(alpha: 0.3),
+                ),
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.info_outline,
-                      color: AppTheme.accentCyan, size: 18),
+                  Icon(
+                    Icons.info_outline,
+                    color: AppTheme.accentCyan,
+                    size: 18,
+                  ),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'Search patient by phone number and upload their investigation results.',
-                      style:
-                          TextStyle(color: AppTheme.accentCyan, fontSize: 13),
+                      style: TextStyle(
+                        color: AppTheme.accentCyan,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
                 ],
@@ -208,8 +215,7 @@ class _UploadTabState extends State<_UploadTab> {
                 prefixIcon: Icon(Icons.biotech_outlined),
               ),
               items: _testTypes
-                  .map(
-                      (t) => DropdownMenuItem(value: t, child: Text(t)))
+                  .map((t) => DropdownMenuItem(value: t, child: Text(t)))
                   .toList(),
               onChanged: (v) => setState(() => _testType = v),
               validator: (v) => v == null ? 'Select test type' : null,
@@ -238,77 +244,108 @@ class _UploadTabState extends State<_UploadTab> {
             ),
             const SizedBox(height: 16),
             GestureDetector(
-              onTap: _submitting ? null : () async {
-                try {
-                  final result = await FilePicker.platform.pickFiles(
-                    type: FileType.custom,
-                    allowedExtensions: ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'],
-                  );
-                  if (result?.files.single.path != null) {
-                    final file = File(result!.files.single.path!);
-                    final sizeBytes = await file.length();
-                    const maxSizeBytes = 10 * 1024 * 1024; // 10 MB
-                    if (sizeBytes > maxSizeBytes) {
-                      if (mounted) {
-                        // ignore: use_build_context_synchronously
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('File too large. Maximum size is 10 MB.'),
-                            backgroundColor: AppTheme.errorRed,
-                          ),
+              onTap: _submitting
+                  ? null
+                  : () async {
+                      try {
+                        final result = await FilePicker.platform.pickFiles(
+                          type: FileType.custom,
+                          allowedExtensions: [
+                            'pdf',
+                            'doc',
+                            'docx',
+                            'jpg',
+                            'jpeg',
+                            'png',
+                          ],
                         );
+                        if (result?.files.single.path != null) {
+                          final file = File(result!.files.single.path!);
+                          final sizeBytes = await file.length();
+                          const maxSizeBytes = 10 * 1024 * 1024; // 10 MB
+                          if (sizeBytes > maxSizeBytes) {
+                            if (mounted) {
+                              // ignore: use_build_context_synchronously
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'File too large. Maximum size is 10 MB.',
+                                  ),
+                                  backgroundColor: AppTheme.errorRed,
+                                ),
+                              );
+                            }
+                            return;
+                          }
+                          setState(() {
+                            _file = file;
+                            _fileName = result.files.single.name;
+                          });
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          // ignore: use_build_context_synchronously
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Failed to pick file'),
+                              backgroundColor: AppTheme.errorRed,
+                            ),
+                          );
+                        }
                       }
-                      return;
-                    }
-                    setState(() {
-                      _file = file;
-                      _fileName = result.files.single.name;
-                    });
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    // ignore: use_build_context_synchronously
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Failed to pick file'),
-                        backgroundColor: AppTheme.errorRed,
-                      ),
-                    );
-                  }
-                }
-              },
+                    },
               child: Container(
                 height: 80,
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  color: _file != null ? AppTheme.accentCyan.withValues(alpha: 0.08) : Colors.white,
+                  color: _file != null
+                      ? AppTheme.accentCyan.withValues(alpha: 0.08)
+                      : Colors.white,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                      color: _file != null ? AppTheme.accentCyan : const Color(0xFFB0BEC5),
-                      style: BorderStyle.solid),
+                    color: _file != null
+                        ? AppTheme.accentCyan
+                        : const Color(0xFFB0BEC5),
+                    style: BorderStyle.solid,
+                  ),
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
-                      _file != null ? Icons.check_circle_outline : Icons.upload_file_outlined,
-                      color: _file != null ? AppTheme.accentCyan : AppTheme.textSecondary,
+                      _file != null
+                          ? Icons.check_circle_outline
+                          : Icons.upload_file_outlined,
+                      color: _file != null
+                          ? AppTheme.accentCyan
+                          : AppTheme.textSecondary,
                     ),
                     const SizedBox(height: 4),
                     Text(
                       _fileName ?? 'Attach Report File (optional)',
                       style: TextStyle(
-                        color: _file != null ? AppTheme.accentCyan : AppTheme.textSecondary,
+                        color: _file != null
+                            ? AppTheme.accentCyan
+                            : AppTheme.textSecondary,
                         fontSize: 13,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
                     if (_file != null)
                       GestureDetector(
-                        onTap: () => setState(() { _file = null; _fileName = null; }),
+                        onTap: () => setState(() {
+                          _file = null;
+                          _fileName = null;
+                        }),
                         child: const Padding(
                           padding: EdgeInsets.only(top: 2),
-                          child: Text('Clear', style: TextStyle(color: AppTheme.errorRed, fontSize: 11)),
+                          child: Text(
+                            'Clear',
+                            style: TextStyle(
+                              color: AppTheme.errorRed,
+                              fontSize: 11,
+                            ),
+                          ),
                         ),
                       ),
                   ],
@@ -323,12 +360,17 @@ class _UploadTabState extends State<_UploadTab> {
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2))
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
                   : const Icon(Icons.upload, color: Colors.white),
-              label:
-                  Text(_submitting ? 'Uploading...' : 'Upload Investigation'),
+              label: Text(
+                _submitting ? 'Uploading...' : 'Upload Investigation',
+              ),
               style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.accentCyan),
+                backgroundColor: AppTheme.accentCyan,
+              ),
             ),
           ],
         ),
@@ -373,15 +415,15 @@ class _PendingTabState extends State<_PendingTab> {
       } else {
         data = await MedicalApiService.getPendingInvestigations();
       }
-      final list = data['investigations'] as List? ??
+      final list =
+          data['investigations'] as List? ??
           data['records'] as List? ??
           data['data'] as List? ??
           [];
       if (mounted) setState(() => _pending = list);
     } catch (e) {
       if (mounted) {
-        setState(
-            () => _error = e.toString().replaceFirst('Exception: ', ''));
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -420,11 +462,12 @@ class _PendingTabState extends State<_PendingTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline,
-                color: AppTheme.errorRed, size: 40),
+            const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
             const SizedBox(height: 8),
-            Text(_error!,
-                style: const TextStyle(color: AppTheme.textSecondary)),
+            Text(
+              _error!,
+              style: const TextStyle(color: AppTheme.textSecondary),
+            ),
             TextButton(onPressed: _load, child: const Text('Retry')),
           ],
         ),
@@ -435,17 +478,25 @@ class _PendingTabState extends State<_PendingTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.check_circle_outline,
-                size: 56, color: AppTheme.successGreen),
+            Icon(
+              Icons.check_circle_outline,
+              size: 56,
+              color: AppTheme.successGreen,
+            ),
             SizedBox(height: 16),
-            Text('No pending investigations',
-                style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.textPrimary)),
+            Text(
+              'No pending investigations',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary,
+              ),
+            ),
             SizedBox(height: 8),
-            Text('All caught up!',
-                style: TextStyle(color: AppTheme.textSecondary)),
+            Text(
+              'All caught up!',
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
           ],
         ),
       );
@@ -459,14 +510,16 @@ class _PendingTabState extends State<_PendingTab> {
           final inv = _pending[i] as Map<String, dynamic>;
           final id = inv['_id']?.toString() ?? inv['id']?.toString() ?? '';
           final testType =
-              inv['test_type']?.toString() ?? inv['testType']?.toString() ?? 'Unknown';
-          final patientName = inv['patient_name']?.toString() ??
+              inv['test_type']?.toString() ??
+              inv['testType']?.toString() ??
+              'Unknown';
+          final patientName =
+              inv['patient_name']?.toString() ??
               inv['patient']?['name']?.toString() ??
               inv['phone']?.toString() ??
               'Unknown';
-          final date = inv['created_at']?.toString() ??
-              inv['date']?.toString() ??
-              '';
+          final date =
+              inv['created_at']?.toString() ?? inv['date']?.toString() ?? '';
           final status = inv['status']?.toString() ?? 'pending';
 
           return Card(
@@ -479,65 +532,85 @@ class _PendingTabState extends State<_PendingTab> {
                   Row(
                     children: [
                       CircleAvatar(
-                        backgroundColor:
-                            AppTheme.warningAmber.withValues(alpha: 0.15),
-                        child: const Icon(Icons.science_outlined,
-                            color: AppTheme.warningAmber, size: 20),
+                        backgroundColor: AppTheme.warningAmber.withValues(
+                          alpha: 0.15,
+                        ),
+                        child: const Icon(
+                          Icons.science_outlined,
+                          color: AppTheme.warningAmber,
+                          size: 20,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(testType,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: AppTheme.textPrimary)),
-                            Text(patientName,
-                                style: const TextStyle(
-                                    fontSize: 12,
-                                    color: AppTheme.textSecondary)),
+                            Text(
+                              testType,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.textPrimary,
+                              ),
+                            ),
+                            Text(
+                              patientName,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.textSecondary,
+                              ),
+                            ),
                           ],
                         ),
                       ),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: AppTheme.warningAmber.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text(status.toUpperCase(),
-                            style: const TextStyle(
-                                fontSize: 10,
-                                color: AppTheme.warningAmber,
-                                fontWeight: FontWeight.bold)),
+                        child: Text(
+                          status.toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: AppTheme.warningAmber,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ],
                   ),
                   if (date.isNotEmpty) ...[
                     const SizedBox(height: 8),
-                    Text(date,
-                        style: const TextStyle(
-                            fontSize: 11, color: AppTheme.textSecondary)),
+                    Text(
+                      date,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppTheme.textSecondary,
+                      ),
+                    ),
                   ],
                   const SizedBox(height: 10),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       TextButton(
-                        onPressed: () =>
-                            _updateStatus(id, 'in_progress'),
+                        onPressed: () => _updateStatus(id, 'in_progress'),
                         child: const Text('Start'),
                       ),
                       const SizedBox(width: 8),
                       ElevatedButton(
-                        onPressed: () =>
-                            _updateStatus(id, 'completed'),
+                        onPressed: () => _updateStatus(id, 'completed'),
                         style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.successGreen),
-                        child: const Text('Complete',
-                            style: TextStyle(color: Colors.white)),
+                          backgroundColor: AppTheme.successGreen,
+                        ),
+                        child: const Text(
+                          'Complete',
+                          style: TextStyle(color: Colors.white),
+                        ),
                       ),
                     ],
                   ),
@@ -576,15 +649,15 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
     });
     try {
       final data = await MedicalApiService.listInvestigations();
-      final list = data['investigations'] as List? ??
+      final list =
+          data['investigations'] as List? ??
           data['records'] as List? ??
           data['data'] as List? ??
           [];
       if (mounted) setState(() => _investigations = list);
     } catch (e) {
       if (mounted) {
-        setState(
-            () => _error = e.toString().replaceFirst('Exception: ', ''));
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -599,11 +672,12 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline,
-                color: AppTheme.errorRed, size: 40),
+            const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
             const SizedBox(height: 8),
-            Text(_error!,
-                style: const TextStyle(color: AppTheme.textSecondary)),
+            Text(
+              _error!,
+              style: const TextStyle(color: AppTheme.textSecondary),
+            ),
             TextButton(onPressed: _load, child: const Text('Retry')),
           ],
         ),
@@ -614,17 +688,25 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.science_outlined,
-                size: 56, color: AppTheme.textSecondary),
+            Icon(
+              Icons.science_outlined,
+              size: 56,
+              color: AppTheme.textSecondary,
+            ),
             SizedBox(height: 16),
-            Text('No recent investigations',
-                style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.textPrimary)),
+            Text(
+              'No recent investigations',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary,
+              ),
+            ),
             SizedBox(height: 8),
-            Text('Your investigation uploads will appear here',
-                style: TextStyle(color: AppTheme.textSecondary)),
+            Text(
+              'Your investigation uploads will appear here',
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
           ],
         ),
       );
@@ -637,14 +719,16 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
         itemBuilder: (_, i) {
           final inv = _investigations[i] as Map<String, dynamic>;
           final testType =
-              inv['test_type']?.toString() ?? inv['testType']?.toString() ?? 'Unknown';
-          final patientName = inv['patient_name']?.toString() ??
+              inv['test_type']?.toString() ??
+              inv['testType']?.toString() ??
+              'Unknown';
+          final patientName =
+              inv['patient_name']?.toString() ??
               inv['patient']?['name']?.toString() ??
               inv['phone']?.toString() ??
               'Unknown';
-          final date = inv['created_at']?.toString() ??
-              inv['date']?.toString() ??
-              '';
+          final date =
+              inv['created_at']?.toString() ?? inv['date']?.toString() ?? '';
           final status = inv['status']?.toString().toLowerCase() ?? '';
 
           Color statusColor = switch (status) {
@@ -659,25 +743,35 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
             child: ListTile(
               leading: CircleAvatar(
                 backgroundColor: AppTheme.accentCyan.withValues(alpha: 0.1),
-                child: const Icon(Icons.biotech,
-                    color: AppTheme.accentCyan, size: 20),
+                child: const Icon(
+                  Icons.biotech,
+                  color: AppTheme.accentCyan,
+                  size: 20,
+                ),
               ),
               title: Text(testType),
-              subtitle: Text('$patientName${date.isNotEmpty ? ' • $date' : ''}',
-                  style: const TextStyle(fontSize: 12)),
+              subtitle: Text(
+                '$patientName${date.isNotEmpty ? ' • $date' : ''}',
+                style: const TextStyle(fontSize: 12),
+              ),
               trailing: status.isNotEmpty
                   ? Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: statusColor.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: Text(status.toUpperCase(),
-                          style: TextStyle(
-                              fontSize: 10,
-                              color: statusColor,
-                              fontWeight: FontWeight.bold)),
+                      child: Text(
+                        status.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: statusColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     )
                   : const Icon(Icons.chevron_right),
             ),

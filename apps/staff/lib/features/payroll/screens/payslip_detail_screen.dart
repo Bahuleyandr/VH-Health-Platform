@@ -72,7 +72,9 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to open PDF: ${e.toString().replaceFirst('Exception: ', '')}'),
+            content: Text(
+              'Failed to open PDF: ${e.toString().replaceFirst('Exception: ', '')}',
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -96,7 +98,8 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
                 ? const Padding(
                     padding: EdgeInsets.all(16),
                     child: SizedBox(
-                      width: 20, height: 20,
+                      width: 20,
+                      height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         color: Colors.white,
@@ -111,33 +114,43 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF007A64)))
+          ? const Center(
+              child: CircularProgressIndicator(color: Color(0xFF007A64)),
+            )
           : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
-                        const SizedBox(height: 12),
-                        Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: _load,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF007A64),
-                            foregroundColor: Colors.white,
-                          ),
-                          child: const Text('Retry'),
-                        ),
-                      ],
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: Colors.red.shade300,
                     ),
-                  ),
-                )
-              : _payslip == null
-                  ? const Center(child: Text('Payslip not found'))
-                  : _buildBody(),
+                    const SizedBox(height: 12),
+                    Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _load,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF007A64),
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : _payslip == null
+          ? const Center(child: Text('Payslip not found'))
+          : _buildBody(),
     );
   }
 
@@ -154,7 +167,9 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
           Card(
             color: const Color(0xFF007A64),
             elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
@@ -184,7 +199,8 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
           const SizedBox(height: 16),
 
           // ─── FEATURE 2: Revision note banner ────────────────────────────
-          if (p['revision_note'] != null && (p['revision_note'] as String).isNotEmpty) ...[
+          if (p['revision_note'] != null &&
+              (p['revision_note'] as String).isNotEmpty) ...[
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -192,12 +208,18 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
               decoration: BoxDecoration(
                 color: const Color(0xFFE8F5F3),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF007A64).withValues(alpha: 0.4)),
+                border: Border.all(
+                  color: const Color(0xFF007A64).withValues(alpha: 0.4),
+                ),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.info_outline, color: Color(0xFF007A64), size: 18),
+                  const Icon(
+                    Icons.info_outline,
+                    color: Color(0xFF007A64),
+                    size: 18,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -220,12 +242,19 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
             rows: [
               _Row('Working Days', '${p['total_working_days'] ?? 0}'),
               _Row('Days Present', '${p['days_present'] ?? 0}', isGood: true),
-              _Row('Days Absent', '${p['days_absent'] ?? 0}', isBad: (p['days_absent'] as num? ?? 0) > 0),
+              _Row(
+                'Days Absent',
+                '${p['days_absent'] ?? 0}',
+                isBad: (p['days_absent'] as num? ?? 0) > 0,
+              ),
               // FEATURE 5: LOP line item
               if ((p['lop_days'] as num? ?? 0) > 0)
                 _Row('Loss of Pay Days', '${p['lop_days']} days', isBad: true),
               _Row('Leave Days', '${p['days_leave'] ?? 0}'),
-              _Row('Overtime Hours', '${(p['overtime_hours'] as num?)?.toStringAsFixed(1) ?? '0.0'} hrs'),
+              _Row(
+                'Overtime Hours',
+                '${(p['overtime_hours'] as num?)?.toStringAsFixed(1) ?? '0.0'} hrs',
+              ),
             ],
           ),
 
@@ -240,19 +269,37 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
               if ((p['da_earned'] as num? ?? 0) > 0)
                 _Row('DA', '₹${fmt.format(p['da_earned'])}'),
               if ((p['special_allowance_earned'] as num? ?? 0) > 0)
-                _Row('Special Allowance', '₹${fmt.format(p['special_allowance_earned'])}'),
+                _Row(
+                  'Special Allowance',
+                  '₹${fmt.format(p['special_allowance_earned'])}',
+                ),
               if ((p['transport_allowance_earned'] as num? ?? 0) > 0)
-                _Row('Transport Allowance', '₹${fmt.format(p['transport_allowance_earned'])}'),
+                _Row(
+                  'Transport Allowance',
+                  '₹${fmt.format(p['transport_allowance_earned'])}',
+                ),
               if ((p['medical_allowance_earned'] as num? ?? 0) > 0)
-                _Row('Medical Allowance', '₹${fmt.format(p['medical_allowance_earned'])}'),
+                _Row(
+                  'Medical Allowance',
+                  '₹${fmt.format(p['medical_allowance_earned'])}',
+                ),
               if ((p['overtime_pay'] as num? ?? 0) > 0)
                 _Row('Overtime Pay', '₹${fmt.format(p['overtime_pay'])}'),
               if ((p['bonus_this_month'] as num? ?? 0) > 0)
                 _Row('Bonus', '₹${fmt.format(p['bonus_this_month'])}'),
               // FEATURE 4: Arrears
               if ((p['arrears_amount'] as num? ?? 0) > 0)
-                _Row('Arrears Paid', '₹${fmt.format(p['arrears_amount'])}', isGood: true),
-              _Row('Gross Salary', '₹${fmt.format(p['gross_salary'] ?? 0)}', isBold: true, color: const Color(0xFF007A64)),
+                _Row(
+                  'Arrears Paid',
+                  '₹${fmt.format(p['arrears_amount'])}',
+                  isGood: true,
+                ),
+              _Row(
+                'Gross Salary',
+                '₹${fmt.format(p['gross_salary'] ?? 0)}',
+                isBold: true,
+                color: const Color(0xFF007A64),
+              ),
             ],
           ),
 
@@ -262,19 +309,35 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
             rows: [
               // FEATURE 5: LOP deduction
               if ((p['lop_days'] as num? ?? 0) > 0)
-                _Row('Loss of Pay (${p['lop_days']} days)', '₹${fmt.format(p['lop_deduction'] ?? 0)}', isBad: true),
+                _Row(
+                  'Loss of Pay (${p['lop_days']} days)',
+                  '₹${fmt.format(p['lop_deduction'] ?? 0)}',
+                  isBad: true,
+                ),
               if ((p['pf_employee'] as num? ?? 0) > 0)
                 _Row('PF (Employee 12%)', '₹${fmt.format(p['pf_employee'])}'),
               if ((p['esi_employee'] as num? ?? 0) > 0)
                 _Row('ESI (0.75%)', '₹${fmt.format(p['esi_employee'])}'),
               if ((p['professional_tax'] as num? ?? 0) > 0)
-                _Row('Professional Tax', '₹${fmt.format(p['professional_tax'])}'),
+                _Row(
+                  'Professional Tax',
+                  '₹${fmt.format(p['professional_tax'])}',
+                ),
               if ((p['tds'] as num? ?? 0) > 0)
                 _Row('TDS', '₹${fmt.format(p['tds'])}'),
               // FEATURE 3: Advance deduction
               if ((p['advance_deduction'] as num? ?? 0) > 0)
-                _Row('Salary Advance Deduction', '₹${fmt.format(p['advance_deduction'])}', isBad: true),
-              _Row('Total Deductions', '₹${fmt.format(p['total_deductions'] ?? 0)}', isBold: true, color: Colors.red.shade700),
+                _Row(
+                  'Salary Advance Deduction',
+                  '₹${fmt.format(p['advance_deduction'])}',
+                  isBad: true,
+                ),
+              _Row(
+                'Total Deductions',
+                '₹${fmt.format(p['total_deductions'] ?? 0)}',
+                isBold: true,
+                color: Colors.red.shade700,
+              ),
             ],
           ),
 
@@ -294,8 +357,12 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
                 ),
                 icon: _downloadingPdf
                     ? const SizedBox(
-                        width: 18, height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
                       )
                     : const Icon(Icons.download_outlined, color: Colors.white),
                 label: Text(
@@ -320,12 +387,19 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline, color: Colors.orange.shade700, size: 18),
+                  Icon(
+                    Icons.info_outline,
+                    color: Colors.orange.shade700,
+                    size: 18,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       'PDF payslip is being generated. It will appear here shortly.',
-                      style: TextStyle(fontSize: 12, color: Colors.orange.shade700),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.orange.shade700,
+                      ),
                     ),
                   ),
                 ],
@@ -379,38 +453,45 @@ class _Section extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
             ),
             const Divider(height: 16),
-            ...rows.map((row) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      row.label,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: row.isBold ? FontWeight.bold : FontWeight.normal,
-                        color: Colors.grey.shade700,
+            ...rows.map(
+              (row) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        row.label,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: row.isBold
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                          color: Colors.grey.shade700,
+                        ),
                       ),
                     ),
-                  ),
-                  Text(
-                    row.value,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: row.isBold ? FontWeight.bold : FontWeight.normal,
-                      color: row.color ??
-                          (row.isBold
-                              ? Colors.black87
-                              : row.isGood
-                                  ? Colors.green.shade700
-                                  : row.isBad
-                                      ? Colors.red.shade500
-                                      : Colors.black87),
+                    Text(
+                      row.value,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: row.isBold
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                        color:
+                            row.color ??
+                            (row.isBold
+                                ? Colors.black87
+                                : row.isGood
+                                ? Colors.green.shade700
+                                : row.isBad
+                                ? Colors.red.shade500
+                                : Colors.black87),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            )),
+            ),
           ],
         ),
       ),

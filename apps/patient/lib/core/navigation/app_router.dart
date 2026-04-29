@@ -107,6 +107,19 @@ class AppRouter {
 
     // Handle auth redirects
     redirect: (context, state) async {
+      SessionTimeoutProvider? sessionProvider;
+      UserProvider? userProvider;
+      try {
+        sessionProvider = context.read<SessionTimeoutProvider>();
+      } catch (_) {
+        // Provider may not be available during initial build.
+      }
+      try {
+        userProvider = context.read<UserProvider>();
+      } catch (_) {
+        // Provider may not be available during initial build.
+      }
+
       // The router historically gated on FirebaseAuth.currentUser only,
       // which conflated Firebase OTP state with backend session state. A
       // Firebase signOut (token expiry, debug-only dev login that bypasses
@@ -136,16 +149,10 @@ class AppRouter {
           location == '/profile-setup';
 
       // Session idle timeout — force logout if expired
-      try {
-        final sessionProvider = Provider.of<SessionTimeoutProvider>(
-          context,
-          listen: false,
-        );
-        if (sessionProvider.isSessionExpired && !isAuthRoute) {
-          return '/login';
-        }
-      } catch (_) {
-        // Provider may not be available during initial build
+      if (sessionProvider != null &&
+          sessionProvider.isSessionExpired &&
+          !isAuthRoute) {
+        return '/login';
       }
 
       // If not logged in and not on auth route, redirect to login
@@ -156,13 +163,8 @@ class AppRouter {
       // If logged in and on login, load user data and redirect to home
       if (isLoggedIn && location == '/login') {
         // Start idle timer now that we know the user is authenticated
-        try {
-          Provider.of<SessionTimeoutProvider>(
-            context,
-            listen: false,
-          ).startTracking();
-        } catch (e) {
-          debugPrint('Router: $e');
+        if (sessionProvider != null) {
+          sessionProvider.startTracking();
         }
 
         // Load user data from secure storage if not already loaded
@@ -173,11 +175,8 @@ class AppRouter {
           if (phone.isNotEmpty) {
             setUserData(phone, name);
             // Sync to UserProvider if available
-            try {
-              // ignore: use_build_context_synchronously
-              context.read<UserProvider>().setUser(phone, name);
-            } catch (e) {
-              debugPrint('AppRouter sync UserProvider failed: $e');
+            if (userProvider != null) {
+              userProvider.setUser(phone, name);
             }
           }
         }
@@ -186,14 +185,8 @@ class AppRouter {
 
       // User is logged in and on a protected page — ensure timer is running
       if (isLoggedIn && !isAuthRoute) {
-        try {
-          final sp = Provider.of<SessionTimeoutProvider>(
-            context,
-            listen: false,
-          );
-          if (!sp.isSessionExpired) sp.recordActivity();
-        } catch (e) {
-          debugPrint('Router: $e');
+        if (sessionProvider != null && !sessionProvider.isSessionExpired) {
+          sessionProvider.recordActivity();
         }
       }
 
@@ -204,19 +197,15 @@ class AppRouter {
       // Splash screen — fade to next route instead of a hard cut.
       GoRoute(
         path: '/',
-        pageBuilder: (context, state) => _fadePage(
-          state: state,
-          child: const SplashScreen(),
-        ),
+        pageBuilder: (context, state) =>
+            _fadePage(state: state, child: const SplashScreen()),
       ),
 
       // Auth routes
       GoRoute(
         path: '/login',
-        pageBuilder: (context, state) => _fadePage(
-          state: state,
-          child: const LoginScreen(),
-        ),
+        pageBuilder: (context, state) =>
+            _fadePage(state: state, child: const LoginScreen()),
       ),
       GoRoute(
         path: '/terms',

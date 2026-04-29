@@ -168,7 +168,7 @@ Application-visible corruption (constraint violations, missing rows). Use
 5. **Cut over** by updating the backend's `DATABASE_URL` Secret:
    ```bash
    kubectl -n vhhealth create secret generic vhhealth-db-url \
-     --from-literal=DATABASE_URL="postgresql://vhhealth:$PW@vhhealth-pg-recovery-rw.vhhealth-platform:5432/vhhealth?sslmode=require" \
+    --from-literal=DATABASE_URL="postgresql://vhhealth:<DB_PASSWORD>@vhhealth-pg-recovery-rw.vhhealth-platform:5432/vhhealth?sslmode=require" \
      --dry-run=client -o yaml | kubectl apply -f -
    kubectl -n vhhealth rollout restart deployment/vhhealth-backend
    ```

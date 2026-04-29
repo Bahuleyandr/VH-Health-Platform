@@ -53,8 +53,10 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     });
     try {
       // Load HR trend as a proxy — the backend returns last 24h records
-      final data =
-          await MedicalApiService.getVitalsTrend(widget.patientUid, 'all');
+      final data = await MedicalApiService.getVitalsTrend(
+        widget.patientUid,
+        'all',
+      );
       final list = data['vitals'] ?? data['records'] ?? data['trend'];
       setState(() {
         _vitalsHistory = list is List
@@ -79,8 +81,10 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
       final today = DateTime.now();
       final dateStr =
           '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-      final data =
-          await MedicalApiService.getIOBalance(widget.patientUid, date: dateStr);
+      final data = await MedicalApiService.getIOBalance(
+        widget.patientUid,
+        date: dateStr,
+      );
       setState(() {
         _ioBalance = data;
         _ioLoading = false;
@@ -155,8 +159,12 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                     const SizedBox(height: 20),
 
                     // Heart Rate
-                    _vitalField(hr, 'Heart Rate (bpm)', Icons.favorite,
-                        keyboardType: TextInputType.number),
+                    _vitalField(
+                      hr,
+                      'Heart Rate (bpm)',
+                      Icons.favorite,
+                      keyboardType: TextInputType.number,
+                    ),
                     const SizedBox(height: 12),
 
                     // Blood Pressure
@@ -164,20 +172,29 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                       children: [
                         Expanded(
                           child: _vitalField(
-                              bpSystolic, 'BP Systolic', Icons.arrow_upward,
-                              keyboardType: TextInputType.number),
+                            bpSystolic,
+                            'BP Systolic',
+                            Icons.arrow_upward,
+                            keyboardType: TextInputType.number,
+                          ),
                         ),
                         const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 8),
-                          child: Text('/',
-                              style: TextStyle(
-                                  fontSize: 24,
-                                  color: AppTheme.textSecondary)),
+                          child: Text(
+                            '/',
+                            style: TextStyle(
+                              fontSize: 24,
+                              color: AppTheme.textSecondary,
+                            ),
+                          ),
                         ),
                         Expanded(
                           child: _vitalField(
-                              bpDiastolic, 'BP Diastolic', Icons.arrow_downward,
-                              keyboardType: TextInputType.number),
+                            bpDiastolic,
+                            'BP Diastolic',
+                            Icons.arrow_downward,
+                            keyboardType: TextInputType.number,
+                          ),
                         ),
                       ],
                     ),
@@ -188,16 +205,22 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                       children: [
                         Expanded(
                           child: _vitalField(
-                              temp, 'Temp (°F)', Icons.thermostat,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true)),
+                            temp,
+                            'Temp (°F)',
+                            Icons.thermostat,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _vitalField(
-                              spo2, 'SpO2 (%)', Icons.air,
-                              keyboardType: TextInputType.number),
+                            spo2,
+                            'SpO2 (%)',
+                            Icons.air,
+                            keyboardType: TextInputType.number,
+                          ),
                         ),
                       ],
                     ),
@@ -208,14 +231,20 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                       children: [
                         Expanded(
                           child: _vitalField(
-                              rr, 'Resp. Rate', Icons.waves,
-                              keyboardType: TextInputType.number),
+                            rr,
+                            'Resp. Rate',
+                            Icons.waves,
+                            keyboardType: TextInputType.number,
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _vitalField(
-                              glucose, 'Glucose (mg/dL)', Icons.water_drop,
-                              keyboardType: TextInputType.number),
+                            glucose,
+                            'Glucose (mg/dL)',
+                            Icons.water_drop,
+                            keyboardType: TextInputType.number,
+                          ),
                         ),
                       ],
                     ),
@@ -226,14 +255,20 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                       children: [
                         Expanded(
                           child: _vitalField(
-                              pain, 'Pain (0-10)', Icons.sentiment_dissatisfied,
-                              keyboardType: TextInputType.number),
+                            pain,
+                            'Pain (0-10)',
+                            Icons.sentiment_dissatisfied,
+                            keyboardType: TextInputType.number,
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _vitalField(
-                              gcs, 'GCS (3-15)', Icons.psychology,
-                              keyboardType: TextInputType.number),
+                            gcs,
+                            'GCS (3-15)',
+                            Icons.psychology,
+                            keyboardType: TextInputType.number,
+                          ),
                         ),
                       ],
                     ),
@@ -248,18 +283,23 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                         border: OutlineInputBorder(),
                       ),
                       items: const [
+                        DropdownMenuItem(value: 'Alert', child: Text('Alert')),
                         DropdownMenuItem(
-                            value: 'Alert', child: Text('Alert')),
+                          value: 'Verbal',
+                          child: Text('Responds to Voice'),
+                        ),
                         DropdownMenuItem(
-                            value: 'Verbal', child: Text('Responds to Voice')),
+                          value: 'Pain',
+                          child: Text('Responds to Pain'),
+                        ),
                         DropdownMenuItem(
-                            value: 'Pain', child: Text('Responds to Pain')),
-                        DropdownMenuItem(
-                            value: 'Unresponsive',
-                            child: Text('Unresponsive')),
+                          value: 'Unresponsive',
+                          child: Text('Unresponsive'),
+                        ),
                       ],
                       onChanged: (v) => setSheetState(
-                          () => consciousness = v ?? consciousness),
+                        () => consciousness = v ?? consciousness,
+                      ),
                     ),
                     const SizedBox(height: 20),
 
@@ -441,8 +481,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             icon: Icons.arrow_downward,
                             selected: ioType == 'intake',
                             color: AppTheme.primaryBlue,
-                            onTap: () =>
-                                setSheetState(() => ioType = 'intake'),
+                            onTap: () => setSheetState(() => ioType = 'intake'),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -452,8 +491,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             icon: Icons.arrow_upward,
                             selected: ioType == 'output',
                             color: AppTheme.warningAmber,
-                            onTap: () =>
-                                setSheetState(() => ioType = 'output'),
+                            onTap: () => setSheetState(() => ioType = 'output'),
                           ),
                         ),
                       ],
@@ -470,31 +508,51 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                       items: ioType == 'intake'
                           ? const [
                               DropdownMenuItem(
-                                  value: 'oral', child: Text('Oral')),
+                                value: 'oral',
+                                child: Text('Oral'),
+                              ),
                               DropdownMenuItem(
-                                  value: 'iv', child: Text('IV Fluids')),
+                                value: 'iv',
+                                child: Text('IV Fluids'),
+                              ),
                               DropdownMenuItem(
-                                  value: 'blood',
-                                  child: Text('Blood Products')),
+                                value: 'blood',
+                                child: Text('Blood Products'),
+                              ),
                               DropdownMenuItem(
-                                  value: 'ng_tube', child: Text('NG Tube')),
+                                value: 'ng_tube',
+                                child: Text('NG Tube'),
+                              ),
                               DropdownMenuItem(
-                                  value: 'other', child: Text('Other')),
+                                value: 'other',
+                                child: Text('Other'),
+                              ),
                             ]
                           : const [
                               DropdownMenuItem(
-                                  value: 'urine', child: Text('Urine')),
+                                value: 'urine',
+                                child: Text('Urine'),
+                              ),
                               DropdownMenuItem(
-                                  value: 'drain', child: Text('Drain')),
+                                value: 'drain',
+                                child: Text('Drain'),
+                              ),
                               DropdownMenuItem(
-                                  value: 'emesis', child: Text('Emesis')),
+                                value: 'emesis',
+                                child: Text('Emesis'),
+                              ),
                               DropdownMenuItem(
-                                  value: 'stool', child: Text('Stool')),
+                                value: 'stool',
+                                child: Text('Stool'),
+                              ),
                               DropdownMenuItem(
-                                  value: 'blood_loss',
-                                  child: Text('Blood Loss')),
+                                value: 'blood_loss',
+                                child: Text('Blood Loss'),
+                              ),
                               DropdownMenuItem(
-                                  value: 'other', child: Text('Other')),
+                                value: 'other',
+                                child: Text('Other'),
+                              ),
                             ],
                       onChanged: (v) =>
                           setSheetState(() => category = v ?? category),
@@ -566,7 +624,9 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
-          color: selected ? color.withValues(alpha: 0.12) : AppTheme.backgroundGrey,
+          color: selected
+              ? color.withValues(alpha: 0.12)
+              : AppTheme.backgroundGrey,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: selected ? color : AppTheme.divider,
@@ -576,8 +636,11 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: selected ? color : AppTheme.textSecondary,
-                size: 20),
+            Icon(
+              icon,
+              color: selected ? color : AppTheme.textSecondary,
+              size: 20,
+            ),
             const SizedBox(width: 6),
             Text(
               label,
@@ -657,8 +720,10 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
           children: [
             Icon(Icons.monitor_heart, size: 64, color: AppTheme.divider),
             SizedBox(height: 12),
-            Text('No vitals recorded in last 24h',
-                style: TextStyle(color: AppTheme.textSecondary)),
+            Text(
+              'No vitals recorded in last 24h',
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
           ],
         ),
       );
@@ -668,8 +733,9 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
       scrollDirection: Axis.horizontal,
       child: SingleChildScrollView(
         child: DataTable(
-          headingRowColor:
-              WidgetStateProperty.all(AppTheme.primaryBlue.withValues(alpha: 0.06)),
+          headingRowColor: WidgetStateProperty.all(
+            AppTheme.primaryBlue.withValues(alpha: 0.06),
+          ),
           columnSpacing: 16,
           horizontalMargin: 12,
           dataRowMinHeight: 36,
@@ -687,34 +753,43 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
             DataColumn(label: Text('AVPU', style: _headerStyle)),
           ],
           rows: _vitalsHistory.map((v) {
-            return DataRow(cells: [
-              DataCell(Text(_formatTime(v['recorded_at'] as String?),
-                  style: _cellStyle)),
-              DataCell(_vitalCell(v['heart_rate'], 60, 100)),
-              DataCell(Text(
-                v['bp_systolic'] != null
-                    ? '${v['bp_systolic']}/${v['bp_diastolic'] ?? '-'}'
-                    : '-',
-                style: _cellStyle,
-              )),
-              DataCell(_vitalCell(v['temperature'], 97.0, 99.5,
-                  isDouble: true)),
-              DataCell(_vitalCell(v['spo2'], 95, 100)),
-              DataCell(_vitalCell(v['respiratory_rate'], 12, 20)),
-              DataCell(_vitalCell(v['glucose'], 70, 180)),
-              DataCell(Text('${v['pain_score'] ?? '-'}', style: _cellStyle)),
-              DataCell(Text('${v['gcs'] ?? '-'}', style: _cellStyle)),
-              DataCell(Text('${v['consciousness'] ?? '-'}',
-                  style: _cellStyle)),
-            ]);
+            return DataRow(
+              cells: [
+                DataCell(
+                  Text(
+                    _formatTime(v['recorded_at'] as String?),
+                    style: _cellStyle,
+                  ),
+                ),
+                DataCell(_vitalCell(v['heart_rate'], 60, 100)),
+                DataCell(
+                  Text(
+                    v['bp_systolic'] != null
+                        ? '${v['bp_systolic']}/${v['bp_diastolic'] ?? '-'}'
+                        : '-',
+                    style: _cellStyle,
+                  ),
+                ),
+                DataCell(
+                  _vitalCell(v['temperature'], 97.0, 99.5, isDouble: true),
+                ),
+                DataCell(_vitalCell(v['spo2'], 95, 100)),
+                DataCell(_vitalCell(v['respiratory_rate'], 12, 20)),
+                DataCell(_vitalCell(v['glucose'], 70, 180)),
+                DataCell(Text('${v['pain_score'] ?? '-'}', style: _cellStyle)),
+                DataCell(Text('${v['gcs'] ?? '-'}', style: _cellStyle)),
+                DataCell(
+                  Text('${v['consciousness'] ?? '-'}', style: _cellStyle),
+                ),
+              ],
+            );
           }).toList(),
         ),
       ),
     );
   }
 
-  Widget _vitalCell(dynamic value, num low, num high,
-      {bool isDouble = false}) {
+  Widget _vitalCell(dynamic value, num low, num high, {bool isDouble = false}) {
     if (value == null) {
       return const Text('-', style: _cellStyle);
     }
@@ -849,10 +924,11 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                   dense: true,
                   leading: CircleAvatar(
                     radius: 16,
-                    backgroundColor: (isIntake
-                            ? AppTheme.primaryBlue
-                            : AppTheme.warningAmber)
-                        .withValues(alpha: 0.15),
+                    backgroundColor:
+                        (isIntake
+                                ? AppTheme.primaryBlue
+                                : AppTheme.warningAmber)
+                            .withValues(alpha: 0.15),
                     child: Icon(
                       isIntake ? Icons.arrow_downward : Icons.arrow_upward,
                       size: 16,
@@ -866,8 +942,10 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                     style: const TextStyle(fontSize: 13),
                   ),
                   subtitle: entry['description'] != null
-                      ? Text(entry['description'] as String,
-                          style: const TextStyle(fontSize: 12))
+                      ? Text(
+                          entry['description'] as String,
+                          style: const TextStyle(fontSize: 12),
+                        )
                       : null,
                   trailing: Text(
                     _formatTime(entry['recorded_at'] as String?),
@@ -895,7 +973,11 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
   }
 
   Widget _ioSummaryCard(
-      String label, String value, IconData icon, Color color) {
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -934,8 +1016,11 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.monitor_heart,
-                size: 80, color: AppTheme.primaryBlue.withValues(alpha: 0.3)),
+            Icon(
+              Icons.monitor_heart,
+              size: 80,
+              color: AppTheme.primaryBlue.withValues(alpha: 0.3),
+            ),
             const SizedBox(height: 20),
             Text(
               widget.patientName != null
@@ -953,8 +1038,10 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
               icon: const Icon(Icons.add_circle_outline),
               label: const Text('Record Vitals Now'),
               style: FilledButton.styleFrom(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 14,
+                ),
               ),
             ),
           ],

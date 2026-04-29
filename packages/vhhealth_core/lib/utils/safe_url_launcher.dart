@@ -9,11 +9,21 @@ class SafeUrlLauncher {
   SafeUrlLauncher._();
 
   /// Allowed URL schemes. Everything else is blocked.
-  static const _allowedSchemes = {'https', 'http', 'tel', 'mailto', 'geo', 'sms'};
+  static const _allowedSchemes = {
+    'https',
+    'http',
+    'tel',
+    'mailto',
+    'geo',
+    'sms',
+  };
 
   /// Launch a URL after validating its scheme is safe.
   /// Returns true if launched, false if blocked or failed.
-  static Future<bool> launch(String url, {LaunchMode mode = LaunchMode.platformDefault}) async {
+  static Future<bool> launch(
+    String url, {
+    LaunchMode mode = LaunchMode.platformDefault,
+  }) async {
     final uri = Uri.tryParse(url);
     if (uri == null) {
       if (kDebugMode) debugPrint('SafeUrlLauncher: invalid URL: $url');
@@ -23,9 +33,14 @@ class SafeUrlLauncher {
   }
 
   /// Launch a pre-parsed URI after validating its scheme.
-  static Future<bool> launchUri(Uri uri, {LaunchMode mode = LaunchMode.platformDefault}) async {
+  static Future<bool> launchUri(
+    Uri uri, {
+    LaunchMode mode = LaunchMode.platformDefault,
+  }) async {
     if (!_isAllowedScheme(uri)) {
-      if (kDebugMode) debugPrint('SafeUrlLauncher: blocked unsafe scheme: ${uri.scheme}');
+      if (kDebugMode) {
+        debugPrint('SafeUrlLauncher: blocked unsafe scheme: ${uri.scheme}');
+      }
       return false;
     }
     try {
@@ -43,7 +58,9 @@ class SafeUrlLauncher {
   /// Strips everything except digits, +, and # to prevent USSD injection.
   static Future<bool> launchPhone(String phone) async {
     final sanitized = phone.replaceAll(RegExp(r'[^\d+]'), '');
-    if (sanitized.isEmpty) return false;
+    if (sanitized.isEmpty) {
+      return false;
+    }
     final uri = Uri.parse('tel:$sanitized');
     return launchUri(uri);
   }

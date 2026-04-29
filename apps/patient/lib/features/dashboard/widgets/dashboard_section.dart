@@ -74,18 +74,26 @@ class DashboardSection extends StatelessWidget {
                   colors: [
                     // Light mode needs heavier fills (0.30 → 0.10);
                     // dark mode stays subtle (0.10 → 0.03).
-                    accent.withValues(alpha: theme.brightness == Brightness.light ? 0.30 : 0.10),
-                    accent.withValues(alpha: theme.brightness == Brightness.light ? 0.10 : 0.03),
+                    accent.withValues(
+                      alpha: theme.brightness == Brightness.light ? 0.30 : 0.10,
+                    ),
+                    accent.withValues(
+                      alpha: theme.brightness == Brightness.light ? 0.10 : 0.03,
+                    ),
                   ],
                 ),
                 border: Border.all(
-                  color: accent.withValues(alpha: theme.brightness == Brightness.light ? 0.50 : 0.25),
+                  color: accent.withValues(
+                    alpha: theme.brightness == Brightness.light ? 0.50 : 0.25,
+                  ),
                   width: 1.2,
                 ),
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: accent.withValues(alpha: theme.brightness == Brightness.light ? 0.15 : 0.05),
+                    color: accent.withValues(
+                      alpha: theme.brightness == Brightness.light ? 0.15 : 0.05,
+                    ),
                     blurRadius: 14,
                     offset: const Offset(0, 4),
                   ),
@@ -105,10 +113,10 @@ class DashboardSection extends StatelessWidget {
 /// Per-section accent palette. Centralised so the dashboard sections
 /// pick consistent tints rather than each call site choosing its own.
 class DashboardAccents {
-  static const Color today = Color(0xFFFFB74D);     // amber
-  static const Color wellness = Color(0xFF4DD0E1);  // cyan/teal
-  static const Color updates = Color(0xFFBA68C8);   // soft purple
+  static const Color today = Color(0xFFFFB74D); // amber
+  static const Color wellness = Color(0xFF4DD0E1); // cyan/teal
+  static const Color updates = Color(0xFFBA68C8); // soft purple
   static const Color quickActions = Color(0xFFA8E6CF); // mint
-  static const Color explore = Color(0xFF81D4FA);   // light blue
+  static const Color explore = Color(0xFF81D4FA); // light blue
   static const Color appointments = Color(0xFFB39DDB); // lavender
 }

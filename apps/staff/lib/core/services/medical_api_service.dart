@@ -10,20 +10,26 @@ class MedicalApiService {
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  static Future<Map<String, dynamic>> _get(String path,
-      {Map<String, String>? query}) async {
+  static Future<Map<String, dynamic>> _get(
+    String path, {
+    Map<String, String>? query,
+  }) async {
     final resp = await ApiClient.get(path, queryParameters: query);
     return _handle(resp);
   }
 
   static Future<Map<String, dynamic>> _post(
-      String path, Map<String, dynamic> body) async {
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     final resp = await ApiClient.post(path, body: body);
     return _handle(resp);
   }
 
   static Future<Map<String, dynamic>> _put(
-      String path, Map<String, dynamic> body) async {
+    String path,
+    Map<String, dynamic> body,
+  ) async {
     final resp = await ApiClient.put(path, body: body);
     return _handle(resp);
   }
@@ -85,8 +91,7 @@ class MedicalApiService {
         'date': ?date,
       };
       final files = [
-        await http.MultipartFile.fromPath('file', filePath,
-            filename: fileName)
+        await http.MultipartFile.fromPath('file', filePath, filename: fileName),
       ];
       final resp = await ApiClient.multipart(
         '/staff/medical/investigations',
@@ -113,7 +118,8 @@ class MedicalApiService {
 
   /// GET /investigations/doctor/:doctor_id — investigations for a doctor
   static Future<Map<String, dynamic>> getDoctorInvestigations(
-      String doctorId) async {
+    String doctorId,
+  ) async {
     return _get('/investigations/doctor/$doctorId');
   }
 
@@ -130,8 +136,7 @@ class MedicalApiService {
     String investigationId,
     String status,
   ) async {
-    return _put(
-        '/investigations/$investigationId/status', {'status': status});
+    return _put('/investigations/$investigationId/status', {'status': status});
   }
 
   /// GET /investigations/list — list investigations with filters
@@ -139,10 +144,10 @@ class MedicalApiService {
     int page = 1,
     int limit = 20,
   }) async {
-    return _get('/investigations/list', query: {
-      'page': page.toString(),
-      'limit': limit.toString(),
-    });
+    return _get(
+      '/investigations/list',
+      query: {'page': page.toString(), 'limit': limit.toString()},
+    );
   }
 
   // ─── Investigation Bookings ─────────────────────────────────────────────
@@ -216,11 +221,9 @@ class MedicalApiService {
     String? notes,
     String? fileName,
   }) async {
-    final fields = <String, String>{
-      'result_notes': ?notes,
-    };
+    final fields = <String, String>{'result_notes': ?notes};
     final files = [
-      await http.MultipartFile.fromPath('file', filePath, filename: fileName)
+      await http.MultipartFile.fromPath('file', filePath, filename: fileName),
     ];
     final resp = await ApiClient.multipart(
       '/investigations/bookings/$id/result',
@@ -261,15 +264,19 @@ class MedicalApiService {
     int? days,
     String? vitalType,
   }) async {
-    return _get('/health/patient/$patientId/trends', query: {
-      if (days != null) 'days': days.toString(),
-      'vital_type': ?vitalType,
-    });
+    return _get(
+      '/health/patient/$patientId/trends',
+      query: {
+        if (days != null) 'days': days.toString(),
+        'vital_type': ?vitalType,
+      },
+    );
   }
 
   /// GET /records/health-records/:phone — health records by phone
   static Future<Map<String, dynamic>> getHealthRecordsByPhone(
-      String phone) async {
+    String phone,
+  ) async {
     return _get('/records/health-records/$phone');
   }
 
@@ -277,7 +284,9 @@ class MedicalApiService {
 
   /// POST /prescriptions/create — create structured e-prescription
   static Future<Map<String, dynamic>> createEPrescription(
-      Map<String, dynamic> data, {File? photo}) async {
+    Map<String, dynamic> data, {
+    File? photo,
+  }) async {
     if (photo != null) {
       final fields = <String, String>{};
       data.forEach((key, value) {
@@ -286,7 +295,7 @@ class MedicalApiService {
         }
       });
       final files = [
-        await http.MultipartFile.fromPath('handwritten_photo', photo.path)
+        await http.MultipartFile.fromPath('handwritten_photo', photo.path),
       ];
       final resp = await ApiClient.multipart(
         '/prescriptions/create',
@@ -362,17 +371,27 @@ class MedicalApiService {
       'past_minutes': pastMinutes.toString(),
       'future_minutes': futureMinutes.toString(),
     };
-    final resp = await ApiClient.get('/clinical/mar/due', queryParameters: query);
+    final resp = await ApiClient.get(
+      '/clinical/mar/due',
+      queryParameters: query,
+    );
     if (!resp.isSuccess || resp.raw is! Map) {
-      throw Exception(resp.message ?? 'Failed to load due medications (${resp.statusCode})');
+      throw Exception(
+        resp.message ?? 'Failed to load due medications (${resp.statusCode})',
+      );
     }
     final raw = resp.raw as Map<String, dynamic>;
     if (raw['success'] != true) {
-      throw Exception(raw['message']?.toString() ?? 'Failed to load due medications');
+      throw Exception(
+        raw['message']?.toString() ?? 'Failed to load due medications',
+      );
     }
     final data = raw['data'];
     if (data is List) {
-      return data.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+      return data
+          .whereType<Map>()
+          .map((m) => m.cast<String, dynamic>())
+          .toList();
     }
     return const [];
   }
@@ -383,11 +402,14 @@ class MedicalApiService {
     String? fromDate,
     String? toDate,
   }) async {
-    final data = await _get('/prescriptions/all', query: {
-      'doctor_id': ?doctorId,
-      'from_date': ?fromDate,
-      'to_date': ?toDate,
-    });
+    final data = await _get(
+      '/prescriptions/all',
+      query: {
+        'doctor_id': ?doctorId,
+        'from_date': ?fromDate,
+        'to_date': ?toDate,
+      },
+    );
     return data['data'] as List? ?? [];
   }
 
@@ -430,15 +452,18 @@ class MedicalApiService {
     int page = 1,
     int limit = 20,
   }) async {
-    return _get('/records/records', query: {
-      'type': ?type,
-      'date_from': ?dateFrom,
-      'date_to': ?dateTo,
-      if (patientId != null) 'patient_id': patientId.toString(),
-      if (doctorId != null) 'doctor_id': doctorId.toString(),
-      'page': page.toString(),
-      'limit': limit.toString(),
-    });
+    return _get(
+      '/records/records',
+      query: {
+        'type': ?type,
+        'date_from': ?dateFrom,
+        'date_to': ?dateTo,
+        if (patientId != null) 'patient_id': patientId.toString(),
+        if (doctorId != null) 'doctor_id': doctorId.toString(),
+        'page': page.toString(),
+        'limit': limit.toString(),
+      },
+    );
   }
 
   /// GET /records/patient/:patient_id — records for a specific patient
@@ -450,13 +475,16 @@ class MedicalApiService {
 
   /// POST /emr/admit — admit a patient
   static Future<Map<String, dynamic>> admitPatient(
-      Map<String, dynamic> data) async {
+    Map<String, dynamic> data,
+  ) async {
     return _post('/emr/admit', data);
   }
 
   /// POST /emr/:id/discharge — discharge a patient
   static Future<Map<String, dynamic>> dischargePatient(
-      int id, Map<String, dynamic> data) async {
+    int id,
+    Map<String, dynamic> data,
+  ) async {
     return _post('/emr/$id/discharge', data);
   }
 
@@ -467,7 +495,9 @@ class MedicalApiService {
 
   /// PUT /emr/:id/discharge-summary — save/edit discharge summary draft
   static Future<Map<String, dynamic>> saveDischargeSummary(
-      int id, Map<String, dynamic> summary) async {
+    int id,
+    Map<String, dynamic> summary,
+  ) async {
     return _put('/emr/$id/discharge-summary', {'discharge_summary': summary});
   }
 
@@ -481,10 +511,7 @@ class MedicalApiService {
     int page = 1,
     int limit = 20,
   }) async {
-    return _get('/emr/admissions', query: {
-      'page': '$page',
-      'limit': '$limit',
-    });
+    return _get('/emr/admissions', query: {'page': '$page', 'limit': '$limit'});
   }
 
   /// GET /emr/admission/:id — admission detail
@@ -496,16 +523,17 @@ class MedicalApiService {
 
   /// POST /emr/notes — create a clinical note
   static Future<Map<String, dynamic>> createClinicalNote(
-      Map<String, dynamic> data) async {
+    Map<String, dynamic> data,
+  ) async {
     return _post('/emr/notes', data);
   }
 
   /// GET /emr/notes/patient/:uid — fetch notes for a patient
-  static Future<Map<String, dynamic>> getPatientNotes(String uid,
-      {String? noteType}) async {
-    return _get('/emr/notes/patient/$uid', query: {
-      'note_type': ?noteType,
-    });
+  static Future<Map<String, dynamic>> getPatientNotes(
+    String uid, {
+    String? noteType,
+  }) async {
+    return _get('/emr/notes/patient/$uid', query: {'note_type': ?noteType});
   }
 
   /// GET /emr/timeline/:uid — full clinical timeline for a patient
@@ -522,7 +550,8 @@ class MedicalApiService {
 
   /// POST /emr/orders — create an order (medication, investigation, nursing)
   static Future<Map<String, dynamic>> createEmrOrder(
-      Map<String, dynamic> data) async {
+    Map<String, dynamic> data,
+  ) async {
     return _post('/emr/orders', data);
   }
 
@@ -547,35 +576,40 @@ class MedicalApiService {
 
   /// POST /emr/vitals — record EMR vitals
   static Future<Map<String, dynamic>> recordEmrVitals(
-      Map<String, dynamic> data) async {
+    Map<String, dynamic> data,
+  ) async {
     return _post('/emr/vitals', data);
   }
 
   /// GET /emr/vitals/:uid/trend — vital trend data for a patient
   static Future<Map<String, dynamic>> getVitalsTrend(
-      String uid, String vital) async {
+    String uid,
+    String vital,
+  ) async {
     return _get('/emr/vitals/$uid/trend', query: {'vital': vital});
   }
 
   /// POST /emr/io — record intake/output entry
   static Future<Map<String, dynamic>> recordIO(
-      Map<String, dynamic> data) async {
+    Map<String, dynamic> data,
+  ) async {
     return _post('/emr/io', data);
   }
 
   /// GET /emr/io/:uid/balance — I/O balance for a patient
-  static Future<Map<String, dynamic>> getIOBalance(String uid,
-      {String? date}) async {
-    return _get('/emr/io/$uid/balance', query: {
-      'date': ?date,
-    });
+  static Future<Map<String, dynamic>> getIOBalance(
+    String uid, {
+    String? date,
+  }) async {
+    return _get('/emr/io/$uid/balance', query: {'date': ?date});
   }
 
   // ─── EMR: Diagnosis ───────────────────────────────────────────────────────
 
   /// POST /emr/diagnosis — add a diagnosis
   static Future<Map<String, dynamic>> addDiagnosis(
-      Map<String, dynamic> data) async {
+    Map<String, dynamic> data,
+  ) async {
     return _post('/emr/diagnosis', data);
   }
 
@@ -593,7 +627,8 @@ class MedicalApiService {
 
   /// POST /emr/cds/check-order — run CDS checks on an order
   static Future<Map<String, dynamic>> checkOrder(
-      Map<String, dynamic> orderData) async {
+    Map<String, dynamic> orderData,
+  ) async {
     return _post('/emr/cds/check-order', orderData);
   }
 

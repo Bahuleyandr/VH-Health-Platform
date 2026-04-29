@@ -1,0 +1,30 @@
+name: Kubernetes Manifests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ci-kubernetes.yml'
+      - '.github/workflows/_reusable-kubernetes-manifests.yml'
+      - 'infra/kubernetes/**'
+      - 'scripts/validate-kubernetes-manifests.mjs'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ci-kubernetes.yml'
+      - '.github/workflows/_reusable-kubernetes-manifests.yml'
+      - 'infra/kubernetes/**'
+      - 'scripts/validate-kubernetes-manifests.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kubernetes-manifests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    uses: ./.github/workflows/_reusable-kubernetes-manifests.yml
+    secrets: inherit

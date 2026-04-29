@@ -272,7 +272,7 @@ function coverLetterText({ claim, classification, appealType }) {
   return `Dear ${payer} Claims Review Team,\n\nWe are submitting a ${appealTypeLabel} appeal for claim ${claimNumber}${policy}. The denial reason received (${classification.classification.replace(/_/g, ' ')}) is respectfully contested. The attached clinical documentation supports medical necessity and coverage of the services provided. Please review the evidence below and reconsider the adjudication of this claim.`;
 }
 
-function medicalNecessityNarrative({ claim, classification, evidence }) {
+function medicalNecessityNarrative({ classification, evidence }) {
   const dxSummary = evidence.diagnoses
     .slice(0, 4)
     .map((d) => (d.icd10 ? `${d.icd10} ${d.description || ''}`.trim() : d.description))

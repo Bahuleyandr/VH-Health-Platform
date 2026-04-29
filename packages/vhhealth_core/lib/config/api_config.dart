@@ -28,14 +28,14 @@ class ApiConfig {
 
   /// Standard headers for JSON requests (no JWT — for public endpoints).
   static Map<String, String> get jsonHeaders => {
-        'Content-Type': 'application/json',
-        if (apiKey.isNotEmpty) 'x-api-key': apiKey,
-      };
+    'Content-Type': 'application/json',
+    if (apiKey.isNotEmpty) 'x-api-key': apiKey,
+  };
 
   /// Headers for non-JSON requests (e.g. multipart) without JWT.
   static Map<String, String> get authHeaders => {
-        if (apiKey.isNotEmpty) 'x-api-key': apiKey,
-      };
+    if (apiKey.isNotEmpty) 'x-api-key': apiKey,
+  };
 
   /// Get headers with JWT for authenticated JSON requests.
   static Future<Map<String, String>> authenticatedHeaders() async {

@@ -86,7 +86,9 @@ class _MarScanScreenState extends State<MarScanScreen> {
       );
       setState(() => _verifyResult = result);
     } catch (e) {
-      setState(() => _errorMessage = e.toString().replaceFirst('Exception: ', ''));
+      setState(
+        () => _errorMessage = e.toString().replaceFirst('Exception: ', ''),
+      );
     } finally {
       setState(() => _busy = false);
     }
@@ -107,7 +109,9 @@ class _MarScanScreenState extends State<MarScanScreen> {
       if (!mounted) return;
       setState(() => _step = _Step.done);
     } catch (e) {
-      setState(() => _errorMessage = e.toString().replaceFirst('Exception: ', ''));
+      setState(
+        () => _errorMessage = e.toString().replaceFirst('Exception: ', ''),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -125,10 +129,7 @@ class _MarScanScreenState extends State<MarScanScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return StaffScaffold(
-      title: 'Administer Medication',
-      body: _buildBody(),
-    );
+    return StaffScaffold(title: 'Administer Medication', body: _buildBody());
   }
 
   Widget _buildBody() {
@@ -136,7 +137,8 @@ class _MarScanScreenState extends State<MarScanScreen> {
       case _Step.scanWristband:
         return _scanPanel(
           prompt: 'Step 1 of 3 — Scan patient wristband',
-          subtitle: 'Point the camera at the QR code on the patient\'s wristband.',
+          subtitle:
+              'Point the camera at the QR code on the patient\'s wristband.',
         );
       case _Step.scanDrug:
         return _scanPanel(
@@ -158,9 +160,18 @@ class _MarScanScreenState extends State<MarScanScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(prompt, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              Text(
+                prompt,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
               const SizedBox(height: 4),
-              Text(subtitle, style: const TextStyle(fontSize: 13, color: Colors.black54)),
+              Text(
+                subtitle,
+                style: const TextStyle(fontSize: 13, color: Colors.black54),
+              ),
             ],
           ),
         ),
@@ -192,8 +203,10 @@ class _MarScanScreenState extends State<MarScanScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Step 3 of 3 — 5-rights check',
-              style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            'Step 3 of 3 — 5-rights check',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(12),
@@ -204,10 +217,14 @@ class _MarScanScreenState extends State<MarScanScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(ma['medication_name']?.toString() ?? '(unknown medication)',
-                    style: const TextStyle(fontWeight: FontWeight.bold)),
-                Text('Dose: ${ma['dose'] ?? '-'} · Route: ${ma['route'] ?? '-'}',
-                    style: const TextStyle(fontSize: 13)),
+                Text(
+                  ma['medication_name']?.toString() ?? '(unknown medication)',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  'Dose: ${ma['dose'] ?? '-'} · Route: ${ma['route'] ?? '-'}',
+                  style: const TextStyle(fontSize: 13),
+                ),
               ],
             ),
           ),
@@ -252,8 +269,10 @@ class _MarScanScreenState extends State<MarScanScreen> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Icon(passed ? Icons.check_circle : Icons.cancel,
-              color: passed ? AppTheme.successGreen : AppTheme.errorRed),
+          Icon(
+            passed ? Icons.check_circle : Icons.cancel,
+            color: passed ? AppTheme.successGreen : AppTheme.errorRed,
+          ),
           const SizedBox(width: 8),
           Text(label, style: const TextStyle(fontSize: 14)),
         ],
@@ -268,12 +287,21 @@ class _MarScanScreenState extends State<MarScanScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.check_circle, color: AppTheme.successGreen, size: 72),
+            const Icon(
+              Icons.check_circle,
+              color: AppTheme.successGreen,
+              size: 72,
+            ),
             const SizedBox(height: 12),
-            const Text('Administration recorded',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text(
+              'Administration recorded',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 24),
-            ElevatedButton(onPressed: _reset, child: const Text('Scan next dose')),
+            ElevatedButton(
+              onPressed: _reset,
+              child: const Text('Scan next dose'),
+            ),
           ],
         ),
       ),
@@ -330,8 +358,10 @@ class _OverrideSectionState extends State<_OverrideSection> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('5-rights check failed',
-              style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text(
+            '5-rights check failed',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 4),
           const Text(
             'To record this administration, document the reason. This entry '

@@ -42,7 +42,9 @@ class LoginService {
     if (pwError != null) throw Exception(pwError);
 
     return AuthService.login(
-        employeeId: employeeId.trim().toUpperCase(), password: password);
+      employeeId: employeeId.trim().toUpperCase(),
+      password: password,
+    );
   }
 
   /// Attempt staff login with employee ID + PIN.
@@ -58,7 +60,9 @@ class LoginService {
       throw Exception('PIN must contain only digits');
     }
     return AuthService.pinLogin(
-        employeeId: employeeId.trim().toUpperCase(), pin: pin);
+      employeeId: employeeId.trim().toUpperCase(),
+      pin: pin,
+    );
   }
 
   static Future<void> logout() => AuthService.logout();

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:vhhealth/core/widgets/circular_feature_dial.dart' show FeatureIconData;
+import 'package:vhhealth/core/widgets/circular_feature_dial.dart'
+    show FeatureIconData;
 
 /// 2-column grid of feature cards. Replaces the legacy circular dial
 /// — easier to scan, much bigger tap targets, and each card can carry
@@ -69,13 +70,13 @@ class _FeatureCard extends StatelessWidget {
     // icon circle in light mode so the white glyph has real contrast.
     final saturatedTint = isLight
         ? HSLColor.fromColor(tint)
-            .withSaturation(
-              (HSLColor.fromColor(tint).saturation + 0.15).clamp(0.0, 1.0),
-            )
-            .withLightness(
-              (HSLColor.fromColor(tint).lightness * 0.55).clamp(0.32, 0.55),
-            )
-            .toColor()
+              .withSaturation(
+                (HSLColor.fromColor(tint).saturation + 0.15).clamp(0.0, 1.0),
+              )
+              .withLightness(
+                (HSLColor.fromColor(tint).lightness * 0.55).clamp(0.32, 0.55),
+              )
+              .toColor()
         : tint;
 
     // Brightness-aware tints. Light mode needs stronger fills against
@@ -135,7 +136,10 @@ class _FeatureCard extends StatelessWidget {
                         feature.svgAsset!,
                         width: 110,
                         height: 110,
-                        colorFilter: ColorFilter.mode(echoColor, BlendMode.srcIn),
+                        colorFilter: ColorFilter.mode(
+                          echoColor,
+                          BlendMode.srcIn,
+                        ),
                       )
                     : Icon(feature.icon, size: 96, color: echoColor),
               ),
@@ -153,7 +157,9 @@ class _FeatureCard extends StatelessWidget {
                     // bigger render size since the illustrations are
                     // more detailed than icon glyphs.
                     Container(
-                      padding: EdgeInsets.all(feature.svgAsset != null ? 9 : 11),
+                      padding: EdgeInsets.all(
+                        feature.svgAsset != null ? 9 : 11,
+                      ),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           begin: Alignment.topLeft,
@@ -163,7 +169,9 @@ class _FeatureCard extends StatelessWidget {
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: tint.withValues(alpha: isLight ? 0.40 : 0.25),
+                            color: tint.withValues(
+                              alpha: isLight ? 0.40 : 0.25,
+                            ),
                             blurRadius: 8,
                             offset: const Offset(0, 3),
                           ),
@@ -174,7 +182,10 @@ class _FeatureCard extends StatelessWidget {
                               feature.svgAsset!,
                               width: 28,
                               height: 28,
-                              colorFilter: ColorFilter.mode(iconColor, BlendMode.srcIn),
+                              colorFilter: ColorFilter.mode(
+                                iconColor,
+                                BlendMode.srcIn,
+                              ),
                             )
                           : Icon(feature.icon, color: iconColor, size: 22),
                     ),
@@ -192,7 +203,8 @@ class _FeatureCard extends StatelessWidget {
                             color: cs.onSurface,
                           ),
                         ),
-                        if (feature.description != null && feature.description!.isNotEmpty) ...[
+                        if (feature.description != null &&
+                            feature.description!.isNotEmpty) ...[
                           const SizedBox(height: 2),
                           Text(
                             feature.description!,

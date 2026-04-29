@@ -68,7 +68,9 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
             ? data
             : (data is Map ? data['wards'] ?? [] : []);
         _wards = List<Map<String, dynamic>>.from(
-          (list as List).map((w) => w is Map<String, dynamic> ? w : <String, dynamic>{}),
+          (list as List).map(
+            (w) => w is Map<String, dynamic> ? w : <String, dynamic>{},
+          ),
         );
       } else {
         _error = response.message ?? 'Failed to load wards';
@@ -93,7 +95,9 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
             ? data
             : (data is Map ? data['beds'] ?? [] : []);
         _beds = List<Map<String, dynamic>>.from(
-          (list as List).map((b) => b is Map<String, dynamic> ? b : <String, dynamic>{}),
+          (list as List).map(
+            (b) => b is Map<String, dynamic> ? b : <String, dynamic>{},
+          ),
         );
       }
     } catch (e) {
@@ -159,10 +163,10 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       body: _loadingWards
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? _buildError()
-              : _selectedWardId == null
-                  ? _buildWardList()
-                  : _buildBedGrid(),
+          ? _buildError()
+          : _selectedWardId == null
+          ? _buildWardList()
+          : _buildBedGrid(),
     );
   }
 
@@ -224,8 +228,10 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         Expanded(
           child: _filteredWards.isEmpty
               ? const Center(
-                  child: Text('No wards found',
-                      style: TextStyle(color: AppTheme.textSecondary)),
+                  child: Text(
+                    'No wards found',
+                    style: TextStyle(color: AppTheme.textSecondary),
+                  ),
                 )
               : RefreshIndicator(
                   onRefresh: _fetchWards,
@@ -234,11 +240,18 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                     itemCount: _filteredWards.length,
                     itemBuilder: (context, index) {
                       final ward = _filteredWards[index];
-                      final name = ward['name'] ?? ward['wardName'] ?? 'Ward ${index + 1}';
+                      final name =
+                          ward['name'] ??
+                          ward['wardName'] ??
+                          'Ward ${index + 1}';
                       final totalBeds = ward['totalBeds'] ?? ward['total'] ?? 0;
-                      final available = ward['availableBeds'] ?? ward['available'] ?? 0;
-                      final occupied = ward['occupiedBeds'] ?? ward['occupied'] ?? 0;
-                      final wardId = (ward['id'] ?? ward['_id'] ?? ward['wardId'] ?? '').toString();
+                      final available =
+                          ward['availableBeds'] ?? ward['available'] ?? 0;
+                      final occupied =
+                          ward['occupiedBeds'] ?? ward['occupied'] ?? 0;
+                      final wardId =
+                          (ward['id'] ?? ward['_id'] ?? ward['wardId'] ?? '')
+                              .toString();
 
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),
@@ -250,10 +263,15 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                           leading: Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: AppTheme.primaryBlue.withValues(alpha: 0.1),
+                              color: AppTheme.primaryBlue.withValues(
+                                alpha: 0.1,
+                              ),
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: const Icon(Icons.local_hotel, color: AppTheme.primaryBlue),
+                            child: const Icon(
+                              Icons.local_hotel,
+                              color: AppTheme.primaryBlue,
+                            ),
                           ),
                           title: Text(
                             name.toString(),
@@ -265,9 +283,17 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                               children: [
                                 _miniStat('Total', '$totalBeds', Colors.grey),
                                 const SizedBox(width: 12),
-                                _miniStat('Free', '$available', AppTheme.successGreen),
+                                _miniStat(
+                                  'Free',
+                                  '$available',
+                                  AppTheme.successGreen,
+                                ),
                                 const SizedBox(width: 12),
-                                _miniStat('Used', '$occupied', AppTheme.errorRed),
+                                _miniStat(
+                                  'Used',
+                                  '$occupied',
+                                  AppTheme.errorRed,
+                                ),
                               ],
                             ),
                           ),
@@ -332,28 +358,30 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
           child: _loadingBeds
               ? const Center(child: CircularProgressIndicator())
               : _beds.isEmpty
-                  ? const Center(
-                      child: Text('No beds found in this ward',
-                          style: TextStyle(color: AppTheme.textSecondary)),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: () => _fetchBeds(_selectedWardId!),
-                      child: GridView.builder(
-                        padding: const EdgeInsets.all(16),
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
+              ? const Center(
+                  child: Text(
+                    'No beds found in this ward',
+                    style: TextStyle(color: AppTheme.textSecondary),
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: () => _fetchBeds(_selectedWardId!),
+                  child: GridView.builder(
+                    padding: const EdgeInsets.all(16),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 2,
                           mainAxisSpacing: 12,
                           crossAxisSpacing: 12,
                           childAspectRatio: 1.3,
                         ),
-                        itemCount: _beds.length,
-                        itemBuilder: (context, index) {
-                          final bed = _beds[index];
-                          return _buildBedCard(bed);
-                        },
-                      ),
-                    ),
+                    itemCount: _beds.length,
+                    itemBuilder: (context, index) {
+                      final bed = _beds[index];
+                      return _buildBedCard(bed);
+                    },
+                  ),
+                ),
         ),
       ],
     );
@@ -408,11 +436,18 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
-              status.isNotEmpty ? status[0].toUpperCase() + status.substring(1).toLowerCase() : status,
-              style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600),
+              status.isNotEmpty
+                  ? status[0].toUpperCase() + status.substring(1).toLowerCase()
+                  : status,
+              style: TextStyle(
+                fontSize: 11,
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
-          if (status.toLowerCase() == 'occupied' && patientName.toString().isNotEmpty) ...[
+          if (status.toLowerCase() == 'occupied' &&
+              patientName.toString().isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(
               patientName.toString(),
@@ -423,7 +458,10 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
             if (doctorName.toString().isNotEmpty)
               Text(
                 'Dr. $doctorName',
-                style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: AppTheme.textSecondary,
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -443,7 +481,10 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 4),
-        Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+        ),
       ],
     );
   }
@@ -451,8 +492,18 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
   Widget _miniStat(String label, String value, Color color) {
     return Column(
       children: [
-        Text(value, style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 14)),
-        Text(label, style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
+        Text(
+          value,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: color,
+            fontSize: 14,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary),
+        ),
       ],
     );
   }

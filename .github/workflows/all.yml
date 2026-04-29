@@ -18,6 +18,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  secret-scan:
+    uses: ./.github/workflows/secret-scan.yml
+    secrets: inherit
+
   flutter-workspace:
     uses: ./.github/workflows/_reusable-flutter-workspace.yml
     with:
@@ -45,4 +49,11 @@ jobs:
     with:
       notify_on_failure: true
       notification_label: Full Stack Sweep / admin
+    secrets: inherit
+
+  kubernetes-manifest-validation:
+    uses: ./.github/workflows/_reusable-kubernetes-manifests.yml
+    with:
+      notify_on_failure: true
+      notification_label: Full Stack Sweep / Kubernetes manifests
     secrets: inherit

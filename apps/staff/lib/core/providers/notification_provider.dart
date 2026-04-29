@@ -115,13 +115,16 @@ class NotificationProvider extends ChangeNotifier {
 
       _notifications.clear();
       for (final item in data) {
-        _notifications.add(NotificationItem(
-          title: item['title'] ?? 'Notification',
-          body: item['message'] ?? item['body'] ?? '',
-          timestamp: DateTime.tryParse(item['created_at'] ?? '') ?? DateTime.now(),
-          type: item['type']?.toString(),
-          isRead: item['is_read'] == true,
-        ));
+        _notifications.add(
+          NotificationItem(
+            title: item['title'] ?? 'Notification',
+            body: item['message'] ?? item['body'] ?? '',
+            timestamp:
+                DateTime.tryParse(item['created_at'] ?? '') ?? DateTime.now(),
+            type: item['type']?.toString(),
+            isRead: item['is_read'] == true,
+          ),
+        );
       }
       notifyListeners();
     } catch (e) {

@@ -54,10 +54,10 @@ class _CodeBlueListenerState extends State<CodeBlueListener> {
                 child: Text(
                   'CODE BLUE',
                   style: Theme.of(ctx).textTheme.headlineSmall?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 2,
-                      ),
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 2,
+                  ),
                 ),
               ),
             ],
@@ -93,10 +93,16 @@ class _CodeBlueListenerState extends State<CodeBlueListener> {
               style: TextButton.styleFrom(
                 foregroundColor: Colors.white,
                 backgroundColor: Colors.red.shade700,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
               ),
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('ACKNOWLEDGED', style: TextStyle(fontWeight: FontWeight.bold)),
+              child: const Text(
+                'ACKNOWLEDGED',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
           ],
         );

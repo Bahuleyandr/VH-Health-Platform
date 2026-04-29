@@ -19,7 +19,8 @@ class LocationService {
     }
     if (permission == LocationPermission.deniedForever) {
       return {
-        'error': 'Location permission permanently denied. Please enable in settings.'
+        'error':
+            'Location permission permanently denied. Please enable in settings.',
       };
     }
 
@@ -51,7 +52,9 @@ class LocationService {
   }
 
   static String getLocationStatusMessage(Map<String, dynamic> locationData) {
-    if (locationData.containsKey('error')) return locationData['error'] as String;
+    if (locationData.containsKey('error')) {
+      return locationData['error'] as String;
+    }
     final distance = locationData['distanceFromCampus'] as int? ?? 0;
     final within = locationData['withinCampus'] as bool? ?? false;
     if (within) return 'Within campus (${distance}m from center)';

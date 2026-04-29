@@ -50,8 +50,13 @@ class RealtimeProvider extends ChangeNotifier {
 
   /// Convenience pass-through so consumers don't have to import
   /// RealtimeClient directly for the one method they care about.
-  Stream<RealtimeEvent> events(String channel, {bool broadcastChannel = true}) =>
-      RealtimeClient.instance.events(channel, broadcastChannel: broadcastChannel);
+  Stream<RealtimeEvent> events(
+    String channel, {
+    bool broadcastChannel = true,
+  }) => RealtimeClient.instance.events(
+    channel,
+    broadcastChannel: broadcastChannel,
+  );
 
   @override
   void dispose() {
@@ -70,7 +75,8 @@ class RealtimeProviderScope extends InheritedNotifier<RealtimeProvider> {
   });
 
   static RealtimeProvider of(BuildContext context) {
-    final scope = context.dependOnInheritedWidgetOfExactType<RealtimeProviderScope>();
+    final scope = context
+        .dependOnInheritedWidgetOfExactType<RealtimeProviderScope>();
     assert(scope != null, 'No RealtimeProviderScope in context');
     return scope!.notifier!;
   }

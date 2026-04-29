@@ -137,7 +137,7 @@ export function createPrng(seed) {
   return { nextFloat, nextInt, pick, bool };
 }
 
-function ageForPathway(prng, pathway, complexity) {
+function ageForPathway(prng, pathway, _complexity) {
   if (pathway === 'pediatric_fever') return prng.nextInt(1, 12);
   if (pathway === 'geriatric_fall') return prng.nextInt(70, 95);
   if (pathway === 'postpartum_hemorrhage') return prng.nextInt(18, 40);
@@ -332,12 +332,12 @@ export function generateVitals({ prng, pathway, complexity, persona }) {
   for (let i = 0; i < count; i += 1) {
     const t_offset_minutes = i * 20 + safePrng.nextInt(0, 5);
     // Small drift per snapshot.
-    let hr = base.hr + safePrng.nextInt(-6, 8);
+    const hr = base.hr + safePrng.nextInt(-6, 8);
     let sbp = base.sbp + safePrng.nextInt(-8, 8);
-    let dbp = base.dbp + safePrng.nextInt(-5, 5);
-    let rr = base.rr + safePrng.nextInt(-2, 3);
-    let spo2 = base.spo2 + safePrng.nextInt(-2, 1);
-    let temp_c = +(base.temp_c + (safePrng.nextInt(-3, 3) / 10)).toFixed(1);
+    const dbp = base.dbp + safePrng.nextInt(-5, 5);
+    const rr = base.rr + safePrng.nextInt(-2, 3);
+    const spo2 = base.spo2 + safePrng.nextInt(-2, 1);
+    const temp_c = +(base.temp_c + (safePrng.nextInt(-3, 3) / 10)).toFixed(1);
     if (pathway === 'postpartum_hemorrhage') {
       // SBP trends downward across snapshots.
       sbp -= i * 4;
@@ -402,7 +402,7 @@ function flagFor(value, ref) {
  * shifts how abnormal values skew (edge → critical, complex → strongly
  * abnormal, simple → mild).
  */
-export function generateLabs({ prng, pathway, persona, complexity }) {
+export function generateLabs({ prng, pathway, complexity }) {
   const safePrng = prng || createPrng('default');
   const labs = [];
   const severityMultiplier = complexity === 'edge' ? 2.0 : complexity === 'complex' ? 1.4 : 1.0;

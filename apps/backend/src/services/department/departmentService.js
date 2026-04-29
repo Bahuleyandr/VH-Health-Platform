@@ -159,8 +159,7 @@ class DepartmentService {
   async createDepartment(data, userId) {
     try {
       const {
-        name, description, head_doctor_id, contact_number,
-        location, is_active = true
+        name, description, head_doctor_id, is_active = true
       } = data;
 
       // Check if department already exists
@@ -205,8 +204,7 @@ class DepartmentService {
         throw new Error('Invalid request body');
       }
       const {
-        name, description, head_doctor_id, contact_number,
-        location, is_active
+        name, description, head_doctor_id, is_active
       } = data;
 
       // Check if department exists

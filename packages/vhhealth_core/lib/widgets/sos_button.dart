@@ -31,9 +31,12 @@ Future<void> triggerSOS([BuildContext? ctx]) async {
     if (perm == LocationPermission.denied) {
       perm = await Geolocator.requestPermission();
     }
-    if (perm == LocationPermission.always || perm == LocationPermission.whileInUse) {
+    if (perm == LocationPermission.always ||
+        perm == LocationPermission.whileInUse) {
       final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
       );
       lat = pos.latitude;
       lng = pos.longitude;
@@ -43,15 +46,24 @@ Future<void> triggerSOS([BuildContext? ctx]) async {
   }
 
   // ── 2. Backend POST (fire-and-forget) ────────────────────────────────────
-  unawaited(VHHttpClient.post('/sos/', body: {
-    'phone': phone,
-    'latitude': lat,
-    'longitude': lng,
-    'emergencyType': 'medical',
-  }).catchError((Object e) {
-    debugPrint('SOS POST error: $e');
-    return const ApiResponse(statusCode: 0, isSuccess: false, message: 'SOS POST failed');
-  }));  
+  unawaited(
+    VHHttpClient.post(
+      '/sos/',
+      body: {
+        'phone': phone,
+        'latitude': lat,
+        'longitude': lng,
+        'emergencyType': 'medical',
+      },
+    ).catchError((Object e) {
+      debugPrint('SOS POST error: $e');
+      return const ApiResponse(
+        statusCode: 0,
+        isSuccess: false,
+        message: 'SOS POST failed',
+      );
+    }),
+  );
 
   // ── 3. Open dialer ───────────────────────────────────────────────────────
   final telUri = Uri.parse('tel:$kSosEmergencyNumber');
@@ -60,9 +72,9 @@ Future<void> triggerSOS([BuildContext? ctx]) async {
   } else {
     debugPrint('⚠️  Could not launch dialer for $kSosEmergencyNumber');
     if (ctx != null && ctx.mounted) {
-      ScaffoldMessenger.of(ctx).showSnackBar(
-        const SnackBar(content: Text('Unable to open dialer')),
-      );
+      ScaffoldMessenger.of(
+        ctx,
+      ).showSnackBar(const SnackBar(content: Text('Unable to open dialer')));
     }
   }
 }

@@ -4,7 +4,7 @@
 import express from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import admissionService from '../../services/emr/admissionService.js';
-import dischargeSummaryGenerator from '../../services/emr/dischargeSummaryGenerator.js';
+import * as dischargeSummaryGenerator from '../../services/emr/dischargeSummaryGenerator.js';
 import {
   generateAdmissionAiDraft,
   generateWardRoundBrief,

@@ -20,10 +20,7 @@ class WebSocketProvider extends ChangeNotifier {
   bool get isConnected => _ws.isConnected;
 
   void init() {
-    _ws.connect(channels: [
-      'appointment-updates',
-      'queue-updates',
-    ]);
+    _ws.connect(channels: ['appointment-updates', 'queue-updates']);
 
     _subscription = _ws.stream.listen(_handleEvent);
   }

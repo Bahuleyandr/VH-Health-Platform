@@ -106,7 +106,11 @@ void main() {
         'diagnosis': 'Hypertension',
         'status': 'ACTIVE',
         'items': [
-          {'medication_name': 'Amlodipine', 'dosage': '5mg', 'frequency': 'Once daily'},
+          {
+            'medication_name': 'Amlodipine',
+            'dosage': '5mg',
+            'frequency': 'Once daily',
+          },
           {'medication_name': 'Aspirin', 'dosage': '75mg'},
         ],
       };
@@ -152,7 +156,12 @@ void main() {
         'balance_amount': 3000,
         'status': 'PARTIAL',
         'items': [
-          {'description': 'Consultation', 'quantity': 1, 'unit_price': 500, 'total_price': 500},
+          {
+            'description': 'Consultation',
+            'quantity': 1,
+            'unit_price': 500,
+            'total_price': 500,
+          },
         ],
       };
       final invoice = BillingInvoice.fromJson(json);

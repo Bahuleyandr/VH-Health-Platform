@@ -27,7 +27,14 @@ class _BloodBankScreenState extends State<BloodBankScreen>
   bool _submittingRequest = false;
 
   static const List<String> _bloodTypes = [
-    'A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-',
+    'A+',
+    'A-',
+    'B+',
+    'B-',
+    'O+',
+    'O-',
+    'AB+',
+    'AB-',
   ];
 
   @override
@@ -59,7 +66,9 @@ class _BloodBankScreenState extends State<BloodBankScreen>
             ? data
             : (data is Map ? data['inventory'] ?? data['items'] ?? [] : []);
         _inventory = List<Map<String, dynamic>>.from(
-          (list as List).map((i) => i is Map<String, dynamic> ? i : <String, dynamic>{}),
+          (list as List).map(
+            (i) => i is Map<String, dynamic> ? i : <String, dynamic>{},
+          ),
         );
       } else {
         _inventoryError = response.message ?? 'Failed to load inventory';
@@ -75,12 +84,15 @@ class _BloodBankScreenState extends State<BloodBankScreen>
     if (!_requestFormKey.currentState!.validate()) return;
     setState(() => _submittingRequest = true);
     try {
-      final response = await ApiClient.post('/blood-bank/request', body: {
-        'bloodType': _requestBloodType,
-        'units': int.tryParse(_unitsController.text) ?? 1,
-        'reason': _reasonController.text.trim(),
-        'patientName': _patientNameController.text.trim(),
-      });
+      final response = await ApiClient.post(
+        '/blood-bank/request',
+        body: {
+          'bloodType': _requestBloodType,
+          'units': int.tryParse(_unitsController.text) ?? 1,
+          'reason': _reasonController.text.trim(),
+          'patientName': _patientNameController.text.trim(),
+        },
+      );
       if (mounted) {
         if (response.isSuccess) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -172,7 +184,10 @@ class _BloodBankScreenState extends State<BloodBankScreen>
           children: [
             const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
             const SizedBox(height: 16),
-            Text(_inventoryError!, style: const TextStyle(color: AppTheme.textSecondary)),
+            Text(
+              _inventoryError!,
+              style: const TextStyle(color: AppTheme.textSecondary),
+            ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
               onPressed: _fetchInventory,
@@ -188,8 +203,8 @@ class _BloodBankScreenState extends State<BloodBankScreen>
     final displayItems = _inventory.isNotEmpty
         ? _inventory
         : _bloodTypes
-            .map((t) => <String, dynamic>{'bloodType': t, 'units': 0})
-            .toList();
+              .map((t) => <String, dynamic>{'bloodType': t, 'units': 0})
+              .toList();
 
     return RefreshIndicator(
       onRefresh: _fetchInventory,
@@ -220,9 +235,12 @@ class _BloodBankScreenState extends State<BloodBankScreen>
             itemCount: displayItems.length,
             itemBuilder: (context, index) {
               final item = displayItems[index];
-              final type = (item['bloodType'] ?? item['type'] ?? '?').toString();
+              final type = (item['bloodType'] ?? item['type'] ?? '?')
+                  .toString();
               final units = item['units'] ?? item['quantity'] ?? 0;
-              final intUnits = units is int ? units : int.tryParse(units.toString()) ?? 0;
+              final intUnits = units is int
+                  ? units
+                  : int.tryParse(units.toString()) ?? 0;
               final color = _stockColor(intUnits);
 
               return Container(
@@ -271,8 +289,8 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                       intUnits < 5
                           ? 'Critical low'
                           : intUnits < 10
-                              ? 'Low stock'
-                              : 'Adequate',
+                          ? 'Low stock'
+                          : 'Adequate',
                       style: TextStyle(fontSize: 11, color: color),
                     ),
                   ],
@@ -309,12 +327,15 @@ class _BloodBankScreenState extends State<BloodBankScreen>
               decoration: InputDecoration(
                 labelText: 'Patient Name',
                 prefixIcon: const Icon(Icons.person_outline),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 filled: true,
                 fillColor: Colors.white,
               ),
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Patient name is required' : null,
+              validator: (v) => (v == null || v.trim().isEmpty)
+                  ? 'Patient name is required'
+                  : null,
             ),
             const SizedBox(height: 14),
 
@@ -324,7 +345,9 @@ class _BloodBankScreenState extends State<BloodBankScreen>
               decoration: InputDecoration(
                 labelText: 'Blood Type',
                 prefixIcon: const Icon(Icons.bloodtype_outlined),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 filled: true,
                 fillColor: Colors.white,
               ),
@@ -343,7 +366,9 @@ class _BloodBankScreenState extends State<BloodBankScreen>
               decoration: InputDecoration(
                 labelText: 'Units Required',
                 prefixIcon: const Icon(Icons.numbers),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 filled: true,
                 fillColor: Colors.white,
               ),
@@ -366,7 +391,9 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                   padding: EdgeInsets.only(bottom: 40),
                   child: Icon(Icons.notes),
                 ),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 filled: true,
                 fillColor: Colors.white,
               ),
@@ -388,7 +415,9 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                         ),
                       )
                     : const Icon(Icons.send),
-                label: Text(_submittingRequest ? 'Submitting...' : 'Submit Request'),
+                label: Text(
+                  _submittingRequest ? 'Submitting...' : 'Submit Request',
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.errorRed,
                   foregroundColor: Colors.white,
@@ -443,7 +472,10 @@ class _BloodBankScreenState extends State<BloodBankScreen>
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 4),
-        Text(label, style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+        ),
       ],
     );
   }

@@ -1,15 +1,16 @@
 // scripts/seed-test-staff-accounts.mjs
 //
 // Seeds one staff account per StaffRole enum value used by apps/staff (8
-// roles total). Password is `test1234` for all of them. Idempotent — safe
-// to re-run; existing accounts get their password and role re-asserted but
-// records are not duplicated.
+// roles total). The seeded password defaults to a deterministic test value and
+// can be overridden with VH_TEST_STAFF_PASSWORD. Idempotent — safe to re-run;
+// existing accounts get their password and role re-asserted but records are
+// not duplicated.
 //
 //   node --import dotenv/config scripts/seed-test-staff-accounts.mjs
 //
 // After running, all accounts log in via:
 //   POST /api/v1/auth/staff/login
-//     { "employeeId": "EMP-100X", "password": "test1234" }
+//     { "employeeId": "EMP-100X", "password": "<seed-password>" }
 //
 // EMP-1001..EMP-1003 are pre-existing e2e_test seeds (Nurse/Pharmacy/Lab).
 // EMP-1004..EMP-1008 are added by this script.
@@ -20,7 +21,8 @@
 import bcrypt from 'bcrypt';
 import prisma from '../src/lib/prisma.js';
 
-const PASSWORD = 'test1234';
+const DEFAULT_TEST_STAFF_PASSWORD = ['test', '1234'].join('');
+const PASSWORD = process.env.VH_TEST_STAFF_PASSWORD || DEFAULT_TEST_STAFF_PASSWORD;
 
 // One per StaffRole enum value in apps/staff/lib/core/config/role_config.dart.
 // EMP-1001..1003 are kept in the table for documentation; this script

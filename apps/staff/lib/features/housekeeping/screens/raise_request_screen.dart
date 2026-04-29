@@ -66,17 +66,22 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
 
   Future<void> _pickPhoto() async {
     final picker = ImagePicker();
-    final image =
-        await picker.pickImage(source: ImageSource.camera, imageQuality: 70);
+    final image = await picker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 70,
+    );
     if (image != null) setState(() => _photo = File(image.path));
   }
 
   Future<void> _submit() async {
     final location = _locationCtrl.text.trim();
     if (_selectedZoneId == null && location.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
           content: Text('Select a zone or enter location'),
-          backgroundColor: Colors.red));
+          backgroundColor: Colors.red,
+        ),
+      );
       return;
     }
     setState(() => _submitting = true);
@@ -106,10 +111,12 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content:
-                Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -131,39 +138,51 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
                   width: 80,
                   height: 80,
                   decoration: const BoxDecoration(
-                      color: Colors.orange, shape: BoxShape.circle),
-                  child:
-                      const Icon(Icons.check, color: Colors.white, size: 44),
+                    color: Colors.orange,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.check, color: Colors.white, size: 44),
                 ),
                 const SizedBox(height: 20),
-                const Text('Request Raised',
-                    style: TextStyle(
-                        fontSize: 22, fontWeight: FontWeight.bold)),
+                const Text(
+                  'Request Raised',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
                 if (_requestNumber != null) ...[
                   const SizedBox(height: 8),
-                  Text(_requestNumber!,
-                      style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.orange,
-                          letterSpacing: 1)),
+                  Text(
+                    _requestNumber!,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.orange,
+                      letterSpacing: 1,
+                    ),
+                  ),
                 ],
                 const SizedBox(height: 12),
-                Text('Housekeeping staff will be notified.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey.shade600)),
+                Text(
+                  'Housekeeping staff will be notified.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
                 const SizedBox(height: 32),
                 ElevatedButton(
                   onPressed: () => Navigator.pop(context),
                   style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                      minimumSize: const Size(200, 46),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10))),
-                  child: const Text('Done',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold)),
+                    backgroundColor: Colors.orange,
+                    minimumSize: const Size(200, 46),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text(
+                    'Done',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -174,33 +193,38 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
 
     return Scaffold(
       appBar: AppBar(
-          title: const Text('Raise Request'),
-          backgroundColor: Colors.orange,
-          foregroundColor: Colors.white),
+        title: const Text('Raise Request'),
+        backgroundColor: Colors.orange,
+        foregroundColor: Colors.white,
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Request type
-            const Text('Request Type *',
-                style: TextStyle(fontWeight: FontWeight.w600)),
+            const Text(
+              'Request Type *',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               initialValue: _requestType,
-              decoration:
-                  const InputDecoration(border: OutlineInputBorder()),
+              decoration: const InputDecoration(border: OutlineInputBorder()),
               items: _requestTypes.entries
-                  .map((e) =>
-                      DropdownMenuItem(value: e.key, child: Text(e.value)))
+                  .map(
+                    (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
+                  )
                   .toList(),
               onChanged: (v) => setState(() => _requestType = v!),
             ),
             const SizedBox(height: 16),
 
             // Urgency
-            const Text('Urgency *',
-                style: TextStyle(fontWeight: FontWeight.w600)),
+            const Text(
+              'Urgency *',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 8),
             Row(
               children: _urgencyConfig.entries.map((e) {
@@ -235,8 +259,10 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
             const SizedBox(height: 16),
 
             // Zone / Location
-            const Text('Zone / Location *',
-                style: TextStyle(fontWeight: FontWeight.w600)),
+            const Text(
+              'Zone / Location *',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 8),
             if (_loading)
               const Center(child: CircularProgressIndicator())
@@ -244,18 +270,19 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
               DropdownButtonFormField<int?>(
                 initialValue: _selectedZoneId,
                 decoration: const InputDecoration(
-                    labelText: 'Select Zone (optional)',
-                    border: OutlineInputBorder()),
+                  labelText: 'Select Zone (optional)',
+                  border: OutlineInputBorder(),
+                ),
                 items: [
                   const DropdownMenuItem<int?>(
-                      value: null,
-                      child: Text('-- Select or type below --')),
+                    value: null,
+                    child: Text('-- Select or type below --'),
+                  ),
                   ..._zones.map((z) {
                     final zone = z as Map<String, dynamic>;
                     return DropdownMenuItem<int?>(
                       value: zone['id'] as int,
-                      child: Text(
-                          '${zone['name']} (${zone['zone_type']})'),
+                      child: Text('${zone['name']} (${zone['zone_type']})'),
                     );
                   }),
                 ],
@@ -277,16 +304,19 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
             TextField(
               controller: _descCtrl,
               decoration: const InputDecoration(
-                  labelText: 'Description (optional)',
-                  hintText: 'What needs attention?',
-                  border: OutlineInputBorder()),
+                labelText: 'Description (optional)',
+                hintText: 'What needs attention?',
+                border: OutlineInputBorder(),
+              ),
               maxLines: 3,
             ),
             const SizedBox(height: 16),
 
             // Photo of problem
-            const Text('Photo of Problem (optional)',
-                style: TextStyle(fontWeight: FontWeight.w600)),
+            const Text(
+              'Photo of Problem (optional)',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 8),
             InkWell(
               onTap: _pickPhoto,
@@ -295,46 +325,61 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
                 height: _photo != null ? 200 : 100,
                 decoration: BoxDecoration(
                   border: Border.all(
-                      color: Colors.grey.shade400,
-                      style: BorderStyle.solid),
+                    color: Colors.grey.shade400,
+                    style: BorderStyle.solid,
+                  ),
                   borderRadius: BorderRadius.circular(10),
                   color: Colors.grey.shade50,
                 ),
                 child: _photo != null
-                    ? Stack(children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: Image.file(_photo!,
+                    ? Stack(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.file(
+                              _photo!,
                               width: double.infinity,
                               height: 200,
-                              fit: BoxFit.cover),
-                        ),
-                        Positioned(
-                          top: 8,
-                          right: 8,
-                          child: GestureDetector(
-                            onTap: () => setState(() => _photo = null),
-                            child: Container(
-                              padding: const EdgeInsets.all(4),
-                              decoration: const BoxDecoration(
-                                  color: Colors.red,
-                                  shape: BoxShape.circle),
-                              child: const Icon(Icons.close,
-                                  color: Colors.white, size: 16),
+                              fit: BoxFit.cover,
                             ),
                           ),
-                        ),
-                      ])
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: GestureDetector(
+                              onTap: () => setState(() => _photo = null),
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: const BoxDecoration(
+                                  color: Colors.red,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.close,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
                     : Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.add_a_photo_outlined,
-                              size: 32, color: Colors.grey.shade500),
+                          Icon(
+                            Icons.add_a_photo_outlined,
+                            size: 32,
+                            color: Colors.grey.shade500,
+                          ),
                           const SizedBox(height: 6),
-                          Text('Tap to photograph the problem',
-                              style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  fontSize: 13)),
+                          Text(
+                            'Tap to photograph the problem',
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 13,
+                            ),
+                          ),
                         ],
                       ),
               ),
@@ -347,22 +392,29 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
               child: ElevatedButton.icon(
                 onPressed: _submitting ? null : _submit,
                 style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12))),
+                  backgroundColor: Colors.orange,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
                 icon: _submitting
                     ? const SizedBox(
                         width: 20,
                         height: 20,
                         child: CircularProgressIndicator(
-                            color: Colors.white, strokeWidth: 2))
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
                     : const Icon(Icons.send_outlined, color: Colors.white),
                 label: Text(
-                    _submitting ? 'Raising...' : 'Raise Request',
-                    style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white)),
+                  _submitting ? 'Raising...' : 'Raise Request',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
               ),
             ),
           ],
