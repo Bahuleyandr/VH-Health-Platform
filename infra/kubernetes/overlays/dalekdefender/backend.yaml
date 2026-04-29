@@ -66,12 +66,22 @@ spec:
             httpGet:
               path: /
               port: 5000
+              # Backend redirects HTTP→HTTPS when NODE_ENV=production unless
+              # x-forwarded-proto says https. Tailscale serve (the public
+              # entrypoint) sets it correctly; the kubelet probe doesn't,
+              # so we set it manually to avoid a probe-loop.
+              httpHeaders:
+                - name: X-Forwarded-Proto
+                  value: https
             initialDelaySeconds: 15
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /
               port: 5000
+              httpHeaders:
+                - name: X-Forwarded-Proto
+                  value: https
             initialDelaySeconds: 60
             periodSeconds: 30
           resources:
