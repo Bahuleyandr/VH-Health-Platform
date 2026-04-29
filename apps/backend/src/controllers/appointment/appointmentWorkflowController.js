@@ -438,10 +438,13 @@ export const getAvailableSlots = async (req, res) => {
 
 /**
  * POST /api/v1/appointments/walk-in
- * Register a walk-in patient — creates appointment directly in CONFIRMED state
+ * Register a walk-in patient — creates appointment directly in CONFIRMED state.
+ *
+ * Originally written against a raw pg.Pool client; ported to Prisma's
+ * $transaction so it stops crashing with `client.release is not a function`
+ * (the rest of the codebase moved to Prisma in batch 26+).
  */
 export const registerWalkIn = async (req, res) => {
-  const client = await prisma;
   try {
     const staffId = req.user?.id;
     const {
@@ -452,76 +455,75 @@ export const registerWalkIn = async (req, res) => {
     } = req.body;
 
     if (!patient_phone && !patient_id) {
-      client.release();
       return error(res, 'patient_phone or patient_id is required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    await client.query('BEGIN');
-
-    // Resolve patient — look up by phone or patient_id, or create minimal record
-    let patientId = patient_id ? parseInt(patient_id) : null;
-    if (!patientId && patient_phone) {
-      const existing = await client.query(
-        `SELECT id FROM users WHERE phone = $1 OR phone = $2`,
-        [patient_phone, patient_phone.replace(/\D/g, '').slice(-10)]
-      );
-      if (existing.length > 0) {
-        patientId = existing[0].id;
-      } else {
-        const newUser = await client.query(
-          `INSERT INTO users (phone, name, role) VALUES ($1, $2, 'PATIENT') RETURNING id`,
-          [patient_phone, patient_name || 'Walk-in Patient']
+    const result = await prisma.$transaction(async (tx) => {
+      // Resolve patient — look up by phone or patient_id, or create minimal record.
+      let patientId = patient_id ? parseInt(patient_id) : null;
+      if (!patientId && patient_phone) {
+        const existing = await tx.$queryRawUnsafe(
+          `SELECT id FROM users WHERE phone = $1 OR phone = $2 LIMIT 1`,
+          patient_phone,
+          patient_phone.replace(/\D/g, '').slice(-10),
         );
-        patientId = newUser[0].id;
+        if (existing.length > 0) {
+          patientId = existing[0].id;
+        } else {
+          const newUser = await tx.$queryRawUnsafe(
+            `INSERT INTO users (phone, name, role) VALUES ($1, $2, 'PATIENT') RETURNING id`,
+            patient_phone,
+            patient_name || 'Walk-in Patient',
+          );
+          patientId = newUser[0].id;
+        }
       }
-    }
 
-    // Get next token number atomically using MAX to avoid race conditions
-    const tokenResult = await client.query(
-      `SELECT COALESCE(MAX(token_number), 0) + 1 as next_token
-       FROM appointments
-       WHERE DATE(appointment_date) = CURRENT_DATE AND confirmed_at IS NOT NULL`
-    );
-    const tokenNumber = parseInt(tokenResult[0].next_token);
+      // Atomic token number — MAX-based to dodge race conditions inside the txn.
+      const tokenResult = await tx.$queryRawUnsafe(
+        `SELECT COALESCE(MAX(token_number), 0) + 1 as next_token
+         FROM appointments
+         WHERE DATE(appointment_date) = CURRENT_DATE AND confirmed_at IS NOT NULL`,
+      );
+      const tokenNumber = parseInt(tokenResult[0].next_token);
 
-    const result = await client.query(`
-      INSERT INTO appointments
-        (patient_id, doctor_id, appointment_date, appointment_time, reason, notes,
-         status, confirmed_by, confirmed_at, token_number, department, created_by, phone)
-      VALUES ($1, $2, NOW(), $3, $4, $5, 'CONFIRMED', $6, NOW(), $7, $8, $9, $10)
-      RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, reason, notes, status, confirmed_by, confirmed_at, token_number, department, phone, created_at
-    `, [
-      patientId,
-      doctor_id || null,
-      appointment_time || 'Walk-in',
-      reason || 'Walk-in consultation',
-      notes || null,
-      staffId,
-      tokenNumber,
-      department || null,
-      staffId,
-      patient_phone || null
-    ]);
+      const apptRows = await tx.$queryRawUnsafe(
+        `INSERT INTO appointments
+           (patient_id, doctor_id, appointment_date, appointment_time, reason, notes,
+            status, confirmed_by, confirmed_at, token_number, department, created_by, phone)
+         VALUES ($1, $2, NOW(), $3, $4, $5, 'CONFIRMED', $6, NOW(), $7, $8, $9, $10)
+         RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, reason, notes,
+                   status, confirmed_by, confirmed_at, token_number, department, phone, created_at`,
+        patientId,
+        doctor_id || null,
+        appointment_time || 'Walk-in',
+        reason || 'Walk-in consultation',
+        notes || null,
+        staffId,
+        tokenNumber,
+        department || null,
+        staffId,
+        patient_phone || null,
+      );
+      const appt = apptRows[0];
 
-    const apptId = result[0].id;
-    await client.query(
-      `INSERT INTO appointment_status_history
-         (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
-       VALUES ($1, NULL, 'CONFIRMED', $2, 'staff', 'Walk-in registration')`,
-      [apptId, staffId]
-    );
+      await tx.$executeRawUnsafe(
+        `INSERT INTO appointment_status_history
+           (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
+         VALUES ($1, NULL, 'CONFIRMED', $2, 'staff', 'Walk-in registration')`,
+        appt.id,
+        staffId,
+      );
 
-    await client.query('COMMIT');
-
-    success(res, { ...result[0], token_number: tokenNumber }, `Walk-in registered. Token #${tokenNumber}`);
-  } catch (err) {
-    await client.query('ROLLBACK').catch(rollbackErr => {
-      logger.error('Transaction rollback failed:', rollbackErr);
+      return { ...appt, token_number: tokenNumber };
     });
+
+    success(res, result, `Walk-in registered. Token #${result.token_number}`);
+  } catch (err) {
     logger.error('Walk-in Registration Error:', err);
     error(res, 'Failed to register walk-in', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   } finally {
-    client.release();
+    // No client to release — Prisma's $transaction handles that itself.
   }
 };
 

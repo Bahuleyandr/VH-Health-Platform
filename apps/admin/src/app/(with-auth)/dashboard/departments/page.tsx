@@ -2,6 +2,7 @@
 "use client";
 
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useDepartments } from "@/hooks/api-hooks";
 import { CreateDepartmentForm } from "./components/CreateDepartmentForm";
 import { DepartmentsTable } from "./components/DepartmentsTable";
@@ -70,7 +71,16 @@ function isDepartmentArray(v: unknown): v is Department[] {
 
 export default function DepartmentsPage() {
   const [searchTerm, setSearchTerm] = useState("");
+  const queryClient = useQueryClient();
   const { data, isLoading, error, refetch } = useDepartments();
+
+  // Bare `refetch()` from useQuery silently no-ops if the queryKey isn't
+  // registered as observed at the moment a child handler fires. Going
+  // through queryClient.refetchQueries is the same call but guaranteed
+  // to actually re-fire the network request and update cached state —
+  // critical for delete/update where the user expects the row to vanish
+  // or change immediately.
+  const refresh = () => queryClient.refetchQueries({ queryKey: ["departments"] });
 
   // Normalize whatever the hook returns into Department[]
   let departments: Department[] = [];
@@ -153,8 +163,8 @@ export default function DepartmentsPage() {
       {/* Departments Table */}
       <DepartmentsTable
         departments={filteredDepartments}
-        onDepartmentUpdated={refetch}
-        onDepartmentDeleted={refetch}
+        onDepartmentUpdated={refresh}
+        onDepartmentDeleted={refresh}
       />
     </div>
   );

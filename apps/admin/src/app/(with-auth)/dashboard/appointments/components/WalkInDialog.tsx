@@ -2,7 +2,16 @@
 
 import React, { useState } from "react";
 import { toast } from "react-hot-toast";
+import { useQuery } from "@tanstack/react-query";
 import { registerWalkInAdmin } from "@/lib/api/appointments";
+import { fetchAdminAPI } from "@/lib/api";
+
+interface DoctorOption {
+  id: number;
+  name?: string;
+  department?: string;
+  specialization?: string;
+}
 
 export function WalkInDialog({
   onClose,
@@ -18,6 +27,22 @@ export function WalkInDialog({
   const [reason, setReason] = useState("");
   const [time, setTime] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Doctor dropdown — was a free-form number input before, which let
+  // operators paste random ints (including negatives) and had no way to
+  // know who the assigned doctor actually was.
+  const { data: doctorsResp } = useQuery({
+    queryKey: ["doctors"],
+    queryFn: () => fetchAdminAPI<unknown>("/doctors"),
+  });
+  const doctorsList: DoctorOption[] = (() => {
+    const raw = doctorsResp as Record<string, unknown> | unknown[] | undefined;
+    if (Array.isArray(raw)) return raw as DoctorOption[];
+    if (raw && typeof raw === "object" && Array.isArray((raw as { doctors?: unknown }).doctors)) {
+      return (raw as { doctors: DoctorOption[] }).doctors;
+    }
+    return [];
+  })();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,9 +90,21 @@ export function WalkInDialog({
               className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="Full name" />
           </div>
           <div>
-            <label className="text-sm font-medium">Doctor ID (optional)</label>
-            <input type="number" value={doctorId} onChange={e => setDoctorId(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="Doctor user ID" />
+            <label className="text-sm font-medium">Doctor (optional)</label>
+            <select
+              value={doctorId}
+              onChange={e => setDoctorId(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1 bg-white"
+            >
+              <option value="">— Unassigned —</option>
+              {doctorsList.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name || `Doctor #${d.id}`}
+                  {d.department ? ` · ${d.department}` : ""}
+                  {d.specialization ? ` (${d.specialization})` : ""}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="text-sm font-medium">Department</label>
