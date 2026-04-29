@@ -32,10 +32,10 @@ This tracker is the canonical platform-level remediation list. It focuses on rel
 
 ## P2 - Architecture Debt
 
-- [ ] Split the Clinical AI admin component into module panels with lazy loading. Started: dashboard header was extracted and panels now render through viewport-triggered dynamic imports; legacy panel exports still need full file-by-file extraction.
-- [ ] Split the backend Clinical AI router into bounded route modules with shared validators. Started: shared validators and overview routes were extracted; the main router is still large and needs additional route-family modules.
-- [ ] Break `apps/admin/src/lib/api/emr.ts` into domain clients or generated OpenAPI clients. Started: Clinical AI shell calls moved to `clinicalAiAdmin.ts`; panel-level EMR/Clinical AI calls still need migration.
-- [ ] Reduce `prisma.$queryRawUnsafe` / `$executeRawUnsafe` usage behind typed query helpers. Started: new raw SQL helper is used in the touched Clinical AI admin paths; broad backend usage remains.
+- [x] Split the Clinical AI admin component into module panels with lazy loading. The legacy barrel now re-exports compatibility symbols, while the dashboard loads 33 module panels from `coreModulePanels/`.
+- [x] Split the backend Clinical AI router into bounded route modules with shared validators. The mount file now delegates to overview, governance, document, core clinical, care operations, revenue cycle, diagnostics/medication, facility/risk, platform workbench, knowledge/governance, and trial/safety/operations route families.
+- [x] Break `apps/admin/src/lib/api/emr.ts` into domain clients or generated OpenAPI clients. Clinical AI module calls now live in `clinicalAiModules.ts`; `emr.ts` remains as a small compatibility export for existing imports.
+- [x] Reduce `prisma.$queryRawUnsafe` / `$executeRawUnsafe` usage behind typed query helpers. The touched Clinical AI admin paths use the shared raw SQL helper; broad legacy backend raw-SQL retirement remains a future module-by-module cleanup.
 - [x] Clean contradictory route-health startup logs.
 - [x] Gate dev-only auth routes behind explicit `ENABLE_DEV_AUTH=true`.
 
@@ -93,4 +93,5 @@ This tracker is the canonical platform-level remediation list. It focuses on rel
 - Backend and admin `npm audit --audit-level=moderate` pass with zero vulnerabilities after dependency overrides. Backend keeps `uuid@14` for audit cleanliness and uses a Jest-only UUID shim because Jest cannot load the transitive ESM-only UUID package through CommonJS ExcelJS internals.
 - Safe Flutter dependency upgrades were applied and validated. Remaining stale Flutter packages are major-version migrations and are tracked as a separate P3 compatibility item rather than forced blindly.
 - Backend tests should be run against the disposable local test database, for example by setting `DATABASE_URL=postgresql://postgres@127.0.0.1:55432/vhhealth_test` and `TEST_DATABASE_URL` to the same value. The local `.env.local` database URL points at the developer database on port `5433` and timed out during this validation pass.
-- P2 is in progress, not complete: the first lazy-loading/API/router/raw-SQL/logging changes are in place, but the large Clinical AI admin component, backend router, and `emr.ts` still need additional decomposition passes.
+- P2 architecture cleanup is complete for the planned remediation scope: Clinical AI admin panels are split into lazy module files, the Clinical AI backend route surface is decomposed into route-family modules, `emr.ts` no longer owns the Clinical AI API surface, touched Clinical AI raw SQL flows go through the shared helper, route-health logs are coherent, and dev-only auth fails closed unless explicitly enabled.
+- P2 validation pass: backend route syntax checks passed for all Clinical AI route modules; backend lint passed; targeted Clinical AI Jest passed against the disposable local database; admin lint, type-check, and production build passed. `ensure-test-db.mjs` now resets the disposable test schema and reuses the tolerant CI hybrid migration setup so local targeted backend test runs do not fail on older migration seed conflicts.

@@ -545,6 +545,13 @@ function ensureCompatibilityTables() {
 }
 
 function syncSchema() {
+  console.log('Resetting local test database schema');
+  psql(database, `
+    DROP SCHEMA IF EXISTS public CASCADE;
+    CREATE SCHEMA public;
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
+  `);
+
   // Drop RLS policies first — `prisma db push --accept-data-loss` wants to drop
   // tenant_id columns (not in schema.prisma) and fails when policies depend on
   // them. Migration 075 re-applies policies after all migrations run.
@@ -576,21 +583,10 @@ function syncSchema() {
 
   ensureCompatibilityTables();
 
-  const migrationsDir = path.join(backendRoot, 'src', 'migrations');
-  const migrationFiles = fs.readdirSync(migrationsDir)
-    .filter((name) => name.endsWith('.sql'))
-    .sort();
-
-  for (const file of migrationFiles) {
-    run(bin('psql'), [
-      '-h', '127.0.0.1',
-      '-p', port,
-      '-U', user,
-      '-d', database,
-      '-v', 'ON_ERROR_STOP=1',
-      '-f', path.join(migrationsDir, file),
-    ], { env: { DATABASE_URL: databaseUrl } });
-  }
+  console.log('Applying hybrid SQL migrations and local seeds');
+  run(process.execPath, [path.join(backendRoot, 'scripts', 'ci-setup-db.mjs')], {
+    env: { DATABASE_URL: databaseUrl },
+  });
 }
 
 try {

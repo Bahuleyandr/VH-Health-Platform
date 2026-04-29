@@ -34,7 +34,7 @@ import {
   type SelfHealingFinding,
   type SelfHealingRun,
   type TranslationRow,
-} from "@/lib/api/emr";
+} from "@/lib/api/clinicalAiModules";
 
 function fmt(value?: string | null) {
   if (!value) return "-";

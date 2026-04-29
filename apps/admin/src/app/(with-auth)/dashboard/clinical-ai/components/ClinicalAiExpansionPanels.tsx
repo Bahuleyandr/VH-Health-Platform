@@ -18,20 +18,6 @@ function panelLoading() {
   );
 }
 
-function corePanel(exportName: string) {
-  return dynamic(
-    () =>
-      import("./AIExpansionPanels").then((module) => {
-        const component = module[exportName as keyof typeof module] as PanelComponent | undefined;
-        if (!component) {
-          throw new Error(`Clinical AI panel export not found: ${exportName}`);
-        }
-        return component;
-      }),
-    { ssr: false, loading: panelLoading },
-  );
-}
-
 function deferredPanel(importer: () => Promise<{ default: PanelComponent }>) {
   return dynamic(importer, { ssr: false, loading: panelLoading });
 }
@@ -63,39 +49,39 @@ function ViewportPanel({ component: Component }: { component: PanelComponent }) 
 }
 
 const PANELS: PanelComponent[] = [
-  corePanel("PromptExperimentsPanel"),
-  corePanel("DriftCanaryPanel"),
-  corePanel("DeteriorationPanel"),
-  corePanel("ImagingAIPanel"),
-  corePanel("VirtualWardPanel"),
-  corePanel("DocumentIntelligencePanel"),
-  corePanel("AdmissionAiDraftWorkbenchPanel"),
-  corePanel("ChartCompletionPanel"),
-  corePanel("ClinicalTaskExtractorPanel"),
-  corePanel("AbnormalResultTriagePanel"),
-  corePanel("InfectionControlSentinelPanel"),
-  corePanel("AntimicrobialStewardshipPanel"),
-  corePanel("PatientTeachBackPanel"),
-  corePanel("AppealLetterGeneratorPanel"),
-  corePanel("PayerContractVariancePanel"),
-  corePanel("LabAutoverificationPanel"),
-  corePanel("PediatricDosingSafetyPanel"),
-  corePanel("AiRoiDashboardPanel"),
-  corePanel("SepsisBundleSentinelPanel"),
-  corePanel("PrivacySentinelPanel"),
-  corePanel("AmbientDocumentationPanel"),
-  corePanel("NursingAmbientDocumentationPanel"),
-  corePanel("FamilyUpdateGeneratorPanel"),
-  corePanel("RosterOptimizerPanel"),
-  corePanel("StaffBurnoutRiskPanel"),
-  corePanel("PolypharmacyPanel"),
-  corePanel("TrialCatalogSyncPanel"),
-  corePanel("TrialMatchesPanel"),
-  corePanel("RcaDraftsPanel"),
-  corePanel("ForecastWorkbenchPanel"),
-  corePanel("OperationalPredictionPanel"),
-  corePanel("ChargeCapturePanel"),
-  corePanel("PriorAuthorizationPanel"),
+  deferredPanel(() => import("./coreModulePanels/PromptExperimentsPanel")),
+  deferredPanel(() => import("./coreModulePanels/DriftCanaryPanel")),
+  deferredPanel(() => import("./coreModulePanels/DeteriorationPanel")),
+  deferredPanel(() => import("./coreModulePanels/ImagingAIPanel")),
+  deferredPanel(() => import("./coreModulePanels/VirtualWardPanel")),
+  deferredPanel(() => import("./coreModulePanels/DocumentIntelligencePanel")),
+  deferredPanel(() => import("./coreModulePanels/AdmissionAiDraftWorkbenchPanel")),
+  deferredPanel(() => import("./coreModulePanels/ChartCompletionPanel")),
+  deferredPanel(() => import("./coreModulePanels/ClinicalTaskExtractorPanel")),
+  deferredPanel(() => import("./coreModulePanels/AbnormalResultTriagePanel")),
+  deferredPanel(() => import("./coreModulePanels/InfectionControlSentinelPanel")),
+  deferredPanel(() => import("./coreModulePanels/AntimicrobialStewardshipPanel")),
+  deferredPanel(() => import("./coreModulePanels/PatientTeachBackPanel")),
+  deferredPanel(() => import("./coreModulePanels/AppealLetterGeneratorPanel")),
+  deferredPanel(() => import("./coreModulePanels/PayerContractVariancePanel")),
+  deferredPanel(() => import("./coreModulePanels/LabAutoverificationPanel")),
+  deferredPanel(() => import("./coreModulePanels/PediatricDosingSafetyPanel")),
+  deferredPanel(() => import("./coreModulePanels/AiRoiDashboardPanel")),
+  deferredPanel(() => import("./coreModulePanels/SepsisBundleSentinelPanel")),
+  deferredPanel(() => import("./coreModulePanels/PrivacySentinelPanel")),
+  deferredPanel(() => import("./coreModulePanels/AmbientDocumentationPanel")),
+  deferredPanel(() => import("./coreModulePanels/NursingAmbientDocumentationPanel")),
+  deferredPanel(() => import("./coreModulePanels/FamilyUpdateGeneratorPanel")),
+  deferredPanel(() => import("./coreModulePanels/RosterOptimizerPanel")),
+  deferredPanel(() => import("./coreModulePanels/StaffBurnoutRiskPanel")),
+  deferredPanel(() => import("./coreModulePanels/PolypharmacyPanel")),
+  deferredPanel(() => import("./coreModulePanels/TrialCatalogSyncPanel")),
+  deferredPanel(() => import("./coreModulePanels/TrialMatchesPanel")),
+  deferredPanel(() => import("./coreModulePanels/RcaDraftsPanel")),
+  deferredPanel(() => import("./coreModulePanels/ForecastWorkbenchPanel")),
+  deferredPanel(() => import("./coreModulePanels/OperationalPredictionPanel")),
+  deferredPanel(() => import("./coreModulePanels/ChargeCapturePanel")),
+  deferredPanel(() => import("./coreModulePanels/PriorAuthorizationPanel")),
   deferredPanel(() => import("./deferredModulePanels/AcuityStaffingForecastPanel")),
   deferredPanel(() => import("./deferredModulePanels/EdTriagePredictorPanel")),
   deferredPanel(() => import("./deferredModulePanels/PathwayBundleCompliancePanel")),

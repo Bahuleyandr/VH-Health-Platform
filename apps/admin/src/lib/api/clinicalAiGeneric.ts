@@ -7,8 +7,8 @@
 // `postJSON` — all of which share the same auth + envelope-unwrap behaviour.
 //
 // For the typed-helper pattern, see:
-//   apps/admin/src/lib/api/emr.ts — `listAntimicrobialStewardshipReviews`
-//   apps/admin/src/lib/api/emr.ts — `decideAntimicrobialStewardshipReview`
+//   apps/admin/src/lib/api/clinicalAiModules.ts — `listAntimicrobialStewardshipReviews`
+//   apps/admin/src/lib/api/clinicalAiModules.ts — `decideAntimicrobialStewardshipReview`
 //   apps/admin/src/lib/api/core.ts — `getJSON`, `postJSON`, `fetchAdminAPI`
 
 import { fetchAdminAPI, getJSON, postJSON } from "./core";
