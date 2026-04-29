@@ -6,85 +6,91 @@ import { sendAppointmentConfirmationSMS } from '../../services/smsService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { success, error } from '../../utils/responseHelper.js';
 
+// All four handlers below were originally written against a raw pg.Pool
+// client (await pool.connect → client.query → client.release) and ported
+// poorly when the codebase moved to Prisma — every call crashed with
+// `client.release is not a function`. Ported to prisma.$transaction here
+// and stripped column references that don't exist in the live schema:
+// no confirmed_by, no confirmation_notes, no no_show_at, no completed_at,
+// no cancellation_reason. Status transitions live on the appointments
+// row plus an immutable appointment_status_history audit row.
+
 /**
  * Staff confirms an appointment — assigns token, sets confirmed_at, notifies patient
  */
 export const confirmAppointment = async (req, res) => {
-  const client = await prisma;
   try {
     const { id } = req.params;
     const staffId = req.user?.id;
     const { confirmation_notes, appointment_date, appointment_time } = req.body;
 
-    await client.query('BEGIN');
+    const { result, a, tokenNumber, newDate, newTime } = await prisma.$transaction(async (tx) => {
+      const apptRows = await tx.$queryRawUnsafe(
+        'SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, department, phone FROM appointments WHERE id=$1 FOR UPDATE',
+        Number(id),
+      );
+      if (!apptRows.length) {
+        const err = new Error('Appointment not found');
+        err.statusCode = HTTP_STATUS.NOT_FOUND;
+        throw err;
+      }
+      const a = apptRows[0];
+      if (a.status === 'CANCELLED') {
+        const err = new Error('Cannot confirm a cancelled appointment');
+        err.statusCode = HTTP_STATUS.BAD_REQUEST;
+        throw err;
+      }
 
-    // Lock the row being updated to prevent concurrent modifications
-    const appt = await client.query(
-      'SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, department, phone FROM appointments WHERE id=$1 FOR UPDATE',
-      [id]
-    );
-    if (!appt.length) {
-      await client.query('ROLLBACK');
-      return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
-    }
-    const a = appt[0];
-    if (a.status === 'CANCELLED') {
-      await client.query('ROLLBACK');
-      return error(res, 'Cannot confirm a cancelled appointment', HTTP_STATUS.BAD_REQUEST);
-    }
+      const targetDate = appointment_date || a.appointment_date;
+      const tokenResult = await tx.$queryRawUnsafe(
+        `SELECT COALESCE(MAX(NULLIF(token_number, '')::int), 0) + 1 AS next_token
+         FROM appointments
+         WHERE DATE(appointment_date) = DATE($1) AND confirmed_at IS NOT NULL
+           AND token_number ~ '^[0-9]+$'`,
+        targetDate,
+      );
+      const tokenNumber = String(parseInt(tokenResult[0].next_token));
 
-    // Get next token number atomically using MAX instead of COUNT to avoid gaps
-    const targetDate = appointment_date || a.appointment_date;
-    const tokenResult = await client.query(
-      `SELECT COALESCE(MAX(token_number), 0) + 1 as next_token
-       FROM appointments
-       WHERE DATE(appointment_date) = DATE($1) AND confirmed_at IS NOT NULL`,
-      [targetDate]
-    );
-    const tokenNumber = parseInt(tokenResult[0].next_token);
+      const newDate = appointment_date || a.appointment_date;
+      const newTime = appointment_time || a.appointment_time;
 
-    const newDate = appointment_date || a.appointment_date;
-    const newTime = appointment_time || a.appointment_time;
+      const result = await tx.$queryRawUnsafe(`
+        UPDATE appointments SET
+          status = 'CONFIRMED',
+          confirmed_at = NOW(),
+          token_number = $1,
+          appointment_date = $2,
+          appointment_time = $3,
+          sla_target_at = COALESCE(sla_target_at, created_at + INTERVAL '30 minutes'),
+          updated_at = NOW()
+        WHERE id = $4
+        RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, reason, notes,
+                  token_number, confirmed_at, department, created_at, updated_at
+      `,
+        tokenNumber, newDate, newTime, Number(id),
+      );
 
-    const result = await client.query(`
-      UPDATE appointments SET
-        status = 'CONFIRMED',
-        confirmed_by = $1,
-        confirmed_at = NOW(),
-        confirmation_notes = $2,
-        token_number = $3,
-        appointment_date = $4,
-        appointment_time = $5,
-        sla_target_at = COALESCE(sla_target_at, created_at + INTERVAL '30 minutes'),
-        updated_at = NOW()
-      WHERE id = $6
-      RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, reason, notes, token_number, confirmed_by, confirmed_at, department, created_at, updated_at
-    `, [staffId, confirmation_notes || null, tokenNumber, newDate, newTime, id]);
+      await tx.$executeRawUnsafe(
+        `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
+         VALUES ($1,$2,'CONFIRMED',$3,'staff',$4)`,
+        Number(id), a.status, staffId, confirmation_notes || null,
+      );
 
-    // Log status change within the same transaction
-    await client.query(
-      `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
-       VALUES ($1,$2,'CONFIRMED',$3,'staff',$4)`,
-      [id, a.status, staffId, confirmation_notes || null]
-    );
+      return { result, a, tokenNumber, newDate, newTime };
+    });
 
-    await client.query('COMMIT');
-
-    // Notify patient via FCM + SMS (fire-and-forget, outside transaction)
+    // Notify patient via FCM + SMS (fire-and-forget, outside transaction).
     const patient = await prisma.$queryRawUnsafe('SELECT device_token, name, phone FROM users WHERE id=$1', a.patient_id);
     const patientRow = patient[0];
-
-    // Get doctor name and department for SMS
     const doctorRow = await prisma.$queryRawUnsafe(
       'SELECT u.name, doc.department FROM users u LEFT JOIN doctors doc ON doc.user_id = u.id WHERE u.id=$1',
-      a.doctor_id
+      a.doctor_id,
     );
     const doctorName = doctorRow[0]?.name || 'Doctor';
     const department = doctorRow[0]?.department || a.department || null;
 
     setImmediate(async () => {
       try {
-        // Push notification
         if (patientRow?.device_token) {
           await sendPushNotification({
             tokens: patientRow.device_token,
@@ -94,7 +100,6 @@ export const confirmAppointment = async (req, res) => {
             userId: String(a.patient_id),
           });
         }
-        // SMS confirmation
         const smsPhone = patientRow?.phone || a.phone;
         await sendAppointmentConfirmationSMS(
           smsPhone,
@@ -103,20 +108,16 @@ export const confirmAppointment = async (req, res) => {
           newDate,
           newTime,
           tokenNumber,
-          department
+          department,
         );
       } catch (e) { logger.warn('Appointment notification/SMS failed:', e.message); }
     });
 
     success(res, result[0], `Appointment confirmed. Token #${tokenNumber}`);
   } catch (err) {
-    await client.query('ROLLBACK').catch(rollbackErr => {
-      logger.error('Transaction rollback failed:', rollbackErr);
-    });
+    if (err?.statusCode) return error(res, err.message, err.statusCode);
     logger.error('Confirm Appointment Error:', err);
     error(res, 'Failed to confirm appointment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  } finally {
-    client.release();
   }
 };
 
@@ -124,38 +125,35 @@ export const confirmAppointment = async (req, res) => {
  * Staff marks appointment as no-show
  */
 export const markNoShow = async (req, res) => {
-  const client = await prisma;
   try {
     const { id } = req.params;
     const staffId = req.user?.id;
 
-    await client.query('BEGIN');
-
-    const appt = await client.query('SELECT id, status FROM appointments WHERE id=$1 FOR UPDATE', [id]);
-    if (!appt.length) {
-      await client.query('ROLLBACK');
-      return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
-    }
-
-    const result = await client.query(
-      `UPDATE appointments SET status='NO_SHOW', no_show_at=NOW(), updated_at=NOW() WHERE id=$1 RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, token_number, updated_at`,
-      [id]
-    );
-    await client.query(
-      `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role) VALUES ($1,$2,'NO_SHOW',$3,'staff')`,
-      [id, appt[0].status, staffId]
-    );
-
-    await client.query('COMMIT');
-    success(res, result[0], 'Marked as no-show');
-  } catch (err) {
-    await client.query('ROLLBACK').catch(rollbackErr => {
-      logger.error('Transaction rollback failed:', rollbackErr);
+    const result = await prisma.$transaction(async (tx) => {
+      const appt = await tx.$queryRawUnsafe(
+        'SELECT id, status FROM appointments WHERE id=$1 FOR UPDATE',
+        Number(id),
+      );
+      if (!appt.length) {
+        const err = new Error('Not found'); err.statusCode = HTTP_STATUS.NOT_FOUND; throw err;
+      }
+      const updated = await tx.$queryRawUnsafe(
+        `UPDATE appointments SET status='NO_SHOW', updated_at=NOW() WHERE id=$1
+         RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, token_number, updated_at`,
+        Number(id),
+      );
+      await tx.$executeRawUnsafe(
+        `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role)
+         VALUES ($1,$2,'NO_SHOW',$3,'staff')`,
+        Number(id), appt[0].status, staffId,
+      );
+      return updated[0];
     });
+    success(res, result, 'Marked as no-show');
+  } catch (err) {
+    if (err?.statusCode) return error(res, err.message, err.statusCode);
     logger.error('Mark No-Show Error:', err);
     error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  } finally {
-    client.release();
   }
 };
 
@@ -163,41 +161,41 @@ export const markNoShow = async (req, res) => {
  * Staff marks appointment as completed (patient visited)
  */
 export const completeAppointment = async (req, res) => {
-  const client = await prisma;
   try {
     const { id } = req.params;
     const staffId = req.user?.id;
     const { notes } = req.body;
 
-    await client.query('BEGIN');
-
-    const appt = await client.query('SELECT id, patient_id, status FROM appointments WHERE id=$1 FOR UPDATE', [id]);
-    if (!appt.length) {
-      await client.query('ROLLBACK');
-      return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
-    }
-
-    const result = await client.query(
-      `UPDATE appointments SET status='COMPLETED', completed_at=NOW(), notes=COALESCE($2, notes), updated_at=NOW() WHERE id=$1 RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, notes, token_number, completed_at, updated_at`,
-      [id, notes || null]
-    );
-    await client.query(
-      `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role) VALUES ($1,$2,'COMPLETED',$3,'staff')`,
-      [id, appt[0].status, staffId]
-    );
-
-    await client.query('COMMIT');
+    const { result, prevStatus, patientId } = await prisma.$transaction(async (tx) => {
+      const appt = await tx.$queryRawUnsafe(
+        'SELECT id, patient_id, status FROM appointments WHERE id=$1 FOR UPDATE',
+        Number(id),
+      );
+      if (!appt.length) {
+        const err = new Error('Not found'); err.statusCode = HTTP_STATUS.NOT_FOUND; throw err;
+      }
+      const updated = await tx.$queryRawUnsafe(
+        `UPDATE appointments SET status='COMPLETED', notes=COALESCE($2, notes), updated_at=NOW() WHERE id=$1
+         RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, notes, token_number, updated_at`,
+        Number(id), notes || null,
+      );
+      await tx.$executeRawUnsafe(
+        `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role)
+         VALUES ($1,$2,'COMPLETED',$3,'staff')`,
+        Number(id), appt[0].status, staffId,
+      );
+      return { result: updated[0], prevStatus: appt[0].status, patientId: appt[0].patient_id };
+    });
 
     // Schedule feedback request 2 hours after visit (fire-and-forget, outside transaction)
+    void prevStatus;
     setImmediate(async () => {
       try {
-        const a = appt[0];
-        await prisma.$queryRawUnsafe(`
-          INSERT INTO scheduled_notifications (user_id, type, data, send_at, status)
-          VALUES ($1, 'feedback_request', $2, NOW() + INTERVAL '2 hours', 'pending')
-        `,
-          a.patient_id,
-          JSON.stringify({ appointment_id: id, type: 'appointment_feedback' })
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO scheduled_notifications (user_id, type, data, send_at, status)
+           VALUES ($1, 'feedback_request', $2, NOW() + INTERVAL '2 hours', 'pending')`,
+          patientId,
+          JSON.stringify({ appointment_id: id, type: 'appointment_feedback' }),
         );
         logger.info(`[Feedback] Scheduled feedback request for appointment ${id} in 2h`);
       } catch (e) {
@@ -205,15 +203,11 @@ export const completeAppointment = async (req, res) => {
       }
     });
 
-    success(res, result[0], 'Appointment completed');
+    success(res, result, 'Appointment completed');
   } catch (err) {
-    await client.query('ROLLBACK').catch(rollbackErr => {
-      logger.error('Transaction rollback failed:', rollbackErr);
-    });
+    if (err?.statusCode) return error(res, err.message, err.statusCode);
     logger.error('Complete Appointment Error:', err);
     error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  } finally {
-    client.release();
   }
 };
 
@@ -221,33 +215,34 @@ export const completeAppointment = async (req, res) => {
  * Staff/patient cancels appointment
  */
 export const cancelAppointment = async (req, res) => {
-  const client = await prisma;
   try {
     const { id } = req.params;
     const staffId = req.user?.id;
     const { cancellation_reason } = req.body;
 
-    await client.query('BEGIN');
-
-    const appt = await client.query('SELECT id, patient_id, status FROM appointments WHERE id=$1 FOR UPDATE', [id]);
-    if (!appt.length) {
-      await client.query('ROLLBACK');
-      return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
-    }
-
-    const result = await client.query(
-      `UPDATE appointments SET status='CANCELLED', cancellation_reason=$2, updated_at=NOW() WHERE id=$1 RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, cancellation_reason, token_number, updated_at`,
-      [id, cancellation_reason || null]
-    );
-    await client.query(
-      `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role, reason) VALUES ($1,$2,'CANCELLED',$3,'staff',$4)`,
-      [id, appt[0].status, staffId, cancellation_reason || null]
-    );
-
-    await client.query('COMMIT');
+    const { result, patientId } = await prisma.$transaction(async (tx) => {
+      const appt = await tx.$queryRawUnsafe(
+        'SELECT id, patient_id, status FROM appointments WHERE id=$1 FOR UPDATE',
+        Number(id),
+      );
+      if (!appt.length) {
+        const err = new Error('Not found'); err.statusCode = HTTP_STATUS.NOT_FOUND; throw err;
+      }
+      const updated = await tx.$queryRawUnsafe(
+        `UPDATE appointments SET status='CANCELLED', updated_at=NOW() WHERE id=$1
+         RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, token_number, updated_at`,
+        Number(id),
+      );
+      await tx.$executeRawUnsafe(
+        `INSERT INTO appointment_status_history (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
+         VALUES ($1,$2,'CANCELLED',$3,'staff',$4)`,
+        Number(id), appt[0].status, staffId, cancellation_reason || null,
+      );
+      return { result: updated[0], patientId: appt[0].patient_id };
+    });
 
     // Notify patient (fire-and-forget, outside transaction)
-    const patient = await prisma.$queryRawUnsafe('SELECT device_token FROM users WHERE id=$1', appt[0].patient_id);
+    const patient = await prisma.$queryRawUnsafe('SELECT device_token FROM users WHERE id=$1', patientId);
     if (patient[0]?.device_token) {
       setImmediate(async () => {
         try {
@@ -256,21 +251,17 @@ export const cancelAppointment = async (req, res) => {
             title: 'Appointment Cancelled',
             body: `Your appointment has been cancelled. ${cancellation_reason || 'Please rebook.'}`,
             data: { type: 'appointment_cancelled', appointment_id: String(id) },
-            userId: String(appt[0].patient_id),
+            userId: String(patientId),
           });
         } catch (e) { logger.warn('Cancel notification failed:', e.message); }
       });
     }
 
-    success(res, result[0], 'Appointment cancelled');
+    success(res, result, 'Appointment cancelled');
   } catch (err) {
-    await client.query('ROLLBACK').catch(rollbackErr => {
-      logger.error('Transaction rollback failed:', rollbackErr);
-    });
+    if (err?.statusCode) return error(res, err.message, err.statusCode);
     logger.error('Cancel Appointment Error:', err);
     error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);
-  } finally {
-    client.release();
   }
 };
 

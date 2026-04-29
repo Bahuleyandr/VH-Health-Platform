@@ -145,9 +145,12 @@ export function DepartmentsTable({
         <EditDepartmentModal
           department={editingDepartment}
           onClose={() => setEditingDepartment(null)}
-          onSuccess={() => {
+          onSuccess={async () => {
+            // Wait for the parent's refetch to land BEFORE closing the modal
+            // so the table doesn't briefly flash stale data, and so the
+            // user sees the new description on the row immediately.
+            await Promise.resolve(onDepartmentUpdated());
             setEditingDepartment(null);
-            onDepartmentUpdated();
           }}
         />
       )}
