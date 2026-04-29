@@ -6,6 +6,17 @@ import type { PharmacyOrderLifecycle } from "./types";
 import { ActionButton, StatusBadge } from "./shared";
 import { OrderDetailModal } from "./OrderDetailModal";
 
+function formatRelativeMins(mins: number): string {
+  if (mins == null || Number.isNaN(mins)) return "—";
+  const m = Math.round(mins);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${m % 60}m ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ${h % 24}h ago`;
+}
+
 // Canonical UPPERCASE lifecycle (post-2026-04-14 backend rename).
 const STATUS_FILTERS = ["", "PENDING", "CONFIRMED", "PREPARING", "READY", "DISPATCHED", "DELIVERED", "CANCELLED"];
 
@@ -101,11 +112,11 @@ export function OrdersTab() {
                 >
                   <td className="py-2 px-3 font-medium">
                     <button onClick={() => setSelectedOrder(o)} className="text-primary hover:underline">
-                      {o.order_number}
+                      {o.order_number || `#${o.id}`}
                     </button>
                   </td>
-                  <td className="py-2 px-3">{o.patient_name}</td>
-                  <td className="py-2 px-3">{o.phone}</td>
+                  <td className="py-2 px-3">{o.patient_name || <span className="text-muted-foreground">—</span>}</td>
+                  <td className="py-2 px-3">{o.phone || <span className="text-muted-foreground">—</span>}</td>
                   <td className="py-2 px-3 capitalize">{o.delivery_type}</td>
                   <td className="py-2 px-3">{o.total_cost ? `₹${o.total_cost}` : "—"}</td>
                   <td className="py-2 px-3">
@@ -121,7 +132,7 @@ export function OrdersTab() {
                     ) : "—"}
                   </td>
                   <td className="py-2 px-3 text-muted-foreground">
-                    {Math.round(o.mins_since_placed)}m
+                    {formatRelativeMins(o.mins_since_placed)}
                     {o.sla_breached && (
                       <span className="ml-1 text-red-600 text-xs">⚠ SLA</span>
                     )}

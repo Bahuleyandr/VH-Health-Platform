@@ -14,10 +14,25 @@ export function Breadcrumbs() {
   const isDashboardRoot = segments[0] === "dashboard";
   const trail = isDashboardRoot ? segments.slice(1) : segments;
 
+  // Acronyms / brand words that should stay all-caps in the breadcrumb
+  // instead of getting Title Case applied (avoids "Sos" / "Hr" / "Abdm").
+  const ACRONYMS = new Set([
+    "sos",
+    "hr",
+    "abdm",
+    "fhir",
+    "hl7",
+    "ccda",
+    "edi",
+    "ai",
+    "id",
+    "ot",
+  ]);
+
   const formatName = (path: string) =>
     decodeURIComponent(path)
       .split("-")
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .map((w) => (ACRONYMS.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
       .join(" ");
 
   // Build href for each crumb (still includes hidden "dashboard" in the URL)

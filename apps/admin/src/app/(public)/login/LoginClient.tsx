@@ -668,7 +668,7 @@ function LoginInner() {
 
       {/* Footer */}
       <div className={styles.footer}>
-        <p>© 2024 VH Health Hospital. All rights reserved.</p>
+        <p>© {new Date().getFullYear()} VH Health Hospital. All rights reserved.</p>
         <div className={styles.footerLinks}>
           <button type="button" className={styles.footerLink}>Terms</button>
           <button type="button" className={styles.footerLink}>Privacy</button>

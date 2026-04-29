@@ -132,7 +132,9 @@ export function DoctorsTable({ doctors, onDoctorDeleted, isLoading, error }: Doc
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-foreground">
-                      ₹{doctor.consultation_fee}
+                      {doctor.consultation_fee != null
+                        ? `₹${doctor.consultation_fee}`
+                        : <span className="text-muted-foreground">—</span>}
                     </div>
                   </td>
                   <td className="px-6 py-4">

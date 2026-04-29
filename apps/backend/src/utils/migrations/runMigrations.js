@@ -10,8 +10,8 @@ const MIGRATIONS_DIR = path.resolve(__dirname, '../../migrations');
 
 export async function runMigrations() {
   try {
-    // Create migrations tracking table
-    await prisma.$queryRawUnsafe(`
+    // Create migrations tracking table. DDL → $executeRawUnsafe.
+    await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS _migrations (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL UNIQUE,
@@ -19,18 +19,20 @@ export async function runMigrations() {
       )
     `);
 
-    // Get already-run migrations
+    // Get already-run migrations.
     const executed = await prisma.$queryRawUnsafe('SELECT name FROM _migrations ORDER BY name');
-    const executedNames = new Set((Array.isArray(executed) ? executed : executed?.rows ?? []).map(r => r.name));
+    const executedNames = new Set(
+      (Array.isArray(executed) ? executed : executed?.rows ?? []).map((r) => r.name),
+    );
 
-    // Read migration files
     if (!fs.existsSync(MIGRATIONS_DIR)) {
       logger.info('No migrations directory found, skipping.');
       return;
     }
 
-    const files = fs.readdirSync(MIGRATIONS_DIR)
-      .filter(f => f.endsWith('.sql'))
+    const files = fs
+      .readdirSync(MIGRATIONS_DIR)
+      .filter((f) => f.endsWith('.sql'))
       .sort();
 
     let ran = 0;
@@ -40,10 +42,27 @@ export async function runMigrations() {
       const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf-8');
       logger.info(`Running migration: ${file}`);
 
-      await prisma.$queryRawUnsafe(sql);
-      await prisma.$queryRawUnsafe('INSERT INTO _migrations (name) VALUES ($1)', file);
-      ran++;
-      logger.info(`✅ Migration completed: ${file}`);
+      try {
+        // DDL statements (CREATE TABLE / ALTER / INDEX) don't return rowsets,
+        // so $executeRawUnsafe is the right Prisma method. It also accepts
+        // multi-statement SQL on Postgres.
+        await prisma.$executeRawUnsafe(sql);
+        await prisma.$executeRawUnsafe('INSERT INTO _migrations (name) VALUES ($1)', file);
+        ran++;
+        logger.info(`✅ Migration completed: ${file}`);
+      } catch (err) {
+        // Idempotent migrations (CREATE ... IF NOT EXISTS / ADD COLUMN IF NOT
+        // EXISTS) can succeed at the SQL layer but Prisma still surfaces an
+        // error if the file's last statement returns no rows under
+        // $queryRawUnsafe semantics. Switching to $executeRawUnsafe above
+        // resolves that, but we log the full error here in case anything
+        // legitimately fails so a future-you can debug it.
+        logger.error(`❌ Migration ${file} failed`, {
+          error: err?.message,
+          code: err?.code,
+        });
+        throw err;
+      }
     }
 
     if (ran === 0) {
@@ -52,7 +71,7 @@ export async function runMigrations() {
       logger.info(`✅ Ran ${ran} migration(s).`);
     }
   } catch (error) {
-    logger.error('❌ Migration failed:', error.message);
+    logger.error('❌ Migration runner aborted', { error: error?.message, code: error?.code });
     throw error;
   }
 }

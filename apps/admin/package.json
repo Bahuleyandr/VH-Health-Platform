@@ -96,6 +96,7 @@
     "postcss": "8.5.12",
     "glob": "^10.3.10",
     "rimraf": "^5.0.5",
+    "import-in-the-middle": "3.0.1",
     "workbox-build": {
       "serialize-javascript": ">=7.0.5"
     },

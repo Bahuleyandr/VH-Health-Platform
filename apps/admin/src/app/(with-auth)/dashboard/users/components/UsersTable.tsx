@@ -197,7 +197,7 @@ export function UsersTable({ users, onUserUpdated, isLoading, error }: UsersTabl
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm font-medium text-foreground dark:text-white">
-                    {user.name}
+                    {user.name || <span className="italic text-muted-foreground">(unnamed)</span>}
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
