@@ -86,6 +86,11 @@ async function proxyLogin(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        // Backend's HTTPS-redirect middleware trips when NODE_ENV=production
+        // and this header isn't 'https'. We're always behind TLS one way
+        // or another (Cloudflare Tunnel in prod, Tailscale serve in dev),
+        // so it's safe + correct to set this for all server-to-server calls.
+        "x-forwarded-proto": "https",
         ...(SERVER_API_KEY ? { "x-api-key": SERVER_API_KEY } : {}),
       },
       body: JSON.stringify(credentials),

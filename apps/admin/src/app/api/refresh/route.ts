@@ -61,6 +61,7 @@ export async function POST(request: Request) {
       headers: {
         Authorization: `Bearer ${currentToken}`,
         "Content-Type": "application/json",
+        "x-forwarded-proto": "https",
         ...(SERVER_API_KEY ? { "x-api-key": SERVER_API_KEY } : {}),
       },
     });
