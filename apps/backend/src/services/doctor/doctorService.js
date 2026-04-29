@@ -294,10 +294,11 @@ export class DoctorService {
         // Detail must lookup by doctors.id (the row PK the list returns).
         // Older code joined users-first, which 404'd for doctor rows that
         // were created admin-side without a paired users row (user_id=NULL).
+        // doctors table only carries `name` and `department`/`specialty` — phone,
+        // email, gender, etc. live on the paired users row when there is one.
         const id = parseInt(identifier);
         rows = await prisma.$queryRaw`
-          SELECT COALESCE(u.id, d.id) AS id, u.uid, COALESCE(u.phone, d.phone) AS phone,
-                 COALESCE(u.name, d.name) AS name, COALESCE(u.email, d.email) AS email,
+          SELECT d.id, u.uid, u.phone, COALESCE(u.name, d.name) AS name, u.email,
                  u.gender, u.address, u.birthday, u.profile_picture, u.registered_at,
                  d.specialty AS specialization, d.department, d.experience_years, d.consultation_fee,
                  d.available_days, d.available_hours, d.is_available, d.intro AS bio, d.education,

@@ -470,8 +470,10 @@ export const registerWalkIn = async (req, res) => {
         if (existing.length > 0) {
           patientId = existing[0].id;
         } else {
+          // updated_at is NOT NULL with no default — pass it explicitly.
           const newUser = await tx.$queryRawUnsafe(
-            `INSERT INTO users (phone, name, role) VALUES ($1, $2, 'PATIENT') RETURNING id`,
+            `INSERT INTO users (phone, name, role, updated_at)
+             VALUES ($1, $2, 'PATIENT', NOW()) RETURNING id`,
             patient_phone,
             patient_name || 'Walk-in Patient',
           );
