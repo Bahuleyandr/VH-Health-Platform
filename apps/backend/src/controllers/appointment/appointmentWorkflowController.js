@@ -446,8 +446,9 @@ export const getAvailableSlots = async (req, res) => {
  */
 export const registerWalkIn = async (req, res) => {
   try {
-    // appointments.created_by is uuid; req.user.uid is the uuid, req.user.id is the int.
+    // appointments.created_by is uuid; appointment_status_history.changed_by is int.
     const staffUid = req.user?.uid;
+    const staffId = req.user?.id;
     const {
       patient_name, patient_phone, patient_id,
       doctor_id, department,
@@ -513,12 +514,13 @@ export const registerWalkIn = async (req, res) => {
       );
       const appt = apptRows[0];
 
+      // changed_by on this table is int, NOT uuid (different from appointments.created_by).
       await tx.$executeRawUnsafe(
         `INSERT INTO appointment_status_history
            (appointment_id, from_status, to_status, changed_by, changed_by_role, reason)
-         VALUES ($1, NULL, 'CONFIRMED', $2::uuid, 'staff', 'Walk-in registration')`,
+         VALUES ($1, NULL, 'CONFIRMED', $2, 'staff', 'Walk-in registration')`,
         appt.id,
-        staffUid,
+        staffId,
       );
 
       return { ...appt, token_number: tokenNumber };
