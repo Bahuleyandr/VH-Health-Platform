@@ -61,9 +61,12 @@ export const doctorController = {
         return error(res, errors.array()[0].msg, HTTP_STATUS.BAD_REQUEST);
       }
       
-      const { id } = req.params;
-      const doctor = await doctorService.getDoctorById(id);
-      
+      // Route is mounted at `/:doctorId` (and `/profile/:id`); accept either
+      // so the same controller works for both shapes without silently
+      // looking up `undefined` and 404-ing.
+      const identifier = req.params.doctorId ?? req.params.id;
+      const doctor = await doctorService.getDoctorById(identifier);
+
       if (!doctor) {
         return error(res, 'Doctor not found', HTTP_STATUS.NOT_FOUND);
       }
