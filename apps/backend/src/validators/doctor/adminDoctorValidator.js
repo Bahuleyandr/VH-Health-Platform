@@ -87,10 +87,19 @@ updateAvailability: [
     .optional()
     .isArray()
     .withMessage('Available days must be an array'),
+  // Day names — accept any case (admin form sends lowercase, legacy code
+   // sent UPPERCASE). Normalised downstream by the controller before insert.
   body('available_days.*')
     .optional()
-    .isIn(DOCTOR_CONFIG.WEEK_DAYS)
-    .withMessage('Invalid day specified'),
+    .custom((value) => {
+      if (typeof value !== 'string') {
+        throw new Error('Invalid day specified');
+      }
+      if (!DOCTOR_CONFIG.WEEK_DAYS.includes(value.toUpperCase())) {
+        throw new Error('Invalid day specified');
+      }
+      return true;
+    }),
   // Accept either a single 'HH:mm-HH:mm' window or a per-day map
   // ({ monday: 'HH:mm-HH:mm', ... }) to match the doctors.available_hours
   // jsonb column shape that the admin form actually sends.
