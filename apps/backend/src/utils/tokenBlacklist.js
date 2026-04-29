@@ -79,7 +79,10 @@ export async function isTokenBlacklisted(jti) {
   } catch (err) {
     // If both Redis and DB fail, allow the token (fail-open for availability)
     // Security tradeoff: prefer availability over blocking legitimate users
-    logger.error('Token blacklist check failed (both Redis and DB):', err.message);
+    logger.error('Token blacklist check failed (both Redis and DB)', {
+      error: err?.message,
+      code: err?.code,
+    });
     return false;
   }
 }

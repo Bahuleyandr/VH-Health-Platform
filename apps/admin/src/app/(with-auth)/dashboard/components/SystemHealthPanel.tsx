@@ -92,30 +92,44 @@ export function SystemHealthSection({ health, lastUpdated }: SystemHealthProps) 
         </span>
       </div>
 
-      {/* Gauge bars */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-        <GaugeBar
-          label="Uptime"
-          value={parseFloat(health?.uptime?.replace('%', '') ?? '99.99')}
-          max={100}
-          unit="%"
-          color={healthBarColor(100 - parseFloat(health?.uptime?.replace('%', '') ?? '99.99'), UPTIME_THRESHOLDS)}
-        />
-        <GaugeBar
-          label="Response Time"
-          value={health?.responseTime ?? 45}
-          max={500}
-          unit="ms"
-          color={healthBarColor(health?.responseTime ?? 45, RESPONSE_TIME_THRESHOLDS)}
-        />
-        <GaugeBar
-          label="Error Rate"
-          value={health?.errorRate ?? 0.1}
-          max={10}
-          unit="%"
-          color={healthBarColor(health?.errorRate ?? 0.1, ERROR_RATE_THRESHOLDS)}
-        />
-      </div>
+      {/* Gauge bars — only render real metrics. No fake fallbacks. */}
+      {health?.uptime != null || health?.responseTime != null || health?.errorRate != null ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          {health?.uptime != null && (
+            <GaugeBar
+              label="Uptime"
+              value={parseFloat(health.uptime.replace('%', ''))}
+              max={100}
+              unit="%"
+              color={healthBarColor(100 - parseFloat(health.uptime.replace('%', '')), UPTIME_THRESHOLDS)}
+            />
+          )}
+          {health?.responseTime != null && (
+            <GaugeBar
+              label="Response Time"
+              value={health.responseTime}
+              max={500}
+              unit="ms"
+              color={healthBarColor(health.responseTime, RESPONSE_TIME_THRESHOLDS)}
+            />
+          )}
+          {health?.errorRate != null && (
+            <GaugeBar
+              label="Error Rate"
+              value={health.errorRate}
+              max={10}
+              unit="%"
+              color={healthBarColor(health.errorRate, ERROR_RATE_THRESHOLDS)}
+            />
+          )}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground mb-4">
+          Live metrics unavailable. Backend must expose <code>uptime</code>,{' '}
+          <code>responseTime</code>, and <code>errorRate</code> on{' '}
+          <code>/admin/health/system</code> for this panel.
+        </p>
+      )}
 
       {/* Module health indicators */}
       {health?.modules && health.modules.length > 0 && (

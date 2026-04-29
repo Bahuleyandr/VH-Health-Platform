@@ -145,9 +145,9 @@ export function useDashboardData() {
       const ug = dash?.charts?.userGrowth ?? [];
       const at = dash?.charts?.appointmentTrends ?? [];
       setCharts({
-        labels: ug.length ? ug.map((d) => d.date) : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-        users: ug.length ? ug.map((d) => d.value) : [65, 78, 90, 81, 84, 78, 95],
-        appts: at.length ? at.map((d) => d.value) : [58, 68, 77, 89, 76, 77, 88],
+        labels: ug.map((d) => d.date),
+        users: ug.map((d) => d.value),
+        appts: at.map((d) => d.value),
       });
 
       setActivity(
@@ -161,16 +161,11 @@ export function useDashboardData() {
         }))
       );
 
-      const healthData = systemHealth ??
-        dash.systemHealth ?? {
-          status: 'healthy' as HealthStatus,
-          uptime: '99.99%',
-          responseTime: 45,
-          errorRate: 0.1,
-        };
-
-      // Merge module health
-      if (moduleHealth) {
+      // Use real health data from the backend; do NOT fall back to a fake
+      // 99.99%/45ms/0.1% literal — that masked broken endpoints for ages.
+      // null health means the panel renders "—" / unknown.
+      const healthData = systemHealth ?? dash.systemHealth ?? null;
+      if (healthData && moduleHealth) {
         healthData.modules = moduleHealth;
       }
 

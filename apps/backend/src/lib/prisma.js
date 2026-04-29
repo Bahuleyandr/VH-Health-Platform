@@ -68,8 +68,8 @@ function makeClient(url, tag) {
     ],
   });
 
-  client.$on('warn', (e) => logger.warn(`Prisma[${tag}] warning:`, e.message));
-  client.$on('error', (e) => logger.error(`Prisma[${tag}] error:`, e.message));
+  client.$on('warn', (e) => logger.warn(`Prisma[${tag}] warning`, { message: e?.message, target: e?.target }));
+  client.$on('error', (e) => logger.error(`Prisma[${tag}] error`, { message: e?.message, target: e?.target, payload: e }));
   // Slow-query logging runs in EVERY env — ops need this signal in prod.
   client.$on('query', (e) => {
     if (e.duration > SLOW_QUERY_MS) {

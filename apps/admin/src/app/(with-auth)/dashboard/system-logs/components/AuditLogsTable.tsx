@@ -121,10 +121,10 @@ export function AuditLogsTable({ logs, loading }: AuditLogsTableProps) {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm font-medium text-foreground">
-                    User #{log.user_id}
+                    {log.user_name || (log.user_id ? `User #${log.user_id}` : <span className="text-muted-foreground">Anonymous</span>)}
                   </div>
-                  {log.user_name && (
-                    <div className="text-sm text-muted-foreground">{log.user_name}</div>
+                  {log.user_name && log.user_id && (
+                    <div className="text-xs text-muted-foreground">#{log.user_id}</div>
                   )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">

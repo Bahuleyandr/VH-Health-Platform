@@ -22,8 +22,10 @@ class DepartmentService {
           ...dept,
           doctor_count: parseInt(dept.doctor_count),
           available_doctors: parseInt(dept.available_doctors),
-          created_at: formatDate(dept.created_at),
-          updated_at: dept.updated_at ? formatDate(dept.updated_at) : null
+          // Ship ISO timestamps; the admin formatter handles display.
+          // Pre-formatting as DD-MM-YYYY broke `new Date(...)` parsing.
+          created_at: dept.created_at instanceof Date ? dept.created_at.toISOString() : dept.created_at,
+          updated_at: dept.updated_at instanceof Date ? dept.updated_at.toISOString() : dept.updated_at,
         })),
         count: rows.length
       };

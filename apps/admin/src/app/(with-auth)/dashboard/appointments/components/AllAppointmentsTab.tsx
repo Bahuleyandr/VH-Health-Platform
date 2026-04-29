@@ -14,7 +14,6 @@ import {
 } from "@/lib/api/appointments";
 import { PaginationControls } from "../../users/components/PaginationControls";
 import { AppointmentFilters } from "./AppointmentFilters";
-import { AppointmentsTable } from "./AppointmentsTable";
 import {
   fmtDate,
   normalizeAppointmentsResponse,
@@ -76,7 +75,6 @@ export function AllAppointmentsTab() {
   return (
     <div className="space-y-4">
       <AppointmentFilters />
-      {data && <AppointmentsTable appointments={data.appointments} />}
       {data && data.appointments.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

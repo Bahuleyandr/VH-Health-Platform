@@ -4,10 +4,19 @@ import logger from '../../../logging/logger.js';
 
 /**
  * Check if a table exists in the public schema.
+ *
+ * Note: cast to_regclass to TEXT — Prisma's raw driver can't deserialize
+ * the native `regclass` Postgres OID type and throws
+ * "Failed to deserialize column of type 'regclass'", which used to fire
+ * 5+ times in parallel on every dashboard load and trip the circuit
+ * breaker for 30s.
  */
 export async function tableExists(table) {
   try {
-    const rows = await prisma.$queryRawUnsafe(`SELECT to_regclass($1) AS reg`, `public.${table}`);
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT to_regclass($1)::text AS reg`,
+      `public.${table}`,
+    );
     return Boolean(rows[0]?.reg);
   } catch {
     return false;
@@ -31,29 +40,30 @@ export async function columnExists(table, column) {
 }
 
 /**
- * Run a query that should never throw; on error, warn and return [].
+ * Run a query; on error, log loudly and return []. Spread-arg form for
+ * Prisma raw — passing the array as the second arg makes it a phantom $1.
  */
 export async function safeQuery(sql, params = [], label = 'query') {
   try {
-    const r = await prisma.$queryRawUnsafe(sql, params);
+    const r = await prisma.$queryRawUnsafe(sql, ...params);
     return r;
   } catch (err) {
-    logger.warn(`[admin:${label}] skipped: ${err.message}`);
+    logger.error(`[admin:${label}] failed`, { error: err.message, code: err.code });
     return [];
   }
 }
 
 /**
- * Fetch a single numeric scalar safely; on error or null, return fallback (default 0).
+ * Fetch a single numeric scalar; on error log loudly and return fallback.
  */
 export async function safeScalar(sql, params = [], fallback = 0) {
   try {
-    const rows = await prisma.$queryRawUnsafe(sql, params);
+    const rows = await prisma.$queryRawUnsafe(sql, ...params);
     const v = rows[0] && Object.values(rows[0])[0];
     if (v === null || Number.isNaN(Number(v))) return fallback;
     return Number(v);
   } catch (err) {
-    logger.warn(`[admin:scalar] ${err.message}`);
+    logger.error('[admin:scalar] failed', { error: err.message, code: err.code });
     return fallback;
   }
 }
