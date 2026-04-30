@@ -48,7 +48,7 @@ function embedModel() {
  * 768-dim Float32 array, or null on any failure (timeouts, missing Ollama,
  * dimension mismatch). Never throws.
  */
-async function embedText(text) {
+export async function embedText(text) {
   const body = String(text || '').slice(0, 8000);
   if (!body.trim()) return null;
   try {
@@ -91,7 +91,7 @@ function toPgVector(vec) {
  * Split content into overlapping character windows. Crude but deterministic
  * and avoids dependency on a tokenizer. Overlap keeps semantic boundaries.
  */
-function chunkText(text, { maxChars = DEFAULT_CHUNK_CHARS, overlap = 200 } = {}) {
+export function chunkText(text, { maxChars = DEFAULT_CHUNK_CHARS, overlap = 200 } = {}) {
   const body = String(text || '').trim();
   if (!body) return [];
   if (body.length <= maxChars) return [body];

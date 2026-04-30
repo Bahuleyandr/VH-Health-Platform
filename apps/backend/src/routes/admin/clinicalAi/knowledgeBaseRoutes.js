@@ -16,6 +16,7 @@
  */
 
 import express from 'express';
+import multer from 'multer';
 
 import { success } from '../../../utils/responseHelper.js';
 import {
@@ -29,7 +30,49 @@ import {
   unarchiveKnowledgeBase,
   updateKnowledgeBase,
 } from '../../../services/ai/knowledgeBaseService.js';
+import {
+  createInlineDocument,
+  deleteKnowledgeDocument,
+  getKnowledgeDocument,
+  listKnowledgeDocuments,
+  reindexDocument,
+  uploadDocument,
+} from '../../../services/ai/knowledgeDocumentService.js';
 import { logClinicalAiAudit } from './audit.js';
+
+const KB_DOCUMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'image/tiff',
+  'image/bmp',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
+  'text/rtf',
+  'application/json',
+  'application/fhir+json',
+]);
+
+const knowledgeUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 25 * 1024 * 1024,
+    files: 1,
+    fields: 12,
+    fieldSize: 64 * 1024,
+  },
+  fileFilter: (_req, file, cb) => {
+    const mimeType = String(file.mimetype || '').toLowerCase();
+    if (!KB_DOCUMENT_MIME_TYPES.has(mimeType)) {
+      cb(new Error(`Knowledge base upload does not support ${mimeType}`));
+      return;
+    }
+    cb(null, true);
+  },
+});
 
 const router = express.Router();
 
@@ -198,5 +241,161 @@ router.delete('/knowledge-bases/:id/access-policies/:role/:permission', async (r
     return next(err);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Documents (PR2)
+// ---------------------------------------------------------------------------
+
+router.get('/knowledge-bases/:id/documents', async (req, res, next) => {
+  try {
+    const result = await listKnowledgeDocuments({
+      tenantId: req.tenantId,
+      knowledgeBaseId: req.params.id,
+      status: req.query.status || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Knowledge documents retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/knowledge-bases/:id/documents/inline', async (req, res, next) => {
+  try {
+    const result = await createInlineDocument({
+      tenantId: req.tenantId,
+      knowledgeBaseId: req.params.id,
+      title: req.body?.title,
+      rawText: req.body?.raw_text,
+      sourceType: req.body?.source_type || 'inline_text',
+      uploadedBy: req.user?.uid || null,
+      metadata: req.body?.metadata || {},
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_KNOWLEDGE_DOCUMENT_INGESTED',
+      String(result.document?.id || 'inline'),
+      null,
+      {
+        document_id: result.document?.id,
+        knowledge_base_id: result.document?.knowledge_base_id,
+        processing_status: result.document?.processing_status,
+        chunk_count: result.chunk_count || 0,
+        embedded_count: result.embedded_count || 0,
+        prompt_injection_verdict: result.document?.prompt_injection_verdict,
+      },
+    );
+    return success(res, result, 'Knowledge document ingested', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post(
+  '/knowledge-bases/:id/documents',
+  (req, res, next) => {
+    knowledgeUpload.single('file')(req, res, (err) => {
+      if (err) return next(err);
+      return next();
+    });
+  },
+  async (req, res, next) => {
+    try {
+      const result = await uploadDocument({
+        tenantId: req.tenantId,
+        knowledgeBaseId: req.params.id,
+        file: req.file,
+        title: req.body?.title || null,
+        uploadedBy: req.user?.uid || null,
+        metadata: req.body?.metadata
+          ? safeParseJson(req.body.metadata)
+          : {},
+      });
+      await logClinicalAiAudit(
+        req,
+        'CLINICAL_AI_KNOWLEDGE_DOCUMENT_UPLOADED',
+        String(result.document?.id || 'inline'),
+        null,
+        {
+          document_id: result.document?.id,
+          knowledge_base_id: result.document?.knowledge_base_id,
+          processing_status: result.document?.processing_status,
+          chunk_count: result.chunk_count || 0,
+          embedded_count: result.embedded_count || 0,
+          prompt_injection_verdict: result.document?.prompt_injection_verdict,
+          file_name: req.file?.originalname,
+        },
+      );
+      return success(res, result, 'Knowledge document uploaded', 201);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+router.get('/knowledge-bases/:id/documents/:documentId', async (req, res, next) => {
+  try {
+    const document = await getKnowledgeDocument({
+      tenantId: req.tenantId,
+      documentId: req.params.documentId,
+    });
+    return success(res, document, 'Knowledge document retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.delete('/knowledge-bases/:id/documents/:documentId', async (req, res, next) => {
+  try {
+    const document = await deleteKnowledgeDocument({
+      tenantId: req.tenantId,
+      documentId: req.params.documentId,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_KNOWLEDGE_DOCUMENT_DELETED',
+      String(document.id),
+      document,
+      null,
+    );
+    return success(res, document, 'Knowledge document deleted');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/knowledge-bases/:id/documents/:documentId/reindex', async (req, res, next) => {
+  try {
+    const result = await reindexDocument({
+      tenantId: req.tenantId,
+      documentId: req.params.documentId,
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_KNOWLEDGE_DOCUMENT_REINDEXED',
+      String(result.document?.id || req.params.documentId),
+      null,
+      {
+        document_id: result.document?.id,
+        chunk_count: result.chunk_count || 0,
+        embedded_count: result.embedded_count || 0,
+        processing_status: result.document?.processing_status,
+      },
+    );
+    return success(res, result, 'Knowledge document re-indexed', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+function safeParseJson(value) {
+  if (!value || typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
 
 export default router;
