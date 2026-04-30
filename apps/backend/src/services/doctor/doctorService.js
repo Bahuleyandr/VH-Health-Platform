@@ -291,17 +291,22 @@ export class DoctorService {
           WHERE u.uid = ${identifier}::uuid AND u.role = 'DOCTOR'
         `;
       } else {
+        // Detail must lookup by doctors.id (the row PK the list returns).
+        // Older code joined users-first, which 404'd for doctor rows that
+        // were created admin-side without a paired users row (user_id=NULL).
+        // doctors table only carries `name` and `department`/`specialty` — phone,
+        // email, gender, etc. live on the paired users row when there is one.
         const id = parseInt(identifier);
         rows = await prisma.$queryRaw`
-          SELECT u.id, u.uid, u.phone, u.name, u.email, u.gender, u.address,
-                 u.birthday, u.profile_picture, u.registered_at,
+          SELECT d.id, u.uid, u.phone, COALESCE(u.name, d.name) AS name, u.email,
+                 u.gender, u.address, u.birthday, u.profile_picture, u.registered_at,
                  d.specialty AS specialization, d.department, d.experience_years, d.consultation_fee,
                  d.available_days, d.available_hours, d.is_available, d.intro AS bio, d.education,
                  d.qualifications, NULL::text[] AS certifications, d.created_at as profile_created,
                  d.updated_at as profile_updated
-          FROM users u
-          LEFT JOIN doctors d ON u.id = d.user_id
-          WHERE u.id = ${id} AND u.role = 'DOCTOR'
+          FROM doctors d
+          LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
+          WHERE d.id = ${id}
         `;
       }
 

@@ -1,0 +1,93 @@
+# Backend deployment for Dalekdefender.
+# Image is built on the host (`docker build` then `k3s ctr images import`)
+# and tagged `vhhealth-backend:dev`. imagePullPolicy: IfNotPresent keeps
+# k3s from trying to fetch the tag from a registry that doesn't host it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vhhealth-backend
+  namespace: vhhealth
+  labels:
+    app.kubernetes.io/name: vhhealth-backend
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: vhhealth-backend
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
+      # Reserved for vhhealth on this cluster. Khata uses 30080.
+      nodePort: 30090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vhhealth-backend
+  namespace: vhhealth
+  labels:
+    app.kubernetes.io/name: vhhealth-backend
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vhhealth-backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vhhealth-backend
+    spec:
+      containers:
+        - name: backend
+          image: vhhealth-backend:dev
+          imagePullPolicy: IfNotPresent
+          # Cluster.js spawns workers; for single-node dev a single worker
+          # is plenty and avoids fighting the kube probe scheduler.
+          command: ["node", "src/bin/www.js"]
+          ports:
+            - name: http
+              containerPort: 5000
+          envFrom:
+            - secretRef:
+                name: vhhealth-backend
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "5000"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vhhealth-backend
+                  key: DATABASE_URL
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5000
+              # Backend redirects HTTP→HTTPS when NODE_ENV=production unless
+              # x-forwarded-proto says https. Tailscale serve (the public
+              # entrypoint) sets it correctly; the kubelet probe doesn't,
+              # so we set it manually to avoid a probe-loop.
+              httpHeaders:
+                - name: X-Forwarded-Proto
+                  value: https
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5000
+              httpHeaders:
+                - name: X-Forwarded-Proto
+                  value: https
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi

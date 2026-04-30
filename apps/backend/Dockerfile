@@ -24,6 +24,14 @@ COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 COPY src ./src
 COPY prisma ./prisma
+# scripts referenced by src/utils/scheduler.js (backup-db, cleanup-backups,
+# purge-archives) — without these the container crashes at boot with
+# ERR_MODULE_NOT_FOUND on the first scheduler import.
+COPY admin ./admin
+# Operational scripts run via `kubectl exec deploy/... -- node scripts/...`
+# (seed-test-staff-accounts, check-schema-drift, etc.) — without them the
+# image is functional but you can't bootstrap or repair a fresh cluster.
+COPY scripts ./scripts
 
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 RUN chown -R appuser:appgroup /app

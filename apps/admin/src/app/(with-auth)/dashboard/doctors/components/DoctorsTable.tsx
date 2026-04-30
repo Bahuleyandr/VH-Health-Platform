@@ -14,8 +14,17 @@ interface DoctorsTableProps {
   error?: string | null;
 }
 
+// Doctors created admin-side have user_id=null, so the doctor row's identity
+// has to come from doctors.id (the table PK). user_id is the legacy lookup
+// for doctors that ARE paired with a user account.
+function doctorKey(d: Doctor): number | string | undefined {
+  const id = (d as unknown as { id?: number | string }).id;
+  if (id !== undefined && id !== null) return id;
+  return d.user_id;
+}
+
 export function DoctorsTable({ doctors, onDoctorDeleted, isLoading, error }: DoctorsTableProps) {
-  const [deleting, setDeleting] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState<number | string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingDoctor, setPendingDoctor] = useState<Doctor | null>(null);
 
@@ -38,10 +47,15 @@ export function DoctorsTable({ doctors, onDoctorDeleted, isLoading, error }: Doc
 
   const handleConfirmDelete = async () => {
     if (!pendingDoctor) return;
+    const key = doctorKey(pendingDoctor);
+    if (key === undefined) {
+      alert("Doctor row missing id — cannot delete.");
+      return;
+    }
 
-    setDeleting(pendingDoctor.user_id);
+    setDeleting(key);
     try {
-      await fetchAdminAPI(`/doctors/${pendingDoctor.user_id}`, {
+      await fetchAdminAPI(`/doctors/${key}`, {
         method: "DELETE",
       });
 
@@ -109,8 +123,11 @@ export function DoctorsTable({ doctors, onDoctorDeleted, isLoading, error }: Doc
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-border">
-              {doctors.map((doctor) => (
-                <tr key={doctor.user_id} className="hover:bg-muted">
+              {doctors.map((doctor) => {
+                const key = doctorKey(doctor);
+                const isDeleting = key !== undefined && deleting === key;
+                return (
+                <tr key={key ?? Math.random()} className="hover:bg-muted">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
                       <div className="text-sm font-medium text-foreground">
@@ -165,26 +182,27 @@ export function DoctorsTable({ doctors, onDoctorDeleted, isLoading, error }: Doc
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex items-center gap-3">
                       <Link
-                        href={`/dashboard/doctors/edit/${doctor.user_id}`}
-                        className="text-primary hover:text-primary transition-colors"
+                        href={`/dashboard/doctors/edit/${key ?? ""}`}
+                        className={`transition-colors ${key === undefined ? "pointer-events-none text-muted-foreground" : "text-primary hover:text-primary"}`}
                       >
                         Edit
                       </Link>
                       <button
                         onClick={() => handleDeleteClick(doctor)}
-                        disabled={deleting === doctor.user_id}
+                        disabled={isDeleting || key === undefined}
                         className={`${
-                          deleting === doctor.user_id
+                          isDeleting || key === undefined
                             ? "text-muted-foreground cursor-not-allowed"
                             : "text-destructive hover:text-destructive transition-colors"
                         }`}
                       >
-                        {deleting === doctor.user_id ? "Deleting..." : "Delete"}
+                        {isDeleting ? "Deleting..." : "Delete"}
                       </button>
                     </div>
                   </td>
                 </tr>
-              ))}
+              );
+              })}
             </tbody>
           </table>
         </div>

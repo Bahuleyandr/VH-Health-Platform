@@ -159,6 +159,12 @@ async function handleProxy(req: NextRequest) {
     headers["x-api-key"] = serverApiKey;
   }
 
+  // Backend's HTTPS-redirect middleware trips when NODE_ENV=production
+  // and this header isn't 'https'. We're always behind TLS one way or
+  // another (Cloudflare Tunnel in prod, Tailscale serve in dev), so it's
+  // safe + correct to assert this for all server-to-server calls.
+  headers["x-forwarded-proto"] = "https";
+
   const init: RequestInit = { method, headers };
 
   // Bodies only for non-GET/HEAD

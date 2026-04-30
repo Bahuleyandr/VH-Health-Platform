@@ -2287,6 +2287,39 @@ model clinical_ai_context_snapshots {
   @@index([tenant_id, created_at(sort: Desc)], map: "idx_clinical_ai_context_snapshots_tenant")
 }
 
+/// Cross-run decision memory for clinical AI drafts. See migration 108
+/// (clinical_ai_decision_memory.sql). Populated by
+/// decisionMemoryService.recordDecision after every final review;
+/// retrieved before each new generation to inject prior reviewer behaviour
+/// into the chart packet.
+model clinical_ai_decision_memory {
+  id                      Int                      @id @default(autoincrement())
+  tenant_id               String                   @db.Uuid
+  module_key              String                   @db.VarChar(80)
+  patient_uid             String?                  @db.Uuid
+  admission_id            Int?
+  generation_id           Int?
+  review_id               Int?
+  decision                String                   @db.VarChar(40)
+  draft_summary           String?
+  edit_diff_summary       String?
+  rejection_reason        String?
+  lesson                  String?
+  context_signature       Json                     @default("{}")
+  reviewer_role           String?                  @db.VarChar(50)
+  reviewer_uid            String?                  @db.Uuid
+  cross_patient_safe      Boolean                  @default(true)
+  created_at              DateTime                 @default(now()) @db.Timestamptz(6)
+  clinical_ai_generations clinical_ai_generations? @relation(fields: [generation_id], references: [id], onUpdate: NoAction)
+  clinical_ai_reviews     clinical_ai_reviews?     @relation(fields: [review_id], references: [id], onUpdate: NoAction)
+  tenants                 tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenant_id, module_key, patient_uid, created_at(sort: Desc)], map: "idx_clinical_ai_decision_memory_tenant_module_patient")
+  @@index([tenant_id, module_key, created_at(sort: Desc)], map: "idx_clinical_ai_decision_memory_tenant_module_xpatient")
+  @@index([context_signature(ops: JsonbOps)], map: "idx_clinical_ai_decision_memory_signature_gin", type: Gin)
+  @@index([review_id], map: "idx_clinical_ai_decision_memory_review")
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model clinical_ai_deterioration_snapshots {
   id                  Int      @id @default(autoincrement())
@@ -2538,6 +2571,7 @@ model clinical_ai_generations {
   clinical_ai_blood_bank_forecast_reviews                                                                             clinical_ai_blood_bank_forecast_reviews[]
   clinical_ai_chart_gap_audits                                                                                        clinical_ai_chart_gap_audits[]
   clinical_ai_command_center_snapshots                                                                                clinical_ai_command_center_snapshots[]
+  clinical_ai_decision_memory                                                                                         clinical_ai_decision_memory[]
   clinical_ai_ed_triage_predictions                                                                                   clinical_ai_ed_triage_predictions[]
   clinical_ai_explainability_reports_clinical_ai_explainability_reports_generation_idToclinical_ai_generations        clinical_ai_explainability_reports[]         @relation("clinical_ai_explainability_reports_generation_idToclinical_ai_generations")
   clinical_ai_explainability_reports_clinical_ai_explainability_reports_source_generation_idToclinical_ai_generations clinical_ai_explainability_reports[]         @relation("clinical_ai_explainability_reports_source_generation_idToclinical_ai_generations")
@@ -3711,22 +3745,23 @@ model clinical_ai_rca_drafts {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model clinical_ai_reviews {
-  id                      Int                      @id @default(autoincrement())
-  generation_id           Int?
-  module_key              String                   @db.VarChar(80)
-  patient_uid             String?                  @db.Uuid
-  admission_id            Int?
-  reviewer_uid            String?                  @db.Uuid
-  reviewer_role           String?                  @db.VarChar(50)
-  decision                String                   @default("pending") @db.VarChar(40)
-  edited_draft            Json?
-  rejection_reason        String?
-  metadata                Json                     @default("{}")
-  created_at              DateTime                 @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime                 @default(now()) @db.Timestamptz(6)
-  tenant_id               String                   @db.Uuid
-  clinical_ai_generations clinical_ai_generations? @relation(fields: [generation_id], references: [id], onUpdate: NoAction)
-  tenants                 tenants                  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                          Int                           @id @default(autoincrement())
+  generation_id               Int?
+  module_key                  String                        @db.VarChar(80)
+  patient_uid                 String?                       @db.Uuid
+  admission_id                Int?
+  reviewer_uid                String?                       @db.Uuid
+  reviewer_role               String?                       @db.VarChar(50)
+  decision                    String                        @default("pending") @db.VarChar(40)
+  edited_draft                Json?
+  rejection_reason            String?
+  metadata                    Json                          @default("{}")
+  created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  tenant_id                   String                        @db.Uuid
+  clinical_ai_decision_memory clinical_ai_decision_memory[]
+  clinical_ai_generations     clinical_ai_generations?      @relation(fields: [generation_id], references: [id], onUpdate: NoAction)
+  tenants                     tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([generation_id], map: "idx_clinical_ai_reviews_generation")
   @@index([module_key, decision], map: "idx_clinical_ai_reviews_module_decision")
@@ -5423,6 +5458,7 @@ model tenants {
   clinical_ai_chart_gap_audits               clinical_ai_chart_gap_audits[]
   clinical_ai_command_center_snapshots       clinical_ai_command_center_snapshots[]
   clinical_ai_context_snapshots              clinical_ai_context_snapshots[]
+  clinical_ai_decision_memory                clinical_ai_decision_memory[]
   clinical_ai_deterioration_snapshots        clinical_ai_deterioration_snapshots[]
   clinical_ai_ed_triage_predictions          clinical_ai_ed_triage_predictions[]
   clinical_ai_explainability_reports         clinical_ai_explainability_reports[]

@@ -87,14 +87,43 @@ updateAvailability: [
     .optional()
     .isArray()
     .withMessage('Available days must be an array'),
+  // Day names — accept any case (admin form sends lowercase, legacy code
+   // sent UPPERCASE). Normalised downstream by the controller before insert.
   body('available_days.*')
     .optional()
-    .isIn(DOCTOR_CONFIG.WEEK_DAYS)
-    .withMessage('Invalid day specified'),
+    .custom((value) => {
+      if (typeof value !== 'string') {
+        throw new Error('Invalid day specified');
+      }
+      if (!DOCTOR_CONFIG.WEEK_DAYS.includes(value.toUpperCase())) {
+        throw new Error('Invalid day specified');
+      }
+      return true;
+    }),
+  // Accept either a single 'HH:mm-HH:mm' window or a per-day map
+  // ({ monday: 'HH:mm-HH:mm', ... }) to match the doctors.available_hours
+  // jsonb column shape that the admin form actually sends.
   body('available_hours')
     .optional()
-    .matches(/^\d{2}:\d{2}-\d{2}:\d{2}$/)
-    .withMessage('Available hours must be in HH:mm-HH:mm format'),
+    .custom((value) => {
+      if (value == null) return true;
+      const RANGE = /^\d{2}:\d{2}-\d{2}:\d{2}$/;
+      if (typeof value === 'string') {
+        if (!RANGE.test(value)) {
+          throw new Error('Available hours must be in HH:mm-HH:mm format');
+        }
+        return true;
+      }
+      if (typeof value === 'object' && !Array.isArray(value)) {
+        for (const [day, hrs] of Object.entries(value)) {
+          if (typeof hrs !== 'string' || !RANGE.test(hrs)) {
+            throw new Error(`Available hours for "${day}" must be HH:mm-HH:mm`);
+          }
+        }
+        return true;
+      }
+      throw new Error('Available hours must be a string or per-day map');
+    }),
   body('reason')
     .optional()
     .isLength({ max: 500 })

@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { Department } from "@/lib/types";
 import Link from "next/link";
@@ -14,6 +15,7 @@ export function CreateDoctorForm({
   departments: Department[];
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -46,7 +48,10 @@ export function CreateDoctorForm({
       });
 
       toast.success("Doctor created successfully");
-      // Redirect to the doctors list on success
+      // refetchQueries (not just invalidate) so the destination page sees
+      // the new row instead of the stale empty cache (60s staleTime
+      // configured globally would otherwise keep "No doctors found").
+      await queryClient.refetchQueries({ queryKey: ["doctors"] });
       router.push("/dashboard/doctors");
     } catch (error) {
       const errorMessage =

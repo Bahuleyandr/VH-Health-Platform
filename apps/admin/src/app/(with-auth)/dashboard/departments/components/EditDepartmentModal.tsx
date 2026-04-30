@@ -10,7 +10,9 @@ import { toast } from "sonner";
 interface EditDepartmentModalProps {
   department: Department;
   onClose: () => void;
-  onSuccess: () => void;
+  // Returns void or Promise<void> — the table awaits it so the row reflects
+  // the new description before the modal closes.
+  onSuccess: () => void | Promise<void>;
 }
 
 export function EditDepartmentModal({
@@ -55,7 +57,9 @@ export function EditDepartmentModal({
       });
 
       toast.success("Department updated");
-      onSuccess();
+      // Await so we don't close the modal before the parent has refetched
+      // (otherwise the table briefly flashes the stale row).
+      await onSuccess();
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Failed to update department";

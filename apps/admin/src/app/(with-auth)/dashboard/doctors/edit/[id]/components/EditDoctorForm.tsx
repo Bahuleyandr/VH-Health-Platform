@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { Department, Doctor } from "@/lib/types";
 import Link from "next/link";
@@ -44,6 +45,7 @@ function parseSchedule(doctor: Doctor): {
 
 export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -90,10 +92,16 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
 
     const formData = new FormData(e.currentTarget);
 
-    // Build available_hours from enabled days only
-    const availableHours: ScheduleMap = {};
+    // Build available_hours from enabled days only.
+    // Backend column + validator expect "HH:mm-HH:mm" strings, not the
+    // {start, end} object shape the form keeps in local state. Serialise
+    // here so the wire format matches what the rest of the system expects.
+    const availableHours: Record<string, string> = {};
     for (const day of Array.from(enabledDays)) {
-      availableHours[day] = hours[day];
+      const h = hours[day];
+      if (h?.start && h?.end) {
+        availableHours[day] = `${h.start}-${h.end}`;
+      }
     }
 
     const profileData = {
@@ -118,20 +126,34 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
       available_hours: availableHours,
     };
 
+    // doctors created admin-side have user_id=null — use doctors.id (the
+    // table PK) when present, otherwise fall back to user_id for legacy
+    // doctors that came from a paired user account.
+    const key =
+      (doctor as unknown as { id?: number | string }).id ?? doctor.user_id;
+    if (key === undefined || key === null) {
+      setError("Doctor row is missing an id — cannot save.");
+      setLoading(false);
+      return;
+    }
+
     try {
-      // Update profile → /api/v1/doctors/:id/profile
-      await fetchAdminAPI(`/admin/doctors/${doctor.user_id}/profile`, {
+      // Update profile → /api/v1/doctors/admin/:id/profile
+      await fetchAdminAPI(`/admin/doctors/${key}/profile`, {
         method: "PUT",
         body: profileData,
       });
 
-      // Update availability → /api/v1/doctors/:id/availability
-      await fetchAdminAPI(`/admin/doctors/${doctor.user_id}/availability`, {
+      // Update availability → /api/v1/doctors/admin/:id/availability
+      await fetchAdminAPI(`/admin/doctors/${key}/availability`, {
         method: "PUT",
         body: availabilityData,
       });
 
       toast.success("Doctor updated successfully");
+      // Invalidate the cached doctors list so the destination page sees the
+      // new fields immediately, not the 60s-stale snapshot.
+      await queryClient.refetchQueries({ queryKey: ["doctors"] });
       router.push("/dashboard/doctors");
     } catch (err) {
       const errorMessage =

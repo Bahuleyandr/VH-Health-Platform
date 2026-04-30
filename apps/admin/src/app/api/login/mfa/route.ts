@@ -6,9 +6,9 @@
 // httpOnly auth_token cookie, matching the non-MFA login flow.
 
 import { NextResponse } from "next/server";
+import { getServerBackendUrl } from "@/lib/api-config";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.vhhealth.app";
+const API_BASE_URL = getServerBackendUrl();
 const SERVER_API_KEY = process.env.BACKEND_API_KEY || process.env.API_KEY || "";
 
 function validateOrigin(request: Request): NextResponse | null {
@@ -53,6 +53,7 @@ export async function POST(request: Request) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "x-forwarded-proto": "https",
           ...(SERVER_API_KEY ? { "x-api-key": SERVER_API_KEY } : {}),
         },
         body: JSON.stringify({

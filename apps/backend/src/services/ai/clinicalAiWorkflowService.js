@@ -9,6 +9,12 @@ import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { retrieveRelevant } from './ragService.js';
+import {
+  extractContextSignature,
+  recordDecision as recordDecisionMemory,
+  retrieveRelevantDecisions,
+} from './decisionMemoryService.js';
+import { runDifferentialDebate } from './clinicalDebateService.js';
 
 // Multi-tenant helper. Every query that writes to or reads from a tenant-scoped
 // clinical_ai_* table must pass tenantId. Null means "all tenants" and is only
@@ -660,6 +666,21 @@ export async function generateAdmissionAiDraft(admissionId, moduleKey, requested
     citationFor(row.source_type, row.source_id, `Similar prior case (sim ${Number(row.similarity).toFixed(2)})`, row.signed_at)
   );
 
+  // Decision memory: pull prior reviewer decisions on this patient + cross-
+  // patient lessons that match the current context shape. Empty result is
+  // fine — RAG + chart packet remain the primary grounding. The retrieval
+  // is best-effort; service failures degrade silently.
+  const contextSignature = extractContextSignature(context, key);
+  const decisionMemory = await retrieveRelevantDecisions({
+    tenantId,
+    moduleKey: key,
+    patientUid: context.admission?.patient_uid || null,
+    contextSignature,
+    limit: 5,
+  });
+  packet.prior_decisions = decisionMemory.entries;
+  packet.context_signature = contextSignature;
+
   const fallbackDraft = buildAdmissionFallback(key, context);
   const snapshot = await saveContextSnapshot({
     tenantId,
@@ -697,6 +718,23 @@ export async function generateAdmissionAiDraft(admissionId, moduleKey, requested
       message: 'Coding assistant is restricted to signed documentation and no signed note was found.',
     });
   }
+
+  // Differential debate (TradingAgents-style bull/bear adapted to
+  // pursue/challenge over a leading hypothesis). Module-gated; off by
+  // default. Adds an evidence_balance block to the draft and pushes
+  // additional safety flags when the balance challenges the leading
+  // hypothesis or surfaces must-not-miss alternatives.
+  const debateOutcome = runDifferentialDebate({
+    chartPacket: packet,
+    draft,
+    module,
+    citations,
+    maxRounds: module?.settings?.maxDebateRounds || 1,
+  });
+  if (debateOutcome.evidence_balance) {
+    draft.evidence_balance = debateOutcome.evidence_balance;
+  }
+  safetyFlags.push(...debateOutcome.safety_flags);
   // Critical defense failures (PHI leaks, unsafe allergies) mark the draft
   // as failed so it never enters the review queue — it lands in the
   // dead-letter dashboard for platform admins to investigate instead.
@@ -722,6 +760,14 @@ export async function generateAdmissionAiDraft(admissionId, moduleKey, requested
       context_snapshot_id: snapshot.id || null,
       tenant_region: req?.tenant?.region || null,
       defense_flag_codes: safetyFlags.map((flag) => flag.code),
+      // Persist the retrieval signature on the generation so that, when a
+      // reviewer later updates this draft, the decision-memory projection
+      // can attach it without recomputing chart context.
+      context_signature: contextSignature,
+      prior_decisions_count: decisionMemory.entries.length,
+      prior_decisions_source: decisionMemory.source,
+      debate_enabled: debateOutcome.debate_enabled,
+      debate_balance: debateOutcome.evidence_balance?.balance || null,
     },
   });
   const safetyReview = await runSafetyReview({
@@ -1299,6 +1345,52 @@ export async function updateReview(reviewId, data = {}, reviewerUid = null, revi
     reviewerUid,
     tid
   );
+
+  // Decision memory: project this review into the cross-run memory table
+  // so subsequent drafts on the same patient (and matching cross-patient
+  // contexts) can see what reviewers do with this kind of draft. Only
+  // final decisions are projected; pending is not supervision signal. The
+  // call is best-effort — projection failures do not abort the review.
+  if (review.generation_id) {
+    try {
+      const genRows = await prisma.$queryRawUnsafe(
+        `SELECT draft, metadata FROM clinical_ai_generations
+         WHERE id = $1 AND tenant_id = $2::uuid LIMIT 1`,
+        review.generation_id,
+        tid
+      );
+      const genRow = genRows[0];
+      if (genRow) {
+        const originalDraft = genRow.draft || null;
+        const editedDraft = data.edited_draft || null;
+        const meta = genRow.metadata || {};
+        await recordDecisionMemory({
+          tenantId: tid,
+          moduleKey: review.module_key,
+          patientUid: review.patient_uid,
+          admissionId: review.admission_id,
+          generationId: review.generation_id,
+          reviewId: review.id,
+          decision,
+          originalDraft,
+          editedDraft,
+          rejectionReason: data.rejection_reason,
+          // Workflow service stashes the signature on the generation
+          // metadata when available; if absent, the projection will skip
+          // cross-patient retrieval candidacy.
+          contextSignature: meta.context_signature || null,
+          reviewerRole,
+          reviewerUid,
+        });
+      }
+    } catch (err) {
+      logger.warn('Decision memory projection skipped', {
+        reviewId: review.id,
+        error: err.message,
+      });
+    }
+  }
+
   return review;
 }
 

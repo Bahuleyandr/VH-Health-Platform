@@ -1,0 +1,80 @@
+# Admin (Next.js) deployment for Dalekdefender.
+#
+# Image is built on the host the same way the backend is — `docker build`
+# with --build-arg NEXT_PUBLIC_API_URL set so the browser-side bundle has
+# the correct backend URL baked in. Reachable at
+# https://dalekdefender.hippocampus-monitor.ts.net:8445 via Tailscale serve
+# proxying the NodePort.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vhhealth-admin
+  namespace: vhhealth
+  labels:
+    app.kubernetes.io/name: vhhealth-admin
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: vhhealth-admin
+  ports:
+    - name: http
+      port: 3001
+      targetPort: 3001
+      # Khata frontend = 30080, vhhealth-backend = 30090, admin = 30091.
+      nodePort: 30091
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vhhealth-admin
+  namespace: vhhealth
+  labels:
+    app.kubernetes.io/name: vhhealth-admin
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vhhealth-admin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vhhealth-admin
+    spec:
+      containers:
+        - name: admin
+          image: vhhealth-admin:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3001
+          envFrom:
+            - secretRef:
+                name: vhhealth-admin
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "3001"
+            - name: HOSTNAME
+              value: "0.0.0.0"
+          readinessProbe:
+            httpGet:
+              path: /login
+              port: 3001
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /login
+              port: 3001
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi

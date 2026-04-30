@@ -8,9 +8,9 @@
 // No cookie is set here.
 
 import { NextResponse } from "next/server";
+import { getServerBackendUrl } from "@/lib/api-config";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.vhhealth.app";
+const API_BASE_URL = getServerBackendUrl();
 const SERVER_API_KEY = process.env.BACKEND_API_KEY || process.env.API_KEY || "";
 
 function validateOrigin(request: Request): NextResponse | null {
@@ -56,6 +56,7 @@ export async function POST(request: Request) {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${body.setupToken}`,
+          "x-forwarded-proto": "https",
           ...(SERVER_API_KEY ? { "x-api-key": SERVER_API_KEY } : {}),
         },
       },

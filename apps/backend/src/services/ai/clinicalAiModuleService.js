@@ -18,6 +18,11 @@ export const CLINICAL_AI_MODULES = [
       approvalPolicy: 'doctor_signoff',
       outputSchema: { type: 'object', required: ['hospital_course', 'discharge_diagnosis'] },
       retentionDays: 365,
+      // Discharge summaries assemble multi-source narrative (course of stay,
+      // diagnoses, medications, follow-up). Routing through the deep tier
+      // when CLINICAL_AI_DEEP_* is configured, falling back to the standard
+      // tier otherwise.
+      model_tier: 'deep',
     },
   },
   {
@@ -121,6 +126,9 @@ export const CLINICAL_AI_MODULES = [
       approvalPolicy: 'two_person_for_enablement',
       outputSchema: { type: 'object', required: ['continue', 'stop', 'change', 'safety_flags'] },
       retentionDays: 365,
+      // Critical-risk drug reconciliation; deep tier gives a stronger
+      // model when CLINICAL_AI_DEEP_* is set.
+      model_tier: 'deep',
     },
   },
   {
@@ -177,6 +185,10 @@ export const CLINICAL_AI_MODULES = [
       outputSchema: { type: 'object', required: ['risk_score', 'risk_band', 'risk_factors', 'red_flag_signals'] },
       retentionDays: 3650,
       rulesAuthoritative: true,
+      // Critical-risk module covering rare red-flag signals; benefits from
+      // the stronger deep-tier model. Differential debate also enabled.
+      model_tier: 'deep',
+      enableDifferentialDebate: true,
       decisionSupportOnly: true,
     },
   },
@@ -867,6 +879,10 @@ export const CLINICAL_AI_MODULES = [
       approvalPolicy: 'two_person_for_enablement',
       outputSchema: { type: 'object', required: ['urgent_items', 'watch_items', 'explanation'] },
       retentionDays: 180,
+      // Differential interpretation of abnormal results benefits from the
+      // deep tier and the bull/bear-style "pursue/challenge" debate.
+      model_tier: 'deep',
+      enableDifferentialDebate: true,
     },
   },
   {

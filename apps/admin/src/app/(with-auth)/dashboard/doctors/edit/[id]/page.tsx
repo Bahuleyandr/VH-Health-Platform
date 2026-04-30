@@ -12,14 +12,15 @@ function isObj(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null;
 }
 
-// Prefer user_id, but fall back to an optional id if present in payloads
+// Prefer doctors.id (the table PK; what the list returns and what the
+// edit-link href uses), with user_id as a legacy fallback for doctors
+// paired with a user account.
 function getDoctorKey(d: Doctor): string | number | undefined {
+  const id = (d as unknown as { id?: string | number }).id;
+  if (typeof id === "string" || typeof id === "number") return id;
+
   const userId = (d as unknown as { user_id?: string | number }).user_id;
   if (typeof userId === "string" || typeof userId === "number") return userId;
-
-  const maybeId = (d as unknown as Record<string, unknown>).id;
-  if (typeof maybeId === "string" || typeof maybeId === "number")
-    return maybeId;
 
   return undefined;
 }

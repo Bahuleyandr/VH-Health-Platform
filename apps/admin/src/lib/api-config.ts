@@ -1,8 +1,23 @@
 // src/lib/api-config.ts
 // Complete API endpoint mapping for VH Health Admin Portal
 
-const SERVER_API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.vhhealth.app";
+/**
+ * Backend URL used by **server-side** Next.js routes (login, proxy, refresh,
+ * MFA, realtime-ticket). Prefers `BACKEND_URL` so deployments where the pod
+ * can't resolve the public hostname (e.g. dalekdefender k3s where the
+ * Tailscale MagicDNS isn't visible to CoreDNS) can point at an in-cluster
+ * Service like `http://vhhealth-backend.vhhealth.svc.cluster.local:5000`.
+ * Falls back to NEXT_PUBLIC_API_URL so existing deployments work unchanged.
+ */
+export function getServerBackendUrl(): string {
+  return (
+    process.env.BACKEND_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    "https://api.vhhealth.app"
+  );
+}
+
+const SERVER_API_BASE_URL = getServerBackendUrl();
 
 // Client-side requests must go through the Next.js proxy so the server can
 // inject the backend API key and auth cookie.
