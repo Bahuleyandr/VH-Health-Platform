@@ -174,8 +174,12 @@ import {
   type TeachBackSession,
   type TeachBackStatus,
   type BedDischargeForecast,
+  type CanaryBiasSeverity,
+  type CanaryBiasSignal,
   type CanaryCase,
   type CanaryRunSummary,
+  type CanarySliceAttributes,
+  type CanarySliceMetric,
   type ChartCompletionAudit,
   type ChartGapRiskBand,
   type ChargeCaptureAudit,
@@ -883,6 +887,27 @@ function staffBurnoutBandClass(band: string) {
 
 // Re-export a single header for the section in page.tsx.
 
+function biasSeverityClass(severity: CanaryBiasSeverity) {
+  if (severity === "critical") return "border-red-200 bg-red-50 text-red-900";
+  if (severity === "high") return "border-orange-200 bg-orange-50 text-orange-900";
+  return "border-amber-200 bg-amber-50 text-amber-900";
+}
+
+function buildSliceAttributes(values: {
+  age_band: string;
+  sex: string;
+  language: string;
+  disease_group: string;
+  facility_id: string;
+}): CanarySliceAttributes {
+  const attrs: CanarySliceAttributes = {};
+  for (const [key, raw] of Object.entries(values)) {
+    const trimmed = raw.trim();
+    if (trimmed) attrs[key] = trimmed;
+  }
+  return attrs;
+}
+
 export function DriftCanaryPanel() {
   const queryClient = useQueryClient();
   const [caseModuleKey, setCaseModuleKey] = useState("discharge_summary");
@@ -890,6 +915,13 @@ export function DriftCanaryPanel() {
   const [expectedKeys, setExpectedKeys] = useState("hospital_course, discharge_diagnosis");
   const [expectedCitationsMin, setExpectedCitationsMin] = useState("1");
   const [inputPacket, setInputPacket] = useState(() => DEFAULT_CANARY_INPUT_PACKET);
+  // S3 demographic-slice tagging — keeps the bias-monitoring schema's axes
+  // in sync with what the UI exposes to the AI eval lead.
+  const [sliceAgeBand, setSliceAgeBand] = useState("");
+  const [sliceSex, setSliceSex] = useState("");
+  const [sliceLanguage, setSliceLanguage] = useState("");
+  const [sliceDiseaseGroup, setSliceDiseaseGroup] = useState("");
+  const [sliceFacilityId, setSliceFacilityId] = useState("");
   const runs = useQuery({
     queryKey: ["clinical-ai", "canary", "runs"],
     queryFn: () => listCanaryRuns(),
@@ -931,6 +963,13 @@ export function DriftCanaryPanel() {
         input_packet: packet,
         expected_keys: splitCsvList(expectedKeys),
         expected_citations_min: expectedCitationNumber,
+        slice_attributes: buildSliceAttributes({
+          age_band: sliceAgeBand,
+          sex: sliceSex,
+          language: sliceLanguage,
+          disease_group: sliceDiseaseGroup,
+          facility_id: sliceFacilityId,
+        }),
       });
     },
     onSuccess: () => {
@@ -972,6 +1011,61 @@ export function DriftCanaryPanel() {
       {latest?.drift_detected ? (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
           <strong>Drift detected</strong> on the latest run — {latest.pass_count} of {latest.total_cases} cases passed. Review prompts or providers.
+        </div>
+      ) : null}
+      {Array.isArray(latest?.bias_signals) && latest.bias_signals.length ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-1">
+          <div className="font-semibold">
+            Bias signals — {latest.bias_signals.length} demographic slice
+            {latest.bias_signals.length === 1 ? "" : "s"} underperforming overall.
+          </div>
+          <ul className="space-y-1 text-xs">
+            {latest.bias_signals.slice(0, 6).map((signal: CanaryBiasSignal) => (
+              <li
+                key={`${signal.axis}-${signal.value}`}
+                className={`rounded border px-2 py-1 ${biasSeverityClass(signal.severity)}`}
+              >
+                <span className="font-mono uppercase text-[0.65rem] tracking-wide">{signal.severity}</span>{" "}
+                <strong>{signal.axis}={signal.value}</strong> — {signal.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {Array.isArray(latest?.slice_metrics) && latest.slice_metrics.length ? (
+        <div className="rounded-lg border border-border bg-card p-3 text-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="font-semibold">Latest slice breakdown</h3>
+            <span className="text-xs text-muted-foreground">
+              {latest.slice_metrics.length} slices across age / sex / language / disease group / facility
+            </span>
+          </div>
+          <div className="overflow-x-auto rounded-md border border-border">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">Axis</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">Value</th>
+                  <th className="px-3 py-2 text-right font-medium text-muted-foreground">Pass / total</th>
+                  <th className="px-3 py-2 text-right font-medium text-muted-foreground">Pass rate</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {latest.slice_metrics.slice(0, 30).map((slice: CanarySliceMetric) => (
+                  <tr key={`${slice.axis}-${slice.value}`}>
+                    <td className="px-3 py-1.5 font-mono">{slice.axis}</td>
+                    <td className="px-3 py-1.5">{slice.value}</td>
+                    <td className="px-3 py-1.5 text-right text-muted-foreground">
+                      {slice.pass_count} / {slice.sample_count}
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-mono">
+                      {slice.pass_rate_pct}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : null}
       <div className="rounded-lg border border-border bg-card p-4">
@@ -1029,6 +1123,58 @@ export function DriftCanaryPanel() {
               className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs"
             />
           </label>
+          <div className="lg:col-span-6 space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground">
+              Demographic slice (optional) — used by bias monitoring
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <label className="space-y-1 text-xs">
+                <span className="text-muted-foreground">Age band</span>
+                <input
+                  value={sliceAgeBand}
+                  onChange={(event) => setSliceAgeBand(event.target.value)}
+                  placeholder="pediatric / adult / geriatric"
+                  className="w-full rounded-md border border-border bg-background px-2 py-1.5"
+                />
+              </label>
+              <label className="space-y-1 text-xs">
+                <span className="text-muted-foreground">Sex</span>
+                <input
+                  value={sliceSex}
+                  onChange={(event) => setSliceSex(event.target.value)}
+                  placeholder="M / F / other"
+                  className="w-full rounded-md border border-border bg-background px-2 py-1.5"
+                />
+              </label>
+              <label className="space-y-1 text-xs">
+                <span className="text-muted-foreground">Language</span>
+                <input
+                  value={sliceLanguage}
+                  onChange={(event) => setSliceLanguage(event.target.value)}
+                  placeholder="en / hi / ta / ..."
+                  className="w-full rounded-md border border-border bg-background px-2 py-1.5"
+                />
+              </label>
+              <label className="space-y-1 text-xs">
+                <span className="text-muted-foreground">Disease group</span>
+                <input
+                  value={sliceDiseaseGroup}
+                  onChange={(event) => setSliceDiseaseGroup(event.target.value)}
+                  placeholder="cardiac / oncology / ..."
+                  className="w-full rounded-md border border-border bg-background px-2 py-1.5"
+                />
+              </label>
+              <label className="space-y-1 text-xs">
+                <span className="text-muted-foreground">Facility</span>
+                <input
+                  value={sliceFacilityId}
+                  onChange={(event) => setSliceFacilityId(event.target.value)}
+                  placeholder="facility id / code"
+                  className="w-full rounded-md border border-border bg-background px-2 py-1.5"
+                />
+              </label>
+            </div>
+          </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:col-span-6">
             <button
               onClick={() => saveCase.mutate()}

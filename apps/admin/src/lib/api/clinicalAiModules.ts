@@ -842,6 +842,37 @@ export async function concludePromptExperiment(id: number, winningVariant?: 'A' 
   });
 }
 
+export interface CanarySliceAttributes {
+  age_band?: string;
+  sex?: string;
+  language?: string;
+  disease_group?: string;
+  facility_id?: string;
+  [key: string]: string | undefined;
+}
+
+export interface CanarySliceMetric {
+  axis: string;
+  value: string;
+  sample_count: number;
+  pass_count: number;
+  fail_count: number;
+  pass_rate_pct: number;
+}
+
+export type CanaryBiasSeverity = "critical" | "high" | "medium";
+
+export interface CanaryBiasSignal {
+  severity: CanaryBiasSeverity;
+  axis: string;
+  value: string;
+  sample_count: number;
+  pass_rate_pct: number;
+  overall_pass_rate_pct: number;
+  delta_pct: number;
+  message: string;
+}
+
 export interface CanaryRunSummary {
   id: number;
   run_scope: string;
@@ -852,6 +883,8 @@ export interface CanaryRunSummary {
   metadata: Record<string, unknown>;
   started_at: string;
   finished_at: string | null;
+  slice_metrics?: CanarySliceMetric[];
+  bias_signals?: CanaryBiasSignal[];
 }
 
 export interface CanaryCase {
@@ -863,6 +896,7 @@ export interface CanaryCase {
   expected_citations_min: number;
   active: boolean;
   created_at: string;
+  slice_attributes?: CanarySliceAttributes;
 }
 
 export interface CanaryCasePayload {
@@ -871,6 +905,7 @@ export interface CanaryCasePayload {
   input_packet: Record<string, unknown>;
   expected_keys?: string[];
   expected_citations_min?: number;
+  slice_attributes?: CanarySliceAttributes;
 }
 
 export async function listCanaryCases(params: { moduleKey?: string; active?: boolean; limit?: number } = {}) {
@@ -894,6 +929,8 @@ export async function runCanary() {
     baseline_pct?: number | null;
     drift_detected: boolean;
     findings: Array<{ case_id?: number; label: string; module_key: string; passed: boolean }>;
+    slice_metrics?: CanarySliceMetric[];
+    bias_signals?: CanaryBiasSignal[];
   }>('/admin/clinical-ai/canary/runs', { scope: 'manual' });
 }
 
