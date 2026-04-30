@@ -1,0 +1,52 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# VH Health — Ollama (in-cluster LLM for the deep tier).
+# Phase 4 of the clinical-AI rollout (docs/CLINICAL_AI_ROLLOUT_PLAN.md).
+#
+# Why this exists:
+#   Modules marked `model_tier: 'deep'` (discharge_summary,
+#   medication_reconciliation, abnormal_result_triage,
+#   obstetric_risk_assistant) want a stronger model than the
+#   8B-class quick tier. Routing them to an in-cluster Ollama
+#   means PHI never leaves the hospital network. The backend's
+#   localLlmClient.js already supports tier-prefixed env vars —
+#   set CLINICAL_AI_DEEP_PROVIDER=ollama,
+#   CLINICAL_AI_DEEP_BASE_URL=http://ollama-internal.vhhealth.svc.cluster.local:11434,
+#   CLINICAL_AI_DEEP_MODEL=<model-name> and the service picks it up.
+#
+# Sizing assumptions:
+#   - One pod, GPU-pinned via nodeSelector. The cluster needs at
+#     least one node with a usable GPU (typically NVIDIA, with the
+#     nvidia-device-plugin DaemonSet installed). Hospital procurement
+#     spec lives in docs/HARDWARE_REQUIREMENTS.md.
+#   - 24-48 GB GPU memory: Llama-3-70B-Instruct at Q4_K_M fits in
+#     ~38 GB; Qwen2.5-14B-Instruct fits in ~10 GB at Q4. Both have
+#     been validated by the project for clinical work. Pick based on
+#     hospital GPU budget.
+#   - Cold start: pulling a 70B model takes 5-15 minutes on first
+#     run. The PVC retains the model across pod restarts.
+#
+# Not in scope of this manifest set:
+#   - Multi-node / multi-GPU sharding.
+#   - Auto-scaling on inference load (Ollama is stateful per pod;
+#     scaling out requires either a model-aware load balancer or
+#     per-pod model preload, both of which are bigger projects).
+
+namespace: vhhealth
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: vhhealth
+      app.kubernetes.io/component: deep-tier-llm
+    includeSelectors: false
+    includeTemplates: true
+
+resources:
+  - statefulset.yaml
+  - service.yaml
+  - network-policy.yaml
+  # Note: PVC lives on the StatefulSet's volumeClaimTemplates. An empty
+  # pvc.yaml exists in this dir for overlays that want to patch storage
+  # class / size separately, but it's NOT included in resources because
+  # kustomize errors on empty docs.

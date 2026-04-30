@@ -11,3 +11,9 @@ resources:
   # clinical.<hospital>.local. Phase 3 of the clinical-AI rollout
   # (docs/CLINICAL_AI_ROLLOUT_PLAN.md).
   - staff-web/
+  # Ollama in-cluster LLM for the clinical-AI deep tier. Phase 4 of
+  # the rollout. Routes deep-tier modules (discharge_summary, med rec,
+  # abnormal result triage, obstetric risk) to a hospital-resident GPU
+  # so PHI never leaves the building. Backend points at it via
+  # CLINICAL_AI_DEEP_BASE_URL=http://ollama-internal.vhhealth.svc.cluster.local:11434.
+  - ollama/

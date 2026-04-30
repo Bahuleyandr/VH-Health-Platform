@@ -1,0 +1,69 @@
+# NetworkPolicy for Ollama.
+#
+# Ingress: only the backend deployment in the same namespace can call
+# Ollama. No other pods, no other namespaces, no ingress controllers
+# (it's not externally addressable — the deep tier is purely a
+# backend-to-LLM detail).
+#
+# Egress: only DNS + (during model pull) the public Ollama / HuggingFace
+# registry. Once the model is cached on the PVC, Ollama is fully offline.
+# To enforce strict no-egress, an overlay can replace this with an
+# egress-allowlist limited to DNS only — but that breaks model pulls,
+# so the cluster operator must run `ollama pull <model>` once via a Job
+# or kubectl exec before flipping the policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ollama
+  labels:
+    app.kubernetes.io/name: ollama
+    app.kubernetes.io/component: deep-tier-llm
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ollama
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: vhhealth-backend
+      ports:
+        - port: 11434
+          protocol: TCP
+  egress:
+    # DNS for cluster-internal lookups + model registry hostnames.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Egress to public model registries on first model pull. Once the
+    # model is cached on the PVC, Ollama runs fully offline; an overlay
+    # can drop this rule for a stricter posture if desired.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # Block egress to RFC1918 private ranges other than DNS
+              # — the registry pulls are public-internet only, never
+              # to other internal services.
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 80
+          protocol: TCP
