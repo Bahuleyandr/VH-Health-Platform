@@ -2,24 +2,34 @@
 /**
  * vh-checks — weekly DB drift + error scan.
  *
- * Runs three diagnostic queries against the in-cluster Postgres on
- * dalekdefender, writes a JSON report to ./reports/<date>.json (and
- * ./reports/latest.json), and posts a GitHub issue via `gh` when drift
- * or new-error patterns show up.
+ * Runs three diagnostic checks against the in-cluster Postgres on
+ * dalekdefender and emits two outputs:
  *
- * Replaces the cloud-side MCP path that couldn't pass claude.ai's
- * connector validator (likely policy block on `*.ts.net` / non-443
- * ports). Runs locally on dalekdefender via systemd timer; DB access
- * is in-cluster (no public exposure).
+ *   1. Local JSON report (full data, lives only on disk)
+ *      → ./reports/<YYYY-MM-DD>.json
+ *      → ./reports/latest.json
  *
- * Required env:
- *   DATABASE_URL    — postgresql://vhhealth:...@<pod-ip>:5432/vhhealth
- *   GITHUB_REPO     — owner/repo for issue posting (e.g. Bahuleyandr/VH-Health-Platform)
- *   REPORTS_DIR     — output directory (default ./reports)
+ *   2. PHI-sanitised GitHub issue (counts + non-PHI metadata only)
+ *      → posted via `gh issue create` when drift is detected
+ *
+ * PHI-safety design (Phase 2 hardening, 2026-04-30):
+ *   - Queries select method / path / module / status_code / counts.
+ *     `request_summary` (which can contain raw request bodies, including
+ *     patient names/phones) is NEVER read into the issue body.
+ *   - A defence-in-depth regex scrubber runs over the formatted body
+ *     before posting; any 10+ digit sequence, email shape, or
+ *     known-PHI JSON key triggers redaction + a warning in the issue.
+ *
+ * Connection model:
+ *   DATABASE_URL is set by the run.sh wrapper to a port-forwarded
+ *   localhost endpoint (kubectl port-forward svc/vhhealth-postgres
+ *   15432:5432). Direct pod-IP connections are intentionally avoided
+ *   so the script survives pod restarts and CNI changes.
  *
  * Exit codes:
  *   0 — clean (no drift, no spikes, no new patterns)
- *   1 — drift detected (issue posted if gh is configured)
+ *   1 — drift detected (issue posted if gh is configured;
+ *       systemd treats 1 as success via SuccessExitStatus=1)
  *   2 — infrastructure failure (DB unreachable, missing env, etc.)
  */
 
@@ -50,6 +60,9 @@ async function tryQuery(sql, params = []) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Check 1: PHI shadow column backfill status
+// ---------------------------------------------------------------------------
 async function phiBackfillStatus() {
   return tryQuery(`
     SELECT 'users.name' AS col, COUNT(*)::int AS unencrypted_count
@@ -69,38 +82,77 @@ async function phiBackfillStatus() {
   `);
 }
 
+// ---------------------------------------------------------------------------
+// Check 2: top server-error patterns over last N days.
+// Selects ONLY non-PHI metadata: method, path, module, status_code, count.
+// `request_summary` (which can contain raw request bodies with patient
+// names/phones) is intentionally excluded.
+// ---------------------------------------------------------------------------
 async function errorPatterns(days = 14, limit = 30) {
   return tryQuery(
-    `SELECT request_summary, status_code, COUNT(*)::int AS occurrences
+    `SELECT method, path, module, status_code, COUNT(*)::int AS occurrences
      FROM audit_log
      WHERE created_at >= NOW() - $1::int * INTERVAL '1 day'
        AND status_code >= 500
-     GROUP BY request_summary, status_code
+     GROUP BY method, path, module, status_code
      ORDER BY occurrences DESC
      LIMIT $2`,
     [days, limit],
   );
 }
 
+// ---------------------------------------------------------------------------
+// Check 3: NEW error patterns — patterns appearing in last 14 days that
+// did NOT appear in days 14-28 ago. Same PHI-safe metadata-only shape.
+// ---------------------------------------------------------------------------
 async function newErrorPatterns() {
   return tryQuery(`
-    SELECT request_summary, status_code, COUNT(*)::int AS recent_count
+    SELECT method, path, module, status_code, COUNT(*)::int AS recent_count
     FROM audit_log
     WHERE created_at >= NOW() - INTERVAL '14 days'
       AND status_code >= 500
-      AND (request_summary, status_code) NOT IN (
-        SELECT request_summary, status_code
+      AND (method, path, status_code) NOT IN (
+        SELECT method, path, status_code
         FROM audit_log
         WHERE created_at >= NOW() - INTERVAL '28 days'
           AND created_at < NOW() - INTERVAL '14 days'
           AND status_code >= 500
       )
-    GROUP BY request_summary, status_code
+    GROUP BY method, path, module, status_code
     ORDER BY recent_count DESC
     LIMIT 20
   `);
 }
 
+// ---------------------------------------------------------------------------
+// PHI scrubber — defence-in-depth. The structured queries above already
+// return only non-PHI columns, but if a future check accidentally surfaces
+// PHI this scrubber catches it before the body leaves the host.
+// ---------------------------------------------------------------------------
+const PHI_PATTERNS = [
+  { name: 'long_digit_sequence', re: /\b\d{10,}\b/g },
+  { name: 'email', re: /\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b/g },
+  { name: 'phi_json_key', re: /"(?:patient_name|patient_phone|mobile|aadhaar|aadhar|abha|phone|name|email|address|dob|birthday|date_of_birth|mrn|uhid|nik|nin)"/gi },
+];
+
+function scrubBodyForPhi(body) {
+  const hits = [];
+  let scrubbed = body;
+  for (const { name, re } of PHI_PATTERNS) {
+    re.lastIndex = 0;
+    const matches = scrubbed.match(re);
+    if (matches && matches.length) {
+      hits.push({ pattern: name, count: matches.length });
+      scrubbed = scrubbed.replace(re, '[REDACTED]');
+    }
+  }
+  return { scrubbed, hits };
+}
+
+// ---------------------------------------------------------------------------
+// Issue body — only PHI-safe metadata. Everything that ends up here passes
+// through the scrubber as a final guard.
+// ---------------------------------------------------------------------------
 function formatIssueBody(report) {
   const lines = [
     `# VH Health weekly DB check — ${report.generated_at}`,
@@ -110,12 +162,15 @@ function formatIssueBody(report) {
     `- Error pattern spikes (>50 occurrences in 14d): **${report.summary.error_pattern_spikes}**`,
     `- NEW error patterns vs prior 14d: **${report.summary.new_error_patterns}**`,
     '',
+    '> Full per-row detail is in the local report at `~/vh-checks/reports/<date>.json` on dalekdefender — this issue body intentionally carries only counts + non-PHI metadata.',
+    '',
   ];
 
+  // PHI backfill section
   if (report.phi_backfill.error) {
     lines.push('## PHI backfill', '', `> Query failed: \`${report.phi_backfill.error}\``);
     if (/does not exist/i.test(report.phi_backfill.error)) {
-      lines.push('', 'Migration 132 (`132_phi_column_rotation.sql`) likely hasn\'t been applied to this DB yet. Check the migrations runner output.');
+      lines.push('', 'Migration 132 (`132_phi_column_rotation.sql`) likely hasn\'t been applied to this DB yet.');
     }
     lines.push('');
   } else if (report.summary.phi_unencrypted_total > 0) {
@@ -130,22 +185,24 @@ function formatIssueBody(report) {
       '```', '');
   }
 
+  // Error spikes section
   if (report.spikes.length > 0) {
     lines.push('## Error pattern spikes (>50 occurrences in 14d)', '');
-    lines.push('| Status | Summary | Occurrences |', '|---:|---|---:|');
+    lines.push('| Method | Path | Module | Status | Occurrences |',
+              '|---|---|---|---:|---:|');
     for (const s of report.spikes) {
-      const summary = (s.request_summary || '(null)').slice(0, 100).replace(/[|`]/g, '_');
-      lines.push(`| ${s.status_code} | \`${summary}\` | ${s.occurrences} |`);
+      lines.push(`| ${s.method || '?'} | \`${(s.path || '?').slice(0, 100)}\` | ${s.module || '?'} | ${s.status_code} | ${s.occurrences} |`);
     }
     lines.push('');
   }
 
+  // New patterns section
   if (report.new_error_patterns.rows && report.new_error_patterns.rows.length > 0) {
     lines.push('## NEW error patterns (last 14d not seen in prior 14d)', '');
-    lines.push('| Status | Summary | Recent count |', '|---:|---|---:|');
+    lines.push('| Method | Path | Module | Status | Recent count |',
+              '|---|---|---|---:|---:|');
     for (const n of report.new_error_patterns.rows) {
-      const summary = (n.request_summary || '(null)').slice(0, 100).replace(/[|`]/g, '_');
-      lines.push(`| ${n.status_code} | \`${summary}\` | ${n.recent_count} |`);
+      lines.push(`| ${n.method || '?'} | \`${(n.path || '?').slice(0, 100)}\` | ${n.module || '?'} | ${n.status_code} | ${n.recent_count} |`);
     }
     lines.push('');
   }
@@ -185,6 +242,7 @@ async function main() {
     new_error_patterns: newErrs,
   };
 
+  // Local report — full data, on-disk only.
   mkdirSync(REPORTS_DIR, { recursive: true });
   const date = new Date().toISOString().slice(0, 10);
   const reportPath = join(REPORTS_DIR, `${date}.json`);
@@ -201,7 +259,19 @@ async function main() {
     if (spikes.length > 0) titleParts.push(`${spikes.length} error spikes`);
     if (newCount > 0) titleParts.push(`${newCount} new error patterns`);
     const title = `chore: weekly DB check ${date} — ${titleParts.join(', ')}`;
-    const body = formatIssueBody(report);
+    let body = formatIssueBody(report);
+
+    // Defence-in-depth scrub — should be a no-op on the cleaned queries
+    // but catches accidental PHI surfacing in any future check.
+    const { scrubbed, hits } = scrubBodyForPhi(body);
+    if (hits.length > 0) {
+      console.warn(`PHI scrubber redacted ${hits.length} pattern type(s):`, hits);
+      body = scrubbed
+        + `\n\n> ⚠️ **PHI scrubber triggered**: ${hits.map((h) => `${h.pattern} (×${h.count})`).join(', ')}. `
+        + 'This is a defence-in-depth signal — investigate which check produced PHI-shaped content '
+        + 'and tighten its query/formatter.';
+    }
+
     try {
       execSync(
         `gh issue create --repo ${GITHUB_REPO} --title ${JSON.stringify(title)} --body-file -`,
