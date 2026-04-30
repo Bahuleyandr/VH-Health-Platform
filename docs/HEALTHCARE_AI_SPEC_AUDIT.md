@@ -692,21 +692,21 @@ Closes the ops gaps that block hospital onboarding.
 - **D3**: SMART-on-FHIR OAuth scopes — extend the existing OAuth surface with FHIR-scoped tokens.
 - **D4**: ED operational entities — `EmergencyVisit`, `TriageAssessment`, `EmergencyAlert`, `AmbulanceRequest`, `MLCRecord`. Wire into existing `clinical_ai_ed_triage_predictions`.
 
-## Phase E — Compliance hardening + smaller items (≈2 weeks)
+## Phase E — Compliance hardening + smaller items (≈2 weeks) ✅ SHIPPED 2026-04-30
 
-- **E1**: `DataProcessingActivity` (GDPR Article 30 record) + `BreachIncident` workflow + compliance dashboard.
-- **E2**: Numbering series + DataRetentionPolicy as first-class config.
-- **E3**: Field-level PHI column encryption (envelope encryption with KMS); rotate columns on the highest-PHI tables (patient name, phone, address, medical_records.notes).
-- **E4**: Idempotency-key middleware for critical POST endpoints (orders, payments, prescriptions, claims).
-- **E5**: WhatsApp + voice notification channels.
+- **E1** ✅: `DataProcessingActivity` (GDPR Article 30 record) + `BreachIncident` workflow + compliance dashboard. Migration 127. New service `dataProcessingActivityService.js`, breach Art. 33/34 notification helpers on `breachService.js`, `complianceDashboardService.js` aggregator.
+- **E2** ✅: Numbering series + DataRetentionPolicy as first-class config. Migration 128. New services `numberingSeriesService.js` (atomic `getNextNumber` with cadence-aware reset) + `dataRetentionPolicyService.js` (with `getRetentionForTable` lookup).
+- **E3** ✅: Field-level PHI envelope encryption substrate. Migration 129 (encryption_keys registry). New services `kmsProviderService.js` (pluggable KMS — env / aws-kms / vault), `phiEnvelopeService.js` (per-record DEK + KMS-wrapped KEK + AES-256-GCM round-trip + tamper detection + KEK rotation without payload re-encryption), `encryptionKeyRegistryService.js`. Per-column rotation of users/medical_records is the operational follow-up.
+- **E4** ✅: Idempotency-key middleware. Migration 130 (idempotency_keys). Generic `requireIdempotencyKey` middleware wired onto POST `/billing/invoice`, `/billing/invoice/:id/payment`, `/billing/insurance/claim`, `/emr/orders`. Header-driven (Stripe-style) so existing clients aren't broken.
+- **E5** ✅: WhatsApp + voice notification channels. New providers `sendWhatsAppNotification.js` + `sendVoiceNotification.js` with logger-default for dev + Twilio-lazy-import for prod. Dispatcher extended with `'whatsapp'` and `'voice'` channels.
 
-## Phase F — Spec polish (≈1 week)
+## Phase F — Spec polish (≈1 week) ✅ SHIPPED 2026-04-30
 
-- **F1**: Formal user roles for the spec gaps (CONSULTANT/JUNIOR_DOCTOR/RESIDENT seniority, COUNSELLOR, CARE_COORDINATOR, CLAIMS_MANAGER, AMBULANCE_COORDINATOR, INTEGRATION_ADMIN, WEBHOOK_CLIENT, AI_GOVERNANCE_ADMIN, DATA_PROTECTION_OFFICER).
-- **F2**: Pain-score + fall-risk + growth-chart entities for completeness.
-- **F3**: Spec-driven role-matrix tests; documentation pass.
+- **F1** ✅: Formal user roles for the spec gaps. 11 new roles added to `roleHelpers.js` — CONSULTANT, JUNIOR_DOCTOR, RESIDENT (doctor seniority); COUNSELLOR, CARE_COORDINATOR (specialty clinical); CLAIMS_MANAGER, AMBULANCE_COORDINATOR (operations); INTEGRATION_ADMIN, AI_GOVERNANCE_ADMIN, DATA_PROTECTION_OFFICER (platform); WEBHOOK_CLIENT (machine). DOCTOR_TIERS / PLATFORM_ROLES / MACHINE_ROLES groups + 10 specialty predicates + 5 specialty gates (canManageIntegrations / canManageAiGovernance / canManageDataProtection / canDispatchAmbulance / canManageClaims).
+- **F2** ✅: Pain / fall-risk / growth-chart entities. Migration 131. New service `clinicalAssessmentService.js` covering pain (NRS / Wong-Baker / FLACC / PAINAD / VAS), fall-risk (Morse / Hendrich II / Johns Hopkins / STRATIFY / Humpty Dumpty) and growth charts (WHO 0-5 / IAP 5-18 / CDC 2-20 / Fenton). Routes mounted at `/api/v1/clinical/assessments`.
+- **F3** ✅: Spec-driven role-matrix tests + docs pass. New `roleMatrix.spec.test.js` walks the 38-role × 20-gate cross product with declarative `allow` sets; catches drift introduced by future role-registry changes. Closing this audit doc itself is part of F3.
 
-**Total runway:** roughly 16 weeks of focused work to close the 38-section spec to 95%+ coverage.
+**Total runway delivered:** Phases A–F complete. Backend test suite 1,539 → 2,529 over the audit cycle.
 
 ---
 
