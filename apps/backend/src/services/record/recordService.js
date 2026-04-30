@@ -5,10 +5,48 @@ import { DEFAULT_PAGINATION } from '../../config/recordConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { encryptColumn } from '../security/phiColumnEncryption.js';
 
 function isValidUUID(uuid) {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   return uuidRegex.test(uuid);
+}
+
+/**
+ * Phase E3 follow-up — best-effort write of medical_records *_encrypted
+ * shadow columns. Raw UPDATE because the Prisma client doesn't model
+ * the shadow columns from migration 132 yet. Schema-missing degrades
+ * silently. `client` is either prisma or the active transaction (tx).
+ */
+async function writeRecordPhiShadows(client, recordId, fields) {
+  if (!recordId) return;
+  const sets = [];
+  const params = [];
+  const tryEncrypt = (column, val) => {
+    if (val === undefined) return;
+    try {
+      const enc = encryptColumn(val);
+      params.push(enc);
+      sets.push(`${column} = $${params.length}`);
+    } catch (err) {
+      logger.warn('medical_records PHI shadow encrypt skipped:', { column, error: err.message });
+    }
+  };
+  tryEncrypt('description_encrypted', fields.description);
+  tryEncrypt('diagnosis_encrypted', fields.diagnosis);
+  tryEncrypt('treatment_encrypted', fields.treatment);
+  if (sets.length === 0) return;
+  params.push(recordId);
+  try {
+    await client.$executeRawUnsafe(
+      `UPDATE medical_records SET ${sets.join(', ')} WHERE id = $${params.length}`,
+      ...params,
+    );
+  } catch (err) {
+    if (!/does not exist/i.test(String(err.message))) {
+      logger.warn('medical_records PHI shadow write failed:', { error: err.message });
+    }
+  }
 }
 
 export async function getRecordsByUID(uid) {
@@ -385,6 +423,13 @@ export async function createMedicalRecord(data, doctorId, createdBy) {
         },
       });
 
+      // Phase E3 follow-up — write encrypted shadow columns for the
+      // PHI fields. Best-effort; raw UPDATE because Prisma client
+      // doesn't model the shadow columns yet.
+      await writeRecordPhiShadows(tx, record.id, {
+        description: data.description, diagnosis: data.diagnosis, treatment: data.treatment,
+      });
+
       return { record, patient };
     });
   } catch (error) {
@@ -409,7 +454,7 @@ export async function updateMedicalRecord(id, data, updatedBy) {
     if (lab_results != null) patch.lab_results = lab_results;
     if (attachments != null) patch.attachments = attachments;
 
-    return await prisma.medical_records.update({
+    const updated = await prisma.medical_records.update({
       where: { id: parseInt(id) },
       data: patch,
       select: {
@@ -428,6 +473,10 @@ export async function updateMedicalRecord(id, data, updatedBy) {
         updated_by: true,
       },
     });
+    // Phase E3 follow-up — write the *_encrypted shadows for any PHI
+    // field that was in this update.
+    await writeRecordPhiShadows(prisma, updated.id, { description, diagnosis, treatment });
+    return updated;
   } catch (error) {
     logger.error(`[RecordService] Error updating medical record: ${error.message}`);
     throw error;

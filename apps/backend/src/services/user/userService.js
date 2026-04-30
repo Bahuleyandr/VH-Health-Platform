@@ -3,6 +3,10 @@ import { USER_CONFIG } from '../../config/userConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import {
+  encryptColumn,
+  searchableHash,
+} from '../../services/security/phiColumnEncryption.js';
 
 const USER_SELECT = {
   id: true,
@@ -58,6 +62,53 @@ function buildProfileUpdateData(data, includeRole = false) {
   return updateData;
 }
 
+/**
+ * Phase E3 follow-up — best-effort write of encrypted shadow columns
+ * after a successful Prisma write. Kept in a separate raw UPDATE so the
+ * generated Prisma client doesn't need to know about migration 132's
+ * shadow columns. Schema-missing degrades silently.
+ */
+async function writePhiShadows(userId, data, { isCreate = false } = {}) {
+  if (!userId) return;
+  const sets = [];
+  const params = [];
+  const tryEncrypt = (field, val) => {
+    try {
+      const enc = encryptColumn(val);
+      params.push(enc);
+      sets.push(`${field} = $${params.length}`);
+    } catch (err) {
+      // KMS_MASTER_KEY missing — skip silently in dev.
+      logger.warn('PHI shadow-column encrypt skipped:', { field, error: err.message });
+    }
+  };
+
+  if (data.name !== undefined) tryEncrypt('name_encrypted', data.name);
+  if (data.address !== undefined) tryEncrypt('address_encrypted', data.address);
+  if (isCreate && data.phone !== undefined) {
+    tryEncrypt('phone_encrypted', data.phone);
+    try {
+      params.push(searchableHash(data.phone));
+      sets.push(`phone_search_hash = $${params.length}`);
+    } catch (err) {
+      logger.warn('phone_search_hash skipped:', { error: err.message });
+    }
+  }
+
+  if (sets.length === 0) return;
+  params.push(userId);
+  try {
+    await prisma.$executeRawUnsafe(
+      `UPDATE users SET ${sets.join(', ')} WHERE id = $${params.length}`,
+      ...params,
+    );
+  } catch (err) {
+    if (!/does not exist/i.test(String(err.message))) {
+      logger.warn('PHI shadow-column write failed:', { error: err.message });
+    }
+  }
+}
+
 function applyPrivacyFilters(user, userRole) {
   if (!user) return user;
 
@@ -95,6 +146,9 @@ export class UserService {
           select: USER_SELECT,
         });
 
+        // Phase E3 follow-up — write the *_encrypted shadow columns.
+        await writePhiShadows(updatedUser.id, data);
+
         logger.info(`User profile updated: ${phone} by ${createdBy}`);
         return { user: mapUserSummary(updatedUser), isNew: false };
       }
@@ -107,6 +161,9 @@ export class UserService {
         },
         select: USER_SELECT,
       });
+
+      // Phase E3 follow-up — write encrypted shadows + phone_search_hash.
+      await writePhiShadows(createdUser.id, { ...data, phone }, { isCreate: true });
 
       logger.info(`New user created: ${phone} by ${createdBy}`);
       return { user: mapUserSummary(createdUser), isNew: true };
