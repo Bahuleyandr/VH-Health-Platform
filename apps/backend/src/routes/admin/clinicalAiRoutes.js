@@ -12,6 +12,7 @@ import knowledgeBaseRoutes from './clinicalAi/knowledgeBaseRoutes.js';
 import knowledgeGovernanceRoutes from './clinicalAi/knowledgeGovernanceRoutes.js';
 import patientExplainersRoutes from './clinicalAi/patientExplainersRoutes.js';
 import surgicalAiRoutes from './clinicalAi/surgicalAiRoutes.js';
+import teleconsultAiRoutes from './clinicalAi/teleconsultAiRoutes.js';
 import trialSafetyOperationsRoutes from './clinicalAi/trialSafetyOperationsRoutes.js';
 import dischargeComposeRoutes from './clinicalAi/dischargeComposeRoutes.js';
 import { requireClinicalAiControl } from './clinicalAi/shared.js';
@@ -32,6 +33,7 @@ router.use('/', knowledgeBaseRoutes);
 router.use('/', knowledgeGovernanceRoutes);
 router.use('/', patientExplainersRoutes);
 router.use('/', surgicalAiRoutes);
+router.use('/', teleconsultAiRoutes);
 router.use('/', trialSafetyOperationsRoutes);
 router.use('/', dischargeComposeRoutes);
 

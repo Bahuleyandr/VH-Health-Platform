@@ -1391,6 +1391,114 @@ export async function detectPostOpComplications(payload: { ot_schedule_id: numbe
   return postJSON<SurgicalAiResult>('/admin/clinical-ai/post-op-complication-alerts', payload);
 }
 
+// ---------------------------------------------------------------------------
+// Phase B1 — Telemedicine
+// ---------------------------------------------------------------------------
+
+export type TeleconsultStatus =
+  | 'scheduled' | 'waiting' | 'in_progress' | 'completed' | 'cancelled' | 'no_show' | 'failed';
+
+export type TeleconsultType = 'video' | 'chat' | 'audio' | 'hybrid';
+
+export type VideoProvider = 'zoom' | 'daily' | 'jitsi' | 'twilio' | 'agora' | 'webrtc_native' | 'other';
+
+export interface Teleconsultation {
+  id: number;
+  tenant_id?: string;
+  appointment_id?: number | null;
+  patient_uid?: string | null;
+  doctor_uid?: string | null;
+  consult_type: TeleconsultType;
+  status: TeleconsultStatus;
+  scheduled_start?: string | null;
+  scheduled_end?: string | null;
+  actual_start?: string | null;
+  actual_end?: string | null;
+  chief_complaint?: string | null;
+  pre_consult_form?: Record<string, unknown>;
+  remote_consent_id?: string | null;
+  remote_consent_signed_at?: string | null;
+  ai_note_generation_id?: number | null;
+  ai_pre_visit_summary_id?: number | null;
+  recording_url?: string | null;
+  recording_consent: boolean;
+  cancellation_reason?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type TeleconsultAiModuleKey = 'teleconsult_pre_visit_summary' | 'teleconsult_note_draft';
+
+export interface TeleconsultAiResult {
+  module_key: TeleconsultAiModuleKey;
+  generation_id: number | null;
+  teleconsultation_id: number;
+  draft: Record<string, unknown> & { fallback_used?: boolean };
+  safety_flags: PatientExplainerSafetyFlag[];
+  source_citations: PatientExplainerCitation[];
+  used_ai: boolean;
+  provider: string;
+  status: 'draft' | 'failed' | string;
+  review_status: 'pending' | 'failed' | string;
+  requires_signoff: boolean;
+  decision_support_only: true;
+}
+
+export async function createTeleconsultation(payload: {
+  appointment_id?: number | null;
+  patient_uid?: string | null;
+  doctor_uid?: string | null;
+  consult_type?: TeleconsultType;
+  scheduled_start?: string | null;
+  scheduled_end?: string | null;
+  chief_complaint?: string | null;
+  pre_consult_form?: Record<string, unknown>;
+  recording_consent?: boolean;
+}) {
+  return postJSON<Teleconsultation>('/admin/telemedicine/teleconsultations', payload);
+}
+
+export async function listTeleconsultations(query: {
+  status?: TeleconsultStatus;
+  patient_uid?: string;
+  doctor_uid?: string;
+  window_start?: string;
+  window_end?: string;
+  limit?: number;
+} = {}) {
+  const qs = new URLSearchParams();
+  Object.entries(query).forEach(([k, v]) => {
+    if (v !== null && v !== undefined && v !== '') qs.append(k, String(v));
+  });
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return fetchAdminAPI<{ teleconsultations: Teleconsultation[]; count: number }>(
+    `/admin/telemedicine/teleconsultations${suffix}`,
+  );
+}
+
+export async function transitionTeleconsultation(
+  id: number,
+  payload: {
+    next_status: TeleconsultStatus;
+    cancellation_reason?: string | null;
+    recording_url?: string | null;
+  },
+) {
+  return fetchAdminAPI<Teleconsultation>(
+    `/admin/telemedicine/teleconsultations/${id}/transition`,
+    { method: 'PATCH', body: JSON.stringify(payload) },
+  );
+}
+
+export async function generateTeleconsultPreVisitSummary(payload: { teleconsultation_id: number }) {
+  return postJSON<TeleconsultAiResult>('/admin/clinical-ai/teleconsult-pre-visit-summaries', payload);
+}
+
+export async function generateTeleconsultNoteDraft(payload: { teleconsultation_id: number }) {
+  return postJSON<TeleconsultAiResult>('/admin/clinical-ai/teleconsult-note-drafts', payload);
+}
+
 export async function uploadKnowledgeBaseDocument(
   knowledgeBaseId: number,
   file: File,

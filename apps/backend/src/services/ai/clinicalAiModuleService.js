@@ -1686,6 +1686,47 @@ export const CLINICAL_AI_MODULES = [
       model_tier: 'deep',
     },
   },
+  {
+    module_key: 'teleconsult_pre_visit_summary',
+    display_name: 'Teleconsult Pre-Visit Summary',
+    description: 'Builds a 60-second pre-visit summary the doctor reads before joining a teleconsult: chief complaint, current medications, relevant history, recent vitals, suggested questions, red flags. Loaded from pre_consult_form + patient context.',
+    enabled: false,
+    settings: {
+      surface: 'telemedicine',
+      risk: 'medium',
+      status: 'available',
+      requiresClinicianSignoff: true,
+      requiresCitations: true,
+      reviewRoles: ['DOCTOR'],
+      approvalPolicy: 'clinician_review',
+      outputSchema: {
+        type: 'object',
+        required: ['chief_complaint', 'suggested_questions', 'red_flags'],
+      },
+      retentionDays: 180,
+    },
+  },
+  {
+    module_key: 'teleconsult_note_draft',
+    display_name: 'Teleconsult Note Draft',
+    description: 'Drafts a structured SOAP-style note from the teleconsult chat transcript + chief complaint. Acknowledges the limited objective exam in remote care (writes "no objective exam — video only" when appropriate). Doctor edits and signs through the review queue.',
+    enabled: false,
+    settings: {
+      surface: 'telemedicine',
+      risk: 'high',
+      status: 'available',
+      requiresClinicianSignoff: true,
+      requiresCitations: true,
+      reviewRoles: ['DOCTOR'],
+      approvalPolicy: 'doctor_signoff',
+      outputSchema: {
+        type: 'object',
+        required: ['subjective', 'assessment', 'plan'],
+      },
+      retentionDays: 365,
+      model_tier: 'deep',
+    },
+  },
 ];
 
 export const DEFAULT_CLINICAL_AI_GUARDRAILS = {
