@@ -25,6 +25,10 @@ import '../../features/doctor/screens/patient_records_screen.dart';
 import '../../features/doctor/screens/prescriptions_screen.dart';
 import '../../features/doctor/screens/queue_screen.dart';
 
+// Clinical AI (Phase 2 of the rollout — see docs/CLINICAL_AI_ROLLOUT_PLAN.md)
+import '../../features/clinical_ai/screens/clinical_ai_review_queue_screen.dart';
+import '../../features/clinical_ai/screens/clinical_ai_draft_detail_screen.dart';
+
 // Nursing
 import '../../features/nursing/screens/vitals_screen.dart';
 import '../../features/nursing/screens/nursing_notes_screen.dart';
@@ -243,6 +247,31 @@ final GoRouter appRouter = GoRouter(
           name: 'appointment-queue',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: AppointmentQueueScreen()),
+        ),
+
+        // Clinical AI — Phase 2 of the rollout. Review queue lists the
+        // caller's pending drafts (filtered server-side by reviewerRole +
+        // module's reviewRoles[]); detail screen sign / edit / reject.
+        GoRoute(
+          path: '/clinical-ai/queue',
+          name: 'clinical-ai-queue',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: ClinicalAiReviewQueueScreen()),
+        ),
+        GoRoute(
+          path: '/clinical-ai/review/:reviewId',
+          name: 'clinical-ai-review',
+          pageBuilder: (context, state) {
+            final raw = state.pathParameters['reviewId'];
+            final id = int.tryParse(raw ?? '') ?? 0;
+            final extra = state.extra;
+            return NoTransitionPage(
+              child: ClinicalAiDraftDetailScreen(
+                reviewId: id,
+                initialReview: extra is Map<String, dynamic> ? extra : null,
+              ),
+            );
+          },
         ),
 
         // Nursing
