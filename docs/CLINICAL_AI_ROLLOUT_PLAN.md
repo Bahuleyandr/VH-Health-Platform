@@ -2,7 +2,8 @@
 
 **Status:**
 - ✅ **Phase 0 shipped** (2026-04-30) — route + RBAC split landed on `main`.
-- Phases 1-5 still drafted; ready for phased execution.
+- ✅ **Phase 1 shipped** (2026-04-30) — internal ingress manifest landed on `main`. Awaits hospital DNS + cert wiring before serving real traffic.
+- Phases 2-5 still drafted; ready for phased execution.
 
 **Audience:** anyone picking this up in a future session — Claude, the
 project owner, or a teammate.
@@ -165,25 +166,29 @@ back to it if any phase breaks.
 
 **Not done in this phase (deferred to Phase 2 / 3):** the existing admin portal client still uses `/api/v1/admin/clinical-ai/*`. It does NOT need to change in Phase 0 — the alias keeps it working. When the apps/staff Flutter screens land in Phase 2, they'll target `/api/v1/clinical-ai/clinical/*`.
 
-### Phase 1: Internal ingress + IngressClass (infra, ~2–3 days)
+### Phase 1: Internal ingress + IngressClass (infra, ~2–3 days) — ✅ SHIPPED 2026-04-30
 
-**Why second:** unlocks the LAN deployment without changing the apps.
+**What landed:**
+- New manifest `infra/kubernetes/apps/backend/ingress-clinical-internal.yaml` — second `Ingress` resource with `ingressClassName: nginx-internal` exposing only `/api/v1/clinical-ai/clinical/*` (plus health probes). Public ingress at `api.vhhealth.app` is unchanged; control plane stays public.
+- Default hostname `clinical.vhhealth.hospital.local` (overlay-overridable per environment).
+- Cert: cert-manager `step-ca-internal` ClusterIssuer (already configured in `base/cert-manager/`). HSTS preload disabled because step-ca is private.
+- Same security headers, body limits, and timeouts as the public ingress; rate limit raised slightly (1200 rpm vs 600) because clinicians legitimately generate many drafts per shift.
+- Added to `infra/kubernetes/apps/backend/kustomization.yaml`. `kubectl kustomize` validates clean — both Ingresses emit with the right classes.
 
-**Scope:**
-- Add a second `ingress-nginx` Helm release in `infra/kubernetes/overlays/prod/` configured as `internal` IngressClass, bound to a private IP.
-- Hospital network team adds DNS for `clinical.<hospital>.local` → internal LB IP. (Their work; document the requirement.)
-- Add `Ingress` manifests for `/api/v1/clinical-ai/clinical/*` only, with `ingressClassName: internal`.
-- Patient + admin ingresses keep `public` → Cloudflare Tunnel path.
-- Document the dalekdefender mirror (test rig) for LAN testing pre-prod.
+**Pre-existing infrastructure that made this trivial:**
+- The `nginx-internal` IngressClass + Helm release was already defined in `base/ingress-nginx/ingress-nginx.yaml` (lines 215–242). Phase 1 just attached an `Ingress` resource to it.
+- step-ca-internal ClusterIssuer was already configured.
 
-**Validation:**
-- `curl https://clinical.dalekdefender.hippocampus-monitor.ts.net/api/v1/clinical-ai/clinical/...` works from the tailnet.
-- Same path returns 404 from outside the tailnet.
-- Admin + patient flows unaffected.
+**Hospital IT requirements (NOT done by Phase 1 — these are the things that gate real traffic):**
+1. Hospital DNS: A or CNAME record `clinical.<hospital>.local` → internal-class ingress-nginx LB IP. Coordinate with hospital network team; they may want a different naming convention. Document the chosen hostname in the appropriate overlay's patch.
+2. Hospital intermediate CA loaded into step-ca-internal so workstation browsers trust the cert without warnings.
+3. Verify `ingress-nginx-internal` pods are reachable from the LAN (typically MetalLB or hostNetwork DaemonSet binding to a private interface IP).
 
-**Risks:**
-- Hospital IT may have opinions about adding internal DNS; coordinate early.
-- Cert management for the internal cert (LetsEncrypt won't work for `.local`) — use cert-manager with a private CA, or self-signed with the hospital's intermediate CA.
+**Verified:** `kubectl kustomize infra/kubernetes/apps/backend/` emits both Ingress resources with the correct `ingressClassName` values; no schema warnings.
+
+**Not done in this phase (deferred):**
+- Per-overlay hostname patches for prod / staging / dev — straightforward kustomize patch when the hospital DNS naming convention is decided.
+- Dalekdefender mirror — the test rig uses tailscale-serve directly (separate concern); no ingress-nginx changes apply there.
 
 ### Phase 2: First Flutter clinician screen — review queue (~1 week)
 
