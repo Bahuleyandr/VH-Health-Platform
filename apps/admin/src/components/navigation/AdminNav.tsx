@@ -107,6 +107,7 @@ const navSections: NavSection[] = [
     minRole: "ADMIN", // ADMIN | SUPER_ADMIN only
     items: [
       { name: "Users",           href: "/dashboard/users" },
+      { name: "Patient Dedupe",  href: "/dashboard/patients/dedupe" },
       { name: "Doctors",         href: "/dashboard/doctors" },
       { name: "Departments",     href: "/dashboard/departments" },
       { name: "Payroll",         href: "/dashboard/payroll" },
