@@ -1,0 +1,20 @@
+[Unit]
+Description=VH Health weekly DB drift + error scan
+Documentation=https://github.com/Bahuleyandr/VH-Health-Platform/tree/main/infra/onprem/vh-checks
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bahuleyan
+Group=bahuleyan
+WorkingDirectory=/home/bahuleyan/vh-checks
+ExecStart=/home/bahuleyan/vh-checks/run.sh
+StandardOutput=journal
+StandardError=journal
+# Exit 0 = clean, 1 = drift (GitHub issue posted). Both are "success"
+# from systemd's perspective; only exit 2 (infra failure) warrants
+# systemctl reporting the unit as failed.
+SuccessExitStatus=1
+# Don't time out before kubectl has a chance to resolve credentials.
+TimeoutStartSec=120
