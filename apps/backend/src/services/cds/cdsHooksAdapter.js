@@ -56,6 +56,20 @@ export const CDS_HOOKS_SERVICES = [
     description:
       'Full CDS safety checks on each order being signed, including drug interaction, allergy, duplicate, and recent-result checks.',
   },
+  {
+    id: 'vh-encounter-start',
+    hook: 'encounter-start',
+    title: 'VH Health encounter-start advisories',
+    description:
+      'Advisories surfaced when an encounter (visit) is opened: active patient alerts, protocol reminders, follow-up plans due, allergies on file, recent critical labs.',
+  },
+  {
+    id: 'vh-encounter-discharge',
+    hook: 'encounter-discharge',
+    title: 'VH Health encounter-discharge readiness checks',
+    description:
+      'Pre-discharge readiness advisories: unsigned orders, pending follow-up plans, missing discharge summary, unacknowledged critical alerts. Note: hook id "encounter-discharge" matches the CDS Hooks v1.0 spec; "encounter-close" is the verb shorthand used internally.',
+  },
 ];
 
 /**
