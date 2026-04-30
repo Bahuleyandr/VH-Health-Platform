@@ -21,6 +21,7 @@ import { deliveryRouter, integrationRouter, subscriptionRouter } from './integra
 import patientIdentifierRoutes from './patientIdentifierRoutes.js';
 import patientMergeRoutes from './patientMergeRoutes.js';
 import surgicalDocumentationRoutes from './surgicalDocumentationRoutes.js';
+import billingMastersRoutes from './billingMastersRoutes.js';
 import tasksWorkflowRoutes from './tasksWorkflowRoutes.js';
 import telemedicineRoutes from './telemedicineRoutes.js';
 
@@ -669,5 +670,6 @@ router.use('/webhook-deliveries', deliveryRouter);
 router.use('/surgical', surgicalDocumentationRoutes);
 router.use('/telemedicine', telemedicineRoutes);
 router.use('/workflow', tasksWorkflowRoutes);
+router.use('/billing-masters', billingMastersRoutes);
 
 export default router;
