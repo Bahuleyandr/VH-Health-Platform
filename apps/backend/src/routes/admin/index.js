@@ -18,6 +18,7 @@ import eventOutboxRoutes from './eventOutboxRoutes.js';
 import executiveKpiRoutes from './executiveKpiRoutes.js';
 import featureFlagRoutes from './featureFlagRoutes.js';
 import patientIdentifierRoutes from './patientIdentifierRoutes.js';
+import patientMergeRoutes from './patientMergeRoutes.js';
 
 // Services (barrel import)
 import {
@@ -657,5 +658,6 @@ router.use('/analytics', analyticsRoutes);
 router.use('/feature-flags', featureFlagRoutes);
 router.use('/executive-kpi', executiveKpiRoutes);
 router.use('/patient-identifiers', patientIdentifierRoutes);
+router.use('/patient-merges', patientMergeRoutes);
 
 export default router;
