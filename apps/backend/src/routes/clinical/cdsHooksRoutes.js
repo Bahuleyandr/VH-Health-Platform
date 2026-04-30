@@ -27,6 +27,10 @@ import {
   extractPatientUid,
   findServiceById,
 } from '../../services/cds/cdsHooksAdapter.js';
+import {
+  buildEncounterDischargeAlerts,
+  buildEncounterStartAlerts,
+} from '../../services/cds/encounterCdsHelper.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
@@ -146,6 +150,18 @@ router.post('/:id', async (req, res, next) => {
           return [];
         }));
         alerts = perOrder.flat();
+        break;
+      }
+
+      case 'encounter-start': {
+        if (!patientUid) break;
+        alerts = await buildEncounterStartAlerts({ patientUid, encounterId });
+        break;
+      }
+
+      case 'encounter-discharge': {
+        if (!patientUid) break;
+        alerts = await buildEncounterDischargeAlerts({ patientUid, encounterId });
         break;
       }
 

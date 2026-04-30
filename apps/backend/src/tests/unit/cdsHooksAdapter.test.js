@@ -176,6 +176,21 @@ describe('cdsHooksAdapter', () => {
       expect(findServiceById('does-not-exist')).toBeNull();
     });
 
+    it('Phase D2 — registers vh-encounter-start + vh-encounter-discharge', () => {
+      expect(findServiceById('vh-encounter-start')?.hook).toBe('encounter-start');
+      expect(findServiceById('vh-encounter-discharge')?.hook).toBe('encounter-discharge');
+    });
+
+    it('all six VH services are advertised in discovery', () => {
+      const discovery = buildDiscoveryResponse();
+      const ids = discovery.services.map((s) => s.id);
+      expect(ids).toEqual(expect.arrayContaining([
+        'vh-patient-view', 'vh-medication-prescribe',
+        'vh-order-select', 'vh-order-sign',
+        'vh-encounter-start', 'vh-encounter-discharge',
+      ]));
+    });
+
     it('every registered service uses a standard CDS Hooks hook id', () => {
       const STANDARD_HOOKS = new Set([
         'patient-view',
