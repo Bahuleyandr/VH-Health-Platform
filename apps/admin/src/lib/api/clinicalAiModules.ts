@@ -981,6 +981,264 @@ export async function exportReadinessPack(payload: {
 }
 
 // ---------------------------------------------------------------------------
+// Knowledge Base CRUD (Phase A1)
+// ---------------------------------------------------------------------------
+export type KnowledgeBaseType =
+  | 'general'
+  | 'sop'
+  | 'antibiotic_policy'
+  | 'patient_education'
+  | 'clinical_guideline'
+  | 'formulary'
+  | 'safety_alert'
+  | 'training';
+
+export type KnowledgeBaseStatus = 'active' | 'archived';
+
+export interface KnowledgeBase {
+  id: number;
+  tenant_id: string;
+  name: string;
+  description: string | null;
+  kb_type: KnowledgeBaseType;
+  status: KnowledgeBaseStatus;
+  created_by: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  document_count?: number;
+  chunk_count?: number;
+}
+
+export type KnowledgeBasePermission = 'read' | 'write' | 'manage';
+
+export interface KnowledgeAccessPolicy {
+  id: number;
+  knowledge_base_id: number;
+  tenant_id: string;
+  role: string;
+  permission: KnowledgeBasePermission;
+  granted_by: string | null;
+  granted_at: string;
+  metadata: Record<string, unknown>;
+}
+
+export type KnowledgeDocumentStatus =
+  | 'pending'
+  | 'extracting'
+  | 'chunking'
+  | 'embedding'
+  | 'indexed'
+  | 'failed'
+  | 'blocked';
+
+export type KnowledgeDocumentSourceType = 'upload' | 'url' | 'inline_text' | 'imported';
+
+export interface KnowledgeDocument {
+  id: number;
+  knowledge_base_id: number;
+  tenant_id: string;
+  title: string;
+  source_type: KnowledgeDocumentSourceType;
+  source_uri: string | null;
+  mime_type: string | null;
+  file_hash: string | null;
+  file_size_bytes: number | null;
+  raw_text?: string | null;
+  processing_status: KnowledgeDocumentStatus;
+  processing_error: string | null;
+  chunk_count: number;
+  prompt_injection_verdict: 'pass' | 'flag' | 'block' | null;
+  prompt_injection_metadata: Record<string, unknown>;
+  uploaded_by: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeDocumentIngestResult {
+  document: KnowledgeDocument;
+  processed: boolean;
+  chunk_count?: number;
+  embedded_count?: number;
+  reason?: string | null;
+  injection_safety_flag?: { code: string; severity: string } | null;
+}
+
+export interface KnowledgeRetrievalChunk {
+  chunk_id: number;
+  document_id: number;
+  knowledge_base_id: number;
+  kb_name: string;
+  kb_type: KnowledgeBaseType;
+  document_title: string;
+  document_source_type: KnowledgeDocumentSourceType;
+  content: string;
+  similarity: number;
+}
+
+export interface KnowledgeRetrievalResult {
+  results: KnowledgeRetrievalChunk[];
+  source: 'pgvector' | 'embed_unavailable' | 'corpus_unavailable' | 'no_access' | 'empty_query' | 'below_threshold' | 'query_failed';
+  query_hash: string | null;
+}
+
+export interface KnowledgeRetrievalLog {
+  id: number;
+  tenant_id: string;
+  knowledge_base_id: number | null;
+  chunk_id: number | null;
+  retrieved_by: string | null;
+  retrieved_by_role: string | null;
+  retrieved_for_module_key: string | null;
+  query_hash: string | null;
+  similarity: number | null;
+  metadata: Record<string, unknown>;
+  retrieved_at: string;
+}
+
+export async function listKnowledgeBases(params: { kb_type?: KnowledgeBaseType; status?: KnowledgeBaseStatus; limit?: number } = {}) {
+  const query: Record<string, string | number> = {};
+  if (params.kb_type) query.kb_type = params.kb_type;
+  if (params.status) query.status = params.status;
+  if (params.limit) query.limit = params.limit;
+  return getJSON<{ knowledge_bases: KnowledgeBase[]; count: number }>(
+    '/admin/clinical-ai/knowledge-bases',
+    query,
+  );
+}
+
+export async function createKnowledgeBase(payload: {
+  name: string;
+  description?: string | null;
+  kb_type?: KnowledgeBaseType;
+  metadata?: Record<string, unknown>;
+}) {
+  return postJSON<KnowledgeBase>('/admin/clinical-ai/knowledge-bases', payload);
+}
+
+export async function getKnowledgeBase(id: number) {
+  return getJSON<KnowledgeBase>(`/admin/clinical-ai/knowledge-bases/${id}`);
+}
+
+export async function updateKnowledgeBase(id: number, payload: {
+  name?: string;
+  description?: string | null;
+  kb_type?: KnowledgeBaseType;
+  metadata?: Record<string, unknown>;
+}) {
+  return fetchAdminAPI<KnowledgeBase>(`/admin/clinical-ai/knowledge-bases/${id}`, {
+    method: 'PATCH',
+    body: payload,
+  });
+}
+
+export async function archiveKnowledgeBase(id: number) {
+  return fetchAdminAPI<KnowledgeBase>(`/admin/clinical-ai/knowledge-bases/${id}/archive`, {
+    method: 'PATCH',
+    body: {},
+  });
+}
+
+export async function unarchiveKnowledgeBase(id: number) {
+  return fetchAdminAPI<KnowledgeBase>(`/admin/clinical-ai/knowledge-bases/${id}/unarchive`, {
+    method: 'PATCH',
+    body: {},
+  });
+}
+
+export async function listKnowledgeAccessPolicies(knowledgeBaseId: number) {
+  return getJSON<{ policies: KnowledgeAccessPolicy[]; count: number }>(
+    `/admin/clinical-ai/knowledge-bases/${knowledgeBaseId}/access-policies`,
+  );
+}
+
+export async function grantKnowledgeAccess(knowledgeBaseId: number, payload: {
+  role: string;
+  permission?: KnowledgeBasePermission;
+  metadata?: Record<string, unknown>;
+}) {
+  return postJSON<KnowledgeAccessPolicy>(
+    `/admin/clinical-ai/knowledge-bases/${knowledgeBaseId}/access-policies`,
+    payload,
+  );
+}
+
+export async function revokeKnowledgeAccess(
+  knowledgeBaseId: number,
+  role: string,
+  permission: KnowledgeBasePermission = 'read',
+) {
+  return fetchAdminAPI<KnowledgeAccessPolicy>(
+    `/admin/clinical-ai/knowledge-bases/${knowledgeBaseId}/access-policies/${encodeURIComponent(role)}/${encodeURIComponent(permission)}`,
+    { method: 'DELETE', body: undefined },
+  );
+}
+
+export async function listKnowledgeDocuments(knowledgeBaseId: number, params: { status?: KnowledgeDocumentStatus; limit?: number } = {}) {
+  const query: Record<string, string | number> = {};
+  if (params.status) query.status = params.status;
+  if (params.limit) query.limit = params.limit;
+  return getJSON<{ documents: KnowledgeDocument[]; count: number }>(
+    `/admin/clinical-ai/knowledge-bases/${knowledgeBaseId}/documents`,
+    query,
+  );
+}
+
+export async function createInlineKnowledgeDocument(knowledgeBaseId: number, payload: {
+  title: string;
+  raw_text: string;
+  source_type?: KnowledgeDocumentSourceType;
+  metadata?: Record<string, unknown>;
+}) {
+  return postJSON<KnowledgeDocumentIngestResult>(
+    `/admin/clinical-ai/knowledge-bases/${knowledgeBaseId}/documents/inline`,
+    payload,
+  );
+}
+
+export async function reindexKnowledgeDocument(knowledgeBaseId: number, documentId: number) {
+  return postJSON<KnowledgeDocumentIngestResult>(
+    `/admin/clinical-ai/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/reindex`,
+    {},
+  );
+}
+
+export async function deleteKnowledgeDocument(knowledgeBaseId: number, documentId: number) {
+  return fetchAdminAPI<{ id: number; knowledge_base_id: number; title: string }>(
+    `/admin/clinical-ai/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`,
+    { method: 'DELETE', body: undefined },
+  );
+}
+
+export async function retrieveFromKnowledgeBases(payload: {
+  query: string;
+  role?: string | null;
+  knowledge_base_id?: number | null;
+  kb_type?: KnowledgeBaseType | null;
+  module_key?: string | null;
+  top_k?: number;
+  min_score?: number;
+}) {
+  return postJSON<KnowledgeRetrievalResult>('/admin/clinical-ai/knowledge-bases/retrieve', payload);
+}
+
+export async function listKnowledgeRetrievalLogs(params: {
+  knowledge_base_id?: number | null;
+  module_key?: string | null;
+  limit?: number;
+} = {}) {
+  const query: Record<string, string | number> = {};
+  if (params.knowledge_base_id) query.knowledge_base_id = params.knowledge_base_id;
+  if (params.module_key) query.module_key = params.module_key;
+  if (params.limit) query.limit = params.limit;
+  return getJSON<{ logs: KnowledgeRetrievalLog[]; count: number }>(
+    '/admin/clinical-ai/knowledge-bases/retrieval-logs',
+    query,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Operational AI: capacity forecasting, no-show, OT duration, and charge capture
 // ---------------------------------------------------------------------------
 export type OperationalRiskBand = 'low' | 'medium' | 'high';
