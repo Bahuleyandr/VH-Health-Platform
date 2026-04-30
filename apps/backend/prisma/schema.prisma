@@ -4226,35 +4226,41 @@ model clinical_ai_voice_ivr_sessions {
 
 /// Persistent state for the workflow graph runner (workflowGraphRunner.js).
 /// One row per execution; updated on every node transition for crash-resume
-/// and pause-for-approval. See migration 109.
+/// and pause-for-approval. Self-referential parent_run_id supports nested
+/// subgraph composition (migration 110). See migration 109.
 model clinical_ai_workflow_runs {
-  id            Int       @id @default(autoincrement())
-  tenant_id     String    @db.Uuid
-  workflow_key  String    @db.VarChar(80)
-  module_key    String?   @db.VarChar(80)
-  patient_uid   String?   @db.Uuid
+  id            Int                         @id @default(autoincrement())
+  tenant_id     String                      @db.Uuid
+  workflow_key  String                      @db.VarChar(80)
+  module_key    String?                     @db.VarChar(80)
+  patient_uid   String?                     @db.Uuid
   admission_id  Int?
-  status        String    @default("running") @db.VarChar(40)
-  current_node  String?   @db.VarChar(80)
-  pause_reason  String?   @db.VarChar(120)
-  state         Json      @default("{}")
+  status        String                      @default("running") @db.VarChar(40)
+  current_node  String?                     @db.VarChar(80)
+  pause_reason  String?                     @db.VarChar(120)
+  state         Json                        @default("{}")
   result        Json?
-  error_node    String?   @db.VarChar(80)
+  error_node    String?                     @db.VarChar(80)
   error_message String?
-  checkpoints   Json      @default("[]")
-  metadata      Json      @default("{}")
-  started_by    String?   @db.Uuid
-  started_at    DateTime  @default(now()) @db.Timestamptz(6)
-  paused_at     DateTime? @db.Timestamptz(6)
-  completed_at  DateTime? @db.Timestamptz(6)
-  failed_at     DateTime? @db.Timestamptz(6)
-  updated_at    DateTime  @default(now()) @db.Timestamptz(6)
-  tenants       tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  checkpoints   Json                        @default("[]")
+  metadata      Json                        @default("{}")
+  started_by    String?                     @db.Uuid
+  parent_run_id Int?
+  parent_node   String?                     @db.VarChar(80)
+  started_at    DateTime                    @default(now()) @db.Timestamptz(6)
+  paused_at     DateTime?                   @db.Timestamptz(6)
+  completed_at  DateTime?                   @db.Timestamptz(6)
+  failed_at     DateTime?                   @db.Timestamptz(6)
+  updated_at    DateTime                    @default(now()) @db.Timestamptz(6)
+  parent        clinical_ai_workflow_runs?  @relation("workflow_parent_child", fields: [parent_run_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children      clinical_ai_workflow_runs[] @relation("workflow_parent_child")
+  tenants       tenants                     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([tenant_id, status, started_at(sort: Desc)], map: "idx_clinical_ai_workflow_runs_tenant_status")
   @@index([tenant_id, workflow_key, started_at(sort: Desc)], map: "idx_clinical_ai_workflow_runs_tenant_workflow")
   @@index([tenant_id, pause_reason, paused_at(sort: Desc)], map: "idx_clinical_ai_workflow_runs_paused")
   @@index([tenant_id, admission_id, started_at(sort: Desc)], map: "idx_clinical_ai_workflow_runs_admission")
+  @@index([parent_run_id, started_at(sort: Desc)], map: "idx_clinical_ai_workflow_runs_parent")
 }
 
 model clinical_alerts {

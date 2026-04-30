@@ -110,6 +110,8 @@ export async function runWorkflow({
   tenantId,
   startedBy = null,
   workflowMetadata = {},
+  parentRunId = null,
+  parentNode = null,
 } = {}) {
   if (!graph) throw new Error('runWorkflow requires a graph');
   if (!store) throw new Error('runWorkflow requires a checkpointStore');
@@ -124,6 +126,8 @@ export async function runWorkflow({
     state: initialState,
     metadata: workflowMetadata,
     startedBy,
+    parentRunId,
+    parentNode,
   });
 
   return walkFrom({ graph, run, store, ctx, fromNode: graph.start });
@@ -196,9 +200,20 @@ async function walkFrom({ graph, run, store, ctx, fromNode }) {
 
     const node = graph.nodes[nodeName];
     const startedAt = Date.now();
+    // Build the per-node ctx — adds runSubgraph plus reflective fields
+    // (currentNode, runId, tenantId). The subgraph helper is rebuilt per
+    // node so it always closes over the live state and the correct parent
+    // node identity.
+    const nodeCtx = {
+      ...ctx,
+      currentNode: nodeName,
+      runId: run.id,
+      tenantId: run.tenant_id,
+      runSubgraph: makeRunSubgraph({ store, parentRun: run, currentNode: nodeName, getParentState: () => state }),
+    };
     let nodeOutput;
     try {
-      nodeOutput = await runNodeWithTimeout(node, state, ctx, graph.timeoutMs);
+      nodeOutput = await runNodeWithTimeout(node, state, nodeCtx, graph.timeoutMs);
     } catch (err) {
       const message = String(err?.message || err);
       logger.warn('Workflow node failed', { workflowKey: graph.key, runId: run.id, node: nodeName, error: message });
@@ -216,9 +231,14 @@ async function walkFrom({ graph, run, store, ctx, fromNode }) {
 
     // Pause sentinel: persist + return without advancing current_node.
     // (current_node tracks COMPLETED nodes; a paused node has not
-    // completed.)
+    // completed.) The pause sentinel can carry a state delta — used by
+    // ctx.runSubgraph to capture a child run's id before parking, so a
+    // later parent-resume can rediscover and continue the child.
     if (nodeOutput && nodeOutput[PAUSE_KEY] !== undefined) {
       const reason = String(nodeOutput[PAUSE_KEY] || 'paused').slice(0, 120);
+      if (nodeOutput.state && typeof nodeOutput.state === 'object') {
+        state = { ...state, ...nodeOutput.state };
+      }
       await store.recordCheckpoint(run.id, {
         node: nodeName,
         started_at: new Date(startedAt).toISOString(),
@@ -273,6 +293,103 @@ async function walkFrom({ graph, run, store, ctx, fromNode }) {
   return { status: 'completed', runId: run.id, state, result };
 }
 
+// ---------- Subgraph helper --------------------------------------------
+
+/**
+ * Build a runSubgraph helper bound to a specific parent run + parent node.
+ * Each node call gets a fresh helper closing over the live parent state.
+ *
+ * Idempotency contract: parent state has a reserved `__subgraphs` key
+ * (object map of parent_node_name -> child_run_id). When a node calls
+ * runSubgraph and a child for this parent_node already exists in
+ * __subgraphs, the existing child is consulted rather than starting a
+ * new one. This is what makes parent-resume safe: re-entering the same
+ * parent node finds the same child and continues it instead of spawning
+ * a duplicate.
+ *
+ * Behaviour by child status on idempotent re-entry:
+ *   * completed → return { [resultKey]: child.result } as a state delta
+ *   * paused    → resume the child; if it completes, return the result;
+ *                 if it pauses again, return pauseRun (parent re-pauses)
+ *   * failed    → throw (parent fails at this node; caller can catch in
+ *                 the parent node if it wants graceful handling)
+ *   * running   → also resume (defensive — single-process orchestration
+ *                 means we shouldn't normally see this)
+ *
+ * Convention: one subgraph per parent node. If a node calls runSubgraph
+ * twice in the same parent run, the second call returns the same child
+ * result (or fails on a different graph key). Multiple parallel children
+ * per parent node would relax this convention but is a future extension.
+ */
+function makeRunSubgraph({ store, parentRun, currentNode, getParentState }) {
+  return async function runSubgraph({
+    graph,
+    initialState = {},
+    resultKey = null,
+    metadata = {},
+  } = {}) {
+    if (!graph) throw new Error('runSubgraph requires a graph');
+
+    const parentState = getParentState() || {};
+    const subgraphs = parentState.__subgraphs || {};
+    const existingRunId = subgraphs[currentNode];
+
+    if (existingRunId) {
+      const existing = await store.getRun(existingRunId);
+      if (!existing) {
+        // Stale id — the row vanished. Treat as fresh start.
+        logger.warn('Subgraph child runId stored on parent state was not found; restarting', {
+          parentRunId: parentRun.id,
+          parentNode: currentNode,
+          missingRunId: existingRunId,
+        });
+      } else if (existing.workflow_key !== graph.key) {
+        throw new Error(
+          `Subgraph mismatch at parent node '${currentNode}': stored child is graph '${existing.workflow_key}' but caller passed '${graph.key}'`
+        );
+      } else if (existing.status === 'completed') {
+        return resultKey ? { [resultKey]: existing.result } : {};
+      } else if (existing.status === 'failed') {
+        throw new Error(`Subgraph previously failed at '${existing.error_node}': ${existing.error_message || 'unknown'}`);
+      } else if (existing.status === 'paused' || existing.status === 'running') {
+        const out = await resumeWorkflow({ runId: existingRunId, store, graph });
+        return reactToSubgraphOutcome({ out, resultKey, subgraphs });
+      }
+    }
+
+    // Fresh start.
+    const out = await runWorkflow({
+      graph,
+      initialState,
+      store,
+      tenantId: parentRun.tenant_id,
+      startedBy: parentRun.started_by,
+      parentRunId: parentRun.id,
+      parentNode: currentNode,
+      workflowMetadata: { ...metadata, parent_run_id: parentRun.id, parent_node: currentNode },
+    });
+    const newSubgraphs = { ...subgraphs, [currentNode]: out.runId };
+    return reactToSubgraphOutcome({ out, resultKey, subgraphs: newSubgraphs });
+  };
+}
+
+function reactToSubgraphOutcome({ out, resultKey, subgraphs }) {
+  if (out.status === 'completed') {
+    const delta = { __subgraphs: subgraphs };
+    if (resultKey) delta[resultKey] = out.result;
+    return delta;
+  }
+  if (out.status === 'paused') {
+    // Persist the child id on parent state at pause time so a later
+    // parent-resume rediscovers and continues this exact child.
+    return pauseRun(`subgraph_paused:${out.pauseReason}`, { __subgraphs: subgraphs });
+  }
+  if (out.status === 'failed') {
+    throw new Error(`Subgraph failed at '${out.error?.node}': ${out.error?.message}`);
+  }
+  throw new Error(`Subgraph returned unknown status '${out.status}'`);
+}
+
 async function runNodeWithTimeout(node, state, ctx, timeoutMs) {
   if (!timeoutMs || timeoutMs <= 0) return node(state, ctx);
   let timer;
@@ -288,9 +405,20 @@ async function runNodeWithTimeout(node, state, ctx, timeoutMs) {
 
 // ---------- Sentinel helpers (re-exported for nodes) -------------------
 
-/** Return from a node to park the run; an external trigger resumes it. */
-export function pauseRun(reason) {
-  return { [PAUSE_KEY]: String(reason || 'paused') };
+/**
+ * Return from a node to park the run; an external trigger resumes it.
+ *
+ * Optionally carries a state delta. The runner merges the delta into
+ * persistent state BEFORE marking the run paused — this is how
+ * ctx.runSubgraph captures a child run's id on the parent state at the
+ * moment it pauses, so a later parent-resume can rediscover the child.
+ */
+export function pauseRun(reason, stateUpdate = null) {
+  const out = { [PAUSE_KEY]: String(reason || 'paused') };
+  if (stateUpdate && typeof stateUpdate === 'object') {
+    out.state = stateUpdate;
+  }
+  return out;
 }
 
 /** Return from a node to end the run early with a final result. */

@@ -55,17 +55,22 @@ export function createDbCheckpointStore() {
       state = {},
       metadata = {},
       startedBy = null,
+      parentRunId = null,
+      parentNode = null,
     }) {
       const rows = await prisma.$queryRawUnsafe(
         `INSERT INTO clinical_ai_workflow_runs
            (tenant_id, workflow_key, module_key, patient_uid, admission_id,
-            status, state, metadata, started_by, started_at, updated_at)
+            status, state, metadata, started_by, parent_run_id, parent_node,
+            started_at, updated_at)
          VALUES ($1::uuid, $2, $3, $4::uuid, $5,
-                 'running', $6::jsonb, $7::jsonb, $8::uuid, NOW(), NOW())
+                 'running', $6::jsonb, $7::jsonb, $8::uuid, $9, $10,
+                 NOW(), NOW())
          RETURNING id, tenant_id, workflow_key, module_key, patient_uid, admission_id,
                    status, current_node, pause_reason, state, result, error_node,
-                   error_message, checkpoints, metadata, started_by, started_at,
-                   paused_at, completed_at, failed_at, updated_at`,
+                   error_message, checkpoints, metadata, started_by, parent_run_id,
+                   parent_node, started_at, paused_at, completed_at, failed_at,
+                   updated_at`,
         tenantId,
         workflowKey,
         moduleKey,
@@ -73,7 +78,9 @@ export function createDbCheckpointStore() {
         admissionId,
         JSON.stringify(state || {}),
         JSON.stringify(metadata || {}),
-        startedBy
+        startedBy,
+        parentRunId,
+        parentNode
       );
       return rows[0];
     },
@@ -83,8 +90,9 @@ export function createDbCheckpointStore() {
         const rows = await prisma.$queryRawUnsafe(
           `SELECT id, tenant_id, workflow_key, module_key, patient_uid, admission_id,
                   status, current_node, pause_reason, state, result, error_node,
-                  error_message, checkpoints, metadata, started_by, started_at,
-                  paused_at, completed_at, failed_at, updated_at
+                  error_message, checkpoints, metadata, started_by, parent_run_id,
+                  parent_node, started_at, paused_at, completed_at, failed_at,
+                  updated_at
            FROM clinical_ai_workflow_runs
            WHERE id = $1
            LIMIT 1`,
@@ -93,6 +101,24 @@ export function createDbCheckpointStore() {
         return rows[0] || null;
       } catch (err) {
         if (isMissingSchemaError(err)) return null;
+        throw err;
+      }
+    },
+
+    async listChildren(parentRunId) {
+      try {
+        const rows = await prisma.$queryRawUnsafe(
+          `SELECT id, tenant_id, workflow_key, module_key, patient_uid, admission_id,
+                  status, current_node, pause_reason, parent_run_id, parent_node,
+                  started_at, completed_at, failed_at, paused_at
+           FROM clinical_ai_workflow_runs
+           WHERE parent_run_id = $1
+           ORDER BY started_at ASC`,
+          Number.parseInt(parentRunId, 10)
+        );
+        return rows;
+      } catch (err) {
+        if (isMissingSchemaError(err)) return [];
         throw err;
       }
     },
@@ -232,7 +258,7 @@ export function createMemoryCheckpointStore() {
   }
 
   return {
-    async createRun({ tenantId, workflowKey, moduleKey = null, patientUid = null, admissionId = null, state = {}, metadata = {}, startedBy = null }) {
+    async createRun({ tenantId, workflowKey, moduleKey = null, patientUid = null, admissionId = null, state = {}, metadata = {}, startedBy = null, parentRunId = null, parentNode = null }) {
       const id = nextId++;
       const row = {
         id,
@@ -251,6 +277,8 @@ export function createMemoryCheckpointStore() {
         checkpoints: [],
         metadata: clone(metadata) || {},
         started_by: startedBy,
+        parent_run_id: parentRunId,
+        parent_node: parentNode,
         started_at: new Date().toISOString(),
         paused_at: null,
         completed_at: null,
@@ -264,6 +292,14 @@ export function createMemoryCheckpointStore() {
     async getRun(runId) {
       const row = runs.get(Number.parseInt(runId, 10));
       return row ? clone(row) : null;
+    },
+
+    async listChildren(parentRunId) {
+      const id = Number.parseInt(parentRunId, 10);
+      return [...runs.values()]
+        .filter((row) => row.parent_run_id === id)
+        .sort((a, b) => (a.started_at || '').localeCompare(b.started_at || ''))
+        .map(clone);
     },
 
     async advance(runId, state, completedNode) {
@@ -380,6 +416,7 @@ export function createResilientCheckpointStore() {
     async markCompleted(id, state, result, extra) { return tryOrDegrade((store) => store.markCompleted(id, state, result, extra)); },
     async markFailed(id, state, info) { return tryOrDegrade((store) => store.markFailed(id, state, info)); },
     async listPaused(args) { return tryOrDegrade((store) => store.listPaused(args)); },
+    async listChildren(parentId) { return tryOrDegrade((store) => store.listChildren(parentId)); },
     isDegraded() { return degraded; },
   };
 }
