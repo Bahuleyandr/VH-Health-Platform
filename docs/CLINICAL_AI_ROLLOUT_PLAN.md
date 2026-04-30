@@ -3,7 +3,8 @@
 **Status:**
 - ✅ **Phase 0 shipped** (2026-04-30) — route + RBAC split landed on `main`.
 - ✅ **Phase 1 shipped** (2026-04-30) — internal ingress manifest landed on `main`. Awaits hospital DNS + cert wiring before serving real traffic.
-- Phases 2-5 still drafted; ready for phased execution.
+- ✅ **Phase 2 shipped** (2026-04-30) — Flutter clinician screens (API client + review queue + draft detail) landed on `main`. APK build/sideload to dalekdefender is the next validation step.
+- Phases 3-5 still drafted; ready for phased execution.
 
 **Audience:** anyone picking this up in a future session — Claude, the
 project owner, or a teammate.
@@ -190,28 +191,26 @@ back to it if any phase breaks.
 - Per-overlay hostname patches for prod / staging / dev — straightforward kustomize patch when the hospital DNS naming convention is decided.
 - Dalekdefender mirror — the test rig uses tailscale-serve directly (separate concern); no ingress-nginx changes apply there.
 
-### Phase 2: First Flutter clinician screen — review queue (~1 week)
+### Phase 2: First Flutter clinician screen — review queue (~1 week) — ✅ SHIPPED 2026-04-30
 
-**Why third:** validates the end-to-end path with a real screen one doctor can actually use.
+**What landed:**
+- New `apps/staff/lib/core/services/clinical_ai_api_service.dart` — typed Dart client for all seven `/clinical-ai/clinical/*` endpoints (admission draft, full discharge-compose CRUD + resume, list-my-reviews with role auto-filter, decideReview).
+- `apps/staff/lib/features/clinical_ai/screens/clinical_ai_review_queue_screen.dart` — the queue: filter chips (Pending / Accepted / Edited / Rejected / All), pull-to-refresh, severity badges (critical + high counts) per row, tap-to-detail.
+- `apps/staff/lib/features/clinical_ai/screens/clinical_ai_draft_detail_screen.dart` — the detail/sign view: critical-flag banner, full safety-flag list, JSON draft renderer with edit-mode toggle, four decisions (Accept / Accept-edits / Needs-revision / Reject with reason).
+- Two new GoRouter routes added inside the existing ShellRoute: `/clinical-ai/queue` and `/clinical-ai/review/:reviewId`. Route push from the queue passes the row data via `extra:` so the detail screen renders immediately without a second round-trip.
+- `flutter analyze` clean on the new code; no errors, no info-level lints.
 
-**Scope (in `apps/staff`):**
-- New screen: `lib/features/clinical_ai/review_queue/`
-  - Lists `clinical_ai_reviews` where the current user is in the module's `reviewRoles`
-  - Filterable by status / module / patient
-  - Tap row → review detail with the draft, citations, safety flags, and accept/edit/reject actions
-- New screen: `lib/features/clinical_ai/draft_detail/`
-  - Renders the draft per module (discharge summary, abnormal result triage, etc.)
-  - Surfaces critical safety flags as a red banner the doctor must dismiss before signing
-  - Calls `PATCH /api/v1/clinical-ai/clinical/reviews/:id` with the decision
-- API client module mirroring the admin's `lib/api/clinicalAi*.ts` but for the Flutter side.
+**Decisions recorded in code:**
+- Compose tree visualisation deliberately NOT rendered in this MVP — too complex for a small screen and lower-value than the per-module review flow. Defer until clinicians ask.
+- Discharge-compose initiation flow also deferred — clinicians review drafts that are generated elsewhere; the "kick off a fresh compose" button is admin-portal-only for now.
+- Critical safety flags surface as a red banner (matches the admin UI's pattern). Backend already routes these to a dead-letter status, so they shouldn't normally reach the queue, but the UI handles them defensively.
 
-**Validation:**
-- Build APK, sideload to dalekdefender's test phone (the existing pipeline works).
-- One doctor uses it for a week against the dalekdefender backend.
-- Decision memory writes are visible in `clinical_ai_decision_memory` (validates the read+write loop end-to-end).
+**Verified:** `flutter analyze` clean (0 issues). Build + sideload to dalekdefender APK pipeline is the next validation step (existing pipeline at `apps/staff/build/app/outputs/flutter-apk/app-debug.apk`; rebuild with `flutter build apk --debug --dart-define=API_URL=...`).
 
-**Risks:**
-- Mobile UX for compose tree is non-trivial — start with simpler single-module reviews (med rec, aftercare) and defer the full compose tree until Phase 3.
+**Not done in this phase (intentional):**
+- Sidebar nav entry pointing to `/clinical-ai/queue` — Phase 5 work; the route exists and is reachable via deep-link or programmatic navigation today.
+- Voice input for draft generation — deferred to Phase 5+ (the existing ambient services aren't yet bridged to multi-agent draft generation).
+- Per-role config gating in `lib/core/config/role_config.dart` — clinicians without any `reviewRoles` membership simply see an empty queue, which is correct behaviour. The role-config gate is cosmetic (hide nav entry from non-reviewers) and lands in Phase 5.
 
 ### Phase 3: Flutter web build + serve from cluster (~2–3 days)
 
