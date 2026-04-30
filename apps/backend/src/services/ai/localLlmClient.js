@@ -18,6 +18,20 @@ const SUPPORTED_PROVIDERS = ['template', 'ollama', 'openai-compatible', 'openai'
 const EXTERNAL_PROVIDERS = new Set(['openai', 'anthropic']);
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
 
+// Model tiers — adapted from TauricResearch/TradingAgents' deep_think_llm /
+// quick_think_llm split. A module that declares `settings.model_tier:
+// 'deep'` is routed to the deep config (defaults: a stronger external
+// model behind CLINICAL_AI_DEEP_*); everything else uses the standard
+// CLINICAL_AI_* config. The deep tier is opt-in per module so cost stays
+// predictable. Cross-region PHI egress + budget guardrails still gate the
+// deep tier exactly like the standard tier.
+const VALID_TIERS = new Set(['quick', 'deep']);
+
+function normalizeTier(value) {
+  const raw = String(value || '').toLowerCase().trim();
+  return VALID_TIERS.has(raw) ? raw : 'quick';
+}
+
 function boolEnv(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase().trim());
 }
@@ -49,7 +63,13 @@ function defaultBaseUrl(provider) {
   return '';
 }
 
-function getApiKey(provider) {
+function getApiKey(provider, tier = 'quick') {
+  // Deep-tier first: CLINICAL_AI_DEEP_API_KEY beats everything else when
+  // the module asks for the deep tier. Falls back to the standard chain
+  // so deployments that reuse one key for both tiers keep working.
+  if (tier === 'deep' && process.env.CLINICAL_AI_DEEP_API_KEY) {
+    return process.env.CLINICAL_AI_DEEP_API_KEY;
+  }
   if (process.env.CLINICAL_AI_API_KEY) return process.env.CLINICAL_AI_API_KEY;
   if (provider === 'openai') return process.env.OPENAI_API_KEY || '';
   if (provider === 'anthropic') return process.env.ANTHROPIC_API_KEY || '';
@@ -97,13 +117,35 @@ function tenantCanUseExternal(tenantRegion) {
   return allowed.includes(String(tenantRegion).toUpperCase());
 }
 
+// Tier-prefixed env helper. When the module is in the deep tier, prefer
+// CLINICAL_AI_DEEP_* env vars; fall back to the unprefixed CLINICAL_AI_*
+// (so a deployment with one set of credentials keeps working without any
+// changes). The non-deep path is unchanged from the legacy behaviour.
+function tieredEnv(tier, suffix) {
+  if (tier === 'deep') {
+    const deepValue = process.env[`CLINICAL_AI_DEEP_${suffix}`];
+    if (deepValue !== undefined && deepValue !== '') return deepValue;
+  }
+  return process.env[`CLINICAL_AI_${suffix}`] || '';
+}
+
 function getProviderConfig(module = null, guardrails = null) {
+  const tier = normalizeTier(module?.settings?.model_tier || module?.model_tier);
+  const tierProvider = tieredEnv(tier, 'PROVIDER');
   const provider = normalizeProvider(
-    module?.provider_override || process.env.CLINICAL_AI_PROVIDER || process.env.AI_PROVIDER || 'template'
+    module?.provider_override
+      || tierProvider
+      || process.env.AI_PROVIDER
+      || 'template'
   );
-  const explicitBaseUrl = process.env.CLINICAL_AI_BASE_URL || process.env.AI_SUMMARIZE_URL || '';
+  const tierBaseUrl = tieredEnv(tier, 'BASE_URL');
+  const explicitBaseUrl = tierBaseUrl || process.env.AI_SUMMARIZE_URL || '';
   const baseUrl = normalizeBaseUrl(explicitBaseUrl || defaultBaseUrl(provider));
-  const model = module?.model_override || process.env.CLINICAL_AI_MODEL || process.env.AI_SUMMARIZE_MODEL || DEFAULT_MODEL;
+  const tierModel = tieredEnv(tier, 'MODEL');
+  const model = module?.model_override
+    || tierModel
+    || process.env.AI_SUMMARIZE_MODEL
+    || DEFAULT_MODEL;
   const timeoutMs = Math.min(
     Math.max(parseInt(process.env.CLINICAL_AI_TIMEOUT_MS, 10) || DEFAULT_TIMEOUT_MS, 5_000),
     120_000
@@ -127,7 +169,7 @@ function getProviderConfig(module = null, guardrails = null) {
     ?? process.env.CLINICAL_AI_TEMPERATURE
     ?? '0.15';
   const temperature = Math.min(Math.max(Number.parseFloat(temperatureRaw), 0), 1);
-  const apiKey = getApiKey(provider);
+  const apiKey = getApiKey(provider, tier);
   const allowExternal = module
     ? boolEnv(process.env.CLINICAL_AI_ALLOW_EXTERNAL) && Boolean(module.external_allowed)
     : boolEnv(process.env.CLINICAL_AI_ALLOW_EXTERNAL);
@@ -138,6 +180,7 @@ function getProviderConfig(module = null, guardrails = null) {
   return {
     module,
     moduleKey: module?.module_key || null,
+    tier,
     guardrails,
     provider,
     baseUrl,
@@ -458,6 +501,7 @@ async function callAnthropic(config, userPrompt, systemPrompt) {
 function serializeClinicalAiConfig(config, readiness) {
   return {
     moduleKey: config.moduleKey,
+    tier: config.tier || 'quick',
     provider: config.provider,
     model: config.model,
     enabled: readiness.ready,
@@ -476,6 +520,24 @@ export function getClinicalAiConfig() {
   return serializeClinicalAiConfig(config, readiness);
 }
 
+/**
+ * Test-only helper: returns the resolved provider config for a synthetic
+ * module without touching the DB or invoking a model. The unit suite for
+ * the deep/quick tier routing exercises this; production callers should
+ * keep using getClinicalAiConfig() / generateClinicalText().
+ */
+export function _resolveProviderConfigForTesting(module = null, guardrails = null) {
+  const config = getProviderConfig(module, guardrails);
+  return {
+    tier: config.tier,
+    provider: config.provider,
+    baseUrl: config.baseUrl,
+    model: config.model,
+    apiKey: config.apiKey,
+    serialized: serializeClinicalAiConfig(config, getReadiness(config)),
+  };
+}
+
 export async function generateClinicalText({ systemPrompt, userPrompt, taskType, tenantRegion = null, tenantId = null }) {
   const module = await getClinicalAiModule(taskType, { tenantId });
   const guardrails = await getClinicalAiGuardrails();
@@ -490,6 +552,7 @@ export async function generateClinicalText({ systemPrompt, userPrompt, taskType,
   if (config.externalProvider && !tenantCanUseExternal(tenantRegion)) {
     logger.warn('External provider blocked by region policy', {
       taskType,
+      tier: config.tier,
       provider: config.provider,
       tenantRegion,
     });
@@ -498,6 +561,7 @@ export async function generateClinicalText({ systemPrompt, userPrompt, taskType,
       usedAi: false,
       provider: 'template',
       model: config.model,
+      tier: config.tier,
       moduleKey: config.moduleKey || taskType || null,
       reason: `external_provider_blocked_for_region:${String(tenantRegion).toUpperCase()}`,
       usage: baseUsage,
@@ -511,6 +575,7 @@ export async function generateClinicalText({ systemPrompt, userPrompt, taskType,
       usedAi: false,
       provider: config.provider === 'template' ? 'template' : config.provider,
       model: config.model,
+      tier: config.tier,
       moduleKey: config.moduleKey || taskType || null,
       reason: readiness.reason,
       usage: baseUsage,
@@ -539,6 +604,7 @@ export async function generateClinicalText({ systemPrompt, userPrompt, taskType,
       usedAi: true,
       provider: looksLikeOllama(config) ? 'ollama' : config.provider,
       model: config.model,
+      tier: config.tier,
       moduleKey: config.moduleKey || taskType || null,
       usage,
       estimatedCostMinor,
@@ -546,6 +612,7 @@ export async function generateClinicalText({ systemPrompt, userPrompt, taskType,
   } catch (err) {
     logger.warn('Clinical AI generation failed; falling back to template', {
       taskType,
+      tier: config.tier,
       provider: config.provider,
       model: config.model,
       error: err.message,
@@ -555,6 +622,7 @@ export async function generateClinicalText({ systemPrompt, userPrompt, taskType,
       usedAi: false,
       provider: looksLikeOllama(config) ? 'ollama' : config.provider,
       model: config.model,
+      tier: config.tier,
       moduleKey: config.moduleKey || taskType || null,
       reason: err.message,
       usage: baseUsage,
