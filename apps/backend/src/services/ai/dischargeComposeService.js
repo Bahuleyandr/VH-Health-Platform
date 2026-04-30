@@ -331,7 +331,13 @@ async function spawnIfRequested(state, ctx, childModuleKey) {
 }
 
 let _composeGraph = null;
-function getComposeGraph() {
+/**
+ * Returns the (lazily-built) WorkflowGraph for discharge_summary_compose.
+ * Public so callers like the resume route can pass it to resumeWorkflow
+ * without re-importing the private constants. Idempotent — the graph is
+ * built once per process.
+ */
+export function getComposeGraph() {
   if (!_composeGraph) {
     _composeGraph = new WorkflowGraph({
       key: COMPOSE_MODULE_KEY,
@@ -438,16 +444,24 @@ async function resolvePatientUid(admissionId) {
   }
 }
 
+// Public constant — useful for callers that want the canonical key
+// (e.g. listing compose runs filtered by workflow_key).
+export const DISCHARGE_COMPOSE_WORKFLOW_KEY = COMPOSE_MODULE_KEY;
+
+// Test-only exports. The runtime exports above (composeDischargePackage,
+// getComposeGraph, DISCHARGE_COMPOSE_WORKFLOW_KEY) are the documented
+// public API. Anything in __testing__ is implementation detail used by
+// the unit suite and is liable to change.
 export const __testing__ = {
   COMPOSE_MODULE_KEY,
   COMPOSE_GRAPH_NODES,
   RESULT_KEYS,
   DEFAULT_COMPOSE_CHILDREN,
-  getComposeGraph,
   bandFromSafetyFlags,
   highestBand,
 };
 
 export default {
   composeDischargePackage,
+  getComposeGraph,
 };

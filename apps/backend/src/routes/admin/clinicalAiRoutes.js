@@ -10,6 +10,7 @@ import facilityRiskRoutes from './clinicalAi/facilityRiskRoutes.js';
 import platformWorkbenchRoutes from './clinicalAi/platformWorkbenchRoutes.js';
 import knowledgeGovernanceRoutes from './clinicalAi/knowledgeGovernanceRoutes.js';
 import trialSafetyOperationsRoutes from './clinicalAi/trialSafetyOperationsRoutes.js';
+import dischargeComposeRoutes from './clinicalAi/dischargeComposeRoutes.js';
 import { requireClinicalAiControl } from './clinicalAi/shared.js';
 
 const router = express.Router();
@@ -26,5 +27,6 @@ router.use('/', facilityRiskRoutes);
 router.use('/', platformWorkbenchRoutes);
 router.use('/', knowledgeGovernanceRoutes);
 router.use('/', trialSafetyOperationsRoutes);
+router.use('/', dischargeComposeRoutes);
 
 export default router;
