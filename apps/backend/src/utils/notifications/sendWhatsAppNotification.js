@@ -42,8 +42,8 @@ async function getTwilioClient() {
   if (!sid || !token) {
     throw new Error('TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are required for WHATSAPP_PROVIDER=twilio');
   }
-  // Lazy import so dev environments don't need to install twilio.
-  // eslint-disable-next-line import/no-unresolved
+  // Lazy import keeps Twilio off the cold-start path; the .catch
+  // covers slim runtimes that prune the dep.
   const mod = await import('twilio').catch(() => null);
   if (!mod) {
     throw new Error('twilio package is not installed; run `npm i twilio` to enable WhatsApp via Twilio');
