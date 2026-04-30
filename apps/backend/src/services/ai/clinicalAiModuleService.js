@@ -1429,6 +1429,97 @@ export const CLINICAL_AI_MODULES = [
       retentionDays: 365,
     },
   },
+  // ── Tier A patient explainers ────────────────────────────────────────────
+  // Five thin "explain X to the patient in plain language" wrappers added in
+  // the same session as Phase A1 KB CRUD. Each leverages the new KB
+  // retrieval surface so hospital-specific reference material can be cited
+  // (e.g. lab reference ranges from the formulary KB). Decision-support
+  // only; clinician signs off before patient sees anything.
+  {
+    module_key: 'lab_patient_explanation',
+    display_name: 'Lab Result Patient Explanation',
+    description: 'Plain-language explanation of a single lab result for the patient: what each value means, whether it is in range, what to ask the doctor, and red-flag symptoms that warrant urgent contact.',
+    enabled: false,
+    settings: {
+      surface: 'patient',
+      risk: 'medium',
+      status: 'available',
+      requiresClinicianSignoff: true,
+      requiresCitations: true,
+      reviewRoles: ['DOCTOR', 'LAB_STAFF', 'MEDICAL_RECORDS'],
+      approvalPolicy: 'clinician_signoff',
+      outputSchema: { type: 'object', required: ['explanation_summary', 'key_points'] },
+      retentionDays: 365,
+    },
+  },
+  {
+    module_key: 'radiology_patient_explanation',
+    display_name: 'Radiology Patient Explanation',
+    description: 'Plain-language explanation of a radiology report for the patient: what the imaging showed, severity in lay terms, follow-up imaging or referrals needed, and red-flag symptoms.',
+    enabled: false,
+    settings: {
+      surface: 'patient',
+      risk: 'high',
+      status: 'available',
+      requiresClinicianSignoff: true,
+      requiresCitations: true,
+      reviewRoles: ['DOCTOR', 'RADIOLOGIST', 'MEDICAL_RECORDS'],
+      approvalPolicy: 'clinician_signoff',
+      outputSchema: { type: 'object', required: ['explanation_summary', 'key_points'] },
+      retentionDays: 365,
+    },
+  },
+  {
+    module_key: 'patient_report_explainer',
+    display_name: 'Generic Patient Report Explainer',
+    description: 'Generic plain-language explanation of any clinical document the patient receives (consultation note, discharge note, procedure report). Used when no specialised explainer covers the input.',
+    enabled: false,
+    settings: {
+      surface: 'patient',
+      risk: 'medium',
+      status: 'available',
+      requiresClinicianSignoff: true,
+      requiresCitations: true,
+      reviewRoles: ['DOCTOR', 'MEDICAL_RECORDS'],
+      approvalPolicy: 'clinician_signoff',
+      outputSchema: { type: 'object', required: ['explanation_summary', 'key_points'] },
+      retentionDays: 365,
+    },
+  },
+  {
+    module_key: 'prescription_patient_explainer',
+    display_name: 'Prescription Patient Explainer',
+    description: 'Plain-language explanation of a prescription: what each medication is for, dosing instructions, common side effects to watch for, interactions to avoid, and red-flag symptoms.',
+    enabled: false,
+    settings: {
+      surface: 'patient',
+      risk: 'high',
+      status: 'available',
+      requiresClinicianSignoff: true,
+      requiresCitations: true,
+      reviewRoles: ['DOCTOR', 'PHARMACY_STAFF', 'MEDICAL_RECORDS'],
+      approvalPolicy: 'clinician_signoff',
+      outputSchema: { type: 'object', required: ['explanation_summary', 'key_points'] },
+      retentionDays: 365,
+    },
+  },
+  {
+    module_key: 'invoice_patient_explainer',
+    display_name: 'Invoice Patient Explainer',
+    description: 'Plain-language explanation of a hospital invoice: what each line item is, what the patient owes vs insurance, how to dispute charges, and where to ask for an itemised estimate.',
+    enabled: false,
+    settings: {
+      surface: 'patient',
+      risk: 'low',
+      status: 'available',
+      requiresClinicianSignoff: false,
+      requiresCitations: true,
+      reviewRoles: ['BILLING_STAFF', 'INSURANCE_COORDINATOR', 'ADMIN'],
+      approvalPolicy: 'billing_review',
+      outputSchema: { type: 'object', required: ['explanation_summary', 'key_points'] },
+      retentionDays: 365,
+    },
+  },
 ];
 
 export const DEFAULT_CLINICAL_AI_GUARDRAILS = {
