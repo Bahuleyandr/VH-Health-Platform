@@ -1204,6 +1204,39 @@ export async function reindexKnowledgeDocument(knowledgeBaseId: number, document
   );
 }
 
+/**
+ * Upload a binary file (PDF / image / text) to a knowledge base. Goes through
+ * the same /api/proxy path as the rest of the admin client; the proxy
+ * forwards multipart bodies to the backend and injects the API key + JWT
+ * server-side, matching uploadDocumentIntake's pattern.
+ */
+export async function uploadKnowledgeBaseDocument(
+  knowledgeBaseId: number,
+  file: File,
+  opts: { title?: string | null; metadata?: Record<string, unknown> } = {},
+) {
+  const form = new FormData();
+  form.append('file', file);
+  if (opts.title) form.append('title', opts.title);
+  if (opts.metadata) form.append('metadata', JSON.stringify(opts.metadata));
+
+  const response = await apiFetch(
+    `/api/v1/admin/clinical-ai/knowledge-bases/${knowledgeBaseId}/documents`,
+    { method: 'POST', body: form },
+  );
+  const body = (await response.json().catch(() => null)) as
+    | { data?: KnowledgeDocumentIngestResult; message?: string; error?: string }
+    | null;
+  if (!response.ok) {
+    throw new APIError(
+      body?.message || body?.error || `HTTP ${response.status} uploading knowledge document`,
+      response.status,
+      body,
+    );
+  }
+  return body?.data ?? (body as KnowledgeDocumentIngestResult);
+}
+
 export async function deleteKnowledgeDocument(knowledgeBaseId: number, documentId: number) {
   return fetchAdminAPI<{ id: number; knowledge_base_id: number; title: string }>(
     `/admin/clinical-ai/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`,

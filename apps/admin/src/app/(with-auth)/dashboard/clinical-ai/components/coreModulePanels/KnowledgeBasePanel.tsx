@@ -18,9 +18,9 @@
  * policy text anyway; PDF ingest is a small follow-up PR.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, BookOpen, FileText, Plus, RotateCcw, Search, Shield, Trash2, Undo2 } from "lucide-react";
+import { Archive, BookOpen, FileText, Plus, RotateCcw, Search, Shield, Trash2, Undo2, Upload } from "lucide-react";
 import { toast } from "react-hot-toast";
 
 import {
@@ -36,13 +36,21 @@ import {
   retrieveFromKnowledgeBases,
   revokeKnowledgeAccess,
   unarchiveKnowledgeBase,
+  uploadKnowledgeBaseDocument,
   type KnowledgeBase,
   type KnowledgeBasePermission,
   type KnowledgeBaseStatus,
   type KnowledgeBaseType,
   type KnowledgeDocument,
+  type KnowledgeDocumentIngestResult,
   type KnowledgeDocumentStatus,
 } from "@/lib/api/clinicalAiAdmin";
+
+// Mirror the backend's multer allow-list + 25 MB cap so client-side
+// validation rejects bad uploads before the round-trip.
+const KB_UPLOAD_ACCEPT =
+  "application/pdf,image/jpeg,image/png,image/webp,image/tiff,image/bmp,text/plain,text/markdown,text/csv,application/json";
+const KB_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
 
 const KB_TYPES: KnowledgeBaseType[] = [
   "general",
@@ -383,6 +391,9 @@ function KbDocumentSection({ knowledgeBaseId }: { knowledgeBaseId: number }) {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState("");
   const [rawText, setRawText] = useState("");
+  const [uploadTitle, setUploadTitle] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const docs = useQuery({
     queryKey: ["clinical-ai", "knowledge-bases", knowledgeBaseId, "documents"],
@@ -391,6 +402,23 @@ function KbDocumentSection({ knowledgeBaseId }: { knowledgeBaseId: number }) {
 
   const documents: KnowledgeDocument[] = docs.data?.documents ?? [];
 
+  const reportIngestResult = (result: KnowledgeDocumentIngestResult) => {
+    const verdict = result.document.prompt_injection_verdict;
+    if (result.document.processing_status === "blocked") {
+      toast.error(`Blocked for prompt injection (${result.injection_safety_flag?.code ?? "unknown"})`);
+    } else if (verdict === "flag") {
+      toast(`Indexed with flag verdict (${result.embedded_count ?? 0}/${result.chunk_count ?? 0} chunks).`);
+    } else if (result.reason === "no_text_extracted") {
+      toast.error("No text extracted from file (OCR could not read it)");
+    } else {
+      toast.success(
+        `Indexed ${result.embedded_count ?? 0} of ${result.chunk_count ?? 0} chunks`,
+      );
+    }
+    queryClient.invalidateQueries({ queryKey: ["clinical-ai", "knowledge-bases", knowledgeBaseId, "documents"] });
+    queryClient.invalidateQueries({ queryKey: ["clinical-ai", "knowledge-bases"] });
+  };
+
   const ingest = useMutation({
     mutationFn: () =>
       createInlineKnowledgeDocument(knowledgeBaseId, {
@@ -398,22 +426,27 @@ function KbDocumentSection({ knowledgeBaseId }: { knowledgeBaseId: number }) {
         raw_text: rawText.trim(),
       }),
     onSuccess: (result) => {
-      const verdict = result.document.prompt_injection_verdict;
-      if (result.document.processing_status === "blocked") {
-        toast.error(`Blocked for prompt injection (${result.injection_safety_flag?.code ?? "unknown"})`);
-      } else if (verdict === "flag") {
-        toast(`Indexed with flag verdict (${result.embedded_count ?? 0}/${result.chunk_count ?? 0} chunks).`);
-      } else {
-        toast.success(
-          `Indexed ${result.embedded_count ?? 0} of ${result.chunk_count ?? 0} chunks`,
-        );
-      }
+      reportIngestResult(result);
       setTitle("");
       setRawText("");
-      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "knowledge-bases", knowledgeBaseId, "documents"] });
-      queryClient.invalidateQueries({ queryKey: ["clinical-ai", "knowledge-bases"] });
     },
     onError: (err: Error) => toast.error(err.message || "Ingest failed"),
+  });
+
+  const upload = useMutation({
+    mutationFn: () => {
+      if (!uploadFile) throw new Error("Pick a file first");
+      return uploadKnowledgeBaseDocument(knowledgeBaseId, uploadFile, {
+        title: uploadTitle.trim() || null,
+      });
+    },
+    onSuccess: (result) => {
+      reportIngestResult(result);
+      setUploadFile(null);
+      setUploadTitle("");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    },
+    onError: (err: Error) => toast.error(err.message || "Upload failed"),
   });
 
   const reindex = useMutation({
@@ -436,6 +469,10 @@ function KbDocumentSection({ knowledgeBaseId }: { knowledgeBaseId: number }) {
   });
 
   const canIngest = title.trim().length > 0 && rawText.trim().length >= 20 && !ingest.isPending;
+  const canUpload = uploadFile != null && !upload.isPending;
+  const fileSizeWarning = uploadFile && uploadFile.size > KB_UPLOAD_MAX_BYTES
+    ? `File is ${(uploadFile.size / (1024 * 1024)).toFixed(1)} MB; backend rejects anything over 25 MB.`
+    : null;
 
   return (
     <div className="space-y-3">
@@ -468,7 +505,6 @@ function KbDocumentSection({ knowledgeBaseId }: { knowledgeBaseId: number }) {
         <div className="lg:col-span-12 flex items-center justify-between">
           <p className="text-xs text-muted-foreground">
             Goes through the same S1 prompt-injection gate as document intelligence.
-            File-upload UI ships in a follow-up.
           </p>
           <button
             onClick={() => ingest.mutate()}
@@ -478,6 +514,61 @@ function KbDocumentSection({ knowledgeBaseId }: { knowledgeBaseId: number }) {
             <Plus className="h-4 w-4" />
             {ingest.isPending ? "Ingesting..." : "Ingest text"}
           </button>
+        </div>
+      </div>
+
+      <div className="rounded-md border border-dashed border-border bg-muted/30 p-3">
+        <p className="mb-2 text-xs font-semibold text-muted-foreground">
+          Or upload a file (PDF / image / text — 25 MB max)
+        </p>
+        <div className="grid gap-2 lg:grid-cols-12">
+          <label className="space-y-1 text-sm lg:col-span-4">
+            <span className="text-muted-foreground">Title (optional)</span>
+            <input
+              value={uploadTitle}
+              onChange={(e) => setUploadTitle(e.target.value)}
+              placeholder="Defaults to filename"
+              className="w-full rounded-md border border-border bg-background px-3 py-2"
+            />
+          </label>
+          <label className="space-y-1 text-sm lg:col-span-6">
+            <span className="text-muted-foreground">File</span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={KB_UPLOAD_ACCEPT}
+              onChange={(e) => {
+                const file = e.target.files?.[0] ?? null;
+                if (file && file.size > KB_UPLOAD_MAX_BYTES) {
+                  toast.error(`File too large: ${(file.size / (1024 * 1024)).toFixed(1)} MB > 25 MB cap`);
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                  setUploadFile(null);
+                  return;
+                }
+                setUploadFile(file);
+              }}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs file:mr-3 file:rounded-md file:border-0 file:bg-emerald-100 file:px-3 file:py-1 file:text-xs file:font-medium file:text-emerald-800 hover:file:bg-emerald-200"
+            />
+          </label>
+          <div className="lg:col-span-2 flex items-end">
+            <button
+              type="button"
+              onClick={() => upload.mutate()}
+              disabled={!canUpload || Boolean(fileSizeWarning)}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+            >
+              <Upload className="h-4 w-4" />
+              {upload.isPending ? "Uploading..." : "Upload"}
+            </button>
+          </div>
+          {fileSizeWarning ? (
+            <p className="lg:col-span-12 text-xs text-red-700">{fileSizeWarning}</p>
+          ) : null}
+          {uploadFile && !fileSizeWarning ? (
+            <p className="lg:col-span-12 text-xs text-muted-foreground">
+              {uploadFile.name} · {(uploadFile.size / 1024).toFixed(1)} KB · {uploadFile.type || "unknown type"}
+            </p>
+          ) : null}
         </div>
       </div>
 

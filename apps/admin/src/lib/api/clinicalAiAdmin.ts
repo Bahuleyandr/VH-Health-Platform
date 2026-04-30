@@ -383,6 +383,7 @@ export {
   revokeKnowledgeAccess,
   unarchiveKnowledgeBase,
   updateKnowledgeBase,
+  uploadKnowledgeBaseDocument,
   generateAbnormalResultTriage,
   generateAdmissionAiDraft,
   generateAntimicrobialStewardshipReview,
