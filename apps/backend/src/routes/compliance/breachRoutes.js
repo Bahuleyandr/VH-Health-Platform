@@ -13,6 +13,17 @@ import {
   upsertDataProcessingActivity,
 } from '../../services/compliance/dataProcessingActivityService.js';
 import { getComplianceDashboard } from '../../services/compliance/complianceDashboardService.js';
+import {
+  getNextNumber,
+  listNumberingSeries,
+  upsertNumberingSeries,
+} from '../../services/compliance/numberingSeriesService.js';
+import {
+  archiveRetentionPolicy,
+  getRetentionForTable,
+  listDataRetentionPolicies,
+  upsertDataRetentionPolicy,
+} from '../../services/compliance/dataRetentionPolicyService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { requiredString, requiredEnum, paramId } from '../../validators/sharedValidators.js';
 
@@ -251,6 +262,97 @@ router.delete('/processing-activities/:id', async (req, res, next) => {
       tenantId: req.tenantId, id: req.params.id,
     });
     return success(res, row, 'Data processing activity archived');
+  } catch (err) { return next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Numbering series (E2)
+// ---------------------------------------------------------------------------
+
+router.put('/numbering-series', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await upsertNumberingSeries({
+      tenantId: req.tenantId, id: b.id,
+      code: b.code, displayName: b.display_name,
+      formatTemplate: b.format_template,
+      startingValue: b.starting_value, padding: b.padding,
+      resetCadence: b.reset_cadence,
+      status: b.status, metadata: b.metadata,
+    });
+    return success(res, row, 'Numbering series saved');
+  } catch (err) { return next(err); }
+});
+
+router.get('/numbering-series', async (req, res, next) => {
+  try {
+    const result = await listNumberingSeries({
+      tenantId: req.tenantId,
+      status: req.query.status || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Numbering series retrieved');
+  } catch (err) { return next(err); }
+});
+
+router.post('/numbering-series/:code/next', async (req, res, next) => {
+  try {
+    const result = await getNextNumber({
+      tenantId: req.tenantId, code: req.params.code,
+    });
+    return success(res, result, 'Next number issued', 201);
+  } catch (err) { return next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Data retention policies (E2)
+// ---------------------------------------------------------------------------
+
+router.put('/retention-policies', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const row = await upsertDataRetentionPolicy({
+      tenantId: req.tenantId, id: b.id,
+      policyCode: b.policy_code, appliesToTable: b.applies_to_table,
+      displayName: b.display_name, description: b.description,
+      retentionDays: b.retention_days, action: b.action, basis: b.basis,
+      legalHoldAware: b.legal_hold_aware,
+      dataProcessingActivityId: b.data_processing_activity_id,
+      status: b.status, metadata: b.metadata,
+      createdBy: req.user?.uid || req.user?.id || null,
+    });
+    return success(res, row, 'Retention policy saved');
+  } catch (err) { return next(err); }
+});
+
+router.get('/retention-policies', async (req, res, next) => {
+  try {
+    const result = await listDataRetentionPolicies({
+      tenantId: req.tenantId,
+      status: req.query.status || null,
+      action: req.query.action || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Retention policies retrieved');
+  } catch (err) { return next(err); }
+});
+
+router.get('/retention-policies/lookup/:table', async (req, res, next) => {
+  try {
+    const row = await getRetentionForTable({
+      tenantId: req.tenantId, appliesToTable: req.params.table,
+    });
+    if (!row) return success(res, null, 'No active retention policy for this table');
+    return success(res, row, 'Retention policy retrieved');
+  } catch (err) { return next(err); }
+});
+
+router.delete('/retention-policies/:id', async (req, res, next) => {
+  try {
+    const row = await archiveRetentionPolicy({
+      tenantId: req.tenantId, id: req.params.id,
+    });
+    return success(res, row, 'Retention policy archived');
   } catch (err) { return next(err); }
 });
 
