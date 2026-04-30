@@ -143,6 +143,7 @@ import adminGamificationRoutes from './routes/gamification/adminGamificationRout
 
 // Clinical workflows (MAR, NEWS2, Handover)
 import clinicalRoutes from './routes/clinical/clinicalRoutes.js';
+import clinicalAssessmentRoutes from './routes/clinical/assessmentRoutes.js';
 
 // EMR — Clinical Documentation (SOAP, Progress, Procedure, Discharge, Timeline)
 import clinicalNotesRoutes from './routes/emr/clinicalNotesRoutes.js';
@@ -488,6 +489,9 @@ app.use('/api/v1/documents', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURS
 
 // Clinical workflows: MAR, NEWS2, Nurse Handover
 app.use('/api/v1/clinical', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
+
+// Clinical assessments: pain / fall-risk / growth-chart (Phase F2)
+app.use('/api/v1/clinical/assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT'), phiAccessLogger('CLINICAL_ASSESSMENT'), clinicalAssessmentRoutes);
 
 // EMR — one role gate, then route-family PHI logging only for matching paths.
 app.use('/api/v1/emr', requireRole(...CLINICAL_STAFF_ROLES));
