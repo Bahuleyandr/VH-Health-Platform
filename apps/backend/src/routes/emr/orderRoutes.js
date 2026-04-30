@@ -1,5 +1,6 @@
 // src/routes/emr/orderRoutes.js
 import express from 'express';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import * as orderEntryService from '../../services/emr/orderEntryService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -10,7 +11,7 @@ const router = express.Router();
 // POST /emr/orders — Create a clinical order
 // ===================================================================
 
-router.post('/orders', async (req, res, next) => {
+router.post('/orders', requireIdempotencyKey({ required: false, scope: 'clinical_order' }), async (req, res, next) => {
   try {
     const { encounter_id, patient_uid, order_type, priority, details, start_date, end_date, notes } = req.body;
 
