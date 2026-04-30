@@ -1,0 +1,13 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: vhhealth-staff-web
+  labels:
+    app.kubernetes.io/name: vhhealth-staff-web
+    app.kubernetes.io/component: staff-web
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vhhealth-staff-web

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vhhealth-staff-web
+  labels:
+    app.kubernetes.io/name: vhhealth-staff-web
+    app.kubernetes.io/component: staff-web
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: vhhealth-staff-web

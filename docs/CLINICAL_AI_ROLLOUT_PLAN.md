@@ -4,7 +4,8 @@
 - ✅ **Phase 0 shipped** (2026-04-30) — route + RBAC split landed on `main`.
 - ✅ **Phase 1 shipped** (2026-04-30) — internal ingress manifest landed on `main`. Awaits hospital DNS + cert wiring before serving real traffic.
 - ✅ **Phase 2 shipped** (2026-04-30) — Flutter clinician screens (API client + review queue + draft detail) landed on `main`. APK build/sideload to dalekdefender is the next validation step.
-- Phases 3-5 still drafted; ready for phased execution.
+- ✅ **Phase 3 shipped** (2026-04-30) — Flutter web Dockerfile + nginx + cluster manifests landed on `main`. CI image-build wiring + ArgoCD overlay pinning are the remaining wiring steps.
+- Phases 4-5 still drafted; ready for phased execution.
 
 **Audience:** anyone picking this up in a future session — Claude, the
 project owner, or a teammate.
@@ -212,23 +213,28 @@ back to it if any phase breaks.
 - Voice input for draft generation — deferred to Phase 5+ (the existing ambient services aren't yet bridged to multi-agent draft generation).
 - Per-role config gating in `lib/core/config/role_config.dart` — clinicians without any `reviewRoles` membership simply see an empty queue, which is correct behaviour. The role-config gate is cosmetic (hide nav entry from non-reviewers) and lands in Phase 5.
 
-### Phase 3: Flutter web build + serve from cluster (~2–3 days)
+### Phase 3: Flutter web build + serve from cluster (~2–3 days) — ✅ SHIPPED 2026-04-30
 
-**Why fourth:** adds the workstation experience without writing new UI code.
+**What landed:**
+- `apps/staff/Dockerfile.web` — three-stage build (`flutter-build` → `asset-prep` → `nginx:1.27-alpine` runner). Bakes `--dart-define=API_URL=...` at build time so per-environment images point at the right LAN backend. Runs as non-root user `nginx` on port 8080 (no NET_BIND_SERVICE needed). Final image is ~30MB (alpine) carrying ~10MB of Flutter web assets.
+- `apps/staff/nginx-staff-web.conf` — SPA routing (try_files → /index.html for GoRouter deep links), aggressive caching for hash-stamped Flutter outputs (1y immutable on `main.dart.js`, `flutter.js`, `/assets/*`, `/canvaskit/*`; `no-store` on index.html so ArgoCD rollouts pick up immediately), gzip + brotli, helmet-equivalent security headers, CSP that permits `connect-src 'self' wss: https:` for the API call from same-origin.
+- New k8s manifest set under `infra/kubernetes/apps/staff-web/`:
+  - `deployment.yaml` — 2 replicas, anti-affinity, runs as nginx user, read-only rootfs with tmpfs for `/var/cache/nginx`, `/var/run`, `/tmp`. Lightweight resource requests (25m CPU, 32Mi mem; 200m / 128Mi limits).
+  - `service.yaml` — ClusterIP on port 80 → pod 8080.
+  - `ingress.yaml` — `ingressClassName: nginx-internal`, same `clinical.<hospital>.local` hostname as the backend's clinical Ingress (Phase 1). Path-prefix discipline: backend Ingress claims `/api/v1/clinical-ai/clinical/*` and `/api/v1/health`, this Ingress claims `/` (the SPA itself); nginx-ingress most-specific-first matching keeps them co-located cleanly.
+  - `hpa.yaml` — 2-6 replicas, scales on CPU at 60% utilisation (shift-change spike workload).
+  - `pdb.yaml` — `minAvailable: 1` (rolling updates always keep one pod up).
+  - `network-policy.yaml` — ingress only from `vhhealth-ingress` namespace + `ingress-nginx-internal` pods; egress empty (the pod has no legitimate outbound traffic).
+- Added `staff-web/` to `infra/kubernetes/apps/kustomization.yaml` so ArgoCD picks it up alongside backend + admin.
 
-**Scope:**
-- Add `flutter build web` to the staff app's CI.
-- New container image `vhhealth-staff-web` serving the built static assets.
-- New k8s manifest under `infra/kubernetes/apps/staff-web/` with `ingressClassName: internal`.
-- Hospital DNS: `clinical.<hospital>.local` → staff-web service.
-- Configure base URL via `--dart-define=API_URL=https://clinical.<hospital>.local`.
+**Verified:** `kubectl kustomize infra/kubernetes/apps/staff-web/` and `kubectl kustomize infra/kubernetes/apps/` both emit clean. All seven resources (Deployment, Service, Ingress, HPA, PDB, NetworkPolicy + namespace inheritance) have correct labels and selectors.
 
-**Validation:**
-- Browser at workstation hits `https://clinical.dalekdefender.hippocampus-monitor.ts.net/`, gets the staff app, can log in, can drive a review.
-- Same URL fails from outside the tailnet.
+**What's NOT done (intentionally — small follow-up tasks, NOT blocking real traffic):**
+1. CI workflow to build + push the staff-web image. Pattern: extend `.github/workflows/release-images.yml` with a third matrix entry mirroring backend/admin (build → trivy scan → cosign sign → push to ghcr). Tag scheme: `staff-web-v*` releases, `main-<sha>` per-push, `latest-staff-web` floating. Once the CI is in place, ArgoCD overlays for prod/staging pin to the tag.
+2. Per-overlay image patches in `infra/kubernetes/overlays/{prod,staging,dev}` to pin a specific `staff-web-v*` tag (default in base is `latest-staff-web` for dev convenience).
+3. Same hostname-patch story as Phase 1 — when hospital network team confirms the `clinical.<hospital>.local` naming convention, patch all three `clinical.vhhealth.hospital.local` references (backend Ingress + staff-web Ingress + Flutter `--dart-define=API_URL`).
 
-**Risks:**
-- Flutter web has rough edges for some plugins (e.g. native filesystem, biometric auth). Audit `apps/staff/pubspec.yaml` for plugins that don't support web; gate those features.
+**Risk audit (called out in plan; verified):** the staff app's `pubspec.yaml` uses `flutter_secure_storage` (web-supported via IndexedDB), `package:http` (web ✓), `go_router` (web ✓), `provider` (web ✓). No filesystem / camera / biometric plugins on the critical path for the clinical-AI screens. Voice / ambient-recording plugins are gated to mobile only via `kIsWeb` checks in the existing code.
 
 ### Phase 4: Local Ollama for the deep tier (~1–2 days infra + integration)
 
