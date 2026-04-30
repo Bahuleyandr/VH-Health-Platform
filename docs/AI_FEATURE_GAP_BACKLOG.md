@@ -33,8 +33,9 @@ currently doesn't. Headline numbers:
 | Partial (substrate exists; specific use case needs surfacing) | ~30 |
 | Missing | ~65 |
 
-Three substrate-level safety holes are worth fixing **before** building
-new modules. They're listed first below.
+Five substrate-level safety holes (S1–S5) were called out as
+must-fix-before-new-modules. **All five shipped 2026-04-30**; the
+section below documents what landed for the historical record.
 
 The "First-20 build order" the catalogue prescribes is **14/20 fully
 done · 3/20 partial · 3/20 missing** — see §18.
@@ -80,66 +81,87 @@ prescribes.** Real gaps below.
 
 ---
 
-## Substrate-level safety holes (fix these first)
+## Substrate-level safety holes (S1–S5) — ✅ ALL CLOSED 2026-04-30
 
-These are **not** missing features — they are gaps that weaken the
-existing safety story and should be closed before the next paying-customer
-launch.
+These are **not** missing features — they are gaps that weakened the
+existing safety story. **All five shipped 2026-04-30** in a single
+session before further module work; new module work (Tier A, Phase A
+KB CRUD, etc.) can now proceed against a clean substrate.
 
-### S1. No prompt-injection detector for ingested documents
+### S1. No prompt-injection detector for ingested documents — ✅ SHIPPED
 
-**Problem:** RAG and document intelligence both ingest external
-PDFs/images. `services/ai/` has no `documentPromptInjectionDetector`. The
-only related artifact is one adversarial test in
-`tests/adversarial/hallucinationAdversarial.test.js`. RAG context flows
-into LLM prompts, so a malicious lab report could try to override
-clinician-facing instructions.
+**Was:** RAG and document intelligence both ingested external
+PDFs/images with no untrusted-content gate. RAG context flows into LLM
+prompts, so a malicious lab report could try to override clinician-
+facing instructions.
 
-**Fix scope:** new service module `documentPromptInjectionDetectorService.js`
-+ pre-ingestion gate in `documentIntelligenceService` and
-`ragService.backfillSignedDischargeSummaries`. Treat retrieved/uploaded
-content as untrusted by default.
+**Shipped:** `documentPromptInjectionDetectorService.js` with three-tier
+verdict (pass / flag / block); critical chat-template tokens, direct
+override directives, and system-prompt-override patterns block; role-
+flips, prompt-leak requests, persona-hijacks, and obfuscation patterns
+flag. Wired into `documentIntelligenceService.ingestClinicalDocument`
+(skips LLM call on block, hardens system prompt on flag) and
+`ragService.indexDocument` (refuses corpus indexing on block, marks
+chunk metadata on flag). 39 new tests (26 unit + 10 adversarial + 3
+integration). See feat: S1 commit on main.
 
-### S2. `clinical_protocols` table is empty
+### S2. `clinical_protocols` table is empty — ✅ SHIPPED
 
-**Problem:** Migration 093 created it; without seed data the
-protocol-reminder pass in `cdsEngine` returns no alerts even though the
-surface works. (Already noted as item 1.5 in
-`project_vh_health_unification.md`.)
+**Was:** Migration 093 created the table; without seed data the
+protocol-reminder pass in `cdsEngine` returned no alerts even though
+the surface worked.
 
-**Fix scope:** seed migration with sepsis bundle, VTE prophylaxis, DVT,
-ARDS, ICU/ED handover protocols. Needs clinical sign-off.
+**Shipped:** Migration 111 seeds six citation-attributed protocols
+(Sepsis 1-hour bundle / SSC 2021, VTE prophylaxis / NICE NG89, Suspected
+DVT workup / NICE NG158, ARDS lung-protective ventilation / ARDSNet,
+ICU SBAR handover / Joint Commission, ED-to-ward handover / SHARED).
+Idempotent via unique index + ON CONFLICT DO NOTHING. 11 new tests.
+See feat: S2 commit on main.
 
-### S3. Bias-monitoring telemetry is absent
+### S3. Bias-monitoring telemetry is absent — ✅ SHIPPED
 
-**Problem:** Eval runs track accuracy / F1 / safety / drift, but **not by
-age / sex / language / disease group / facility**. WHO governance
-guidance specifically calls this out.
+**Was:** Eval runs tracked accuracy / F1 / safety / drift but not by
+age / sex / language / disease group / facility, so an aggregate pass
+rate could mask large per-slice gaps.
 
-**Fix scope:** extend `clinical_ai_model_eval_runs` schema +
-`driftCanaryService` to slice metrics on demographic axes. Add bias
-panel to admin governance dashboard.
+**Shipped:** Migration 112 adds `slice_attributes` to canary cases and
+`slice_metrics` + `bias_signals` to canary runs and model eval runs.
+`driftCanaryService.computeSliceMetrics` and `computeBiasSignals` flag
+slices that underperform overall pass rate by ≥15pp (medium), ≥25pp
+(high), ≥35pp (critical) with `sample_count >= 3`. Admin
+DriftCanaryPanel now exposes per-axis inputs on the case form, a
+bias-signals banner on the latest run, and a slice-metrics breakdown
+table. 20 new tests. See feat: S3 commit on main.
 
-### S4. CDS Hooks JSON-card contract is missing
+### S4. CDS Hooks JSON-card contract is missing — ✅ SHIPPED
 
-**Problem:** `cdsEngine` returns internal alert objects, **not**
-standards-compliant CDS Hooks cards. Catalogue explicitly names
-`patient-view`, `order-select`, and `order-sign` cards. This blocks
-third-party EHR integration.
+**Was:** `cdsEngine` returned internal alert objects, not standards-
+compliant CDS Hooks cards, blocking third-party EHR integration.
 
-**Fix scope:** adapter at `routes/clinical/cdsHooksRoutes.js` translating
-existing alerts into CDS Hooks JSON cards. Substrate is fine; we just
-don't speak the standard yet.
+**Shipped:** `cdsHooksAdapter` translates internal alerts to CDS Hooks
+cards (severity → indicator, content-derived deterministic uuids,
+overrideReasons + extension surfacing). Routes mounted at
+`/api/v1/cds-services` with GET discovery + POST per-hook invoke for
+patient-view, medication-prescribe, order-select, order-sign — same
+RBAC + PHI-access logging as FHIR. 24 new tests. See feat: S4 commit
+on main.
 
-### S5. No regulatory-readiness pack exporter
+### S5. No regulatory-readiness pack exporter — ✅ SHIPPED
 
-**Problem:** Substrate generates everything CDSCO / EU MDR / FDA SaMD
+**Was:** Substrate generates everything CDSCO / EU MDR / FDA SaMD
 reviewers want (model registry, eval runs, drift, incidents, reviews)
-but there's no one-click "export evidence pack for module X v1.2" flow.
+but there was no one-click "export evidence pack for module X v1.2"
+flow.
 
-**Fix scope:** background job + admin button. Output: zipped manifest of
-model versions, eval results, drift logs, incident reports, prompt
-versions, review decisions for the named module + version range.
+**Shipped:** `regulatoryReadinessService.assembleReadinessPack` hits
+seven tables in parallel (module / model_registry / eval_runs /
+canary_runs / safety_reviews / prompts / reviews), tenant-scopes every
+query, and degrades gracefully on missing tables (returns
+`skipped_reason='schema_unavailable'`). Bias signal counts surface in
+the summary. Admin route at POST `/admin/clinical-ai/readiness-pack`,
+audit-logged via `logClinicalAiAudit`. Admin API client function
+shipped; UI export button is a small follow-up wrapper. 6 new tests.
+See feat: S5 commit on main.
 
 ---
 
@@ -639,7 +661,8 @@ substrate-equivalents).
 
 Don't add infrastructure; add module wrappers. Order:
 
-1. Close the five substrate-level safety holes (S1–S5).
+1. ✅ Close the five substrate-level safety holes (S1–S5) — **all
+   shipped 2026-04-30**, see the section above for what landed.
 2. Tier A patient-facing explainers and Tier B OR vertical for highest
    visible value per week.
 3. Then Tier C / D in parallel against customer pull.
