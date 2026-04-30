@@ -1,0 +1,73 @@
+---
+# vh-mcp-postgres on Dalekdefender k3s.
+# The MCP_BEARER_TOKEN secret is created out-of-band (kubectl create secret).
+# DATABASE_URL points at the in-cluster vhhealth Postgres service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vh-mcp-postgres
+  namespace: vhhealth
+  labels:
+    app: vh-mcp-postgres
+spec:
+  type: NodePort
+  selector:
+    app: vh-mcp-postgres
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 30092
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vh-mcp-postgres
+  namespace: vhhealth
+  labels:
+    app: vh-mcp-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vh-mcp-postgres
+  template:
+    metadata:
+      labels:
+        app: vh-mcp-postgres
+    spec:
+      containers:
+        - name: server
+          image: vh-mcp-postgres:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: PORT
+              value: "8080"
+            - name: MCP_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: vh-mcp-postgres
+                  key: bearer_token
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vh-mcp-postgres
+                  key: database_url
+          readinessProbe:
+            httpGet: { path: /health, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: 8080 }
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
