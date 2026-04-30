@@ -39,9 +39,18 @@ import {
   listSubscriptions,
   updateSubscription,
 } from '../../services/integrations/webhookSubscriptionService.js';
+import {
+  dispatchPendingDeliveries,
+  enqueueDelivery,
+  getDelivery,
+  listDeliveries,
+  markDeliveryDead,
+  redriveDelivery,
+} from '../../services/integrations/webhookDeliveryService.js';
 
 const integrationRouter = express.Router();
 const subscriptionRouter = express.Router();
+const deliveryRouter = express.Router();
 
 // ---------------------------------------------------------------------------
 // Integrations
@@ -256,5 +265,86 @@ subscriptionRouter.delete('/:id', async (req, res, next) => {
   }
 });
 
-export { integrationRouter, subscriptionRouter };
+// ---------------------------------------------------------------------------
+// Webhook deliveries (PR2)
+// ---------------------------------------------------------------------------
+
+deliveryRouter.get('/', async (req, res, next) => {
+  try {
+    const result = await listDeliveries({
+      tenantId: req.tenantId,
+      subscriptionId: req.query.subscription_id || null,
+      status: req.query.status || null,
+      eventType: req.query.event_type || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Webhook deliveries retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+deliveryRouter.post('/enqueue', async (req, res, next) => {
+  try {
+    const result = await enqueueDelivery({
+      tenantId: req.tenantId,
+      eventType: req.body?.event_type,
+      payload: req.body?.payload || {},
+      eventOutboxId: req.body?.event_outbox_id || null,
+      requestId: req.body?.request_id || null,
+    });
+    return success(res, result, 'Webhook deliveries enqueued', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+deliveryRouter.post('/dispatch-now', async (req, res, next) => {
+  try {
+    const result = await dispatchPendingDeliveries({
+      tenantId: req.tenantId,
+      batchSize: req.body?.batch_size,
+    });
+    return success(res, result, 'Webhook dispatch tick complete', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+deliveryRouter.get('/:id', async (req, res, next) => {
+  try {
+    const row = await getDelivery({ tenantId: req.tenantId, id: req.params.id });
+    return success(res, row, 'Webhook delivery retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+deliveryRouter.patch('/:id/mark-dead', async (req, res, next) => {
+  try {
+    const row = await markDeliveryDead({
+      tenantId: req.tenantId,
+      id: req.params.id,
+      reason: req.body?.reason || null,
+    });
+    return success(res, row, 'Webhook delivery marked dead');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+deliveryRouter.post('/:id/redrive', async (req, res, next) => {
+  try {
+    const row = await redriveDelivery({
+      tenantId: req.tenantId,
+      id: req.params.id,
+      redrivenBy: req.user?.uid || null,
+    });
+    return success(res, row, 'Webhook delivery redriven', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+export { deliveryRouter, integrationRouter, subscriptionRouter };
 export default integrationRouter;

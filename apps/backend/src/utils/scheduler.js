@@ -37,6 +37,9 @@ import { scheduleArchiveMigrationJob } from './archiveMigrationJob.js';
 // Clinical-AI workflow resume scheduler — Phase 5 of the rollout.
 import { runPausedWorkflowSweep } from '../services/ai/workflowResumeScheduler.js';
 
+// Webhook delivery dispatcher — Phase A3 PR2 of the structural audit.
+import { dispatchPendingDeliveries } from '../services/integrations/webhookDeliveryService.js';
+
 // Notifications
 import { verifyLatestBackup } from './backupVerification.js';
 import { runCanaryChecks } from './canaryHealthCheck.js';
@@ -166,6 +169,14 @@ cron.schedule('*/30 * * * * *', withJobLock('admin-kpi-tick', tickAdminKpi));
 // Bounded at 25 resumes per tick to avoid runaway fan-out.
 cron.schedule('*/30 * * * * *', withJobLock('clinical-ai-workflow-resume', async () => {
   await runPausedWorkflowSweep({ maxResumes: 25 });
+}));
+
+// Every 30 seconds — webhook delivery dispatcher. Claims pending /
+// retryable-failed rows from webhook_deliveries via FOR UPDATE SKIP
+// LOCKED, signs + POSTs each, and writes per-attempt audit through
+// integration_logs. Bounded at 25 deliveries per tick.
+cron.schedule('*/30 * * * * *', withJobLock('webhook-delivery-dispatch', async () => {
+  await dispatchPendingDeliveries({ batchSize: 25 });
 }));
 
 // Schema drift detection — once at startup
