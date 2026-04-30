@@ -9,9 +9,13 @@
 import { jest } from '@jest/globals';
 
 const queryUnsafeMock = jest.fn();
+const transactionMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: { $queryRawUnsafe: queryUnsafeMock },
+  default: {
+    $queryRawUnsafe: queryUnsafeMock,
+    $transaction: transactionMock,
+  },
 }));
 
 const {
@@ -20,6 +24,7 @@ const {
   addPurchaseOrderItem,
   addSubstitute,
   appendStockMovement,
+  bridgeForecastToBatches,
   computeExpiryAlerts,
   createGoodsReceipt,
   createPurchaseOrder,
@@ -32,6 +37,7 @@ const {
   listSubstitutes,
   listSuppliers,
   recallBatch,
+  receivePurchaseOrderLine,
   reserveStock,
   transitionPurchaseOrder,
   upsertInventoryItem,
@@ -44,6 +50,8 @@ const USER = '11111111-1111-4111-8111-111111111111';
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
+  transactionMock.mockReset();
+  transactionMock.mockImplementation(async (cb) => cb({ $queryRawUnsafe: queryUnsafeMock }));
 });
 
 // ---------------------------------------------------------------------------
@@ -491,5 +499,178 @@ describe('listSubstitutes', () => {
   it('degrades on schema-missing', async () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "pharmacy_substitutes" does not exist'));
     expect(await listSubstitutes({ tenantId: TENANT })).toEqual({ substitutes: [], count: 0 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// receivePurchaseOrderLine — atomic GRN line orchestration (C4 follow-up)
+// ---------------------------------------------------------------------------
+
+describe('receivePurchaseOrderLine', () => {
+  it('inserts batch + GRN item + bumps PO line + appends receive movement in one transaction', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 5, purchase_order_id: 10, inventory_item_id: 7,
+      ordered_quantity: 100, received_quantity: 0,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 50, batch_number: 'B1', inventory_item_id: 7,
+      received_quantity: 50, remaining_quantity: 50, status: 'in_stock',
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 5, purchase_order_id: 10, ordered_quantity: 100, received_quantity: 50,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 100, goods_receipt_id: 22, inventory_item_id: 7,
+      inventory_batch_id: 50, purchase_order_item_id: 5, received_quantity: 50,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      total_ordered: 100, total_received: 50, partial_count: 1,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 10, status: 'partially_received' }]);
+
+    const result = await receivePurchaseOrderLine({
+      tenantId: TENANT,
+      purchaseOrderItemId: 5,
+      goodsReceiptId: 22,
+      batchNumber: 'B1',
+      expiryDate: '2027-01-01',
+      receivedQuantity: 50,
+      unitCostMinor: 50000,
+      performedBy: USER,
+    });
+
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+    expect(result.batch.id).toBe(50);
+    expect(result.goods_receipt_item.id).toBe(100);
+    expect(result.purchase_order_item.received_quantity).toBe(50);
+    expect(result.purchase_order.status).toBe('partially_received');
+
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/INSERT INTO pharmacy_inventory_batches/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/UPDATE pharmacy_purchase_order_items/);
+    expect(queryUnsafeMock.mock.calls[3][0]).toMatch(/INSERT INTO pharmacy_goods_receipt_items/);
+    expect(queryUnsafeMock.mock.calls[4][0]).toMatch(/INSERT INTO pharmacy_stock_movements/);
+    expect(queryUnsafeMock.mock.calls[4][0]).toMatch(/'receive'/);
+  });
+
+  it('refuses to over-receive (received_quantity + delta > ordered → 409)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 5, purchase_order_id: 10, inventory_item_id: 7,
+      ordered_quantity: 100, received_quantity: 80,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 51, batch_number: 'B2', inventory_item_id: 7,
+      received_quantity: 50, remaining_quantity: 50,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([]);
+
+    await expect(receivePurchaseOrderLine({
+      tenantId: TENANT,
+      purchaseOrderItemId: 5,
+      goodsReceiptId: 22,
+      batchNumber: 'B2',
+      expiryDate: '2027-01-01',
+      receivedQuantity: 50,
+    })).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('auto-flips parent PO to fully_received when last line completes', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 5, purchase_order_id: 10, inventory_item_id: 7,
+      ordered_quantity: 100, received_quantity: 80,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 52, batch_number: 'B3', inventory_item_id: 7,
+      received_quantity: 20, remaining_quantity: 20,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 5, purchase_order_id: 10, ordered_quantity: 100, received_quantity: 100,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 101 }]);
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    queryUnsafeMock.mockResolvedValueOnce([{
+      total_ordered: 100, total_received: 100, partial_count: 1,
+    }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 10, status: 'fully_received' }]);
+
+    const result = await receivePurchaseOrderLine({
+      tenantId: TENANT,
+      purchaseOrderItemId: 5,
+      goodsReceiptId: 22,
+      batchNumber: 'B3',
+      expiryDate: '2027-01-01',
+      receivedQuantity: 20,
+    });
+
+    expect(result.purchase_order.status).toBe('fully_received');
+    const parentUpdateArgs = queryUnsafeMock.mock.calls[6];
+    expect(parentUpdateArgs[0]).toMatch(/UPDATE pharmacy_purchase_orders/);
+    expect(parentUpdateArgs[1]).toBe('fully_received');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bridgeForecastToBatches — clinical_ai_inventory_alerts hook (C4 follow-up)
+// ---------------------------------------------------------------------------
+
+describe('bridgeForecastToBatches', () => {
+  it('returns null days_to_reorder cleanly when there is no consumption in the lookback window', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([
+      { id: 1, sku_code: 'SKU_A', display_name: 'Item A', reorder_level: 10 },
+    ]);
+    queryUnsafeMock.mockResolvedValueOnce([{ on_hand: '50' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ total_issued: '0' }]);
+
+    const result = await bridgeForecastToBatches({ tenantId: TENANT, lookbackDays: 30 });
+
+    expect(result.count).toBe(1);
+    expect(result.items[0].days_to_reorder).toBeNull();
+    expect(result.items[0].consumption_per_day).toBe(0);
+    expect(result.items[0].alert_written).toBe(false);
+  });
+
+  it('degrades on schema-missing clinical_ai_inventory_alerts (forecast still returned)', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([
+      { id: 1, sku_code: 'SKU_B', display_name: 'Item B', reorder_level: 10 },
+    ]);
+    queryUnsafeMock.mockResolvedValueOnce([{ on_hand: '5' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ total_issued: '300' }]);
+    queryUnsafeMock.mockRejectedValueOnce(new Error('relation "clinical_ai_inventory_alerts" does not exist'));
+
+    const result = await bridgeForecastToBatches({ tenantId: TENANT, lookbackDays: 30 });
+
+    expect(result.count).toBe(1);
+    expect(result.items[0].alert_written).toBe(false);
+    expect(result.items[0].days_to_reorder).toBeLessThan(14);
+    expect(result.items[0].on_hand).toBe(5);
+  });
+
+  it('only writes an alert when days_to_reorder < 14', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([
+      { id: 1, sku_code: 'LOW', display_name: 'Low stock', reorder_level: 10 },
+      { id: 2, sku_code: 'HIGH', display_name: 'High stock', reorder_level: 10 },
+    ]);
+    // Item 1: on-hand 15, consumption 1/day → days_to_reorder = 5 → alert
+    queryUnsafeMock.mockResolvedValueOnce([{ on_hand: '15' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ total_issued: '30' }]);
+    queryUnsafeMock.mockResolvedValueOnce([]); // alert insert
+    // Item 2: on-hand 40, consumption 1/day → days_to_reorder = 30 → no alert
+    queryUnsafeMock.mockResolvedValueOnce([{ on_hand: '40' }]);
+    queryUnsafeMock.mockResolvedValueOnce([{ total_issued: '30' }]);
+
+    const result = await bridgeForecastToBatches({ tenantId: TENANT, lookbackDays: 30 });
+
+    expect(result.count).toBe(2);
+    expect(result.items[0].alert_written).toBe(true);
+    expect(result.items[0].days_to_reorder).toBe(5);
+    expect(result.items[1].alert_written).toBe(false);
+    expect(result.items[1].days_to_reorder).toBe(30);
+
+    const alertCalls = queryUnsafeMock.mock.calls.filter(
+      (c) => /INSERT INTO clinical_ai_inventory_alerts/.test(c[0]),
+    );
+    expect(alertCalls).toHaveLength(1);
+    expect(alertCalls[0][1]).toBe(TENANT);
+    expect(alertCalls[0][2]).toBe('LOW');
   });
 });
