@@ -1,8 +1,8 @@
 # Clinical AI Rollout Plan
 
-**Status:** drafted 2026-04-30 (single session). Ready for review and phased
-execution. Nothing in this doc has been built yet beyond what's already on
-`main` from the multi-agent / workflow-graph / discharge-compose work.
+**Status:**
+- ✅ **Phase 0 shipped** (2026-04-30) — route + RBAC split landed on `main`.
+- Phases 1-5 still drafted; ready for phased execution.
 
 **Audience:** anyone picking this up in a future session — Claude, the
 project owner, or a teammate.
@@ -147,26 +147,23 @@ running state — none requires a "we're committing forever" call. The
 public ingress stays in place throughout; we can flip clinical traffic
 back to it if any phase breaks.
 
-### Phase 0: Split clinical-AI routes into `/control/*` + `/clinical/*` (backend, ~1 day)
+### Phase 0: Split clinical-AI routes into `/control/*` + `/clinical/*` (backend, ~1 day) — ✅ SHIPPED 2026-04-30
 
-**Why first:** the foundation everything else builds on. Backend-only,
-no infra changes. Reversible.
+**What landed:**
+- New `requireClinicalAiUse` middleware in `apps/backend/src/routes/admin/clinicalAi/shared.js` with the comprehensive `CLINICAL_AI_USER_ROLES_LIST` (union of every module's `reviewRoles[]` + ADMIN/SUPER_ADMIN catch-alls).
+- New router `apps/backend/src/routes/admin/clinicalAi/clinicalUseRoutes.js` with the minimum-viable clinician surface: POST /admission-ai-draft, POST /discharge-compose, GET /discharge-compose, GET /discharge-compose/:runId, POST /discharge-compose/:runId/resume, GET /reviews (filtered to caller's role), PATCH /reviews/:id.
+- Three mounts in `app.js`:
+  - `/api/v1/admin/clinical-ai/*` — legacy alias gated by `CLINICAL_AI_CONTROL_ROLES` (admin UI keeps working unchanged).
+  - `/api/v1/clinical-ai/control/*` — new canonical control-plane mount (same router, same gate).
+  - `/api/v1/clinical-ai/clinical/*` — new clinical-use mount gated by `CLINICAL_AI_USER_ROLES_LIST`. The clinical mount intentionally skips `adminIpAllowlist` because clinicians come from arbitrary hospital workstations / tablets.
+- 78 new unit tests in `src/tests/unit/clinicalAiRouteSplit.test.js` covering the full RBAC matrix + a drift guard that fails when any module's reviewRole isn't on the route allowlist.
+- The clinical-AI route file directory stays at `routes/admin/clinicalAi/` — historical home; URL paths now decoupled from the directory.
 
-**Scope:**
-- Refactor `apps/backend/src/routes/admin/clinicalAiRoutes.js` from one mount into two:
-  - `/api/v1/clinical-ai/control/*` — governance, model registry, drift canary, audit, agent lifecycle, prompt registry, break-glass. Gated by current `requireClinicalAiControl` (ADMIN | SUPER_ADMIN | IT_*).
-  - `/api/v1/clinical-ai/clinical/*` — generate, list-my-reviews, sign / edit / reject, view-my-pending-drafts, fetch compose tree (when caller is the assigned reviewer). Gated by a new `requireClinicalRole` (DOCTOR | NURSING_STAFF | LAB_STAFF | PHARMACY_STAFF | OBSTETRICIAN | etc.)
-- Move route files: `coreClinicalRoutes.js`, `dischargeComposeRoutes.js`, `careOperationsRoutes.js` either route-by-route or by splitting each.
-- Keep `/api/v1/admin/clinical-ai/*` as a thin alias to `/control/*` for one release so existing admin UI keeps working without changes.
-- Update existing tests; add tests covering the new RBAC matrix.
+**Why this design:** the route guard is the OUTER door (deny PATIENT, DELIVERY_STAFF, anonymous, unknown). The per-module `reviewRoles` filtering inside `clinicalAiWorkflowService.updateReview` and `listReviews` is the INNER door (real per-module filtering). Defense-in-depth; broad outer allowlist is intentional.
 
-**Validation:**
-- Existing admin UI keeps working (alias mount).
-- New clinical-role test cases pass.
-- `npm run lint` clean, all unit tests pass, schema-drift clean.
+**Verified:** all 78 new tests pass; full backend unit suite stays green; npm run lint + raw-params + secrets:scan all clean.
 
-**Risks:**
-- The RBAC matrix has many roles; getting it wrong silently broadens access. Solution: explicit allowlist, deny-by-default, exhaustive role tests.
+**Not done in this phase (deferred to Phase 2 / 3):** the existing admin portal client still uses `/api/v1/admin/clinical-ai/*`. It does NOT need to change in Phase 0 — the alias keeps it working. When the apps/staff Flutter screens land in Phase 2, they'll target `/api/v1/clinical-ai/clinical/*`.
 
 ### Phase 1: Internal ingress + IngressClass (infra, ~2–3 days)
 

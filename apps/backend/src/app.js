@@ -42,6 +42,8 @@ import { success, error } from './utils/responseHelper.js';
 import { callbackRouter as abdmCallbackRoutes, patientRouter as abdmPatientRoutes } from './routes/abdm/abdmRoutes.js';
 import adminDashboardRoutes from './routes/admin/index.js';
 import clinicalAiAdminRoutes from './routes/admin/clinicalAiRoutes.js';
+import clinicalAiClinicalUseRoutes from './routes/admin/clinicalAi/clinicalUseRoutes.js';
+import { CLINICAL_AI_USER_ROLES_LIST } from './routes/admin/clinicalAi/shared.js';
 import adminForecastRoutes from './routes/admin/forecastRoutes.js';
 import appointmentRoutes from './routes/appointment/index.js';
 import totpRoutes from './routes/auth/totpRoutes.js';
@@ -511,12 +513,48 @@ app.use('/api/v1/emr', phiAccessLoggerForPaths('DIAGNOSIS', [
 ]), diagnosisRoutes);
 
 // Centralized admin namespace — IP allowlisted when ADMIN_IP_ALLOWLIST is set
+//
+// Clinical AI exposure splits into TWO mount families per the Phase 0
+// rollout plan (docs/CLINICAL_AI_ROLLOUT_PLAN.md):
+//
+//   * Control plane — governance, model registry, drift canary, audit,
+//     break-glass, prompt registry. Admin / IT roles only. Mounted at
+//     both /api/v1/admin/clinical-ai (legacy alias the existing admin
+//     UI still uses) and /api/v1/clinical-ai/control (the new canonical
+//     path). Both mount the SAME router; both apply the same middleware.
+//
+//   * Clinical plane — generate drafts, review queue, sign / edit /
+//     reject. Clinical roles + ADMIN/SUPER_ADMIN. Mounted only at
+//     /api/v1/clinical-ai/clinical. Used by apps/staff Flutter (Phase
+//     2) and any clinician-facing web build (Phase 3).
+//
+// The legacy /admin/clinical-ai alias keeps existing admin-portal API
+// callers working unchanged for at least one release. Once the admin
+// portal client is updated to /clinical-ai/control, the alias can be
+// removed.
 app.use(
   '/api/v1/admin/clinical-ai',
   requireRole(...CLINICAL_AI_CONTROL_ROLES),
   adminIpAllowlist,
   adminRateLimiter,
   clinicalAiAdminRoutes
+);
+app.use(
+  '/api/v1/clinical-ai/control',
+  requireRole(...CLINICAL_AI_CONTROL_ROLES),
+  adminIpAllowlist,
+  adminRateLimiter,
+  clinicalAiAdminRoutes
+);
+app.use(
+  '/api/v1/clinical-ai/clinical',
+  requireRole(...CLINICAL_AI_USER_ROLES_LIST),
+  // Intentionally NOT applying adminIpAllowlist — clinical traffic
+  // comes from arbitrary hospital workstations / tablets, not a fixed
+  // admin IP set. Phase 1 of the rollout adds an internal-only ingress
+  // class for this mount; for now, JWT + role gating is the only
+  // network-level filter.
+  clinicalAiClinicalUseRoutes
 );
 app.use(
   '/api/v1/admin/forecast',
