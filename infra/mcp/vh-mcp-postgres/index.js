@@ -220,8 +220,15 @@ app.use(express.json({ limit: '512kb' }));
 app.get('/health', (_req, res) => res.json({ ok: true, name: 'vh-mcp-postgres' }));
 
 app.use('/mcp', (req, res, next) => {
-  const auth = req.headers.authorization || '';
-  if (auth !== `Bearer ${TOKEN}`) {
+  // Accept token via Authorization: Bearer <token> OR ?token=<token> query
+  // string (the claude.ai custom connector UI today only supports OAuth or
+  // URL-embedded auth; query-string fallback lets the connector authenticate
+  // without OAuth scaffolding on this side).
+  const headerAuth = req.headers.authorization || '';
+  const queryToken = typeof req.query.token === 'string' ? req.query.token : '';
+  const headerOk = headerAuth === `Bearer ${TOKEN}`;
+  const queryOk = queryToken === TOKEN;
+  if (!headerOk && !queryOk) {
     return res.status(401).json({ error: 'unauthorized' });
   }
   next();
