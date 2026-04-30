@@ -20,6 +20,7 @@ import featureFlagRoutes from './featureFlagRoutes.js';
 import { deliveryRouter, integrationRouter, subscriptionRouter } from './integrationRoutes.js';
 import patientIdentifierRoutes from './patientIdentifierRoutes.js';
 import patientMergeRoutes from './patientMergeRoutes.js';
+import surgicalDocumentationRoutes from './surgicalDocumentationRoutes.js';
 
 // Services (barrel import)
 import {
@@ -663,5 +664,6 @@ router.use('/patient-merges', patientMergeRoutes);
 router.use('/integrations', integrationRouter);
 router.use('/webhook-subscriptions', subscriptionRouter);
 router.use('/webhook-deliveries', deliveryRouter);
+router.use('/surgical', surgicalDocumentationRoutes);
 
 export default router;
