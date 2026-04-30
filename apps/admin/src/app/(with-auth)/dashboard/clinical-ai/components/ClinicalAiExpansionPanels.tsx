@@ -53,6 +53,7 @@ const PANELS: PanelComponent[] = [
   deferredPanel(() => import("./coreModulePanels/DriftCanaryPanel")),
   deferredPanel(() => import("./coreModulePanels/RegulatoryReadinessPackPanel")),
   deferredPanel(() => import("./coreModulePanels/KnowledgeBasePanel")),
+  deferredPanel(() => import("./coreModulePanels/PatientExplainersPanel")),
   deferredPanel(() => import("./coreModulePanels/DeteriorationPanel")),
   deferredPanel(() => import("./coreModulePanels/ImagingAIPanel")),
   deferredPanel(() => import("./coreModulePanels/VirtualWardPanel")),
