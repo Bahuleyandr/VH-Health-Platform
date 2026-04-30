@@ -12,6 +12,7 @@ import {
   addPurchaseOrderItem,
   addSubstitute,
   appendStockMovement,
+  bridgeForecastToBatches,
   computeExpiryAlerts,
   createGoodsReceipt,
   createPurchaseOrder,
@@ -24,6 +25,7 @@ import {
   listSubstitutes,
   listSuppliers,
   recallBatch,
+  receivePurchaseOrderLine,
   reserveStock,
   transitionPurchaseOrder,
   upsertInventoryItem,
@@ -210,6 +212,30 @@ router.post('/purchase-orders/:id/items', async (req, res, next) => {
   } catch (err) { return next(err); }
 });
 
+// Atomic GRN-line orchestration: insert batch + bump PO line +
+// insert GRN item + append receive movement + transition parent PO,
+// all in one transaction. URL :id is the parent PO (audit context);
+// body identifies the line via purchase_order_item_id.
+router.post('/purchase-orders/:id/receive-line', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const result = await receivePurchaseOrderLine({
+      tenantId: req.tenantId,
+      purchaseOrderItemId: b.purchase_order_item_id,
+      goodsReceiptId: b.goods_receipt_id,
+      batchNumber: b.batch_number,
+      expiryDate: b.expiry_date,
+      receivedQuantity: b.received_quantity,
+      lotNumber: b.lot_number,
+      manufactureDate: b.manufacture_date,
+      unitCostMinor: b.unit_cost_minor,
+      supplierId: b.supplier_id,
+      performedBy: req.user?.uid || null,
+    });
+    return success(res, result, 'PO line received', 201);
+  } catch (err) { return next(err); }
+});
+
 // Goods receipts
 router.post('/goods-receipts', async (req, res, next) => {
   try {
@@ -267,6 +293,19 @@ router.get('/stock-movements', async (req, res, next) => {
       limit: req.query.limit,
     });
     return success(res, result, 'Stock movements retrieved');
+  } catch (err) { return next(err); }
+});
+
+// Forecast bridge — wires pharmacy_inventory_batches into the existing
+// clinical_ai_inventory_alerts forecast surface. Best-effort; degrades on
+// schema-missing.
+router.post('/forecast-bridge', async (req, res, next) => {
+  try {
+    const result = await bridgeForecastToBatches({
+      tenantId: req.tenantId,
+      lookbackDays: req.body?.lookback_days,
+    });
+    return success(res, result, 'Forecast bridge complete');
   } catch (err) { return next(err); }
 });
 

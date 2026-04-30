@@ -1106,6 +1106,273 @@ export async function listSubstitutes({
   }
 }
 
+// ---------------------------------------------------------------------------
+// GRN line orchestration + forecast bridge (C4 follow-up)
+// ---------------------------------------------------------------------------
+
+/**
+ * Atomic GRN-line orchestration. In one prisma.$transaction:
+ *   1. INSERT pharmacy_inventory_batches (status='in_stock', remaining=received)
+ *   2. UPDATE pharmacy_purchase_order_items.received_quantity by +received,
+ *      conditional on (received + delta) <= ordered (refuses over-receive
+ *      with 409; the chk_po_received_lte_ordered DB CHECK is the backstop)
+ *   3. INSERT pharmacy_goods_receipt_items linking GRN + PO line + batch
+ *   4. INSERT pharmacy_stock_movements (movement_kind='receive')
+ *   5. Recompute parent PO progress and transition status to
+ *      'fully_received' (sum_received >= sum_ordered) or 'partially_received'.
+ *
+ * Any failure rolls the whole receipt back.
+ */
+export async function receivePurchaseOrderLine({
+  tenantId = null,
+  purchaseOrderItemId,
+  goodsReceiptId,
+  batchNumber,
+  expiryDate,
+  receivedQuantity,
+  lotNumber = null,
+  manufactureDate = null,
+  unitCostMinor = null,
+  supplierId = null,
+  performedBy = null,
+} = {}) {
+  const tid = resolveTenantId({ tenantId });
+  const poiId = normalizeId(purchaseOrderItemId, 'purchase_order_item_id');
+  const grnId = normalizeId(goodsReceiptId, 'goods_receipt_id');
+  const cleanBatch = safeText(batchNumber, 120);
+  if (!cleanBatch) throw AppError.badRequest('batch_number is required');
+  const cleanExpiry = normalizeDate(expiryDate, 'expiry_date', { required: true });
+  const cleanManufacture = normalizeDate(manufactureDate, 'manufacture_date');
+  const qty = normalizeQuantity(receivedQuantity, 'received_quantity', { min: 0.0001, required: true });
+  const cost = normalizeBigInt(unitCostMinor, 'unit_cost_minor', { min: 0, max: 1_000_000_000_000 });
+  const supId = supplierId ? normalizeId(supplierId, 'supplier_id') : null;
+  const cleanLot = safeText(lotNumber, 120);
+  const performerUid = maybeUuid(performedBy, 'performed_by');
+
+  return prisma.$transaction(async (tx) => {
+    // 1. Resolve the PO line — gives us inventory_item_id + parent PO id.
+    const lines = await tx.$queryRawUnsafe(
+      `SELECT id, purchase_order_id, inventory_item_id, ordered_quantity, received_quantity
+       FROM pharmacy_purchase_order_items
+       WHERE id = $1 AND tenant_id = $2::uuid`,
+      poiId, tid,
+    );
+    if (!lines[0]) throw AppError.notFound('Purchase order line not found');
+    const itemId = Number(lines[0].inventory_item_id);
+    const parentPoId = Number(lines[0].purchase_order_id);
+
+    // 2. Insert the new batch.
+    let batch;
+    try {
+      const inserted = await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_inventory_batches
+           (tenant_id, inventory_item_id, batch_number, lot_number, manufacture_date,
+            expiry_date, received_quantity, remaining_quantity, unit_cost_minor,
+            supplier_id, goods_receipt_id, status)
+         VALUES ($1::uuid, $2, $3, $4, $5::date, $6::date, $7, $7, $8, $9, $10, 'in_stock')
+         RETURNING ${BATCH_RETURNING}`,
+        tid, itemId, cleanBatch, cleanLot, cleanManufacture, cleanExpiry,
+        qty, cost, supId, grnId,
+      );
+      batch = inserted[0];
+    } catch (err) {
+      if (isUniqueViolation(err)) throw AppError.conflict('batch_number already exists for this item');
+      if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
+      throw err;
+    }
+
+    // 3. Bump received_quantity on the PO line — refuse on over-receive.
+    const updated = await tx.$queryRawUnsafe(
+      `UPDATE pharmacy_purchase_order_items
+       SET received_quantity = received_quantity + $1, updated_at = NOW()
+       WHERE id = $2 AND tenant_id = $3::uuid
+         AND received_quantity + $1 <= ordered_quantity
+       RETURNING id, purchase_order_id, ordered_quantity, received_quantity`,
+      qty, poiId, tid,
+    );
+    if (!updated[0]) {
+      throw AppError.conflict('Receiving this quantity would exceed ordered_quantity for this PO line');
+    }
+
+    // 4. Insert the GRN line linking GRN + PO line + batch.
+    const grnItemRows = await tx.$queryRawUnsafe(
+      `INSERT INTO pharmacy_goods_receipt_items
+         (tenant_id, goods_receipt_id, inventory_item_id, inventory_batch_id,
+          purchase_order_item_id, received_quantity, unit_cost_minor)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+       RETURNING id, tenant_id, goods_receipt_id, inventory_item_id, inventory_batch_id,
+                 purchase_order_item_id, received_quantity, unit_cost_minor,
+                 qc_status, qc_notes, metadata, created_at, updated_at`,
+      tid, grnId, itemId, batch.id, poiId, qty, cost,
+    );
+
+    // 5. Append the 'receive' stock-movement ledger entry.
+    await tx.$queryRawUnsafe(
+      `INSERT INTO pharmacy_stock_movements
+         (tenant_id, inventory_item_id, inventory_batch_id, movement_kind,
+          quantity_delta, reference_type, reference_id, performed_by, notes)
+       VALUES ($1::uuid, $2, $3, 'receive', $4, 'goods_receipt', $5, $6::uuid, $7)`,
+      tid, itemId, batch.id, qty, String(grnId), performerUid,
+      `Received via GRN ${grnId}, batch ${cleanBatch}`,
+    );
+
+    // 6. Recompute PO progress and auto-transition the parent header.
+    const aggRows = await tx.$queryRawUnsafe(
+      `SELECT
+         COALESCE(SUM(ordered_quantity), 0)::numeric AS total_ordered,
+         COALESCE(SUM(received_quantity), 0)::numeric AS total_received,
+         COUNT(*) FILTER (WHERE received_quantity > 0)::int AS partial_count
+       FROM pharmacy_purchase_order_items
+       WHERE purchase_order_id = $1 AND tenant_id = $2::uuid`,
+      parentPoId, tid,
+    );
+    const totalOrdered = Number(aggRows[0]?.total_ordered || 0);
+    const totalReceived = Number(aggRows[0]?.total_received || 0);
+    const partialCount = Number(aggRows[0]?.partial_count || 0);
+
+    let parentStatus = null;
+    if (totalOrdered > 0 && totalReceived >= totalOrdered) {
+      parentStatus = 'fully_received';
+    } else if (partialCount > 0) {
+      parentStatus = 'partially_received';
+    }
+
+    let parent = null;
+    if (parentStatus) {
+      const parentRows = await tx.$queryRawUnsafe(
+        `UPDATE pharmacy_purchase_orders
+         SET status = $1,
+             received_at = CASE WHEN $1 = 'fully_received' THEN NOW() ELSE received_at END,
+             updated_at = NOW()
+         WHERE id = $2 AND tenant_id = $3::uuid
+         RETURNING ${PO_RETURNING}`,
+        parentStatus, parentPoId, tid,
+      );
+      parent = parentRows[0] || null;
+    }
+
+    return {
+      batch,
+      goods_receipt_item: grnItemRows[0],
+      purchase_order_item: updated[0],
+      purchase_order: parent,
+      total_ordered: totalOrdered,
+      total_received: totalReceived,
+    };
+  });
+}
+
+/**
+ * Bridge the existing clinical_ai_inventory_alerts forecast surface to the
+ * new pharmacy_inventory_batches data: walks every active inventory_item
+ * with reorder_level set, computes on-hand from in_stock+reserved batches,
+ * computes consumption_per_day from 'issue' stock movements over the
+ * lookback window, then forecasts days_to_reorder. Best-effort writes a
+ * clinical_ai_inventory_alerts row when days_to_reorder < 14. Degrades
+ * silently on schema-missing.
+ */
+export async function bridgeForecastToBatches({
+  tenantId = null, lookbackDays = 30,
+} = {}) {
+  const tid = resolveTenantId({ tenantId });
+  const requestedDays = normalizeInt(lookbackDays, 'lookback_days', { min: 1, max: 365 });
+  const days = requestedDays || 30;
+
+  let items;
+  try {
+    items = await prisma.$queryRawUnsafe(
+      `SELECT id, sku_code, display_name, reorder_level
+       FROM pharmacy_inventory_items
+       WHERE tenant_id = $1::uuid AND reorder_level IS NOT NULL AND status = 'active'`,
+      tid,
+    );
+  } catch (err) {
+    if (isMissingSchemaError(err)) return { items: [], count: 0, lookback_days: days };
+    throw err;
+  }
+
+  const result = [];
+  for (const item of items) {
+    let onHand = 0;
+    let consumptionPerDay = 0;
+
+    try {
+      const stockRows = await prisma.$queryRawUnsafe(
+        `SELECT COALESCE(SUM(remaining_quantity), 0)::numeric AS on_hand
+         FROM pharmacy_inventory_batches
+         WHERE tenant_id = $1::uuid AND inventory_item_id = $2
+           AND status IN ('in_stock', 'reserved')`,
+        tid, item.id,
+      );
+      onHand = Number(stockRows[0]?.on_hand || 0);
+    } catch (err) {
+      if (!isMissingSchemaError(err)) throw err;
+    }
+
+    try {
+      const issuedRows = await prisma.$queryRawUnsafe(
+        `SELECT COALESCE(SUM(-quantity_delta), 0)::numeric AS total_issued
+         FROM pharmacy_stock_movements
+         WHERE tenant_id = $1::uuid AND inventory_item_id = $2
+           AND movement_kind = 'issue'
+           AND created_at >= NOW() - ($3::int * INTERVAL '1 day')`,
+        tid, item.id, days,
+      );
+      consumptionPerDay = Number(issuedRows[0]?.total_issued || 0) / days;
+    } catch (err) {
+      if (!isMissingSchemaError(err)) throw err;
+    }
+
+    let daysToReorder = null;
+    if (consumptionPerDay > 0) {
+      daysToReorder = (onHand - Number(item.reorder_level)) / consumptionPerDay;
+    }
+
+    let alertWritten = false;
+    if (daysToReorder !== null && daysToReorder < 14) {
+      const alertCategory = daysToReorder <= 0 ? 'stockout_risk' : 'reorder_point_breach';
+      const severity = daysToReorder <= 0 ? 'critical' : (daysToReorder < 7 ? 'high' : 'moderate');
+      try {
+        await prisma.$queryRawUnsafe(
+          `INSERT INTO clinical_ai_inventory_alerts
+             (tenant_id, item_sku, item_name, current_stock, reorder_point,
+              avg_daily_usage, baseline_daily_usage, alert_category, severity,
+              summary, signals)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)`,
+          tid,
+          safeText(item.sku_code, 120) || 'unknown',
+          safeText(item.display_name, 200) || 'unknown',
+          onHand,
+          Number(item.reorder_level),
+          consumptionPerDay,
+          consumptionPerDay,
+          alertCategory,
+          severity,
+          `Forecast: ${daysToReorder.toFixed(1)} days to reorder threshold (consumption ${consumptionPerDay.toFixed(2)}/day, on-hand ${onHand})`,
+          JSON.stringify([{
+            kind: 'forecast_bridge',
+            days_to_reorder: daysToReorder,
+            lookback_days: days,
+          }]),
+        );
+        alertWritten = true;
+      } catch (err) {
+        if (!isMissingSchemaError(err)) throw err;
+      }
+    }
+
+    result.push({
+      inventory_item_id: Number(item.id),
+      on_hand: onHand,
+      consumption_per_day: consumptionPerDay,
+      days_to_reorder: daysToReorder,
+      alert_written: alertWritten,
+    });
+  }
+
+  return { items: result, count: result.length, lookback_days: days };
+}
+
 export const __testing__ = {
   severityForDaysRemaining,
   MOVEMENT_KINDS,
@@ -1136,4 +1403,6 @@ export default {
   listExpiryAlerts,
   addSubstitute,
   listSubstitutes,
+  receivePurchaseOrderLine,
+  bridgeForecastToBatches,
 };
