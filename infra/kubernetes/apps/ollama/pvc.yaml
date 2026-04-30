@@ -1,0 +1,11 @@
+# Placeholder PVC manifest — ACTUAL claim lives on the StatefulSet's
+# volumeClaimTemplate (statefulset.yaml). This file exists so kustomize
+# resources don't blank out unexpectedly when a future overlay needs to
+# patch storage class / size separately.
+#
+# Intentionally empty body. Resources only loads non-empty docs from a
+# kustomization, so this file currently contributes nothing to the
+# rendered output. Overlays add a real PVC here when they need to
+# replace the volumeClaimTemplate (e.g. switching from local-path to
+# longhorn for backup support).
+---

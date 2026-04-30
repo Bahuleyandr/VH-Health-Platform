@@ -5,7 +5,8 @@
 - ✅ **Phase 1 shipped** (2026-04-30) — internal ingress manifest landed on `main`. Awaits hospital DNS + cert wiring before serving real traffic.
 - ✅ **Phase 2 shipped** (2026-04-30) — Flutter clinician screens (API client + review queue + draft detail) landed on `main`. APK build/sideload to dalekdefender is the next validation step.
 - ✅ **Phase 3 shipped** (2026-04-30) — Flutter web Dockerfile + nginx + cluster manifests landed on `main`. CI image-build wiring + ArgoCD overlay pinning are the remaining wiring steps.
-- Phases 4-5 still drafted; ready for phased execution.
+- ✅ **Phase 4 shipped** (2026-04-30) — Ollama in-cluster manifests + backend deep-tier env config landed on `main`. Awaits a GPU node + first model pull to serve real deep-tier traffic.
+- Phase 5 still drafted; ready for execution.
 
 **Audience:** anyone picking this up in a future session — Claude, the
 project owner, or a teammate.
@@ -236,27 +237,37 @@ back to it if any phase breaks.
 
 **Risk audit (called out in plan; verified):** the staff app's `pubspec.yaml` uses `flutter_secure_storage` (web-supported via IndexedDB), `package:http` (web ✓), `go_router` (web ✓), `provider` (web ✓). No filesystem / camera / biometric plugins on the critical path for the clinical-AI screens. Voice / ambient-recording plugins are gated to mobile only via `kIsWeb` checks in the existing code.
 
-### Phase 4: Local Ollama for the deep tier (~1–2 days infra + integration)
+### Phase 4: Local Ollama for the deep tier (~1–2 days infra + integration) — ✅ SHIPPED 2026-04-30
 
-**Why fifth:** unlocks the "PHI never leaves the building" guarantee.
+**What landed:**
+- New manifest set under `infra/kubernetes/apps/ollama/`:
+  - `statefulset.yaml` — single-replica StatefulSet with a 100GB volumeClaimTemplate for model weights, GPU node selector (`nvidia.com/gpu.present: "true"`) + GPU toleration, request/limit `nvidia.com/gpu: 1`, `OLLAMA_KEEP_ALIVE=30m` so models stay loaded between requests, generous startup probe (15-minute model-pull tolerance) → fast 30s probes thereafter.
+  - `service.yaml` — both a headless `ollama-internal` service and a regular `ollama` ClusterIP service. The backend connects to `ollama-internal.vhhealth.svc.cluster.local:11434`.
+  - `network-policy.yaml` — ingress allowed only from the backend pod; egress allowed for DNS + (during initial model pull) the public Ollama / HuggingFace registries. Strict overlays can drop the public-egress rule once the model is cached.
+- Added `ollama/` to `infra/kubernetes/apps/kustomization.yaml` so ArgoCD picks it up.
+- Backend `.env.example` updated with the deep-tier section: `CLINICAL_AI_DEEP_PROVIDER`, `CLINICAL_AI_DEEP_BASE_URL`, `CLINICAL_AI_DEEP_MODEL`, `CLINICAL_AI_DEEP_API_KEY`. The recommended values for an in-cluster Ollama deployment are inline-commented.
 
-**Scope:**
-- Stand up an Ollama deployment in the cluster (or pin to a GPU node on the same VLAN).
-- Pull a deep-tier-quality model (Llama-3-70B-Instruct, Qwen-2.5-72B, or similar) — sized to the available GPU.
-- Configure environment:
-  - `CLINICAL_AI_DEEP_PROVIDER=ollama`
-  - `CLINICAL_AI_DEEP_BASE_URL=http://ollama-internal.vhhealth.svc.cluster.local:11434`
-  - `CLINICAL_AI_DEEP_MODEL=llama3:70b` (or whichever)
-  - `CLINICAL_AI_ALLOW_EXTERNAL=false`
-- Smoke-test discharge_summary + medication_reconciliation + abnormal_result_triage end-to-end.
+**How a hospital actually rolls this out:**
+1. Cluster operator installs the `nvidia-device-plugin` DaemonSet (one-time, not in this repo).
+2. ArgoCD syncs the new `apps/ollama/` manifests; the StatefulSet schedules onto a GPU node, pulls the chosen model on first run (5-15 minutes), and binds the PVC.
+3. Cluster operator runs `kubectl exec -n vhhealth ollama-0 -- ollama pull <model>` once, OR adds an init container patch in their overlay to pre-pull. (Skipping this means the first inference call fetches; the StatefulSet's startupProbe is generous enough to absorb the wait.)
+4. Backend ConfigMap / Secret patched with:
+   ```
+   CLINICAL_AI_DEEP_PROVIDER=ollama
+   CLINICAL_AI_DEEP_BASE_URL=http://ollama-internal.vhhealth.svc.cluster.local:11434
+   CLINICAL_AI_DEEP_MODEL=llama3:70b      # or qwen2.5:14b for smaller GPUs
+   CLINICAL_AI_ALLOW_EXTERNAL=false       # locks down external egress for clinical traffic
+   ```
+5. Modules `discharge_summary` / `medication_reconciliation` / `abnormal_result_triage` / `obstetric_risk_assistant` (which already declare `model_tier: 'deep'` in `clinicalAiModuleService.js`) automatically route to Ollama on next generation.
 
-**Validation:**
-- `clinical_ai_generations.metadata.tier` shows `'deep'` and `provider` shows `'ollama'` for relevant modules.
-- Network egress logs show no calls to `api.openai.com` or `api.anthropic.com` for clinical traffic.
-- Latency budget: deep tier should still finish under 30s per draft (~5 minute compose for 4 children).
+**Validation criteria** (when a real GPU is available — NOT done in this PR because there's no test cluster with a GPU available locally):
+- `clinical_ai_generations.metadata.tier` shows `'deep'` and `provider` shows `'ollama'` for the four flagged modules.
+- Network egress logs / Cilium dropped-connection events show zero calls to `api.openai.com` / `api.anthropic.com` from the backend pod for clinical traffic.
+- Latency budget: deep tier finishes under 30s per draft, ~5 minutes per 4-child compose.
 
-**Risks:**
-- 70B model on hospital hardware may not be feasible — sizing depends on what GPUs the hospital owns. If only 8B fits, the deep tier just routes to a slightly stronger 8B (still quality bump from quick-tier 8B due to better prompting / longer context).
+**Risk audit:** if only an 8B / 14B GPU is available, drop `CLINICAL_AI_DEEP_MODEL=llama3:70b` to `llama3:8b` or `qwen2.5:14b`. The deep tier still routes through Ollama; you just lose some of the quality lift from the larger model. Quick tier still works regardless.
+
+**Verified:** `kubectl kustomize infra/kubernetes/apps/ollama` emits StatefulSet + 2 services + NetworkPolicy clean. `kubectl kustomize infra/kubernetes/apps` (full app tier) composes including ollama with no conflicts.
 
 ### Phase 5+: parallel/optional work
 

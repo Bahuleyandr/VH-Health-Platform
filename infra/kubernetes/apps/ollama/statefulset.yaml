@@ -1,0 +1,146 @@
+# Ollama as a single-replica StatefulSet so the model PVC + the
+# pod identity stay stable across rollouts. Backed by ollama/ollama
+# upstream image; no custom build.
+#
+# A note on replica count: Ollama is stateful per pod (the model
+# weights live in /root/.ollama/models). Scaling out requires either
+# a model-aware proxy (vllm-router, litellm-proxy) or per-pod model
+# preload — neither is in scope here. For one hospital running 4-12
+# clinical-AI deep-tier requests per minute, one pod is enough.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ollama
+  labels:
+    app.kubernetes.io/name: ollama
+    app.kubernetes.io/component: deep-tier-llm
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  serviceName: ollama-internal
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ollama
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ollama
+        app.kubernetes.io/component: deep-tier-llm
+        app.kubernetes.io/part-of: vhhealth
+    spec:
+      terminationGracePeriodSeconds: 60
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: false
+        # Ollama upstream runs as root by default to manage the
+        # model cache directory perms. Keep upstream-default but
+        # drop all capabilities below.
+        seccompProfile:
+          type: RuntimeDefault
+      # Scheduled onto a GPU node. The ollama image links against
+      # the bundled GPU runtime; pinning here prevents the pod from
+      # landing on a CPU-only node where it would fall back to slow
+      # CPU inference and silently degrade clinician latency.
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: ollama
+          image: docker.io/ollama/ollama:0.5.4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 11434
+              protocol: TCP
+          env:
+            # Bind to all interfaces inside the pod (default is
+            # localhost-only).
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+            # Pre-warm + keep models in GPU memory between requests
+            # so the first call after idle isn't a cold-load.
+            - name: OLLAMA_KEEP_ALIVE
+              value: "30m"
+            # One concurrent request per model. Ollama serializes
+            # generation per model anyway; setting this explicitly
+            # makes the queue depth visible in logs.
+            - name: OLLAMA_NUM_PARALLEL
+              value: "1"
+            # Cap the number of distinct loaded models — the deep
+            # tier currently uses one. Loading a second large model
+            # would OOM the GPU.
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "1"
+          resources:
+            requests:
+              cpu: "2"
+              memory: "8Gi"
+              # Reserve one GPU. Hospital cluster operator must have
+              # the nvidia-device-plugin DaemonSet installed for this
+              # to schedule.
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: "16Gi"
+              nvidia.com/gpu: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+            # tmp for short-lived inference scratch.
+            - name: tmp
+              mountPath: /tmp
+          # Generous start delay — pulling a 70B model on first run
+          # takes 5-15 minutes. Once the PVC has the model cached,
+          # subsequent pod restarts come up in ~30s.
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 5
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 4Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: models
+        labels:
+          app.kubernetes.io/name: ollama
+          app.kubernetes.io/component: deep-tier-llm
+          app.kubernetes.io/part-of: vhhealth
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # 100 GB headroom for one or two large models. Llama-3-70B at
+        # Q4_K_M is ~38 GB; Qwen2.5-72B Q4 is ~40 GB; smaller models
+        # like Mistral-7B fit comfortably in <10 GB. Overlays can
+        # patch this size based on the hospital's storage class.
+        resources:
+          requests:
+            storage: 100Gi

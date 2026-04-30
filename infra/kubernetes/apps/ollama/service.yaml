@@ -1,0 +1,42 @@
+# Headless service for the StatefulSet pod. Resolved by the backend's
+# CLINICAL_AI_DEEP_BASE_URL via the in-cluster DNS name
+# `ollama-internal.vhhealth.svc.cluster.local:11434`.
+#
+# The non-headless `ollama` service (alias) is provided for clarity in
+# log messages and `kubectl get svc` output; both back the same pod.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-internal
+  labels:
+    app.kubernetes.io/name: ollama
+    app.kubernetes.io/component: deep-tier-llm
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: http
+      port: 11434
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: ollama
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  labels:
+    app.kubernetes.io/name: ollama
+    app.kubernetes.io/component: deep-tier-llm
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: ollama
