@@ -21,6 +21,7 @@ import { deliveryRouter, integrationRouter, subscriptionRouter } from './integra
 import patientIdentifierRoutes from './patientIdentifierRoutes.js';
 import patientMergeRoutes from './patientMergeRoutes.js';
 import surgicalDocumentationRoutes from './surgicalDocumentationRoutes.js';
+import abdmFullRoutes from './abdmFullRoutes.js';
 import billingMastersRoutes from './billingMastersRoutes.js';
 import { carePlansRouter, followUpsRouter } from './carePlanRoutes.js';
 import facilityRoutes from './facilityRoutes.js';
@@ -681,5 +682,6 @@ router.use('/facilities', facilityRoutes);
 router.use('/care-plans', carePlansRouter);
 router.use('/follow-ups', followUpsRouter);
 router.use('/pharmacy-supply', pharmacySupplyRoutes);
+router.use('/abdm', abdmFullRoutes);
 
 export default router;
