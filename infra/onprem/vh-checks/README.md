@@ -22,10 +22,29 @@ DB and posts a GitHub issue when drift shows up.
 
 ## Output
 
-- `./reports/<YYYY-MM-DD>.json` — full report per run
-- `./reports/latest.json` — symlink-style copy of the most recent
-- GitHub issue posted on drift via `gh issue create` (skipped on clean runs)
-- Process exit code: `0` clean, `1` drift, `2` infrastructure failure
+| Surface | Contains | Where |
+|---|---|---|
+| Full local report | All counts + non-PHI metadata. **Today the queries don't surface PHI**, but the on-disk report is still treated as the place to look for triage detail. | `./reports/<YYYY-MM-DD>.json` + `./reports/latest.json` (host-only, gitignored) |
+| GitHub issue | Counts + method/path/module/status_code only. Never `request_summary`, body payloads, or anything with patient identity. A defence-in-depth regex scrubber redacts and warns if any leak slips through. | github.com/Bahuleyandr/VH-Health-Platform/issues |
+
+## Exit codes
+
+| Code | Meaning | systemd interpretation |
+|---:|---|---|
+| `0` | Clean — no drift, no spikes, no new patterns | success |
+| `1` | Drift detected — issue posted (or attempted) | success (via `SuccessExitStatus=1`) |
+| `2` | Infrastructure failure — DB unreachable, missing env, port-forward didn't come up | **failed** (`systemctl status` will show red) |
+
+So `journalctl -u vh-checks.service` is the source of truth for "what happened"; `systemctl status` only signals "did the run itself crash".
+
+## PHI safety design
+
+This is a healthcare system; treat GitHub as a non-PHI surface. The script enforces this in two layers:
+
+1. **Primary defence — query shape.** Error-pattern queries select `method`, `path`, `module`, `status_code`, `count` only. The audit-log column `request_summary` (which can hold raw request bodies, including patient names + phone numbers) is **never read into anything that leaves the host.** PHI-backfill check returns a column name + count; never a row.
+2. **Secondary defence — scrubber.** Before `gh issue create`, the formatted body is regex-scanned for 10+ digit sequences (phones, ID numbers), email shapes, and known PHI JSON keys (`patient_name`, `phone`, `aadhaar`, `abha`, etc.). Any hit is replaced with `[REDACTED]` and the issue body is annotated with a "scrubber triggered" warning so the underlying check can be tightened.
+
+If you add a new check, keep it metadata-only at the SQL level. The scrubber is the floor, not the design.
 
 ## Install on Dalekdefender
 
@@ -101,6 +120,39 @@ ssh dalekdefender 'set -e
   per the existing dalekdefender redeploy recipe).
 - `gh` uses the auth token at `~/.config/gh/hosts.yml` (already configured
   with `repo` scope).
+
+### Future hardening — restricted Kubernetes ServiceAccount
+
+The current setup uses broad `sudo -n kubectl` (admin kubeconfig). When this
+pattern moves to the prod RKE2 cluster, replace it with a dedicated
+ServiceAccount bound to a Role that only allows:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: vhhealth
+  name: vh-checks-reader
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["vhhealth-postgres"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/portforward"]
+    verbs: ["create"]
+```
+
+…then write the SA's kubeconfig to `~/.kube/vh-checks-config` and have
+`run.sh` set `KUBECONFIG=~/.kube/vh-checks-config` instead of using sudo.
+This shrinks the blast radius if `bahuleyan` or the timer is compromised:
+the worst it can do is read this one Secret + port-forward to PG.
+
+For Dalekdefender (single-node dev rig where everything already shares
+admin kubeconfig), the broad-sudo path is acceptable.
 
 ## Source of truth
 
