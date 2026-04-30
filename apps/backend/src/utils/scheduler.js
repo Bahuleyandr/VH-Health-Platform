@@ -34,6 +34,9 @@ import purgeLogs from '../scripts/cleanup-logs.js';
 import { retryFailedNotifications } from '../services/notificationRetryService.js';
 import { scheduleArchiveMigrationJob } from './archiveMigrationJob.js';
 
+// Clinical-AI workflow resume scheduler — Phase 5 of the rollout.
+import { runPausedWorkflowSweep } from '../services/ai/workflowResumeScheduler.js';
+
 // Notifications
 import { verifyLatestBackup } from './backupVerification.js';
 import { runCanaryChecks } from './canaryHealthCheck.js';
@@ -154,6 +157,16 @@ cron.schedule('*/5 * * * *', withJobLock('canary-health-check', async () => {
 // tickAdminKpi runs two indexed count queries and emits over WebSocket only.
 // withJobLock guarantees no overlap if a tick ever backs up.
 cron.schedule('*/30 * * * * *', withJobLock('admin-kpi-tick', tickAdminKpi));
+
+// Every 30 seconds — clinical-AI workflow resume scheduler (Phase 5 of
+// the rollout, docs/CLINICAL_AI_ROLLOUT_PLAN.md). Polls
+// clinical_ai_workflow_runs for status='paused' rows whose external
+// gate has fired (e.g. 'await_governance' → matching
+// clinical_ai_approvals.status='approved'), and calls resumeWorkflow().
+// Bounded at 25 resumes per tick to avoid runaway fan-out.
+cron.schedule('*/30 * * * * *', withJobLock('clinical-ai-workflow-resume', async () => {
+  await runPausedWorkflowSweep({ maxResumes: 25 });
+}));
 
 // Schema drift detection — once at startup
 setImmediate(async () => {

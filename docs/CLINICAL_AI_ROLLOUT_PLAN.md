@@ -1,12 +1,20 @@
 # Clinical AI Rollout Plan
 
-**Status:**
-- ✅ **Phase 0 shipped** (2026-04-30) — route + RBAC split landed on `main`.
-- ✅ **Phase 1 shipped** (2026-04-30) — internal ingress manifest landed on `main`. Awaits hospital DNS + cert wiring before serving real traffic.
-- ✅ **Phase 2 shipped** (2026-04-30) — Flutter clinician screens (API client + review queue + draft detail) landed on `main`. APK build/sideload to dalekdefender is the next validation step.
-- ✅ **Phase 3 shipped** (2026-04-30) — Flutter web Dockerfile + nginx + cluster manifests landed on `main`. CI image-build wiring + ArgoCD overlay pinning are the remaining wiring steps.
-- ✅ **Phase 4 shipped** (2026-04-30) — Ollama in-cluster manifests + backend deep-tier env config landed on `main`. Awaits a GPU node + first model pull to serve real deep-tier traffic.
-- Phase 5 still drafted; ready for execution.
+**Status: ALL PHASES SHIPPED** (2026-04-30, single session). Substrate, delivery, and parallel/optional work all on `main`.
+
+- ✅ **Phase 0** — route + RBAC split.
+- ✅ **Phase 1** — LAN-only internal Ingress for `/clinical-ai/clinical/*`.
+- ✅ **Phase 2** — Flutter clinician screens (API client + review queue + draft detail).
+- ✅ **Phase 3** — Flutter web Dockerfile + nginx + cluster manifest set.
+- ✅ **Phase 4** — Ollama in-cluster deep tier + backend `CLINICAL_AI_DEEP_*` env.
+- ✅ **Phase 5** — admin sidebar nav entry + auto-resume scheduler for governance-paused runs.
+
+What's left is hospital-side configuration work that this repo can't do:
+hospital DNS pointing `clinical.<hospital>.local` at the internal ingress
+LB IP, hospital intermediate CA loaded into step-ca-internal, GPU node
+provisioned + nvidia-device-plugin DaemonSet installed, and the per-tenant
+backend ConfigMap patched with the deep-tier env vars. Each is documented
+in the relevant phase below.
 
 **Audience:** anyone picking this up in a future session — Claude, the
 project owner, or a teammate.
@@ -269,15 +277,27 @@ back to it if any phase breaks.
 
 **Verified:** `kubectl kustomize infra/kubernetes/apps/ollama` emits StatefulSet + 2 services + NetworkPolicy clean. `kubectl kustomize infra/kubernetes/apps` (full app tier) composes including ollama with no conflicts.
 
-### Phase 5+: parallel/optional work
+### Phase 5: parallel/optional work — ✅ TWO ITEMS SHIPPED 2026-04-30, others remain optional
 
-Items that can land any time, in any order:
+**What landed:**
 
-- **Sidebar nav entry** in admin portal pointing to `/dashboard/clinical-ai/discharge-compose` (currently the page exists but is unlinked).
-- **Auto-resume scheduler** — a worker that polls `store.listPaused({ pause_reason: 'await_governance' })` and POSTs the resume endpoint when an approval row flips. Trivial; manual resume from UI works today.
-- **Voice-driven draft generation** — bridge `ambientDocumentationService` / `voiceSoapService` to the multi-agent draft path. Major value-add; sized at 2–4 weeks of focused work depending on acoustic environment.
-- **E2E Playwright coverage** for the admin discharge-compose page.
-- **Compose tree visualization in Flutter** — the parent + children tree on a small screen. Defer until clinicians ask for it.
+1. **Sidebar nav entry** — `apps/admin/src/components/navigation/AdminNav.tsx` now lists "Discharge Compose" under the AI Governance group, gated by the same `CLINICAL_AI_CONTROL_ROLES` allowlist as the existing "Clinical AI" entry. Pointed at `/dashboard/clinical-ai/discharge-compose` (the page that's existed since the wire-up commit). Admins find it without typing the URL.
+
+2. **Auto-resume scheduler** — `apps/backend/src/services/ai/workflowResumeScheduler.js`:
+   - `runPausedWorkflowSweep()` polls `clinical_ai_workflow_runs` for `status='paused'`, looks up a registered handler for the `pause_reason`, calls the handler to check whether the gating condition has been met (e.g. governance approved), and calls `resumeWorkflow()` if yes.
+   - `await_governance` handler queries `clinical_ai_approvals` for an approved row whose `payload @> {compose_generation_id: <run's compose id>}` and resumes if found.
+   - Two registries (`registerWorkflowGraph`, `registerPauseReasonHandler`) so adding new graphs / new pause reasons is one line.
+   - Wired into the existing cron in `apps/backend/src/utils/scheduler.js` at `*/30 * * * * *` (every 30s) with the standard `withJobLock('clinical-ai-workflow-resume', ...)` wrapper. Bounded at 25 resumes per tick.
+   - Schema-missing safe — silently no-ops if `clinical_ai_workflow_runs` table doesn't exist (migration 109 not applied).
+   - 9 new unit tests in `src/tests/unit/workflowResumeScheduler.test.js` covering empty queue, schema-missing, unknown workflow_key, unknown pause_reason, gate-passes-resume, gate-fails-no-resume, resume-failure-counted-distinctly, fan-out cap, handler-throws-treated-as-gate-blocked.
+
+**Verified:** 1,305 backend unit tests pass (9 new + 1,296 existing, no regressions). `npm run lint` clean (eslint + raw-params + secrets). Admin lint clean.
+
+**Items NOT shipped** (the rollout plan called these out as "parallel / optional"; deferred deliberately):
+- **Voice-driven draft generation** — bridging `ambientDocumentationService` / `voiceSoapService` to the multi-agent draft path. Major value-add; 2-4 weeks of focused work; out of scope for Phase 5 hygiene work.
+- **E2E Playwright coverage** for the admin discharge-compose page — mechanical follow-up.
+- **Compose tree visualisation in Flutter** — defer until clinicians actually ask for it.
+- **Manual fail-paused-run UI** — admin escape hatch for runs whose external gate will never fire. SQL UPDATE works for now.
 
 ---
 
