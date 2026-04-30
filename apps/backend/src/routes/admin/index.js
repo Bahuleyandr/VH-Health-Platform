@@ -17,7 +17,7 @@ import auditRoutes from './auditRoutes.js';
 import eventOutboxRoutes from './eventOutboxRoutes.js';
 import executiveKpiRoutes from './executiveKpiRoutes.js';
 import featureFlagRoutes from './featureFlagRoutes.js';
-import { integrationRouter, subscriptionRouter } from './integrationRoutes.js';
+import { deliveryRouter, integrationRouter, subscriptionRouter } from './integrationRoutes.js';
 import patientIdentifierRoutes from './patientIdentifierRoutes.js';
 import patientMergeRoutes from './patientMergeRoutes.js';
 
@@ -662,5 +662,6 @@ router.use('/patient-identifiers', patientIdentifierRoutes);
 router.use('/patient-merges', patientMergeRoutes);
 router.use('/integrations', integrationRouter);
 router.use('/webhook-subscriptions', subscriptionRouter);
+router.use('/webhook-deliveries', deliveryRouter);
 
 export default router;
