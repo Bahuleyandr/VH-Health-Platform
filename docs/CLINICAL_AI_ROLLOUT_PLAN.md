@@ -24,6 +24,20 @@ production-ready on the backend; the rollout problem is now about *who
 uses it, on what device, and over which network* — not about new AI
 features.
 
+**Companion docs (read alongside this one):**
+- [`HEALTHCARE_AI_SPEC_AUDIT.md`](HEALTHCARE_AI_SPEC_AUDIT.md) —
+  audit of the codebase against an external 38-section healthcare-AI
+  build spec; verdict matrix per section + Phase A–F remediation
+  roadmap (~16 weeks). **Entity / infra layer.**
+- [`AI_FEATURE_GAP_BACKLOG.md`](AI_FEATURE_GAP_BACKLOG.md) —
+  audit of a ~250-feature user-facing AI catalogue against the 78
+  registered modules; tier-A/B/C/… build order + 5 substrate-level
+  safety holes (S1–S5) to fix first. **Module / feature layer.**
+
+These three together are the navigation map. This doc = *how to deploy
+what's built*. Audit = *what to build at infra/entity level*. Backlog
+= *what to build at AI-module level*.
+
 ---
 
 ## 1. Where we are (as of 2026-04-30)

@@ -6,6 +6,25 @@
 
 **TL;DR:** the existing platform already covers ≈75% of the spec end-to-end. Gaps cluster in five areas: (1) explicit `Facility` / `Location` / `Room` granularity below tenant, (2) formal `Webhook` + `Integration` registry tables, (3) telemedicine session entities, (4) knowledge-base CRUD as a first-class module (current RAG is service-only), and (5) several spec-named entities that exist as differently-named tables (rename / alias rather than rebuild). Stack rewrite is **not needed** — the spec explicitly says "if existing stack differs, follow it" and Express/Prisma/Postgres meets the requirements.
 
+**Companion docs (read alongside this one):**
+- [`CLINICAL_AI_ROLLOUT_PLAN.md`](CLINICAL_AI_ROLLOUT_PLAN.md) —
+  five-phase deployment plan for the multi-agent substrate that's
+  already on `main`. **All shipped 2026-04-30.** That's "how to deploy
+  what's built"; this audit is "what to build next at infra/entity level".
+- [`AI_FEATURE_GAP_BACKLOG.md`](AI_FEATURE_GAP_BACKLOG.md) —
+  ~250-feature AI-catalogue audit at the **module / feature layer**
+  (vs this doc's entity / infra layer). Surfaces five substrate-level
+  safety holes (S1–S5: prompt-injection gate on document ingest,
+  empty `clinical_protocols` seed, demographic bias monitoring,
+  CDS Hooks card adapter, regulatory-readiness pack exporter)
+  worth fixing before new modules.
+
+When a question is "do we have entity X?" → start here. When it's
+"do we have AI feature Y?" → start at the backlog. Phase D2 (CDS
+Hooks) and Phase E (compliance hardening) in this doc overlap with
+backlog items S4 and S5; treat them as the same work item, not
+duplicates.
+
 ---
 
 ## How to read this doc
