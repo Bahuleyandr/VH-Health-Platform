@@ -4,6 +4,8 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { sendEmail } from './sendEmailNotification.js';
 import { sendPushNotification } from './sendPushNotification.js';
+import { placeVoiceCall } from './sendVoiceNotification.js';
+import { sendWhatsApp } from './sendWhatsAppNotification.js';
 
 /**
  * Unified notification dispatcher.
@@ -13,11 +15,13 @@ import { sendPushNotification } from './sendPushNotification.js';
  * @param {string} options.userId - User UID or phone for lookup
  * @param {string} options.title - Notification title
  * @param {string} options.body - Notification body
- * @param {string[]} options.channels - Array of channels: 'push', 'email', 'inapp'
+ * @param {string[]} options.channels - Array of channels: 'push' | 'email' |
+ *   'inapp' | 'whatsapp' | 'voice'
  * @param {Object} [options.data] - Extra data for push notifications
  * @param {string} [options.type] - Notification type for in-app storage
+ * @param {string} [options.voiceLanguage] - TTS language override (e.g. 'hi-IN')
  */
-export async function dispatch({ userId, title, body, channels = ['push', 'inapp'], data = {}, type = 'general' }) {
+export async function dispatch({ userId, title, body, channels = ['push', 'inapp'], data = {}, type = 'general', voiceLanguage = null }) {
   const results = {};
 
   // Lookup user info
@@ -90,6 +94,38 @@ export async function dispatch({ userId, title, body, channels = ['push', 'inapp
     } catch (err) {
       logger.error(`Notification dispatch [inapp] failed for ${userId}: ${err.message}`);
       results.inapp = 'error';
+    }
+  }
+
+  // WhatsApp (Phase E5)
+  if (channels.includes('whatsapp')) {
+    if (!user.phone) {
+      results.whatsapp = 'no_phone';
+    } else {
+      try {
+        const out = await sendWhatsApp({ to: user.phone, body: `${title}\n${body}` });
+        results.whatsapp = out.status;
+      } catch (err) {
+        logger.error(`Notification dispatch [whatsapp] failed for ${userId}: ${err.message}`);
+        results.whatsapp = 'error';
+      }
+    }
+  }
+
+  // Voice (Phase E5)
+  if (channels.includes('voice')) {
+    if (!user.phone) {
+      results.voice = 'no_phone';
+    } else {
+      try {
+        const out = await placeVoiceCall({
+          to: user.phone, message: `${title}. ${body}`, language: voiceLanguage,
+        });
+        results.voice = out.status;
+      } catch (err) {
+        logger.error(`Notification dispatch [voice] failed for ${userId}: ${err.message}`);
+        results.voice = 'error';
+      }
     }
   }
 
