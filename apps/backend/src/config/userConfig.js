@@ -1,26 +1,18 @@
 // src/config/userConfig.js
 
+import { ROLES as CANONICAL_ROLES } from '../utils/roleHelpers.js';
+
 export const USER_CONFIG = {
   // Pagination
   DEFAULT_PAGE_SIZE: 20,
   MAX_PAGE_SIZE: 100,
   MAX_BULK_IMPORT: 500,
   MAX_SEARCH_RESULTS: 50,
-  
-  // User roles
-  ROLES: {
-    ADMIN: 'ADMIN',
-    PATIENT: 'PATIENT', 
-    DOCTOR: 'DOCTOR',
-    NURSING_STAFF: 'NURSING_STAFF',
-    PHARMACY_STAFF: 'PHARMACY_STAFF',
-    LAB_STAFF: 'LAB_STAFF',
-    HR_STAFF: 'HR_STAFF',
-    GENERAL_STAFF: 'GENERAL_STAFF',
-    RECEPTIONIST: 'RECEPTIONIST',
-    SECURITY: 'SECURITY',
-    EMERGENCY_RESPONDER: 'EMERGENCY_RESPONDER'
-  },
+
+  // User roles — single source of truth is utils/roleHelpers.js (which
+  // covers the F1 seniority + specialty additions). Keeping the
+  // USER_CONFIG.ROLES name for back-compat with ~20 call sites.
+  ROLES: CANONICAL_ROLES,
   
   // Privacy settings
   PRIVACY: {
@@ -353,20 +345,9 @@ export const MEDICAL_SPECIALTIES = {
   NURSE_PRACTITIONER: 'NURSE_PRACTITIONER'
 };
 
-// Hospital roles export - mapping role names to their identifiers
-export const HOSPITAL_ROLES = {
-  ADMIN: 'ADMIN',
-  PATIENT: 'PATIENT',
-  DOCTOR: 'DOCTOR',
-  NURSING_STAFF: 'NURSING_STAFF',
-  PHARMACY_STAFF: 'PHARMACY_STAFF',
-  LAB_STAFF: 'LAB_STAFF',
-  HR_STAFF: 'HR_STAFF',
-  GENERAL_STAFF: 'GENERAL_STAFF',
-  RECEPTIONIST: 'RECEPTIONIST',
-  SECURITY: 'SECURITY',
-  EMERGENCY_RESPONDER: 'EMERGENCY_RESPONDER'
-};
+// Hospital roles export — same enum as USER_CONFIG.ROLES, kept as a
+// separate alias for callers that import HOSPITAL_ROLES specifically.
+export const HOSPITAL_ROLES = CANONICAL_ROLES;
 
 // Role hierarchy for permission inheritance
 export const ROLE_HIERARCHY = {
