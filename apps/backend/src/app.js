@@ -82,6 +82,7 @@ import patientVirtualWardRoutes from './routes/patient/virtualWardRoutes.js';
 
 // FHIR interoperability
 import fhirRoutes from './routes/fhir/fhirRoutes.js';
+import cdsHooksRoutes from './routes/clinical/cdsHooksRoutes.js';
 
 // Clinical Document Export & Import
 import documentRoutes from './routes/documents/documentRoutes.js';
@@ -476,6 +477,11 @@ app.use('/api/v1/wards', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_
 
 // FHIR R4 interoperability — restricted to clinical staff (exposes PHI)
 app.use('/api/v1/fhir', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('FHIR_RESOURCE'), fhirRoutes);
+
+// CDS Hooks (https://cds-hooks.org/) — standards-compliant decision-support
+// endpoints consumed by external EHR systems. Same RBAC as FHIR since the
+// invoke handlers may surface PHI in card detail.
+app.use('/api/v1/cds-services', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('CDS_HOOKS'), cdsHooksRoutes);
 
 // Clinical Document Export & Import
 app.use('/api/v1/documents', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('CLINICAL_DOCUMENT'), documentRoutes);
