@@ -27,6 +27,7 @@ import { carePlansRouter, followUpsRouter } from './carePlanRoutes.js';
 import facilityRoutes from './facilityRoutes.js';
 import { apiClientsRouter, mfaRouter } from './mfaApiClientsRoutes.js';
 import pharmacySupplyRoutes from './pharmacySupplyRoutes.js';
+import smartFhirRoutes from './smartFhirRoutes.js';
 import tasksWorkflowRoutes from './tasksWorkflowRoutes.js';
 import telemedicineRoutes from './telemedicineRoutes.js';
 
@@ -683,5 +684,6 @@ router.use('/care-plans', carePlansRouter);
 router.use('/follow-ups', followUpsRouter);
 router.use('/pharmacy-supply', pharmacySupplyRoutes);
 router.use('/abdm', abdmFullRoutes);
+router.use('/smart-fhir', smartFhirRoutes);
 
 export default router;
