@@ -1,0 +1,16 @@
+[Unit]
+Description=VH Health weekly DB drift + error scan
+Documentation=https://github.com/Bahuleyandr/VH-Health-Platform/tree/main/infra/onprem/vh-checks
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bahuleyan
+Group=bahuleyan
+WorkingDirectory=/home/bahuleyan/vh-checks
+ExecStart=/home/bahuleyan/vh-checks/run.sh
+StandardOutput=journal
+StandardError=journal
+# Don't time out before kubectl has a chance to resolve credentials.
+TimeoutStartSec=120
