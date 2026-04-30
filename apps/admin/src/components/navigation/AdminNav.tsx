@@ -65,6 +65,16 @@ const navSections: NavSection[] = [
         href: "/dashboard/clinical-ai",
         allowedRoles: CLINICAL_AI_CONTROL_ROLES,
       },
+      {
+        // Phase 5 of the clinical-AI rollout
+        // (docs/CLINICAL_AI_ROLLOUT_PLAN.md). Surfaces the
+        // discharge_summary_compose meta-workflow page that already
+        // existed at /dashboard/clinical-ai/discharge-compose but had
+        // no nav entry until now.
+        name: "Discharge Compose",
+        href: "/dashboard/clinical-ai/discharge-compose",
+        allowedRoles: CLINICAL_AI_CONTROL_ROLES,
+      },
     ],
   },
   {
