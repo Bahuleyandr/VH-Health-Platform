@@ -1,0 +1,5 @@
+node_modules
+.git
+README.md
+k8s.yaml
+.dockerignore

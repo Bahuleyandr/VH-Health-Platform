@@ -1,0 +1,19 @@
+{
+  "name": "vh-mcp-postgres",
+  "version": "1.0.0",
+  "description": "Read-only purpose-built MCP server exposing 3 VH-Health diagnostic queries. Deployed on Dalekdefender; reachable via Tailscale Funnel for cloud-side scheduled-routine consumption.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "express": "^4.21.0",
+    "pg": "^8.13.0",
+    "zod": "^3.23.8"
+  }
+}
