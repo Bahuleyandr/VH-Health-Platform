@@ -25,6 +25,7 @@ import billingMastersRoutes from './billingMastersRoutes.js';
 import { carePlansRouter, followUpsRouter } from './carePlanRoutes.js';
 import facilityRoutes from './facilityRoutes.js';
 import { apiClientsRouter, mfaRouter } from './mfaApiClientsRoutes.js';
+import pharmacySupplyRoutes from './pharmacySupplyRoutes.js';
 import tasksWorkflowRoutes from './tasksWorkflowRoutes.js';
 import telemedicineRoutes from './telemedicineRoutes.js';
 
@@ -679,5 +680,6 @@ router.use('/api-clients', apiClientsRouter);
 router.use('/facilities', facilityRoutes);
 router.use('/care-plans', carePlansRouter);
 router.use('/follow-ups', followUpsRouter);
+router.use('/pharmacy-supply', pharmacySupplyRoutes);
 
 export default router;
