@@ -814,6 +814,7 @@ router.post('/canary/cases', async (req, res, next) => {
       inputPacket: req.body?.input_packet,
       expectedKeys: req.body?.expected_keys,
       expectedCitationsMin: req.body?.expected_citations_min,
+      sliceAttributes: req.body?.slice_attributes,
     });
     await logClinicalAiAudit(req, 'CLINICAL_AI_CANARY_CASE_UPSERTED', String(saved.id), null, saved);
     return success(res, saved, 'Canary case saved', 201);
