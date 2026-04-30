@@ -946,6 +946,41 @@ export async function deactivateCanaryCase(id: number) {
 }
 
 // ---------------------------------------------------------------------------
+// Regulatory readiness pack (S5)
+// ---------------------------------------------------------------------------
+export interface ReadinessPack {
+  pack_version: string;
+  generated_at: string;
+  generated_by: { uid: string | null; role: string | null } | null;
+  tenant_id: string;
+  module_key: string;
+  version_range: { from: string | null; to: string | null };
+  decision_support_only: true;
+  summary: {
+    row_counts: Record<string, number>;
+    bias_signal_counts: { critical: number; high: number; medium: number };
+    skipped_sections: Record<string, string>;
+  };
+  sections: {
+    module: Record<string, unknown> | null;
+    model_registry: Array<Record<string, unknown>>;
+    eval_runs: Array<Record<string, unknown>>;
+    canary_runs: Array<Record<string, unknown>>;
+    safety_reviews: Array<Record<string, unknown>>;
+    prompts: Array<Record<string, unknown>>;
+    reviews: Array<Record<string, unknown>>;
+  };
+}
+
+export async function exportReadinessPack(payload: {
+  module_key: string;
+  from_version?: string | null;
+  to_version?: string | null;
+}) {
+  return postJSON<ReadinessPack>('/admin/clinical-ai/readiness-pack', payload);
+}
+
+// ---------------------------------------------------------------------------
 // Operational AI: capacity forecasting, no-show, OT duration, and charge capture
 // ---------------------------------------------------------------------------
 export type OperationalRiskBand = 'low' | 'medium' | 'high';

@@ -53,6 +53,7 @@ import {
   runCanary,
   upsertCanaryCase,
 } from '../../../services/ai/driftCanaryService.js';
+import { assembleReadinessPack } from '../../../services/ai/regulatoryReadinessService.js';
 import { normalizeRole, parseClinicalAiWindowDays } from './shared.js';
 import {
   getClinicalAiAuditRows,
@@ -828,6 +829,44 @@ router.patch('/canary/cases/:id/deactivate', async (req, res, next) => {
     const saved = await deactivateCanaryCase({ tenantId: req.tenantId, id: req.params.id });
     await logClinicalAiAudit(req, 'CLINICAL_AI_CANARY_CASE_DEACTIVATED', String(saved.id), { active: true }, saved);
     return success(res, saved, 'Canary case deactivated');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Regulatory readiness pack (S5)
+// ---------------------------------------------------------------------------
+router.post('/readiness-pack', async (req, res, next) => {
+  try {
+    const moduleKey = req.body?.module_key;
+    if (!moduleKey) {
+      return next(new Error('module_key is required'));
+    }
+    const pack = await assembleReadinessPack({
+      tenantId: req.tenantId,
+      moduleKey,
+      fromVersion: req.body?.from_version || null,
+      toVersion: req.body?.to_version || null,
+      generatedBy: {
+        uid: req.user?.uid || null,
+        role: req.user?.role || null,
+      },
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_READINESS_PACK_EXPORTED',
+      moduleKey,
+      null,
+      {
+        module_key: moduleKey,
+        from_version: req.body?.from_version || null,
+        to_version: req.body?.to_version || null,
+        row_counts: pack.summary?.row_counts,
+        bias_signal_counts: pack.summary?.bias_signal_counts,
+      },
+    );
+    return success(res, pack, 'Regulatory readiness pack assembled', 201);
   } catch (err) {
     return next(err);
   }
