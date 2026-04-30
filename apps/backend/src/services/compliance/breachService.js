@@ -328,10 +328,95 @@ async function notifyAdminsOfBreach(breach) {
   }
 }
 
+/**
+ * GDPR Art. 33 — supervisory authority notification (within 72 hours of
+ * becoming aware). Records the notification timestamp + reference + the
+ * jurisdiction the regulator covers.
+ */
+export async function notifyRegulator({ breachId, regulatorReference, jurisdiction, riskAssessment = null, dpaId = null, crossBorderImpact = false, notifiedBy = null }) {
+  if (!breachId || !regulatorReference || !jurisdiction) {
+    throw AppError.badRequest('breachId, regulatorReference and jurisdiction are required');
+  }
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT id, breach_id, status, regulator_notified_at FROM data_breaches WHERE breach_id = $1`,
+    breachId,
+  );
+  if (existing.length === 0) throw AppError.notFound('Breach not found');
+  if (existing[0].regulator_notified_at) {
+    throw AppError.conflict('Regulator already notified for this breach');
+  }
+
+  const result = await prisma.$queryRawUnsafe(
+    `UPDATE data_breaches
+     SET regulator_notified_at = NOW(),
+         regulator_reference = $1,
+         regulator_jurisdiction = $2,
+         risk_assessment = COALESCE($3::jsonb, risk_assessment),
+         dpa_id = COALESCE($4::int, dpa_id),
+         cross_border_impact = $5
+     WHERE breach_id = $6
+     RETURNING id, breach_id, severity, status,
+               regulator_notified_at, regulator_reference, regulator_jurisdiction,
+               data_subjects_notified_at, data_subject_notification_count,
+               risk_assessment, dpa_id, cross_border_impact, discovered_at, created_at`,
+    regulatorReference,
+    jurisdiction,
+    riskAssessment ? JSON.stringify(riskAssessment) : null,
+    dpaId ? Number(dpaId) : null,
+    Boolean(crossBorderImpact),
+    breachId,
+  );
+
+  logBreachAudit(notifiedBy, 'breach_regulator_notified', breachId, {
+    regulator_reference: regulatorReference,
+    jurisdiction,
+    cross_border_impact: Boolean(crossBorderImpact),
+  });
+  logger.info('Breach regulator-notified', { breach_id: breachId, jurisdiction });
+  return result[0];
+}
+
+/**
+ * GDPR Art. 34 — high-risk data subjects must be notified directly.
+ * Records timestamp + count of notified subjects.
+ */
+export async function notifyDataSubjects({ breachId, notificationCount, notifiedBy = null }) {
+  if (!breachId) throw AppError.badRequest('breachId is required');
+  const count = Number.parseInt(notificationCount, 10);
+  if (!Number.isFinite(count) || count < 0) {
+    throw AppError.badRequest('notificationCount must be a non-negative integer');
+  }
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT id, breach_id, status FROM data_breaches WHERE breach_id = $1`,
+    breachId,
+  );
+  if (existing.length === 0) throw AppError.notFound('Breach not found');
+
+  const result = await prisma.$queryRawUnsafe(
+    `UPDATE data_breaches
+     SET data_subjects_notified_at = NOW(),
+         data_subject_notification_count = $1
+     WHERE breach_id = $2
+     RETURNING id, breach_id, severity, status,
+               data_subjects_notified_at, data_subject_notification_count,
+               regulator_notified_at, regulator_reference, regulator_jurisdiction,
+               risk_assessment, dpa_id, cross_border_impact, discovered_at, created_at`,
+    count, breachId,
+  );
+
+  logBreachAudit(notifiedBy, 'breach_data_subjects_notified', breachId, {
+    notification_count: count,
+  });
+  logger.info('Breach data-subjects notified', { breach_id: breachId, count });
+  return result[0];
+}
+
 export default {
   reportBreach,
   containBreach,
   resolveBreach,
   getBreaches,
   getBreachTimeline,
+  notifyRegulator,
+  notifyDataSubjects,
 };
