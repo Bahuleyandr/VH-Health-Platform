@@ -121,6 +121,7 @@ const navSections: NavSection[] = [
       { name: "System Settings", href: "/dashboard/settings" },
       { name: "System Audit",    href: "/dashboard/system-audit" },
       { name: "Audit Logs",      href: "/dashboard/audit" },
+      { name: "Integrations",    href: "/dashboard/integrations" },
     ],
   },
 ];
