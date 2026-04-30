@@ -38,6 +38,10 @@ import {
   reindexDocument,
   uploadDocument,
 } from '../../../services/ai/knowledgeDocumentService.js';
+import {
+  listRetrievalLogs,
+  retrieveFromKnowledgeBases,
+} from '../../../services/ai/knowledgeRetrievalService.js';
 import { logClinicalAiAudit } from './audit.js';
 
 const KB_DOCUMENT_MIME_TYPES = new Set([
@@ -397,5 +401,44 @@ function safeParseJson(value) {
     return {};
   }
 }
+
+// ---------------------------------------------------------------------------
+// Retrieval (PR3) — permission-filtered RAG against a hospital's KBs.
+// ---------------------------------------------------------------------------
+
+router.post('/knowledge-bases/retrieve', async (req, res, next) => {
+  try {
+    const result = await retrieveFromKnowledgeBases({
+      tenantId: req.tenantId,
+      queryText: req.body?.query || req.body?.q || '',
+      // Role defaults to the caller's role; admins can supply role= to
+      // simulate retrieval for a different role for testing / audit.
+      role: req.body?.role || req.user?.role || null,
+      knowledgeBaseId: req.body?.knowledge_base_id || null,
+      kbType: req.body?.kb_type || null,
+      moduleKey: req.body?.module_key || null,
+      retrievedBy: req.user?.uid || null,
+      topK: req.body?.top_k,
+      minScore: req.body?.min_score,
+    });
+    return success(res, result, 'Knowledge base retrieval complete');
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/knowledge-bases/retrieval-logs', async (req, res, next) => {
+  try {
+    const result = await listRetrievalLogs({
+      tenantId: req.tenantId,
+      knowledgeBaseId: req.query.knowledge_base_id || null,
+      moduleKey: req.query.module_key || null,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Retrieval logs retrieved');
+  } catch (err) {
+    return next(err);
+  }
+});
 
 export default router;
