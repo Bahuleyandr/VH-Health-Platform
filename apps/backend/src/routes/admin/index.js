@@ -24,6 +24,7 @@ import surgicalDocumentationRoutes from './surgicalDocumentationRoutes.js';
 import abdmFullRoutes from './abdmFullRoutes.js';
 import billingMastersRoutes from './billingMastersRoutes.js';
 import { carePlansRouter, followUpsRouter } from './carePlanRoutes.js';
+import edRoutes from './edRoutes.js';
 import facilityRoutes from './facilityRoutes.js';
 import { apiClientsRouter, mfaRouter } from './mfaApiClientsRoutes.js';
 import pharmacySupplyRoutes from './pharmacySupplyRoutes.js';
@@ -685,5 +686,6 @@ router.use('/follow-ups', followUpsRouter);
 router.use('/pharmacy-supply', pharmacySupplyRoutes);
 router.use('/abdm', abdmFullRoutes);
 router.use('/smart-fhir', smartFhirRoutes);
+router.use('/ed', edRoutes);
 
 export default router;
