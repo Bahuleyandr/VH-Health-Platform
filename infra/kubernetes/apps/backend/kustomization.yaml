@@ -27,6 +27,12 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
+  # LAN-only ingress for /api/v1/clinical-ai/clinical/* (Phase 1 of the
+  # clinical-AI rollout — see docs/CLINICAL_AI_ROLLOUT_PLAN.md). Uses
+  # ingressClassName: nginx-internal so it's served by the internal-only
+  # ingress-nginx controller, not the public one. Hostname is
+  # clinical.vhhealth.hospital.local by default; overlays can patch.
+  - ingress-clinical-internal.yaml
   - hpa.yaml
   - pdb.yaml
   - network-policy.yaml

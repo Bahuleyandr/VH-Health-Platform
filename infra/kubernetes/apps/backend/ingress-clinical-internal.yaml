@@ -1,0 +1,115 @@
+# LAN-only ingress for the clinical-AI clinical-plane mount.
+#
+# Phase 1 of the clinical AI rollout (docs/CLINICAL_AI_ROLLOUT_PLAN.md).
+# Routes only /api/v1/clinical-ai/clinical/* (point-of-care) — control-
+# plane traffic stays on the public ingress at api.vhhealth.app.
+#
+#   Public path  → ingress-clinical-internal NOT used
+#                  (api.vhhealth.app via the existing `nginx` class)
+#
+#   Clinical use → clinical.<hospital>.local via this manifest
+#                  (the `nginx-internal` class, defined in
+#                  base/ingress-nginx/ingress-nginx.yaml)
+#
+# The hostname is environment-specific. Override per-overlay:
+#   overlays/prod      → clinical.vhhealth.hospital.local
+#   overlays/staging   → clinical-staging.vhhealth.hospital.local
+#   overlays/dev       → clinical-dev.vhhealth.hospital.local
+#   overlays/dalekdefender → not used (tailscale serve handles LAN already)
+#
+# Requirements before this can route real traffic:
+#   1. Hospital DNS: A or CNAME record `clinical.<hospital>.local` ->
+#      the internal-class ingress-nginx LB IP. Ask the hospital network
+#      team; they may want a different naming convention. Document the
+#      chosen hostname in the overlay's patch.
+#   2. cert-manager step-ca-internal ClusterIssuer (already exists in
+#      base/cert-manager/ — see ingress-nginx.yaml line 20). The
+#      hospital's intermediate CA must be loaded into step-ca-internal
+#      for browsers on workstations to trust the cert without warnings.
+#   3. Verify ingress-nginx-internal pods are reachable from the LAN
+#      (not just cluster-internal) — typically via a MetalLB or
+#      hostNetwork DaemonSet binding to a private interface IP.
+#
+# Path-prefix discipline:
+#   This Ingress only mounts /api/v1/clinical-ai/clinical/. The control
+#   plane (/api/v1/admin/clinical-ai/* and /api/v1/clinical-ai/control/*),
+#   patient APIs, and admin portal stay on the public ingress so that
+#   admins / IT / patients keep their existing access paths.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vhhealth-backend-clinical-internal
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    # Internal cert (step-ca-internal) — see base/cert-manager/.
+    cert-manager.io/cluster-issuer: step-ca-internal
+    # Same body / timeout shape as the public ingress so multipart
+    # patient-record uploads work uniformly when a clinician initiates
+    # them via the staff app.
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    # Backend handles CORS itself (corsMiddleware.js). Same caveat as the
+    # public ingress — leaving it disabled here so we don't strip
+    # Access-Control-Allow-Credentials.
+    nginx.ingress.kubernetes.io/enable-cors: "false"
+    # Mirror the helmet.js security headers from app.js. HSTS preload
+    # is FALSE on this cert because step-ca-internal is a private CA;
+    # public CT log preload would be incorrect.
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "Permissions-Policy: geolocation=(), microphone=(), camera=()";
+      more_set_headers "Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'";
+    # Per-IP rate limit (defense in depth on top of express-rate-limit).
+    # Higher than the public ingress because clinicians legitimately
+    # generate many drafts per shift.
+    nginx.ingress.kubernetes.io/limit-connections: "100"
+    nginx.ingress.kubernetes.io/limit-rpm: "1200"
+  labels:
+    app.kubernetes.io/name: vhhealth-backend
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: vhhealth
+    # Distinguishes this Ingress from the public one in dashboards.
+    app.kubernetes.io/exposure: lan-only
+spec:
+  ingressClassName: nginx-internal
+  tls:
+    - hosts:
+        - clinical.vhhealth.hospital.local
+      secretName: vhhealth-backend-clinical-internal-tls
+  rules:
+    - host: clinical.vhhealth.hospital.local
+      http:
+        paths:
+          # Clinical plane only. Note the explicit prefix — the control
+          # plane and other API paths fall through to a 404 on this
+          # ingress (which is the desired behaviour: control-plane
+          # traffic must come through the public ingress).
+          - path: /api/v1/clinical-ai/clinical
+            pathType: Prefix
+            backend:
+              service:
+                name: vhhealth-backend
+                port:
+                  number: 80
+          # /api/v1/health and /healthz allowed on the LAN ingress so a
+          # hospital monitoring agent can probe the service without
+          # touching the public path.
+          - path: /api/v1/health
+            pathType: Prefix
+            backend:
+              service:
+                name: vhhealth-backend
+                port:
+                  number: 80
+          - path: /healthz
+            pathType: Exact
+            backend:
+              service:
+                name: vhhealth-backend
+                port:
+                  number: 80
