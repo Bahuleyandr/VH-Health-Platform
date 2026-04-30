@@ -1320,6 +1320,77 @@ export async function generateInvoicePatientExplanation(payload: {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Tier B PR2 — Surgical / OR AI modules
+// ---------------------------------------------------------------------------
+
+export type SurgicalAiModuleKey =
+  | 'preop_checklist_review'
+  | 'surgical_consent_draft'
+  | 'ot_note_draft'
+  | 'post_op_instruction_draft'
+  | 'surgical_risk_summary'
+  | 'anesthesia_precheck_assistant'
+  | 'implant_consumable_tracker'
+  | 'post_op_complication_alert';
+
+export interface SurgicalAiResult {
+  module_key: SurgicalAiModuleKey;
+  generation_id: number | null;
+  ot_schedule_id: number;
+  draft: Record<string, unknown> & { fallback_used?: boolean };
+  safety_flags: PatientExplainerSafetyFlag[];
+  source_citations: PatientExplainerCitation[];
+  used_ai: boolean;
+  provider: string;
+  status: 'draft' | 'failed' | string;
+  review_status: 'pending' | 'failed' | string;
+  requires_signoff: boolean;
+  decision_support_only: true;
+}
+
+export async function reviewPreopChecklist(payload: { ot_schedule_id: number }) {
+  return postJSON<SurgicalAiResult>('/admin/clinical-ai/preop-checklist-reviews', payload);
+}
+
+export async function draftSurgicalConsent(payload: {
+  ot_schedule_id: number;
+  language?: PatientExplainerLanguage;
+  patient_comorbidities?: string[] | null;
+}) {
+  return postJSON<SurgicalAiResult>('/admin/clinical-ai/surgical-consent-drafts', payload);
+}
+
+export async function draftOperativeNote(payload: {
+  ot_schedule_id: number;
+  surgeon_notes?: string | null;
+}) {
+  return postJSON<SurgicalAiResult>('/admin/clinical-ai/ot-note-drafts', payload);
+}
+
+export async function draftPostOpInstructions(payload: {
+  ot_schedule_id: number;
+  language?: PatientExplainerLanguage;
+}) {
+  return postJSON<SurgicalAiResult>('/admin/clinical-ai/post-op-instruction-drafts', payload);
+}
+
+export async function summarizeSurgicalRisk(payload: { ot_schedule_id: number }) {
+  return postJSON<SurgicalAiResult>('/admin/clinical-ai/surgical-risk-summaries', payload);
+}
+
+export async function runAnesthesiaPrecheck(payload: { ot_schedule_id: number }) {
+  return postJSON<SurgicalAiResult>('/admin/clinical-ai/anesthesia-prechecks', payload);
+}
+
+export async function trackImplantsAndConsumables(payload: { ot_schedule_id: number }) {
+  return postJSON<SurgicalAiResult>('/admin/clinical-ai/implant-consumable-tracking', payload);
+}
+
+export async function detectPostOpComplications(payload: { ot_schedule_id: number }) {
+  return postJSON<SurgicalAiResult>('/admin/clinical-ai/post-op-complication-alerts', payload);
+}
+
 export async function uploadKnowledgeBaseDocument(
   knowledgeBaseId: number,
   file: File,
