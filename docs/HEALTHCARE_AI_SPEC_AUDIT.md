@@ -628,8 +628,8 @@ Ranked by the impact-on-deployment × effort matrix.
 |---|---|---|---|---|
 | 1 | ✅ **Knowledge Base CRUD** — SHIPPED 2026-04-30 (Phase A1, 4 PRs) | hospitals can now upload SOPs / antibiotic policy / patient-ed material that AI cites under tenant + role isolation | done | A |
 | 2 | **Telemedicine module** (Teleconsultation, VideoSession, ChatSession, RemotePrescription) | Spec calls it out; patient app advertises but can't deliver | 1-2 weeks (+ video provider integration) | B |
-| 3 | **Webhook + Integration registry** (Integration, WebhookSubscription, WebhookDelivery, ExternalSystemMapping) | SaaS hospitals expect to subscribe to events without contacting us; integrations are currently bespoke per-vendor | 1 week | A |
-| 4 | **Patient identifier multi-type table** + duplicate/merge workflow | Hospitals onboarding real patient data hit duplicate-MRN issues immediately; merge workflow with approval is regulatory hygiene | 4-5 days | A |
+| 3 | ✅ **Webhook + Integration registry** — SHIPPED 2026-04-30 (Phase A3, 2 PRs) | hospitals can now self-serve event subscriptions; signed-webhook dispatcher with retry-with-backoff and per-attempt audit | done | A |
+| 4 | ✅ **Patient identifier multi-type table + dedupe/merge workflow** — SHIPPED 2026-04-30 (Phase A2, 2 PRs) | 14-value identifier types per UID; identifier-collision dedupe scanner; two-person-approved merge with FK sweep | done | A |
 | 5 | **Multi-facility under tenant** (Facility, Location, Room) + service catalog | Today a tenant ≈ a hospital; real chains have multiple facilities per legal entity | 1 week + migration of existing rows | C |
 | 6 | **Generic Tasks/Workflow/Approval system** (non-AI) | "Follow up on this patient" / "review this lab report" tasks have no home; staff use notifications as a poor proxy | 1 week | B |
 | 7 | **Surgery clinical entities** (PreOpChecklist, IntraOpNote, PostOpNote, AnesthesiaRecord, Implant, SurgicalSafetyChecklist) | OT scheduling is solid; OT documentation isn't — operative note quality and implant tracking are clinical-safety items | 1-2 weeks | C |
@@ -662,8 +662,12 @@ Highest user impact for the multi-agent system already on `main`. Lets a hospita
   - PR2: knowledgeDocumentService — inline-text + multipart-upload pipeline (extract → S1 prompt-injection gate → chunk via ragService.chunkText → embed via ragService.embedText into 768-dim pgvector); per-document processing_status state machine (pending → extracting → chunking → embedding → indexed | failed | blocked).
   - PR3: knowledgeRetrievalService — permission-filtered RAG via EXISTS subquery on knowledge_access_policies (read | write | manage rank); every retrieval audited in knowledge_retrieval_logs by tenant + KB + module + role; degrades to typed source codes on infra issues.
   - PR4: KnowledgeBasePanel admin UI — KB CRUD, inline-text ingest with S1 verdict surfaced via toast + status badge, document reindex / delete, role + permission grants, retrieval tester. File-upload UI deferred to a small follow-up (backend already accepts multipart).
-- **A2**: Multi-identifier patient table + duplicate detection + merge-with-approval workflow.
-- **A3**: Webhook + Integration registry — `Integration`, `WebhookSubscription`, `WebhookDelivery`, `ExternalSystemMapping`, `IntegrationCredential`, `IntegrationLog`; signed webhook framework; admin UI for subscription management.
+- **A2**: ✅ **SHIPPED 2026-04-30** — multi-identifier patient table + dedupe + merge workflow across two PRs:
+  - PR1: migration 114 (`patient_identifiers` / `patient_duplicate_candidates` / `patient_merge_requests`) + `patientIdentifierService` CRUD with 14-value identifier-type allow-list (mrn / uhid / abha / abha_address / mobile / aadhaar_token / passport / insurance / tpa_card / employee_id / external_emr / national_id / driving_license / other) + admin routes.
+  - PR2: `patientDedupeService.detectIdentifierCollisions` scans active identifiers for cross-UID collisions, scores per-axis (ABHA/Aadhaar/national_id 92–95, MRN/UHID 88, mobile/employee_id 70) and writes `patient_duplicate_candidates`. `patientMergeService` runs the two-person workflow (request → approve → execute → reject / cancel) with hard-coded "requester ≠ approver" guard, FK sweep across 13 patient-FK tables in a single transaction, and per-table row counts in `execution_summary`.
+- **A3**: ✅ **SHIPPED 2026-04-30** — Webhook + Integration registry across two PRs:
+  - PR1: migration 115 (`integrations` / `integration_credentials` / `webhook_subscriptions` / `webhook_deliveries` / `external_system_mappings` / `integration_logs`) + `integrationService` + `webhookSubscriptionService` CRUD + shared `signWebhookPayload` / `verifyWebhookSignature` HMAC helper (Stripe/GitHub-style `t=,sig=,algo=` header convention; 5-min replay tolerance; timing-safe equality).
+  - PR2: `webhookDeliveryService.enqueueDelivery` fans out one row per matching active subscription; `dispatchPendingDeliveries` cron (every 30 s, batch=25, FOR UPDATE SKIP LOCKED claim) signs + POSTs each delivery, classifies by HTTP code (2xx / 4xx / 5xx-or-network), retries on the exponential schedule (30 s → 8 h, RETRY_LIMIT=7), marks dead at the limit, auto-pauses subscriptions whose failure cap is exceeded, and writes per-attempt audit through `integration_logs`. Admin escape hatches: `markDeliveryDead` + `redriveDelivery`.
 
 ## Phase B — Operational completeness (≈3 weeks)
 
@@ -730,7 +734,7 @@ These are intentional design decisions where VH Health diverges from the spec �
 | Sections where VH Health is **better than spec** | §6 EMR, §15 Discharge, §22 AI platform, §23 Decision memory, §24 Analytics, §31 AI safety workflow |
 | Largest single functional gap | Telemedicine (§25) |
 | Largest single AI gap | ✅ Knowledge Base CRUD (§23) — shipped 2026-04-30 |
-| Largest single ops gap | Webhook + Integration registry (§27) |
+| Largest single ops gap | ✅ Webhook + Integration registry (§27) — shipped 2026-04-30 |
 | Largest single org gap | Multi-facility under tenant (§2) |
 | Recommended phasing | 5 phases (A–E) over ≈16 weeks; Phase F polish |
 
