@@ -51,6 +51,7 @@ function ViewportPanel({ component: Component }: { component: PanelComponent }) 
 const PANELS: PanelComponent[] = [
   deferredPanel(() => import("./coreModulePanels/PromptExperimentsPanel")),
   deferredPanel(() => import("./coreModulePanels/DriftCanaryPanel")),
+  deferredPanel(() => import("./coreModulePanels/RegulatoryReadinessPackPanel")),
   deferredPanel(() => import("./coreModulePanels/DeteriorationPanel")),
   deferredPanel(() => import("./coreModulePanels/ImagingAIPanel")),
   deferredPanel(() => import("./coreModulePanels/VirtualWardPanel")),
