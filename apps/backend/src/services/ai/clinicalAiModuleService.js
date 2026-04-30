@@ -4,6 +4,43 @@ import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
 export const CLINICAL_AI_MODULES = [
   {
+    module_key: 'discharge_summary_compose',
+    display_name: 'Discharge Package Compose',
+    description: 'Meta-workflow that orchestrates medication reconciliation, aftercare instructions, discharge readiness, and clinical coding subgraphs into a unified discharge package. Each component remains independently reviewable; the parent run links them via clinical_ai_workflow_runs.parent_run_id and rolls up their safety flags.',
+    enabled: false,
+    settings: {
+      surface: 'emr',
+      risk: 'high',
+      status: 'available',
+      requiresClinicianSignoff: true,
+      requiresCitations: false, // citations live on each child draft
+      reviewRoles: ['DOCTOR', 'MEDICAL_RECORDS'],
+      approvalPolicy: 'two_person_for_enablement',
+      outputSchema: {
+        type: 'object',
+        required: ['admission_id', 'components', 'overall_safety_band'],
+      },
+      retentionDays: 365,
+      // Subgraph-orchestration only — no LLM call at the parent level.
+      // The model_tier knob is meaningless here; children inherit their
+      // own tiers from their respective module configs.
+      isComposeWorkflow: true,
+      // Toggle individual children. By default all four are spawned;
+      // a tenant-specific config can disable e.g. clinical_coding_assist
+      // if their billing workflow doesn't use it.
+      composeChildren: [
+        'medication_reconciliation',
+        'patient_aftercare_instructions',
+        'discharge_readiness',
+        'clinical_coding_assist',
+      ],
+      // When true, a node returns pauseRun('await_governance') after
+      // assemble + persist, parking the run until an external scheduler
+      // detects governance approval and resumes it.
+      requireGovernanceApproval: false,
+    },
+  },
+  {
     module_key: 'discharge_summary',
     display_name: 'Discharge Summary Drafts',
     description: 'Drafts clinician-reviewed discharge summaries from inpatient chart context.',

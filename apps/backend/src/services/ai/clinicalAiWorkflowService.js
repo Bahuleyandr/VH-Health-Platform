@@ -875,7 +875,7 @@ const ADMISSION_AI_DRAFT_GRAPH_NODES = {
 };
 
 let _admissionAiDraftGraph = null;
-function getAdmissionAiDraftGraph() {
+export function getAdmissionAiDraftGraph() {
   if (!_admissionAiDraftGraph) {
     _admissionAiDraftGraph = new WorkflowGraph({
       key: 'admission_ai_draft',
@@ -885,6 +885,15 @@ function getAdmissionAiDraftGraph() {
   }
   return _admissionAiDraftGraph;
 }
+
+// Re-exported for parent workflows (e.g. discharge_summary_compose) that
+// need to validate moduleKey before spawning the admission_ai_draft graph
+// as a subgraph.
+export { ADMISSION_MODULES };
+
+// Re-exported helpers for parent workflows that need to fabricate the
+// initial state shape that the admission_ai_draft graph expects.
+export { requireEnabledModule, resolveTenantId };
 
 export async function generateAdmissionAiDraft(admissionId, moduleKey, requestedBy, req = null) {
   const key = cleanText(moduleKey).toLowerCase();
