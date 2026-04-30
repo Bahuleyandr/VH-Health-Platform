@@ -1,0 +1,60 @@
+# Internal-only ingress for the staff Flutter web bundle.
+#
+# Phase 3 of the clinical-AI rollout (docs/CLINICAL_AI_ROLLOUT_PLAN.md).
+# Pairs with the backend's ingress-clinical-internal.yaml from Phase 1
+# at the same hostname — the nginx config in the staff-web image
+# already permits `connect-src 'self' wss: https:` so the SPA can call
+# the backend at https://clinical.<hospital>.local/api/v1/clinical-ai/clinical/*
+# from a same-origin browser tab.
+#
+# Hostname is overlay-overridable, same convention as the backend
+# clinical ingress.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vhhealth-staff-web
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    cert-manager.io/cluster-issuer: step-ca-internal
+    # Static assets — small bodies, fast timeouts.
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "5"
+    nginx.ingress.kubernetes.io/enable-cors: "false"
+    # Security headers also set in the upstream nginx-staff-web.conf.
+    # Belt-and-braces at the ingress so a misconfigured upstream still
+    # serves a hardened first byte.
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "Permissions-Policy: geolocation=(), microphone=(), camera=()";
+  labels:
+    app.kubernetes.io/name: vhhealth-staff-web
+    app.kubernetes.io/component: staff-web
+    app.kubernetes.io/part-of: vhhealth
+    app.kubernetes.io/exposure: lan-only
+spec:
+  ingressClassName: nginx-internal
+  tls:
+    - hosts:
+        - clinical.vhhealth.hospital.local
+      secretName: vhhealth-staff-web-tls
+  rules:
+    - host: clinical.vhhealth.hospital.local
+      http:
+        paths:
+          # Same hostname as the backend's clinical Ingress, but DIFFERENT
+          # path prefixes. Order matters here — nginx-ingress matches
+          # most-specific-first. The backend ingress claims
+          # /api/v1/clinical-ai/clinical and /api/v1/health; this one
+          # claims everything else (the SPA itself).
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vhhealth-staff-web
+                port:
+                  number: 80

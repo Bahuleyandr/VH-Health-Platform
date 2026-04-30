@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# VH Health — Staff Web (Flutter web build)
+# Phase 3 of the clinical-AI rollout (docs/CLINICAL_AI_ROLLOUT_PLAN.md).
+#
+# Same Flutter source tree as the staff Android/iOS APK; built via
+# `flutter build web` and packaged in apps/staff/Dockerfile.web. Served
+# behind the LAN-only nginx-internal IngressClass at
+# clinical.<hospital>.local — never on the public internet.
+#
+# Overlays under infra/kubernetes/overlays/{prod,staging,dev} pin the
+# image tag and (optionally) patch the hostname per environment.
+
+namespace: vhhealth
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: vhhealth
+      app.kubernetes.io/component: staff-web
+    includeSelectors: false
+    includeTemplates: true
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - network-policy.yaml

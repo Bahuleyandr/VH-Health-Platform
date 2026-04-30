@@ -1,0 +1,35 @@
+# NetworkPolicy for staff-web.
+#
+# Ingress: only the nginx-internal IngressClass controller pods (which
+# live in the vhhealth-ingress namespace) reach this service. Public
+# ingress controllers cannot.
+#
+# Egress: zero. The pod is a static-asset server; no upstream calls.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vhhealth-staff-web
+  labels:
+    app.kubernetes.io/name: vhhealth-staff-web
+    app.kubernetes.io/component: staff-web
+    app.kubernetes.io/part-of: vhhealth
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: vhhealth-staff-web
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vhhealth-ingress
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: ingress-nginx-internal
+      ports:
+        - port: 8080
+          protocol: TCP
+  # No egress rules — the pod has no legitimate outbound traffic.
+  egress: []
