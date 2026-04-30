@@ -50,7 +50,7 @@ async function getTwilioClient() {
   if (!sid || !token) {
     throw new Error('TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are required for VOICE_PROVIDER=twilio');
   }
-  // eslint-disable-next-line import/no-unresolved
+  // Lazy import — same pattern as sendWhatsAppNotification.
   const mod = await import('twilio').catch(() => null);
   if (!mod) {
     throw new Error('twilio package is not installed; run `npm i twilio` to enable voice via Twilio');
