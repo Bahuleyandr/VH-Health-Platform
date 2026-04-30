@@ -22,6 +22,7 @@ import patientIdentifierRoutes from './patientIdentifierRoutes.js';
 import patientMergeRoutes from './patientMergeRoutes.js';
 import surgicalDocumentationRoutes from './surgicalDocumentationRoutes.js';
 import billingMastersRoutes from './billingMastersRoutes.js';
+import { carePlansRouter, followUpsRouter } from './carePlanRoutes.js';
 import facilityRoutes from './facilityRoutes.js';
 import { apiClientsRouter, mfaRouter } from './mfaApiClientsRoutes.js';
 import tasksWorkflowRoutes from './tasksWorkflowRoutes.js';
@@ -676,5 +677,7 @@ router.use('/billing-masters', billingMastersRoutes);
 router.use('/mfa', mfaRouter);
 router.use('/api-clients', apiClientsRouter);
 router.use('/facilities', facilityRoutes);
+router.use('/care-plans', carePlansRouter);
+router.use('/follow-ups', followUpsRouter);
 
 export default router;
