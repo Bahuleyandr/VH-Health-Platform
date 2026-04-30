@@ -442,7 +442,14 @@ After the matrices: the **top-10 prioritised gaps** + a **remediation roadmap** 
 | Document versioning + approval workflow | partial via clinical_ai_approvals | 🟡 |
 | RAG evaluation, stale-doc detection | `ragService` corpus-health probes; partial | 🟡 |
 
-**Verdict:** 🟡 RAG service exists but a full Knowledge Base CRUD module (upload → chunk → embed → retrieve with permission filter) is **the largest single AI gap**. The current setup serves discharge_summary RAG well but a hospital can't easily upload SOPs / antibiotic policy / patient-education docs and have them flow into AI prompts.
+**Verdict:** ✅ — **shipped 2026-04-30 (Phase A1 across 4 PRs).** The full
+Knowledge Base CRUD module is now on `main`: `knowledge_bases` /
+`knowledge_documents` / `knowledge_chunks` / `knowledge_access_policies` /
+`knowledge_retrieval_logs` tables + the upload → S1 prompt-injection gate
+→ chunk → embed → permission-filtered retrieval pipeline + admin UI.
+Hospitals can upload SOPs / antibiotic policy / patient-education docs and
+have them flow into AI prompts under tenant + role isolation. See
+`docs/AI_FEATURE_GAP_BACKLOG.md` for the remaining substrate posture.
 
 ---
 
@@ -619,7 +626,7 @@ Ranked by the impact-on-deployment × effort matrix.
 
 | # | Gap | Why it matters | Effort | Phase |
 |---|---|---|---|---|
-| 1 | **Knowledge Base CRUD** (KnowledgeBase / Document / Chunk / Embedding / AccessPolicy) | RAG only works on signed discharge summaries; hospitals can't upload SOPs/policies/patient-ed material that AI can cite | 1-2 weeks | A |
+| 1 | ✅ **Knowledge Base CRUD** — SHIPPED 2026-04-30 (Phase A1, 4 PRs) | hospitals can now upload SOPs / antibiotic policy / patient-ed material that AI cites under tenant + role isolation | done | A |
 | 2 | **Telemedicine module** (Teleconsultation, VideoSession, ChatSession, RemotePrescription) | Spec calls it out; patient app advertises but can't deliver | 1-2 weeks (+ video provider integration) | B |
 | 3 | **Webhook + Integration registry** (Integration, WebhookSubscription, WebhookDelivery, ExternalSystemMapping) | SaaS hospitals expect to subscribe to events without contacting us; integrations are currently bespoke per-vendor | 1 week | A |
 | 4 | **Patient identifier multi-type table** + duplicate/merge workflow | Hospitals onboarding real patient data hit duplicate-MRN issues immediately; merge workflow with approval is regulatory hygiene | 4-5 days | A |
@@ -650,7 +657,11 @@ This bolts onto `docs/CLINICAL_AI_ROLLOUT_PLAN.md` (which closed with all 5 phas
 
 Highest user impact for the multi-agent system already on `main`. Lets a hospital actually use the AI on their own SOPs.
 
-- **A1**: Knowledge Base CRUD module — `KnowledgeBase`, `KnowledgeDocument`, `KnowledgeChunk`, `KnowledgeEmbedding`, `KnowledgeAccessPolicy`, `RetrievalLog` tables; upload → chunk → embed → permission-filtered retrieval; admin UI for upload + indexing status. Plug into existing `ragService.js`.
+- **A1**: ✅ **SHIPPED 2026-04-30** — Knowledge Base CRUD module across four PRs:
+  - PR1: migration 113 (knowledge_bases / documents / chunks / access_policies / retrieval_logs) + KB CRUD service + admin routes.
+  - PR2: knowledgeDocumentService — inline-text + multipart-upload pipeline (extract → S1 prompt-injection gate → chunk via ragService.chunkText → embed via ragService.embedText into 768-dim pgvector); per-document processing_status state machine (pending → extracting → chunking → embedding → indexed | failed | blocked).
+  - PR3: knowledgeRetrievalService — permission-filtered RAG via EXISTS subquery on knowledge_access_policies (read | write | manage rank); every retrieval audited in knowledge_retrieval_logs by tenant + KB + module + role; degrades to typed source codes on infra issues.
+  - PR4: KnowledgeBasePanel admin UI — KB CRUD, inline-text ingest with S1 verdict surfaced via toast + status badge, document reindex / delete, role + permission grants, retrieval tester. File-upload UI deferred to a small follow-up (backend already accepts multipart).
 - **A2**: Multi-identifier patient table + duplicate detection + merge-with-approval workflow.
 - **A3**: Webhook + Integration registry — `Integration`, `WebhookSubscription`, `WebhookDelivery`, `ExternalSystemMapping`, `IntegrationCredential`, `IntegrationLog`; signed webhook framework; admin UI for subscription management.
 
@@ -718,7 +729,7 @@ These are intentional design decisions where VH Health diverges from the spec �
 | Spec coverage estimate | ≈75% |
 | Sections where VH Health is **better than spec** | §6 EMR, §15 Discharge, §22 AI platform, §23 Decision memory, §24 Analytics, §31 AI safety workflow |
 | Largest single functional gap | Telemedicine (§25) |
-| Largest single AI gap | Knowledge Base CRUD (§23) |
+| Largest single AI gap | ✅ Knowledge Base CRUD (§23) — shipped 2026-04-30 |
 | Largest single ops gap | Webhook + Integration registry (§27) |
 | Largest single org gap | Multi-facility under tenant (§2) |
 | Recommended phasing | 5 phases (A–E) over ≈16 weeks; Phase F polish |
