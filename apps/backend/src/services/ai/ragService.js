@@ -16,6 +16,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import { detectPromptInjection } from './documentPromptInjectionDetectorService.js';
 
 const EMBED_DIM = 768;
 const DEFAULT_CHUNK_CHARS = 1600; // ~400 tokens at ~4 chars/token
@@ -124,8 +125,46 @@ export async function indexDocument({
     throw new Error('indexDocument requires sourceType and sourceId');
   }
   const tid = resolveTenantId({ tenantId });
+
+  // S1 prompt-injection gate — refuses to index 'block' verdict content into
+  // the corpus, where it would otherwise feed every future RAG retrieval.
+  // 'flag' verdicts are indexed with the verdict captured in chunk metadata
+  // so retrievers / admins can audit which corpus rows looked suspicious.
+  const fullText = String(content || '');
+  let injectionVerdict = null;
+  if (fullText.trim().length >= 20) {
+    const injection = detectPromptInjection({
+      text: fullText,
+      source: `rag_corpus:${sourceType}`,
+      metadata: { sourceId: String(sourceId), patientUid },
+    });
+    injectionVerdict = injection.verdict;
+    if (injection.verdict === 'block') {
+      logger.warn('RAG indexDocument blocked for prompt injection', {
+        tenantId: tid,
+        sourceType,
+        sourceId: String(sourceId),
+        score: injection.score,
+        hit_count: injection.hits.length,
+      });
+      return {
+        indexed: 0,
+        skipped_reason: 'prompt_injection_blocked',
+        injection: {
+          score: injection.score,
+          hit_count: injection.hits.length,
+          reasons: injection.reasons.slice(0, 5),
+        },
+      };
+    }
+  }
+
   const chunks = chunkText(content);
   if (!chunks.length) return { indexed: 0, skipped_reason: 'empty_content' };
+
+  const chunkMetadata = injectionVerdict === 'flag'
+    ? { ...(metadata || {}), prompt_injection_verdict: 'flag' }
+    : (metadata || {});
 
   let indexed = 0;
   let skippedReason = null;
@@ -160,7 +199,7 @@ export async function indexDocument({
         i,
         chunks[i],
         toPgVector(vec),
-        JSON.stringify(metadata || {}),
+        JSON.stringify(chunkMetadata),
         signedAt || null,
         retentionUntil
       );
@@ -322,6 +361,7 @@ export async function backfillSignedDischargeSummaries({ tenantId = null, limit 
 
   let indexed = 0;
   let skipped = 0;
+  let injectionBlocked = 0;
   for (const row of rows) {
     const summary = row.discharge_summary || {};
     const content = [
@@ -351,17 +391,23 @@ export async function backfillSignedDischargeSummaries({ tenantId = null, limit 
     if (result.indexed > 0) indexed += result.indexed;
     else skipped += 1;
 
+    if (result.skipped_reason === 'prompt_injection_blocked') {
+      injectionBlocked += 1;
+      // Per-document concern; continue with the rest of the backfill.
+      continue;
+    }
+
     // Stop early if the embed endpoint is unreachable — no point retrying
     // the remaining rows this run.
     if (result.skipped_reason === 'embed_unavailable') {
-      return { indexed, skipped, halted: true, reason: 'embed_unavailable' };
+      return { indexed, skipped, injection_blocked: injectionBlocked, halted: true, reason: 'embed_unavailable' };
     }
     if (result.skipped_reason === 'corpus_unavailable') {
-      return { indexed, skipped, halted: true, reason: 'corpus_unavailable' };
+      return { indexed, skipped, injection_blocked: injectionBlocked, halted: true, reason: 'corpus_unavailable' };
     }
   }
 
-  return { indexed, skipped, halted: false };
+  return { indexed, skipped, injection_blocked: injectionBlocked, halted: false };
 }
 
 export default {
