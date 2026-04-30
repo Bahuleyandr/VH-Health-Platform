@@ -1210,6 +1210,116 @@ export async function reindexKnowledgeDocument(knowledgeBaseId: number, document
  * forwards multipart bodies to the backend and injects the API key + JWT
  * server-side, matching uploadDocumentIntake's pattern.
  */
+// ---------------------------------------------------------------------------
+// Tier A patient explainers
+// ---------------------------------------------------------------------------
+export type PatientExplainerModuleKey =
+  | 'lab_patient_explanation'
+  | 'radiology_patient_explanation'
+  | 'patient_report_explainer'
+  | 'prescription_patient_explainer'
+  | 'invoice_patient_explainer';
+
+export type PatientExplainerLanguage = 'en' | 'hi' | 'ta' | 'te' | 'ml' | 'mr' | 'bn' | 'kn';
+
+export interface PatientExplainerKeyPoint {
+  label: string;
+  value?: string | null;
+  what_it_means?: string | null;
+}
+
+export interface PatientExplainerCitation {
+  source_type: string;
+  source_id: string;
+  label?: string | null;
+  timestamp?: string | null;
+}
+
+export interface PatientExplainerSafetyFlag {
+  severity: 'critical' | 'high' | 'medium' | 'low' | string;
+  code?: string;
+  message?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface PatientExplainerDraft {
+  explanation_summary: string;
+  key_points: PatientExplainerKeyPoint[];
+  next_steps: string[];
+  when_to_seek_help: string[];
+  source_citations: PatientExplainerCitation[];
+  safety_flags: PatientExplainerSafetyFlag[];
+  fallback_used?: boolean;
+}
+
+export interface PatientExplainerResult {
+  module_key: PatientExplainerModuleKey;
+  generation_id: number | null;
+  draft: PatientExplainerDraft;
+  safety_flags: PatientExplainerSafetyFlag[];
+  source_citations: PatientExplainerCitation[];
+  used_ai: boolean;
+  provider: string;
+  status: 'draft' | 'failed' | string;
+  review_status: 'pending' | 'failed' | string;
+  requires_signoff: boolean;
+  decision_support_only: true;
+}
+
+export async function generateLabPatientExplanation(payload: {
+  investigation_id: number;
+  language?: PatientExplainerLanguage;
+}) {
+  return postJSON<PatientExplainerResult>(
+    '/admin/clinical-ai/lab-patient-explanations',
+    payload,
+  );
+}
+
+export async function generateRadiologyPatientExplanation(payload: {
+  radiology_order_id: number;
+  report_text?: string | null;
+  language?: PatientExplainerLanguage;
+}) {
+  return postJSON<PatientExplainerResult>(
+    '/admin/clinical-ai/radiology-patient-explanations',
+    payload,
+  );
+}
+
+export async function generatePatientReportExplanation(payload: {
+  report_type: string;
+  report_text: string;
+  patient_uid?: string | null;
+  admission_id?: number | null;
+  language?: PatientExplainerLanguage;
+}) {
+  return postJSON<PatientExplainerResult>(
+    '/admin/clinical-ai/patient-report-explanations',
+    payload,
+  );
+}
+
+export async function generatePrescriptionPatientExplanation(payload: {
+  prescription_id: number;
+  language?: PatientExplainerLanguage;
+}) {
+  return postJSON<PatientExplainerResult>(
+    '/admin/clinical-ai/prescription-patient-explanations',
+    payload,
+  );
+}
+
+export async function generateInvoicePatientExplanation(payload: {
+  invoice_id: number;
+  language?: PatientExplainerLanguage;
+}) {
+  return postJSON<PatientExplainerResult>(
+    '/admin/clinical-ai/invoice-patient-explanations',
+    payload,
+  );
+}
+
 export async function uploadKnowledgeBaseDocument(
   knowledgeBaseId: number,
   file: File,
