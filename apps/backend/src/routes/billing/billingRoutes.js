@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import logger from '../../logging/logger.js';
+import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import billingService from '../../services/billing/billingService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
@@ -21,7 +22,7 @@ const router = Router();
  * POST /billing/invoice
  * Create a new invoice (staff/admin only)
  */
-router.post('/invoice', requiredUUID('patient_uid'), requiredNumber('total_amount', { min: 0 }), validate, async (req, res, next) => {
+router.post('/invoice', requireIdempotencyKey({ required: false, scope: 'invoice' }), requiredUUID('patient_uid'), requiredNumber('total_amount', { min: 0 }), validate, async (req, res, next) => {
   try {
     if (!isStaff(req.user?.role) && !isAdmin(req.user?.role)) {
       return error(res, 'Only staff or admin can create invoices', 403);
@@ -111,7 +112,7 @@ router.get('/invoice/:id', async (req, res, next) => {
  * POST /billing/invoice/:id/payment
  * Record a payment against an invoice
  */
-router.post('/invoice/:id/payment', paramId(), requiredNumber('amount', { min: 0 }), requiredEnum('payment_method', ['CASH', 'CARD', 'UPI', 'INSURANCE', 'CHEQUE']), validate, async (req, res, next) => {
+router.post('/invoice/:id/payment', requireIdempotencyKey({ required: false, scope: 'payment' }), paramId(), requiredNumber('amount', { min: 0 }), requiredEnum('payment_method', ['CASH', 'CARD', 'UPI', 'INSURANCE', 'CHEQUE']), validate, async (req, res, next) => {
   try {
     if (!isStaff(req.user?.role) && !isAdmin(req.user?.role)) {
       return error(res, 'Only staff or admin can record payments', 403);
@@ -175,7 +176,7 @@ router.get('/revenue', async (req, res, next) => {
  * POST /billing/insurance/claim
  * Submit an insurance claim
  */
-router.post('/insurance/claim', requiredUUID('patient_uid'), requiredString('policy_number', 50), requiredNumber('claim_amount', { min: 0 }), validate, async (req, res, next) => {
+router.post('/insurance/claim', requireIdempotencyKey({ required: false, scope: 'insurance_claim' }), requiredUUID('patient_uid'), requiredString('policy_number', 50), requiredNumber('claim_amount', { min: 0 }), validate, async (req, res, next) => {
   try {
     if (!isStaff(req.user?.role) && !isAdmin(req.user?.role)) {
       return error(res, 'Only staff or admin can submit insurance claims', 403);
