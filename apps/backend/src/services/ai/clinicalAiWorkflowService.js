@@ -15,6 +15,8 @@ import {
   retrieveRelevantDecisions,
 } from './decisionMemoryService.js';
 import { runDifferentialDebate } from './clinicalDebateService.js';
+import { WorkflowGraph, runWorkflow } from './workflowGraphRunner.js';
+import { getDefaultCheckpointStore } from './workflowCheckpointStore.js';
 
 // Multi-tenant helper. Every query that writes to or reads from a tenant-scoped
 // clinical_ai_* table must pass tenantId. Null means "all tenants" and is only
@@ -629,170 +631,300 @@ function standardDraftResponse({ module, prompt, draft, citations, safetyFlags, 
   };
 }
 
+// ---------- generateAdmissionAiDraft graph -----------------------------
+//
+// The admission-AI-draft pipeline is expressed as an explicit DAG so it
+// can be checkpointed, resumed after a crash, and (in future) paused for
+// human-in-the-loop nodes (governance approval before persistence,
+// payer-side prior-auth, doctor sign-off). Each node is a small, named
+// step that returns a state delta. The graph definition lives outside
+// the function so module-level test stubs of the helper functions take
+// effect at run time, not import time.
+//
+// State shape (each node sees these keys; the trailing nodes assemble
+// the response):
+//   admissionId, moduleKey, requestedBy, requestContext, module, tenantId
+//   context, packet, prompt
+//   retrieved, retrievedCitations
+//   decisionMemory, contextSignature
+//   snapshot, fallbackDraft, aiResult, draft, citations, safetyFlags
+//   debateOutcome
+//   generation, safetyReview, review
+//   result   (final response, returned to the caller)
+//
+// The graph is intentionally one-shot: every edge is the next-key in
+// definition order. The runner picks that up automatically.
+
+const ADMISSION_AI_DRAFT_GRAPH_NODES = {
+  gather_chart_context: async (state) => {
+    const context = await collectAdmissionClinicalContext(state.admissionId);
+    return { context, packet: buildChartPacket(context) };
+  },
+
+  fetch_active_prompt: async (state) => {
+    const prompt = await getActivePrompt(state.moduleKey, { tenantId: state.tenantId });
+    return { prompt };
+  },
+
+  rag_retrieve: async (state) => {
+    // RAG: pull up to 5 prior signed discharge summaries from THIS tenant
+    // that look semantically similar to the current admission. Graceful
+    // degradation — empty result is fine, the chart packet alone still
+    // grounds the draft.
+    const retrievalQuery = [
+      state.packet.admission.chief_complaint,
+      state.packet.admission.admitting_diagnosis,
+      (state.packet.active_diagnoses || []).map((d) => d.summary).slice(0, 3).join(' '),
+    ].filter(Boolean).join('. ');
+    const retrieved = await retrieveRelevant({
+      tenantId: state.tenantId,
+      queryText: retrievalQuery,
+      filters: { sourceType: 'discharge_summary' },
+      topK: 5,
+      minScore: 0.65,
+    });
+    const packet = {
+      ...state.packet,
+      retrieved_cases: (retrieved.results || []).map((row) => ({
+        source_type: row.source_type,
+        source_id: row.source_id,
+        similarity: Number(row.similarity).toFixed(3),
+        signed_at: row.signed_at,
+        snippet: String(row.content).slice(0, 400),
+      })),
+    };
+    const retrievedCitations = (retrieved.results || []).map((row) =>
+      citationFor(row.source_type, row.source_id, `Similar prior case (sim ${Number(row.similarity).toFixed(2)})`, row.signed_at)
+    );
+    return { retrieved, packet, retrievedCitations };
+  },
+
+  memory_retrieve: async (state) => {
+    // Decision memory: prior reviewer decisions on this patient + cross-
+    // patient lessons that match the current context shape. Empty result
+    // is fine — RAG + chart packet remain the primary grounding.
+    const contextSignature = extractContextSignature(state.context, state.moduleKey);
+    const decisionMemory = await retrieveRelevantDecisions({
+      tenantId: state.tenantId,
+      moduleKey: state.moduleKey,
+      patientUid: state.context.admission?.patient_uid || null,
+      contextSignature,
+      limit: 5,
+    });
+    const packet = {
+      ...state.packet,
+      prior_decisions: decisionMemory.entries,
+      context_signature: contextSignature,
+    };
+    return { decisionMemory, contextSignature, packet };
+  },
+
+  save_context_snapshot: async (state) => {
+    const snapshot = await saveContextSnapshot({
+      tenantId: state.tenantId,
+      patientUid: state.context.admission.patient_uid,
+      admissionId: state.admissionId,
+      contextType: state.moduleKey,
+      payload: state.packet,
+      createdBy: state.requestedBy,
+    });
+    return { snapshot, fallbackDraft: buildAdmissionFallback(state.moduleKey, state.context) };
+  },
+
+  generate_ai_text: async (state) => {
+    const aiResult = await generateClinicalText({
+      taskType: state.moduleKey,
+      systemPrompt: state.prompt.system_prompt,
+      userPrompt: `${state.prompt.user_prompt_template}\n\n${JSON.stringify({ module_key: state.moduleKey, chart_packet: state.packet })}`,
+      tenantRegion: state.requestContext.tenant_region,
+      tenantId: state.tenantId,
+    });
+    return { aiResult, draft: safeJsonParse(aiResult.text, state.fallbackDraft) };
+  },
+
+  build_safety_flags: async (state) => {
+    const citations = uniqueCitations([...state.packet.citations, ...state.retrievedCitations]);
+    const safetyFlags = buildCommonSafetyFlags(state.context, state.module, citations);
+    if (!state.retrieved?.results?.length && state.retrieved?.source === 'corpus_unavailable') {
+      safetyFlags.push({
+        severity: 'low',
+        code: 'RAG_UNAVAILABLE',
+        message: 'Institutional-memory corpus not available. Draft grounded only in current admission chart.',
+      });
+    }
+    // Layer hallucination defenses.
+    safetyFlags.push(...runOutputDefenses({ draft: state.draft, module: state.module, context: state.context, citations }));
+    if (
+      state.moduleKey === 'clinical_coding_assist'
+      && !asArray(state.context.notes).some((event) => event.payload?.is_signed === true)
+    ) {
+      safetyFlags.push({
+        severity: 'high',
+        code: 'NO_SIGNED_DOCUMENTATION',
+        message: 'Coding assistant is restricted to signed documentation and no signed note was found.',
+      });
+    }
+    return { citations, safetyFlags };
+  },
+
+  run_debate: async (state) => {
+    // TradingAgents-style pursue/challenge differential. Module-gated.
+    const debateOutcome = runDifferentialDebate({
+      chartPacket: state.packet,
+      draft: state.draft,
+      module: state.module,
+      citations: state.citations,
+      maxRounds: state.module?.settings?.maxDebateRounds || 1,
+    });
+    const draft = debateOutcome.evidence_balance
+      ? { ...state.draft, evidence_balance: debateOutcome.evidence_balance }
+      : state.draft;
+    const safetyFlags = [...state.safetyFlags, ...debateOutcome.safety_flags];
+    return { debateOutcome, draft, safetyFlags };
+  },
+
+  persist_generation: async (state) => {
+    // Critical defense failures (PHI leaks, unsafe allergies) mark the
+    // draft as failed so it never enters the review queue — it lands in
+    // the dead-letter dashboard for platform admins to investigate.
+    const hasCriticalFlag = state.safetyFlags.some((flag) => flag.severity === 'critical');
+    const generation = await saveGeneration({
+      tenantId: state.tenantId,
+      patientUid: state.context.admission.patient_uid,
+      admissionId: state.admissionId,
+      moduleKey: state.moduleKey,
+      promptVersion: state.prompt.version || 'v1',
+      sourceHash: state.snapshot.source_hash,
+      draft: state.draft,
+      citations: state.citations,
+      safetyFlags: state.safetyFlags,
+      generatedBy: state.requestedBy,
+      aiResult: state.aiResult,
+      status: hasCriticalFlag ? 'failed' : 'draft',
+      failureReason: hasCriticalFlag
+        ? state.safetyFlags.find((flag) => flag.severity === 'critical')?.code || 'critical_defense_failure'
+        : null,
+      metadata: {
+        request_id: state.requestContext.request_id,
+        context_snapshot_id: state.snapshot.id || null,
+        tenant_region: state.requestContext.tenant_region,
+        defense_flag_codes: state.safetyFlags.map((flag) => flag.code),
+        context_signature: state.contextSignature,
+        prior_decisions_count: state.decisionMemory.entries.length,
+        prior_decisions_source: state.decisionMemory.source,
+        debate_enabled: state.debateOutcome.debate_enabled,
+        debate_balance: state.debateOutcome.evidence_balance?.balance || null,
+      },
+    });
+    return { generation, hasCriticalFlag };
+  },
+
+  persist_safety_review: async (state) => {
+    const safetyReview = await runSafetyReview({
+      tenantId: state.tenantId,
+      generationId: state.generation.id,
+      moduleKey: state.moduleKey,
+      citations: state.citations,
+      safetyFlags: state.safetyFlags,
+    });
+    return { safetyReview };
+  },
+
+  create_review_placeholder: async (state) => {
+    const review = await createReviewPlaceholder({
+      tenantId: state.tenantId,
+      generationId: state.generation.id,
+      module: state.module,
+      patientUid: state.context.admission.patient_uid,
+      admissionId: state.admissionId,
+    });
+    return { review };
+  },
+
+  publish_draft_event: async (state) => {
+    await publishEvent({
+      eventType: 'clinical_ai.draft_generated',
+      aggregateType: 'clinical_ai_generation',
+      aggregateId: state.generation.id,
+      patientUid: state.context.admission.patient_uid,
+      payload: {
+        tenant_id: state.tenantId,
+        module_key: state.moduleKey,
+        admission_id: state.admissionId,
+        review_id: state.review?.id || null,
+      },
+    });
+    return {};
+  },
+
+  build_response: async (state) => {
+    return {
+      result: standardDraftResponse({
+        module: state.module,
+        prompt: state.prompt,
+        draft: state.draft,
+        citations: state.citations,
+        safetyFlags: state.safetyFlags,
+        aiResult: state.aiResult,
+        generation: state.generation,
+        review: state.review,
+        safetyReview: state.safetyReview,
+      }),
+    };
+  },
+};
+
+let _admissionAiDraftGraph = null;
+function getAdmissionAiDraftGraph() {
+  if (!_admissionAiDraftGraph) {
+    _admissionAiDraftGraph = new WorkflowGraph({
+      key: 'admission_ai_draft',
+      nodes: ADMISSION_AI_DRAFT_GRAPH_NODES,
+      start: 'gather_chart_context',
+    });
+  }
+  return _admissionAiDraftGraph;
+}
+
 export async function generateAdmissionAiDraft(admissionId, moduleKey, requestedBy, req = null) {
   const key = cleanText(moduleKey).toLowerCase();
   if (!ADMISSION_MODULES.has(key)) throw AppError.badRequest('Unsupported admission AI module');
 
   const tenantId = resolveTenantId({ tenantId: req?.tenantId });
   const module = await requireEnabledModule(key, { tenantId });
-  const context = await collectAdmissionClinicalContext(admissionId);
-  const packet = buildChartPacket(context);
-  const prompt = await getActivePrompt(key, { tenantId });
 
-  // RAG: pull up to 5 prior signed discharge summaries from THIS tenant
-  // that look semantically similar to the current admission. Graceful
-  // degradation — empty result is fine, the chart packet alone still
-  // grounds the draft.
-  const retrievalQuery = [
-    packet.admission.chief_complaint,
-    packet.admission.admitting_diagnosis,
-    (packet.active_diagnoses || []).map((d) => d.summary).slice(0, 3).join(' '),
-  ].filter(Boolean).join('. ');
-  const retrieved = await retrieveRelevant({
-    tenantId,
-    queryText: retrievalQuery,
-    filters: { sourceType: 'discharge_summary' },
-    topK: 5,
-    minScore: 0.65,
-  });
-  packet.retrieved_cases = (retrieved.results || []).map((row) => ({
-    source_type: row.source_type,
-    source_id: row.source_id,
-    similarity: Number(row.similarity).toFixed(3),
-    signed_at: row.signed_at,
-    snippet: String(row.content).slice(0, 400),
-  }));
-  const retrievedCitations = (retrieved.results || []).map((row) =>
-    citationFor(row.source_type, row.source_id, `Similar prior case (sim ${Number(row.similarity).toFixed(2)})`, row.signed_at)
-  );
+  // Lift only the fields nodes need from the Express request — the full
+  // req object is not safely JSON-serialisable (circular refs, methods)
+  // and the runner persists state to JSONB on every node transition.
+  const requestContext = {
+    request_id: req?.id || null,
+    tenant_region: req?.tenant?.region || null,
+  };
 
-  // Decision memory: pull prior reviewer decisions on this patient + cross-
-  // patient lessons that match the current context shape. Empty result is
-  // fine — RAG + chart packet remain the primary grounding. The retrieval
-  // is best-effort; service failures degrade silently.
-  const contextSignature = extractContextSignature(context, key);
-  const decisionMemory = await retrieveRelevantDecisions({
+  const outcome = await runWorkflow({
+    graph: getAdmissionAiDraftGraph(),
+    initialState: { admissionId, moduleKey: key, requestedBy, requestContext, module, tenantId },
+    store: getDefaultCheckpointStore(),
     tenantId,
-    moduleKey: key,
-    patientUid: context.admission?.patient_uid || null,
-    contextSignature,
-    limit: 5,
-  });
-  packet.prior_decisions = decisionMemory.entries;
-  packet.context_signature = contextSignature;
-
-  const fallbackDraft = buildAdmissionFallback(key, context);
-  const snapshot = await saveContextSnapshot({
-    tenantId,
-    patientUid: context.admission.patient_uid,
-    admissionId,
-    contextType: key,
-    payload: packet,
-    createdBy: requestedBy,
-  });
-  const aiResult = await generateClinicalText({
-    taskType: key,
-    systemPrompt: prompt.system_prompt,
-    userPrompt: `${prompt.user_prompt_template}\n\n${JSON.stringify({ module_key: key, chart_packet: packet })}`,
-    tenantRegion: req?.tenant?.region,
-    tenantId,
-  });
-  const draft = safeJsonParse(aiResult.text, fallbackDraft);
-  const citations = uniqueCitations([...packet.citations, ...retrievedCitations]);
-  const safetyFlags = buildCommonSafetyFlags(context, module, citations);
-  if (!retrieved.results?.length && retrieved.source === 'corpus_unavailable') {
-    safetyFlags.push({
-      severity: 'low',
-      code: 'RAG_UNAVAILABLE',
-      message: 'Institutional-memory corpus not available. Draft grounded only in current admission chart.',
-    });
-  }
-  // Layer the hallucination-defense matrix on top — PHI leaks, unverified
-  // numerics, and required-field schema violations surface as additional
-  // flags that reviewers must triage.
-  safetyFlags.push(...runOutputDefenses({ draft, module, context, citations }));
-  if (key === 'clinical_coding_assist' && !asArray(context.notes).some((event) => event.payload?.is_signed === true)) {
-    safetyFlags.push({
-      severity: 'high',
-      code: 'NO_SIGNED_DOCUMENTATION',
-      message: 'Coding assistant is restricted to signed documentation and no signed note was found.',
-    });
-  }
-
-  // Differential debate (TradingAgents-style bull/bear adapted to
-  // pursue/challenge over a leading hypothesis). Module-gated; off by
-  // default. Adds an evidence_balance block to the draft and pushes
-  // additional safety flags when the balance challenges the leading
-  // hypothesis or surfaces must-not-miss alternatives.
-  const debateOutcome = runDifferentialDebate({
-    chartPacket: packet,
-    draft,
-    module,
-    citations,
-    maxRounds: module?.settings?.maxDebateRounds || 1,
-  });
-  if (debateOutcome.evidence_balance) {
-    draft.evidence_balance = debateOutcome.evidence_balance;
-  }
-  safetyFlags.push(...debateOutcome.safety_flags);
-  // Critical defense failures (PHI leaks, unsafe allergies) mark the draft
-  // as failed so it never enters the review queue — it lands in the
-  // dead-letter dashboard for platform admins to investigate instead.
-  const hasCriticalFlag = safetyFlags.some((flag) => flag.severity === 'critical');
-  const generation = await saveGeneration({
-    tenantId,
-    patientUid: context.admission.patient_uid,
-    admissionId,
-    moduleKey: key,
-    promptVersion: prompt.version || 'v1',
-    sourceHash: snapshot.source_hash,
-    draft,
-    citations,
-    safetyFlags,
-    generatedBy: requestedBy,
-    aiResult,
-    status: hasCriticalFlag ? 'failed' : 'draft',
-    failureReason: hasCriticalFlag
-      ? safetyFlags.find((flag) => flag.severity === 'critical')?.code || 'critical_defense_failure'
-      : null,
-    metadata: {
-      request_id: req?.id || null,
-      context_snapshot_id: snapshot.id || null,
-      tenant_region: req?.tenant?.region || null,
-      defense_flag_codes: safetyFlags.map((flag) => flag.code),
-      // Persist the retrieval signature on the generation so that, when a
-      // reviewer later updates this draft, the decision-memory projection
-      // can attach it without recomputing chart context.
-      context_signature: contextSignature,
-      prior_decisions_count: decisionMemory.entries.length,
-      prior_decisions_source: decisionMemory.source,
-      debate_enabled: debateOutcome.debate_enabled,
-      debate_balance: debateOutcome.evidence_balance?.balance || null,
+    startedBy: requestedBy,
+    workflowMetadata: {
+      module_key: key,
+      admission_id: admissionId,
+      request_id: requestContext.request_id,
     },
   });
-  const safetyReview = await runSafetyReview({
-    tenantId,
-    generationId: generation.id,
-    moduleKey: key,
-    citations,
-    safetyFlags,
-  });
-  const review = await createReviewPlaceholder({
-    tenantId,
-    generationId: generation.id,
-    module,
-    patientUid: context.admission.patient_uid,
-    admissionId,
-  });
-  await publishEvent({
-    eventType: 'clinical_ai.draft_generated',
-    aggregateType: 'clinical_ai_generation',
-    aggregateId: generation.id,
-    patientUid: context.admission.patient_uid,
-    payload: { tenant_id: tenantId, module_key: key, admission_id: admissionId, review_id: review?.id || null },
-  });
 
-  return standardDraftResponse({ module, prompt, draft, citations, safetyFlags, aiResult, generation, review, safetyReview });
+  if (outcome.status === 'failed') {
+    const node = outcome.error?.node || 'unknown';
+    const message = outcome.error?.message || 'Workflow failed';
+    logger.error('Admission AI draft workflow failed', { admissionId, moduleKey: key, node, message });
+    // Surface the original failure as a 500-class error. Callers see the
+    // same error semantics as before the refactor — node-level detail is
+    // logged for debugging but not leaked to clients.
+    throw AppError.internal('Failed to generate admission AI draft', 'ADMISSION_AI_DRAFT_FAILED');
+  }
+
+  return outcome.result;
 }
 
 function wardBriefDraft(ward, contexts) {
