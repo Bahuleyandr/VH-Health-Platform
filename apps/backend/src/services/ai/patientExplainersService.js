@@ -37,6 +37,11 @@ import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { generateClinicalText } from './localLlmClient.js';
 
+// Legacy allowlist kept for back-compat with tests that reference it via
+// `__testing__.EXPLAINER_MODULES`. The pipeline itself no longer enforces
+// this set — module validity comes from getClinicalAiModule(moduleKey)
+// which trusts the clinical_ai_modules registry. New tier-A / tier-C / etc.
+// modules consume runExplainerPipeline directly without needing entries here.
 const EXPLAINER_MODULES = new Set([
   'lab_patient_explanation',
   'radiology_patient_explanation',
@@ -102,17 +107,16 @@ function sourceHash(value) {
   return crypto.createHash('sha256').update(JSON.stringify(value || {})).digest('hex').slice(0, 32);
 }
 
-function ensureExplainerModule(moduleKey) {
-  if (!EXPLAINER_MODULES.has(moduleKey)) {
-    throw AppError.badRequest(`Unknown explainer module_key: ${moduleKey}`);
-  }
-}
-
 /**
- * Shared pipeline. Loads the module config, builds the LLM call, runs
- * defenses, persists to clinical_ai_generations + clinical_ai_reviews.
+ * Shared draft pipeline used by every "generate a clinician-reviewable
+ * draft" module — patient explainers (this file), tier-A assistants,
+ * and future tier C/D/E modules. Loads the module config from the
+ * registry (which is the source of truth for "is this module valid"),
+ * builds the LLM call, runs defenses, persists to clinical_ai_generations
+ * + clinical_ai_reviews. Exported so other services can consume it
+ * without import-from-__testing__.
  */
-async function runExplainerPipeline({
+export async function runExplainerPipeline({
   moduleKey,
   tenantId,
   patientUid,
@@ -125,7 +129,6 @@ async function runExplainerPipeline({
   generatedBy,
   req,
 }) {
-  ensureExplainerModule(moduleKey);
   const tid = resolveTenantId({ tenantId });
   const module = await getClinicalAiModule(moduleKey);
   if (!module.enabled) {
