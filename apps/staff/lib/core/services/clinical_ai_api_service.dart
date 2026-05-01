@@ -170,4 +170,38 @@ class ClinicalAiApiService {
   static Future<Map<String, dynamic>> resumeDischargeCompose(int runId) async {
     return _post('$_basePath/discharge-compose/$runId/resume', {});
   }
+
+  // ---------- voice notes (clinical-plane bridge) ----------------------
+  //
+  // These bridge `voiceSoapService` (Phase M3 backend) to the multi-agent
+  // review pipeline. Audio capture is platform-specific (record + permission
+  // flow); this client only wraps the list + generate-SOAP endpoints. The
+  // `transcribe` upload is multipart and is invoked by a recording UI in a
+  // separate ticket.
+
+  /// GET /voice-note/my — list this clinician's recent voice notes
+  /// (tenant-scoped). Routed through the *non-clinical* legacy path
+  /// `/api/v1/clinical/voice-note/my` because voice-note endpoints predate
+  /// the Phase 0 control/clinical split.
+  static Future<List<Map<String, dynamic>>> listMyVoiceNotes({int? limit}) async {
+    final query = <String, String>{};
+    if (limit != null) query['limit'] = limit.toString();
+    final resp = await ApiClient.get('/api/v1/clinical/voice-note/my', queryParameters: query);
+    final data = _handle(resp);
+    final notes = data['notes'] ?? data['data'];
+    if (notes is List) return notes.cast<Map<String, dynamic>>();
+    return const [];
+  }
+
+  /// POST /voice-note/:id/generate-soap — convert a completed transcript
+  /// into a SOAP draft. Returns the standard draft response shape (draft,
+  /// citations, safety_flags, generation_id, review_id). The draft enters
+  /// the caller's review queue keyed by module_key 'soap_from_dictation'.
+  static Future<Map<String, dynamic>> generateSoapFromVoiceNote(int voiceNoteId) async {
+    final resp = await ApiClient.post(
+      '/api/v1/clinical/voice-note/$voiceNoteId/generate-soap',
+      body: const {},
+    );
+    return _handle(resp);
+  }
 }

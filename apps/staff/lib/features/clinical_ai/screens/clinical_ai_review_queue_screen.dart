@@ -81,6 +81,7 @@ class _ClinicalAiReviewQueueScreenState extends State<ClinicalAiReviewQueueScree
       title: 'AI Review Queue',
       body: Column(
         children: [
+          _QuickAccessRow(),
           _FilterBar(
             filters: _statusFilters,
             value: _statusFilter,
@@ -131,6 +132,30 @@ class _StatusFilter {
   const _StatusFilter({required this.label, required this.value});
   final String label;
   final String? value;
+}
+
+class _QuickAccessRow extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        children: [
+          OutlinedButton.icon(
+            onPressed: () => context.push('/clinical-ai/compose'),
+            icon: const Icon(Icons.account_tree_outlined, size: 16),
+            label: const Text('Compose runs'),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton.icon(
+            onPressed: () => context.push('/clinical-ai/voice-notes'),
+            icon: const Icon(Icons.mic_none, size: 16),
+            label: const Text('Voice notes'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _FilterBar extends StatelessWidget {

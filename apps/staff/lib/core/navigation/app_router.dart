@@ -28,6 +28,9 @@ import '../../features/doctor/screens/queue_screen.dart';
 // Clinical AI (Phase 2 of the rollout — see docs/CLINICAL_AI_ROLLOUT_PLAN.md)
 import '../../features/clinical_ai/screens/clinical_ai_review_queue_screen.dart';
 import '../../features/clinical_ai/screens/clinical_ai_draft_detail_screen.dart';
+import '../../features/clinical_ai/screens/clinical_ai_compose_runs_screen.dart';
+import '../../features/clinical_ai/screens/clinical_ai_compose_run_detail_screen.dart';
+import '../../features/clinical_ai/screens/clinical_ai_voice_notes_screen.dart';
 
 // Nursing
 import '../../features/nursing/screens/vitals_screen.dart';
@@ -272,6 +275,35 @@ final GoRouter appRouter = GoRouter(
               ),
             );
           },
+        ),
+
+        // Phase 5+ rollout deferred items: compose run tree + voice notes.
+        GoRoute(
+          path: '/clinical-ai/compose',
+          name: 'clinical-ai-compose-runs',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: ClinicalAiComposeRunsScreen()),
+        ),
+        GoRoute(
+          path: '/clinical-ai/compose/:runId',
+          name: 'clinical-ai-compose-detail',
+          pageBuilder: (context, state) {
+            final raw = state.pathParameters['runId'];
+            final id = int.tryParse(raw ?? '') ?? 0;
+            final extra = state.extra;
+            return NoTransitionPage(
+              child: ClinicalAiComposeRunDetailScreen(
+                runId: id,
+                initialRun: extra is Map<String, dynamic> ? extra : null,
+              ),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/clinical-ai/voice-notes',
+          name: 'clinical-ai-voice-notes',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: ClinicalAiVoiceNotesScreen()),
         ),
 
         // Nursing
