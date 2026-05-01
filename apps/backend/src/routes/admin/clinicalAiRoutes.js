@@ -13,6 +13,7 @@ import knowledgeGovernanceRoutes from './clinicalAi/knowledgeGovernanceRoutes.js
 import patientExplainersRoutes from './clinicalAi/patientExplainersRoutes.js';
 import tierAAssistantsRoutes from './clinicalAi/tierAAssistantsRoutes.js';
 import tierCAssistantsRoutes from './clinicalAi/tierCAssistantsRoutes.js';
+import tierDEmergencyRoutes from './clinicalAi/tierDEmergencyRoutes.js';
 import surgicalAiRoutes from './clinicalAi/surgicalAiRoutes.js';
 import teleconsultAiRoutes from './clinicalAi/teleconsultAiRoutes.js';
 import trialSafetyOperationsRoutes from './clinicalAi/trialSafetyOperationsRoutes.js';
@@ -36,6 +37,7 @@ router.use('/', knowledgeGovernanceRoutes);
 router.use('/', patientExplainersRoutes);
 router.use('/', tierAAssistantsRoutes);
 router.use('/', tierCAssistantsRoutes);
+router.use('/', tierDEmergencyRoutes);
 router.use('/', surgicalAiRoutes);
 router.use('/', teleconsultAiRoutes);
 router.use('/', trialSafetyOperationsRoutes);
