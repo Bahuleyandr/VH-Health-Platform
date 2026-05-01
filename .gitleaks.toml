@@ -42,5 +42,8 @@ regexes = [
   # Legacy placeholder used in base/ sealed-secret examples before standardisation.
   # Kept here so the git history of the migration commit doesn't trip the range scan.
   '''REPLACE_WITH_KUBESEAL_OUTPUT''',
+  # RFC 4226/6238 TOTP test vector (base32 of "Hello!") used in mfaService.test.js.
+  # This is a well-known public test value, not a real credential.
+  '''JBSWY3DPEHPK3PXP''',
   '''af2ca5d7aa1663634f6c11eae3a1f4ceb7517720''',
 ]
