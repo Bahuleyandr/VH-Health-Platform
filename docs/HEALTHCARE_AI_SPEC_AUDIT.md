@@ -700,13 +700,39 @@ Closes the ops gaps that block hospital onboarding.
 - **E4** ✅: Idempotency-key middleware. Migration 130 (idempotency_keys). Generic `requireIdempotencyKey` middleware wired onto POST `/billing/invoice`, `/billing/invoice/:id/payment`, `/billing/insurance/claim`, `/emr/orders`. Header-driven (Stripe-style) so existing clients aren't broken.
 - **E5** ✅: WhatsApp + voice notification channels. New providers `sendWhatsAppNotification.js` + `sendVoiceNotification.js` with logger-default for dev + Twilio-lazy-import for prod. Dispatcher extended with `'whatsapp'` and `'voice'` channels.
 
+## Phase G — Module catalogue closure (Tier A–H) ✅ SHIPPED 2026-04-30 → 2026-05-01
+
+This is **module-layer** work tracked in
+[`AI_FEATURE_GAP_BACKLOG.md`](AI_FEATURE_GAP_BACKLOG.md), not
+entity/infra-layer; included here as a cross-reference because several
+items unblock spec sections that were marked partial above.
+
+| Tier | Modules | Migration | Closes spec gap in |
+|---|---|---|---|
+| A explainers | 5 | (earlier) | §17 patient app multilingual + report explainer |
+| A remainder | 10 | 133 | §3 lab trend, §10 doc OCR, §17 voice/whatsapp surface |
+| B | 8 | 116 | §14 surgery clinical entities (full vertical) |
+| C | 16 | 134 | §6 EMR clinical-note rewriter, §8 prescription deep checks (renal/liver/preg/AKI/fall/PU) |
+| D | 9 | 135 | §13 ED operational entities AI surface |
+| E | 13 | 136 | §17 patient-facing AI engagement loops |
+| F | 5 | 137 | §20 ABDM care-context AI, §21 FHIR validation, §11 doc-patient matching |
+| G | 5 | 138 | §13 public-health registries + AI deidentification (§14 research) |
+| H | 8 | 139 | §16 tariff/package/feedback, §24 operational forecasting tail |
+
+**Total 79 modules** with no entity-layer migrations beyond what Phases
+A–F already shipped — every Tier wraps existing entities with an
+explainer-pipeline + module config + admin POST route. Backend test
+count grew from ~3,322 (post-E/F follow-ups) to ~3,445 across the cycle.
+
 ## Phase F — Spec polish (≈1 week) ✅ SHIPPED 2026-04-30
 
 - **F1** ✅: Formal user roles for the spec gaps. 11 new roles added to `roleHelpers.js` — CONSULTANT, JUNIOR_DOCTOR, RESIDENT (doctor seniority); COUNSELLOR, CARE_COORDINATOR (specialty clinical); CLAIMS_MANAGER, AMBULANCE_COORDINATOR (operations); INTEGRATION_ADMIN, AI_GOVERNANCE_ADMIN, DATA_PROTECTION_OFFICER (platform); WEBHOOK_CLIENT (machine). DOCTOR_TIERS / PLATFORM_ROLES / MACHINE_ROLES groups + 10 specialty predicates + 5 specialty gates (canManageIntegrations / canManageAiGovernance / canManageDataProtection / canDispatchAmbulance / canManageClaims).
 - **F2** ✅: Pain / fall-risk / growth-chart entities. Migration 131. New service `clinicalAssessmentService.js` covering pain (NRS / Wong-Baker / FLACC / PAINAD / VAS), fall-risk (Morse / Hendrich II / Johns Hopkins / STRATIFY / Humpty Dumpty) and growth charts (WHO 0-5 / IAP 5-18 / CDC 2-20 / Fenton). Routes mounted at `/api/v1/clinical/assessments`.
 - **F3** ✅: Spec-driven role-matrix tests + docs pass. New `roleMatrix.spec.test.js` walks the 38-role × 20-gate cross product with declarative `allow` sets; catches drift introduced by future role-registry changes. Closing this audit doc itself is part of F3.
 
-**Total runway delivered:** Phases A–F complete. Backend test suite 1,539 → 2,529 over the audit cycle.
+**Total runway delivered:** Phases A–F (entity/infra layer) + Phase G
+(module catalogue Tier A–H) all complete. Backend test suite 1,539 →
+~3,445 over the audit + tier-build cycle.
 
 ---
 

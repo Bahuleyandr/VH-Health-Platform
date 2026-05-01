@@ -1,6 +1,10 @@
 # Clinical AI Rollout Plan
 
-**Status: ALL PHASES SHIPPED** (2026-04-30, single session). Substrate, delivery, and parallel/optional work all on `main`.
+**Status: ALL PHASES SHIPPED + ALL MODULE TIERS SHIPPED** (2026-04-30 → 2026-05-01).
+Substrate, delivery, parallel/optional rollout work, *and* the full
+Tier A–H module catalogue all on `main`.
+
+### Rollout phases (this doc) — all shipped
 
 - ✅ **Phase 0** — route + RBAC split.
 - ✅ **Phase 1** — LAN-only internal Ingress for `/clinical-ai/clinical/*`.
@@ -9,12 +13,45 @@
 - ✅ **Phase 4** — Ollama in-cluster deep tier + backend `CLINICAL_AI_DEEP_*` env.
 - ✅ **Phase 5** — admin sidebar nav entry + auto-resume scheduler for governance-paused runs.
 
+### Module catalogue (`AI_FEATURE_GAP_BACKLOG.md`) — all shipped
+
+Beyond the rollout phases, the prioritised AI feature catalogue closed
+between 2026-04-30 evening and 2026-05-01:
+
+| Tier | Scope | Modules | Migration |
+|---|---|---|---|
+| A | Patient explainers | 5 | (earlier) |
+| A remainder | Fastest-win assistants | 10 | 133 |
+| B | Surgical / OR vertical | 8 | 116 |
+| C | P0/P1 clinical assistants | 16 | 134 |
+| D | Emergency / triage vertical | 9 | 135 |
+| E | Patient-facing engagement | 13 | 136 |
+| F | Interoperability | 5 | 137 |
+| G | Public / population health | 5 | 138 |
+| H | Operational forecasting | 8 | 139 |
+
+**79 modules total**, all governed via `clinical_ai_modules` /
+`clinical_ai_generations` / `clinical_ai_reviews`, all decision-support-
+only, all enabled=false by default. See `AI_FEATURE_GAP_BACKLOG.md` for
+the per-module ledger and remaining ~21 long-tail catalogue items.
+
 What's left is hospital-side configuration work that this repo can't do:
 hospital DNS pointing `clinical.<hospital>.local` at the internal ingress
 LB IP, hospital intermediate CA loaded into step-ca-internal, GPU node
 provisioned + nvidia-device-plugin DaemonSet installed, and the per-tenant
 backend ConfigMap patched with the deep-tier env vars. Each is documented
 in the relevant phase below.
+
+**Rollout work that follows from "all tiers shipped":**
+
+- **Admin UI for Tier C–H** — Tier A and B got admin panels in-session;
+  Tier C–H currently expose POST routes but no admin UI surface. Closing
+  this is the highest-visibility next step.
+- **Per-tenant rollout playbook** — which modules to enable for which
+  hospital pilot, in what order. See [`PER_TENANT_ROLLOUT_PLAYBOOK.md`](PER_TENANT_ROLLOUT_PLAYBOOK.md).
+- **Local-Ollama deep-tier pilot** — Tier B/C/D/F-bundles (CRITICAL-tier
+  modules) for PHI-never-leaves-building deployment. Phase 4 wired the
+  env vars; the GPU node provisioning is hospital-side.
 
 **Audience:** anyone picking this up in a future session — Claude, the
 project owner, or a teammate.
