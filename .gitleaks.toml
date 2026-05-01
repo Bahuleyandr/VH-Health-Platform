@@ -39,5 +39,8 @@ regexes = [
   '''test-api-key''',
   '''test-jwt-secret-for-ci-must-be-at-least-32-chars''',
   '''PLACEHOLDER_REPLACE_WITH_KUBESEAL_CIPHERTEXT''',
+  # Legacy placeholder used in base/ sealed-secret examples before standardisation.
+  # Kept here so the git history of the migration commit doesn't trip the range scan.
+  '''REPLACE_WITH_KUBESEAL_OUTPUT''',
   '''af2ca5d7aa1663634f6c11eae3a1f4ceb7517720''',
 ]
