@@ -204,4 +204,103 @@ class ClinicalAiApiService {
     );
     return _handle(resp);
   }
+
+  // ---------- patient-facing explainers (clinical plane) ---------------
+  //
+  // These mirror the 5 admin-plane endpoints in
+  // apps/backend/src/routes/admin/clinicalAi/patientExplainersRoutes.js
+  // but live on the clinical plane (requireClinicalAiUse — clinical
+  // roles + ADMIN/SUPER_ADMIN) so doctors can drive AI Assist from
+  // EMR / clinical_notes_screen without an admin-plane elevation.
+  //
+  // Each returns the standard explainer envelope:
+  //   {
+  //     module_key, generation_id, draft: { explanation_summary,
+  //       key_points, next_steps, when_to_seek_help, source_citations,
+  //       safety_flags, fallback_used? },
+  //     safety_flags, source_citations, used_ai, provider, status,
+  //     review_status, requires_signoff, decision_support_only
+  //   }
+  //
+  // The draft enters clinical_ai_reviews with decision='pending'. Use
+  // decideReview(reviewId, ...) to sign / edit / reject.
+
+  /// POST /lab-patient-explanations — explain a single lab result for the
+  /// patient. Loads the investigation row server-side, so the caller
+  /// only passes the integer id.
+  static Future<Map<String, dynamic>> explainLabResult({
+    required int investigationId,
+    String language = 'en',
+  }) async {
+    return _post('$_basePath/lab-patient-explanations', {
+      'investigation_id': investigationId,
+      'language': language,
+    });
+  }
+
+  /// POST /radiology-patient-explanations — explain a radiology report
+  /// for the patient. Loads the radiology_orders row server-side.
+  static Future<Map<String, dynamic>> explainRadiologyReport({
+    required int radiologyOrderId,
+    String language = 'en',
+  }) async {
+    return _post('$_basePath/radiology-patient-explanations', {
+      'radiology_order_id': radiologyOrderId,
+      'language': language,
+    });
+  }
+
+  /// POST /patient-report-explanations — generic free-text report
+  /// explainer. Used by the AI Assist drawer on clinical_notes_screen
+  /// when the doctor wants to translate a SOAP note (or any clinical
+  /// document) into a patient-facing plain-language version.
+  ///
+  ///  * [reportType] 'consultation' | 'discharge' | 'procedure' |
+  ///                 'second_opinion' | 'referral' | 'operative_note'
+  ///                 | 'case_summary' | 'soap'
+  ///  * [reportText] the document body — minimum 30 characters.
+  ///  * [patientUid] optional — links the draft to a patient record
+  ///                 (lets the patient app surface it after sign-off).
+  ///  * [admissionId] optional — links the draft to an admission.
+  static Future<Map<String, dynamic>> explainPatientReport({
+    required String reportType,
+    required String reportText,
+    String? patientUid,
+    int? admissionId,
+    String language = 'en',
+  }) async {
+    final body = <String, dynamic>{
+      'report_type': reportType,
+      'report_text': reportText,
+      'language': language,
+    };
+    if (patientUid != null && patientUid.isNotEmpty) body['patient_uid'] = patientUid;
+    if (admissionId != null) body['admission_id'] = admissionId;
+    return _post('$_basePath/patient-report-explanations', body);
+  }
+
+  /// POST /prescription-patient-explanations — explain a prescription
+  /// regimen for the patient (medication / dosage / duration / safety
+  /// red-flags). Loads the prescriptions row server-side.
+  static Future<Map<String, dynamic>> explainPrescription({
+    required int prescriptionId,
+    String language = 'en',
+  }) async {
+    return _post('$_basePath/prescription-patient-explanations', {
+      'prescription_id': prescriptionId,
+      'language': language,
+    });
+  }
+
+  /// POST /invoice-patient-explanations — explain a billing invoice
+  /// for the patient. Loads the invoices row server-side.
+  static Future<Map<String, dynamic>> explainInvoice({
+    required int invoiceId,
+    String language = 'en',
+  }) async {
+    return _post('$_basePath/invoice-patient-explanations', {
+      'invoice_id': invoiceId,
+      'language': language,
+    });
+  }
 }

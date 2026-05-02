@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -361,10 +362,176 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                 ),
               if (note['complications'] != null)
                 _noteSection('Complications', note['complications'] as String),
+              const SizedBox(height: 16),
+              // ── AI Assist — generate patient-friendly explainer ──
+              // The button is enabled regardless of signed status so a doctor
+              // can preview the AI explanation before finalizing the note,
+              // OR generate it after sign-off for downstream patient delivery.
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppTheme.primaryBlue.withValues(alpha: 0.25)),
+                  borderRadius: BorderRadius.circular(12),
+                  color: AppTheme.primaryBlue.withValues(alpha: 0.04),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.auto_awesome,
+                            size: 20, color: AppTheme.primaryBlue),
+                        SizedBox(width: 8),
+                        Text(
+                          'AI Assist',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.primaryBlue,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Generate a plain-language patient explainer of this note. Draft will land in your review queue for sign-off before reaching the patient.',
+                      style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          _generateAiExplainer(note);
+                        },
+                        icon: const Icon(Icons.auto_awesome, size: 18),
+                        label: const Text('Generate patient explainer'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.primaryBlue,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 20),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // ── AI Assist: generate + sign-off ──
+
+  /// Build a single free-text report from whichever fields the note has.
+  /// SOAP notes get S/O/A/P concatenated; progress + procedure notes use
+  /// their content/findings/details fields.
+  String _composeReportText(Map<String, dynamic> note) {
+    final parts = <String>[];
+    void add(String label, String? value) {
+      final v = (value ?? '').trim();
+      if (v.isNotEmpty) parts.add('$label: $v');
+    }
+    add('Subjective', note['subjective'] as String?);
+    add('Objective', note['objective'] as String?);
+    add('Assessment', note['assessment'] as String?);
+    add('Plan', note['plan'] as String?);
+    add('Content', note['content'] as String?);
+    add('Findings', note['findings'] as String?);
+    add('Procedure details', note['procedure_details'] as String?);
+    add('Complications', note['complications'] as String?);
+    return parts.join('\n\n');
+  }
+
+  String _reportTypeFor(Map<String, dynamic> note) {
+    final t = (note['note_type'] as String?)?.toLowerCase() ?? 'consultation';
+    // Map staff-app note_types to backend report_type allowed values.
+    switch (t) {
+      case 'soap': return 'consultation';
+      case 'progress': return 'consultation';
+      case 'procedure': return 'procedure';
+      case 'discharge': return 'discharge';
+      default: return 'consultation';
+    }
+  }
+
+  Future<void> _generateAiExplainer(Map<String, dynamic> note) async {
+    final reportText = _composeReportText(note);
+    if (reportText.length < 30) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Note is too short to generate a patient explainer (need at least 30 characters of content).'),
+          backgroundColor: AppTheme.warningAmber,
+        ),
+      );
+      return;
+    }
+
+    // Show a simple loading dialog while we wait on the LLM (3-30s typical).
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 12),
+                Text('Generating patient explainer…'),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    Map<String, dynamic>? result;
+    String? error;
+    try {
+      result = await ClinicalAiApiService.explainPatientReport(
+        reportType: _reportTypeFor(note),
+        reportText: reportText,
+        patientUid: widget.patientUid,
+      );
+    } catch (e) {
+      error = e.toString();
+    }
+
+    if (!mounted) return;
+    Navigator.of(context).pop(); // close loading dialog
+
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('AI Assist failed: $error'),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+      return;
+    }
+
+    _showAiAssistDrawer(result!);
+  }
+
+  void _showAiAssistDrawer(Map<String, dynamic> result) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _AiAssistDraftSheet(
+        result: result,
+        onDecided: () {
+          // After sign-off, refresh the notes list (the explainer draft
+          // doesn't appear in the notes table, but a future "Patient
+          // explainers" tab will read the same review queue).
+          _refreshCurrentTab();
+        },
       ),
     );
   }
@@ -697,6 +864,378 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Bottom-sheet drawer that renders an AI-generated patient explainer
+/// draft and lets the doctor sign / edit / reject it on the spot.
+///
+/// Shape of [result] is the standard explainer envelope from
+/// ClinicalAiApiService.explainPatientReport — see the doc on that method.
+class _AiAssistDraftSheet extends StatefulWidget {
+  const _AiAssistDraftSheet({required this.result, required this.onDecided});
+
+  final Map<String, dynamic> result;
+  final VoidCallback onDecided;
+
+  @override
+  State<_AiAssistDraftSheet> createState() => _AiAssistDraftSheetState();
+}
+
+class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
+  bool _busy = false;
+
+  Map<String, dynamic> get _draft =>
+      (widget.result['draft'] as Map?)?.cast<String, dynamic>() ?? const {};
+
+  List<Map<String, dynamic>> _list(String key) {
+    final raw = _draft[key] ?? widget.result[key];
+    if (raw is List) {
+      return raw.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+    }
+    return const [];
+  }
+
+  List<String> _stringList(String key) {
+    final raw = _draft[key];
+    if (raw is List) return raw.whereType<String>().toList();
+    return const [];
+  }
+
+  int? get _reviewId {
+    final v = widget.result['review_id'];
+    if (v is int) return v;
+    if (v is String) return int.tryParse(v);
+    return null;
+  }
+
+  Future<void> _decide(String decision, {String? rejectionReason}) async {
+    final id = _reviewId;
+    if (id == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot sign — review row was not created (schema may be unavailable).'),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await ClinicalAiApiService.decideReview(
+        id,
+        decision: decision,
+        rejectionReason: rejectionReason,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Patient explainer $decision'),
+          backgroundColor: decision == 'rejected'
+              ? AppTheme.warningAmber
+              : AppTheme.successGreen,
+        ),
+      );
+      widget.onDecided();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Sign-off failed: $e'),
+          backgroundColor: AppTheme.errorRed,
+        ),
+      );
+    }
+  }
+
+  Future<void> _confirmReject() async {
+    final controller = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reject draft?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Why is this draft not suitable for patient delivery?'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                hintText: 'e.g. clinical inaccuracy in next-steps section',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.errorRed),
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
+    if (reason == null) return;
+    if (reason.length < 5) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Rejection reason must be at least 5 characters.')),
+      );
+      return;
+    }
+    await _decide('rejected', rejectionReason: reason);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = ((_draft['explanation_summary'] as String?) ?? '').trim();
+    final keyPoints = _list('key_points');
+    final nextSteps = _stringList('next_steps');
+    final whenToSeekHelp = _stringList('when_to_seek_help');
+    final safetyFlagsRaw = (widget.result['safety_flags'] as List?) ?? const [];
+    final safetyFlags = safetyFlagsRaw.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+    final critical = safetyFlags.where((f) => (f['severity'] as String?)?.toLowerCase() == 'critical').toList();
+    final high = safetyFlags.where((f) => (f['severity'] as String?)?.toLowerCase() == 'high').toList();
+    final usedAi = widget.result['used_ai'] == true;
+    final provider = (widget.result['provider'] as String?) ?? 'unknown';
+    final fallback = _draft['fallback_used'] == true;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.4,
+      maxChildSize: 0.97,
+      expand: false,
+      builder: (ctx, scrollController) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: SingleChildScrollView(
+          controller: scrollController,
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppTheme.divider,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Row(
+                children: [
+                  Icon(Icons.auto_awesome, color: AppTheme.primaryBlue),
+                  SizedBox(width: 8),
+                  Text(
+                    'AI Patient Explainer',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  const _Chip(label: 'review: pending', color: AppTheme.warningAmber),
+                  _Chip(
+                    label: usedAi ? provider : 'fallback',
+                    color: usedAi ? AppTheme.successGreen : AppTheme.warningAmber,
+                  ),
+                  if (widget.result['generation_id'] != null)
+                    _Chip(label: 'gen #${widget.result['generation_id']}', color: AppTheme.textSecondary),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (critical.isNotEmpty || high.isNotEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    border: Border.all(color: Colors.red.shade200),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${critical.length} critical · ${high.length} high — review carefully',
+                        style: const TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 4),
+                      ...[...critical, ...high].take(4).map((f) => Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              '• ${(f['code'] as String?) ?? 'FLAG'} — ${(f['message'] as String?) ?? ''}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          )),
+                    ],
+                  ),
+                ),
+              if (fallback)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    border: Border.all(color: Colors.amber.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'The model returned no parseable draft; a fallback shape is shown. Re-generate after checking provider config.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              const SizedBox(height: 16),
+              const Text('Summary',
+                  style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.primaryBlue)),
+              const SizedBox(height: 4),
+              Text(summary.isEmpty ? '(empty)' : summary,
+                  style: const TextStyle(height: 1.5)),
+              const SizedBox(height: 16),
+              if (keyPoints.isNotEmpty) ...[
+                const Text('Key points',
+                    style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.primaryBlue)),
+                const SizedBox(height: 4),
+                ...keyPoints.map((kp) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${kp['label'] ?? ''}: ${kp['value'] ?? ''}',
+                            style: const TextStyle(fontWeight: FontWeight.w500),
+                          ),
+                          if (kp['what_it_means'] != null)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 4, top: 2),
+                              child: Text(
+                                kp['what_it_means'] as String,
+                                style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                              ),
+                            ),
+                        ],
+                      ),
+                    )),
+                const SizedBox(height: 12),
+              ],
+              if (nextSteps.isNotEmpty) ...[
+                const Text('Next steps',
+                    style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.primaryBlue)),
+                const SizedBox(height: 4),
+                ...nextSteps.map((s) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text('• $s'),
+                    )),
+                const SizedBox(height: 12),
+              ],
+              if (whenToSeekHelp.isNotEmpty) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    border: Border.all(color: Colors.amber.shade200),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('When to seek help',
+                          style: TextStyle(fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 4),
+                      ...whenToSeekHelp.map((s) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: Text('• $s'),
+                          )),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+              const Divider(),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _busy ? null : _confirmReject,
+                      icon: const Icon(Icons.close),
+                      label: const Text('Reject'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.errorRed,
+                        side: BorderSide(color: AppTheme.errorRed.withValues(alpha: 0.5)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _busy ? null : () => _decide('needs_revision'),
+                      icon: const Icon(Icons.edit_note),
+                      label: const Text('Needs edits'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: FilledButton.icon(
+                      onPressed: _busy ? null : () => _decide('accepted'),
+                      icon: _busy
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.check_circle),
+                      label: const Text('Accept & sign'),
+                      style: FilledButton.styleFrom(backgroundColor: AppTheme.successGreen),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  const _Chip({required this.label, required this.color});
+  final String label;
+  final Color color;
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Text(label, style: TextStyle(color: color, fontSize: 11)),
     );
   }
 }

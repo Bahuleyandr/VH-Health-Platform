@@ -220,12 +220,14 @@ export async function runExplainerPipeline({
     }
   }
 
+  let reviewId = null;
   if (generationId) {
     try {
-      await prisma.$queryRawUnsafe(
+      const reviewRows = await prisma.$queryRawUnsafe(
         `INSERT INTO clinical_ai_reviews
            (tenant_id, generation_id, module_key, patient_uid, admission_id, decision, metadata, created_at, updated_at)
-         VALUES ($1::uuid, $2, $3, $4::uuid, $5, 'pending', $6::jsonb, NOW(), NOW())`,
+         VALUES ($1::uuid, $2, $3, $4::uuid, $5, 'pending', $6::jsonb, NOW(), NOW())
+         RETURNING id`,
         tid,
         generationId,
         moduleKey,
@@ -236,6 +238,7 @@ export async function runExplainerPipeline({
           source: 'patient_explainer',
         }),
       );
+      reviewId = reviewRows?.[0]?.id ?? null;
     } catch (err) {
       if (!isMissingSchemaError(err)) {
         logger.warn(`${moduleKey} review enqueue failed`, { error: err.message });
@@ -246,6 +249,7 @@ export async function runExplainerPipeline({
   return {
     module_key: moduleKey,
     generation_id: generationId,
+    review_id: reviewId,
     draft,
     safety_flags: safetyFlags,
     source_citations: citations,
