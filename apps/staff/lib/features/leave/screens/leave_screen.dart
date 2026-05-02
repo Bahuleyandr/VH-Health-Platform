@@ -6,6 +6,7 @@ import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/success_toast.dart';
+import '../../../l10n/app_strings.dart';
 import '../../attendance/screens/overtime_screen.dart';
 import '../../attendance/screens/dispute_screen.dart';
 
@@ -115,10 +116,11 @@ class _LeaveScreenState extends State<LeaveScreen>
   }
 
   Future<void> _submitLeave() async {
+    final s = AppStrings.of(context);
     if (_startDate == null || _endDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select dates'),
+        SnackBar(
+          content: Text(s.leaveSelectDatesError),
           backgroundColor: Colors.red,
         ),
       );
@@ -126,8 +128,8 @@ class _LeaveScreenState extends State<LeaveScreen>
     }
     if (_reasonCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please provide a reason'),
+        SnackBar(
+          content: Text(s.leaveProvideReasonError),
           backgroundColor: Colors.red,
         ),
       );
@@ -146,7 +148,7 @@ class _LeaveScreenState extends State<LeaveScreen>
         replacementStaffId: _selectedReplacementId,
       );
       if (mounted) {
-        SuccessToast.show(context, 'Leave application submitted');
+        SuccessToast.show(context, AppStrings.of(context).leaveSubmitted);
         _reasonCtrl.clear();
         setState(() {
           _startDate = null;
@@ -168,8 +170,9 @@ class _LeaveScreenState extends State<LeaveScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Leave Management',
+      title: s.leaveTitle,
       showBottomNav: false,
       body: Column(
         children: [
@@ -179,9 +182,9 @@ class _LeaveScreenState extends State<LeaveScreen>
             labelColor: AppTheme.primaryBlue,
             indicatorColor: AppTheme.primaryBlue,
             tabs: [
-              const Tab(text: 'Apply'),
-              Tab(text: 'My Leaves (${_myLeaves.length})'),
-              Tab(text: 'Requests (${_replacementRequests.length})'),
+              Tab(text: s.leaveTabApply),
+              Tab(text: '${s.leaveTabMyLeaves} (${_myLeaves.length})'),
+              Tab(text: '${s.leaveTabRequests} (${_replacementRequests.length})'),
             ],
           ),
           Expanded(
@@ -202,6 +205,7 @@ class _LeaveScreenState extends State<LeaveScreen>
   }
 
   Widget _buildBalanceCard() {
+    final s = AppStrings.of(context);
     final balance = _leaveBalance ?? {};
     // Support both nested balances list and flat keys
     final balances =
@@ -214,9 +218,9 @@ class _LeaveScreenState extends State<LeaveScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Leave Balance',
-              style: TextStyle(color: Colors.white70, fontSize: 12),
+            Text(
+              s.leaveBalanceHeader,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
             ),
             const SizedBox(height: 8),
             SingleChildScrollView(
@@ -272,15 +276,18 @@ class _LeaveScreenState extends State<LeaveScreen>
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
           _balanceItem(
-            'Annual',
+            s.leaveTypeAnnual,
             balance['annual'] ?? balance['annual_leave'] ?? '-',
           ),
-          _balanceItem('Sick', balance['sick'] ?? balance['sick_leave'] ?? '-'),
           _balanceItem(
-            'Casual',
+            s.leaveTypeSick,
+            balance['sick'] ?? balance['sick_leave'] ?? '-',
+          ),
+          _balanceItem(
+            s.leaveTypeCasual,
             balance['casual'] ?? balance['casual_leave'] ?? '-',
           ),
-          _balanceItem('Used', balance['used'] ?? '-'),
+          _balanceItem(s.leaveBalanceUsed, balance['used'] ?? '-'),
         ],
       ),
     );
@@ -303,14 +310,15 @@ class _LeaveScreenState extends State<LeaveScreen>
   }
 
   Widget _buildApplyTab() {
-    final leaveTypes = [
-      'annual',
-      'sick',
-      'casual',
-      'emergency',
-      'maternity',
-      'paternity',
-      'unpaid',
+    final s = AppStrings.of(context);
+    final leaveTypes = <_LeaveTypeOption>[
+      _LeaveTypeOption('annual', s.leaveTypeAnnual),
+      _LeaveTypeOption('sick', s.leaveTypeSick),
+      _LeaveTypeOption('casual', s.leaveTypeCasual),
+      _LeaveTypeOption('emergency', s.leaveTypeEmergency),
+      _LeaveTypeOption('maternity', s.leaveTypeMaternity),
+      _LeaveTypeOption('paternity', s.leaveTypePaternity),
+      _LeaveTypeOption('unpaid', s.leaveTypeUnpaid),
     ];
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -318,9 +326,9 @@ class _LeaveScreenState extends State<LeaveScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Leave type
-          const Text(
-            'Leave Type',
-            style: TextStyle(fontWeight: FontWeight.w600),
+          Text(
+            s.leaveLeaveTypeLabel,
+            style: const TextStyle(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
@@ -329,8 +337,8 @@ class _LeaveScreenState extends State<LeaveScreen>
             items: leaveTypes
                 .map(
                   (t) => DropdownMenuItem(
-                    value: t,
-                    child: Text(t[0].toUpperCase() + t.substring(1)),
+                    value: t.code,
+                    child: Text(t.label),
                   ),
                 )
                 .toList(),
@@ -339,13 +347,16 @@ class _LeaveScreenState extends State<LeaveScreen>
           const SizedBox(height: 16),
 
           // Date range
-          const Text('Dates', style: TextStyle(fontWeight: FontWeight.w600)),
+          Text(
+            s.leaveDatesLabel,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
                 child: _datePicker(
-                  'Start Date',
+                  s.leaveStartDate,
                   _startDate,
                   (d) => setState(() => _startDate = d),
                 ),
@@ -353,7 +364,7 @@ class _LeaveScreenState extends State<LeaveScreen>
               const SizedBox(width: 12),
               Expanded(
                 child: _datePicker(
-                  'End Date',
+                  s.leaveEndDate,
                   _endDate,
                   (d) => setState(() => _endDate = d),
                 ),
@@ -364,7 +375,9 @@ class _LeaveScreenState extends State<LeaveScreen>
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text(
-                '${_endDate!.difference(_startDate!).inDays + 1} day(s)',
+                s.leaveDayCount(
+                  _endDate!.difference(_startDate!).inDays + 1,
+                ),
                 style: const TextStyle(
                   color: AppTheme.primaryBlue,
                   fontSize: 12,
@@ -374,26 +387,29 @@ class _LeaveScreenState extends State<LeaveScreen>
           const SizedBox(height: 16),
 
           // Reason
-          const Text('Reason', style: TextStyle(fontWeight: FontWeight.w600)),
+          Text(
+            s.leaveReasonLabel,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
           TextField(
             controller: _reasonCtrl,
-            decoration: const InputDecoration(
-              hintText: 'Brief reason for leave',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              hintText: s.leaveReasonHint,
+              border: const OutlineInputBorder(),
             ),
             maxLines: 3,
           ),
           const SizedBox(height: 16),
 
           // Replacement staff
-          const Text(
-            'Replacement Staff (Optional)',
-            style: TextStyle(fontWeight: FontWeight.w600),
+          Text(
+            s.leaveReplacementStaffLabel,
+            style: const TextStyle(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 4),
           Text(
-            'Select a colleague to cover for you',
+            s.leaveReplacementStaffHint,
             style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 8),
@@ -415,7 +431,7 @@ class _LeaveScreenState extends State<LeaveScreen>
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      _selectedReplacementName ?? 'Tap to select replacement',
+                      _selectedReplacementName ?? s.leaveReplacementStaffPick,
                       style: TextStyle(
                         color: _selectedReplacementName != null
                             ? Colors.black
@@ -457,9 +473,9 @@ class _LeaveScreenState extends State<LeaveScreen>
                       color: Colors.white,
                       strokeWidth: 2,
                     )
-                  : const Text(
-                      'Submit Leave Application',
-                      style: TextStyle(
+                  : Text(
+                      s.leaveSubmitButton,
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
@@ -474,11 +490,11 @@ class _LeaveScreenState extends State<LeaveScreen>
                 Icons.timer_outlined,
                 color: Color(0xFF007A64),
               ),
-              title: const Text(
-                'Overtime Request',
-                style: TextStyle(fontWeight: FontWeight.w600),
+              title: Text(
+                s.leaveOvertimeTitle,
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
-              subtitle: const Text('Log extra hours worked'),
+              subtitle: Text(s.leaveOvertimeSubtitle),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.push(
                 context,
@@ -492,11 +508,11 @@ class _LeaveScreenState extends State<LeaveScreen>
                 Icons.report_problem_outlined,
                 color: Colors.orange,
               ),
-              title: const Text(
-                'Attendance Dispute',
-                style: TextStyle(fontWeight: FontWeight.w600),
+              title: Text(
+                s.leaveDisputeTitle,
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
-              subtitle: const Text('Report a recording issue'),
+              subtitle: Text(s.leaveDisputeSubtitle),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.push(
                 context,
@@ -546,15 +562,16 @@ class _LeaveScreenState extends State<LeaveScreen>
   }
 
   void _showStaffPicker() {
+    final s = AppStrings.of(context);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Select Replacement Staff'),
+        title: Text(s.leaveSelectReplacement),
         content: SizedBox(
           width: double.maxFinite,
           height: 300,
           child: _staffList.isEmpty
-              ? const Center(child: Text('No staff available'))
+              ? Center(child: Text(s.leaveNoStaffAvailable))
               : ListView.builder(
                   itemCount: _staffList.length,
                   itemBuilder: (c, i) {
@@ -584,6 +601,7 @@ class _LeaveScreenState extends State<LeaveScreen>
   }
 
   Widget _buildMyLeavesTab() {
+    final s = AppStrings.of(context);
     final filtered = _filteredMyLeaves;
     return Column(
       children: [
@@ -591,7 +609,7 @@ class _LeaveScreenState extends State<LeaveScreen>
           padding: const EdgeInsets.all(16),
           child: TextField(
             decoration: InputDecoration(
-              hintText: 'Search by leave type…',
+              hintText: s.leaveSearchByTypeHint,
               prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -616,8 +634,8 @@ class _LeaveScreenState extends State<LeaveScreen>
                       const SizedBox(height: 12),
                       Text(
                         _searchQuery.trim().isEmpty
-                            ? 'No leave applications'
-                            : 'No matches for "$_searchQuery"',
+                            ? s.leaveNoApplications
+                            : s.noMatchesFor(_searchQuery),
                         style: TextStyle(color: Colors.grey.shade600),
                       ),
                     ],
@@ -676,6 +694,7 @@ class _LeaveScreenState extends State<LeaveScreen>
   }
 
   Widget _buildReplacementRequestsTab() {
+    final s = AppStrings.of(context);
     if (_replacementRequests.isEmpty) {
       return Center(
         child: Column(
@@ -684,7 +703,7 @@ class _LeaveScreenState extends State<LeaveScreen>
             Icon(Icons.swap_horiz, size: 48, color: Colors.grey.shade400),
             const SizedBox(height: 8),
             Text(
-              'No pending replacement requests',
+              s.leaveNoReplacementRequests,
               style: TextStyle(color: Colors.grey.shade600),
             ),
           ],
@@ -697,7 +716,8 @@ class _LeaveScreenState extends State<LeaveScreen>
       itemCount: _replacementRequests.length,
       itemBuilder: (ctx, i) {
         final req = _replacementRequests[i] as Map<String, dynamic>;
-        final requesterName = req['requester_name'] as String? ?? 'Unknown';
+        final requesterName =
+            req['requester_name'] as String? ?? s.leaveRequesterUnknown;
         final dates = req['dates'] as String? ?? '';
         final status = req['status'] as String? ?? 'pending';
         final isPending = status == 'pending';
@@ -744,7 +764,7 @@ class _LeaveScreenState extends State<LeaveScreen>
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Requesting coverage for: $dates',
+                  '${s.leaveRequestingCoverageFor} $dates',
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
                 if (req['requester_message'] != null) ...[
@@ -771,7 +791,7 @@ class _LeaveScreenState extends State<LeaveScreen>
                             foregroundColor: Colors.red,
                             side: const BorderSide(color: Colors.red),
                           ),
-                          child: const Text('Decline'),
+                          child: Text(s.leaveDeclineAction),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -784,9 +804,9 @@ class _LeaveScreenState extends State<LeaveScreen>
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.primaryBlue,
                           ),
-                          child: const Text(
-                            'Accept',
-                            style: TextStyle(color: Colors.white),
+                          child: Text(
+                            s.leaveAcceptAction,
+                            style: const TextStyle(color: Colors.white),
                           ),
                         ),
                       ),
@@ -802,6 +822,7 @@ class _LeaveScreenState extends State<LeaveScreen>
   }
 
   Future<void> _respondToReplacement(String requestId, String status) async {
+    final s = AppStrings.of(context);
     try {
       await LeaveApiService.respondToReplacement(
         requestId: requestId,
@@ -812,8 +833,8 @@ class _LeaveScreenState extends State<LeaveScreen>
           SnackBar(
             content: Text(
               status == 'accepted'
-                  ? '✅ Request accepted'
-                  : '❌ Request declined',
+                  ? s.leaveRequestAccepted
+                  : s.leaveRequestDeclined,
             ),
             backgroundColor: status == 'accepted' ? Colors.green : Colors.red,
           ),
@@ -831,4 +852,10 @@ class _LeaveScreenState extends State<LeaveScreen>
       }
     }
   }
+}
+
+class _LeaveTypeOption {
+  final String code;
+  final String label;
+  const _LeaveTypeOption(this.code, this.label);
 }

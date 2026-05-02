@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../core/providers/session_timeout_provider.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../l10n/app_strings.dart';
 import '../services/login_service.dart';
 
 // All seeded staff IDs use the `EMP-NNNN` format. Showing `EMP-` as a
@@ -139,6 +140,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       backgroundColor: AppTheme.primaryBlue,
       body: SafeArea(
@@ -163,9 +165,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  const Text(
-                    'VHHealth Staff',
-                    style: TextStyle(
+                  Text(
+                    s.loginAppTitle,
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
@@ -174,7 +176,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Hospital Staff Portal',
+                    s.loginPortalSubtitle,
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.8),
                       fontSize: 15,
@@ -201,7 +203,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       children: [
                         SizedBox(height: 8),
                         Text(
-                          'Sign In',
+                          s.loginScreenTitle,
                           style: Theme.of(context).textTheme.headlineSmall
                               ?.copyWith(
                                 fontWeight: FontWeight.bold,
@@ -210,7 +212,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Use your employee credentials to access the portal',
+                          s.loginScreenSubtitle,
                           style: TextStyle(color: AppTheme.textSecondary),
                         ),
                         const SizedBox(height: 24),
@@ -219,11 +221,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         // submit handler reassembles the full ID before send.
                         TextFormField(
                           controller: _empIdController,
-                          decoration: const InputDecoration(
-                            labelText: 'Employee ID',
-                            hintText: '1001',
+                          decoration: InputDecoration(
+                            labelText: s.loginEmployeeIdLabel,
+                            hintText: s.loginEmployeeIdHint,
                             prefixText: _empIdPrefix,
-                            prefixIcon: ExcludeSemantics(child: Icon(Icons.badge_outlined)),
+                            prefixIcon: const ExcludeSemantics(child: Icon(Icons.badge_outlined)),
                           ),
                           keyboardType: TextInputType.number,
                           inputFormatters: [
@@ -232,9 +234,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           ],
                           validator: (value) {
                             final n = (value ?? '').trim();
-                            if (n.isEmpty) return 'Employee number is required';
+                            if (n.isEmpty) return s.loginEmployeeIdRequired;
                             if (!RegExp(r'^\d{1,6}$').hasMatch(n)) {
-                              return 'Numbers only (1–6 digits)';
+                              return s.loginEmployeeIdNumbersOnly;
                             }
                             return null;
                           },
@@ -245,14 +247,14 @@ class _LoginScreenState extends State<LoginScreen> {
                         Row(
                           children: [
                             _ModeChip(
-                              label: 'Password',
+                              label: s.loginModePassword,
                               selected: _mode == _LoginMode.password,
                               onTap: () =>
                                   setState(() => _mode = _LoginMode.password),
                             ),
                             const SizedBox(width: 8),
                             _ModeChip(
-                              label: 'PIN',
+                              label: s.loginModePin,
                               selected: _mode == _LoginMode.pin,
                               onTap: () =>
                                   setState(() => _mode = _LoginMode.pin),
@@ -260,7 +262,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             if (_deviceRegistered) ...[
                               const SizedBox(width: 8),
                               _ModeChip(
-                                label: 'Quick',
+                                label: s.loginModeQuick,
                                 selected: _mode == _LoginMode.quickLogin,
                                 onTap: () => setState(
                                   () => _mode = _LoginMode.quickLogin,
@@ -278,16 +280,16 @@ class _LoginScreenState extends State<LoginScreen> {
                             obscureText: true,
                             keyboardType: TextInputType.number,
                             maxLength: 6,
-                            decoration: const InputDecoration(
-                              labelText: 'PIN (or use biometric)',
-                              hintText: 'Enter PIN for quick access',
-                              prefixIcon: ExcludeSemantics(child: Icon(Icons.speed)),
+                            decoration: InputDecoration(
+                              labelText: s.loginQuickPinLabel,
+                              hintText: s.loginQuickPinHint,
+                              prefixIcon: const ExcludeSemantics(child: Icon(Icons.speed)),
                             ),
                             validator: (v) {
                               if (v == null || v.isEmpty) {
-                                return 'Enter your PIN';
+                                return s.loginPinRequired;
                               }
-                              if (v.length < 4) return 'Minimum 4 digits';
+                              if (v.length < 4) return s.loginPinMinDigits;
                               return null;
                             },
                           )
@@ -296,7 +298,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             controller: _passwordController,
                             obscureText: _obscurePassword,
                             decoration: InputDecoration(
-                              labelText: 'Password',
+                              labelText: s.loginPasswordLabel,
                               prefixIcon: const ExcludeSemantics(child: Icon(Icons.lock_outlined)),
                               suffixIcon: IconButton(
                                 icon: Icon(
@@ -317,14 +319,14 @@ class _LoginScreenState extends State<LoginScreen> {
                             obscureText: true,
                             keyboardType: TextInputType.number,
                             maxLength: 6,
-                            decoration: const InputDecoration(
-                              labelText: 'PIN',
-                              hintText: '4–6 digits',
-                              prefixIcon: ExcludeSemantics(child: Icon(Icons.pin_outlined)),
+                            decoration: InputDecoration(
+                              labelText: s.loginPinFieldLabel,
+                              hintText: s.loginPinHint,
+                              prefixIcon: const ExcludeSemantics(child: Icon(Icons.pin_outlined)),
                             ),
                             validator: (v) {
-                              if (v == null || v.isEmpty) return 'PIN required';
-                              if (v.length < 4) return 'Minimum 4 digits';
+                              if (v == null || v.isEmpty) return s.loginPinRequired;
+                              if (v.length < 4) return s.loginPinMinDigits;
                               return null;
                             },
                           ),
@@ -347,7 +349,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               onTap: () =>
                                   setState(() => _rememberMe = !_rememberMe),
                               child: Text(
-                                'Remember Employee ID',
+                                s.loginRememberEmployeeId,
                                 style: TextStyle(
                                   color: AppTheme.textSecondary,
                                   fontSize: 13,
@@ -390,9 +392,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            const Text(
-                                              'Account temporarily locked',
-                                              style: TextStyle(
+                                            Text(
+                                              s.loginLockedTitle,
+                                              style: const TextStyle(
                                                 color: AppTheme.warningAmber,
                                                 fontSize: 14,
                                                 fontWeight: FontWeight.w700,
@@ -407,9 +409,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                               ),
                                             ),
                                             const SizedBox(height: 6),
-                                            const Text(
-                                              'Too many failed attempts. Try again in 15 minutes or contact your supervisor.',
-                                              style: TextStyle(
+                                            Text(
+                                              s.loginLockedHint,
+                                              style: const TextStyle(
                                                 color: AppTheme.warningAmber,
                                                 fontSize: 11.5,
                                                 fontStyle: FontStyle.italic,
@@ -471,10 +473,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                 )
                               : Text(
                                   _mode == _LoginMode.password
-                                      ? 'Sign In with Password'
+                                      ? s.loginSignInWithPassword
                                       : _mode == _LoginMode.quickLogin
-                                      ? 'Quick Sign In'
-                                      : 'Sign In with PIN',
+                                      ? s.loginQuickSignIn
+                                      : s.loginSignInWithPin,
                                 ),
                         ),
 
@@ -483,7 +485,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         // Footer
                         Center(
                           child: Text(
-                            'VHHealth · Staff Access Only',
+                            s.loginFooter,
                             style: TextStyle(
                               color: AppTheme.textSecondary,
                               fontSize: 12,

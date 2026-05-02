@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 /// EMR Admissions screen — list active admissions, admit patients, view details.
 class AdmissionScreen extends StatefulWidget {
@@ -137,7 +138,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                     ),
                     SizedBox(height: 16),
                     Text(
-                      'Admit Patient',
+                      AppStrings.of(ctx).admissionAdmitPatient,
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w600,
@@ -147,31 +148,34 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                     const SizedBox(height: 20),
                     TextFormField(
                       controller: patientSearch,
-                      decoration: const InputDecoration(
-                        labelText: 'Patient (name, UID, or phone)',
-                        prefixIcon: ExcludeSemantics(child: Icon(Icons.search)),
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(ctx).admissionPatientLabel,
+                        prefixIcon: const ExcludeSemantics(
+                            child: Icon(Icons.search)),
+                        border: const OutlineInputBorder(),
                       ),
-                      validator: (v) =>
-                          (v == null || v.isEmpty) ? 'Required' : null,
+                      validator: (v) => (v == null || v.isEmpty)
+                          ? AppStrings.of(ctx).admissionRequired
+                          : null,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: chiefComplaint,
-                      decoration: const InputDecoration(
-                        labelText: 'Chief Complaint',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(ctx).admissionChiefComplaint,
+                        border: const OutlineInputBorder(),
                       ),
                       maxLines: 2,
-                      validator: (v) =>
-                          (v == null || v.isEmpty) ? 'Required' : null,
+                      validator: (v) => (v == null || v.isEmpty)
+                          ? AppStrings.of(ctx).admissionRequired
+                          : null,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: diagnosis,
-                      decoration: const InputDecoration(
-                        labelText: 'Provisional Diagnosis',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(ctx).admissionDiagnosis,
+                        border: const OutlineInputBorder(),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -180,21 +184,22 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                         Expanded(
                           child: TextFormField(
                             controller: ward,
-                            decoration: const InputDecoration(
-                              labelText: 'Ward',
-                              border: OutlineInputBorder(),
+                            decoration: InputDecoration(
+                              labelText: AppStrings.of(ctx).admissionWard,
+                              border: const OutlineInputBorder(),
                             ),
-                            validator: (v) =>
-                                (v == null || v.isEmpty) ? 'Required' : null,
+                            validator: (v) => (v == null || v.isEmpty)
+                                ? AppStrings.of(ctx).admissionRequired
+                                : null,
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: TextFormField(
                             controller: bed,
-                            decoration: const InputDecoration(
-                              labelText: 'Bed Number',
-                              border: OutlineInputBorder(),
+                            decoration: InputDecoration(
+                              labelText: AppStrings.of(ctx).admissionBedNumber,
+                              border: const OutlineInputBorder(),
                             ),
                           ),
                         ),
@@ -203,26 +208,26 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       initialValue: priority,
-                      decoration: const InputDecoration(
-                        labelText: 'Priority',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(ctx).admissionPriorityLabel,
+                        border: const OutlineInputBorder(),
                       ),
-                      items: const [
+                      items: [
                         DropdownMenuItem(
                           value: 'Routine',
-                          child: Text('Routine'),
+                          child: Text(AppStrings.of(ctx).admissionPriorityRoutine),
                         ),
                         DropdownMenuItem(
                           value: 'Urgent',
-                          child: Text('Urgent'),
+                          child: Text(AppStrings.of(ctx).admissionPriorityUrgent),
                         ),
                         DropdownMenuItem(
                           value: 'Emergency',
-                          child: Text('Emergency'),
+                          child: Text(AppStrings.of(ctx).admissionPriorityEmergency),
                         ),
                         DropdownMenuItem(
                           value: 'Critical',
-                          child: Text('Critical'),
+                          child: Text(AppStrings.of(ctx).admissionPriorityCritical),
                         ),
                       ],
                       onChanged: (v) =>
@@ -231,23 +236,26 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       initialValue: codeStatus,
-                      decoration: const InputDecoration(
-                        labelText: 'Code Status',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        labelText: AppStrings.of(ctx).admissionCodeStatus,
+                        border: const OutlineInputBorder(),
                       ),
-                      items: const [
+                      items: [
                         DropdownMenuItem(
                           value: 'Full Code',
-                          child: Text('Full Code'),
+                          child: Text(AppStrings.of(ctx).admissionCodeFull),
                         ),
-                        DropdownMenuItem(value: 'DNR', child: Text('DNR')),
+                        DropdownMenuItem(
+                          value: 'DNR',
+                          child: Text(AppStrings.of(ctx).admissionCodeDnr),
+                        ),
                         DropdownMenuItem(
                           value: 'DNR/DNI',
-                          child: Text('DNR/DNI'),
+                          child: Text(AppStrings.of(ctx).admissionCodeDnrDni),
                         ),
                         DropdownMenuItem(
                           value: 'Comfort Care',
-                          child: Text('Comfort Care'),
+                          child: Text(AppStrings.of(ctx).admissionCodeComfort),
                         ),
                       ],
                       onChanged: (v) =>
@@ -268,7 +276,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                           codeStatus: codeStatus,
                         ),
                         icon: const Icon(Icons.local_hospital),
-                        label: const Text('Admit Patient'),
+                        label: Text(AppStrings.of(ctx).admissionAdmitPatient),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -307,8 +315,9 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Patient admitted successfully'),
+          SnackBar(
+            content:
+                Text(AppStrings.of(context).admissionAdmittedSuccess),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -318,7 +327,8 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Admission failed: $e'),
+            content: Text(
+                AppStrings.of(context).admissionFailed(e.toString())),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -338,14 +348,15 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Admissions',
+      title: s.admissionTitle,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showAdmitPatientSheet,
         backgroundColor: AppTheme.primaryBlue,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.person_add),
-        label: const Text('Admit'),
+        label: Text(s.admissionAdmit),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -364,7 +375,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                   const SizedBox(height: 12),
                   OutlinedButton(
                     onPressed: _loadAdmissions,
-                    child: const Text('Retry'),
+                    child: Text(s.admissionRetry),
                   ),
                 ],
               ),
@@ -377,7 +388,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                   Icon(Icons.bed, size: 64, color: AppTheme.divider),
                   SizedBox(height: 12),
                   Text(
-                    'No active admissions',
+                    s.admissionNoActive,
                     style: TextStyle(color: AppTheme.textSecondary),
                   ),
                 ],
@@ -407,7 +418,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                         ),
                       ),
                       title: Text(
-                        a['patient_name'] as String? ?? 'Patient',
+                        a['patient_name'] as String? ?? s.admissionPatientFallback,
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
                       subtitle: Column(
@@ -526,7 +537,7 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
           : _error != null
           ? Padding(
               padding: const EdgeInsets.all(40),
-              child: Center(child: Text('Error: $_error')),
+              child: Center(child: Text(_error!)),
             )
           : SingleChildScrollView(
               padding: const EdgeInsets.all(20),
@@ -545,7 +556,8 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                   ),
                   SizedBox(height: 16),
                   Text(
-                    _detail?['patient_name'] as String? ?? 'Patient',
+                    _detail?['patient_name'] as String? ??
+                        AppStrings.of(context).admissionPatientFallback,
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w600,
@@ -554,7 +566,7 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                   ),
                   SizedBox(height: 4),
                   Text(
-                    'Admission #${widget.admissionId}',
+                    AppStrings.of(context).admissionNumber(widget.admissionId),
                     style: TextStyle(
                       color: AppTheme.textSecondary,
                       fontSize: 13,
@@ -563,45 +575,57 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                   const Divider(height: 24),
 
                   // Patient Info
-                  const Text(
-                    'Patient Information',
-                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  Text(
+                    AppStrings.of(context).admissionPatientInformation,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 15),
                   ),
                   const SizedBox(height: 8),
-                  _infoRow('UID', _detail?['patient_uid'] as String?),
-                  _infoRow('Age/Gender', _detail?['age_gender'] as String?),
-                  _infoRow('Blood Group', _detail?['blood_group'] as String?),
-                  _infoRow('Allergies', _detail?['allergies'] as String?),
+                  _infoRow(AppStrings.of(context).admissionUid,
+                      _detail?['patient_uid'] as String?),
+                  _infoRow(AppStrings.of(context).admissionAgeGender,
+                      _detail?['age_gender'] as String?),
+                  _infoRow(AppStrings.of(context).admissionBloodGroup,
+                      _detail?['blood_group'] as String?),
+                  _infoRow(AppStrings.of(context).admissionAllergies,
+                      _detail?['allergies'] as String?),
 
                   const SizedBox(height: 16),
-                  const Text(
-                    'Admission Details',
-                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  Text(
+                    AppStrings.of(context).admissionDetails,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 15),
                   ),
                   const SizedBox(height: 8),
-                  _infoRow('Ward', _detail?['ward'] as String?),
-                  _infoRow('Bed', _detail?['bed']?.toString()),
-                  _infoRow('Admitted On', _detail?['admitted_at'] as String?),
+                  _infoRow(AppStrings.of(context).admissionWardField,
+                      _detail?['ward'] as String?),
+                  _infoRow(AppStrings.of(context).admissionBedField,
+                      _detail?['bed']?.toString()),
+                  _infoRow(AppStrings.of(context).admissionAdmittedOn,
+                      _detail?['admitted_at'] as String?),
                   _infoRow(
-                    'Chief Complaint',
+                    AppStrings.of(context).admissionChiefComplaint,
                     _detail?['chief_complaint'] as String?,
                   ),
                   _infoRow(
-                    'Diagnosis',
+                    AppStrings.of(context).admissionDiagnosisField,
                     _detail?['provisional_diagnosis'] as String?,
                   ),
-                  _infoRow('Priority', _detail?['priority'] as String?),
-                  _infoRow('Code Status', _detail?['code_status'] as String?),
+                  _infoRow(AppStrings.of(context).admissionPriorityField,
+                      _detail?['priority'] as String?),
+                  _infoRow(AppStrings.of(context).admissionCodeStatus,
+                      _detail?['code_status'] as String?),
                   _infoRow(
-                    'Attending',
+                    AppStrings.of(context).admissionAttending,
                     _detail?['attending_doctor'] as String?,
                   ),
 
                   const SizedBox(height: 16),
                   // Quick action buttons
-                  const Text(
-                    'Quick Actions',
-                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  Text(
+                    AppStrings.of(context).admissionQuickActions,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 15),
                   ),
                   const SizedBox(height: 12),
                   Wrap(
@@ -610,7 +634,8 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                     children: [
                       ActionChip(
                         avatar: const Icon(Icons.monitor_heart, size: 18),
-                        label: const Text('Vitals'),
+                        label: Text(
+                            AppStrings.of(context).admissionActionVitals),
                         onPressed: () {
                           Navigator.pop(context);
                           final uid = _detail?['patient_uid'] as String?;
@@ -624,7 +649,8 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                       ),
                       ActionChip(
                         avatar: const Icon(Icons.note_add, size: 18),
-                        label: const Text('Notes'),
+                        label:
+                            Text(AppStrings.of(context).admissionActionNotes),
                         onPressed: () {
                           Navigator.pop(context);
                           final uid = _detail?['patient_uid'] as String?;
@@ -638,7 +664,8 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                       ),
                       ActionChip(
                         avatar: const Icon(Icons.receipt_long, size: 18),
-                        label: const Text('Orders'),
+                        label: Text(
+                            AppStrings.of(context).admissionActionOrders),
                         onPressed: () {
                           Navigator.pop(context);
                           final uid = _detail?['patient_uid'] as String?;
@@ -652,7 +679,8 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                       ),
                       ActionChip(
                         avatar: const Icon(Icons.timeline, size: 18),
-                        label: const Text('Timeline'),
+                        label: Text(
+                            AppStrings.of(context).admissionActionTimeline),
                         onPressed: () {
                           Navigator.pop(context);
                           final uid = _detail?['patient_uid'] as String?;

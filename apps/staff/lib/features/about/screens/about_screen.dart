@@ -1,21 +1,23 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('About'),
+        title: Text(s.aboutTitle),
         actions: const [LogoutAction()],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           // App icon & name
           Center(
             child: Column(
@@ -34,14 +36,20 @@ class AboutScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text(
-                  'VHHealth Staff',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                Text(
+                  s.aboutAppName,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Version 1.0.0',
-                  style: TextStyle(fontSize: 14, color: AppTheme.textSecondary),
+                  s.aboutVersion,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: AppTheme.textSecondary,
+                  ),
                 ),
               ],
             ),
@@ -56,14 +64,15 @@ class AboutScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'About',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    s.aboutHeader,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
                   ),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   Text(
-                    'A hospital staff management app by VH Health. '
-                    'Manage attendance, leave, appointments, and more — '
-                    'all from your mobile device.',
+                    s.aboutDescription,
                     style: TextStyle(
                       color: AppTheme.textSecondary,
                       height: 1.5,
@@ -76,51 +85,54 @@ class AboutScreen extends StatelessWidget {
           const SizedBox(height: 12),
 
           // Features
-          const Card(
+          Card(
             child: Padding(
-              padding: EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Features',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    s.aboutFeaturesHeader,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
                   ),
-                  SizedBox(height: 12),
+                  const SizedBox(height: 12),
                   _FeatureItem(
                     icon: Icons.fingerprint,
-                    title: 'Attendance',
-                    description: 'Clock in/out with location tracking',
+                    title: s.aboutFeatureAttendanceTitle,
+                    description: s.aboutFeatureAttendanceDescription,
                   ),
                   _FeatureItem(
                     icon: Icons.event_available,
-                    title: 'Leave Management',
-                    description: 'Apply for leave and track balances',
+                    title: s.aboutFeatureLeaveTitle,
+                    description: s.aboutFeatureLeaveDescription,
                   ),
                   _FeatureItem(
                     icon: Icons.calendar_today,
-                    title: 'Appointments',
-                    description: 'View and manage patient appointments',
+                    title: s.aboutFeatureAppointmentsTitle,
+                    description: s.aboutFeatureAppointmentsDescription,
                   ),
                   _FeatureItem(
                     icon: Icons.science_outlined,
-                    title: 'Investigations',
-                    description: 'Lab tests and diagnostic reports',
+                    title: s.aboutFeatureInvestigationsTitle,
+                    description: s.aboutFeatureInvestigationsDescription,
                   ),
                   _FeatureItem(
                     icon: Icons.medication_outlined,
-                    title: 'Pharmacy',
-                    description: 'Prescription and dispensing workflow',
+                    title: s.aboutFeaturePharmacyTitle,
+                    description: s.aboutFeaturePharmacyDescription,
                   ),
                   _FeatureItem(
                     icon: Icons.people_outlined,
-                    title: 'Staff Directory',
-                    description: 'Find and contact colleagues',
+                    title: s.aboutFeatureStaffDirectoryTitle,
+                    description: s.aboutFeatureStaffDirectoryDescription,
                   ),
                   _FeatureItem(
                     icon: Icons.medical_services_outlined,
-                    title: 'Clinical Modules',
-                    description: 'Vitals, nursing notes, prescriptions',
+                    title: s.aboutFeatureClinicalModulesTitle,
+                    description: s.aboutFeatureClinicalModulesDescription,
                   ),
                 ],
               ),
@@ -129,42 +141,51 @@ class AboutScreen extends StatelessWidget {
           const SizedBox(height: 12),
 
           // Contact
-          const Card(
+          Card(
             child: Padding(
-              padding: EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Support',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    s.aboutSupportHeader,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
                   ),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(
+                    leading: const Icon(
                       Icons.email_outlined,
                       color: AppTheme.primaryBlue,
                     ),
-                    title: Text('Email'),
-                    subtitle: Text('support@vhhealth.in'),
+                    title: Text(s.aboutSupportEmailLabel),
+                    subtitle: const Text('support@vhhealth.in'),
                   ),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.language, color: AppTheme.primaryBlue),
-                    title: Text('Website'),
-                    subtitle: Text('www.vhhealth.in'),
+                    leading: const Icon(
+                      Icons.language,
+                      color: AppTheme.primaryBlue,
+                    ),
+                    title: Text(s.aboutWebsiteLabel),
+                    subtitle: const Text('www.vhhealth.in'),
                   ),
                 ],
               ),
             ),
           ),
-          SizedBox(height: 24),
+          const SizedBox(height: 24),
 
           Center(
             child: Text(
-              '© 2026 VH Health. All rights reserved.',
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+              s.aboutCopyright,
+              style: TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 12,
+              ),
             ),
           ),
           const SizedBox(height: 16),

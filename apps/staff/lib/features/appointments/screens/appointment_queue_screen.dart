@@ -9,6 +9,7 @@ import '../../../core/providers/websocket_provider.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 import '../../doctor/screens/prescriptions_screen.dart';
 
 class AppointmentQueueScreen extends StatefulWidget {
@@ -148,14 +149,14 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Confirm Appointment',
+                    AppStrings.of(ctx).apptQueueConfirmTitle,
                     style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${appt['patient_name'] ?? 'Patient'} • ${appt['patient_phone'] ?? ''}',
+                    '${appt['patient_name'] ?? AppStrings.of(ctx).apptQueuePatientFallback} • ${appt['patient_phone'] ?? ''}',
                     style: Theme.of(
                       ctx,
                     ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
@@ -168,7 +169,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                           icon: const Icon(Icons.calendar_today, size: 16),
                           label: Text(
                             selDate == null
-                                ? 'Change Date'
+                                ? AppStrings.of(ctx).apptQueueChangeDate
                                 : DateFormat('dd MMM yyyy').format(selDate!),
                           ),
                           onPressed: () async {
@@ -190,7 +191,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                           icon: const Icon(Icons.access_time, size: 16),
                           label: Text(
                             selTime == null
-                                ? 'Change Time'
+                                ? AppStrings.of(ctx).apptQueueChangeTime
                                 : selTime!.format(ctx),
                           ),
                           onPressed: () async {
@@ -207,9 +208,9 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                   const SizedBox(height: 12),
                   TextField(
                     controller: notesCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Notes (optional)',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: AppStrings.of(ctx).apptQueueNotesOptional,
+                      border: const OutlineInputBorder(),
                     ),
                     maxLines: 2,
                   ),
@@ -232,7 +233,8 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                           time: selTime,
                         );
                       },
-                      child: const Text('Confirm Appointment'),
+                      child:
+                          Text(AppStrings.of(ctx).apptQueueConfirmAppointment),
                     ),
                   ),
                 ],
@@ -265,8 +267,8 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
       await ScheduleApiService.confirmAppointment(id, data);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Appointment confirmed ✓'),
+          SnackBar(
+            content: Text(AppStrings.of(context).apptQueueConfirmedToast),
             backgroundColor: Colors.green,
           ),
         );
@@ -278,7 +280,9 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Failed: ${e.toString().replaceFirst('Exception: ', '')}',
+              AppStrings.of(context).apptQueueFailedPrefix(
+                e.toString().replaceFirst('Exception: ', ''),
+              ),
             ),
             backgroundColor: Colors.red,
           ),
@@ -291,17 +295,21 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Mark as No-Show?'),
-        content: Text('${appt['patient_name'] ?? 'Patient'} did not show up?'),
+        title: Text(AppStrings.of(ctx).apptQueueNoShowTitle),
+        content: Text(AppStrings.of(ctx).apptQueueNoShowBody(
+          (appt['patient_name'] ??
+                  AppStrings.of(ctx).apptQueuePatientFallback)
+              .toString(),
+        )),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(AppStrings.of(ctx).actionCancel),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.grey),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Mark No-Show'),
+            child: Text(AppStrings.of(ctx).apptQueueMarkNoShow),
           ),
         ],
       ),
@@ -311,8 +319,8 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
       await ScheduleApiService.markNoShow(appt['id']);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Marked as no-show'),
+          SnackBar(
+            content: Text(AppStrings.of(context).apptQueueNoShowMarked),
             backgroundColor: Colors.grey,
           ),
         );
@@ -321,7 +329,11 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(
+                AppStrings.of(context).apptQueueFailedPrefix(e.toString())),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -332,19 +344,23 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Complete Appointment'),
+        title: Text(AppStrings.of(ctx).apptQueueCompleteTitle),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Mark ${appt['patient_name'] ?? 'this appointment'} as completed?',
+              AppStrings.of(ctx).apptQueueCompleteBody(
+                (appt['patient_name'] ??
+                        AppStrings.of(ctx).apptQueuePatientFallback)
+                    .toString(),
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: notesCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Notes (optional)',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: AppStrings.of(ctx).apptQueueNotesOptional,
+                border: const OutlineInputBorder(),
               ),
             ),
           ],
@@ -352,12 +368,12 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(AppStrings.of(ctx).actionCancel),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Complete'),
+            child: Text(AppStrings.of(ctx).apptQueueCompleteAction),
           ),
         ],
       ),
@@ -370,8 +386,8 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Appointment completed ✓'),
+          SnackBar(
+            content: Text(AppStrings.of(context).apptQueueCompletedToast),
             backgroundColor: Colors.green,
           ),
         );
@@ -382,7 +398,11 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(
+                AppStrings.of(context).apptQueueFailedPrefix(e.toString())),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -392,21 +412,19 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Create E-Prescription?'),
-        content: const Text(
-          'Create a structured e-prescription for this visit? The patient can order medicines directly from it.',
-        ),
+        title: Text(AppStrings.of(ctx).apptQueueRxPromptTitle),
+        content: Text(AppStrings.of(ctx).apptQueueRxPromptBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Skip'),
+            child: Text(AppStrings.of(ctx).apptQueueSkip),
           ),
           OutlinedButton(
             onPressed: () {
               Navigator.pop(ctx);
               _showUploadDocSheet(appt);
             },
-            child: const Text('Upload Doc'),
+            child: Text(AppStrings.of(ctx).apptQueueUploadDoc),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -422,7 +440,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                 ),
               );
             },
-            child: const Text('E-Prescription'),
+            child: Text(AppStrings.of(ctx).apptQueueEPrescription),
           ),
         ],
       ),
@@ -455,7 +473,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Upload Document',
+                  AppStrings.of(ctx).apptQueueUploadDocument,
                   style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -463,9 +481,9 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: docType,
-                  decoration: const InputDecoration(
-                    labelText: 'Document Type',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: AppStrings.of(ctx).apptQueueDocType,
+                    border: const OutlineInputBorder(),
                   ),
                   items: docTypes
                       .map(
@@ -480,9 +498,9 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                 const SizedBox(height: 12),
                 TextField(
                   controller: notesCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Notes (optional)',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: AppStrings.of(ctx).apptQueueNotesOptional,
+                    border: const OutlineInputBorder(),
                   ),
                   maxLines: 2,
                 ),
@@ -494,7 +512,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                         icon: const Icon(Icons.attach_file),
                         label: Text(
                           pickedFile == null
-                              ? 'Pick File'
+                              ? AppStrings.of(ctx).apptQueueAttachFilePick
                               : pickedFile!.path.split('/').last,
                         ),
                         onPressed: () async {
@@ -512,7 +530,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                     Expanded(
                       child: OutlinedButton.icon(
                         icon: const Icon(Icons.camera_alt),
-                        label: const Text('Camera'),
+                        label: Text(AppStrings.of(ctx).apptQueueCamera),
                         onPressed: () async {
                           final picker = ImagePicker();
                           final picked = await picker.pickImage(
@@ -550,8 +568,10 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                               );
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Document uploaded ✓'),
+                                  SnackBar(
+                                    content: Text(
+                                        AppStrings.of(context)
+                                            .apptQueueDocUploaded),
                                     backgroundColor: Colors.green,
                                   ),
                                 );
@@ -560,14 +580,17 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                    content: Text('Upload failed: $e'),
+                                    content: Text(
+                                        AppStrings.of(context)
+                                            .apptQueueUploadFailed(
+                                                e.toString())),
                                     backgroundColor: Colors.red,
                                   ),
                                 );
                               }
                             }
                           },
-                    child: const Text('Upload Document'),
+                    child: Text(AppStrings.of(ctx).apptQueueUploadDocument),
                   ),
                 ),
               ],
@@ -582,21 +605,23 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Appointment Queue',
+      title: s.apptQueueTitle,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showWalkInDialog,
         backgroundColor: const Color(0xFF00796B),
         icon: const Icon(Icons.person_add, color: Colors.white),
-        label: const Text('Walk-in', style: TextStyle(color: Colors.white)),
+        label: Text(s.apptQueueWalkIn,
+            style: const TextStyle(color: Colors.white)),
       ),
       body: Column(
         children: [
           TabBar(
             controller: _tabController,
             tabs: [
-              Tab(text: "Today's Queue (${_queue.length})"),
-              Tab(text: 'Pending (${_pending.length})'),
+              Tab(text: s.apptQueueTabToday(_queue.length)),
+              Tab(text: s.apptQueueTabPending(_pending.length)),
             ],
           ),
           Expanded(
@@ -614,13 +639,14 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
     if (_loadingQueue) return const Center(child: CircularProgressIndicator());
     if (_queueError != null) return _errorWidget(_queueError!, _loadQueue);
     if (_queue.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.event_available, size: 64, color: Colors.grey),
-            SizedBox(height: 12),
-            Text('No appointments today', style: TextStyle(color: Colors.grey)),
+            const Icon(Icons.event_available, size: 64, color: Colors.grey),
+            const SizedBox(height: 12),
+            Text(AppStrings.of(context).apptQueueNoToday,
+                style: const TextStyle(color: Colors.grey)),
           ],
         ),
       );
@@ -650,15 +676,15 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
       return _errorWidget(_pendingError!, _loadPending);
     }
     if (_pending.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.check_circle_outline, size: 64, color: Colors.green),
-            SizedBox(height: 12),
+            const Icon(Icons.check_circle_outline, size: 64, color: Colors.green),
+            const SizedBox(height: 12),
             Text(
-              'All appointments confirmed!',
-              style: TextStyle(color: Colors.grey),
+              AppStrings.of(context).apptQueueAllConfirmed,
+              style: const TextStyle(color: Colors.grey),
             ),
           ],
         ),
@@ -707,9 +733,9 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                   children: [
                     const Icon(Icons.person_add, color: Color(0xFF00796B)),
                     const SizedBox(width: 8),
-                    const Text(
-                      'Register Walk-in',
-                      style: TextStyle(
+                    Text(
+                      AppStrings.of(ctx).apptQueueRegisterWalkIn,
+                      style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
@@ -717,7 +743,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                     const Spacer(),
                     IconButton(
                       icon: const Icon(Icons.close),
-                      tooltip: 'Close',
+                      tooltip: AppStrings.of(ctx).apptQueueClose,
                       onPressed: () => Navigator.pop(ctx),
                     ),
                   ],
@@ -726,37 +752,40 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                 TextField(
                   controller: phoneCtrl,
                   keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Patient Phone *',
-                    border: OutlineInputBorder(),
-                    prefixIcon: ExcludeSemantics(child: Icon(Icons.phone)),
+                  decoration: InputDecoration(
+                    labelText: AppStrings.of(ctx).apptQueuePatientPhone,
+                    border: const OutlineInputBorder(),
+                    prefixIcon:
+                        const ExcludeSemantics(child: Icon(Icons.phone)),
                   ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: nameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Patient Name',
-                    border: OutlineInputBorder(),
-                    prefixIcon: ExcludeSemantics(child: Icon(Icons.person)),
+                  decoration: InputDecoration(
+                    labelText: AppStrings.of(ctx).apptQueuePatientName,
+                    border: const OutlineInputBorder(),
+                    prefixIcon:
+                        const ExcludeSemantics(child: Icon(Icons.person)),
                   ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: deptCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Department',
-                    border: OutlineInputBorder(),
-                    prefixIcon: ExcludeSemantics(child: Icon(Icons.local_hospital)),
+                  decoration: InputDecoration(
+                    labelText: AppStrings.of(ctx).apptQueueDepartment,
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const ExcludeSemantics(
+                        child: Icon(Icons.local_hospital)),
                   ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: reasonCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Reason',
-                    border: OutlineInputBorder(),
-                    hintText: 'Walk-in consultation',
+                  decoration: InputDecoration(
+                    labelText: AppStrings.of(ctx).apptQueueReason,
+                    border: const OutlineInputBorder(),
+                    hintText: AppStrings.of(ctx).apptQueueReasonHint,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -773,8 +802,10 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                         : () async {
                             if (phoneCtrl.text.trim().isEmpty) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Patient phone is required'),
+                                SnackBar(
+                                  content: Text(
+                                      AppStrings.of(context)
+                                          .apptQueuePatientPhoneRequired),
                                 ),
                               );
                               return;
@@ -796,7 +827,9 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content: Text(
-                                      'Walk-in registered! Token #$token',
+                                      AppStrings.of(context)
+                                          .apptQueueWalkInRegistered(
+                                              token ?? ''),
                                     ),
                                     backgroundColor: Colors.green,
                                   ),
@@ -808,7 +841,10 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                    content: Text('Failed: ${e.toString()}'),
+                                    content: Text(
+                                        AppStrings.of(context)
+                                            .apptQueueFailedPrefix(
+                                                e.toString())),
                                     backgroundColor: Colors.red,
                                   ),
                                 );
@@ -824,9 +860,9 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                               strokeWidth: 2,
                             ),
                           )
-                        : const Text(
-                            'Register Walk-in',
-                            style: TextStyle(fontWeight: FontWeight.bold),
+                        : Text(
+                            AppStrings.of(ctx).apptQueueRegisterWalkIn,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                   ),
                 ),
@@ -849,7 +885,10 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 12),
-          ElevatedButton(onPressed: onRetry, child: const Text('Retry')),
+          ElevatedButton(
+            onPressed: onRetry,
+            child: Text(AppStrings.of(context).apptQueueRetry),
+          ),
         ],
       ),
     );
@@ -925,7 +964,8 @@ class _QueueCardState extends State<_QueueCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          appt['patient_name'] ?? 'Patient',
+                          appt['patient_name'] ??
+                              AppStrings.of(context).apptQueuePatientFallback,
                           style: theme.textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
@@ -987,7 +1027,7 @@ class _QueueCardState extends State<_QueueCard> {
                     if (status == 'SCHEDULED')
                       ElevatedButton.icon(
                         icon: const Icon(Icons.check, size: 16),
-                        label: const Text('Confirm'),
+                        label: Text(AppStrings.of(context).apptQueueActionConfirm),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.primaryTeal,
                           foregroundColor: Colors.white,
@@ -1001,7 +1041,7 @@ class _QueueCardState extends State<_QueueCard> {
                     if (status == 'CONFIRMED')
                       ElevatedButton.icon(
                         icon: const Icon(Icons.done_all, size: 16),
-                        label: const Text('Complete'),
+                        label: Text(AppStrings.of(context).apptQueueActionComplete),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green,
                           foregroundColor: Colors.white,
@@ -1017,7 +1057,7 @@ class _QueueCardState extends State<_QueueCard> {
                         status != 'NO_SHOW')
                       OutlinedButton.icon(
                         icon: const Icon(Icons.person_off, size: 16),
-                        label: const Text('No-Show'),
+                        label: Text(AppStrings.of(context).apptQueueActionNoShow),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.grey,
                           padding: const EdgeInsets.symmetric(
@@ -1030,7 +1070,8 @@ class _QueueCardState extends State<_QueueCard> {
                     if (status == 'COMPLETED')
                       OutlinedButton.icon(
                         icon: const Icon(Icons.upload_file, size: 16),
-                        label: const Text('Upload Doc'),
+                        label: Text(
+                            AppStrings.of(context).apptQueueActionUploadDoc),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: AppTheme.primaryTeal,
                           padding: const EdgeInsets.symmetric(
@@ -1088,7 +1129,8 @@ class _PendingCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        appt['patient_name'] ?? 'Patient',
+                        appt['patient_name'] ??
+                            AppStrings.of(context).apptQueuePatientFallback,
                         style: theme.textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
@@ -1113,9 +1155,9 @@ class _PendingCard extends StatelessWidget {
                       color: Colors.red.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Text(
-                      'SLA BREACHED',
-                      style: TextStyle(
+                    child: Text(
+                      AppStrings.of(context).apptQueueSlaBreached,
+                      style: const TextStyle(
                         color: Colors.red,
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
@@ -1134,7 +1176,7 @@ class _PendingCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  'Booked $waitStr',
+                  AppStrings.of(context).apptQueueBookedAgo(waitStr),
                   style: TextStyle(
                     fontSize: 12,
                     color: slaBreached ? Colors.red : Colors.grey[600],
@@ -1166,7 +1208,7 @@ class _PendingCard extends StatelessWidget {
               width: double.infinity,
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.check_circle_outline, size: 18),
-                label: const Text('Call & Confirm'),
+                label: Text(AppStrings.of(context).apptQueueCallConfirm),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: slaBreached
                       ? Colors.red

@@ -4,6 +4,7 @@ import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class ThreadMessage {
   final int id;
@@ -166,7 +167,9 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to send: ${e.toString()}'),
+            content: Text(
+              '${AppStrings.of(context).messagingSendFailedPrefix} ${e.toString()}',
+            ),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -199,11 +202,14 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
   }
 
   String _formatMessageTime(DateTime dt) {
+    final s = AppStrings.of(context);
     final now = DateTime.now();
     final diff = now.difference(dt);
-    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 1) return s.timeJustNow;
     if (diff.inDays == 0) return DateFormat('HH:mm').format(dt);
-    if (diff.inDays == 1) return 'Yesterday ${DateFormat('HH:mm').format(dt)}';
+    if (diff.inDays == 1) {
+      return '${s.timeYesterday} ${DateFormat('HH:mm').format(dt)}';
+    }
     return DateFormat('dd MMM HH:mm').format(dt);
   }
 
@@ -215,25 +221,27 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
   }
 
   String _dateSeparatorLabel(DateTime dt) {
+    final s = AppStrings.of(context);
     final now = DateTime.now();
-    if (DateUtils.isSameDay(dt, now)) return 'Today';
+    if (DateUtils.isSameDay(dt, now)) return s.timeToday;
     if (DateUtils.isSameDay(dt, now.subtract(const Duration(days: 1)))) {
-      return 'Yesterday';
+      return s.timeYesterday;
     }
     return DateFormat('EEEE, d MMMM').format(dt);
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(widget.otherStaffUid, style: const TextStyle(fontSize: 16)),
-            const Text(
-              'Staff Member',
-              style: TextStyle(fontSize: 11, color: Colors.white70),
+            Text(
+              s.profileFallbackName,
+              style: const TextStyle(fontSize: 11, color: Colors.white70),
             ),
           ],
         ),
@@ -241,7 +249,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadThread,
-            tooltip: 'Refresh',
+            tooltip: s.actionRefresh,
           ),
           const LogoutAction(),
         ],
@@ -256,6 +264,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
   }
 
   Widget _buildMessageList() {
+    final s = AppStrings.of(context);
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -274,7 +283,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
               ),
               const SizedBox(height: 16),
               Text(
-                'Failed to load conversation',
+                s.messagingThreadLoadFailed,
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 8),
@@ -289,7 +298,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
               ElevatedButton.icon(
                 onPressed: _loadThread,
                 icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
+                label: Text(s.actionRetry),
               ),
             ],
           ),
@@ -309,14 +318,14 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
             ),
             const SizedBox(height: 16),
             Text(
-              'No messages yet',
+              s.messagingThreadEmptyTitle,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 color: Theme.of(context).colorScheme.outline,
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              'Start the conversation below',
+              s.messagingThreadEmptyBody,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.outline,
               ),
@@ -352,6 +361,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
   }
 
   Widget _buildComposer() {
+    final s = AppStrings.of(context);
     return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
@@ -437,37 +447,37 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
                           ? Theme.of(context).colorScheme.outline
                           : _priorityColor(_selectedPriority),
                     ),
-                    tooltip: 'Set priority',
+                    tooltip: s.messagingSetPriority,
                     onSelected: (value) =>
                         setState(() => _selectedPriority = value),
                     itemBuilder: (_) => [
-                      const PopupMenuItem(
+                      PopupMenuItem(
                         value: 'normal',
                         child: Row(
                           children: [
-                            Icon(Icons.flag_outlined, color: Colors.grey),
-                            SizedBox(width: 8),
-                            Text('Normal'),
+                            const Icon(Icons.flag_outlined, color: Colors.grey),
+                            const SizedBox(width: 8),
+                            Text(s.priorityNormal),
                           ],
                         ),
                       ),
-                      const PopupMenuItem(
+                      PopupMenuItem(
                         value: 'urgent',
                         child: Row(
                           children: [
-                            Icon(Icons.priority_high, color: Colors.orange),
-                            SizedBox(width: 8),
-                            Text('Urgent'),
+                            const Icon(Icons.priority_high, color: Colors.orange),
+                            const SizedBox(width: 8),
+                            Text(s.priorityUrgent),
                           ],
                         ),
                       ),
-                      const PopupMenuItem(
+                      PopupMenuItem(
                         value: 'critical',
                         child: Row(
                           children: [
-                            Icon(Icons.warning, color: Colors.red),
-                            SizedBox(width: 8),
-                            Text('Critical'),
+                            const Icon(Icons.warning, color: Colors.red),
+                            const SizedBox(width: 8),
+                            Text(s.priorityCritical),
                           ],
                         ),
                       ),
@@ -482,7 +492,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
                       minLines: 1,
                       textCapitalization: TextCapitalization.sentences,
                       decoration: InputDecoration(
-                        hintText: 'Type a message...',
+                        hintText: s.messagingTypeHint,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(24),
                           borderSide: BorderSide.none,
@@ -518,7 +528,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
                             onPressed: _sendMessage,
                             backgroundColor: AppTheme.primaryBlue,
                             foregroundColor: Colors.white,
-                            tooltip: 'Send',
+                            tooltip: s.messagingSend,
                             child: const Icon(Icons.send, size: 18),
                           ),
                   ),

@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/patient_context_chip.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/success_toast.dart';
+import '../../../l10n/app_strings.dart';
 
 /// Vitals Entry screen — for Nursing Staff to record patient vitals.
 ///
@@ -48,12 +49,13 @@ class _VitalsScreenState extends State<VitalsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final hasContext =
         (widget.prefillPatientName ?? '').isNotEmpty ||
         (widget.prefillPatientId ?? '').isNotEmpty;
 
     return StaffScaffold(
-      title: 'Vitals Entry',
+      title: s.vitalsTitle,
       body: Column(
         children: [
           if (hasContext)
@@ -69,9 +71,9 @@ class _VitalsScreenState extends State<VitalsScreen>
               labelColor: const Color(0xFFC62828),
               unselectedLabelColor: AppTheme.textSecondary,
               indicatorColor: const Color(0xFFC62828),
-              tabs: const [
-                Tab(text: 'Record Vitals'),
-                Tab(text: 'Recent Vitals'),
+              tabs: [
+                Tab(text: s.vitalsTabRecord),
+                Tab(text: s.vitalsTabRecent),
               ],
             ),
           ),
@@ -184,10 +186,8 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'No connection — vitals saved and will sync when online',
-              ),
+            SnackBar(
+              content: Text(AppStrings.of(context).vitalsOfflineQueued),
               backgroundColor: AppTheme.warningAmber,
             ),
           );
@@ -201,7 +201,10 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
           recordedBy: staffId != null ? int.tryParse(staffId) : null,
         );
         if (mounted) {
-          SuccessToast.show(context, 'Vitals recorded successfully');
+          SuccessToast.show(
+            context,
+            AppStrings.of(context).vitalsRecordedSuccess,
+          );
         }
       }
 
@@ -227,6 +230,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -243,26 +247,29 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
               ),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(Icons.monitor_heart, color: Colors.white, size: 36),
-                SizedBox(width: 14),
+                const Icon(Icons.monitor_heart, color: Colors.white, size: 36),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Record Patient Vitals',
-                        style: TextStyle(
+                        s.vitalsHeaderTitle,
+                        style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
                         ),
                       ),
-                      SizedBox(height: 2),
+                      const SizedBox(height: 2),
                       Text(
-                        'Enter vitals by patient ID',
-                        style: TextStyle(color: Colors.white70, fontSize: 12),
+                        s.vitalsHeaderSubtitle,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
@@ -281,17 +288,19 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                 TextFormField(
                   controller: _patientIdCtrl,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Patient ID',
-                    hintText: 'Enter patient ID',
-                    prefixIcon: ExcludeSemantics(child: Icon(Icons.person_outlined)),
+                  decoration: InputDecoration(
+                    labelText: s.vitalsPatientIdLabel,
+                    hintText: s.vitalsPatientIdHint,
+                    prefixIcon: const ExcludeSemantics(
+                      child: Icon(Icons.person_outlined),
+                    ),
                   ),
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) {
-                      return 'Patient ID is required';
+                      return s.vitalsPatientIdRequired;
                     }
                     if (int.tryParse(v.trim()) == null) {
-                      return 'Enter a valid number';
+                      return s.vitalsPatientIdInvalid;
                     }
                     return null;
                   },
@@ -299,10 +308,10 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                 const SizedBox(height: 20),
 
                 // Blood Pressure
-                const _SectionHeader(
+                _SectionHeader(
                   icon: Icons.favorite,
-                  label: 'Blood Pressure',
-                  color: Color(0xFFC62828),
+                  label: s.vitalsBpHeader,
+                  color: const Color(0xFFC62828),
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -311,15 +320,17 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                       child: TextFormField(
                         controller: _bpSysCtrl,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Systolic',
-                          hintText: 'e.g. 120',
+                        decoration: InputDecoration(
+                          labelText: s.vitalsBpSystolic,
+                          hintText: s.vitalsBpSystolicHint,
                           suffixText: 'mmHg',
                         ),
                         validator: (v) {
                           if (v == null || v.isEmpty) return null;
                           final n = int.tryParse(v);
-                          if (n == null || n < 60 || n > 300) return 'Invalid';
+                          if (n == null || n < 60 || n > 300) {
+                            return s.vitalsValidationInvalid;
+                          }
                           return null;
                         },
                       ),
@@ -332,15 +343,17 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                       child: TextFormField(
                         controller: _bpDiaCtrl,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Diastolic',
-                          hintText: 'e.g. 80',
+                        decoration: InputDecoration(
+                          labelText: s.vitalsBpDiastolic,
+                          hintText: s.vitalsBpDiastolicHint,
                           suffixText: 'mmHg',
                         ),
                         validator: (v) {
                           if (v == null || v.isEmpty) return null;
                           final n = int.tryParse(v);
-                          if (n == null || n < 30 || n > 200) return 'Invalid';
+                          if (n == null || n < 30 || n > 200) {
+                            return s.vitalsValidationInvalid;
+                          }
                           return null;
                         },
                       ),
@@ -350,10 +363,10 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                 const SizedBox(height: 20),
 
                 // Temperature
-                const _SectionHeader(
+                _SectionHeader(
                   icon: Icons.thermostat,
-                  label: 'Temperature',
-                  color: Color(0xFFE65100),
+                  label: s.vitalsTemperatureHeader,
+                  color: const Color(0xFFE65100),
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
@@ -361,26 +374,30 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  decoration: const InputDecoration(
-                    labelText: 'Temperature',
-                    hintText: 'e.g. 98.6',
+                  decoration: InputDecoration(
+                    labelText: s.vitalsTemperatureHeader,
+                    hintText: s.vitalsTemperatureHint,
                     suffixText: '°F',
-                    prefixIcon: ExcludeSemantics(child: Icon(Icons.thermostat_outlined)),
+                    prefixIcon: const ExcludeSemantics(
+                      child: Icon(Icons.thermostat_outlined),
+                    ),
                   ),
                   validator: (v) {
                     if (v == null || v.isEmpty) return null;
                     final n = double.tryParse(v);
-                    if (n == null || n < 90 || n > 115) return 'Invalid';
+                    if (n == null || n < 90 || n > 115) {
+                      return s.vitalsValidationInvalid;
+                    }
                     return null;
                   },
                 ),
                 const SizedBox(height: 20),
 
                 // Pulse & SpO2
-                const _SectionHeader(
+                _SectionHeader(
                   icon: Icons.speed,
-                  label: 'Pulse & Oxygen Saturation',
-                  color: Color(0xFF0097A7),
+                  label: s.vitalsPulseSpo2Header,
+                  color: const Color(0xFF0097A7),
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -389,16 +406,20 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                       child: TextFormField(
                         controller: _pulseCtrl,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Pulse',
-                          hintText: 'e.g. 72',
+                        decoration: InputDecoration(
+                          labelText: s.vitalsPulseLabel,
+                          hintText: s.vitalsPulseHint,
                           suffixText: 'bpm',
-                          prefixIcon: ExcludeSemantics(child: Icon(Icons.speed_outlined)),
+                          prefixIcon: const ExcludeSemantics(
+                            child: Icon(Icons.speed_outlined),
+                          ),
                         ),
                         validator: (v) {
                           if (v == null || v.isEmpty) return null;
                           final n = int.tryParse(v);
-                          if (n == null || n < 20 || n > 250) return 'Invalid';
+                          if (n == null || n < 20 || n > 250) {
+                            return s.vitalsValidationInvalid;
+                          }
                           return null;
                         },
                       ),
@@ -410,16 +431,20 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),
-                        decoration: const InputDecoration(
-                          labelText: 'SpO₂',
-                          hintText: 'e.g. 98',
+                        decoration: InputDecoration(
+                          labelText: s.vitalsSpo2Label,
+                          hintText: s.vitalsSpo2Hint,
                           suffixText: '%',
-                          prefixIcon: ExcludeSemantics(child: Icon(Icons.air_outlined)),
+                          prefixIcon: const ExcludeSemantics(
+                            child: Icon(Icons.air_outlined),
+                          ),
                         ),
                         validator: (v) {
                           if (v == null || v.isEmpty) return null;
                           final n = double.tryParse(v);
-                          if (n == null || n < 50 || n > 100) return 'Invalid';
+                          if (n == null || n < 50 || n > 100) {
+                            return s.vitalsValidationInvalid;
+                          }
                           return null;
                         },
                       ),
@@ -429,10 +454,10 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                 const SizedBox(height: 20),
 
                 // Weight
-                const _SectionHeader(
+                _SectionHeader(
                   icon: Icons.monitor_weight,
-                  label: 'Weight',
-                  color: Color(0xFF2E7D32),
+                  label: s.vitalsWeightHeader,
+                  color: const Color(0xFF2E7D32),
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
@@ -440,16 +465,20 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  decoration: const InputDecoration(
-                    labelText: 'Weight',
-                    hintText: 'e.g. 70.5',
+                  decoration: InputDecoration(
+                    labelText: s.vitalsWeightHeader,
+                    hintText: s.vitalsWeightHint,
                     suffixText: 'kg',
-                    prefixIcon: ExcludeSemantics(child: Icon(Icons.monitor_weight_outlined)),
+                    prefixIcon: const ExcludeSemantics(
+                      child: Icon(Icons.monitor_weight_outlined),
+                    ),
                   ),
                   validator: (v) {
                     if (v == null || v.isEmpty) return null;
                     final n = double.tryParse(v);
-                    if (n == null || n < 1 || n > 500) return 'Invalid';
+                    if (n == null || n < 1 || n > 500) {
+                      return s.vitalsValidationInvalid;
+                    }
                     return null;
                   },
                 ),
@@ -458,10 +487,12 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                 // Notes
                 TextFormField(
                   controller: _notesCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Nurse Notes (optional)',
-                    hintText: 'Any observations or concerns...',
-                    prefixIcon: ExcludeSemantics(child: Icon(Icons.notes_outlined)),
+                  decoration: InputDecoration(
+                    labelText: s.vitalsNurseNotesLabel,
+                    hintText: s.vitalsNurseNotesHint,
+                    prefixIcon: const ExcludeSemantics(
+                      child: Icon(Icons.notes_outlined),
+                    ),
                     alignLabelWithHint: true,
                   ),
                   maxLines: 3,
@@ -480,7 +511,9 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                           ),
                         )
                       : const Icon(Icons.save, color: Colors.white),
-                  label: Text(_submitting ? 'Saving...' : 'Save Vitals'),
+                  label: Text(
+                    _submitting ? s.bedSheetSavingLabel : s.vitalsSaveButton,
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFC62828),
                   ),
@@ -514,9 +547,10 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
   }
 
   Future<void> _fetchTrends() async {
+    final s = AppStrings.of(context);
     final id = int.tryParse(_patientIdCtrl.text.trim());
     if (id == null) {
-      setState(() => _error = 'Enter a valid patient ID');
+      setState(() => _error = s.vitalsPatientIdInvalid);
       return;
     }
     setState(() {
@@ -538,6 +572,7 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -548,10 +583,12 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
                 child: TextField(
                   controller: _patientIdCtrl,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Patient ID',
-                    hintText: 'Enter patient ID',
-                    prefixIcon: ExcludeSemantics(child: Icon(Icons.person_search_outlined)),
+                  decoration: InputDecoration(
+                    labelText: s.vitalsPatientIdLabel,
+                    hintText: s.vitalsPatientIdHint,
+                    prefixIcon: const ExcludeSemantics(
+                      child: Icon(Icons.person_search_outlined),
+                    ),
                   ),
                 ),
               ),
@@ -570,7 +607,7 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
                           strokeWidth: 2,
                         ),
                       )
-                    : const Text('Fetch'),
+                    : Text(s.vitalsFetchButton),
               ),
             ],
           ),
@@ -614,9 +651,9 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
                       size: 56,
                       color: AppTheme.textSecondary,
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
                     Text(
-                      'Enter a patient ID to view vital trends',
+                      s.vitalsTrendsHint,
                       style: TextStyle(color: AppTheme.textSecondary),
                     ),
                   ],
@@ -629,6 +666,7 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
   }
 
   Widget _buildTrendsView(Map<String, dynamic> data) {
+    final s = AppStrings.of(context);
     final records =
         data['records'] as List? ??
         data['trends'] as List? ??
@@ -638,7 +676,7 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
     if (records.isEmpty) {
       return Center(
         child: Text(
-          'No vital records found for this patient',
+          s.vitalsNoRecords,
           style: TextStyle(color: AppTheme.textSecondary),
         ),
       );

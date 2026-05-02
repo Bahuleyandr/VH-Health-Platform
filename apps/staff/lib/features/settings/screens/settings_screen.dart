@@ -7,18 +7,20 @@ import '../../../core/services/auth_service.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   Future<void> _showSetupPinDialog(BuildContext context) async {
+    final s = AppStrings.of(context);
     final pinCtrl = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Set Up PIN'),
+        title: Text(s.settingsSetupPinDialogTitle),
         content: Form(
           key: formKey,
           child: TextFormField(
@@ -26,13 +28,13 @@ class SettingsScreen extends StatelessWidget {
             obscureText: true,
             keyboardType: TextInputType.number,
             maxLength: 6,
-            decoration: const InputDecoration(
-              labelText: 'Enter 4–6 digit PIN',
-              prefixIcon: ExcludeSemantics(child: Icon(Icons.pin_outlined)),
+            decoration: InputDecoration(
+              labelText: s.settingsSetupPinDialogLabel,
+              prefixIcon: const ExcludeSemantics(child: Icon(Icons.pin_outlined)),
             ),
             validator: (v) {
-              if (v == null || v.isEmpty) return 'PIN is required';
-              if (v.length < 4) return 'Minimum 4 digits';
+              if (v == null || v.isEmpty) return s.loginPinRequired;
+              if (v.length < 4) return s.loginPinMinDigits;
               return null;
             },
           ),
@@ -40,7 +42,7 @@ class SettingsScreen extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: Text(s.actionCancel),
           ),
           FilledButton(
             onPressed: () {
@@ -48,7 +50,7 @@ class SettingsScreen extends StatelessWidget {
                 Navigator.pop(context, true);
               }
             },
-            child: const Text('Save'),
+            child: Text(s.actionSave),
           ),
         ],
       ),
@@ -60,8 +62,8 @@ class SettingsScreen extends StatelessWidget {
         await HrApiService.setupPin(employeeId: employeeId, pin: pinCtrl.text);
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✅ PIN set up successfully'),
+            SnackBar(
+              content: Text(s.settingsSetupPinSuccess),
               backgroundColor: AppTheme.successGreen,
             ),
           );
@@ -92,20 +94,21 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<void> _logout(BuildContext context) async {
+    final s = AppStrings.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
+        title: Text(s.settingsLogoutDialogTitle),
+        content: Text(s.settingsLogoutDialogBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: Text(s.actionCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: AppTheme.errorRed),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Logout'),
+            child: Text(s.actionLogout),
           ),
         ],
       ),
@@ -117,29 +120,31 @@ class SettingsScreen extends StatelessWidget {
     }
   }
 
-  String _themeModeLabel(ThemeMode mode) {
+  String _themeModeLabel(BuildContext context, ThemeMode mode) {
+    final s = AppStrings.of(context);
     switch (mode) {
       case ThemeMode.system:
-        return 'Follow system setting';
+        return s.settingsThemeSubtitleSystem;
       case ThemeMode.light:
-        return 'Always light';
+        return s.settingsThemeSubtitleLight;
       case ThemeMode.dark:
-        return 'Always dark';
+        return s.settingsThemeSubtitleDark;
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final themeProvider = context.watch<ThemeProvider>();
 
     return StaffScaffold(
-      title: 'Settings',
+      title: s.settingsTitle,
       showBottomNav: false,
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           // App section
-          const _SectionHeader(title: 'Appearance'),
+          _SectionHeader(title: s.settingsSectionAppearance),
           _SettingsCard(
             children: [
               ListTile(
@@ -151,27 +156,29 @@ class SettingsScreen extends StatelessWidget {
                       : Icons.brightness_auto,
                   color: AppTheme.primaryBlue,
                 ),
-                title: const Text('Theme'),
-                subtitle: Text(_themeModeLabel(themeProvider.themeMode)),
+                title: Text(s.settingsThemeTitle),
+                subtitle: Text(
+                  _themeModeLabel(context, themeProvider.themeMode),
+                ),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 child: SegmentedButton<ThemeMode>(
-                  segments: const [
+                  segments: [
                     ButtonSegment(
                       value: ThemeMode.system,
-                      label: Text('System'),
-                      icon: Icon(Icons.brightness_auto, size: 18),
+                      label: Text(s.settingsThemeSystem),
+                      icon: const Icon(Icons.brightness_auto, size: 18),
                     ),
                     ButtonSegment(
                       value: ThemeMode.light,
-                      label: Text('Light'),
-                      icon: Icon(Icons.light_mode, size: 18),
+                      label: Text(s.settingsThemeLight),
+                      icon: const Icon(Icons.light_mode, size: 18),
                     ),
                     ButtonSegment(
                       value: ThemeMode.dark,
-                      label: Text('Dark'),
-                      icon: Icon(Icons.dark_mode, size: 18),
+                      label: Text(s.settingsThemeDark),
+                      icon: const Icon(Icons.dark_mode, size: 18),
                     ),
                   ],
                   selected: {themeProvider.themeMode},
@@ -184,13 +191,13 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          const _SectionHeader(title: 'Notifications'),
+          _SectionHeader(title: s.settingsSectionNotifications),
           _SettingsCard(
             children: [
               _SettingsTile(
                 icon: Icons.notifications_outlined,
-                title: 'Push Notifications',
-                subtitle: 'Attendance reminders, appointment alerts',
+                title: s.settingsPushNotifications,
+                subtitle: s.settingsPushNotificationsSubtitle,
                 trailing: Switch(
                   value: true,
                   activeThumbColor: AppTheme.primaryBlue,
@@ -200,8 +207,8 @@ class SettingsScreen extends StatelessWidget {
               const Divider(height: 1, indent: 56),
               _SettingsTile(
                 icon: Icons.schedule,
-                title: 'Shift Reminders',
-                subtitle: 'Get notified before shift starts',
+                title: s.settingsShiftReminders,
+                subtitle: s.settingsShiftRemindersSubtitle,
                 trailing: Switch(
                   value: true,
                   activeThumbColor: AppTheme.primaryBlue,
@@ -212,13 +219,13 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          const _SectionHeader(title: 'Security'),
+          _SectionHeader(title: s.settingsSectionSecurity),
           _SettingsCard(
             children: [
               _SettingsTile(
                 icon: Icons.pin_outlined,
-                title: 'Set Up PIN',
-                subtitle: 'Set or update your 4–6 digit quick-access PIN',
+                title: s.settingsSetupPin,
+                subtitle: s.settingsSetupPinSubtitle,
                 trailing: Icon(
                   Icons.chevron_right,
                   color: AppTheme.textSecondary,
@@ -230,8 +237,8 @@ class SettingsScreen extends StatelessWidget {
               const Divider(height: 1, indent: 56),
               _SettingsTile(
                 icon: Icons.devices,
-                title: 'Manage Devices',
-                subtitle: 'View and remove registered devices',
+                title: s.settingsManageDevices,
+                subtitle: s.settingsManageDevicesSubtitle,
                 trailing: Icon(
                   Icons.chevron_right,
                   color: AppTheme.textSecondary,
@@ -242,13 +249,13 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          const _SectionHeader(title: 'Quick Links'),
+          _SectionHeader(title: s.settingsSectionQuickLinks),
           _SettingsCard(
             children: [
               _SettingsTile(
                 icon: Icons.person_outlined,
-                title: 'Profile',
-                subtitle: 'View and edit your staff profile',
+                title: s.settingsQuickLinkProfile,
+                subtitle: s.settingsQuickLinkProfileSubtitle,
                 trailing: Icon(
                   Icons.chevron_right,
                   color: AppTheme.textSecondary,
@@ -258,8 +265,8 @@ class SettingsScreen extends StatelessWidget {
               const Divider(height: 1, indent: 56),
               _SettingsTile(
                 icon: Icons.fingerprint,
-                title: 'Attendance',
-                subtitle: 'Check in/out and view history',
+                title: s.settingsQuickLinkAttendance,
+                subtitle: s.settingsQuickLinkAttendanceSubtitle,
                 trailing: Icon(
                   Icons.chevron_right,
                   color: AppTheme.textSecondary,
@@ -269,8 +276,8 @@ class SettingsScreen extends StatelessWidget {
               const Divider(height: 1, indent: 56),
               _SettingsTile(
                 icon: Icons.event_available,
-                title: 'Leave',
-                subtitle: 'Apply for leave and check balance',
+                title: s.settingsQuickLinkLeave,
+                subtitle: s.settingsQuickLinkLeaveSubtitle,
                 trailing: Icon(
                   Icons.chevron_right,
                   color: AppTheme.textSecondary,
@@ -281,13 +288,13 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          const _SectionHeader(title: 'About'),
+          _SectionHeader(title: s.settingsSectionAbout),
           _SettingsCard(
             children: [
               _SettingsTile(
                 icon: Icons.info_outlined,
-                title: 'About VHHealth Staff',
-                subtitle: 'Version 1.0.0 · App info & features',
+                title: s.settingsAboutTitle,
+                subtitle: s.settingsAboutSubtitle,
                 trailing: Icon(
                   Icons.chevron_right,
                   color: AppTheme.textSecondary,
@@ -304,7 +311,7 @@ class SettingsScreen extends StatelessWidget {
             child: ElevatedButton.icon(
               onPressed: () => _logout(context),
               icon: const Icon(Icons.logout, color: Colors.white),
-              label: const Text('Logout'),
+              label: Text(s.actionLogout),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.errorRed,
                 minimumSize: const Size(double.infinity, 52),
@@ -409,9 +416,12 @@ class _BiometricToggleTileState extends State<_BiometricToggleTile> {
       );
       setState(() => _enabled = value);
       if (mounted) {
+        final s = AppStrings.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(value ? '✅ Biometric enabled' : 'Biometric disabled'),
+            content: Text(
+              value ? s.settingsBiometricEnabled : s.settingsBiometricDisabled,
+            ),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -432,17 +442,18 @@ class _BiometricToggleTileState extends State<_BiometricToggleTile> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return ListTile(
       leading: Icon(Icons.fingerprint, color: AppTheme.primaryBlue),
       title: Text(
-        'Biometric Login',
+        s.settingsBiometricTitle,
         style: TextStyle(
           fontWeight: FontWeight.w500,
           color: AppTheme.textPrimary,
         ),
       ),
       subtitle: Text(
-        'Use fingerprint or face to sign in',
+        s.settingsBiometricSubtitle,
         style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
       ),
       trailing: _loading
@@ -497,9 +508,10 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
     try {
       await HrApiService.removeRegisteredDevice(deviceId);
       if (mounted) {
+        final s = AppStrings.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Device removed'),
+          SnackBar(
+            content: Text(s.settingsDeviceRemoved),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -519,6 +531,7 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return DraggableScrollableSheet(
       initialChildSize: 0.5,
       maxChildSize: 0.85,
@@ -532,9 +545,12 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
               children: [
                 const Icon(Icons.devices, color: AppTheme.primaryBlue),
                 const SizedBox(width: 8),
-                const Text(
-                  'Registered Devices',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                Text(
+                  s.settingsRegisteredDevices,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const Spacer(),
                 IconButton(
@@ -553,7 +569,7 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
                 : _devices.isEmpty
                 ? Center(
                     child: Text(
-                      'No devices registered',
+                      s.settingsNoDevices,
                       style: TextStyle(color: AppTheme.textSecondary),
                     ),
                   )
@@ -565,7 +581,7 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
                       final name =
                           d['deviceName']?.toString() ??
                           d['name']?.toString() ??
-                          'Unknown Device';
+                          s.settingsUnknownDevice;
                       final id =
                           d['_id']?.toString() ??
                           d['id']?.toString() ??

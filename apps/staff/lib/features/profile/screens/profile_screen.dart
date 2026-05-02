@@ -3,6 +3,7 @@ import '../../../core/config/api_config.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -97,9 +98,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       });
 
       if (mounted) {
+        final s = AppStrings.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Profile updated successfully'),
+          SnackBar(
+            content: Text(s.profileUpdatedSuccess),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -121,15 +123,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'My Profile',
+      title: s.profileTitle,
       showBottomNav: false,
       actions: [
         if (!_loading && _profile != null)
           IconButton(
             icon: Icon(_editing ? Icons.close : Icons.edit_outlined),
             onPressed: () => setState(() => _editing = !_editing),
-            tooltip: _editing ? 'Cancel' : 'Edit',
+            tooltip: _editing ? s.profileCancelTooltip : s.profileEditTooltip,
           ),
       ],
       body: _loading
@@ -151,7 +154,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   TextButton(
                     onPressed: _loadProfile,
-                    child: const Text('Retry'),
+                    child: Text(s.actionRetry),
                   ),
                 ],
               ),
@@ -172,7 +175,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildAvatarSection() {
-    final name = _profile?['name']?.toString() ?? 'Staff Member';
+    final s = AppStrings.of(context);
+    final name = _profile?['name']?.toString() ?? s.profileFallbackName;
     final role = _profile?['role']?.toString() ?? '';
     final dept = _profile?['department']?.toString() ?? '';
     final empId = _profile?['employeeId']?.toString() ?? '';
@@ -214,7 +218,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 2),
               child: Text(
-                'EMP: $empId',
+                '${s.profileEmpIdPrefix} $empId',
                 style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
             ),
@@ -235,17 +239,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildInfoCard() {
+    final s = AppStrings.of(context);
     final fields = <String, String>{
-      'Employee ID': _profile?['employeeId']?.toString() ?? '—',
-      'Role': (_profile?['role']?.toString() ?? '—').replaceAll('_', ' '),
-      'Department': _profile?['department']?.toString() ?? '—',
-      'Phone':
+      s.profileFieldEmployeeId: _profile?['employeeId']?.toString() ?? '—',
+      s.profileFieldRole: (_profile?['role']?.toString() ?? '—').replaceAll('_', ' '),
+      s.profileFieldDepartment: _profile?['department']?.toString() ?? '—',
+      s.profileFieldPhone:
           _profile?['phone']?.toString() ??
           _profile?['phoneNumber']?.toString() ??
           '—',
-      'Email': _profile?['email']?.toString() ?? '—',
-      'Shift': _profile?['shift']?.toString() ?? '—',
-      'Joining Date':
+      s.profileFieldEmail: _profile?['email']?.toString() ?? '—',
+      s.profileFieldShift: _profile?['shift']?.toString() ?? '—',
+      s.profileFieldJoiningDate:
           _profile?['joiningDate']?.toString() ??
           _profile?['createdAt']?.toString() ??
           '—',
@@ -258,7 +263,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Staff Information',
+              s.profileInfoTitle,
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 15,
@@ -276,6 +281,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildEditCard() {
+    final s = AppStrings.of(context);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -283,7 +289,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Edit Profile',
+              s.profileEditTitle,
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 15,
@@ -293,27 +299,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(height: 12),
             TextFormField(
               controller: _phoneCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Phone',
-                prefixIcon: ExcludeSemantics(child: Icon(Icons.phone_outlined)),
+              decoration: InputDecoration(
+                labelText: s.profileFieldPhone,
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.phone_outlined)),
               ),
               keyboardType: TextInputType.phone,
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _emailCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Email',
-                prefixIcon: ExcludeSemantics(child: Icon(Icons.email_outlined)),
+              decoration: InputDecoration(
+                labelText: s.profileFieldEmail,
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.email_outlined)),
               ),
               keyboardType: TextInputType.emailAddress,
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _addressCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Address',
-                prefixIcon: ExcludeSemantics(child: Icon(Icons.home_outlined)),
+              decoration: InputDecoration(
+                labelText: s.profileFieldAddress,
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.home_outlined)),
                 alignLabelWithHint: true,
               ),
               maxLines: 2,
@@ -331,7 +337,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     )
                   : const Icon(Icons.save, color: Colors.white),
-              label: Text(_saving ? 'Saving...' : 'Save Changes'),
+              label: Text(_saving ? s.profileSavingButton : s.profileSaveChanges),
             ),
           ],
         ),

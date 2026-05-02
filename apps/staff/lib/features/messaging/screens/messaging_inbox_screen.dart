@@ -8,6 +8,7 @@ import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
+import '../../../l10n/app_strings.dart';
 
 class StaffMessage {
   final int id;
@@ -157,23 +158,25 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
   }
 
   String _formatTime(DateTime dt) {
+    final s = AppStrings.of(context);
     final now = DateTime.now();
     final diff = now.difference(dt);
-    if (diff.inMinutes < 1) return 'Just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    if (diff.inDays == 1) return 'Yesterday';
+    if (diff.inMinutes < 1) return s.timeJustNow;
+    if (diff.inMinutes < 60) return '${diff.inMinutes}${s.timeMinutesAgoSuffix}';
+    if (diff.inHours < 24) return '${diff.inHours}${s.timeHoursAgoSuffix}';
+    if (diff.inDays == 1) return s.timeYesterday;
     if (diff.inDays < 7) return DateFormat('EEE').format(dt);
     return DateFormat('dd MMM').format(dt);
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
         title: Row(
           children: [
-            const Text('Messages'),
+            Text(s.messagingInboxTitle),
             if (_unreadCount > 0) ...[
               const SizedBox(width: 8),
               Container(
@@ -198,7 +201,7 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadData,
-            tooltip: 'Refresh',
+            tooltip: s.actionRefresh,
           ),
           const LogoutAction(),
         ],
@@ -207,7 +210,7 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.go('/staff-directory'),
         icon: const Icon(Icons.edit),
-        label: const Text('New Message'),
+        label: Text(s.messagingNewMessage),
         backgroundColor: AppTheme.primaryBlue,
         foregroundColor: Colors.white,
       ),
@@ -215,6 +218,7 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
   }
 
   Widget _buildBody() {
+    final s = AppStrings.of(context);
     if (_loading) {
       return const SkeletonList();
     }
@@ -229,10 +233,10 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
     final conversations = _buildConversations();
 
     if (conversations.isEmpty) {
-      return const EmptyState(
+      return EmptyState(
         icon: Icons.forum_outlined,
-        title: 'No messages',
-        body: 'Start a thread from the staff directory.',
+        title: s.messagingEmpty,
+        body: s.messagingEmptyBody,
       );
     }
 

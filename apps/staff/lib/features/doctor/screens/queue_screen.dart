@@ -5,6 +5,7 @@ import '../../../core/services/schedule_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 class QueueScreen extends StatefulWidget {
   const QueueScreen({super.key});
@@ -179,7 +180,7 @@ class _QueueScreenState extends State<QueueScreen> {
     final patientName =
         appointment['patientName']?.toString() ??
         appointment['patient']?['name']?.toString() ??
-        'Unknown';
+        AppStrings.of(context).queueUnknownPatient;
 
     showModalBottomSheet(
       context: context,
@@ -204,14 +205,15 @@ class _QueueScreenState extends State<QueueScreen> {
     return '${s}s';
   }
 
-  String _waitTime(Map<String, dynamic> appt) {
+  String _waitTime(Map<String, dynamic> appt, BuildContext context) {
     final dt = appt['dateTime']?.toString() ?? appt['date']?.toString();
     if (dt == null) return '';
+    final s = AppStrings.of(context);
     try {
       final parsed = DateTime.parse(dt);
       final diff = DateTime.now().difference(parsed);
-      if (diff.isNegative) return 'In ${_formatDuration(-diff)}';
-      return 'Waiting ${_formatDuration(diff)}';
+      if (diff.isNegative) return '${s.queueInPrefix} ${_formatDuration(-diff)}';
+      return '${s.queueWaitingPrefix} ${_formatDuration(diff)}';
     } catch (e) {
       return '';
     }
@@ -219,12 +221,13 @@ class _QueueScreenState extends State<QueueScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Patient Queue',
+      title: s.queueTitle,
       actions: [
         IconButton(
           icon: const Icon(Icons.refresh),
-          tooltip: 'Refresh queue',
+          tooltip: s.queueRefreshTooltip,
           onPressed: _load,
         ),
       ],
@@ -245,7 +248,7 @@ class _QueueScreenState extends State<QueueScreen> {
                     _error!,
                     style: TextStyle(color: AppTheme.textSecondary),
                   ),
-                  TextButton(onPressed: _load, child: const Text('Retry')),
+                  TextButton(onPressed: _load, child: Text(s.actionRetry)),
                 ],
               ),
             )
@@ -256,8 +259,8 @@ class _QueueScreenState extends State<QueueScreen> {
                 children: [
                   // Current consultation
                   if (_current != null) ...[
-                    const _SectionHeader(
-                      'In Consultation',
+                    _SectionHeader(
+                      s.queueSectionInConsultation,
                       AppTheme.primaryBlue,
                     ),
                     _CurrentConsultationCard(
@@ -280,9 +283,9 @@ class _QueueScreenState extends State<QueueScreen> {
                         child: ElevatedButton.icon(
                           onPressed: _callNext,
                           icon: const Icon(Icons.campaign, color: Colors.white),
-                          label: const Text(
-                            'Call Next Patient',
-                            style: TextStyle(fontSize: 16),
+                          label: Text(
+                            s.queueCallNextPatient,
+                            style: const TextStyle(fontSize: 16),
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.primaryBlue,
@@ -297,7 +300,7 @@ class _QueueScreenState extends State<QueueScreen> {
 
                   // Waiting list
                   _SectionHeader(
-                    'Waiting (${_waiting.length})',
+                    s.queueSectionWaiting(_waiting.length),
                     AppTheme.warningAmber,
                   ),
                   if (_waiting.isEmpty)
@@ -305,7 +308,7 @@ class _QueueScreenState extends State<QueueScreen> {
                       padding: EdgeInsets.symmetric(vertical: 24),
                       child: Center(
                         child: Text(
-                          'No patients waiting',
+                          s.queueNoPatientsWaiting,
                           style: TextStyle(color: AppTheme.textSecondary),
                         ),
                       ),
@@ -317,7 +320,7 @@ class _QueueScreenState extends State<QueueScreen> {
                       return _QueueCard(
                         position: i + 1,
                         appointment: appt,
-                        waitTime: _waitTime(appt),
+                        waitTime: _waitTime(appt, context),
                         onTap: () => _showPatientDetails(appt),
                         trailing: _current == null && i == 0
                             ? IconButton(
@@ -326,7 +329,7 @@ class _QueueScreenState extends State<QueueScreen> {
                                   color: AppTheme.primaryBlue,
                                 ),
                                 onPressed: _callNext,
-                                tooltip: 'Call',
+                                tooltip: s.queueCallTooltip,
                               )
                             : null,
                       );
@@ -336,7 +339,7 @@ class _QueueScreenState extends State<QueueScreen> {
 
                   // Completed
                   _SectionHeader(
-                    'Completed (${_completed.length})',
+                    s.queueSectionCompleted(_completed.length),
                     AppTheme.successGreen,
                   ),
                   if (_completed.isEmpty)
@@ -344,7 +347,7 @@ class _QueueScreenState extends State<QueueScreen> {
                       padding: EdgeInsets.symmetric(vertical: 24),
                       child: Center(
                         child: Text(
-                          'No completed consultations',
+                          s.queueNoCompletedConsultations,
                           style: TextStyle(color: AppTheme.textSecondary),
                         ),
                       ),
@@ -423,7 +426,7 @@ class _CurrentConsultationCard extends StatelessWidget {
     final name =
         appointment['patientName']?.toString() ??
         appointment['patient']?['name']?.toString() ??
-        'Unknown';
+        AppStrings.of(context).queueUnknownPatient;
     final type =
         appointment['type']?.toString() ??
         appointment['appointmentType']?.toString() ??
@@ -511,7 +514,7 @@ class _CurrentConsultationCard extends StatelessWidget {
                     color: Colors.white,
                     size: 18,
                   ),
-                  label: const Text('Complete Consultation'),
+                  label: Text(AppStrings.of(context).queueCompleteConsultation),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.successGreen,
                     foregroundColor: Colors.white,
@@ -551,7 +554,7 @@ class _QueueCard extends StatelessWidget {
     final name =
         appointment['patientName']?.toString() ??
         appointment['patient']?['name']?.toString() ??
-        'Unknown';
+        AppStrings.of(context).queueUnknownPatient;
     final type =
         appointment['type']?.toString() ??
         appointment['appointmentType']?.toString() ??
@@ -703,9 +706,10 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
     if (widget.phone.isNotEmpty) {
       _fetchRecords();
     } else {
+      // Set loading false; defer string lookup to build via _error sentinel.
       setState(() {
         _loading = false;
-        _error = 'No phone number available';
+        _error = '__no_phone__';
       });
     }
   }
@@ -787,7 +791,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
-                    tooltip: 'Close',
+                    tooltip: AppStrings.of(context).actionClose,
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
@@ -801,7 +805,9 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
                   : _error != null
                   ? Center(
                       child: Text(
-                        _error!,
+                        _error == '__no_phone__'
+                            ? AppStrings.of(context).queueNoPhoneNumber
+                            : _error!,
                         style: TextStyle(color: AppTheme.textSecondary),
                       ),
                     )
@@ -830,6 +836,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
 
   Widget _buildInfoSection() {
     final patient = _records!['patient'] as Map<String, dynamic>? ?? _records!;
+    final s = AppStrings.of(context);
     // ignore: unused_local_variable
     final name = patient['name']?.toString() ?? widget.patientName;
     final age = patient['age']?.toString() ?? '';
@@ -842,9 +849,9 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Patient Info',
-              style: TextStyle(
+            Text(
+              s.queuePatientInfo,
+              style: const TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 14,
                 color: AppTheme.primaryBlue,
@@ -853,7 +860,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
             const SizedBox(height: 8),
             if (age.isNotEmpty || gender.isNotEmpty)
               Text(
-                '${gender.isNotEmpty ? gender : ''} ${age.isNotEmpty ? '• Age: $age' : ''}'
+                '${gender.isNotEmpty ? gender : ''} ${age.isNotEmpty ? '${s.queueAgePrefix} $age' : ''}'
                     .trim(),
                 style: TextStyle(
                   fontSize: 13,
@@ -872,7 +879,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      'Allergies: $allergies',
+                      s.queueAllergiesPrefix(allergies.toString()),
                       style: const TextStyle(
                         color: AppTheme.errorRed,
                         fontSize: 13,
@@ -889,13 +896,14 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
   }
 
   Widget _buildQuickActions() {
+    final s = AppStrings.of(context);
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
         _ActionChip(
           Icons.medication,
-          'Write Prescription',
+          s.queueWritePrescription,
           AppTheme.primaryTeal,
           () {
             Navigator.pop(context);
@@ -904,13 +912,14 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
         ),
         _ActionChip(
           Icons.biotech,
-          'Order Investigation',
+          s.queueOrderInvestigation,
           AppTheme.accentCyan,
           () {
             Navigator.pop(context);
           },
         ),
-        _ActionChip(Icons.note_add, 'Add Notes', AppTheme.warningAmber, () {
+        _ActionChip(Icons.note_add, s.queueAddNotes, AppTheme.warningAmber,
+            () {
           Navigator.pop(context);
         }),
       ],
@@ -918,6 +927,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
   }
 
   Widget _buildRecentRecords() {
+    final s = AppStrings.of(context);
     final records =
         _records!['records'] as List? ??
         _records!['healthRecords'] as List? ??
@@ -926,7 +936,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
     if (records.isEmpty) {
       return Center(
         child: Text(
-          'No health records found',
+          s.queueNoHealthRecordsFound,
           style: TextStyle(color: AppTheme.textSecondary),
         ),
       );
@@ -935,9 +945,9 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Recent Records',
-          style: TextStyle(
+        Text(
+          s.queueRecentRecords,
+          style: const TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 14,
             color: AppTheme.primaryBlue,
@@ -949,7 +959,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
           final type =
               record['type']?.toString() ??
               record['recordType']?.toString() ??
-              'Record';
+              s.queueRecordFallback;
           final date =
               record['date']?.toString() ??
               record['createdAt']?.toString() ??

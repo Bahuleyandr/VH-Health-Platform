@@ -10,6 +10,7 @@ import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/patient_context_chip.dart';
 import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/voice_dictate_button.dart';
+import '../../../l10n/app_strings.dart';
 
 /// Handover Notes screen.
 ///
@@ -128,7 +129,7 @@ class _HandoverScreenState extends State<HandoverScreen>
         },
       );
       if (mounted) {
-        SuccessToast.show(context, 'Handover note submitted');
+        SuccessToast.show(context, AppStrings.of(context).handoverSubmitted);
         _notesController.clear();
         _patientRefController.clear();
         _tabController.animateTo(1);
@@ -145,16 +146,17 @@ class _HandoverScreenState extends State<HandoverScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final hasContext = (widget.prefillPatientRef ?? '').isNotEmpty;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Handover Notes'),
+        title: Text(s.handoverTitle),
         actions: const [LogoutAction()],
         bottom: TabBar(
           controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.edit_note), text: 'Write'),
-            Tab(icon: Icon(Icons.history), text: 'Recent'),
+          tabs: [
+            Tab(icon: const Icon(Icons.edit_note), text: s.handoverTabWrite),
+            Tab(icon: const Icon(Icons.history), text: s.handoverTabRecent),
           ],
         ),
       ),
@@ -180,6 +182,7 @@ class _HandoverScreenState extends State<HandoverScreen>
   }
 
   Widget _buildWriteTab() {
+    final s = AppStrings.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Form(
@@ -190,13 +193,18 @@ class _HandoverScreenState extends State<HandoverScreen>
             // Department
             DropdownButtonFormField<String>(
               initialValue: _department,
-              decoration: const InputDecoration(
-                labelText: 'Department',
-                prefixIcon: ExcludeSemantics(child: Icon(Icons.business)),
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: s.handoverDepartmentLabel,
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.business)),
+                border: const OutlineInputBorder(),
               ),
               items: _departments
-                  .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+                  .map(
+                    (d) => DropdownMenuItem(
+                      value: d,
+                      child: Text(_departmentLabel(s, d)),
+                    ),
+                  )
                   .toList(),
               onChanged: (v) => setState(() => _department = v!),
             ),
@@ -205,10 +213,12 @@ class _HandoverScreenState extends State<HandoverScreen>
             // Urgency
             DropdownButtonFormField<String>(
               initialValue: _urgency,
-              decoration: const InputDecoration(
-                labelText: 'Urgency',
-                prefixIcon: ExcludeSemantics(child: Icon(Icons.warning_amber)),
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: s.handoverUrgencyLabel,
+                prefixIcon: const ExcludeSemantics(
+                  child: Icon(Icons.warning_amber),
+                ),
+                border: const OutlineInputBorder(),
               ),
               items: _urgencies.map((u) {
                 final color = switch (u) {
@@ -223,7 +233,7 @@ class _HandoverScreenState extends State<HandoverScreen>
                     children: [
                       Icon(Icons.circle, size: 10, color: color),
                       const SizedBox(width: 8),
-                      Text(u),
+                      Text(_urgencyLabel(s, u)),
                     ],
                   ),
                 );
@@ -237,9 +247,8 @@ class _HandoverScreenState extends State<HandoverScreen>
               controller: _notesController,
               maxLines: 6,
               decoration: InputDecoration(
-                labelText: 'Handover Notes',
-                hintText:
-                    'Key observations, pending tasks, medication changes...',
+                labelText: s.handoverNotesLabel,
+                hintText: s.handoverNotesHint,
                 prefixIcon: const ExcludeSemantics(child: Icon(Icons.notes)),
                 // Voice dictation — appends transcript onto the notes
                 // controller. Useful during shift handovers when typing
@@ -248,19 +257,22 @@ class _HandoverScreenState extends State<HandoverScreen>
                 alignLabelWithHint: true,
                 border: const OutlineInputBorder(),
               ),
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Notes required' : null,
+              validator: (v) => (v == null || v.trim().isEmpty)
+                  ? s.handoverNotesRequired
+                  : null,
             ),
             const SizedBox(height: 14),
 
             // Patient references
             TextFormField(
               controller: _patientRefController,
-              decoration: const InputDecoration(
-                labelText: 'Patient References (optional)',
-                hintText: 'Room 201 - Mr. Sharma, Room 305 - Mrs. Patel',
-                prefixIcon: ExcludeSemantics(child: Icon(Icons.person_search)),
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: s.handoverPatientRefLabel,
+                hintText: s.handoverPatientRefHint,
+                prefixIcon: const ExcludeSemantics(
+                  child: Icon(Icons.person_search),
+                ),
+                border: const OutlineInputBorder(),
               ),
               maxLines: 2,
             ),
@@ -278,7 +290,9 @@ class _HandoverScreenState extends State<HandoverScreen>
                       ),
                     )
                   : const Icon(Icons.send),
-              label: Text(_submitting ? 'Submitting...' : 'Submit Handover'),
+              label: Text(
+                _submitting ? s.handoverSubmittingButton : s.handoverSubmitButton,
+              ),
             ),
           ],
         ),
@@ -286,7 +300,42 @@ class _HandoverScreenState extends State<HandoverScreen>
     );
   }
 
+  String _departmentLabel(AppStrings s, String code) {
+    switch (code) {
+      case 'General':
+        return s.departmentGeneral;
+      case 'Emergency':
+        return s.departmentEmergency;
+      case 'ICU':
+        return s.departmentIcu;
+      case 'Pediatrics':
+        return s.departmentPediatrics;
+      case 'Surgery':
+        return s.departmentSurgery;
+      case 'Outpatient':
+        return s.departmentOutpatient;
+      default:
+        return code;
+    }
+  }
+
+  String _urgencyLabel(AppStrings s, String code) {
+    switch (code) {
+      case 'Low':
+        return s.urgencyLow;
+      case 'Normal':
+        return s.urgencyNormal;
+      case 'High':
+        return s.urgencyHigh;
+      case 'Critical':
+        return s.urgencyCritical;
+      default:
+        return code;
+    }
+  }
+
   Widget _buildRecentTab() {
+    final s = AppStrings.of(context);
     if (_loadingNotes) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -301,14 +350,14 @@ class _HandoverScreenState extends State<HandoverScreen>
               color: Colors.grey.shade400,
             ),
             const SizedBox(height: 12),
-            const Text(
-              'No recent handover notes',
-              style: TextStyle(color: Colors.grey, fontSize: 15),
+            Text(
+              s.handoverRecentEmptyTitle,
+              style: const TextStyle(color: Colors.grey, fontSize: 15),
             ),
             const SizedBox(height: 4),
-            const Text(
-              'Notes from the last 24 hours will appear here',
-              style: TextStyle(color: Colors.grey, fontSize: 12),
+            Text(
+              s.handoverRecentEmptyBody,
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
             ),
           ],
         ),
@@ -322,7 +371,7 @@ class _HandoverScreenState extends State<HandoverScreen>
         itemCount: _recentNotes.length,
         itemBuilder: (context, index) {
           final note = _recentNotes[index];
-          final title = note['title'] ?? 'Handover Note';
+          final title = note['title'] ?? s.handoverNoteFallbackTitle;
           final body = note['body'] ?? note['message'] ?? '';
           final time = note['createdAt'] ?? note['timestamp'] ?? '';
           final urgency = note['urgency'] ?? 'Normal';
@@ -378,11 +427,12 @@ class _HandoverScreenState extends State<HandoverScreen>
   }
 
   String _formatTimestamp(String ts) {
+    final s = AppStrings.of(context);
     try {
       final dt = DateTime.parse(ts);
       final diff = DateTime.now().difference(dt);
-      if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-      if (diff.inHours < 24) return '${diff.inHours}h ago';
+      if (diff.inMinutes < 60) return '${diff.inMinutes}${s.timeMinutesAgoSuffix}';
+      if (diff.inHours < 24) return '${diff.inHours}${s.timeHoursAgoSuffix}';
       return DateFormat('d MMM, HH:mm').format(dt);
     } catch (e) {
       return ts;
