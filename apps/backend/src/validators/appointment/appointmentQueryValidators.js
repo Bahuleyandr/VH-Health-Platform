@@ -2,6 +2,22 @@ import { query, param } from 'express-validator';
 import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
 import { handleValidationErrors } from './appointmentValidators.js';
 
+// Resolve the `today` / `tomorrow` / `yesterday` keyword shorthands the
+// staff and patient apps send for date filters into a real ISO date,
+// so the existing `isISO8601()` rule below stays strict. Symmetric with
+// how the legacy `/queue/today` endpoint hardcodes CURRENT_DATE server-
+// side — both Flutter clients use literal "today" interchangeably.
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const dateKeywordSanitizer = (value) => {
+  if (typeof value !== 'string') return value;
+  const v = value.trim().toLowerCase();
+  const today = new Date();
+  if (v === 'today') return today.toISOString().slice(0, 10);
+  if (v === 'tomorrow') return new Date(today.getTime() + ONE_DAY_MS).toISOString().slice(0, 10);
+  if (v === 'yesterday') return new Date(today.getTime() - ONE_DAY_MS).toISOString().slice(0, 10);
+  return value;
+};
+
 export const listAppointmentsValidators = [
   query('page')
     .optional()
@@ -26,8 +42,9 @@ export const listAppointmentsValidators = [
     .withMessage('Patient ID must be a valid integer'),
   query('date')
     .optional()
+    .customSanitizer(dateKeywordSanitizer)
     .isISO8601()
-    .withMessage('Date must be in YYYY-MM-DD format'),
+    .withMessage('Date must be in YYYY-MM-DD format (or "today" / "tomorrow" / "yesterday")'),
   handleValidationErrors
 ];
 
@@ -40,8 +57,9 @@ export const getDoctorAppointmentsValidators = [
   param('doctor_id').isInt().withMessage('Doctor ID must be a valid integer'),
   query('date')
     .optional()
+    .customSanitizer(dateKeywordSanitizer)
     .isISO8601()
-    .withMessage('Date must be in YYYY-MM-DD format'),
+    .withMessage('Date must be in YYYY-MM-DD format (or "today" / "tomorrow" / "yesterday")'),
   query('status')
     .optional()
     .toUpperCase()

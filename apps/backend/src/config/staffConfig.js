@@ -1,5 +1,16 @@
-// Staff role definitions
+// Staff role definitions.
+//
+// SUPER_ADMIN is included here even though jwtMiddleware normalizes
+// SUPER_ADMIN→ADMIN at the request boundary. The JWT-claim normalization
+// is for RBAC route gating (super-admins can do everything an admin can);
+// but the staff hierarchy used by `getStaffHierarchy()` keys off the
+// stored `users.role` column, which still holds the unnormalized
+// 'SUPER_ADMIN' string. Without SUPER_ADMIN here, `Object.values(STAFF_ROLES)`
+// excludes it, and ANY admin (including a super-admin viewing their own
+// profile) ends up with `WHERE u.role = ANY([no super_admin])` → 0 rows
+// → 404 on /staff/:uid and /auth/staff/profile.
 export const STAFF_ROLES = {
+  SUPER_ADMIN: 'SUPER_ADMIN',
   ADMIN: 'ADMIN',
   DOCTOR: 'DOCTOR',
   NURSING_STAFF: 'NURSING_STAFF',

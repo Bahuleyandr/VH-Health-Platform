@@ -28,7 +28,14 @@ class ClinicalAiApiService {
   // Path prefix for every endpoint in this service. Lives in one place
   // so a future tenant migration off /clinical/* (e.g. to /v2/clinical/*)
   // is a one-line change.
-  static const _basePath = '/api/v1/clinical-ai/clinical';
+  //
+  // NOTE: Do NOT include `/api/v1` here — `ApiConfig.baseUrl` already
+  // ends in `/api/v1`, and `VHHttpClient._buildUri` does a straight
+  // string concat (`baseUrl + path`). The prefix used to be
+  // `/api/v1/clinical-ai/clinical`, which silently double-prefixed every
+  // call to `…/api/v1/api/v1/clinical-ai/clinical/*` and 404'd every
+  // clinical-AI feature in the staff app.
+  static const _basePath = '/clinical-ai/clinical';
 
   // ---------- helpers ---------------------------------------------------
 
@@ -186,7 +193,8 @@ class ClinicalAiApiService {
   static Future<List<Map<String, dynamic>>> listMyVoiceNotes({int? limit}) async {
     final query = <String, String>{};
     if (limit != null) query['limit'] = limit.toString();
-    final resp = await ApiClient.get('/api/v1/clinical/voice-note/my', queryParameters: query);
+    // baseUrl already ends in `/api/v1`; do NOT re-prefix.
+    final resp = await ApiClient.get('/clinical/voice-note/my', queryParameters: query);
     final data = _handle(resp);
     final notes = data['notes'] ?? data['data'];
     if (notes is List) return notes.cast<Map<String, dynamic>>();
@@ -198,8 +206,9 @@ class ClinicalAiApiService {
   /// citations, safety_flags, generation_id, review_id). The draft enters
   /// the caller's review queue keyed by module_key 'soap_from_dictation'.
   static Future<Map<String, dynamic>> generateSoapFromVoiceNote(int voiceNoteId) async {
+    // baseUrl already ends in `/api/v1`; do NOT re-prefix.
     final resp = await ApiClient.post(
-      '/api/v1/clinical/voice-note/$voiceNoteId/generate-soap',
+      '/clinical/voice-note/$voiceNoteId/generate-soap',
       body: const {},
     );
     return _handle(resp);

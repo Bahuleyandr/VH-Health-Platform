@@ -3,9 +3,27 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 
+// Staff JWTs only carry { uid, role } (see staffAuthService.generateAccessToken).
+// `replacement_requests.{requester_id,replacement_staff_id,hr_approved_by}` are
+// all INT FKs to users.id, so every handler here needs to resolve the JWT
+// uid → users.id before binding it as a SQL param. Doing the lookup
+// centrally avoids the `invalid input syntax for type integer: "<uuid>"`
+// 500s that surfaced for every clinical role when the controller passed
+// `req.user.uid` straight into the FK column.
+async function resolveUserIntId(req) {
+  if (req.user?.id) return Number(req.user.id);
+  const uid = req.user?.uid;
+  if (!uid) return null;
+  const row = await prisma.users.findUnique({ where: { uid: String(uid) }, select: { id: true } });
+  return row?.id ?? null;
+}
+
 export const requestReplacement = async (req, res) => {
   try {
-    const requesterId = req.user?.uid;
+    const requesterId = await resolveUserIntId(req);
+    if (!requesterId) {
+      return error(res, 'Unable to resolve requester identity', HTTP_STATUS.UNAUTHORIZED);
+    }
     const { replacement_staff_id, dates, message, leave_request_id } = req.body;
 
     if (!replacement_staff_id || !dates) {
@@ -19,9 +37,14 @@ export const requestReplacement = async (req, res) => {
       return error(res, 'Replacement staff member not found', HTTP_STATUS.NOT_FOUND);
     }
 
+    // Note column names track schema-dump exactly: requester_id (not
+    // original_staff_id), dates (not shift_date), requester_message
+    // (not reason), requested_at (not created_at). The earlier
+    // RETURNING list referenced non-existent columns and 42703'd.
     const result = await prisma.$queryRawUnsafe(`
       INSERT INTO replacement_requests (leave_request_id, requester_id, replacement_staff_id, dates, status, requester_message, requested_at)
-      VALUES ($1, $2, $3, $4, 'pending', $5, NOW()) RETURNING id, original_staff_id, replacement_staff_id, shift_date, status, reason, created_at
+      VALUES ($1, $2, $3, $4, 'pending', $5, NOW())
+      RETURNING id, requester_id, replacement_staff_id, dates, status, requester_message, requested_at
     `, leave_request_id || null, requesterId, replacement_staff_id, JSON.stringify(dates), message || null);
 
     success(res, result[0], 'Replacement request sent');
@@ -34,7 +57,10 @@ export const requestReplacement = async (req, res) => {
 export const respondToReplacement = async (req, res) => {
   try {
     const { id } = req.params;
-    const responderId = req.user?.uid;
+    const responderId = await resolveUserIntId(req);
+    if (!responderId) {
+      return error(res, 'Unable to resolve responder identity', HTTP_STATUS.UNAUTHORIZED);
+    }
     const { status, message } = req.body;
 
     if (!['accepted', 'declined'].includes(status)) {
@@ -43,14 +69,15 @@ export const respondToReplacement = async (req, res) => {
 
     // Verify this person is the designated replacement
     const reqCheck = await prisma.$queryRawUnsafe(
-      'SELECT id, original_staff_id, replacement_staff_id, shift_date, status, reason, created_at FROM replacement_requests WHERE id = $1 AND replacement_staff_id = $2', id, responderId);
+      'SELECT id, requester_id, replacement_staff_id, dates, status, requester_message, requested_at FROM replacement_requests WHERE id = $1 AND replacement_staff_id = $2', id, responderId);
     if (reqCheck.length === 0) {
       return error(res, 'Replacement request not found or not authorized', HTTP_STATUS.NOT_FOUND);
     }
 
     const result = await prisma.$queryRawUnsafe(`
       UPDATE replacement_requests SET status=$1, responder_message=$2, responded_at=NOW()
-      WHERE id=$3 RETURNING id, original_staff_id, replacement_staff_id, shift_date, status, reason, created_at
+      WHERE id=$3
+      RETURNING id, requester_id, replacement_staff_id, dates, status, responder_message, requested_at, responded_at
     `, status, message || null, id);
 
     success(res, result[0], `Replacement request ${status}`);
@@ -62,9 +89,15 @@ export const respondToReplacement = async (req, res) => {
 
 export const getPendingReplacements = async (req, res) => {
   try {
-    const staffId = req.user?.uid;
+    const staffId = await resolveUserIntId(req);
+    if (!staffId) {
+      // No int id → no replacement assignments possible. Return empty
+      // list rather than 500 so the Leave screen renders cleanly.
+      return success(res, [], 'Pending replacement requests fetched');
+    }
     const rows = await prisma.$queryRawUnsafe(`
-      SELECT rr.id, rr.original_staff_id, rr.replacement_staff_id, rr.shift_date, rr.status, rr.reason, rr.created_at,
+      SELECT rr.id, rr.requester_id, rr.replacement_staff_id, rr.dates, rr.status,
+             rr.requester_message, rr.requested_at,
         u.name as requester_name, u2.name as replacement_name
       FROM replacement_requests rr
       JOIN users u ON rr.requester_id = u.id
@@ -81,9 +114,13 @@ export const getPendingReplacements = async (req, res) => {
 
 export const getReplacementHistory = async (req, res) => {
   try {
-    const staffId = req.user?.uid;
+    const staffId = await resolveUserIntId(req);
+    if (!staffId) {
+      return success(res, [], 'Replacement history fetched');
+    }
     const rows = await prisma.$queryRawUnsafe(`
-      SELECT rr.id, rr.original_staff_id, rr.replacement_staff_id, rr.shift_date, rr.status, rr.reason, rr.created_at,
+      SELECT rr.id, rr.requester_id, rr.replacement_staff_id, rr.dates, rr.status,
+             rr.requester_message, rr.responder_message, rr.requested_at, rr.responded_at,
         u.name as requester_name, u2.name as replacement_name
       FROM replacement_requests rr
       JOIN users u ON rr.requester_id = u.id
@@ -101,10 +138,14 @@ export const getReplacementHistory = async (req, res) => {
 export const hrApproveReplacement = async (req, res) => {
   try {
     const { id } = req.params;
-    const hrId = req.user?.uid;
+    const hrId = await resolveUserIntId(req);
+    if (!hrId) {
+      return error(res, 'Unable to resolve HR identity', HTTP_STATUS.UNAUTHORIZED);
+    }
     const result = await prisma.$queryRawUnsafe(`
       UPDATE replacement_requests SET status='hr_approved', hr_approved_at=NOW(), hr_approved_by=$1
-      WHERE id=$2 AND status='accepted' RETURNING id, original_staff_id, replacement_staff_id, shift_date, status, reason, created_at
+      WHERE id=$2 AND status='accepted'
+      RETURNING id, requester_id, replacement_staff_id, dates, status, requester_message, requested_at, hr_approved_at
     `, hrId, id);
     if (result.length === 0) {
       return error(res, 'Replacement request not found or not in accepted state', HTTP_STATUS.NOT_FOUND);

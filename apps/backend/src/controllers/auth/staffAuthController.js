@@ -4,6 +4,11 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { StaffAuthService } from '../../services/auth/staffAuthService.js';
+// Profile data is owned by staffService.getStaffProfile (not the auth class).
+// Importing it lets the auth controller's GET /staff/profile route return
+// the same payload the rest of the staff routes use, instead of crashing
+// with `StaffAuthService.getStaffProfile is not a function`.
+import { getStaffProfile as fetchStaffProfile } from '../../services/staff/staffService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // Staff login with employee ID and password
@@ -108,13 +113,32 @@ export const logout = async (req, res) => {
   }
 };
 
-// Get staff profile with device info
+// Get staff profile with device info.
+//
+// Delegates to `staffService.getStaffProfile`, which handles all three
+// identifier shapes the staff app might send (UUID via req.user.uid,
+// EMP-* via employee_id, or numeric via users.id). The previous
+// implementation called `StaffAuthService.getStaffProfile` — a method
+// that doesn't exist on the class — and 500'd on every staff role.
+//
+// The service throws a plain `Error('NOT_FOUND')` rather than returning
+// null when the role hierarchy filter excludes the requesting role
+// (notably SUPER_ADMIN, which isn't in any other role's `viewable`
+// list). Catch that specific shape and surface a real 404 instead of
+// a 500 — the staff app's Profile screen handles 404 gracefully but
+// blank-screens on 500.
 export const getProfile = async (req, res) => {
   try {
-    const staffId = req.user.uid;
-    const profile = await StaffAuthService.getStaffProfile(staffId);
+    const staffUid = req.user.uid;
+    const profile = await fetchStaffProfile(staffUid, req.user.role, req.user.id, true);
+    if (!profile) {
+      return error(res, 'Staff profile not found', HTTP_STATUS.NOT_FOUND);
+    }
     success(res, profile, 'Staff profile retrieved');
   } catch (err) {
+    if (err?.message === 'NOT_FOUND') {
+      return error(res, 'Staff profile not found', HTTP_STATUS.NOT_FOUND);
+    }
     logger.error('Get Profile Error:', err);
     error(res, 'Failed to get profile', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

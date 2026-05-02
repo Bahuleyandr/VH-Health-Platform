@@ -1,9 +1,18 @@
 import { STAFF_ROLES } from '../../config/staffConfig.js';
 
-// Get staff role hierarchy for access control
+// Get staff role hierarchy for access control.
+//
+// SUPER_ADMIN was missing from this map and silently fell back to the
+// `[userRole]` branch — which returned `['SUPER_ADMIN']`. The Profile
+// screen then 404'd because the only row matching `WHERE u.role = ANY(...)`
+// would be a SUPER_ADMIN, and the JOIN to staff filtered it out unless the
+// admin had a staff row. Treat SUPER_ADMIN as a strict superset of ADMIN
+// (everything ADMIN can see plus other admins).
 export function getStaffHierarchy(userRole) {
+  const allStaffRoles = Object.values(STAFF_ROLES);
   const hierarchy = {
-    ADMIN: Object.values(STAFF_ROLES),
+    SUPER_ADMIN: [...allStaffRoles, 'SUPER_ADMIN'],
+    ADMIN: allStaffRoles,
     HR_STAFF: ['HR_STAFF', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'GENERAL_STAFF', 'RECEPTIONIST', 'SECURITY', 'MAINTENANCE'],
     DOCTOR: ['DOCTOR', 'NURSING_STAFF'],
     NURSING_STAFF: ['NURSING_STAFF'],
@@ -15,7 +24,7 @@ export function getStaffHierarchy(userRole) {
     MAINTENANCE: ['MAINTENANCE'],
     EMERGENCY_RESPONDER: ['EMERGENCY_RESPONDER']
   };
-  
+
   return hierarchy[userRole] || [userRole];
 }
 
