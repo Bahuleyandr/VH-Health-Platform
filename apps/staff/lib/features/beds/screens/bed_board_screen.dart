@@ -1,10 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../core/widgets/states/empty_state.dart';
+import '../../../core/widgets/states/error_state.dart';
+import '../../../core/widgets/states/skeleton_list.dart';
+import '../../../core/widgets/states/success_toast.dart';
 
 class BedBoardScreen extends StatefulWidget {
   const BedBoardScreen({super.key});
@@ -25,6 +30,36 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
 
   StreamSubscription<RealtimeEvent>? _bedEventSub;
   Timer? _refreshDebounce;
+
+  // Bed-grid filters. `_bedQuery` matches against bed_number; `_bedStatusFilter`
+  // is one of "all" / "available" / "occupied" / "maintenance".
+  String _bedQuery = '';
+  String _bedStatusFilter = 'all';
+
+  List<Map<String, dynamic>> get _filteredBeds {
+    Iterable<Map<String, dynamic>> rows = _beds;
+    if (_bedStatusFilter != 'all') {
+      rows = rows.where(
+        (b) => (b['status'] ?? '').toString().toLowerCase() == _bedStatusFilter,
+      );
+    }
+    if (_bedQuery.isNotEmpty) {
+      final q = _bedQuery.toLowerCase();
+      rows = rows.where((b) {
+        final num = (b['bedNumber'] ?? b['bed_number'] ?? b['number'] ?? '')
+            .toString()
+            .toLowerCase();
+        final patient = (b['patient_full_name'] ??
+                b['patientName'] ??
+                b['patient_name'] ??
+                '')
+            .toString()
+            .toLowerCase();
+        return num.contains(q) || patient.contains(q);
+      });
+    }
+    return rows.toList();
+  }
 
   @override
   void initState() {
@@ -162,32 +197,48 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
           const LogoutAction(),
         ],
       ),
-      body: _loadingWards
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? _buildError()
-          : _selectedWardId == null
-          ? _buildWardList()
-          : _buildBedGrid(),
+      body: Column(
+        children: [
+          // Persistent legend — used to be tucked inside `_buildWardList()`
+          // so it disappeared as soon as the user drilled into a ward, which
+          // was the moment its dots actually started showing up on cards.
+          // Pinned beneath the app bar so it's visible from both views.
+          if (!_loadingWards && _error == null) _buildLegendStrip(),
+          Expanded(
+            child: _loadingWards
+                ? const SkeletonList()
+                : _error != null
+                ? _buildError()
+                : _selectedWardId == null
+                ? _buildWardList()
+                : _buildBedGrid(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLegendStrip() {
+    return Container(
+      width: double.infinity,
+      color: AppTheme.cardSurface,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Row(
+        children: [
+          _legendDot(AppTheme.successGreen, 'Available'),
+          const SizedBox(width: 16),
+          _legendDot(AppTheme.errorRed, 'Occupied'),
+          const SizedBox(width: 16),
+          _legendDot(const Color(0xFFF9A825), 'Maintenance'),
+        ],
+      ),
     );
   }
 
   Widget _buildError() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
-          const SizedBox(height: 16),
-          Text(_error!, style: TextStyle(color: AppTheme.textSecondary)),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: _fetchWards,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Retry'),
-          ),
-        ],
-      ),
+    return ErrorState(
+      message: (_error ?? '').replaceFirst('Exception: ', ''),
+      onRetry: _fetchWards,
     );
   }
 
@@ -211,30 +262,20 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
           ),
         ),
 
-        // Legend
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: [
-              _legendDot(AppTheme.successGreen, 'Available'),
-              const SizedBox(width: 16),
-              _legendDot(AppTheme.errorRed, 'Occupied'),
-              const SizedBox(width: 16),
-              _legendDot(const Color(0xFFF9A825), 'Maintenance'),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-
         // Ward list
         Expanded(
           child: _filteredWards.isEmpty
-              ? Center(
-                  child: Text(
-                    'No wards found',
-                    style: TextStyle(color: AppTheme.textSecondary),
-                  ),
-                )
+              ? (_searchQuery.isNotEmpty
+                  ? Center(
+                      child: Text(
+                        'No matches for "$_searchQuery"',
+                        style: TextStyle(color: AppTheme.textSecondary),
+                      ),
+                    )
+                  : const EmptyState(
+                      icon: Icons.local_hospital_outlined,
+                      title: 'No wards yet',
+                    ))
               : RefreshIndicator(
                   onRefresh: _fetchWards,
                   child: ListView.builder(
@@ -318,6 +359,22 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
   }
 
   Widget _buildBedGrid() {
+    final available = _beds
+        .where(
+          (b) => (b['status'] ?? '').toString().toLowerCase() == 'available',
+        )
+        .length;
+    final occupied = _beds
+        .where(
+          (b) => (b['status'] ?? '').toString().toLowerCase() == 'occupied',
+        )
+        .length;
+    final maintenance = _beds
+        .where(
+          (b) => (b['status'] ?? '').toString().toLowerCase() == 'maintenance',
+        )
+        .length;
+
     return Column(
       children: [
         // Header with back
@@ -332,6 +389,8 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                   _selectedWardId = null;
                   _selectedWardName = null;
                   _beds = [];
+                  _bedQuery = '';
+                  _bedStatusFilter = 'all';
                 }),
               ),
               Text(
@@ -344,7 +403,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
               ),
               const Spacer(),
               Text(
-                '${_beds.where((b) => (b['status'] ?? '').toString().toLowerCase() == 'available').length} available',
+                '$available available',
                 style: const TextStyle(
                   color: AppTheme.successGreen,
                   fontWeight: FontWeight.w600,
@@ -355,14 +414,76 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
           ),
         ),
 
+        // Search row
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: TextField(
+            decoration: InputDecoration(
+              hintText: 'Search by bed # or patient name…',
+              prefixIcon: const Icon(Icons.search),
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+            onChanged: (v) => setState(() => _bedQuery = v),
+          ),
+        ),
+
+        // Status filter pills (counts double as guidance — "you have 4
+        // available beds in this ward right now"). Tap a pill to restrict
+        // the grid to that status; tap "All" to clear.
+        SizedBox(
+          height: 40,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            children: [
+              _statusPill('all', 'All', _beds.length, Colors.grey.shade700),
+              const SizedBox(width: 8),
+              _statusPill(
+                'available',
+                'Available',
+                available,
+                AppTheme.successGreen,
+              ),
+              const SizedBox(width: 8),
+              _statusPill(
+                'occupied',
+                'Occupied',
+                occupied,
+                AppTheme.errorRed,
+              ),
+              const SizedBox(width: 8),
+              _statusPill(
+                'maintenance',
+                'Maintenance',
+                maintenance,
+                const Color(0xFFF9A825),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+
         // Bed grid
         Expanded(
           child: _loadingBeds
-              ? Center(child: CircularProgressIndicator())
+              ? const SkeletonGrid()
               : _beds.isEmpty
+              ? const EmptyState(
+                  icon: Icons.local_hotel,
+                  title: 'No beds in this ward',
+                  body: 'Add beds via the admin portal.',
+                )
+              : _filteredBeds.isEmpty
               ? Center(
                   child: Text(
-                    'No beds found in this ward',
+                    _bedQuery.isNotEmpty
+                        ? 'No matches for "$_bedQuery"'
+                        : 'No $_bedStatusFilter beds in this ward',
                     style: TextStyle(color: AppTheme.textSecondary),
                   ),
                 )
@@ -377,9 +498,9 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                           crossAxisSpacing: 12,
                           childAspectRatio: 1.3,
                         ),
-                    itemCount: _beds.length,
+                    itemCount: _filteredBeds.length,
                     itemBuilder: (context, index) {
-                      final bed = _beds[index];
+                      final bed = _filteredBeds[index];
                       return _buildBedCard(bed);
                     },
                   ),
@@ -490,9 +611,99 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () => _openBedSheet(bed),
+        // Long-press → inline quick notes dialog. Skips the full sheet for
+        // when a nurse just wants to scribble a one-line update during
+        // rounds. Shorter path: 1 long-press → 1 dialog → Save.
+        onLongPress: () => _openQuickNotesDialog(bed),
         child: card,
       ),
     );
+  }
+
+  Future<void> _openQuickNotesDialog(Map<String, dynamic> bed) async {
+    final id = (bed['id'] ?? '').toString();
+    if (id.isEmpty) return;
+    final initial = (bed['notes'] ?? '').toString();
+    final controller = TextEditingController(text: initial);
+    bool saving = false;
+    String? errorMsg;
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: Text(
+            'Notes — Bed ${bed['bed_number'] ?? bed['bedNumber'] ?? ''}',
+          ),
+          content: SizedBox(
+            width: 380,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: controller,
+                  minLines: 3,
+                  maxLines: 6,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: const InputDecoration(
+                    hintText: 'Quick note (handover, hazards, IV site…)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                if (errorMsg != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    errorMsg!,
+                    style: TextStyle(color: AppTheme.errorRed, fontSize: 12),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      setLocal(() {
+                        saving = true;
+                        errorMsg = null;
+                      });
+                      try {
+                        final response = await ApiClient.patch(
+                          '/beds/$id/notes',
+                          body: {'notes': controller.text},
+                        );
+                        if (response.isSuccess) {
+                          if (ctx.mounted) Navigator.of(ctx).pop(true);
+                        } else {
+                          setLocal(() {
+                            errorMsg = response.message ?? 'Failed to save';
+                            saving = false;
+                          });
+                        }
+                      } catch (e) {
+                        setLocal(() {
+                          errorMsg = 'Could not connect to server';
+                          saving = false;
+                        });
+                      }
+                    },
+              child: Text(saving ? 'Saving…' : 'Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    if (saved == true && _selectedWardId != null) {
+      await _fetchBeds(_selectedWardId!);
+    }
   }
 
   // Opens a modal bottom sheet with the bed's full context (patient +
@@ -516,6 +727,53 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     if (saved == true && _selectedWardId != null) {
       await _fetchBeds(_selectedWardId!);
     }
+  }
+
+  Widget _statusPill(String key, String label, int count, Color color) {
+    final active = _bedStatusFilter == key;
+    return InkWell(
+      onTap: () => setState(() => _bedStatusFilter = key),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: active ? color : color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withValues(alpha: 0.6)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: active ? Colors.white : color,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: active
+                    ? Colors.white.withValues(alpha: 0.2)
+                    : color.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  color: active ? Colors.white : color,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _legendDot(Color color, String label) {
@@ -624,9 +882,7 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
       if (!mounted) return;
       if (response.isSuccess) {
         Navigator.of(context).pop(true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Bed notes saved')),
-        );
+        SuccessToast.show(context, 'Bed notes saved');
       } else {
         setState(() {
           _saveError = response.message ?? 'Failed to save notes';
@@ -657,6 +913,7 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
             bed['patient']?['name'] ??
             '')
         .toString();
+    final patientUid = (bed['patient_uid'] ?? '').toString();
     final patientAge = bed['patient_age'];
     final patientGender = (bed['patient_gender'] ?? '').toString();
     final patientPhone = (bed['patient_phone'] ?? '').toString();
@@ -753,6 +1010,23 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
 
               const SizedBox(height: 20),
 
+              // Quick-action row — only meaningful when there's a patient
+              // identity to pass through to the EMR / nursing screens. Pops
+              // the sheet first so the user lands cleanly on the next screen
+              // and the back button takes them back to the bed grid (not
+              // back to a half-open sheet).
+              if (isOccupied && patientUid.isNotEmpty) ...[
+                _BedQuickActions(
+                  patientUid: patientUid,
+                  patientId: bed['patient_id']?.toString() ?? '',
+                  patientName: patientName,
+                  patientPhone: patientPhone,
+                  bedNumber: bedNumber.toString(),
+                  wardName: widget.wardName,
+                ),
+                const SizedBox(height: 16),
+              ],
+
               // Patient block (only when occupied)
               if (isOccupied && patientName.isNotEmpty) ...[
                 _SectionHeader(label: 'Patient'),
@@ -760,6 +1034,17 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                   label: 'Name',
                   value: patientName,
                   icon: Icons.person_outline,
+                  // Tap the patient name itself to jump straight to their
+                  // timeline — same destination as "Open EMR" above, but
+                  // this is the gesture nurses naturally try first.
+                  onTap: patientUid.isNotEmpty
+                      ? () {
+                          Navigator.of(context).pop(false);
+                          context.go(
+                            '/emr/timeline/$patientUid?name=${Uri.encodeQueryComponent(patientName)}',
+                          );
+                        }
+                      : null,
                 ),
                 if (patientAge != null && patientAge.toString().isNotEmpty)
                   _DetailRow(
@@ -941,45 +1226,198 @@ class _DetailRow extends StatelessWidget {
   final String value;
   final IconData icon;
   final bool multiline;
+  // Optional tap handler — when set, the value text is rendered with a
+  // primary-blue tint + chevron icon to telegraph it's actionable. Used
+  // for the "patient name" row in the bed sheet, which jumps to the
+  // patient's timeline on tap.
+  final VoidCallback? onTap;
   const _DetailRow({
     required this.label,
     required this.value,
     required this.icon,
     this.multiline = false,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: multiline
-            ? CrossAxisAlignment.start
-            : CrossAxisAlignment.center,
-        children: [
-          Icon(icon, size: 18, color: AppTheme.textSecondary),
-          const SizedBox(width: 10),
-          SizedBox(
-            width: 110,
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: AppTheme.textSecondary,
-              ),
+    final valueText = Text(
+      value,
+      style: TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+        color: onTap != null ? AppTheme.primaryBlue : null,
+        decoration: onTap != null ? TextDecoration.underline : null,
+        decorationColor: onTap != null
+            ? AppTheme.primaryBlue.withValues(alpha: 0.5)
+            : null,
+      ),
+    );
+
+    final row = Row(
+      crossAxisAlignment: multiline
+          ? CrossAxisAlignment.start
+          : CrossAxisAlignment.center,
+      children: [
+        Icon(icon, size: 18, color: AppTheme.textSecondary),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 110,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: AppTheme.textSecondary,
             ),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
+        ),
+        Expanded(child: valueText),
+        if (onTap != null)
+          Icon(Icons.chevron_right, size: 18, color: AppTheme.primaryBlue),
+      ],
+    );
+
+    if (onTap == null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: row,
+      );
+    }
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: row,
       ),
     );
   }
+}
+
+/// Horizontal row of quick-action chips shown at the top of the bed
+/// detail sheet for occupied beds. Each chip closes the sheet and
+/// navigates to the relevant screen with the patient context
+/// pre-populated via query params:
+///
+///   - Open EMR        → /emr/timeline/:uid?name=
+///   - Record Vitals   → /vitals?patient_uid=&name=&phone=
+///   - Add Note        → /nursing-notes?patient_uid=&name=&phone=
+///   - Handover        → /handover?patient_ref=Bed%20A-101%20—%20Demo%20Patient
+///
+/// Closes the sheet first so back-navigation lands on the bed grid,
+/// not on a half-rendered sheet.
+class _BedQuickActions extends StatelessWidget {
+  final String patientUid;
+  final String patientId; // numeric users.id — what /vitals form uses
+  final String patientName;
+  final String patientPhone;
+  final String bedNumber;
+  final String wardName;
+  const _BedQuickActions({
+    required this.patientUid,
+    required this.patientId,
+    required this.patientName,
+    required this.patientPhone,
+    required this.bedNumber,
+    required this.wardName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final nameQ = Uri.encodeQueryComponent(patientName);
+    final phoneQ = Uri.encodeQueryComponent(patientPhone);
+    final pidQ = Uri.encodeQueryComponent(patientId);
+    final patientRef = Uri.encodeQueryComponent(
+      '${wardName.isNotEmpty ? "$wardName · " : ""}Bed $bedNumber — $patientName',
+    );
+
+    final actions = <_QuickAction>[
+      _QuickAction(
+        icon: Icons.timeline,
+        label: 'Open EMR',
+        color: AppTheme.primaryBlue,
+        route:
+            '/emr/timeline/$patientUid?name=$nameQ',
+      ),
+      _QuickAction(
+        icon: Icons.monitor_heart_outlined,
+        label: 'Record Vitals',
+        color: const Color(0xFFC62828),
+        route:
+            '/vitals?patient_uid=$patientUid&patient_id=$pidQ&name=$nameQ&phone=$phoneQ',
+      ),
+      _QuickAction(
+        icon: Icons.note_add_outlined,
+        label: 'Add Note',
+        color: const Color(0xFF00695C),
+        route:
+            '/nursing-notes?patient_uid=$patientUid&name=$nameQ&phone=$phoneQ',
+      ),
+      _QuickAction(
+        icon: Icons.swap_horiz,
+        label: 'Handover',
+        color: const Color(0xFF6A1B9A),
+        route:
+            '/handover?patient_ref=$patientRef&phone=$phoneQ',
+      ),
+    ];
+
+    return SizedBox(
+      height: 88,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: actions.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, i) {
+          final a = actions[i];
+          return SizedBox(
+            width: 96,
+            child: Material(
+              color: a.color.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () {
+                  Navigator.of(context).pop(false);
+                  context.go(a.route);
+                },
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(a.icon, color: a.color, size: 26),
+                      const SizedBox(height: 6),
+                      Text(
+                        a.label,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: a.color,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _QuickAction {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final String route;
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.route,
+  });
 }

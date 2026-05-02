@@ -3,11 +3,28 @@ import '../../../core/config/api_config.dart';
 import '../../../core/services/connectivity_sync_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/patient_context_chip.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/states/success_toast.dart';
 
 /// Vitals Entry screen — for Nursing Staff to record patient vitals.
+///
+/// When opened from the bed-board's "Record Vitals" quick action, the
+/// route passes `patient_uid` / `patient_id` / `name` / `phone` query
+/// params; the form auto-fills the patient ID and shows a context chip
+/// so the nurse doesn't re-key identification on every patient round.
 class VitalsScreen extends StatefulWidget {
-  const VitalsScreen({super.key});
+  final String? prefillPatientUid;
+  final String? prefillPatientId;
+  final String? prefillPatientName;
+  final String? prefillPatientPhone;
+  const VitalsScreen({
+    super.key,
+    this.prefillPatientUid,
+    this.prefillPatientId,
+    this.prefillPatientName,
+    this.prefillPatientPhone,
+  });
 
   @override
   State<VitalsScreen> createState() => _VitalsScreenState();
@@ -31,10 +48,20 @@ class _VitalsScreenState extends State<VitalsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final hasContext =
+        (widget.prefillPatientName ?? '').isNotEmpty ||
+        (widget.prefillPatientId ?? '').isNotEmpty;
+
     return StaffScaffold(
       title: 'Vitals Entry',
       body: Column(
         children: [
+          if (hasContext)
+            PatientContextChip(
+              name: widget.prefillPatientName,
+              phone: widget.prefillPatientPhone,
+              accent: const Color(0xFFC62828),
+            ),
           Container(
             color: Colors.white,
             child: TabBar(
@@ -51,7 +78,13 @@ class _VitalsScreenState extends State<VitalsScreen>
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: const [_RecordVitalsTab(), _RecentVitalsTab()],
+              children: [
+                _RecordVitalsTab(
+                  prefillPatientId: widget.prefillPatientId,
+                  prefillPatientName: widget.prefillPatientName,
+                ),
+                const _RecentVitalsTab(),
+              ],
             ),
           ),
         ],
@@ -61,7 +94,12 @@ class _VitalsScreenState extends State<VitalsScreen>
 }
 
 class _RecordVitalsTab extends StatefulWidget {
-  const _RecordVitalsTab();
+  final String? prefillPatientId;
+  final String? prefillPatientName;
+  const _RecordVitalsTab({
+    this.prefillPatientId,
+    this.prefillPatientName,
+  });
 
   @override
   State<_RecordVitalsTab> createState() => _RecordVitalsTabState();
@@ -70,6 +108,14 @@ class _RecordVitalsTab extends StatefulWidget {
 class _RecordVitalsTabState extends State<_RecordVitalsTab> {
   final _formKey = GlobalKey<FormState>();
   final _patientIdCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    if ((widget.prefillPatientId ?? '').isNotEmpty) {
+      _patientIdCtrl.text = widget.prefillPatientId!;
+    }
+  }
   final _bpSysCtrl = TextEditingController();
   final _bpDiaCtrl = TextEditingController();
   final _tempCtrl = TextEditingController();
@@ -155,12 +201,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
           recordedBy: staffId != null ? int.tryParse(staffId) : null,
         );
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Vitals recorded successfully'),
-              backgroundColor: AppTheme.successGreen,
-            ),
-          );
+          SuccessToast.show(context, 'Vitals recorded successfully');
         }
       }
 
@@ -177,12 +218,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: AppTheme.errorRed,
-          ),
-        );
+        ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _submitting = false);

@@ -5,6 +5,7 @@ import '../../../core/services/leave_api_service.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/states/success_toast.dart';
 import '../../attendance/screens/overtime_screen.dart';
 import '../../attendance/screens/dispute_screen.dart';
 
@@ -24,6 +25,19 @@ class _LeaveScreenState extends State<LeaveScreen>
   bool _loading = true;
   // ignore: unused_field
   String? _error;
+  String _searchQuery = '';
+
+  List<dynamic> get _filteredMyLeaves {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return _myLeaves;
+    return _myLeaves.where((l) {
+      final m = l as Map<String, dynamic>;
+      final type = (m['leave_type']?.toString() ?? m['type']?.toString() ?? '')
+          .toLowerCase();
+      final status = (m['status']?.toString() ?? '').toLowerCase();
+      return type.contains(q) || status.contains(q);
+    }).toList();
+  }
 
   // Apply form state
   String _leaveType = 'annual';
@@ -132,12 +146,7 @@ class _LeaveScreenState extends State<LeaveScreen>
         replacementStaffId: _selectedReplacementId,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Leave application submitted'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        SuccessToast.show(context, 'Leave application submitted');
         _reasonCtrl.clear();
         setState(() {
           _startDate = null;
@@ -150,12 +159,7 @@ class _LeaveScreenState extends State<LeaveScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: Colors.red,
-          ),
-        );
+        ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -580,63 +584,94 @@ class _LeaveScreenState extends State<LeaveScreen>
   }
 
   Widget _buildMyLeavesTab() {
-    if (_myLeaves.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.event_note, size: 48, color: Colors.grey.shade400),
-            const SizedBox(height: 12),
-            Text(
-              'No leave applications',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-          ],
-        ),
-      );
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.all(8),
-      itemCount: _myLeaves.length,
-      itemBuilder: (ctx, i) {
-        final leave = _myLeaves[i] as Map<String, dynamic>;
-        final status = leave['status'] as String? ?? 'pending';
-        final statusColor = status == 'approved'
-            ? Colors.green
-            : status == 'rejected'
-            ? Colors.red
-            : Colors.orange;
-        final leaveType = (leave['leave_type'] ?? leave['type'] ?? 'Leave')
-            .toString();
-        return Card(
-          child: ListTile(
-            title: Text(
-              '${leaveType.toUpperCase().replaceAll('_', ' ')} LEAVE',
-            ),
-            subtitle: Text(
-              '${leave['start_date'] ?? ''} to ${leave['end_date'] ?? ''}'
-              '${leave['reason'] != null ? '\n${leave['reason']}' : ''}',
-            ),
-            isThreeLine: leave['reason'] != null,
-            trailing: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: statusColor.withValues(alpha: 0.15),
+    final filtered = _filteredMyLeaves;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: TextField(
+            decoration: InputDecoration(
+              hintText: 'Search by leave type…',
+              prefixIcon: const Icon(Icons.search),
+              border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: statusColor),
               ),
-              child: Text(
-                status.toUpperCase(),
-                style: TextStyle(
-                  color: statusColor,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              filled: true,
+              fillColor: Colors.white,
             ),
+            onChanged: (v) => setState(() => _searchQuery = v),
           ),
-        );
-      },
+        ),
+        Expanded(
+          child: filtered.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.event_note,
+                        size: 48,
+                        color: Colors.grey.shade400,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _searchQuery.trim().isEmpty
+                            ? 'No leave applications'
+                            : 'No matches for "$_searchQuery"',
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(8),
+                  itemCount: filtered.length,
+                  itemBuilder: (ctx, i) {
+                    final leave = filtered[i] as Map<String, dynamic>;
+                    final status = leave['status'] as String? ?? 'pending';
+                    final statusColor = status == 'approved'
+                        ? Colors.green
+                        : status == 'rejected'
+                        ? Colors.red
+                        : Colors.orange;
+                    final leaveType =
+                        (leave['leave_type'] ?? leave['type'] ?? 'Leave')
+                            .toString();
+                    return Card(
+                      child: ListTile(
+                        title: Text(
+                          '${leaveType.toUpperCase().replaceAll('_', ' ')} LEAVE',
+                        ),
+                        subtitle: Text(
+                          '${leave['start_date'] ?? ''} to ${leave['end_date'] ?? ''}'
+                          '${leave['reason'] != null ? '\n${leave['reason']}' : ''}',
+                        ),
+                        isThreeLine: leave['reason'] != null,
+                        trailing: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: statusColor.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: statusColor),
+                          ),
+                          child: Text(
+                            status.toUpperCase(),
+                            style: TextStyle(
+                              color: statusColor,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 

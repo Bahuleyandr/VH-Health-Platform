@@ -4,6 +4,9 @@ import 'package:go_router/go_router.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/states/empty_state.dart';
+import '../../../core/widgets/states/error_state.dart';
+import '../../../core/widgets/states/skeleton_list.dart';
 
 /// Nurse-facing "due meds" list. Calls `GET /clinical/mar/due` and renders
 /// one row per scheduled/held dose in a ±window around now. Tapping a row
@@ -21,6 +24,21 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
   List<Map<String, dynamic>> _rows = const [];
   bool _loading = true;
   String? _error;
+  String _searchQuery = '';
+
+  List<Map<String, dynamic>> get _filtered {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return _rows;
+    return _rows.where((r) {
+      final patient = (r['patient_name']?.toString() ?? '').toLowerCase();
+      final med = (r['medication_name']?.toString() ??
+              r['medication']?.toString() ??
+              r['drug_name']?.toString() ??
+              '')
+          .toLowerCase();
+      return patient.contains(q) || med.contains(q);
+    }).toList();
+  }
 
   @override
   void initState() {
@@ -49,29 +67,62 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
   Widget build(BuildContext context) {
     return StaffScaffold(
       title: 'Due Medications',
-      body: RefreshIndicator(onRefresh: _load, child: _buildBody()),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: TextField(
+              decoration: InputDecoration(
+                hintText: 'Search by patient or medication…',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: Colors.white,
+              ),
+              onChanged: (v) => setState(() => _searchQuery = v),
+            ),
+          ),
+          Expanded(
+            child: RefreshIndicator(onRefresh: _load, child: _buildBody()),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildBody() {
     if (_loading && _rows.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const SkeletonList();
     }
     if (_error != null && _rows.isEmpty) {
       return _errorView(_error!);
     }
-    if (_rows.isEmpty) {
+    final rows = _filtered;
+    if (rows.isEmpty) {
+      if (_searchQuery.trim().isNotEmpty) {
+        return ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            const SizedBox(height: 120),
+            Center(
+              child: Text(
+                'No matches for "$_searchQuery"',
+                style: const TextStyle(color: Colors.black54),
+              ),
+            ),
+          ],
+        );
+      }
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: const [
-          SizedBox(height: 120),
-          Icon(Icons.check_circle_outline, size: 64, color: Colors.black26),
-          SizedBox(height: 12),
-          Center(
-            child: Text(
-              'No meds due in the window.',
-              style: TextStyle(color: Colors.black54),
-            ),
+          SizedBox(height: 80),
+          EmptyState(
+            icon: Icons.medication_outlined,
+            title: 'No medications due',
+            body: 'Tap a bed on the bed board to record vitals.',
           ),
         ],
       );
@@ -80,10 +131,10 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
     return ListView.separated(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: _rows.length,
+      itemCount: rows.length,
       separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, i) =>
-          _DueMedTile(row: _rows[i], onTap: () => _openScanner(_rows[i])),
+          _DueMedTile(row: rows[i], onTap: () => _openScanner(rows[i])),
     );
   }
 
@@ -100,13 +151,10 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       children: [
-        const SizedBox(height: 80),
-        const Icon(Icons.error_outline, color: Colors.red, size: 48),
-        const SizedBox(height: 12),
-        Center(child: Text(msg, textAlign: TextAlign.center)),
-        const SizedBox(height: 16),
-        Center(
-          child: ElevatedButton(onPressed: _load, child: const Text('Retry')),
+        const SizedBox(height: 60),
+        ErrorState(
+          message: msg.replaceFirst('Exception: ', ''),
+          onRetry: _load,
         ),
       ],
     );

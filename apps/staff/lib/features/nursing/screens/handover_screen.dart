@@ -4,9 +4,22 @@ import '../../../core/config/api_config.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../core/widgets/patient_context_chip.dart';
+import '../../../core/widgets/states/success_toast.dart';
 
+/// Handover Notes screen.
+///
+/// Optional prefill via route query params: `?patient_ref=&phone=`.
+/// Used by the bed-board's "Handover" quick action to populate the
+/// free-text patient reference field with `<ward> · Bed <num> — <name>`.
 class HandoverScreen extends StatefulWidget {
-  const HandoverScreen({super.key});
+  final String? prefillPatientRef;
+  final String? prefillPhone;
+  const HandoverScreen({
+    super.key,
+    this.prefillPatientRef,
+    this.prefillPhone,
+  });
 
   @override
   State<HandoverScreen> createState() => _HandoverScreenState();
@@ -38,6 +51,9 @@ class _HandoverScreenState extends State<HandoverScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    if ((widget.prefillPatientRef ?? '').isNotEmpty) {
+      _patientRefController.text = widget.prefillPatientRef!;
+    }
     _loadRecentNotes();
   }
 
@@ -91,12 +107,7 @@ class _HandoverScreenState extends State<HandoverScreen>
         },
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Handover note submitted'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        SuccessToast.show(context, 'Handover note submitted');
         _notesController.clear();
         _patientRefController.clear();
         _tabController.animateTo(1);
@@ -104,9 +115,7 @@ class _HandoverScreenState extends State<HandoverScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red),
-        );
+        ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -115,6 +124,7 @@ class _HandoverScreenState extends State<HandoverScreen>
 
   @override
   Widget build(BuildContext context) {
+    final hasContext = (widget.prefillPatientRef ?? '').isNotEmpty;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Handover Notes'),
@@ -127,10 +137,24 @@ class _HandoverScreenState extends State<HandoverScreen>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [_buildWriteTab(), _buildRecentTab()],
+      body: Column(
+        children: [
+          if (hasContext)
+            PatientContextChip(
+              name: widget.prefillPatientRef,
+              phone: widget.prefillPhone,
+              accent: const Color(0xFF6A1B9A),
+            ),
+          Expanded(child: _buildTabBody()),
+        ],
       ),
+    );
+  }
+
+  Widget _buildTabBody() {
+    return TabBarView(
+      controller: _tabController,
+      children: [_buildWriteTab(), _buildRecentTab()],
     );
   }
 

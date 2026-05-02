@@ -6,6 +6,8 @@ import '../../../core/providers/notification_provider.dart';
 import '../../../core/providers/websocket_provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../core/widgets/states/empty_state.dart';
+import '../../../core/widgets/states/skeleton_list.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -16,6 +18,15 @@ class NotificationsScreen extends StatefulWidget {
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
   bool _loading = true;
+  String _searchQuery = '';
+
+  bool _matchesQuery(String title, String body, String type) {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    return title.toLowerCase().contains(q) ||
+        body.toLowerCase().contains(q) ||
+        type.toLowerCase().contains(q);
+  }
 
   @override
   void initState() {
@@ -85,41 +96,58 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           const LogoutAction(),
         ],
       ),
-      body: Consumer2<NotificationProvider, WebSocketProvider>(
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: TextField(
+              decoration: InputDecoration(
+                hintText: 'Search notifications…',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: Colors.white,
+              ),
+              onChanged: (v) => setState(() => _searchQuery = v),
+            ),
+          ),
+          Expanded(
+            child: Consumer2<NotificationProvider, WebSocketProvider>(
         builder: (context, provider, wsProv, _) {
           if (_loading) {
-            return const Center(child: CircularProgressIndicator());
+            return const SkeletonList();
           }
 
           // Build combined list: WS live notifications first, then FCM/backend
-          final wsNotifications = wsProv.notifications;
+          final wsNotifications = wsProv.notifications.where((wsItem) {
+            final t = wsItem['title']?.toString() ?? '';
+            final b =
+                wsItem['body']?.toString() ??
+                wsItem['message']?.toString() ??
+                '';
+            final ty = wsItem['type']?.toString() ?? '';
+            return _matchesQuery(t, b, ty);
+          }).toList();
+          final filteredNotifications = provider.notifications
+              .where((n) => _matchesQuery(n.title, n.body, n.type ?? ''))
+              .toList();
 
-          if (provider.notifications.isEmpty && wsNotifications.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.notifications_none,
-                    size: 64,
+          if (filteredNotifications.isEmpty && wsNotifications.isEmpty) {
+            if (_searchQuery.trim().isNotEmpty) {
+              return Center(
+                child: Text(
+                  'No matches for "$_searchQuery"',
+                  style: TextStyle(
                     color: Theme.of(context).colorScheme.outline,
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No notifications',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.outline,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'You\'re all caught up!',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.outline,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              );
+            }
+            return const EmptyState(
+              icon: Icons.notifications_off_outlined,
+              title: 'No notifications yet',
             );
           }
 
@@ -127,7 +155,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             onRefresh: _loadNotifications,
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: wsNotifications.length + provider.notifications.length,
+              itemCount: wsNotifications.length + filteredNotifications.length,
               itemBuilder: (context, index) {
                 // WS live notifications come first
                 if (index < wsNotifications.length) {
@@ -232,7 +260,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 }
 
                 final item =
-                    provider.notifications[index - wsNotifications.length];
+                    filteredNotifications[index - wsNotifications.length];
                 final type = item.type ?? '';
                 final icon = _iconForType(type);
                 final color = _colorForType(type);
@@ -367,6 +395,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
           );
         },
+      ),
+          ),
+        ],
       ),
     );
   }
