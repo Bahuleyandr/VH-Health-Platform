@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import '../services/telemetry_service.dart';
 import '../services/voice_dictation_service.dart';
 import '../theme/app_theme.dart';
@@ -45,6 +47,15 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
     setState(() => _busy = true);
     try {
       await VoiceDictationService.start();
+      // Audio + haptic cue so blind users get the same "recording
+      // started" feedback sighted users get from the pulsing red mic.
+      // SemanticsService.announce reads the message via TalkBack/NVDA;
+      // HapticFeedback gives a vibration on devices that support it.
+      SemanticsService.announce(
+        'Recording started',
+        Directionality.of(context),
+      );
+      HapticFeedback.lightImpact();
     } catch (e) {
       if (mounted) {
         ErrorToast.show(
@@ -85,6 +96,16 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
       builder: (_) => const _TranscribingDialog(),
     );
     try {
+      // Announce that recording has ended and transcription is in
+      // flight. Followed by the success/failure announcement once the
+      // upload settles.
+      if (mounted) {
+        SemanticsService.announce(
+          'Recording stopped, transcribing',
+          Directionality.of(context),
+        );
+        HapticFeedback.selectionClick();
+      }
       final transcript = await VoiceDictationService.stopAndTranscribe(
         patientUid: widget.patientUid,
         admissionId: widget.admissionId,

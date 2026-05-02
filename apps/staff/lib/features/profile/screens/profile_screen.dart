@@ -295,7 +295,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               controller: _phoneCtrl,
               decoration: const InputDecoration(
                 labelText: 'Phone',
-                prefixIcon: Icon(Icons.phone_outlined),
+                prefixIcon: ExcludeSemantics(child: Icon(Icons.phone_outlined)),
               ),
               keyboardType: TextInputType.phone,
             ),
@@ -304,7 +304,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               controller: _emailCtrl,
               decoration: const InputDecoration(
                 labelText: 'Email',
-                prefixIcon: Icon(Icons.email_outlined),
+                prefixIcon: ExcludeSemantics(child: Icon(Icons.email_outlined)),
               ),
               keyboardType: TextInputType.emailAddress,
             ),
@@ -313,7 +313,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               controller: _addressCtrl,
               decoration: const InputDecoration(
                 labelText: 'Address',
-                prefixIcon: Icon(Icons.home_outlined),
+                prefixIcon: ExcludeSemantics(child: Icon(Icons.home_outlined)),
                 alignLabelWithHint: true,
               ),
               maxLines: 2,

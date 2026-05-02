@@ -95,10 +95,11 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
               controller: _searchCtrl,
               decoration: InputDecoration(
                 hintText: 'Search by patient name or type...',
-                prefixIcon: const Icon(Icons.search),
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear),
+                        tooltip: 'Clear search',
                         onPressed: () {
                           _searchCtrl.clear();
                           setState(() => _searchQuery = '');

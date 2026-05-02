@@ -52,65 +52,75 @@ class _SkeletonListState extends State<SkeletonList>
     final highlight = isDark
         ? const Color(0xFF34373C)
         : const Color(0xFFF6F7F9);
+    // Honour the OS "Reduce motion" / "Disable animations" preference.
+    // Some users find the constant pulse triggering for vestibular
+    // sensitivity; we keep the placeholder layout but freeze the colour.
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
 
-    return ListView.separated(
-      padding: widget.padding,
-      itemCount: widget.itemCount,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, _) {
-        return AnimatedBuilder(
-          animation: _ctrl,
-          builder: (context, __) {
-            final t = _ctrl.value;
-            return Container(
-              height: widget.itemHeight,
-              decoration: BoxDecoration(
-                color: Color.lerp(base, highlight, t),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: Color.lerp(highlight, base, t),
-                      shape: BoxShape.circle,
+    return Semantics(
+      // Tell screen readers this is a loading state so they don't try
+      // to announce all the placeholder rows.
+      label: 'Loading…',
+      liveRegion: true,
+      child: ListView.separated(
+        padding: widget.padding,
+        itemCount: widget.itemCount,
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemBuilder: (context, _) {
+          return AnimatedBuilder(
+            animation: _ctrl,
+            builder: (context, __) {
+              final t = reduceMotion ? 0.5 : _ctrl.value;
+              return Container(
+                height: widget.itemHeight,
+                decoration: BoxDecoration(
+                  color: Color.lerp(base, highlight, t),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Color.lerp(highlight, base, t),
+                        shape: BoxShape.circle,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          height: 12,
-                          width: 180,
-                          decoration: BoxDecoration(
-                            color: Color.lerp(highlight, base, t),
-                            borderRadius: BorderRadius.circular(4),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            height: 12,
+                            width: 180,
+                            decoration: BoxDecoration(
+                              color: Color.lerp(highlight, base, t),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Container(
-                          height: 10,
-                          width: 110,
-                          decoration: BoxDecoration(
-                            color: Color.lerp(highlight, base, t),
-                            borderRadius: BorderRadius.circular(4),
+                          const SizedBox(height: 8),
+                          Container(
+                            height: 10,
+                            width: 110,
+                            decoration: BoxDecoration(
+                              color: Color.lerp(highlight, base, t),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }
@@ -159,30 +169,36 @@ class _SkeletonGridState extends State<SkeletonGrid>
     final highlight = isDark
         ? const Color(0xFF34373C)
         : const Color(0xFFF6F7F9);
+    // Same reduce-motion treatment as SkeletonList.
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
 
-    return GridView.builder(
-      padding: widget.padding,
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: widget.crossAxisCount,
-        childAspectRatio: widget.childAspectRatio,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
+    return Semantics(
+      label: 'Loading…',
+      liveRegion: true,
+      child: GridView.builder(
+        padding: widget.padding,
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: widget.crossAxisCount,
+          childAspectRatio: widget.childAspectRatio,
+          mainAxisSpacing: 12,
+          crossAxisSpacing: 12,
+        ),
+        itemCount: widget.itemCount,
+        itemBuilder: (context, _) {
+          return AnimatedBuilder(
+            animation: _ctrl,
+            builder: (context, __) {
+              final t = reduceMotion ? 0.5 : _ctrl.value;
+              return Container(
+                decoration: BoxDecoration(
+                  color: Color.lerp(base, highlight, t),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              );
+            },
+          );
+        },
       ),
-      itemCount: widget.itemCount,
-      itemBuilder: (context, _) {
-        return AnimatedBuilder(
-          animation: _ctrl,
-          builder: (context, __) {
-            final t = _ctrl.value;
-            return Container(
-              decoration: BoxDecoration(
-                color: Color.lerp(base, highlight, t),
-                borderRadius: BorderRadius.circular(12),
-              ),
-            );
-          },
-        );
-      },
     );
   }
 }

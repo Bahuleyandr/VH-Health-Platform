@@ -370,7 +370,7 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                   labelText: 'Location (optional)',
                   hintText: 'Ward, room, or area',
                   border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.location_on_outlined),
+                  prefixIcon: ExcludeSemantics(child: Icon(Icons.location_on_outlined)),
                 ),
               ),
 
@@ -407,7 +407,7 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                   labelText: 'Witnesses (optional)',
                   hintText: 'Names of anyone who saw the incident',
                   border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.people_outline),
+                  prefixIcon: ExcludeSemantics(child: Icon(Icons.people_outline)),
                 ),
               ),
 

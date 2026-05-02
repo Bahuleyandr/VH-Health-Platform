@@ -478,7 +478,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
               controller: _diagnosisCtrl,
               decoration: const InputDecoration(
                 labelText: 'Diagnosis / Chief Complaint *',
-                prefixIcon: Icon(Icons.local_hospital_outlined),
+                prefixIcon: ExcludeSemantics(child: Icon(Icons.local_hospital_outlined)),
                 alignLabelWithHint: true,
               ),
               maxLines: 2,
@@ -555,6 +555,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                 if (_followUpDate != null)
                   IconButton(
                     icon: const Icon(Icons.clear, size: 18),
+                    tooltip: 'Clear follow-up date',
                     onPressed: () => setState(() => _followUpDate = null),
                   ),
               ],
@@ -578,7 +579,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
               decoration: const InputDecoration(
                 labelText: 'Clinical Notes / Advice',
                 hintText: 'Rest, diet, follow-up instructions...',
-                prefixIcon: Icon(Icons.notes_outlined),
+                prefixIcon: ExcludeSemantics(child: Icon(Icons.notes_outlined)),
                 alignLabelWithHint: true,
               ),
               maxLines: 3,
@@ -727,7 +728,7 @@ class _PatientSearchFieldState extends State<_PatientSearchField> {
           controller: _ctrl,
           decoration: const InputDecoration(
             labelText: 'Search Patient (phone/name)',
-            prefixIcon: Icon(Icons.search),
+            prefixIcon: ExcludeSemantics(child: Icon(Icons.search)),
             isDense: true,
           ),
           onChanged: _search,
@@ -806,7 +807,7 @@ class _DoctorSearchFieldState extends State<_DoctorSearchField> {
           controller: _ctrl,
           decoration: const InputDecoration(
             labelText: 'Search Doctor',
-            prefixIcon: Icon(Icons.medical_services),
+            prefixIcon: ExcludeSemantics(child: Icon(Icons.medical_services)),
             isDense: true,
           ),
           onChanged: _search,
@@ -939,6 +940,7 @@ class _MedicationCardState extends State<_MedicationCard> {
                     color: AppTheme.errorRed,
                     size: 20,
                   ),
+                  tooltip: 'Remove medication',
                   onPressed: widget.onRemove,
                   visualDensity: VisualDensity.compact,
                 ),
@@ -953,7 +955,7 @@ class _MedicationCardState extends State<_MedicationCard> {
               labelText: 'Medicine Name *',
               hintText: 'Type to search (e.g. Dolo, Pan)',
               isDense: true,
-              prefixIcon: Icon(Icons.medication, size: 18),
+              prefixIcon: ExcludeSemantics(child: Icon(Icons.medication, size: 18)),
             ),
             onChanged: (v) {
               med.name = v;

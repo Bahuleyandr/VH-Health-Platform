@@ -199,7 +199,7 @@ class _UploadTabState extends State<_UploadTab> {
               decoration: const InputDecoration(
                 labelText: 'Patient Phone Number',
                 hintText: '+91 XXXXX XXXXX',
-                prefixIcon: Icon(Icons.phone_outlined),
+                prefixIcon: ExcludeSemantics(child: Icon(Icons.phone_outlined)),
               ),
               validator: (v) {
                 if (v == null || v.trim().isEmpty) return 'Phone is required';
@@ -212,7 +212,7 @@ class _UploadTabState extends State<_UploadTab> {
               initialValue: _testType,
               decoration: const InputDecoration(
                 labelText: 'Test Type',
-                prefixIcon: Icon(Icons.biotech_outlined),
+                prefixIcon: ExcludeSemantics(child: Icon(Icons.biotech_outlined)),
               ),
               items: _testTypes
                   .map((t) => DropdownMenuItem(value: t, child: Text(t)))
@@ -226,7 +226,7 @@ class _UploadTabState extends State<_UploadTab> {
               decoration: const InputDecoration(
                 labelText: 'Result / Summary',
                 hintText: 'Enter test results or summary...',
-                prefixIcon: Icon(Icons.assignment_outlined),
+                prefixIcon: ExcludeSemantics(child: Icon(Icons.assignment_outlined)),
                 alignLabelWithHint: true,
               ),
               maxLines: 3,
@@ -237,7 +237,7 @@ class _UploadTabState extends State<_UploadTab> {
               decoration: const InputDecoration(
                 labelText: 'Clinical Notes (optional)',
                 hintText: 'Additional observations...',
-                prefixIcon: Icon(Icons.notes_outlined),
+                prefixIcon: ExcludeSemantics(child: Icon(Icons.notes_outlined)),
                 alignLabelWithHint: true,
               ),
               maxLines: 2,

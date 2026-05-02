@@ -9,12 +9,12 @@ import '../../../core/services/telemetry_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/patient_search_action.dart';
-import '../../../core/widgets/states/success_toast.dart' show ErrorToast;
-import '../../../core/widgets/voice_dictate_button.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../core/widgets/states/success_toast.dart';
+import '../../../core/widgets/voice_dictate_button.dart';
+import '../../../l10n/app_strings.dart';
 
 class BedBoardScreen extends StatefulWidget {
   const BedBoardScreen({super.key});
@@ -188,7 +188,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
-        title: const Text('Bed Board'),
+        title: Text(AppStrings.of(context).bedBoardTitle),
         backgroundColor: AppTheme.primaryBlue,
         foregroundColor: Colors.white,
         actions: [
@@ -204,6 +204,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
             ),
           IconButton(
             icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh bed board',
             onPressed: () {
               _fetchWards();
               if (_selectedWardId != null) _fetchBeds(_selectedWardId!);
@@ -339,7 +340,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
           child: TextField(
             decoration: InputDecoration(
               hintText: 'Search wards...',
-              prefixIcon: const Icon(Icons.search),
+              prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -478,6 +479,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
               if (!forceHideBack)
                 IconButton(
                   icon: const Icon(Icons.arrow_back),
+                  tooltip: 'Back to wards list',
                   onPressed: () => setState(() {
                     _selectedWardId = null;
                     _selectedWardName = null;
@@ -514,7 +516,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
           child: TextField(
             decoration: InputDecoration(
               hintText: 'Search by bed # or patient name…',
-              prefixIcon: const Icon(Icons.search),
+              prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
               isDense: true,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -700,16 +702,37 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       ),
     );
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => _openBedSheet(bed),
-        // Long-press → inline quick notes dialog. Skips the full sheet for
-        // when a nurse just wants to scribble a one-line update during
-        // rounds. Shorter path: 1 long-press → 1 dialog → Save.
-        onLongPress: () => _openQuickNotesDialog(bed),
-        child: card,
+    // Build the screen-reader label so colour-blind / blind users get
+    // the same information sighted users get from the coloured border.
+    // Format: "Bed A-101, Occupied, Demo Patient Ravi" — empty/maintenance
+    // beds simply skip the patient segment.
+    final statusCap = status.isEmpty
+        ? ''
+        : '${status[0].toUpperCase()}${status.substring(1).toLowerCase()}';
+    final semanticParts = <String>[
+      'Bed $bedNumber',
+      statusCap,
+      if (status.toLowerCase() == 'occupied' &&
+          patientName.toString().isNotEmpty)
+        'patient $patientName',
+      if (hasNotes) 'has notes',
+    ];
+
+    return Semantics(
+      button: true,
+      label: semanticParts.join(', '),
+      hint: 'Double tap to view details. Long press to edit notes.',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => _openBedSheet(bed),
+          // Long-press → inline quick notes dialog. Skips the full sheet for
+          // when a nurse just wants to scribble a one-line update during
+          // rounds. Shorter path: 1 long-press → 1 dialog → Save.
+          onLongPress: () => _openQuickNotesDialog(bed),
+          child: card,
+        ),
       ),
     );
   }
@@ -845,36 +868,38 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: color.withValues(alpha: 0.6)),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                color: active ? Colors.white : color,
-                fontWeight: FontWeight.w600,
-                fontSize: 12,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              decoration: BoxDecoration(
-                color: active
-                    ? Colors.white.withValues(alpha: 0.2)
-                    : color.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                '$count',
-                style: TextStyle(
-                  color: active ? Colors.white : color,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
+        // Pills inherit the body-small font size from the theme so
+        // users with `MediaQuery.textScaleFactor` cranked up to 200%
+        // get readable pills instead of clipped labels. The hard-coded
+        // 11–12pt sizes were squeezing accessibility text scaling.
+        child: DefaultTextStyle.merge(
+          style: TextStyle(
+            color: active ? Colors.white : color,
+            fontWeight: FontWeight.w600,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: active
+                      ? Colors.white.withValues(alpha: 0.2)
+                      : color.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    color: active ? Colors.white : color,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1506,32 +1531,43 @@ class _BedQuickActions extends StatelessWidget {
           final a = actions[i];
           return SizedBox(
             width: 96,
-            child: Material(
-              color: a.color.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(12),
-              child: InkWell(
+            child: Semantics(
+              button: true,
+              label: '${a.label} for $patientName',
+              hint: 'Opens the ${a.label.toLowerCase()} screen',
+              child: Material(
+                color: a.color.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(12),
-                onTap: () {
-                  Navigator.of(context).pop(false);
-                  context.go(a.route);
-                },
-                child: Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(a.icon, color: a.color, size: 26),
-                      const SizedBox(height: 6),
-                      Text(
-                        a.label,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: a.color,
-                        ),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    Navigator.of(context).pop(false);
+                    context.go(a.route);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.all(10),
+                    // Icon is decorative — the Semantics wrapper above
+                    // already conveys the action. Without ExcludeSemantics
+                    // the icon emits its own node and screen readers
+                    // double-announce.
+                    child: ExcludeSemantics(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(a.icon, color: a.color, size: 26),
+                          const SizedBox(height: 6),
+                          Text(
+                            a.label,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: a.color,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -1908,7 +1944,7 @@ class _AdmitPatientPickerState extends State<_AdmitPatientPicker> {
                   focusNode: _focus,
                   decoration: InputDecoration(
                     hintText: 'Search by name, phone, or ABHA…',
-                    prefixIcon: const Icon(Icons.search),
+                    prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),

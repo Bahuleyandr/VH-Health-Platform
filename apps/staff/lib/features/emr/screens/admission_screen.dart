@@ -149,7 +149,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                       controller: patientSearch,
                       decoration: const InputDecoration(
                         labelText: 'Patient (name, UID, or phone)',
-                        prefixIcon: Icon(Icons.search),
+                        prefixIcon: ExcludeSemantics(child: Icon(Icons.search)),
                         border: OutlineInputBorder(),
                       ),
                       validator: (v) =>

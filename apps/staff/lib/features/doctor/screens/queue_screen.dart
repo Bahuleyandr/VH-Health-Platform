@@ -221,7 +221,13 @@ class _QueueScreenState extends State<QueueScreen> {
   Widget build(BuildContext context) {
     return StaffScaffold(
       title: 'Patient Queue',
-      actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _load)],
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.refresh),
+          tooltip: 'Refresh queue',
+          onPressed: _load,
+        ),
+      ],
       body: _loading
           ? Center(child: CircularProgressIndicator())
           : _error != null
@@ -781,6 +787,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
+                    tooltip: 'Close',
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],

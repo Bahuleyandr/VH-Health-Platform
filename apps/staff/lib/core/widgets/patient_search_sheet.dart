@@ -141,7 +141,7 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
                   focusNode: _focusNode,
                   decoration: InputDecoration(
                     hintText: 'Find a patient by name, phone, or ABHA…',
-                    prefixIcon: const Icon(Icons.search),
+                    prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
                     suffixIcon: _controller.text.isNotEmpty
                         ? IconButton(
                             icon: const Icon(Icons.close),

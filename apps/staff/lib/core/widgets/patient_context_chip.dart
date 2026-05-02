@@ -79,8 +79,15 @@ class PatientContextChip extends StatelessWidget {
               ],
             ),
           ),
+          // Close button — bumped from the default 18pt icon / 8pt
+          // padding combo (≈34pt hit target) to a Material-recommended
+          // 24pt icon + 12pt padding (= 48pt minimum). Helps users with
+          // motor impairments and matches WCAG 2.5.5.
           IconButton(
-            icon: Icon(Icons.close, color: accent, size: 18),
+            icon: Icon(Icons.close, color: accent, size: 24),
+            iconSize: 24,
+            padding: const EdgeInsets.all(12),
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
             tooltip: 'Clear patient context',
             onPressed: () => _clear(context),
           ),

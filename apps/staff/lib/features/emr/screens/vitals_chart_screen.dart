@@ -279,7 +279,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                       initialValue: consciousness,
                       decoration: const InputDecoration(
                         labelText: 'Consciousness',
-                        prefixIcon: Icon(Icons.visibility),
+                        prefixIcon: ExcludeSemantics(child: Icon(Icons.visibility)),
                         border: OutlineInputBorder(),
                       ),
                       items: const [
@@ -345,7 +345,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
       keyboardType: keyboardType,
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: Icon(icon, size: 20),
+        prefixIcon: ExcludeSemantics(child: Icon(icon, size: 20)),
         border: const OutlineInputBorder(),
         isDense: true,
       ),
@@ -565,7 +565,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(
                         labelText: 'Amount (mL)',
-                        prefixIcon: Icon(Icons.water_drop),
+                        prefixIcon: ExcludeSemantics(child: Icon(Icons.water_drop)),
                         border: OutlineInputBorder(),
                       ),
                       validator: (v) =>

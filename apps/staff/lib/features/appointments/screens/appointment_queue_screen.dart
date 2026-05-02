@@ -717,6 +717,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                     const Spacer(),
                     IconButton(
                       icon: const Icon(Icons.close),
+                      tooltip: 'Close',
                       onPressed: () => Navigator.pop(ctx),
                     ),
                   ],
@@ -728,7 +729,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                   decoration: const InputDecoration(
                     labelText: 'Patient Phone *',
                     border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.phone),
+                    prefixIcon: ExcludeSemantics(child: Icon(Icons.phone)),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -737,7 +738,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                   decoration: const InputDecoration(
                     labelText: 'Patient Name',
                     border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.person),
+                    prefixIcon: ExcludeSemantics(child: Icon(Icons.person)),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -746,7 +747,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
                   decoration: const InputDecoration(
                     labelText: 'Department',
                     border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.local_hospital),
+                    prefixIcon: ExcludeSemantics(child: Icon(Icons.local_hospital)),
                   ),
                 ),
                 const SizedBox(height: 12),

@@ -81,10 +81,11 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
               controller: _searchCtrl,
               decoration: InputDecoration(
                 hintText: 'Search by name, department, role...',
-                prefixIcon: const Icon(Icons.search),
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear),
+                        tooltip: 'Clear search',
                         onPressed: () {
                           _searchCtrl.clear();
                           setState(() => _searchQuery = '');
@@ -118,6 +119,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, size: 18),
+                    tooltip: 'Remove filter',
                     onPressed: () => setState(() {
                       _deptSummary = null;
                       _selectedDept = null;

@@ -592,7 +592,7 @@ class _LeaveScreenState extends State<LeaveScreen>
           child: TextField(
             decoration: InputDecoration(
               hintText: 'Search by leave type…',
-              prefixIcon: const Icon(Icons.search),
+              prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),

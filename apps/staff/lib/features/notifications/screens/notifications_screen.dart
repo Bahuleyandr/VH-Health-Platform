@@ -103,7 +103,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             child: TextField(
               decoration: InputDecoration(
                 hintText: 'Search notifications…',
-                prefixIcon: const Icon(Icons.search),
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),

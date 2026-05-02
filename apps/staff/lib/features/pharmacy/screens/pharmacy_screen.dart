@@ -179,6 +179,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
+                    tooltip: 'Close',
                     onPressed: () => Navigator.pop(ctx, false),
                   ),
                 ],
@@ -320,7 +321,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
               controller: personCtrl,
               decoration: const InputDecoration(
                 labelText: 'Delivery Person Name',
-                prefixIcon: Icon(Icons.person),
+                prefixIcon: ExcludeSemantics(child: Icon(Icons.person)),
               ),
             ),
             const SizedBox(height: 12),
@@ -329,7 +330,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
               keyboardType: TextInputType.phone,
               decoration: const InputDecoration(
                 labelText: 'Delivery Person Phone',
-                prefixIcon: Icon(Icons.phone),
+                prefixIcon: ExcludeSemantics(child: Icon(Icons.phone)),
               ),
             ),
           ],
@@ -497,6 +498,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                 ),
                 IconButton(
                   icon: const Icon(Icons.refresh, color: Colors.white),
+                  tooltip: 'Refresh orders',
                   onPressed: _loadOrders,
                 ),
               ],

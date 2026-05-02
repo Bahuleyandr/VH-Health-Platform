@@ -30,20 +30,28 @@ class SuccessToast {
       ..clearSnackBars()
       ..showSnackBar(
         SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle, color: Colors.white, size: 20),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  message,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w500,
+          // `liveRegion: true` tells assistive tech to announce the
+          // message immediately when the SnackBar mounts. Without this
+          // a TalkBack/NVDA user gets no audio cue that "Bed notes saved"
+          // happened — they just see no visible UI change.
+          content: Semantics(
+            liveRegion: true,
+            label: 'Success: $message',
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    message,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           backgroundColor: AppTheme.successGreen,
           duration: duration,
@@ -73,20 +81,26 @@ class ErrorToast {
       ..clearSnackBars()
       ..showSnackBar(
         SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.error_outline, color: Colors.white, size: 20),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  message,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w500,
+          // Same liveRegion treatment as SuccessToast — error needs
+          // even more reliable assistive-tech announcement than success.
+          content: Semantics(
+            liveRegion: true,
+            label: 'Error: $message',
+            child: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    message,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           backgroundColor: AppTheme.errorRed,
           duration: duration,
