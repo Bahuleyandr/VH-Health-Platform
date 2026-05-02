@@ -77,14 +77,26 @@ async function onListening() {
   // Run dependency health check
   await checkDependencyHealth();
 
-  // Run database migrations then scheduled tasks
+  // Run database migrations. Migration failure is FATAL by design — a
+  // half-applied schema produces silent runtime errors that are much harder
+  // to diagnose than a startup crash. The runner re-throws on any per-
+  // statement failure; we surface a clear startup error and exit non-zero
+  // so the orchestrator (k8s / systemd / nodemon) can flag it.
   try {
     await runMigrations();
     logger.info('Migrations completed successfully');
   } catch (err) {
-    // Migration runner is advisory — DB schema managed by prisma db push.
-    // Log the error but do NOT exit; the schema is already correct.
-    logger.warn('Migration runner encountered an error (non-fatal — schema managed by Prisma):', err.message);
+    logger.error('Migration runner failed — refusing to start with a broken schema.', {
+      error: err?.message,
+      code: err?.code,
+    });
+    process.stderr.write(
+      `\n❌ Database migrations failed (${err?.code || 'unknown'}): ${err?.message}\n` +
+        `Inspect apps/backend/src/migrations/ + the _migrations tracker table; ` +
+        `fix the failing file and restart. The previous behavior of swallowing ` +
+        `migration errors masked real schema drift (see runMigrations.js).\n`,
+    );
+    process.exit(1);
   }
 
   // Verify schema health after migrations
