@@ -40,7 +40,15 @@ spec:
         fsGroup: 999
       containers:
         - name: postgres
-          image: postgres:17-alpine
+          # pgvector/pgvector:pg17 is the official pgvector image, debian-
+          # bookworm based. Migration 113 (knowledge_base_foundation) needs
+          # `CREATE EXTENSION vector` for the RAG embedding columns; the
+          # plain postgres:17-alpine doesn't have pgvector and 113 was
+          # being skipped on this rig (verified 2026-05-01). Prod uses
+          # the CNPG-bundled image (ghcr.io/cloudnative-pg/postgresql:17.2-1)
+          # which already ships pgvector as a built-in extension; this is
+          # the dev-rig equivalent.
+          image: pgvector/pgvector:pg17
           ports:
             - name: postgres
               containerPort: 5432
