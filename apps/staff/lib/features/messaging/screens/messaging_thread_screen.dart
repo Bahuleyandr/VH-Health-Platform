@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/config/api_config.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class ThreadMessage {
   final int id;
@@ -242,6 +243,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
             onPressed: _loadThread,
             tooltip: 'Refresh',
           ),
+          const LogoutAction(),
         ],
       ),
       body: Column(

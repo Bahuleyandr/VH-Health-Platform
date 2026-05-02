@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/widgets/logout_action.dart';
 
 /// Telemedicine video consultation screen.
 ///
@@ -35,6 +36,7 @@ class _TelemedicineScreenState extends State<TelemedicineScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Video Call — ${widget.patientName}'),
+        actions: const [LogoutAction()],
         backgroundColor: theme.colorScheme.primary,
         foregroundColor: theme.colorScheme.onPrimary,
       ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class LogCleaningScreen extends StatefulWidget {
   const LogCleaningScreen({super.key});
@@ -179,6 +180,7 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Log Cleaning'),
+        actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
       ),

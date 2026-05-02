@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class IncidentReportScreen extends StatefulWidget {
   const IncidentReportScreen({super.key});
@@ -131,6 +132,7 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Incident Report'),
+        actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
       ),

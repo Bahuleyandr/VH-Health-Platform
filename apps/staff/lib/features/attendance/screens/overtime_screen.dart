@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/attendance_api_service.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class OvertimeScreen extends StatefulWidget {
   const OvertimeScreen({super.key});
@@ -97,6 +98,7 @@ class _OvertimeScreenState extends State<OvertimeScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Overtime Requests'),
+        actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
         bottom: TabBar(

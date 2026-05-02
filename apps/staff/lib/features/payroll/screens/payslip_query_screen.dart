@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class PayslipQueryScreen extends StatefulWidget {
   const PayslipQueryScreen({super.key});
@@ -29,6 +30,7 @@ class _PayslipQueryScreenState extends State<PayslipQueryScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Payslip Queries'),
+        actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
         bottom: TabBar(

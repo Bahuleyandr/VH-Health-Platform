@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class RaiseRequestScreen extends StatefulWidget {
   const RaiseRequestScreen({super.key});
@@ -194,6 +195,7 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Raise Request'),
+        actions: const [LogoutAction()],
         backgroundColor: Colors.orange,
         foregroundColor: Colors.white,
       ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class MyReportsScreen extends StatefulWidget {
   const MyReportsScreen({super.key});
@@ -87,6 +88,7 @@ class _MyReportsScreenState extends State<MyReportsScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Reports'),
+        actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
         bottom: TabBar(

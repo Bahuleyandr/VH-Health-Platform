@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/radiology_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class RadiologyScreen extends StatefulWidget {
   const RadiologyScreen({super.key});
@@ -104,6 +105,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
             onPressed: _showFilterSheet,
             tooltip: 'Filters',
           ),
+          const LogoutAction(),
         ],
       ),
       body: Column(

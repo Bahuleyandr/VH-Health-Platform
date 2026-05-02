@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/theatre_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class TheatreScreen extends StatefulWidget {
   const TheatreScreen({super.key});
@@ -142,6 +143,7 @@ class _TheatreScreenState extends State<TheatreScreen>
             onPressed: _pickDate,
             tooltip: 'Pick date',
           ),
+          const LogoutAction(),
         ],
         bottom: TabBar(
           controller: _tabController,

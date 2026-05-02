@@ -64,10 +64,44 @@ class BedService {
   }
 
   async getBedsByWard(wardId) {
+    // Pull patient + admission context alongside the bed so the bed-board
+    // detail sheet can render name + age + gender + admission reason +
+    // attending doctor without an N+1 round trip per bed. All joins are
+    // LEFT joins so empty/maintenance beds still come back. Active
+    // admission resolved via `admissions.bed_id = b.id AND
+    // discharged_at IS NULL` — beds has no admission_id FK on the
+    // dalekdefender deployment (schema-dump claims one but `\d beds`
+    // disagrees), so we hit it from the admissions side. Patient
+    // details come from users via `b.patient_uid = u.uid`. The age
+    // column is computed in SQL from `users.birthday` (NOT `dob` —
+    // that's a schema-dump-vs-live mismatch).
     return prisma.$queryRawUnsafe(
-      `SELECT b.*, w.name as ward_name
+      `SELECT b.*,
+              w.name AS ward_name,
+              u.name     AS patient_full_name,
+              u.gender   AS patient_gender,
+              u.birthday AS patient_dob,
+              u.phone    AS patient_phone,
+              CASE WHEN u.birthday IS NOT NULL
+                   THEN DATE_PART('year', AGE(u.birthday))::int
+              END        AS patient_age,
+              a.id       AS admission_id_resolved,
+              a.chief_complaint,
+              a.admitting_diagnosis,
+              a.admission_type,
+              a.priority    AS admission_priority,
+              a.admitted_at AS admission_admitted_at,
+              a.attending_doctor AS attending_doctor_uid,
+              doc.name   AS attending_doctor_name
        FROM beds b
-       LEFT JOIN wards w ON b.ward_id = w.id
+       LEFT JOIN wards w
+         ON b.ward_id = w.id
+       LEFT JOIN users u
+         ON b.patient_uid = u.uid
+       LEFT JOIN admissions a
+         ON a.bed_id = b.id AND a.discharged_at IS NULL
+       LEFT JOIN users doc
+         ON doc.uid = a.attending_doctor
        WHERE b.ward_id = $1
        ORDER BY b.bed_number`,
       parseInt(wardId)
@@ -123,6 +157,25 @@ class BedService {
     const count = await prisma.$executeRawUnsafe(
       `DELETE FROM beds WHERE id = $1`, parseInt(id));
     return count > 0;
+  }
+
+  // Dedicated notes-update path. The full PUT /beds/:id handler nulls
+  // patient_id/patient_name when those fields aren't echoed back in the
+  // body — fine for admin tooling that always sends the whole row, but
+  // not for the staff app's bed-detail sheet which sends only `{ notes }`.
+  // Keeping this isolated guarantees a notes save can't silently
+  // discharge the patient. Returns the updated bed (with the same join
+  // shape getBedsByWard uses) or null when the id doesn't exist.
+  async updateBedNotes(id, notes) {
+    const rows = await prisma.$queryRawUnsafe(
+      `UPDATE beds
+         SET notes = $1,
+             updated_at = NOW()
+       WHERE id = $2
+       RETURNING ${BED_RETURNING}`,
+      typeof notes === 'string' ? notes : null, parseInt(id)
+    );
+    return rows[0] ?? null;
   }
 
   async admitPatient(bedId, { patient_id, patient_name, notes }) {

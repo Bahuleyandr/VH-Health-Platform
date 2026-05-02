@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class GrievanceScreen extends StatefulWidget {
   const GrievanceScreen({super.key});
@@ -161,6 +162,7 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Staff Grievance'),
+        actions: const [LogoutAction()],
         backgroundColor: Colors.purple,
         foregroundColor: Colors.white,
       ),

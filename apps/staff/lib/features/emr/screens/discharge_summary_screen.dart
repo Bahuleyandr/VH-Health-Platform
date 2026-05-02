@@ -10,6 +10,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class DischargeSummaryScreen extends StatefulWidget {
   final int admissionId;
@@ -252,6 +253,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                   : const Icon(Icons.save_outlined),
               label: const Text('Save Draft'),
             ),
+          const LogoutAction(),
         ],
       ),
       body: _loading

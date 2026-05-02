@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/services/attendance_api_service.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class DisputeScreen extends StatefulWidget {
   const DisputeScreen({super.key});
@@ -109,6 +110,7 @@ class _DisputeScreenState extends State<DisputeScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Attendance Dispute'),
+        actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
         bottom: TabBar(
