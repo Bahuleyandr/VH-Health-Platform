@@ -8,6 +8,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
+import '../../../l10n/app_strings.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -80,16 +81,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notifications'),
+        title: Text(s.notificationsTitle),
         actions: [
           Consumer<NotificationProvider>(
             builder: (context, provider, _) {
               if (provider.unreadCount == 0) return const SizedBox.shrink();
               return TextButton(
                 onPressed: () => provider.markAllRead(),
-                child: const Text('Mark all read'),
+                child: Text(s.notificationsMarkAllRead),
               );
             },
           ),
@@ -102,7 +104,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             padding: const EdgeInsets.all(16),
             child: TextField(
               decoration: InputDecoration(
-                hintText: 'Search notifications…',
+                hintText: s.notificationsSearchHint,
                 prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -138,16 +140,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             if (_searchQuery.trim().isNotEmpty) {
               return Center(
                 child: Text(
-                  'No matches for "$_searchQuery"',
+                  s.noMatchesFor(_searchQuery),
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.outline,
                   ),
                 ),
               );
             }
-            return const EmptyState(
+            return EmptyState(
               icon: Icons.notifications_off_outlined,
-              title: 'No notifications yet',
+              title: s.notificationsEmpty,
             );
           }
 
@@ -160,7 +162,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 // WS live notifications come first
                 if (index < wsNotifications.length) {
                   final wsItem = wsNotifications[index];
-                  final wsTitle = wsItem['title']?.toString() ?? 'Live Update';
+                  final wsTitle =
+                      wsItem['title']?.toString() ?? s.notificationsLiveUpdate;
                   final wsBody =
                       wsItem['body']?.toString() ??
                       wsItem['message']?.toString() ??
@@ -403,13 +406,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   String _formatTimestamp(DateTime dt) {
+    final s = AppStrings.of(context);
     final now = DateTime.now();
     final diff = now.difference(dt);
 
-    if (diff.inMinutes < 1) return 'Just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    if (diff.inMinutes < 1) return s.timeJustNow;
+    if (diff.inMinutes < 60) return '${diff.inMinutes}${s.timeMinutesAgoSuffix}';
+    if (diff.inHours < 24) return '${diff.inHours}${s.timeHoursAgoSuffix}';
+    if (diff.inDays < 7) return '${diff.inDays}${s.timeDaysAgoSuffix}';
     return DateFormat('dd MMM yyyy').format(dt);
   }
 }

@@ -6,6 +6,7 @@ import '../../../core/widgets/patient_context_chip.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/voice_dictate_button.dart';
+import '../../../l10n/app_strings.dart';
 
 /// Nursing Notes screen — for Nursing Staff to add clinical notes per patient.
 /// TODO: Integrate with backend when /staff/nursing/notes endpoint is available.
@@ -46,12 +47,13 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final hasContext =
         (widget.prefillPatientName ?? '').isNotEmpty ||
         (widget.prefillPatientPhone ?? '').isNotEmpty;
 
     return StaffScaffold(
-      title: 'Nursing Notes',
+      title: s.nursingNotesTitle,
       body: Column(
         children: [
           if (hasContext)
@@ -67,9 +69,9 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
               labelColor: const Color(0xFF00695C),
               unselectedLabelColor: AppTheme.textSecondary,
               indicatorColor: const Color(0xFF00695C),
-              tabs: const [
-                Tab(text: 'Add Note'),
-                Tab(text: 'Recent Notes'),
+              tabs: [
+                Tab(text: s.nursingNotesTabAdd),
+                Tab(text: s.nursingNotesTabRecent),
               ],
             ),
           ),
@@ -112,7 +114,10 @@ class _AddNoteTabState extends State<_AddNoteTab> {
   String _priority = 'normal';
   bool _submitting = false;
 
-  static const _noteTypes = [
+  // Localised note-type labels are looked up via AppStrings; canonical
+  // codes go to the backend. Order matches the previous English list so
+  // any analytics keyed off "Observation" etc. remain stable.
+  static const _noteTypeCodes = <String>[
     'Observation',
     'Medication Note',
     'Post-Procedure',
@@ -123,6 +128,46 @@ class _AddNoteTabState extends State<_AddNoteTab> {
     'Emergency Note',
     'Other',
   ];
+
+  String _noteTypeLabel(AppStrings s, String code) {
+    switch (code) {
+      case 'Observation':
+        return s.nursingNotesTypeObservation;
+      case 'Medication Note':
+        return s.nursingNotesTypeMedication;
+      case 'Post-Procedure':
+        return s.nursingNotesTypePostProcedure;
+      case 'Intake/Output':
+        return s.nursingNotesTypeIntakeOutput;
+      case 'Patient Complaint':
+        return s.nursingNotesTypePatientComplaint;
+      case 'Wound Care':
+        return s.nursingNotesTypeWoundCare;
+      case 'Shift Handover':
+        return s.nursingNotesTypeShiftHandover;
+      case 'Emergency Note':
+        return s.nursingNotesTypeEmergencyNote;
+      case 'Other':
+        return s.nursingNotesTypeOther;
+      default:
+        return code;
+    }
+  }
+
+  String _priorityLabel(AppStrings s, String code) {
+    switch (code) {
+      case 'low':
+        return s.priorityLow;
+      case 'normal':
+        return s.priorityNormal;
+      case 'high':
+        return s.priorityHigh;
+      case 'urgent':
+        return s.priorityUrgent;
+      default:
+        return code.toUpperCase();
+    }
+  }
 
   static const _priorities = ['low', 'normal', 'high', 'urgent'];
 
@@ -153,8 +198,8 @@ class _AddNoteTabState extends State<_AddNoteTab> {
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Saved offline — will sync when connected'),
+            SnackBar(
+              content: Text(AppStrings.of(context).nursingNotesOfflineQueued),
               backgroundColor: AppTheme.warningAmber,
             ),
           );
@@ -162,7 +207,10 @@ class _AddNoteTabState extends State<_AddNoteTab> {
       } else {
         await MedicalApiService.createClinicalNote(body);
         if (mounted) {
-          SuccessToast.show(context, 'Nursing note saved successfully');
+          SuccessToast.show(
+            context,
+            AppStrings.of(context).nursingNotesSavedSuccess,
+          );
         }
       }
 
@@ -184,6 +232,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -199,14 +248,21 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                 color: const Color(0xFF00695C).withValues(alpha: 0.3),
               ),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(Icons.info_outline, color: Color(0xFF00695C), size: 18),
-                SizedBox(width: 8),
+                const Icon(
+                  Icons.info_outline,
+                  color: Color(0xFF00695C),
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Backend integration coming soon. Notes are previewed locally.',
-                    style: TextStyle(color: Color(0xFF00695C), fontSize: 12),
+                    s.nursingNotesBackendComingSoon,
+                    style: const TextStyle(
+                      color: Color(0xFF00695C),
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ],
@@ -222,17 +278,19 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                 TextFormField(
                   controller: _phoneCtrl,
                   keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Patient Phone Number',
-                    hintText: '+91 XXXXX XXXXX',
-                    prefixIcon: ExcludeSemantics(child: Icon(Icons.phone_outlined)),
+                  decoration: InputDecoration(
+                    labelText: s.nursingNotesPatientPhoneLabel,
+                    hintText: s.nursingNotesPatientPhoneHint,
+                    prefixIcon: const ExcludeSemantics(
+                      child: Icon(Icons.phone_outlined),
+                    ),
                   ),
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) {
-                      return 'Phone is required';
+                      return s.nursingNotesPhoneRequired;
                     }
                     if (v.trim().length < 10) {
-                      return 'Enter valid phone number';
+                      return s.nursingNotesPhoneInvalid;
                     }
                     return null;
                   },
@@ -242,15 +300,23 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                 // Note type
                 DropdownButtonFormField<String>(
                   initialValue: _noteType,
-                  decoration: const InputDecoration(
-                    labelText: 'Note Type',
-                    prefixIcon: ExcludeSemantics(child: Icon(Icons.category_outlined)),
+                  decoration: InputDecoration(
+                    labelText: s.nursingNotesTypeLabel,
+                    prefixIcon: const ExcludeSemantics(
+                      child: Icon(Icons.category_outlined),
+                    ),
                   ),
-                  items: _noteTypes
-                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                  items: _noteTypeCodes
+                      .map(
+                        (t) => DropdownMenuItem(
+                          value: t,
+                          child: Text(_noteTypeLabel(s, t)),
+                        ),
+                      )
                       .toList(),
                   onChanged: (v) => setState(() => _noteType = v),
-                  validator: (v) => v == null ? 'Select note type' : null,
+                  validator: (v) =>
+                      v == null ? s.nursingNotesTypeRequired : null,
                 ),
                 const SizedBox(height: 14),
 
@@ -258,14 +324,14 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    'Priority',
+                    s.nursingNotesPriorityLabel,
                     style: TextStyle(
                       color: AppTheme.textSecondary,
                       fontSize: 13,
                     ),
                   ),
                 ),
-                SizedBox(height: 6),
+                const SizedBox(height: 6),
                 Row(
                   children: _priorities.map((p) {
                     final selected = _priority == p;
@@ -294,7 +360,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                               ),
                             ),
                             child: Text(
-                              p.toUpperCase(),
+                              _priorityLabel(s, p),
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: 10,
@@ -314,10 +380,11 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                 TextFormField(
                   controller: _noteCtrl,
                   decoration: InputDecoration(
-                    labelText: 'Clinical Note',
-                    hintText:
-                        'Describe observations, care provided, patient response...',
-                    prefixIcon: const ExcludeSemantics(child: Icon(Icons.edit_note_outlined)),
+                    labelText: s.nursingNotesClinicalNoteLabel,
+                    hintText: s.nursingNotesClinicalNoteHint,
+                    prefixIcon: const ExcludeSemantics(
+                      child: Icon(Icons.edit_note_outlined),
+                    ),
                     // Voice dictation — appends transcript to the note.
                     suffixIcon: VoiceDictateButton(controller: _noteCtrl),
                     alignLabelWithHint: true,
@@ -325,10 +392,10 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                   maxLines: 6,
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) {
-                      return 'Note is required';
+                      return s.nursingNotesNoteRequired;
                     }
                     if (v.trim().length < 10) {
-                      return 'Note is too short';
+                      return s.nursingNotesNoteTooShort;
                     }
                     return null;
                   },
@@ -347,7 +414,9 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                           ),
                         )
                       : const Icon(Icons.save, color: Colors.white),
-                  label: Text(_submitting ? 'Saving...' : 'Save Note'),
+                  label: Text(
+                    _submitting ? s.bedSheetSavingLabel : s.nursingNotesSaveButton,
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF00695C),
                   ),
@@ -366,26 +435,27 @@ class _RecentNotesTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     // TODO: Fetch recent notes from backend when API is available
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.edit_note, size: 56, color: AppTheme.textSecondary),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           Text(
-            'Recent Notes',
+            s.nursingNotesTabRecent,
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
               color: AppTheme.textPrimary,
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Padding(
-            padding: EdgeInsets.symmetric(horizontal: 40),
+            padding: const EdgeInsets.symmetric(horizontal: 40),
             child: Text(
-              'Your recent nursing notes will appear here once the backend API is connected.',
+              s.nursingNotesRecentEmpty,
               textAlign: TextAlign.center,
               style: TextStyle(color: AppTheme.textSecondary),
             ),

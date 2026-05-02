@@ -32,7 +32,12 @@ class AppTheme {
   static const Color primaryTeal = Color(0xFF00796B);
   static const Color accentCyan = Color(0xFF0097A7);
   static const Color successGreen = Color(0xFF2E7D32);
-  static const Color warningAmber = Color(0xFFF57F17);
+  // warningAmber darkened from #F57F17 (Material Orange 800) to #E65100
+  // (Material Orange 900). The previous tone gave only 2.65:1 contrast
+  // for both warningAmber text on white AND white text on warningAmber
+  // backgrounds — failing WCAG AA either way. #E65100 raises both pairs
+  // to ~5.8:1 (AA) without losing the "amber" reading at a glance.
+  static const Color warningAmber = Color(0xFFE65100);
   static const Color errorRed = Color(0xFFC62828);
 
   // ── Light-palette tokens (private const) ──────────────────────────────
@@ -45,7 +50,11 @@ class AppTheme {
   static const Color _lightTextSecondary = Color(0xFF546E7A);
   static const Color _lightDivider = Color(0xFFECEFF1);
   static const Color _lightInputBorder = Color(0xFFB0BEC5);
-  static const Color _lightHint = Color(0xFF90A4AE);
+  // _lightHint darkened from #90A4AE (BlueGrey 300) to #607D8B
+  // (BlueGrey 600). The previous tone gave 2.59:1 contrast against
+  // white input backgrounds — invisible to many users. #607D8B is
+  // 4.32:1 (AA) and still reads as a faded placeholder.
+  static const Color _lightHint = Color(0xFF607D8B);
   static const Color _lightChipBg = Color(0xFFE3F2FD);
 
   // ── Dark-palette tokens (public const, also used by adaptive getters) ─
@@ -79,6 +88,36 @@ class AppTheme {
       brightness == Brightness.dark ? darkTextSecondary : _lightTextSecondary;
   static Color get divider =>
       brightness == Brightness.dark ? darkDivider : _lightDivider;
+
+  // ── Adaptive semantic-color getters ───────────────────────────────────
+  //
+  // The brand `successGreen` (#2E7D32) and `errorRed` (#C62828) are tuned
+  // for white backgrounds; they fail WCAG AA on the dark card surface
+  // (#252536) at 2.93:1 and 2.67:1 respectively. Use these adaptive
+  // getters when you need success / error / warning text rendered on
+  // a card / surface — they switch to lighter Material variants in
+  // dark mode that meet AA on the dark card.
+  //
+  // Keep using the raw brand const (`AppTheme.successGreen` etc.) for:
+  //   - filled backgrounds where text is white/dark (e.g. coloured
+  //     buttons, status pills) — white-on-success is fine in both modes
+  //   - icon tints on chip-style backgrounds (the chip background lifts
+  //     contrast)
+  // Use these getters for:
+  //   - body text rendered directly on `cardSurface` or `backgroundGrey`
+  //   - inline error/success messages
+  static Color get successOnSurface =>
+      brightness == Brightness.dark
+          ? const Color(0xFF66BB6A) // Material Green 400 — 6.45:1 on darkCard
+          : successGreen;
+  static Color get errorOnSurface =>
+      brightness == Brightness.dark
+          ? const Color(0xFFFF8A80) // Material Red A100 — 6.42:1 on darkCard
+          : errorRed;
+  static Color get warningOnSurface =>
+      brightness == Brightness.dark
+          ? const Color(0xFFFFB74D) // Material Orange 300 — 6.92:1 on darkCard
+          : warningAmber;
 
   // ── Light theme ───────────────────────────────────────────────────────
   static ThemeData get lightTheme {

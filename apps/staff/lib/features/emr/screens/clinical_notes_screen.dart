@@ -3,6 +3,7 @@ import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 /// EMR Clinical Notes screen — tabbed view for SOAP, Progress, and Procedure notes.
 class ClinicalNotesScreen extends StatefulWidget {
@@ -24,7 +25,15 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   late TabController _tabController;
 
   static const _noteTypes = ['soap', 'progress', 'procedure'];
-  static const _tabLabels = ['SOAP Notes', 'Progress Notes', 'Procedure Notes'];
+
+  List<String> _tabLabels(BuildContext context) {
+    final s = AppStrings.of(context);
+    return [
+      s.clinicalNotesTabSoap,
+      s.clinicalNotesTabProgress,
+      s.clinicalNotesTabProcedure,
+    ];
+  }
 
   final Map<String, List<Map<String, dynamic>>> _notesByType = {};
   final Map<String, bool> _loadingByType = {};
@@ -96,7 +105,9 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
-        signed ? 'SIGNED' : 'UNSIGNED',
+        signed
+            ? AppStrings.of(context).clinicalNotesSigned
+            : AppStrings.of(context).clinicalNotesUnsigned,
         style: TextStyle(
           color: signed ? AppTheme.successGreen : AppTheme.warningAmber,
           fontSize: 10,
@@ -128,7 +139,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
             const SizedBox(height: 12),
             OutlinedButton(
               onPressed: _refreshCurrentTab,
-              child: const Text('Retry'),
+              child: Text(AppStrings.of(context).clinicalNotesRetry),
             ),
           ],
         ),
@@ -147,7 +158,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
             ),
             const SizedBox(height: 12),
             Text(
-              'No $type notes found',
+              AppStrings.of(context).clinicalNotesNoFound(type),
               style: TextStyle(color: AppTheme.textSecondary),
             ),
           ],
@@ -182,7 +193,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                         Expanded(
                           child: Text(
                             note['title'] as String? ??
-                                '${type.toUpperCase()} Note',
+                                AppStrings.of(ctx).clinicalNotesNoteFallback,
                             style: const TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 15,
@@ -202,7 +213,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                         ),
                         SizedBox(width: 4),
                         Text(
-                          note['author_name'] as String? ?? 'Unknown',
+                          note['author_name'] as String? ??
+                              AppStrings.of(ctx).clinicalNotesUnknownAuthor,
                           style: TextStyle(
                             fontSize: 12,
                             color: AppTheme.textSecondary,
@@ -243,7 +255,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                             Icons.check_circle_outline,
                             size: 18,
                           ),
-                          label: const Text('Sign Note'),
+                          label: Text(
+                              AppStrings.of(ctx).clinicalNotesSignNote),
                           style: TextButton.styleFrom(
                             foregroundColor: AppTheme.successGreen,
                           ),
@@ -267,8 +280,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       await MedicalApiService.signNote(noteId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Note signed successfully'),
+          SnackBar(
+            content: Text(AppStrings.of(context).clinicalNotesSignedSuccess),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -278,7 +291,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to sign note: $e'),
+            content: Text(AppStrings.of(context)
+                .clinicalNotesSignFailed(e.toString())),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -321,7 +335,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                 children: [
                   Expanded(
                     child: Text(
-                      note['title'] as String? ?? 'Clinical Note',
+                      note['title'] as String? ??
+                          AppStrings.of(ctx).clinicalNotesNoteFallback,
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w600,
@@ -334,7 +349,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
               ),
               SizedBox(height: 4),
               Text(
-                '${note['author_name'] ?? 'Unknown'} - ${_formatTimestamp(note['created_at'] as String?)}',
+                '${note['author_name'] ?? AppStrings.of(ctx).clinicalNotesUnknownAuthor} - ${_formatTimestamp(note['created_at'] as String?)}',
                 style: TextStyle(
                   color: AppTheme.textSecondary,
                   fontSize: 13,
@@ -343,25 +358,32 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
               const Divider(height: 24),
               // SOAP fields
               if (note['subjective'] != null)
-                _noteSection('Subjective', note['subjective'] as String),
+                _noteSection(AppStrings.of(ctx).clinicalNotesSubjective,
+                    note['subjective'] as String),
               if (note['objective'] != null)
-                _noteSection('Objective', note['objective'] as String),
+                _noteSection(AppStrings.of(ctx).clinicalNotesObjective,
+                    note['objective'] as String),
               if (note['assessment'] != null)
-                _noteSection('Assessment', note['assessment'] as String),
+                _noteSection(AppStrings.of(ctx).clinicalNotesAssessment,
+                    note['assessment'] as String),
               if (note['plan'] != null)
-                _noteSection('Plan', note['plan'] as String),
+                _noteSection(AppStrings.of(ctx).clinicalNotesPlan,
+                    note['plan'] as String),
               // Generic content
               if (note['content'] != null)
-                _noteSection('Content', note['content'] as String),
+                _noteSection(AppStrings.of(ctx).clinicalNotesContent,
+                    note['content'] as String),
               if (note['findings'] != null)
-                _noteSection('Findings', note['findings'] as String),
+                _noteSection(AppStrings.of(ctx).clinicalNotesFindings,
+                    note['findings'] as String),
               if (note['procedure_details'] != null)
                 _noteSection(
-                  'Procedure Details',
+                  AppStrings.of(ctx).clinicalNotesProcedureDetails,
                   note['procedure_details'] as String,
                 ),
               if (note['complications'] != null)
-                _noteSection('Complications', note['complications'] as String),
+                _noteSection(AppStrings.of(ctx).clinicalNotesComplications,
+                    note['complications'] as String),
               const SizedBox(height: 16),
               // ── AI Assist — generate patient-friendly explainer ──
               // The button is enabled regardless of signed status so a doctor
@@ -575,6 +597,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   }
 
   void _showSoapNoteForm() {
+    final s = AppStrings.of(context);
     final formKey = GlobalKey<FormState>();
     final subjective = TextEditingController();
     final objective = TextEditingController();
@@ -582,25 +605,25 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     final plan = TextEditingController();
 
     _showNoteFormSheet(
-      title: 'New SOAP Note',
+      title: s.clinicalNotesNewSoap,
       formKey: formKey,
       fields: [
         _buildTextArea(
           subjective,
-          'Subjective',
-          'Patient complaints, symptoms, history...',
+          s.clinicalNotesSubjective,
+          s.clinicalNotesSubjectiveHint,
         ),
         _buildTextArea(
           objective,
-          'Objective',
-          'Exam findings, vitals, lab results...',
+          s.clinicalNotesObjective,
+          s.clinicalNotesObjectiveHint,
         ),
         _buildTextArea(
           assessment,
-          'Assessment',
-          'Diagnosis, clinical impression...',
+          s.clinicalNotesAssessment,
+          s.clinicalNotesAssessmentHint,
         ),
-        _buildTextArea(plan, 'Plan', 'Treatment plan, orders, follow-up...'),
+        _buildTextArea(plan, s.clinicalNotesPlan, s.clinicalNotesPlanHint),
       ],
       onSubmit: () => _submitNote(
         formKey: formKey,
@@ -617,27 +640,29 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   }
 
   void _showProgressNoteForm() {
+    final s = AppStrings.of(context);
     final formKey = GlobalKey<FormState>();
     final title = TextEditingController();
     final content = TextEditingController();
 
     _showNoteFormSheet(
-      title: 'New Progress Note',
+      title: s.clinicalNotesNewProgress,
       formKey: formKey,
       fields: [
         TextFormField(
           controller: title,
-          decoration: const InputDecoration(
-            labelText: 'Title',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: s.clinicalNotesTitleField,
+            border: const OutlineInputBorder(),
           ),
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) =>
+              (v == null || v.isEmpty) ? s.clinicalNotesRequired : null,
         ),
         const SizedBox(height: 12),
         _buildTextArea(
           content,
-          'Content',
-          'Clinical progress, observations, plan changes...',
+          s.clinicalNotesContent,
+          s.clinicalNotesContentHint,
         ),
       ],
       onSubmit: () => _submitNote(
@@ -653,6 +678,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   }
 
   void _showProcedureNoteForm() {
+    final s = AppStrings.of(context);
     final formKey = GlobalKey<FormState>();
     final title = TextEditingController();
     final procedureDetails = TextEditingController();
@@ -660,28 +686,30 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     final complications = TextEditingController();
 
     _showNoteFormSheet(
-      title: 'New Procedure Note',
+      title: s.clinicalNotesNewProcedure,
       formKey: formKey,
       fields: [
         TextFormField(
           controller: title,
-          decoration: const InputDecoration(
-            labelText: 'Procedure Name',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: s.clinicalNotesProcedureName,
+            border: const OutlineInputBorder(),
           ),
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) =>
+              (v == null || v.isEmpty) ? s.clinicalNotesRequired : null,
         ),
         const SizedBox(height: 12),
         _buildTextArea(
           procedureDetails,
-          'Procedure Details',
-          'Technique, approach, steps...',
+          s.clinicalNotesProcedureDetails,
+          s.clinicalNotesProcedureDetailsHint,
         ),
-        _buildTextArea(findings, 'Findings', 'Intra-procedural findings...'),
+        _buildTextArea(findings, s.clinicalNotesFindings,
+            s.clinicalNotesFindingsHint),
         _buildTextArea(
           complications,
-          'Complications',
-          'Any complications encountered...',
+          s.clinicalNotesComplications,
+          s.clinicalNotesComplicationsHint,
         ),
       ],
       onSubmit: () => _submitNote(
@@ -771,7 +799,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                     child: FilledButton.icon(
                       onPressed: onSubmit,
                       icon: const Icon(Icons.save),
-                      label: const Text('Save Note'),
+                      label: Text(AppStrings.of(ctx).clinicalNotesSaveNote),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -795,8 +823,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       await MedicalApiService.createClinicalNote(data);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Note created successfully'),
+          SnackBar(
+            content: Text(AppStrings.of(context).clinicalNotesCreatedSuccess),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -806,7 +834,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to create note: $e'),
+            content: Text(AppStrings.of(context)
+                .clinicalNotesCreateFailed(e.toString())),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -832,16 +861,17 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
       title: widget.patientName != null
-          ? 'Notes - ${widget.patientName}'
-          : 'Clinical Notes',
+          ? s.clinicalNotesTitleWithName(widget.patientName!)
+          : s.clinicalNotesTitle,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showCreateNoteSheet,
         backgroundColor: AppTheme.primaryBlue,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.note_add),
-        label: const Text('New Note'),
+        label: Text(s.clinicalNotesNewNote),
       ),
       body: Column(
         children: [
@@ -853,7 +883,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
               labelColor: AppTheme.primaryBlue,
               unselectedLabelColor: AppTheme.textSecondary,
               indicatorColor: AppTheme.primaryBlue,
-              tabs: _tabLabels.map((l) => Tab(text: l)).toList(),
+              tabs: _tabLabels(context).map((l) => Tab(text: l)).toList(),
             ),
           ),
           Expanded(

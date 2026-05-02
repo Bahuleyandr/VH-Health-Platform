@@ -8,6 +8,7 @@ import '../../../core/services/location_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/success_toast.dart';
+import '../../../l10n/app_strings.dart';
 import '../widgets/shift_card.dart';
 import '../widgets/break_tracker.dart';
 import 'dispute_screen.dart';
@@ -149,11 +150,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (!withinCampus) {
       final distance = locationData['distanceFromCampus'] as int? ?? 0;
       if (mounted) {
+        final s = AppStrings.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              '❌ Outside campus (${distance}m away). Attendance can only be marked on campus.',
-            ),
+            content: Text(s.attendanceOutsideCampusDistance(distance)),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 4),
           ),
@@ -178,11 +178,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         location: location,
       );
       if (mounted) {
+        final s = AppStrings.of(context);
         SuccessToast.show(
           context,
           _checkedIn
-              ? 'Checked out successfully'
-              : 'Checked in successfully',
+              ? s.attendanceCheckedOutSuccess
+              : s.attendanceCheckedInSuccess,
         );
       }
       await _loadTodayStatus();
@@ -218,8 +219,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Attendance',
+      title: s.attendanceTitle,
       showBottomNav: false,
       body: Column(
         children: [
@@ -227,10 +229,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             controller: _tabController,
             labelColor: AppTheme.primaryBlue,
             indicatorColor: AppTheme.primaryBlue,
-            tabs: const [
-              Tab(text: 'Today'),
-              Tab(text: 'Calendar'),
-              Tab(text: 'History'),
+            tabs: [
+              Tab(text: s.attendanceTabToday),
+              Tab(text: s.attendanceTabCalendar),
+              Tab(text: s.attendanceTabHistory),
             ],
           ),
           Expanded(
@@ -249,6 +251,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Widget _buildTodayTab() {
+    final s = AppStrings.of(context);
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
       return Center(
@@ -259,7 +262,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             const SizedBox(height: 12),
             ElevatedButton(
               onPressed: _loadTodayStatus,
-              child: const Text('Retry'),
+              child: Text(s.actionRetry),
             ),
           ],
         ),
@@ -302,8 +305,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                     ),
                     child: Text(
                       _checkedIn
-                          ? '🟢 Checked In${_checkInTime != null ? ' at ${_checkInTime!.length >= 16 ? _checkInTime!.substring(11, 16) : _checkInTime!}' : ''}'
-                          : '⚪ Not Checked In',
+                          ? '${s.attendanceCheckedInBadge}${_checkInTime != null ? ' ${s.attendanceCheckedInAt} ${_checkInTime!.length >= 16 ? _checkInTime!.substring(11, 16) : _checkInTime!}' : ''}'
+                          : s.attendanceNotCheckedInBadge,
                       style: TextStyle(
                         color: _checkedIn
                             ? Colors.green.shade700
@@ -386,10 +389,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                     ),
               label: Text(
                 _gettingLocation
-                    ? 'Getting location...'
+                    ? s.attendanceGettingLocation
                     : (_actionLoading
-                          ? 'Processing...'
-                          : (_checkedIn ? 'Check Out' : 'Check In')),
+                          ? s.attendanceProcessing
+                          : (_checkedIn
+                                ? s.attendanceCheckOut
+                                : s.attendanceCheckIn)),
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -403,7 +408,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(
-                '📍 Location will be verified on check-in',
+                s.attendanceLocationVerifyHint,
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
               ),
             ),
@@ -423,7 +428,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               MaterialPageRoute(builder: (_) => const DisputeScreen()),
             ),
             icon: const Icon(Icons.report_problem_outlined),
-            label: const Text('Report Attendance Issue'),
+            label: Text(s.attendanceReportIssue),
           ),
         ],
       ),
@@ -490,14 +495,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           ),
           const SizedBox(height: 8),
           // Legend
-          Wrap(
-            spacing: 12,
-            children: [
-              _legendItem(Colors.green.shade400, 'Present'),
-              _legendItem(Colors.red.shade400, 'Absent'),
-              _legendItem(Colors.blue.shade400, 'Leave'),
-              _legendItem(Colors.orange.shade400, 'Late'),
-            ],
+          Builder(
+            builder: (context) {
+              final s = AppStrings.of(context);
+              return Wrap(
+                spacing: 12,
+                children: [
+                  _legendItem(Colors.green.shade400, s.attendanceLegendPresent),
+                  _legendItem(Colors.red.shade400, s.attendanceLegendAbsent),
+                  _legendItem(Colors.blue.shade400, s.attendanceLegendLeave),
+                  _legendItem(Colors.orange.shade400, s.attendanceLegendLate),
+                ],
+              );
+            },
           ),
           // Selected day detail
           if (_selectedDay != null) ...[
@@ -530,6 +540,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Widget _buildSelectedDayDetail() {
+    final s = AppStrings.of(context);
     final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDay!);
     final dayData = _calendarData[dateStr];
     if (dayData == null) return const SizedBox.shrink();
@@ -570,24 +581,24 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             if (dayData['checkIn'] != null) ...[
               const SizedBox(height: 4),
               Text(
-                'Check-in: ${(dayData['checkIn'] as String).length >= 16 ? (dayData['checkIn'] as String).substring(11, 16) : dayData['checkIn']}',
+                '${s.attendanceCheckInLabel}: ${(dayData['checkIn'] as String).length >= 16 ? (dayData['checkIn'] as String).substring(11, 16) : dayData['checkIn']}',
               ),
             ],
             if (dayData['checkOut'] != null) ...[
               Text(
-                'Check-out: ${(dayData['checkOut'] as String).length >= 16 ? (dayData['checkOut'] as String).substring(11, 16) : dayData['checkOut']}',
+                '${s.attendanceCheckOutLabel}: ${(dayData['checkOut'] as String).length >= 16 ? (dayData['checkOut'] as String).substring(11, 16) : dayData['checkOut']}',
               ),
             ],
             if (dayData['hoursWorked'] != null) ...[
               Text(
-                'Hours: ${dayData['hoursWorked']}h',
+                '${s.attendanceHoursLabel}: ${dayData['hoursWorked']}h',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
             ],
             if (dayData['isLate'] == true) ...[
-              const Text(
-                '⚠️ Late arrival',
-                style: TextStyle(color: Colors.orange, fontSize: 12),
+              Text(
+                s.attendanceLateArrival,
+                style: const TextStyle(color: Colors.orange, fontSize: 12),
               ),
             ],
           ],
@@ -597,6 +608,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Widget _buildMonthlySummary() {
+    final s = AppStrings.of(context);
     final present = _calendarData.values
         .where((d) => d['status'] == 'present')
         .length;
@@ -622,10 +634,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _summaryCell('$present', 'Present', Colors.green),
-                _summaryCell('$absent', 'Absent', Colors.red),
-                _summaryCell('$leave', 'Leave', Colors.blue),
-                _summaryCell('$late', 'Late', Colors.orange),
+                _summaryCell('$present', s.attendanceLegendPresent, Colors.green),
+                _summaryCell('$absent', s.attendanceLegendAbsent, Colors.red),
+                _summaryCell('$leave', s.attendanceLegendLeave, Colors.blue),
+                _summaryCell('$late', s.attendanceLegendLate, Colors.orange),
               ],
             ),
           ],
@@ -654,10 +666,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Widget _buildHistoryTab() {
+    final s = AppStrings.of(context);
     if (_history.isEmpty) {
       return Center(
         child: Text(
-          'No attendance history',
+          s.attendanceNoHistory,
           style: TextStyle(color: Colors.grey.shade600),
         ),
       );
@@ -675,7 +688,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             record['check_out_time'] as String? ??
             record['checkOut'] as String? ??
             '';
-        final date = checkIn.isNotEmpty ? checkIn.substring(0, 10) : 'Unknown';
+        // Date is data, not chrome — leave the fallback as a non-localised
+        // sentinel since the row is unusable without a real date anyway.
+        final date = checkIn.isNotEmpty ? checkIn.substring(0, 10) : '—';
 
         return Card(
           child: ListTile(
@@ -686,10 +701,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             title: Text(date),
             subtitle: checkIn.isNotEmpty
                 ? Text(
-                    'In: ${checkIn.length >= 16 ? checkIn.substring(11, 16) : checkIn}'
-                    '${checkOut.isNotEmpty ? '  Out: ${checkOut.length >= 16 ? checkOut.substring(11, 16) : checkOut}' : ''}',
+                    '${s.attendanceHistoryInPrefix} ${checkIn.length >= 16 ? checkIn.substring(11, 16) : checkIn}'
+                    '${checkOut.isNotEmpty ? '  ${s.attendanceHistoryOutPrefix} ${checkOut.length >= 16 ? checkOut.substring(11, 16) : checkOut}' : ''}',
                   )
-                : const Text('Absent'),
+                : Text(s.attendanceHistoryAbsent),
             trailing: (checkIn.isNotEmpty && checkOut.isNotEmpty)
                 ? Text(
                     '${_calcHours(checkIn, checkOut)}h',

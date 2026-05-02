@@ -3,6 +3,7 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/recent_patients_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 /// EMR Patient Timeline — chronological list of all clinical events for a patient.
 class PatientTimelineScreen extends StatefulWidget {
@@ -184,7 +185,8 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                         children: [
                           Text(
                             event['title'] as String? ??
-                                '${(type ?? 'event').toUpperCase()} Event',
+                                AppStrings.of(context).timelineEventTitle(
+                                    type ?? 'event'),
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.w600,
@@ -212,14 +214,16 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                   const SizedBox(height: 12),
                 ],
                 if (event['author'] != null)
-                  _detailRow('By', event['author'] as String),
+                  _detailRow(AppStrings.of(context).timelineByPrefix,
+                      event['author'] as String),
                 if (event['department'] != null)
-                  _detailRow('Department', event['department'] as String),
+                  _detailRow(AppStrings.of(context).timelineDepartment,
+                      event['department'] as String),
                 if (event['details'] is Map) ...[
                   const SizedBox(height: 12),
-                  const Text(
-                    'Details',
-                    style: TextStyle(
+                  Text(
+                    AppStrings.of(context).timelineDetails,
+                    style: const TextStyle(
                       fontWeight: FontWeight.w600,
                       fontSize: 14,
                       color: AppTheme.primaryBlue,
@@ -279,6 +283,30 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
 
   // ── Filter Chips ──
 
+  String _localizedFilterLabel(BuildContext context, String type) {
+    final s = AppStrings.of(context);
+    switch (type) {
+      case 'all':
+        return s.timelineFilterAll;
+      case 'admission':
+        return s.timelineFilterAdmission;
+      case 'vitals':
+        return s.timelineFilterVitals;
+      case 'note':
+        return s.timelineFilterNote;
+      case 'order':
+        return s.timelineFilterOrder;
+      case 'medication':
+        return s.timelineFilterMedication;
+      case 'investigation':
+        return s.timelineFilterInvestigation;
+      case 'discharge':
+        return s.timelineFilterDischarge;
+      default:
+        return '${type[0].toUpperCase()}${type.substring(1)}';
+    }
+  }
+
   Widget _buildFilterChips() {
     return SizedBox(
       height: 44,
@@ -292,11 +320,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
           final selected =
               (_filterType == null && type == 'all') || _filterType == type;
           return FilterChip(
-            label: Text(
-              type == 'all'
-                  ? 'All'
-                  : '${type[0].toUpperCase()}${type.substring(1)}',
-            ),
+            label: Text(_localizedFilterLabel(ctx, type)),
             selected: selected,
             onSelected: (_) {
               setState(() => _filterType = type == 'all' ? null : type);
@@ -390,7 +414,8 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          event['title'] as String? ?? 'Clinical Event',
+                          event['title'] as String? ??
+                              AppStrings.of(context).timelineEventFallback,
                           style: const TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 14,
@@ -442,12 +467,13 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final filtered = _filteredEvents;
 
     return StaffScaffold(
       title: widget.patientName != null
-          ? 'Timeline - ${widget.patientName}'
-          : 'Patient Timeline',
+          ? s.timelineTitleWithName(widget.patientName!)
+          : s.timelineTitle,
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -465,7 +491,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                   const SizedBox(height: 12),
                   OutlinedButton(
                     onPressed: _loadTimeline,
-                    child: const Text('Retry'),
+                    child: Text(s.timelineRetry),
                   ),
                 ],
               ),
@@ -488,7 +514,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                               ),
                               SizedBox(height: 12),
                               Text(
-                                'No events found',
+                                s.timelineNoEvents,
                                 style: TextStyle(color: AppTheme.textSecondary),
                               ),
                             ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 /// EMR Orders screen — list, create, verify, and complete patient orders.
 class OrdersScreen extends StatefulWidget {
@@ -139,8 +140,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
       await MedicalApiService.verifyOrder(id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Order verified'),
+          SnackBar(
+            content: Text(AppStrings.of(context).ordersVerifiedToast),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -150,7 +151,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Verification failed: $e'),
+            content: Text(
+                AppStrings.of(context).ordersVerifyFailed(e.toString())),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -163,8 +165,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
       await MedicalApiService.completeOrder(id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Order completed'),
+          SnackBar(
+            content: Text(AppStrings.of(context).ordersCompletedToast),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -174,7 +176,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to complete order: $e'),
+            content: Text(
+                AppStrings.of(context).ordersCompleteFailed(e.toString())),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -209,7 +212,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
             ),
             SizedBox(height: 16),
             Text(
-              'New Order',
+              AppStrings.of(ctx).ordersNewOrder,
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
@@ -219,7 +222,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
             const SizedBox(height: 20),
             _orderTypeOption(
               icon: Icons.medication,
-              label: 'Medication Order',
+              label: AppStrings.of(ctx).ordersTypeMedication,
               color: const Color(0xFFE65100),
               onTap: () {
                 Navigator.pop(ctx);
@@ -228,7 +231,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
             ),
             _orderTypeOption(
               icon: Icons.biotech,
-              label: 'Investigation Order',
+              label: AppStrings.of(ctx).ordersTypeInvestigation,
               color: const Color(0xFF558B2F),
               onTap: () {
                 Navigator.pop(ctx);
@@ -237,7 +240,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
             ),
             _orderTypeOption(
               icon: Icons.medical_services,
-              label: 'Nursing Order',
+              label: AppStrings.of(ctx).ordersTypeNursing,
               color: AppTheme.primaryTeal,
               onTap: () {
                 Navigator.pop(ctx);
@@ -283,18 +286,21 @@ class _OrdersScreenState extends State<OrdersScreen> {
     final instructions = TextEditingController();
     bool stat = false;
 
+    final s = AppStrings.of(context);
     _showOrderFormSheet(
-      title: 'Medication Order',
+      title: s.ordersTypeMedication,
       formKey: formKey,
       fieldsBuilder: (setSheetState) => [
         TextFormField(
           controller: medication,
-          decoration: const InputDecoration(
-            labelText: 'Medication Name',
-            prefixIcon: ExcludeSemantics(child: Icon(Icons.medication)),
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: s.ordersMedicationName,
+            prefixIcon:
+                const ExcludeSemantics(child: Icon(Icons.medication)),
+            border: const OutlineInputBorder(),
           ),
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) =>
+              (v == null || v.isEmpty) ? s.admissionRequired : null,
         ),
         const SizedBox(height: 12),
         Row(
@@ -302,21 +308,22 @@ class _OrdersScreenState extends State<OrdersScreen> {
             Expanded(
               child: TextFormField(
                 controller: dosage,
-                decoration: const InputDecoration(
-                  labelText: 'Dosage',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: s.ordersDosage,
+                  border: const OutlineInputBorder(),
                 ),
-                validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                validator: (v) =>
+                    (v == null || v.isEmpty) ? s.admissionRequired : null,
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: TextFormField(
                 controller: route,
-                decoration: const InputDecoration(
-                  labelText: 'Route',
-                  hintText: 'PO, IV, IM...',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: s.ordersRoute,
+                  hintText: s.ordersRouteHint,
+                  border: const OutlineInputBorder(),
                 ),
               ),
             ),
@@ -328,22 +335,23 @@ class _OrdersScreenState extends State<OrdersScreen> {
             Expanded(
               child: TextFormField(
                 controller: frequency,
-                decoration: const InputDecoration(
-                  labelText: 'Frequency',
-                  hintText: 'OD, BD, TDS...',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: s.ordersFrequency,
+                  hintText: s.ordersFrequencyHint,
+                  border: const OutlineInputBorder(),
                 ),
-                validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                validator: (v) =>
+                    (v == null || v.isEmpty) ? s.admissionRequired : null,
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: TextFormField(
                 controller: duration,
-                decoration: const InputDecoration(
-                  labelText: 'Duration',
-                  hintText: '5 days',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: s.ordersDuration,
+                  hintText: s.ordersDurationHint,
+                  border: const OutlineInputBorder(),
                 ),
               ),
             ),
@@ -352,15 +360,15 @@ class _OrdersScreenState extends State<OrdersScreen> {
         const SizedBox(height: 12),
         TextFormField(
           controller: instructions,
-          decoration: const InputDecoration(
-            labelText: 'Special Instructions',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: s.ordersSpecialInstructions,
+            border: const OutlineInputBorder(),
           ),
           maxLines: 2,
         ),
         const SizedBox(height: 8),
         SwitchListTile(
-          title: const Text('STAT (Immediate)'),
+          title: Text(s.ordersStatImmediate),
           value: stat,
           onChanged: (v) => setSheetState(() => stat = v),
           contentPadding: EdgeInsets.zero,
@@ -390,46 +398,51 @@ class _OrdersScreenState extends State<OrdersScreen> {
     String priority = 'routine';
     bool stat = false;
 
+    final s = AppStrings.of(context);
     _showOrderFormSheet(
-      title: 'Investigation Order',
+      title: s.ordersTypeInvestigation,
       formKey: formKey,
       fieldsBuilder: (setSheetState) => [
         TextFormField(
           controller: investigation,
-          decoration: const InputDecoration(
-            labelText: 'Investigation',
-            prefixIcon: ExcludeSemantics(child: Icon(Icons.biotech)),
-            hintText: 'CBC, RFT, CT Scan...',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: s.ordersInvestigation,
+            prefixIcon: const ExcludeSemantics(child: Icon(Icons.biotech)),
+            hintText: s.ordersInvestigationHint,
+            border: const OutlineInputBorder(),
           ),
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) =>
+              (v == null || v.isEmpty) ? s.admissionRequired : null,
         ),
         const SizedBox(height: 12),
         TextFormField(
           controller: reason,
-          decoration: const InputDecoration(
-            labelText: 'Clinical Indication',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: s.ordersClinicalIndication,
+            border: const OutlineInputBorder(),
           ),
           maxLines: 2,
         ),
         const SizedBox(height: 12),
         DropdownButtonFormField<String>(
           initialValue: priority,
-          decoration: const InputDecoration(
-            labelText: 'Priority',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: s.ordersPriority,
+            border: const OutlineInputBorder(),
           ),
-          items: const [
-            DropdownMenuItem(value: 'routine', child: Text('Routine')),
-            DropdownMenuItem(value: 'urgent', child: Text('Urgent')),
-            DropdownMenuItem(value: 'stat', child: Text('STAT')),
+          items: [
+            DropdownMenuItem(
+                value: 'routine', child: Text(s.ordersPriorityRoutine)),
+            DropdownMenuItem(
+                value: 'urgent', child: Text(s.ordersPriorityUrgent)),
+            DropdownMenuItem(
+                value: 'stat', child: Text(s.ordersPriorityStat)),
           ],
           onChanged: (v) => setSheetState(() => priority = v ?? priority),
         ),
         const SizedBox(height: 8),
         SwitchListTile(
-          title: const Text('Fasting Required'),
+          title: Text(s.ordersFastingRequired),
           value: stat,
           onChanged: (v) => setSheetState(() => stat = v),
           contentPadding: EdgeInsets.zero,
@@ -455,35 +468,38 @@ class _OrdersScreenState extends State<OrdersScreen> {
     final frequency = TextEditingController();
     final instructions = TextEditingController();
 
+    final s = AppStrings.of(context);
     _showOrderFormSheet(
-      title: 'Nursing Order',
+      title: s.ordersTypeNursing,
       formKey: formKey,
       fieldsBuilder: (_) => [
         TextFormField(
           controller: description,
-          decoration: const InputDecoration(
-            labelText: 'Order Description',
-            prefixIcon: ExcludeSemantics(child: Icon(Icons.medical_services)),
-            hintText: 'Wound care, positioning, monitoring...',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: s.ordersDescription,
+            prefixIcon: const ExcludeSemantics(
+                child: Icon(Icons.medical_services)),
+            hintText: s.ordersDescriptionHint,
+            border: const OutlineInputBorder(),
           ),
-          validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          validator: (v) =>
+              (v == null || v.isEmpty) ? s.admissionRequired : null,
         ),
         const SizedBox(height: 12),
         TextFormField(
           controller: frequency,
-          decoration: const InputDecoration(
-            labelText: 'Frequency',
-            hintText: 'Every 4h, PRN, Once...',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: s.ordersFrequency,
+            hintText: s.ordersFrequencyHintNursing,
+            border: const OutlineInputBorder(),
           ),
         ),
         const SizedBox(height: 12),
         TextFormField(
           controller: instructions,
-          decoration: const InputDecoration(
-            labelText: 'Special Instructions',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: s.ordersSpecialInstructions,
+            border: const OutlineInputBorder(),
           ),
           maxLines: 3,
         ),
@@ -556,7 +572,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                       child: FilledButton.icon(
                         onPressed: onSubmit,
                         icon: const Icon(Icons.send),
-                        label: const Text('Place Order'),
+                        label: Text(AppStrings.of(ctx).ordersPlaceOrder),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -593,8 +609,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
       await MedicalApiService.createEmrOrder(data);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Order placed successfully'),
+          SnackBar(
+            content: Text(AppStrings.of(context).ordersPlacedSuccess),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -604,7 +620,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to place order: $e'),
+            content: Text(
+                AppStrings.of(context).ordersPlaceFailed(e.toString())),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -616,11 +633,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
     return showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.warning_amber, color: AppTheme.warningAmber),
-            SizedBox(width: 8),
-            Text('Clinical Alerts'),
+            const Icon(Icons.warning_amber, color: AppTheme.warningAmber),
+            const SizedBox(width: 8),
+            Text(AppStrings.of(ctx).ordersClinicalAlerts),
           ],
         ),
         content: SingleChildScrollView(
@@ -659,11 +676,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(AppStrings.of(ctx).actionCancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Proceed Anyway'),
+            child: Text(AppStrings.of(ctx).ordersProceedAnyway),
           ),
         ],
       ),
@@ -674,7 +691,14 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
   Widget _buildStatusFilters() {
     const statuses = [null, 'ordered', 'verified', 'completed', 'cancelled'];
-    const labels = ['All', 'Ordered', 'Verified', 'Completed', 'Cancelled'];
+    final s = AppStrings.of(context);
+    final labels = [
+      s.ordersFilterAll,
+      s.ordersFilterOrdered,
+      s.ordersFilterVerified,
+      s.ordersFilterCompleted,
+      s.ordersFilterCancelled,
+    ];
 
     return SizedBox(
       height: 44,
@@ -720,16 +744,17 @@ class _OrdersScreenState extends State<OrdersScreen> {
   Widget build(BuildContext context) {
     final filtered = _filteredOrders;
 
+    final s = AppStrings.of(context);
     return StaffScaffold(
       title: widget.patientName != null
-          ? 'Orders - ${widget.patientName}'
-          : 'Patient Orders',
+          ? s.ordersTitleWithName(widget.patientName!)
+          : s.ordersTitle,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showCreateOrderSheet,
         backgroundColor: AppTheme.primaryBlue,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add_circle_outline),
-        label: const Text('New Order'),
+        label: Text(s.ordersNewOrder),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -748,7 +773,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                   const SizedBox(height: 12),
                   OutlinedButton(
                     onPressed: _loadOrders,
-                    child: const Text('Retry'),
+                    child: Text(s.ordersRetry),
                   ),
                 ],
               ),
@@ -771,7 +796,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                               ),
                               SizedBox(height: 12),
                               Text(
-                                'No orders found',
+                                s.ordersNoFound,
                                 style: TextStyle(color: AppTheme.textSecondary),
                               ),
                             ],
@@ -824,7 +849,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                                           as String? ??
                                                       order['description']
                                                           as String? ??
-                                                      'Order',
+                                                      s.ordersFallback,
                                                   style: const TextStyle(
                                                     fontWeight: FontWeight.w600,
                                                     fontSize: 14,
@@ -898,7 +923,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                                   Icons.check_circle_outline,
                                                   size: 18,
                                                 ),
-                                                label: const Text('Verify'),
+                                                label: Text(s.ordersVerify),
                                                 style: TextButton.styleFrom(
                                                   foregroundColor:
                                                       AppTheme.accentCyan,
@@ -913,7 +938,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                                   Icons.done_all,
                                                   size: 18,
                                                 ),
-                                                label: const Text('Complete'),
+                                                label: Text(s.ordersComplete),
                                                 style: TextButton.styleFrom(
                                                   foregroundColor:
                                                       AppTheme.successGreen,

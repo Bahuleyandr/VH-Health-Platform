@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 /// Patient Records screen — Doctors/Nurses/Admin view patient records.
 class PatientRecordsScreen extends StatefulWidget {
@@ -83,8 +84,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Patient Records',
+      title: s.patientRecordsTitle,
       body: Column(
         children: [
           // Search
@@ -94,12 +96,12 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
             child: TextField(
               controller: _searchCtrl,
               decoration: InputDecoration(
-                hintText: 'Search by patient name or type...',
+                hintText: s.patientRecordsSearchHint,
                 prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear),
-                        tooltip: 'Clear search',
+                        tooltip: s.patientRecordsClearTooltip,
                         onPressed: () {
                           _searchCtrl.clear();
                           setState(() => _searchQuery = '');
@@ -150,7 +152,7 @@ class _PatientCard extends StatelessWidget {
         record['title']?.toString() ??
         record['patientName']?.toString() ??
         record['patient']?['name']?.toString() ??
-        'Unknown Patient';
+        AppStrings.of(context).patientRecordsUnknownPatient;
     final type =
         record['record_type']?.toString() ??
         record['type']?.toString() ??
@@ -282,7 +284,7 @@ class _PatientDetailsSheet extends StatelessWidget {
     final patientName =
         record['patientName']?.toString() ??
         record['patient']?['name']?.toString() ??
-        'Unknown Patient';
+        AppStrings.of(context).patientRecordsUnknownPatient;
     final phone =
         record['patient']?['phone']?.toString() ??
         record['phone']?.toString() ??
@@ -324,7 +326,7 @@ class _PatientDetailsSheet extends StatelessWidget {
             ),
           SizedBox(height: 16),
           Text(
-            'Record Details',
+            AppStrings.of(context).patientRecordsDetails,
             style: TextStyle(
               fontWeight: FontWeight.bold,
               color: AppTheme.textPrimary,
@@ -426,7 +428,10 @@ class _ErrorState extends StatelessWidget {
             style: TextStyle(color: AppTheme.textSecondary),
             textAlign: TextAlign.center,
           ),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
+          TextButton(
+            onPressed: onRetry,
+            child: Text(AppStrings.of(context).patientRecordsRetry),
+          ),
         ],
       ),
     );
@@ -439,6 +444,7 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -450,7 +456,7 @@ class _EmptyState extends StatelessWidget {
           ),
           SizedBox(height: 16),
           Text(
-            hasSearch ? 'No records found' : 'No patient records',
+            hasSearch ? s.patientRecordsNoFound : s.patientRecordsEmpty,
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
@@ -459,7 +465,7 @@ class _EmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Patient records will appear here',
+            s.patientRecordsEmptyBody,
             style: TextStyle(color: AppTheme.textSecondary),
           ),
         ],

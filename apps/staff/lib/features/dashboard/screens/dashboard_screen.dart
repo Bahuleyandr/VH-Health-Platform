@@ -214,6 +214,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final today = DateFormat('EEEE, d MMMM yyyy').format(DateTime.now());
     final checkedIn =
         _attendanceStatus?['isCheckedIn'] == true ||
@@ -290,9 +291,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       ),
                       const SizedBox(height: 2),
-                      const Text(
-                        'Welcome back 👋',
-                        style: TextStyle(
+                      Text(
+                        '${s.dashboardWelcomeBack} 👋',
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 22,
                           fontWeight: FontWeight.bold,
@@ -386,7 +387,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
-                                      '$_pendingSyncCount item${_pendingSyncCount == 1 ? '' : 's'} pending sync',
+                                      s.dashboardSyncPending(_pendingSyncCount),
                                       style: const TextStyle(
                                         color: AppTheme.warningAmber,
                                         fontWeight: FontWeight.w600,
@@ -438,7 +439,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
-                                          '${wsProv.notifications.length} new live notification${wsProv.notifications.length == 1 ? '' : 's'}',
+                                          s.dashboardLiveNotifications(
+                                            wsProv.notifications.length,
+                                          ),
                                           style: const TextStyle(
                                             color: AppTheme.primaryBlue,
                                             fontWeight: FontWeight.w600,
@@ -476,7 +479,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                           // Quick actions
                           Text(
-                            'Quick Actions',
+                            s.dashboardQuickActionsHeader,
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
@@ -490,7 +493,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           // Upcoming appointments (clinical roles)
                           if (_upcomingAppointments.isNotEmpty) ...[
                             _buildSectionHeader(
-                              'Upcoming Appointments',
+                              s.dashboardUpcomingAppointmentsHeader,
                               '/appointments',
                             ),
                             const SizedBox(height: 8),
@@ -501,7 +504,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           // Recent activity
                           if (_recentNotifications.isNotEmpty) ...[
                             _buildSectionHeader(
-                              'Recent Activity',
+                              s.dashboardRecentActivity,
                               '/notifications',
                             ),
                             const SizedBox(height: 8),
@@ -511,7 +514,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                           // Feature grid
                           Text(
-                            'All Features',
+                            s.dashboardAllFeatures,
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
@@ -555,11 +558,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // its position ("1 of 5: Demo Patient Ravi, button"). Without the
   // container the chips read in isolation with no scoping.
   Widget _buildRecentPatients() {
+    final s = AppStrings.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Recent Patients',
+          s.dashboardRecentPatientsHeader,
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,
@@ -633,6 +637,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Every card is tappable and routes to the screen where the metric
   // can be acted on.
   Widget _buildQuickStats() {
+    final s = AppStrings.of(context);
     final stats = <_StatItem>[];
 
     // Nurse: due meds count is the headline metric.
@@ -640,7 +645,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       stats.add(
         _StatItem(
           icon: Icons.medication_outlined,
-          label: 'Due Meds',
+          label: s.dashboardStatDueMeds,
           value: '$_dueMedsCount',
           color: const Color(0xFFC62828),
           route: '/mar/due',
@@ -654,7 +659,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       stats.add(
         _StatItem(
           icon: Icons.calendar_today,
-          label: 'Today\'s Appts',
+          label: s.dashboardStatAppointments,
           value: '$_appointmentCount',
           color: const Color(0xFF6A1B9A),
           route: _role == StaffRole.doctor
@@ -669,7 +674,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       stats.add(
         _StatItem(
           icon: Icons.fact_check_outlined,
-          label: 'AI Review',
+          label: s.dashboardStatReviewQueue,
           value: '$_pendingAiReviewsCount',
           color: const Color(0xFF00838F),
           route: '/clinical-ai/queue',
@@ -685,7 +690,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       stats.add(
         _StatItem(
           icon: Icons.local_hotel_outlined,
-          label: 'Inpatients',
+          label: s.dashboardStatInpatients,
           value: '$_activeAdmissionsCount',
           color: const Color(0xFF1565C0),
           route: '/emr/admissions',
@@ -696,7 +701,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     stats.add(
       _StatItem(
         icon: Icons.notifications_active,
-        label: 'Alerts',
+        label: s.dashboardStatAlerts,
         value: '${_recentNotifications.length}',
         color: const Color(0xFFE65100),
         route: '/notifications',
@@ -746,89 +751,90 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildQuickActions() {
+    final s = AppStrings.of(context);
     final actions = <_QuickAction>[];
 
     // Everyone gets attendance
     actions.add(
-      const _QuickAction(
+      _QuickAction(
         icon: Icons.fingerprint,
-        label: 'Check In/Out',
+        label: s.dashboardActionCheckInOut,
         route: '/attendance',
-        color: Color(0xFF1565C0),
+        color: const Color(0xFF1565C0),
       ),
     );
 
     // Schedule for all
     actions.add(
-      const _QuickAction(
+      _QuickAction(
         icon: Icons.schedule,
-        label: 'Shift Schedule',
+        label: s.dashboardActionShiftSchedule,
         route: '/schedule',
-        color: Color(0xFF00838F),
+        color: const Color(0xFF00838F),
       ),
     );
 
     // Messages for all
     actions.add(
-      const _QuickAction(
+      _QuickAction(
         icon: Icons.chat_outlined,
-        label: 'Messages',
+        label: s.dashboardActionMessages,
         route: '/messaging',
-        color: Color(0xFF1565C0),
+        color: const Color(0xFF1565C0),
       ),
     );
 
     // Role-specific
     if (_role == StaffRole.doctor) {
       actions.add(
-        const _QuickAction(
+        _QuickAction(
           icon: Icons.medication_liquid,
-          label: 'Prescriptions',
+          label: s.dashboardActionPrescriptions,
           route: '/prescriptions',
-          color: Color(0xFF00838F),
+          color: const Color(0xFF00838F),
         ),
       );
       actions.add(
-        const _QuickAction(
+        _QuickAction(
           icon: Icons.biotech,
-          label: 'Investigations',
+          label: s.dashboardActionInvestigations,
           route: '/investigations',
-          color: Color(0xFF0097A7),
+          color: const Color(0xFF0097A7),
         ),
       );
     } else if (_role == StaffRole.nurse) {
       actions.add(
-        const _QuickAction(
+        _QuickAction(
           icon: Icons.monitor_heart,
-          label: 'Vitals',
+          label: s.dashboardActionVitals,
           route: '/vitals',
-          color: Color(0xFFC62828),
+          color: const Color(0xFFC62828),
         ),
       );
       actions.add(
-        const _QuickAction(
+        _QuickAction(
           icon: Icons.swap_horiz,
-          label: 'Handover',
+          label: s.dashboardActionHandover,
           route: '/handover',
-          color: Color(0xFF00695C),
+          color: const Color(0xFF00695C),
         ),
       );
     } else if (_role == StaffRole.pharmacy) {
       actions.add(
-        const _QuickAction(
+        _QuickAction(
           icon: Icons.medication,
-          label: 'Pharmacy',
+          label: s.dashboardActionPharmacy,
           route: '/pharmacy',
-          color: Color(0xFFE65100),
+          color: const Color(0xFFE65100),
         ),
       );
     } else if (_role == StaffRole.lab) {
       actions.add(
-        const _QuickAction(
+        _QuickAction(
           icon: Icons.upload_file,
-          label: 'Upload Results',
+          label: s.dashboardActionUploadResults,
           route: '/investigations',
-          color: Color(0xFF0097A7),
+          color: const Color(0xFF0097A7),
         ),
       );
     }
@@ -849,6 +855,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildSectionHeader(String title, String route) {
+    final s = AppStrings.of(context);
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -862,7 +869,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         TextButton(
           onPressed: () => context.go(route),
-          child: const Text('See all'),
+          child: Text(s.dashboardSeeAll),
         ),
       ],
     );
@@ -1001,6 +1008,7 @@ class _AttendanceStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -1044,7 +1052,9 @@ class _AttendanceStatusCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    isCheckedIn ? 'Checked In' : 'Not Checked In',
+                    isCheckedIn
+                        ? s.dashboardCheckedInTitle
+                        : s.dashboardNotCheckedInTitle,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 18,
@@ -1054,16 +1064,19 @@ class _AttendanceStatusCard extends StatelessWidget {
                   if (checkInTime != null) ...[
                     const SizedBox(height: 2),
                     Text(
-                      'Since $checkInTime',
+                      '${s.dashboardSinceTimePrefix} $checkInTime',
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 13,
                       ),
                     ),
                   ] else
-                    const Text(
-                      'Tap to manage attendance',
-                      style: TextStyle(color: Colors.white70, fontSize: 13),
+                    Text(
+                      s.dashboardTapToManage,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
                     ),
                 ],
               ),
