@@ -5695,6 +5695,39 @@ model clinical_protocols {
   @@index([priority], map: "idx_clinical_protocols_priority")
 }
 
+model data_breaches {
+  id                              Int       @id @default(autoincrement())
+  breach_id                       String?   @unique @db.VarChar(30)
+  severity                        String    @db.VarChar(20)
+  description                     String
+  affected_records                Int?      @default(0)
+  affected_patient_uids           String[]  @db.Uuid
+  discovered_at                   DateTime? @default(now()) @db.Timestamp(6)
+  reported_by                     String?   @db.Uuid
+  status                          String?   @default("open") @db.VarChar(50)
+  containment_actions             String?
+  contained_at                    DateTime? @db.Timestamp(6)
+  resolution_notes                String?
+  resolved_at                     DateTime? @db.Timestamp(6)
+  created_at                      DateTime? @default(now()) @db.Timestamp(6)
+  updated_at                      DateTime? @default(now()) @db.Timestamp(6)
+  // Migration 127 (data_processing_activities) extends this table with
+  // GDPR Art. 33/34 notification tracking columns:
+  regulator_notified_at           DateTime? @db.Timestamptz(6)
+  regulator_reference             String?   @db.VarChar(255)
+  regulator_jurisdiction          String?   @db.VarChar(80)
+  data_subjects_notified_at       DateTime? @db.Timestamptz(6)
+  data_subject_notification_count Int       @default(0)
+  risk_assessment                 Json      @default("{}")
+  dpa_id                          Int?
+  cross_border_impact             Boolean   @default(false)
+
+  @@index([severity], map: "idx_data_breaches_severity")
+  @@index([status], map: "idx_data_breaches_status")
+  @@index([discovered_at], map: "idx_data_breaches_discovered_at")
+  @@index([dpa_id], map: "idx_breach_dpa")
+}
+
 model gdpr_erasure_log {
   id               BigInt   @id @default(autoincrement())
   uid              String?  @db.Uuid
