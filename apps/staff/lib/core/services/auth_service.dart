@@ -3,6 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/api_config.dart';
 import 'api_client.dart';
 import 'recent_patients_service.dart';
+import 'telemetry_service.dart';
 
 class AuthService {
   static const _storage = FlutterSecureStorage();
@@ -40,6 +41,15 @@ class AuthService {
           // Save phone if available (needed for device/notification registration)
           final phone = data['staff']?['phone'] ?? data['phone'];
           if (phone != null) await ApiConfig.savePhone(phone.toString());
+
+          // Telemetry — record the role so subsequent events can be
+          // sliced by clinician cohort. Never pass raw employee id —
+          // hash it first if you need stable per-user analytics.
+          await Telemetry.setUserProperties(role: role.toString());
+          await Telemetry.event('auth.login_success', {
+            'role': role.toString(),
+            'method': 'password',
+          });
         }
         return data.isNotEmpty ? data : raw;
       }
@@ -100,6 +110,7 @@ class AuthService {
       // on a shared workstation doesn't see the previous user's recent
       // patients (privacy concern on ward kiosks).
       await RecentPatientsService.clear();
+      await Telemetry.event('auth.logout');
     }
   }
 

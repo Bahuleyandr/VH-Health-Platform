@@ -9,6 +9,7 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/patient_context_chip.dart';
 import '../../../core/widgets/states/success_toast.dart';
+import '../../../core/widgets/voice_dictate_button.dart';
 
 /// Handover Notes screen.
 ///
@@ -235,13 +236,17 @@ class _HandoverScreenState extends State<HandoverScreen>
             TextFormField(
               controller: _notesController,
               maxLines: 6,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Handover Notes',
                 hintText:
                     'Key observations, pending tasks, medication changes...',
-                prefixIcon: Icon(Icons.notes),
+                prefixIcon: const Icon(Icons.notes),
+                // Voice dictation — appends transcript onto the notes
+                // controller. Useful during shift handovers when typing
+                // is slower than speaking.
+                suffixIcon: VoiceDictateButton(controller: _notesController),
                 alignLabelWithHint: true,
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
               ),
               validator: (v) =>
                   (v == null || v.trim().isEmpty) ? 'Notes required' : null,

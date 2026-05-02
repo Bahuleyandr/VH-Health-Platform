@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
@@ -19,6 +20,7 @@ import 'core/services/connectivity_sync_service.dart';
 import 'core/services/firebase_crash_reporter.dart';
 import 'core/services/websocket_service.dart';
 import 'core/widgets/patient_search_sheet.dart';
+import 'l10n/app_strings.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -252,6 +254,17 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
                   theme: themeProvider.lightTheme,
                   darkTheme: themeProvider.darkTheme,
                   themeMode: themeProvider.themeMode,
+                  // Localization delegates wire built-in Material/
+                  // Cupertino translations (date pickers, drawer back
+                  // button, etc.) for the supported locales. App-
+                  // specific strings live in `lib/l10n/app_strings.dart`
+                  // and are accessed via `AppStrings.of(context)`.
+                  localizationsDelegates: const [
+                    GlobalMaterialLocalizations.delegate,
+                    GlobalWidgetsLocalizations.delegate,
+                    GlobalCupertinoLocalizations.delegate,
+                  ],
+                  supportedLocales: AppStrings.supportedLocales,
                   routerConfig: appRouter,
                 ),
               ),
