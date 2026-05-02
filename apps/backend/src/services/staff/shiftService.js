@@ -1,17 +1,35 @@
 import prisma from '../../lib/prisma.js';
 
 /**
- * Get staff's current shift assignment
+ * Get staff's current shift assignment.
+ *
+ * Tolerant of staffId being passed as either an integer or a numeric
+ * string (the Flutter staff app's AttendanceApiService sends "2" not
+ * 2; the SQL `staff_shift_assignments.staff_id` column is INTEGER and
+ * `WHERE ssa.staff_id = '2'` raises 42883). Returns null when the
+ * staff member has no active shift assignment — attendance still
+ * records, just with `attendance_status='unclassified'`.
+ *
+ * Also includes both `grace_period_minutes` and `grace_minutes` —
+ * service code reads either depending on the call site (see migration
+ * 141 for why they coexist as separate columns).
  */
 export async function getStaffShift(staffId) {
+  const id = Number.parseInt(staffId, 10);
+  if (!Number.isFinite(id)) return null;
   const res = await prisma.$queryRawUnsafe(`
-    SELECT ss.id, ss.name, ss.start_time, ss.end_time, ss.is_active, ss.is_preset, ss.grace_minutes, ss.created_at FROM staff_shifts ss
+    SELECT ss.id, ss.name, ss.start_time, ss.end_time, ss.is_active,
+           ss.is_preset, ss.grace_minutes, ss.grace_period_minutes,
+           ss.late_threshold_minutes, ss.absent_threshold_minutes,
+           ss.created_at
+    FROM staff_shifts ss
     JOIN staff_shift_assignments ssa ON ss.id = ssa.shift_id
-    WHERE ssa.staff_id = $1
+    WHERE ssa.staff_id = $1::int
       AND ssa.effective_from <= CURRENT_DATE
       AND (ssa.effective_to IS NULL OR ssa.effective_to >= CURRENT_DATE)
-    ORDER BY ssa.effective_from DESC LIMIT 1
-  `, staffId);
+    ORDER BY ssa.effective_from DESC
+    LIMIT 1
+  `, id);
   return res[0] || null;
 }
 
