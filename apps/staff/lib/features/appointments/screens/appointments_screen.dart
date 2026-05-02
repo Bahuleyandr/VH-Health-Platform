@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -43,10 +46,35 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     'cancelled',
   ];
 
+  StreamSubscription<RealtimeEvent>? _appointmentsSub;
+  Timer? _refreshDebounce;
+
   @override
   void initState() {
     super.initState();
     _load();
+    _attachRealtime();
+  }
+
+  Future<void> _attachRealtime() async {
+    final rt = RealtimeClient.instance;
+    await rt.connect();
+    // Backend `appointmentStatusController.broadcast('staff:appointments', …)`
+    // fires whenever any appointment status changes. Debounce so a burst
+    // of status flips (queue marshalling) doesn't refetch N times.
+    _appointmentsSub = rt.events('staff:appointments').listen((_) {
+      _refreshDebounce?.cancel();
+      _refreshDebounce = Timer(const Duration(milliseconds: 400), () {
+        if (mounted) _load();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _appointmentsSub?.cancel();
+    _refreshDebounce?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {

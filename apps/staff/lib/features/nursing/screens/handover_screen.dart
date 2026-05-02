@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
@@ -47,6 +50,9 @@ class _HandoverScreenState extends State<HandoverScreen>
   ];
   static const _urgencies = ['Low', 'Normal', 'High', 'Critical'];
 
+  StreamSubscription<RealtimeEvent>? _handoverSub;
+  Timer? _refreshDebounce;
+
   @override
   void initState() {
     super.initState();
@@ -55,10 +61,24 @@ class _HandoverScreenState extends State<HandoverScreen>
       _patientRefController.text = widget.prefillPatientRef!;
     }
     _loadRecentNotes();
+    _attachRealtime();
+  }
+
+  Future<void> _attachRealtime() async {
+    final rt = RealtimeClient.instance;
+    await rt.connect();
+    _handoverSub = rt.events('staff:handovers').listen((_) {
+      _refreshDebounce?.cancel();
+      _refreshDebounce = Timer(const Duration(milliseconds: 400), () {
+        if (mounted) _loadRecentNotes();
+      });
+    });
   }
 
   @override
   void dispose() {
+    _handoverSub?.cancel();
+    _refreshDebounce?.cancel();
     _tabController.dispose();
     _notesController.dispose();
     _patientRefController.dispose();

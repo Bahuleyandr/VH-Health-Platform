@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/api_config.dart';
 import 'api_client.dart';
+import 'recent_patients_service.dart';
 
 class AuthService {
   static const _storage = FlutterSecureStorage();
@@ -95,6 +96,10 @@ class AuthService {
       // Best effort
     } finally {
       await ApiConfig.clearAll();
+      // Clear local-only EMR caches so the next staff member to log in
+      // on a shared workstation doesn't see the previous user's recent
+      // patients (privacy concern on ward kiosks).
+      await RecentPatientsService.clear();
     }
   }
 

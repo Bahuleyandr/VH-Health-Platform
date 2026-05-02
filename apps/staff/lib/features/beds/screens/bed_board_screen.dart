@@ -6,6 +6,7 @@ import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../core/widgets/patient_search_action.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
@@ -194,6 +195,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
               if (_selectedWardId != null) _fetchBeds(_selectedWardId!);
             },
           ),
+          const PatientSearchAction(),
           const LogoutAction(),
         ],
       ),
@@ -1027,6 +1029,21 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                 const SizedBox(height: 16),
               ],
 
+              // Bed-status actions — admit / discharge / maintenance.
+              // Wires `POST /beds/:id/{admit,discharge}` and `PUT /beds/:id`
+              // for status flips. Surfaces the buttons appropriate to the
+              // current state so a nurse / admin can manage occupancy
+              // without leaving the bed sheet.
+              _BedStatusActions(
+                bed: bed,
+                onChanged: () {
+                  if (Navigator.of(context).canPop()) {
+                    Navigator.of(context).pop(true);
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+
               // Patient block (only when occupied)
               if (isOccupied && patientName.isNotEmpty) ...[
                 _SectionHeader(label: 'Patient'),
@@ -1420,4 +1437,450 @@ class _QuickAction {
     required this.color,
     required this.route,
   });
+}
+
+/// Bed-status actions row inside the bed sheet. Shows the buttons
+/// appropriate to the current bed status:
+///
+///   occupied    → [Discharge Patient]   [Mark Maintenance]
+///   available   → [Admit Patient]       [Mark Maintenance]
+///   maintenance → [Mark Available]
+///
+/// All call backend `/beds/:id/admit | /discharge | PUT status=`.
+/// On success calls [onChanged] (the parent typically pops the sheet
+/// with `true` so the bed grid refreshes via the `_openBedSheet`
+/// `await … && _fetchBeds()` path).
+class _BedStatusActions extends StatefulWidget {
+  final Map<String, dynamic> bed;
+  final VoidCallback onChanged;
+  const _BedStatusActions({required this.bed, required this.onChanged});
+
+  @override
+  State<_BedStatusActions> createState() => _BedStatusActionsState();
+}
+
+class _BedStatusActionsState extends State<_BedStatusActions> {
+  bool _busy = false;
+
+  String _bedId() => (widget.bed['id'] ?? '').toString();
+  String _status() =>
+      (widget.bed['status'] ?? 'available').toString().toLowerCase();
+
+  Future<bool> _confirm(String title, String body, String confirmLabel,
+      {Color? confirmColor}) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(body),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: confirmColor != null
+                ? FilledButton.styleFrom(backgroundColor: confirmColor)
+                : null,
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  Future<void> _setStatus(String newStatus) async {
+    final id = _bedId();
+    if (id.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      // PUT /beds/:id sets specific fields; null patient_* preserves them
+      // (the controller does `patient_id = $4` directly so we must send
+      // current values back if we want them kept). Use the current bed's
+      // patient fields to avoid clearing them on a maintenance flip.
+      final response = await ApiClient.put(
+        '/beds/$id',
+        body: {
+          'status': newStatus,
+          'patient_id': widget.bed['patient_id'],
+          'patient_name': widget.bed['patient_name'],
+        },
+      );
+      if (!mounted) return;
+      if (response.isSuccess) {
+        SuccessToast.show(context, 'Bed marked as $newStatus');
+        widget.onChanged();
+      } else {
+        ErrorToast.show(context, response.message ?? 'Status change failed');
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorToast.show(context, 'Could not connect to server');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _discharge() async {
+    final id = _bedId();
+    if (id.isEmpty) return;
+    final patientName = (widget.bed['patient_full_name'] ??
+            widget.bed['patient_name'] ??
+            'this patient')
+        .toString();
+    final ok = await _confirm(
+      'Discharge $patientName?',
+      'This frees the bed and ends the active admission. The patient\'s '
+          'EMR records remain intact.',
+      'Discharge',
+      confirmColor: AppTheme.errorRed,
+    );
+    if (!ok) return;
+    setState(() => _busy = true);
+    try {
+      final response = await ApiClient.post(
+        '/beds/$id/discharge',
+        body: {},
+      );
+      if (!mounted) return;
+      if (response.isSuccess) {
+        SuccessToast.show(context, 'Patient discharged');
+        widget.onChanged();
+      } else {
+        ErrorToast.show(context, response.message ?? 'Discharge failed');
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorToast.show(context, 'Could not connect to server');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _admit() async {
+    final id = _bedId();
+    if (id.isEmpty) return;
+    // Open the global patient picker — when a patient is selected via
+    // the modal, capture them and POST /beds/:id/admit. We can't await
+    // the picker's pop value directly because PatientSearchSheet does
+    // its own context.go on tap; instead, use a small inline picker.
+    final picked = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.cardSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => const _AdmitPatientPicker(),
+    );
+    if (picked == null || !mounted) return;
+
+    final patientName = (picked['name'] ?? '').toString();
+    final patientIntId = picked['id'];
+    if (patientName.isEmpty) {
+      ErrorToast.show(context, 'Patient missing name');
+      return;
+    }
+
+    setState(() => _busy = true);
+    try {
+      final body = <String, dynamic>{
+        'patient_name': patientName,
+        if (patientIntId != null) 'patient_id': patientIntId,
+      };
+      final response = await ApiClient.post('/beds/$id/admit', body: body);
+      if (!mounted) return;
+      if (response.isSuccess) {
+        SuccessToast.show(context, '$patientName admitted to this bed');
+        widget.onChanged();
+      } else {
+        ErrorToast.show(context, response.message ?? 'Admit failed');
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorToast.show(context, 'Could not connect to server');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = _status();
+    final actions = <Widget>[];
+
+    if (status == 'occupied') {
+      actions.add(
+        OutlinedButton.icon(
+          onPressed: _busy ? null : _discharge,
+          icon: const Icon(Icons.logout, size: 16),
+          label: const Text('Discharge'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppTheme.errorRed,
+            side: BorderSide(color: AppTheme.errorRed.withValues(alpha: 0.4)),
+          ),
+        ),
+      );
+      actions.add(
+        OutlinedButton.icon(
+          onPressed: _busy ? null : () => _setStatus('maintenance'),
+          icon: const Icon(Icons.build, size: 16),
+          label: const Text('Maintenance'),
+        ),
+      );
+    } else if (status == 'available') {
+      actions.add(
+        FilledButton.icon(
+          onPressed: _busy ? null : _admit,
+          icon: const Icon(Icons.person_add, size: 16),
+          label: const Text('Admit Patient'),
+        ),
+      );
+      actions.add(
+        OutlinedButton.icon(
+          onPressed: _busy ? null : () => _setStatus('maintenance'),
+          icon: const Icon(Icons.build, size: 16),
+          label: const Text('Maintenance'),
+        ),
+      );
+    } else if (status == 'maintenance') {
+      actions.add(
+        FilledButton.icon(
+          onPressed: _busy ? null : () => _setStatus('available'),
+          icon: const Icon(Icons.check_circle_outline, size: 16),
+          label: const Text('Mark Available'),
+        ),
+      );
+    }
+
+    if (actions.isEmpty) return const SizedBox.shrink();
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: actions,
+    );
+  }
+}
+
+/// Slim search picker used by the bed-sheet's "Admit Patient" flow.
+/// Same as [PatientSearchSheet] but pops the selected patient back to
+/// the caller via `Navigator.pop(picked)` instead of routing into
+/// the EMR. Lives in this file because it only makes sense in this
+/// admit-bed context.
+class _AdmitPatientPicker extends StatefulWidget {
+  const _AdmitPatientPicker();
+  @override
+  State<_AdmitPatientPicker> createState() => _AdmitPatientPickerState();
+}
+
+class _AdmitPatientPickerState extends State<_AdmitPatientPicker> {
+  final _ctrl = TextEditingController();
+  final _focus = FocusNode();
+  Timer? _debounce;
+  String _last = '';
+  bool _loading = false;
+  String? _error;
+  List<Map<String, dynamic>> _rows = [];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _focus.requestFocus(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _ctrl.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  Future<void> _search(String q) async {
+    if (q.isEmpty) {
+      setState(() {
+        _rows = [];
+        _last = '';
+      });
+      return;
+    }
+    _last = q;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final response = await ApiClient.get(
+        '/patients/search',
+        queryParameters: {'q': q, 'limit': '20'},
+      );
+      if (!mounted || q != _last) return;
+      if (response.isSuccess) {
+        final raw = response.raw;
+        if (raw is Map<String, dynamic>) {
+          final data = raw['data'];
+          if (data is Map<String, dynamic>) {
+            final list = data['patients'];
+            if (list is List) {
+              _rows = list
+                  .whereType<Map<String, dynamic>>()
+                  .map((e) => Map<String, dynamic>.from(e))
+                  .toList();
+            }
+          }
+        }
+        setState(() => _loading = false);
+      } else {
+        setState(() {
+          _error = response.message ?? 'Search failed';
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'Could not connect to server';
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final viewInsets = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: viewInsets),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height * 0.7,
+          child: Column(
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(top: 8, bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  'Admit which patient?',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: TextField(
+                  controller: _ctrl,
+                  focusNode: _focus,
+                  decoration: InputDecoration(
+                    hintText: 'Search by name, phone, or ABHA…',
+                    prefixIcon: const Icon(Icons.search),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    filled: true,
+                    fillColor: AppTheme.backgroundGrey,
+                  ),
+                  onChanged: (v) {
+                    _debounce?.cancel();
+                    _debounce = Timer(
+                      const Duration(milliseconds: 300),
+                      () => _search(v.trim()),
+                    );
+                  },
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(child: _buildBody()),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading && _rows.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            _error!,
+            style: TextStyle(color: AppTheme.errorRed),
+          ),
+        ),
+      );
+    }
+    if (_last.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'Type to find a patient.',
+            style: TextStyle(color: AppTheme.textSecondary),
+          ),
+        ),
+      );
+    }
+    if (_rows.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'No matches for "$_last"',
+            style: TextStyle(color: AppTheme.textSecondary),
+          ),
+        ),
+      );
+    }
+    return ListView.separated(
+      itemCount: _rows.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (ctx, i) {
+        final p = _rows[i];
+        final name = (p['name'] ?? 'Unnamed').toString();
+        final age = p['age'];
+        final gender = (p['gender'] ?? '').toString();
+        final phone = (p['phone'] ?? '').toString();
+        final subtitleParts = <String>[
+          if (age != null && age.toString().isNotEmpty)
+            '${age.toString()} yr',
+          if (gender.isNotEmpty)
+            gender[0].toUpperCase() + gender.substring(1).toLowerCase(),
+          if (phone.isNotEmpty) phone,
+        ];
+        return ListTile(
+          title: Text(
+            name,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          subtitle: subtitleParts.isEmpty
+              ? null
+              : Text(subtitleParts.join(' · ')),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(ctx).pop(p),
+        );
+      },
+    );
+  }
 }
