@@ -2,6 +2,7 @@
 
 import express from 'express';
 import { notificationController } from '../../controllers/notification/notificationController.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import {
   notificationValidator,
@@ -23,23 +24,46 @@ const router = express.Router();
 // Public test route
 router.get('/test', notificationController.test);
 
-// P2 Security: Derive phone from JWT instead of URL path
-router.get('/my', (req, res, next) => {
-  const phone = req.user?.phone;
-  if (!phone) {
-    return res.status(400).json({ success: false, message: 'Phone not available in token. Use /:phone endpoint.' });
+// P2 Security: Derive phone from JWT instead of URL path. The patient
+// JWT carries `phone` directly; staff JWTs don't (they only sign
+// `{ uid, role }` — see staffAuthService.generateAccessToken). Fall
+// back to a uid→phone lookup against `users` so the staff app's bell
+// icon doesn't 400 on every poll.
+async function resolvePhoneFromJwt(req) {
+  if (req.user?.phone) return req.user.phone;
+  const uid = req.user?.uid;
+  if (!uid) return null;
+  const row = await prisma.users.findUnique({
+    where: { uid: String(uid) },
+    select: { phone: true },
+  });
+  return row?.phone || null;
+}
+
+router.get('/my', async (req, res, next) => {
+  try {
+    const phone = await resolvePhoneFromJwt(req);
+    if (!phone) {
+      return res.status(400).json({ success: false, message: 'Phone not available for this user.' });
+    }
+    req.params.phone = phone;
+    next();
+  } catch (err) {
+    next(err);
   }
-  req.params.phone = phone;
-  next();
 }, notificationController.getByPhone);
 
-router.patch('/my/mark-all-read', (req, res, next) => {
-  const phone = req.user?.phone;
-  if (!phone) {
-    return res.status(400).json({ success: false, message: 'Phone not available in token.' });
+router.patch('/my/mark-all-read', async (req, res, next) => {
+  try {
+    const phone = await resolvePhoneFromJwt(req);
+    if (!phone) {
+      return res.status(400).json({ success: false, message: 'Phone not available for this user.' });
+    }
+    req.params.phone = phone;
+    next();
+  } catch (err) {
+    next(err);
   }
-  req.params.phone = phone;
-  next();
 }, notificationController.markAllAsReadByPhone);
 
 // DEPRECATED: Use GET /my instead. PII in URL is a security risk.

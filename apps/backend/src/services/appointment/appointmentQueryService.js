@@ -56,9 +56,29 @@ const PATIENT_INCLUDE = {
 // Format a date range filter for `DATE(appointment_date) = $d` — Prisma's
 // Date equality on an appointment_date Date column needs the whole day
 // covered.
+//
+// Accepts either an ISO date string ("2026-05-02") OR a relative keyword
+// ("today" / "tomorrow" / "yesterday"). The validator's customSanitizer
+// would normally rewrite these before hitting the controller, but Express 5
+// made `req.query` immutable — sanitizer return values don't persist into
+// `req.query.date`. Resolve here as the authoritative second line of defense
+// so /appointments/list?date=today renders 200 instead of bombing through
+// `new Date("today")` → Invalid Date → Prisma validation error → 500.
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+function resolveDateInput(date) {
+  if (typeof date !== 'string') return date;
+  const v = date.trim().toLowerCase();
+  const now = new Date();
+  if (v === 'today') return now.toISOString().slice(0, 10);
+  if (v === 'tomorrow') return new Date(now.getTime() + ONE_DAY_MS).toISOString().slice(0, 10);
+  if (v === 'yesterday') return new Date(now.getTime() - ONE_DAY_MS).toISOString().slice(0, 10);
+  return date;
+}
+
 function dateRangeFilter(date) {
-  const start = new Date(date);
-  const end = new Date(date);
+  const resolved = resolveDateInput(date);
+  const start = new Date(resolved);
+  const end = new Date(resolved);
   end.setDate(end.getDate() + 1);
   return { gte: start, lt: end };
 }

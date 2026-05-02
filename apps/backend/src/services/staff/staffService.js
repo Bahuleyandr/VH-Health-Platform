@@ -78,17 +78,21 @@ export const getStaffList = async (filters, userRole) => {
     LIMIT $2 OFFSET $3
   `;
 
-  const result = await prisma.$queryRawUnsafe(query, params);
+  // `prisma.$queryRawUnsafe(sql, ...params)` takes spread args — passing
+  // the array as a single argument binds the WHOLE array to $1 and the
+  // remaining placeholders go unbound (P1016, "Expected: N, actual: 1").
+  // See `apps/backend/CLAUDE.md` Phase 0.5 conventions.
+  const result = await prisma.$queryRawUnsafe(query, ...params);
 
   // Get total count
   const countQuery = `
     SELECT COUNT(*)
-    FROM users u 
-    LEFT JOIN staff s ON u.uid = s.user_id 
+    FROM users u
+    LEFT JOIN staff s ON u.uid = s.user_id
     LEFT JOIN users sup ON s.supervisor_id = sup.id
     ${whereClause}
   `;
-  const countResult = await prisma.$queryRawUnsafe(countQuery, params.slice(3));
+  const countResult = await prisma.$queryRawUnsafe(countQuery, ...params.slice(3));
   const totalStaff = parseInt(countResult[0].count);
 
   // Get statistics

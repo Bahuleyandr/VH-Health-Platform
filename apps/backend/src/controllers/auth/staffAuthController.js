@@ -120,6 +120,13 @@ export const logout = async (req, res) => {
 // EMP-* via employee_id, or numeric via users.id). The previous
 // implementation called `StaffAuthService.getStaffProfile` — a method
 // that doesn't exist on the class — and 500'd on every staff role.
+//
+// The service throws a plain `Error('NOT_FOUND')` rather than returning
+// null when the role hierarchy filter excludes the requesting role
+// (notably SUPER_ADMIN, which isn't in any other role's `viewable`
+// list). Catch that specific shape and surface a real 404 instead of
+// a 500 — the staff app's Profile screen handles 404 gracefully but
+// blank-screens on 500.
 export const getProfile = async (req, res) => {
   try {
     const staffUid = req.user.uid;
@@ -129,6 +136,9 @@ export const getProfile = async (req, res) => {
     }
     success(res, profile, 'Staff profile retrieved');
   } catch (err) {
+    if (err?.message === 'NOT_FOUND') {
+      return error(res, 'Staff profile not found', HTTP_STATUS.NOT_FOUND);
+    }
     logger.error('Get Profile Error:', err);
     error(res, 'Failed to get profile', err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
