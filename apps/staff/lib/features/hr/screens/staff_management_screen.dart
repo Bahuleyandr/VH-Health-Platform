@@ -76,7 +76,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
           // Search bar
           Container(
             color: Colors.white,
-            padding: const EdgeInsets.all(12),
+            padding: EdgeInsets.all(12),
             child: TextField(
               controller: _searchCtrl,
               decoration: InputDecoration(
@@ -237,7 +237,7 @@ class _StaffCard extends StatelessWidget {
                       Expanded(
                         child: Text(
                           name,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: AppTheme.textPrimary,
                           ),
@@ -274,7 +274,7 @@ class _StaffCard extends StatelessWidget {
                   ),
                   Text(
                     '$dept • ID: $empId',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       color: AppTheme.textSecondary,
                     ),
@@ -283,7 +283,7 @@ class _StaffCard extends StatelessWidget {
               ),
             ),
             IconButton(
-              icon: const Icon(
+              icon: Icon(
                 Icons.edit_outlined,
                 color: AppTheme.textSecondary,
               ),
@@ -418,11 +418,11 @@ class _ErrorState extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             error,
-            style: const TextStyle(color: AppTheme.textSecondary),
+            style: TextStyle(color: AppTheme.textSecondary),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'Staff list API may not be available yet.',
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
           ),
@@ -443,15 +443,15 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(
+          Icon(
             Icons.people_outline,
             size: 56,
             color: AppTheme.textSecondary,
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           Text(
             hasSearch ? 'No staff found' : 'No staff members',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
               color: AppTheme.textPrimary,
@@ -463,7 +463,7 @@ class _EmptyState extends StatelessWidget {
                 ? 'Try a different search term'
                 : 'Staff data will appear here once the API is connected',
             textAlign: TextAlign.center,
-            style: const TextStyle(color: AppTheme.textSecondary),
+            style: TextStyle(color: AppTheme.textSecondary),
           ),
         ],
       ),

@@ -320,7 +320,7 @@ class _UploadTabState extends State<_UploadTab> {
                           ? AppTheme.accentCyan
                           : AppTheme.textSecondary,
                     ),
-                    const SizedBox(height: 4),
+                    SizedBox(height: 4),
                     Text(
                       _fileName ?? 'Attach Report File (optional)',
                       style: TextStyle(
@@ -456,7 +456,7 @@ class _PendingTabState extends State<_PendingTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return Center(child: CircularProgressIndicator());
     if (_error != null) {
       return Center(
         child: Column(
@@ -466,7 +466,7 @@ class _PendingTabState extends State<_PendingTab> {
             const SizedBox(height: 8),
             Text(
               _error!,
-              style: const TextStyle(color: AppTheme.textSecondary),
+              style: TextStyle(color: AppTheme.textSecondary),
             ),
             TextButton(onPressed: _load, child: const Text('Retry')),
           ],
@@ -474,7 +474,7 @@ class _PendingTabState extends State<_PendingTab> {
       );
     }
     if (_pending.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -548,14 +548,14 @@ class _PendingTabState extends State<_PendingTab> {
                           children: [
                             Text(
                               testType,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: AppTheme.textPrimary,
                               ),
                             ),
                             Text(
                               patientName,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 12,
                                 color: AppTheme.textSecondary,
                               ),
@@ -584,10 +584,10 @@ class _PendingTabState extends State<_PendingTab> {
                     ],
                   ),
                   if (date.isNotEmpty) ...[
-                    const SizedBox(height: 8),
+                    SizedBox(height: 8),
                     Text(
                       date,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 11,
                         color: AppTheme.textSecondary,
                       ),
@@ -666,7 +666,7 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return Center(child: CircularProgressIndicator());
     if (_error != null) {
       return Center(
         child: Column(
@@ -676,7 +676,7 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
             const SizedBox(height: 8),
             Text(
               _error!,
-              style: const TextStyle(color: AppTheme.textSecondary),
+              style: TextStyle(color: AppTheme.textSecondary),
             ),
             TextButton(onPressed: _load, child: const Text('Retry')),
           ],
@@ -684,7 +684,7 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
       );
     }
     if (_investigations.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

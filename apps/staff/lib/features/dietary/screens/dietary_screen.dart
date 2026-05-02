@@ -367,7 +367,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
         children: [
           const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
           const SizedBox(height: 16),
-          Text(_error!, style: const TextStyle(color: AppTheme.textSecondary)),
+          Text(_error!, style: TextStyle(color: AppTheme.textSecondary)),
           const SizedBox(height: 16),
           ElevatedButton.icon(
             onPressed: _fetchOrders,
@@ -385,8 +385,8 @@ class _DietaryScreenState extends State<DietaryScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.restaurant_menu, size: 64, color: Colors.grey.shade400),
-          const SizedBox(height: 16),
-          const Text(
+          SizedBox(height: 16),
+          Text(
             'No dietary orders',
             style: TextStyle(
               fontSize: 18,
@@ -395,7 +395,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'Tap the button below to create a new order',
             style: TextStyle(color: AppTheme.textSecondary),
           ),
@@ -477,7 +477,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
                           if (dietType.isNotEmpty) dietType,
                           if (mealTime.isNotEmpty) mealTime,
                         ].join(' - '),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
                           color: AppTheme.textSecondary,
                         ),
@@ -536,10 +536,10 @@ class _DietaryScreenState extends State<DietaryScreen> {
 
             // Notes
             if (notes.isNotEmpty) ...[
-              const SizedBox(height: 6),
+              SizedBox(height: 6),
               Text(
                 notes,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
                   color: AppTheme.textSecondary,
                 ),
@@ -555,7 +555,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
                 if (timeStr.isNotEmpty)
                   Text(
                     timeStr,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
                       color: AppTheme.textSecondary,
                     ),

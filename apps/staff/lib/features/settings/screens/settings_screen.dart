@@ -219,7 +219,7 @@ class SettingsScreen extends StatelessWidget {
                 icon: Icons.pin_outlined,
                 title: 'Set Up PIN',
                 subtitle: 'Set or update your 4–6 digit quick-access PIN',
-                trailing: const Icon(
+                trailing: Icon(
                   Icons.chevron_right,
                   color: AppTheme.textSecondary,
                 ),
@@ -232,7 +232,7 @@ class SettingsScreen extends StatelessWidget {
                 icon: Icons.devices,
                 title: 'Manage Devices',
                 subtitle: 'View and remove registered devices',
-                trailing: const Icon(
+                trailing: Icon(
                   Icons.chevron_right,
                   color: AppTheme.textSecondary,
                 ),
@@ -249,7 +249,7 @@ class SettingsScreen extends StatelessWidget {
                 icon: Icons.person_outlined,
                 title: 'Profile',
                 subtitle: 'View and edit your staff profile',
-                trailing: const Icon(
+                trailing: Icon(
                   Icons.chevron_right,
                   color: AppTheme.textSecondary,
                 ),
@@ -260,7 +260,7 @@ class SettingsScreen extends StatelessWidget {
                 icon: Icons.fingerprint,
                 title: 'Attendance',
                 subtitle: 'Check in/out and view history',
-                trailing: const Icon(
+                trailing: Icon(
                   Icons.chevron_right,
                   color: AppTheme.textSecondary,
                 ),
@@ -271,7 +271,7 @@ class SettingsScreen extends StatelessWidget {
                 icon: Icons.event_available,
                 title: 'Leave',
                 subtitle: 'Apply for leave and check balance',
-                trailing: const Icon(
+                trailing: Icon(
                   Icons.chevron_right,
                   color: AppTheme.textSecondary,
                 ),
@@ -288,7 +288,7 @@ class SettingsScreen extends StatelessWidget {
                 icon: Icons.info_outlined,
                 title: 'About VHHealth Staff',
                 subtitle: 'Version 1.0.0 · App info & features',
-                trailing: const Icon(
+                trailing: Icon(
                   Icons.chevron_right,
                   color: AppTheme.textSecondary,
                 ),
@@ -325,10 +325,10 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8, left: 4),
+      padding: EdgeInsets.only(bottom: 8, left: 4),
       child: Text(
         title.toUpperCase(),
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.bold,
           color: AppTheme.textSecondary,
@@ -370,7 +370,7 @@ class _SettingsTile extends StatelessWidget {
       leading: Icon(icon, color: AppTheme.primaryBlue),
       title: Text(
         title,
-        style: const TextStyle(
+        style: TextStyle(
           fontWeight: FontWeight.w500,
           color: AppTheme.textPrimary,
         ),
@@ -378,7 +378,7 @@ class _SettingsTile extends StatelessWidget {
       subtitle: subtitle != null
           ? Text(
               subtitle!,
-              style: const TextStyle(
+              style: TextStyle(
                 color: AppTheme.textSecondary,
                 fontSize: 12,
               ),
@@ -433,15 +433,15 @@ class _BiometricToggleTileState extends State<_BiometricToggleTile> {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: const Icon(Icons.fingerprint, color: AppTheme.primaryBlue),
-      title: const Text(
+      leading: Icon(Icons.fingerprint, color: AppTheme.primaryBlue),
+      title: Text(
         'Biometric Login',
         style: TextStyle(
           fontWeight: FontWeight.w500,
           color: AppTheme.textPrimary,
         ),
       ),
-      subtitle: const Text(
+      subtitle: Text(
         'Use fingerprint or face to sign in',
         style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
       ),
@@ -547,11 +547,11 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
           const Divider(height: 1),
           Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator())
+                ? Center(child: CircularProgressIndicator())
                 : _error != null
                 ? Center(child: Text(_error!))
                 : _devices.isEmpty
-                ? const Center(
+                ? Center(
                     child: Text(
                       'No devices registered',
                       style: TextStyle(color: AppTheme.textSecondary),
@@ -583,7 +583,7 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
                         subtitle: platform.isNotEmpty
                             ? Text(
                                 platform,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 12,
                                   color: AppTheme.textSecondary,
                                 ),

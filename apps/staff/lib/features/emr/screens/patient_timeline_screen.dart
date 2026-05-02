@@ -180,7 +180,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                           Text(
                             event['title'] as String? ??
                                 '${(type ?? 'event').toUpperCase()} Event',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.w600,
                               color: AppTheme.textPrimary,
@@ -188,7 +188,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                           ),
                           Text(
                             _formatTimestamp(event['timestamp'] as String?),
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: AppTheme.textSecondary,
                               fontSize: 13,
                             ),
@@ -247,7 +247,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
             width: 120,
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 color: AppTheme.textSecondary,
                 fontSize: 13,
               ),
@@ -373,10 +373,10 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                                 ),
                               ),
                             ),
-                            const Spacer(),
+                            Spacer(),
                             Text(
                               _formatTimestamp(event['timestamp'] as String?),
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 11,
                                 color: AppTheme.textSecondary,
                               ),
@@ -392,10 +392,10 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                           ),
                         ),
                         if (event['description'] != null) ...[
-                          const SizedBox(height: 4),
+                          SizedBox(height: 4),
                           Text(
                             event['description'] as String,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 13,
                               color: AppTheme.textSecondary,
                             ),
@@ -404,18 +404,18 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                           ),
                         ],
                         if (event['author'] != null) ...[
-                          const SizedBox(height: 6),
+                          SizedBox(height: 6),
                           Row(
                             children: [
-                              const Icon(
+                              Icon(
                                 Icons.person_outline,
                                 size: 13,
                                 color: AppTheme.textSecondary,
                               ),
-                              const SizedBox(width: 4),
+                              SizedBox(width: 4),
                               Text(
                                 event['author'] as String,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 11,
                                   color: AppTheme.textSecondary,
                                 ),
@@ -469,10 +469,10 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
               children: [
                 const SizedBox(height: 8),
                 _buildFilterChips(),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 Expanded(
                   child: filtered.isEmpty
-                      ? const Center(
+                      ? Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [

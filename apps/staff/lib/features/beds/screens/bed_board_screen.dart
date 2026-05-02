@@ -177,7 +177,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         children: [
           const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
           const SizedBox(height: 16),
-          Text(_error!, style: const TextStyle(color: AppTheme.textSecondary)),
+          Text(_error!, style: TextStyle(color: AppTheme.textSecondary)),
           const SizedBox(height: 16),
           ElevatedButton.icon(
             onPressed: _fetchWards,
@@ -227,7 +227,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         // Ward list
         Expanded(
           child: _filteredWards.isEmpty
-              ? const Center(
+              ? Center(
                   child: Text(
                     'No wards found',
                     style: TextStyle(color: AppTheme.textSecondary),
@@ -334,7 +334,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
               ),
               Text(
                 _selectedWardName ?? 'Ward',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: AppTheme.textPrimary,
@@ -356,9 +356,9 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         // Bed grid
         Expanded(
           child: _loadingBeds
-              ? const Center(child: CircularProgressIndicator())
+              ? Center(child: CircularProgressIndicator())
               : _beds.isEmpty
-              ? const Center(
+              ? Center(
                   child: Text(
                     'No beds found in this ward',
                     style: TextStyle(color: AppTheme.textSecondary),
@@ -458,7 +458,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
             if (doctorName.toString().isNotEmpty)
               Text(
                 'Dr. $doctorName',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11,
                   color: AppTheme.textSecondary,
                 ),
@@ -483,7 +483,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         const SizedBox(width: 4),
         Text(
           label,
-          style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
         ),
       ],
     );
@@ -502,7 +502,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         ),
         Text(
           label,
-          style: const TextStyle(fontSize: 10, color: AppTheme.textSecondary),
+          style: TextStyle(fontSize: 10, color: AppTheme.textSecondary),
         ),
       ],
     );

@@ -188,18 +188,18 @@ class _LoginScreenState extends State<LoginScreen> {
             Expanded(
               child: Container(
                 width: double.infinity,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: AppTheme.backgroundGrey,
                   borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
                 ),
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
+                  padding: EdgeInsets.all(24),
                   child: Form(
                     key: _formKey,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const SizedBox(height: 8),
+                        SizedBox(height: 8),
                         Text(
                           'Sign In',
                           style: Theme.of(context).textTheme.headlineSmall
@@ -209,7 +209,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                         ),
                         const SizedBox(height: 4),
-                        const Text(
+                        Text(
                           'Use your employee credentials to access the portal',
                           style: TextStyle(color: AppTheme.textSecondary),
                         ),
@@ -346,7 +346,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             GestureDetector(
                               onTap: () =>
                                   setState(() => _rememberMe = !_rememberMe),
-                              child: const Text(
+                              child: Text(
                                 'Remember Employee ID',
                                 style: TextStyle(
                                   color: AppTheme.textSecondary,
@@ -481,7 +481,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(height: 32),
 
                         // Footer
-                        const Center(
+                        Center(
                           child: Text(
                             'VHHealth · Staff Access Only',
                             style: TextStyle(
@@ -520,7 +520,7 @@ class _ModeChip extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         decoration: BoxDecoration(
           color: selected ? AppTheme.primaryBlue : Colors.white,
           borderRadius: BorderRadius.circular(20),

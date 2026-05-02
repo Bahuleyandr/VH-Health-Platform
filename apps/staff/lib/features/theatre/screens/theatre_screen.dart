@@ -218,7 +218,7 @@ class _TheatreScreenState extends State<TheatreScreen>
                   Expanded(
                     child: Text(
                       s['procedure_name']?.toString() ?? 'Procedure',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 15,
                         color: AppTheme.textPrimary,
@@ -261,10 +261,10 @@ class _TheatreScreenState extends State<TheatreScreen>
                   ),
                 ],
               ),
-              const SizedBox(height: 6),
+              SizedBox(height: 6),
               Text(
                 'Surgeon: ${s['surgeon']?.toString() ?? '-'}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13,
                   color: AppTheme.textSecondary,
                 ),
@@ -284,7 +284,7 @@ class _TheatreScreenState extends State<TheatreScreen>
         const SizedBox(width: 4),
         Text(
           text,
-          style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
         ),
       ],
     );
@@ -322,10 +322,10 @@ class _TheatreScreenState extends State<TheatreScreen>
                       ),
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  SizedBox(height: 20),
                   Text(
                     s['procedure_name']?.toString() ?? 'Procedure',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                       color: AppTheme.textPrimary,
@@ -435,7 +435,7 @@ class _TheatreScreenState extends State<TheatreScreen>
             width: 130,
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 color: AppTheme.textSecondary,
                 fontSize: 13,
               ),
@@ -509,8 +509,8 @@ class _TheatreScreenState extends State<TheatreScreen>
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  const Text(
+                  SizedBox(height: 16),
+                  Text(
                     'Pre-op Checklist',
                     style: TextStyle(
                       fontSize: 18,
@@ -638,10 +638,10 @@ class _TheatreScreenState extends State<TheatreScreen>
                               ? AppTheme.successGreen
                               : AppTheme.errorRed,
                         ),
-                        const SizedBox(height: 8),
+                        SizedBox(height: 8),
                         Text(
                           name,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 14,
                             color: AppTheme.textPrimary,
@@ -685,7 +685,7 @@ class _TheatreScreenState extends State<TheatreScreen>
   Widget _buildError(VoidCallback retry) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32),
+        padding: EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -694,7 +694,7 @@ class _TheatreScreenState extends State<TheatreScreen>
             Text(
               _error ?? 'Something went wrong',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: AppTheme.textSecondary),
+              style: TextStyle(color: AppTheme.textSecondary),
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(

@@ -135,8 +135,8 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    const Text(
+                    SizedBox(height: 16),
+                    Text(
                       'Admit Patient',
                       style: TextStyle(
                         fontSize: 20,
@@ -370,7 +370,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
               ),
             )
           : _admissions.isEmpty
-          ? const Center(
+          ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -420,7 +420,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                           if (a['chief_complaint'] != null)
                             Text(
                               a['chief_complaint'] as String,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 12,
                                 color: AppTheme.textSecondary,
                               ),
@@ -489,7 +489,7 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
             width: 120,
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 color: AppTheme.textSecondary,
                 fontSize: 13,
               ),
@@ -543,19 +543,19 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   Text(
                     _detail?['patient_name'] as String? ?? 'Patient',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w600,
                       color: AppTheme.textPrimary,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  SizedBox(height: 4),
                   Text(
                     'Admission #${widget.admissionId}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: AppTheme.textSecondary,
                       fontSize: 13,
                     ),

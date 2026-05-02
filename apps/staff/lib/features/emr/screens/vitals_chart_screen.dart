@@ -147,8 +147,8 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    const Text(
+                    SizedBox(height: 16),
+                    Text(
                       'Record Vitals',
                       style: TextStyle(
                         fontSize: 20,
@@ -178,7 +178,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             keyboardType: TextInputType.number,
                           ),
                         ),
-                        const Padding(
+                        Padding(
                           padding: EdgeInsets.symmetric(horizontal: 8),
                           child: Text(
                             '/',
@@ -461,8 +461,8 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    const Text(
+                    SizedBox(height: 16),
+                    Text(
                       'Record I/O',
                       style: TextStyle(
                         fontSize: 20,
@@ -622,7 +622,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
+        padding: EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
           color: selected
               ? color.withValues(alpha: 0.12)
@@ -641,7 +641,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
               color: selected ? color : AppTheme.textSecondary,
               size: 20,
             ),
-            const SizedBox(width: 6),
+            SizedBox(width: 6),
             Text(
               label,
               style: TextStyle(
@@ -714,7 +714,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
       );
     }
     if (_vitalsHistory.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -949,7 +949,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                       : null,
                   trailing: Text(
                     _formatTime(entry['recorded_at'] as String?),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       color: AppTheme.textSecondary,
                     ),
@@ -958,7 +958,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
               );
             }),
           ] else
-            const Center(
+            Center(
               child: Padding(
                 padding: EdgeInsets.all(24),
                 child: Text(
@@ -993,10 +993,10 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                 color: color,
               ),
             ),
-            const SizedBox(height: 2),
+            SizedBox(height: 2),
             Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11,
                 color: AppTheme.textSecondary,
               ),
@@ -1026,7 +1026,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
               widget.patientName != null
                   ? 'Record vitals for ${widget.patientName}'
                   : 'Record patient vitals',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 16,
                 color: AppTheme.textSecondary,
               ),

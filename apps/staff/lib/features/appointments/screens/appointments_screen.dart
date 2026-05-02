@@ -134,10 +134,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                             color: AppTheme.errorRed,
                             size: 40,
                           ),
-                          const SizedBox(height: 8),
+                          SizedBox(height: 8),
                           Text(
                             _error!,
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: AppTheme.textSecondary,
                             ),
                           ),
@@ -149,7 +149,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                       ),
                     )
                   : _appointments.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -236,7 +236,7 @@ class _AppointmentCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     patientName,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 15,
                       color: AppTheme.textPrimary,
@@ -327,11 +327,11 @@ class _InfoRow extends StatelessWidget {
       child: Row(
         children: [
           Icon(icon, size: 14, color: AppTheme.textSecondary),
-          const SizedBox(width: 6),
+          SizedBox(width: 6),
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 color: AppTheme.textSecondary,
               ),
