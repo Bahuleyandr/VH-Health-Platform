@@ -498,7 +498,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
+                Text(
                   'Medications *',
                   style: TextStyle(
                     fontSize: 15,
@@ -1194,7 +1194,7 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return Center(child: CircularProgressIndicator());
     if (_error != null) {
       return Center(
         child: Column(
@@ -1204,7 +1204,7 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
             const SizedBox(height: 8),
             Text(
               _error!,
-              style: const TextStyle(color: AppTheme.textSecondary),
+              style: TextStyle(color: AppTheme.textSecondary),
             ),
             TextButton(onPressed: _load, child: const Text('Retry')),
           ],
@@ -1212,7 +1212,7 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
       );
     }
     if (_prescriptions.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

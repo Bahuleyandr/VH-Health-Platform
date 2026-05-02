@@ -568,7 +568,7 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
             ),
           if (_trends != null) Expanded(child: _buildTrendsView(_trends!)),
           if (_trends == null && !_loading && _error == null)
-            const Expanded(
+            Expanded(
               child: Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -600,7 +600,7 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
         [];
 
     if (records.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           'No vital records found for this patient',
           style: TextStyle(color: AppTheme.textSecondary),
@@ -634,11 +634,11 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
                       size: 18,
                       color: Color(0xFFC62828),
                     ),
-                    const SizedBox(width: 8),
+                    SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         date,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           color: AppTheme.textSecondary,
                         ),
@@ -668,10 +668,10 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
                   ],
                 ),
                 if (r['notes'] != null && r['notes'].toString().isNotEmpty) ...[
-                  const SizedBox(height: 8),
+                  SizedBox(height: 8),
                   Text(
                     r['notes'].toString(),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       color: AppTheme.textSecondary,
                     ),
@@ -699,7 +699,7 @@ class _VitalChip extends StatelessWidget {
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 10,
             color: AppTheme.textSecondary,
             fontWeight: FontWeight.w500,
@@ -707,7 +707,7 @@ class _VitalChip extends StatelessWidget {
         ),
         Text(
           '$value $unit',
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.bold,
             color: AppTheme.textPrimary,

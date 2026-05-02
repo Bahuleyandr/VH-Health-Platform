@@ -288,7 +288,7 @@ class _SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       title,
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 15,
         fontWeight: FontWeight.bold,
         color: AppTheme.textPrimary,
@@ -321,7 +321,7 @@ class _StatTile extends StatelessWidget {
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 6,
-            offset: const Offset(0, 2),
+            offset: Offset(0, 2),
           ),
         ],
       ),
@@ -341,7 +341,7 @@ class _StatTile extends StatelessWidget {
           ),
           Text(
             label,
-            style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+            style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
           ),
         ],
       ),
@@ -357,17 +357,17 @@ class _DataRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
             label,
-            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+            style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
           ),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontWeight: FontWeight.bold,
               color: AppTheme.textPrimary,
             ),
@@ -427,14 +427,14 @@ class _ActionTile extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: AppTheme.textPrimary,
                     ),
                   ),
                   Text(
                     subtitle,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       color: AppTheme.textSecondary,
                     ),
@@ -442,7 +442,7 @@ class _ActionTile extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, color: AppTheme.textSecondary),
+            Icon(Icons.chevron_right, color: AppTheme.textSecondary),
           ],
         ),
       ),
@@ -465,7 +465,7 @@ class _ErrorState extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             error,
-            style: const TextStyle(color: AppTheme.textSecondary),
+            style: TextStyle(color: AppTheme.textSecondary),
             textAlign: TextAlign.center,
           ),
           TextButton(onPressed: onRetry, child: const Text('Retry')),

@@ -223,7 +223,7 @@ class _QueueScreenState extends State<QueueScreen> {
       title: 'Patient Queue',
       actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _load)],
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? Center(child: CircularProgressIndicator())
           : _error != null
           ? Center(
               child: Column(
@@ -237,7 +237,7 @@ class _QueueScreenState extends State<QueueScreen> {
                   const SizedBox(height: 8),
                   Text(
                     _error!,
-                    style: const TextStyle(color: AppTheme.textSecondary),
+                    style: TextStyle(color: AppTheme.textSecondary),
                   ),
                   TextButton(onPressed: _load, child: const Text('Retry')),
                 ],
@@ -295,7 +295,7 @@ class _QueueScreenState extends State<QueueScreen> {
                     AppTheme.warningAmber,
                   ),
                   if (_waiting.isEmpty)
-                    const Padding(
+                    Padding(
                       padding: EdgeInsets.symmetric(vertical: 24),
                       child: Center(
                         child: Text(
@@ -334,7 +334,7 @@ class _QueueScreenState extends State<QueueScreen> {
                     AppTheme.successGreen,
                   ),
                   if (_completed.isEmpty)
-                    const Padding(
+                    Padding(
                       padding: EdgeInsets.symmetric(vertical: 24),
                       child: Center(
                         child: Text(
@@ -450,7 +450,7 @@ class _CurrentConsultationCard extends StatelessWidget {
                       children: [
                         Text(
                           name,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
                             color: AppTheme.textPrimary,
@@ -459,7 +459,7 @@ class _CurrentConsultationCard extends StatelessWidget {
                         if (type.isNotEmpty)
                           Text(
                             type,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 13,
                               color: AppTheme.textSecondary,
                             ),
@@ -608,7 +608,7 @@ class _QueueCard extends StatelessWidget {
                   children: [
                     Text(
                       name,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 14,
                         color: AppTheme.textPrimary,
@@ -619,13 +619,13 @@ class _QueueCard extends StatelessWidget {
                         if (displayTime.isNotEmpty) ...[
                           Text(
                             displayTime,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
                               color: AppTheme.textSecondary,
                             ),
                           ),
                           if (type.isNotEmpty)
-                            const Text(
+                            Text(
                               ' · ',
                               style: TextStyle(color: AppTheme.textSecondary),
                             ),
@@ -633,7 +633,7 @@ class _QueueCard extends StatelessWidget {
                         if (type.isNotEmpty)
                           Text(
                             type,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
                               color: AppTheme.textSecondary,
                             ),
@@ -656,7 +656,7 @@ class _QueueCard extends StatelessWidget {
                 ),
               ?trailing,
               if (!completed && trailing == null)
-                const Icon(
+                Icon(
                   Icons.chevron_right,
                   color: AppTheme.textSecondary,
                   size: 20,
@@ -771,7 +771,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
                         if (widget.phone.isNotEmpty)
                           Text(
                             widget.phone,
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: AppTheme.textSecondary,
                               fontSize: 13,
                             ),
@@ -790,12 +790,12 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
             // Content
             Expanded(
               child: _loading
-                  ? const Center(child: CircularProgressIndicator())
+                  ? Center(child: CircularProgressIndicator())
                   : _error != null
                   ? Center(
                       child: Text(
                         _error!,
-                        style: const TextStyle(color: AppTheme.textSecondary),
+                        style: TextStyle(color: AppTheme.textSecondary),
                       ),
                     )
                   : ListView(
@@ -848,7 +848,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
               Text(
                 '${gender.isNotEmpty ? gender : ''} ${age.isNotEmpty ? '• Age: $age' : ''}'
                     .trim(),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13,
                   color: AppTheme.textSecondary,
                 ),
@@ -917,7 +917,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
         [];
 
     if (records.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           'No health records found',
           style: TextStyle(color: AppTheme.textSecondary),
@@ -976,7 +976,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
               trailing: date.isNotEmpty
                   ? Text(
                       date.length > 10 ? date.substring(0, 10) : date,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 11,
                         color: AppTheme.textSecondary,
                       ),

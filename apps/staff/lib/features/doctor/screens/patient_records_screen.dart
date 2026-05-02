@@ -90,7 +90,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
           // Search
           Container(
             color: Colors.white,
-            padding: const EdgeInsets.all(12),
+            padding: EdgeInsets.all(12),
             child: TextField(
               controller: _searchCtrl,
               decoration: InputDecoration(
@@ -205,7 +205,7 @@ class _PatientCard extends StatelessWidget {
                       children: [
                         Text(
                           patientName,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: AppTheme.textPrimary,
                             fontSize: 15,
@@ -213,7 +213,7 @@ class _PatientCard extends StatelessWidget {
                         ),
                         Text(
                           type,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12,
                             color: AppTheme.textSecondary,
                           ),
@@ -306,10 +306,10 @@ class _PatientDetailsSheet extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           Text(
             patientName,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
               color: AppTheme.textPrimary,
@@ -319,10 +319,10 @@ class _PatientDetailsSheet extends StatelessWidget {
           if (phone != '—')
             Text(
               '📱 $phone',
-              style: const TextStyle(color: AppTheme.textSecondary),
+              style: TextStyle(color: AppTheme.textSecondary),
             ),
-          const SizedBox(height: 16),
-          const Text(
+          SizedBox(height: 16),
+          Text(
             'Record Details',
             style: TextStyle(
               fontWeight: FontWeight.bold,
@@ -354,7 +354,7 @@ class _PatientDetailsSheet extends StatelessWidget {
                               )
                               .trim()
                               .capitalize(),
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: AppTheme.textSecondary,
                             fontSize: 12,
                           ),
@@ -363,7 +363,7 @@ class _PatientDetailsSheet extends StatelessWidget {
                       Expanded(
                         child: Text(
                           e.value.toString(),
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: AppTheme.textPrimary,
                             fontSize: 12,
                           ),
@@ -391,11 +391,11 @@ class _InfoRow extends StatelessWidget {
       child: Row(
         children: [
           Icon(icon, size: 14, color: AppTheme.textSecondary),
-          const SizedBox(width: 6),
+          SizedBox(width: 6),
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 color: AppTheme.textSecondary,
               ),
@@ -422,7 +422,7 @@ class _ErrorState extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             error,
-            style: const TextStyle(color: AppTheme.textSecondary),
+            style: TextStyle(color: AppTheme.textSecondary),
             textAlign: TextAlign.center,
           ),
           TextButton(onPressed: onRetry, child: const Text('Retry')),
@@ -442,22 +442,22 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(
+          Icon(
             Icons.folder_shared_outlined,
             size: 56,
             color: AppTheme.textSecondary,
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           Text(
             hasSearch ? 'No records found' : 'No patient records',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
               color: AppTheme.textPrimary,
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'Patient records will appear here',
             style: TextStyle(color: AppTheme.textSecondary),
           ),

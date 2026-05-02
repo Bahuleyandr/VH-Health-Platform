@@ -174,7 +174,7 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                 const SizedBox(height: 20),
 
                 // Overall rating
-                const Text(
+                Text(
                   'Overall Rating',
                   style: TextStyle(
                     fontSize: 13,
@@ -298,10 +298,10 @@ class _RatingLabel extends StatelessWidget {
       _ => 'Unsatisfactory',
     };
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: EdgeInsets.symmetric(horizontal: 16),
       child: Text(
         label,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 12,
           fontStyle: FontStyle.italic,
           color: AppTheme.textSecondary,
@@ -350,7 +350,7 @@ class _ReviewListTabState extends State<_ReviewListTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return Center(child: CircularProgressIndicator());
     if (_error != null) {
       return Center(
         child: Column(
@@ -360,7 +360,7 @@ class _ReviewListTabState extends State<_ReviewListTab> {
             const SizedBox(height: 8),
             Text(
               _error!,
-              style: const TextStyle(color: AppTheme.textSecondary),
+              style: TextStyle(color: AppTheme.textSecondary),
             ),
             TextButton(onPressed: _load, child: const Text('Retry')),
           ],
@@ -368,7 +368,7 @@ class _ReviewListTabState extends State<_ReviewListTab> {
       );
     }
     if (_reviews.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -414,7 +414,7 @@ class _ReviewListTabState extends State<_ReviewListTab> {
                       Expanded(
                         child: Text(
                           name.toString(),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: AppTheme.textPrimary,
                           ),
@@ -451,10 +451,10 @@ class _ReviewListTabState extends State<_ReviewListTab> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  SizedBox(height: 4),
                   Text(
                     period,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       color: AppTheme.textSecondary,
                     ),
@@ -465,7 +465,7 @@ class _ReviewListTabState extends State<_ReviewListTab> {
                       comments.toString(),
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13,
                         color: AppTheme.textPrimary,
                       ),

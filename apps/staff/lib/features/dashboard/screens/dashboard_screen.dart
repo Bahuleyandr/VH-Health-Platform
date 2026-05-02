@@ -369,7 +369,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           const SizedBox(height: 16),
 
                           // Quick actions
-                          const Text(
+                          Text(
                             'Quick Actions',
                             style: TextStyle(
                               fontSize: 16,
@@ -404,7 +404,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ],
 
                           // Feature grid
-                          const Text(
+                          Text(
                             'All Features',
                             style: TextStyle(
                               fontSize: 16,
@@ -607,7 +607,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       children: [
         Text(
           title,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,
             color: AppTheme.textPrimary,

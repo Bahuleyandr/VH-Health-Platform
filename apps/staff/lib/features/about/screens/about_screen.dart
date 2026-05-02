@@ -11,7 +11,7 @@ class AboutScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           // App icon & name
           Center(
             child: Column(
@@ -35,7 +35,7 @@ class AboutScreen extends StatelessWidget {
                   style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 4),
-                const Text(
+                Text(
                   'Version 1.0.0',
                   style: TextStyle(fontSize: 14, color: AppTheme.textSecondary),
                 ),
@@ -45,9 +45,9 @@ class AboutScreen extends StatelessWidget {
           const SizedBox(height: 24),
 
           // Description
-          const Card(
+          Card(
             child: Padding(
-              padding: EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -155,9 +155,9 @@ class AboutScreen extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 24),
+          SizedBox(height: 24),
 
-          const Center(
+          Center(
             child: Text(
               '© 2026 VH Health. All rights reserved.',
               style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
@@ -202,7 +202,7 @@ class _FeatureItem extends StatelessWidget {
                 ),
                 Text(
                   description,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppTheme.textSecondary,
                     fontSize: 12,
                   ),

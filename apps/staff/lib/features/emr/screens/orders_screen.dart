@@ -207,8 +207,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 16),
-            const Text(
+            SizedBox(height: 16),
+            Text(
               'New Order',
               style: TextStyle(
                 fontSize: 20,
@@ -539,10 +539,10 @@ class _OrdersScreenState extends State<OrdersScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    SizedBox(height: 16),
                     Text(
                       title,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w600,
                         color: AppTheme.textPrimary,
@@ -757,10 +757,10 @@ class _OrdersScreenState extends State<OrdersScreen> {
               children: [
                 const SizedBox(height: 8),
                 _buildStatusFilters(),
-                const SizedBox(height: 4),
+                SizedBox(height: 4),
                 Expanded(
                   child: filtered.isEmpty
-                      ? const Center(
+                      ? Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
@@ -832,7 +832,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                                 ),
                                                 Text(
                                                   '${(type ?? 'order').toUpperCase()} - ${_formatTimestamp(order['created_at'] as String?)}',
-                                                  style: const TextStyle(
+                                                  style: TextStyle(
                                                     fontSize: 12,
                                                     color:
                                                         AppTheme.textSecondary,
@@ -853,25 +853,25 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                             order['route'],
                                             order['frequency'],
                                           ].where((e) => e != null).join(' | '),
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             fontSize: 13,
                                             color: AppTheme.textSecondary,
                                           ),
                                         ),
                                       ],
                                       if (order['ordered_by'] != null) ...[
-                                        const SizedBox(height: 4),
+                                        SizedBox(height: 4),
                                         Row(
                                           children: [
-                                            const Icon(
+                                            Icon(
                                               Icons.person_outline,
                                               size: 13,
                                               color: AppTheme.textSecondary,
                                             ),
-                                            const SizedBox(width: 4),
+                                            SizedBox(width: 4),
                                             Text(
                                               order['ordered_by'] as String,
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                 fontSize: 12,
                                                 color: AppTheme.textSecondary,
                                               ),

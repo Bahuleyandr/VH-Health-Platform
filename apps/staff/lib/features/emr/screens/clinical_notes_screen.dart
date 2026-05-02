@@ -140,7 +140,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
+            Icon(
               Icons.note_alt_outlined,
               size: 64,
               color: AppTheme.divider,
@@ -148,7 +148,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
             const SizedBox(height: 12),
             Text(
               'No $type notes found',
-              style: const TextStyle(color: AppTheme.textSecondary),
+              style: TextStyle(color: AppTheme.textSecondary),
             ),
           ],
         ),
@@ -192,32 +192,32 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                         _signedBadge(signed),
                       ],
                     ),
-                    const SizedBox(height: 6),
+                    SizedBox(height: 6),
                     Row(
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.person_outline,
                           size: 14,
                           color: AppTheme.textSecondary,
                         ),
-                        const SizedBox(width: 4),
+                        SizedBox(width: 4),
                         Text(
                           note['author_name'] as String? ?? 'Unknown',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12,
                             color: AppTheme.textSecondary,
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        const Icon(
+                        SizedBox(width: 12),
+                        Icon(
                           Icons.access_time,
                           size: 14,
                           color: AppTheme.textSecondary,
                         ),
-                        const SizedBox(width: 4),
+                        SizedBox(width: 4),
                         Text(
                           _formatTimestamp(note['created_at'] as String?),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12,
                             color: AppTheme.textSecondary,
                           ),
@@ -322,7 +322,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                   Expanded(
                     child: Text(
                       note['title'] as String? ?? 'Clinical Note',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w600,
                         color: AppTheme.textPrimary,
@@ -332,10 +332,10 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                   _signedBadge(note['signed'] == true),
                 ],
               ),
-              const SizedBox(height: 4),
+              SizedBox(height: 4),
               Text(
                 '${note['author_name'] ?? 'Unknown'} - ${_formatTimestamp(note['created_at'] as String?)}',
-                style: const TextStyle(
+                style: TextStyle(
                   color: AppTheme.textSecondary,
                   fontSize: 13,
                 ),
@@ -394,7 +394,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                       ],
                     ),
                     const SizedBox(height: 4),
-                    const Text(
+                    Text(
                       'Generate a plain-language patient explainer of this note. Draft will land in your review queue for sign-off before reaching the patient.',
                       style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                     ),
@@ -754,10 +754,10 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16),
                   Text(
                     title,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w600,
                       color: AppTheme.textPrimary,
@@ -1019,7 +1019,7 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
         ),
         child: SingleChildScrollView(
           controller: scrollController,
-          padding: const EdgeInsets.all(20),
+          padding: EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1034,7 +1034,7 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                 ),
               ),
               const SizedBox(height: 16),
-              const Row(
+              Row(
                 children: [
                   Icon(Icons.auto_awesome, color: AppTheme.primaryBlue),
                   SizedBox(width: 8),
@@ -1123,14 +1123,14 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                         children: [
                           Text(
                             '${kp['label'] ?? ''}: ${kp['value'] ?? ''}',
-                            style: const TextStyle(fontWeight: FontWeight.w500),
+                            style: TextStyle(fontWeight: FontWeight.w500),
                           ),
                           if (kp['what_it_means'] != null)
                             Padding(
                               padding: const EdgeInsets.only(left: 4, top: 2),
                               child: Text(
                                 kp['what_it_means'] as String,
-                                style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                                style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
                               ),
                             ),
                         ],

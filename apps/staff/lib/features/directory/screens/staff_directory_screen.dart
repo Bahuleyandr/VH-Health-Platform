@@ -81,7 +81,7 @@ class _StaffDirectoryScreenState extends State<StaffDirectoryScreen> {
           // Search bar
           Container(
             color: Colors.white,
-            padding: const EdgeInsets.all(12),
+            padding: EdgeInsets.all(12),
             child: TextField(
               controller: _searchCtrl,
               decoration: InputDecoration(
@@ -145,10 +145,10 @@ class _DeptSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: EdgeInsets.symmetric(vertical: 8),
           child: Text(
             dept,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.bold,
               color: AppTheme.textSecondary,
@@ -197,7 +197,7 @@ class _StaffTile extends StatelessWidget {
         ),
         title: Text(
           name,
-          style: const TextStyle(
+          style: TextStyle(
             fontWeight: FontWeight.w600,
             color: AppTheme.textPrimary,
           ),
@@ -209,7 +209,7 @@ class _StaffTile extends StatelessWidget {
             if (empId.isNotEmpty)
               Text(
                 'ID: $empId',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11,
                   color: AppTheme.textSecondary,
                 ),
@@ -238,8 +238,8 @@ class _StaffTile extends StatelessWidget {
               ),
             ),
             if (phone.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              const Icon(
+              SizedBox(height: 4),
+              Icon(
                 Icons.phone_outlined,
                 size: 14,
                 color: AppTheme.textSecondary,
@@ -297,11 +297,11 @@ class _DialogRow extends StatelessWidget {
       child: Row(
         children: [
           Icon(icon, size: 16, color: AppTheme.textSecondary),
-          const SizedBox(width: 8),
+          SizedBox(width: 8),
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(color: AppTheme.textPrimary),
+              style: TextStyle(color: AppTheme.textPrimary),
             ),
           ),
         ],
@@ -325,10 +325,10 @@ class _ErrorState extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             error,
-            style: const TextStyle(color: AppTheme.textSecondary),
+            style: TextStyle(color: AppTheme.textSecondary),
             textAlign: TextAlign.center,
           ),
-          const Text(
+          Text(
             'Staff directory API may not be available yet.',
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
           ),
@@ -349,15 +349,15 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(
+          Icon(
             Icons.people_outline,
             size: 56,
             color: AppTheme.textSecondary,
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           Text(
             hasSearch ? 'No staff found' : 'Directory is empty',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
               color: AppTheme.textPrimary,
@@ -369,7 +369,7 @@ class _EmptyState extends StatelessWidget {
                 ? 'Try a different search term'
                 : 'Staff members will appear here once the API is connected',
             textAlign: TextAlign.center,
-            style: const TextStyle(color: AppTheme.textSecondary),
+            style: TextStyle(color: AppTheme.textSecondary),
           ),
         ],
       ),

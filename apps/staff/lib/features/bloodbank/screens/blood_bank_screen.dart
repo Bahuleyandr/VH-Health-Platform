@@ -175,7 +175,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
 
   Widget _buildInventoryTab() {
     if (_loadingInventory) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(child: CircularProgressIndicator());
     }
     if (_inventoryError != null) {
       return Center(
@@ -186,7 +186,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
             const SizedBox(height: 16),
             Text(
               _inventoryError!,
-              style: const TextStyle(color: AppTheme.textSecondary),
+              style: TextStyle(color: AppTheme.textSecondary),
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
@@ -311,7 +311,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Request Blood',
               style: TextStyle(
                 fontSize: 18,
@@ -434,7 +434,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
   }
 
   Widget _buildDonationsTab() {
-    return const Center(
+    return Center(
       child: Padding(
         padding: EdgeInsets.all(32),
         child: Column(
@@ -474,7 +474,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
         const SizedBox(width: 4),
         Text(
           label,
-          style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+          style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
         ),
       ],
     );

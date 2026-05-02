@@ -228,7 +228,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                 const SizedBox(height: 14),
 
                 // Priority
-                const Align(
+                Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
                     'Priority',
@@ -238,7 +238,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 6),
+                SizedBox(height: 6),
                 Row(
                   children: _priorities.map((p) {
                     final selected = _priority == p;
@@ -338,7 +338,7 @@ class _RecentNotesTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // TODO: Fetch recent notes from backend when API is available
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
