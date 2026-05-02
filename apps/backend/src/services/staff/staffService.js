@@ -146,14 +146,37 @@ export const getStaffList = async (filters, userRole) => {
 
 export const getStaffProfile = async (identifier, userRole, userId, includePrivate) => {
   const allowedRoles = getStaffHierarchy(userRole);
-  
-  // Determine if identifier is UUID or numeric ID
+
+  // The identifier param accepts three shapes:
+  //   1. UUID (users.uid)         e.g. "550e8400-e29b-41d4-a716-446655440000"
+  //   2. Employee ID              e.g. "EMP-1001"  (staff.employee_id)
+  //   3. Numeric users.id         e.g. "42"
+  //
+  // Previous implementation only handled (1) and (3) — passing an EMP-*
+  // string crashed with `operator does not exist: integer = text`
+  // because Postgres tried to compare integer `u.id` against text. The
+  // staff app's Profile screen calls `/staff/:employeeId` on launch, so
+  // every clinical role hit a 500 on the first navigation. Accept the
+  // employee_id column too. Order matters: check UUID first (strict),
+  // then EMP-* prefix, then fall back to integer cast for numeric input.
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
-  const column = isUUID ? 'u.uid' : 'u.id';
+  const isEmployeeId = !isUUID && /^EMP[-_]?\w+$/i.test(identifier);
+  const isNumeric = !isUUID && !isEmployeeId && /^\d+$/.test(identifier);
+  let whereClause;
+  if (isUUID) {
+    whereClause = 'u.uid = $1::uuid';
+  } else if (isEmployeeId) {
+    whereClause = 's.employee_id = $1';
+  } else if (isNumeric) {
+    whereClause = 'u.id = $1::int';
+  } else {
+    // Unknown shape — return 404 rather than crashing the SQL parser.
+    throw new Error('NOT_FOUND');
+  }
 
   const result = await prisma.$queryRawUnsafe(`
-    SELECT 
-      u.*, 
+    SELECT
+      u.*,
       s.employee_id, s.position, s.department, s.shift, s.salary,
       s.hire_date, s.is_active, s.supervisor_id, s.emergency_contact,
       s.skills, s.certifications, s.notes, s.performance_rating,
@@ -161,15 +184,15 @@ export const getStaffProfile = async (identifier, userRole, userId, includePriva
       s.sick_days_used, s.vacation_days_used, s.training_completed,
       sup.name as supervisor_name, sup.phone as supervisor_phone,
       sup.email as supervisor_email,
-      CASE 
+      CASE
         WHEN s.last_check_in IS NOT NULL AND s.last_check_out IS NULL THEN 'checked_in'
         WHEN s.last_check_in IS NOT NULL AND s.last_check_out IS NOT NULL THEN 'checked_out'
         ELSE 'not_checked_in'
       END as current_status
-    FROM users u 
-    LEFT JOIN staff s ON u.uid = s.user_id 
+    FROM users u
+    LEFT JOIN staff s ON u.uid = s.user_id
     LEFT JOIN users sup ON s.supervisor_id = sup.id
-    WHERE ${column} = $1 AND u.role = ANY($2)
+    WHERE ${whereClause} AND u.role = ANY($2)
   `, identifier, allowedRoles);
 
   if (result.length === 0) {
