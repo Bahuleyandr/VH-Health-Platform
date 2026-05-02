@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class PayslipDetailScreen extends StatefulWidget {
   final String payslipId;
@@ -111,6 +112,7 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
                     onPressed: _downloadPDF,
                     tooltip: 'Download PDF',
                   ),
+          const LogoutAction(),
         ],
       ),
       body: _loading

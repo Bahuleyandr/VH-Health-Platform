@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class InvestmentDeclarationScreen extends StatefulWidget {
   const InvestmentDeclarationScreen({super.key});
@@ -358,6 +359,7 @@ class _InvestmentDeclarationScreenState
               ),
             ),
           ),
+          const LogoutAction(),
         ],
       ),
       body: Form(

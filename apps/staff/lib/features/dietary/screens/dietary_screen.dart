@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class DietaryScreen extends StatefulWidget {
   const DietaryScreen({super.key});
@@ -333,6 +334,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchOrders),
+          const LogoutAction(),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(

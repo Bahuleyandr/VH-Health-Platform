@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/config/api_config.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class StaffMessage {
   final int id;
@@ -196,6 +197,7 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
             onPressed: _loadData,
             tooltip: 'Refresh',
           ),
+          const LogoutAction(),
         ],
       ),
       body: _buildBody(),

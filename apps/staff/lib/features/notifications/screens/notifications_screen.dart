@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../core/providers/notification_provider.dart';
 import '../../../core/providers/websocket_provider.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -81,6 +82,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               );
             },
           ),
+          const LogoutAction(),
         ],
       ),
       body: Consumer2<NotificationProvider, WebSocketProvider>(

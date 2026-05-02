@@ -139,3 +139,25 @@ export const dischargePatient = async (req, res) => {
     error(res, 'Failed to discharge patient', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
+
+// PATCH /beds/:id/notes — staff app's bed-board detail sheet uses this
+// to save quick notes without touching patient_id/patient_name (the
+// full updateBed handler nulls those when they're absent from the body).
+// Body: { notes: string | null }. Empty string clears the field; null
+// clears it too. Emits a `bed-notes-updated` realtime event so other
+// open bed-board screens refresh.
+export const updateBedNotes = async (req, res) => {
+  try {
+    const { notes } = req.body || {};
+    if (notes !== null && typeof notes !== 'string') {
+      return error(res, 'notes must be a string or null', HTTP_STATUS.BAD_REQUEST);
+    }
+    const bed = await bedService.updateBedNotes(req.params.id, notes);
+    if (!bed) return error(res, 'Bed not found', HTTP_STATUS.NOT_FOUND);
+    emitBedEvent('bed-notes-updated', bed);
+    success(res, { bed }, 'Bed notes updated');
+  } catch (err) {
+    logger.error('Error updating bed notes:', err);
+    error(res, 'Failed to update bed notes', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};

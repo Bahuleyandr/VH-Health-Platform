@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/widgets/logout_action.dart';
 import 'log_cleaning_screen.dart';
 import 'raise_request_screen.dart';
 import 'my_housekeeping_screen.dart';
@@ -12,6 +13,7 @@ class HousekeepingHubScreen extends StatelessWidget {
       backgroundColor: const Color(0xFFE0F5F6),
       appBar: AppBar(
         title: const Text('Housekeeping'),
+        actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
         elevation: 0,

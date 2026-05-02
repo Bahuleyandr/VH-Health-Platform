@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class HandoverScreen extends StatefulWidget {
   const HandoverScreen({super.key});
@@ -117,6 +118,7 @@ class _HandoverScreenState extends State<HandoverScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Handover Notes'),
+        actions: const [LogoutAction()],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [

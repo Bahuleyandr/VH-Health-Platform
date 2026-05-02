@@ -3,6 +3,7 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:intl/intl.dart';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class MyHousekeepingScreen extends StatefulWidget {
   const MyHousekeepingScreen({super.key});
@@ -68,6 +69,7 @@ class _MyHousekeepingScreenState extends State<MyHousekeepingScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Activity'),
+        actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
         bottom: TabBar(

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../config/role_config.dart';
-import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import 'code_blue_listener.dart';
+import 'logout_action.dart';
 import 'offline_sync_badge.dart';
 
 class StaffScaffold extends StatelessWidget {
@@ -42,7 +42,7 @@ class StaffScaffold extends StatelessWidget {
             // doesn't have to navigate to Settings (the nurse / doctor /
             // pharmacy bottom-nav variants don't include Settings, so
             // without this the only logout path was to fully reinstall).
-            _LogoutAction(),
+            const LogoutAction(),
           ],
         ),
         body: body,
@@ -273,46 +273,6 @@ class _NavItem {
   const _NavItem(this.label, this.icon, this.activeIcon, this.route);
 }
 
-/// AppBar logout action shown on every StaffScaffold. Calls
-/// AuthService.logout (clears JWT + refresh + role + employeeId from
-/// secure storage) and routes to /login. The auth-redirect guard in
-/// app_router.dart picks the unauthenticated case up automatically,
-/// but pushing /login explicitly avoids a stale-state flash on slow
-/// devices.
-class _LogoutAction extends StatelessWidget {
-  Future<void> _logout(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Logout?'),
-        content: const Text(
-          'You will need to sign in again with your employee ID and password.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: AppTheme.errorRed),
-            child: const Text('Logout'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    await AuthService.logout();
-    if (!context.mounted) return;
-    context.go('/login');
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      icon: const Icon(Icons.logout),
-      tooltip: 'Logout',
-      onPressed: () => _logout(context),
-    );
-  }
-}
+// _LogoutAction lifted to lib/core/widgets/logout_action.dart so screens
+// that use a raw Scaffold (instead of StaffScaffold) can drop the same
+// widget into their AppBar.actions list.

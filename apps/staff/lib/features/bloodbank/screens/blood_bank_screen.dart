@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/logout_action.dart';
 
 class BloodBankScreen extends StatefulWidget {
   const BloodBankScreen({super.key});
@@ -149,6 +150,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
             icon: const Icon(Icons.refresh),
             onPressed: _fetchInventory,
           ),
+          const LogoutAction(),
         ],
         bottom: TabBar(
           controller: _tabController,

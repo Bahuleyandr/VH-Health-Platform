@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/hr_api_service.dart';
+import '../../../core/widgets/logout_action.dart';
 import 'payslip_detail_screen.dart';
 import 'tax_summary_screen.dart';
 import 'investment_declaration_screen.dart';
@@ -74,6 +75,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
             onPressed: _load,
             tooltip: 'Refresh',
           ),
+          const LogoutAction(),
         ],
       ),
       body: Column(

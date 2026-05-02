@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/widgets/logout_action.dart';
 import 'incident_report_screen.dart';
 import 'grievance_screen.dart';
 import 'my_reports_screen.dart';
@@ -12,6 +13,7 @@ class ReportsHubScreen extends StatelessWidget {
       backgroundColor: const Color(0xFFE0F5F6),
       appBar: AppBar(
         title: const Text('Reports & Grievances'),
+        actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
         elevation: 0,
