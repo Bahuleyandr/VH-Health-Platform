@@ -233,23 +233,50 @@ function responseHeader(response, name) {
   return response.headers?.get?.(name) || null;
 }
 
+/**
+ * Strip chain-of-thought / reasoning tags emitted by reasoning models.
+ *
+ * Pattern observed in production:
+ *   - MiniMax-M2.7-highspeed wraps every reply in `<think>...</think>` before
+ *     the final answer (verified 2026-05-02 via direct API call).
+ *   - DeepSeek-R1, GLM-4-Plus, and several open-weight reasoning models use
+ *     the same tag convention.
+ *   - Anthropic + OpenAI emit reasoning tokens in a separate field, not
+ *     inline in `content`, so this is a no-op for them.
+ *
+ * Stripping is safe on non-reasoning models — the regex simply doesn't
+ * match. We strip ALL `<think>...</think>` blocks (some models emit
+ * multiple) and trim residual whitespace.
+ *
+ * Done at extraction time so downstream JSON parsing in the explainer
+ * pipelines and `safeJsonParse` see clean text.
+ */
+function stripReasoningTags(text) {
+  if (typeof text !== 'string') return text;
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+}
+
 function readOpenAIText(payload) {
   const content = payload.choices?.[0]?.message?.content ?? payload.choices?.[0]?.text ?? '';
   if (Array.isArray(content)) {
-    return content
-      .map((part) => part?.text || part?.content || '')
-      .join('')
-      .trim();
+    return stripReasoningTags(
+      content
+        .map((part) => part?.text || part?.content || '')
+        .join('')
+        .trim(),
+    );
   }
-  return String(content || '').trim();
+  return stripReasoningTags(String(content || '').trim());
 }
 
 function readAnthropicText(payload) {
-  return (payload.content || [])
-    .filter((part) => part?.type === 'text' && part.text)
-    .map((part) => part.text)
-    .join('')
-    .trim();
+  return stripReasoningTags(
+    (payload.content || [])
+      .filter((part) => part?.type === 'text' && part.text)
+      .map((part) => part.text)
+      .join('')
+      .trim(),
+  );
 }
 
 function getReadiness(config, budgetStatus = null) {
@@ -406,7 +433,7 @@ async function callOllama(config, prompt, systemPrompt) {
       eval_duration: payload.eval_duration || null,
     },
   });
-  return { text: payload.response || '', usage };
+  return { text: stripReasoningTags(payload.response || ''), usage };
 }
 
 async function callOpenAICompatible(config, userPrompt, systemPrompt) {
