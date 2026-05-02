@@ -5,6 +5,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/patient_context_chip.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/success_toast.dart';
+import '../../../core/widgets/voice_dictate_button.dart';
 
 /// Nursing Notes screen — for Nursing Staff to add clinical notes per patient.
 /// TODO: Integrate with backend when /staff/nursing/notes endpoint is available.
@@ -312,11 +313,13 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                 // Note text
                 TextFormField(
                   controller: _noteCtrl,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Clinical Note',
                     hintText:
                         'Describe observations, care provided, patient response...',
-                    prefixIcon: Icon(Icons.edit_note_outlined),
+                    prefixIcon: const Icon(Icons.edit_note_outlined),
+                    // Voice dictation — appends transcript to the note.
+                    suffixIcon: VoiceDictateButton(controller: _noteCtrl),
                     alignLabelWithHint: true,
                   ),
                   maxLines: 6,

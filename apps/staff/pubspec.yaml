@@ -10,6 +10,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # Built-in Material/Cupertino translations for date pickers,
+  # back-button labels, etc. Required to declare supportedLocales =
+  # [en, hi, ta, te] cleanly. App-specific strings live in
+  # `lib/l10n/app_strings.dart` (manual map, no codegen).
+  flutter_localizations:
+    sdk: flutter
   # In pub workspace mode, resolution happens by package name — no path needed.
   vhhealth_core: any
   http: ^1.4.0
@@ -43,6 +49,18 @@ dependencies:
   sqflite_common_ffi: ^2.3.4
   connectivity_plus: ^7.1.1
   path: ^1.9.0
+  # Voice dictation on notes textareas. `record` works on Android/iOS/
+  # macOS/Windows/Linux; `path_provider` is needed to drop the recorded
+  # WAV into a temp dir before upload. Wired through
+  # `lib/core/widgets/voice_dictate_button.dart`.
+  record: ^6.0.0
+  path_provider: ^2.1.5
+  # PDF generation + system print dialog. Used by the bed-board's
+  # printer button to render a clean A4 occupancy sheet (still common
+  # for paper handovers in Indian hospitals). `pdf` builds the
+  # document; `printing` shows the platform print dialog.
+  printing: ^5.13.0
+  pdf: ^3.11.0
 
 dev_dependencies:
   flutter_test:

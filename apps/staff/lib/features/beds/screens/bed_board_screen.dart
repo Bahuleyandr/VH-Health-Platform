@@ -4,9 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/services/api_client.dart';
+import '../../../core/services/bed_board_print_service.dart';
+import '../../../core/services/telemetry_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/patient_search_action.dart';
+import '../../../core/widgets/states/success_toast.dart' show ErrorToast;
+import '../../../core/widgets/voice_dictate_button.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
@@ -188,6 +192,16 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         backgroundColor: AppTheme.primaryBlue,
         foregroundColor: Colors.white,
         actions: [
+          // Print button — only meaningful with a ward selected (otherwise
+          // there's nothing to print). Generates an A4 PDF occupancy
+          // sheet via BedBoardPrintService and shows the system print
+          // dialog.
+          if (_selectedWardId != null && _beds.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.print_outlined),
+              tooltip: 'Print bed board',
+              onPressed: _printCurrentWard,
+            ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
@@ -272,6 +286,24 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _printCurrentWard() async {
+    Telemetry.event('bed_board.print', {
+      'bed_count': _beds.length.toString(),
+    });
+    try {
+      await BedBoardPrintService.print(
+        wardName: _selectedWardName ?? '',
+        beds: _beds,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ErrorToast.show(
+        context,
+        'Print failed: ${e.toString().replaceFirst('Exception: ', '')}',
+      );
+    }
   }
 
   Widget _buildLegendStrip() {
@@ -711,6 +743,16 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                   decoration: const InputDecoration(
                     hintText: 'Quick note (handover, hazards, IV site…)',
                     border: OutlineInputBorder(),
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: VoiceDictateButton(
+                    controller: controller,
+                    patientUid: (bed['patient_uid'] ?? '').toString().isNotEmpty
+                        ? bed['patient_uid'].toString()
+                        : null,
+                    tooltip: 'Dictate quick note',
                   ),
                 ),
                 if (errorMsg != null) ...[
@@ -1214,7 +1256,22 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
               ],
 
               // Notes block
-              _SectionHeader(label: 'Notes'),
+              Row(
+                children: [
+                  Expanded(child: _SectionHeader(label: 'Notes')),
+                  // Voice-dictation button — records via mic and appends
+                  // the transcript to the notes textarea. Threads patient
+                  // context through to the backend so the saved voice
+                  // note links to the patient automatically.
+                  VoiceDictateButton(
+                    controller: _notesCtrl,
+                    patientUid:
+                        (widget.bed['patient_uid'] ?? '').toString().isNotEmpty
+                            ? widget.bed['patient_uid'].toString()
+                            : null,
+                  ),
+                ],
+              ),
               TextField(
                 controller: _notesCtrl,
                 minLines: 4,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/telemetry_service.dart';
 import 'patient_search_sheet.dart';
 
 /// AppBar magnifier that opens the global patient picker
@@ -18,7 +19,10 @@ class PatientSearchAction extends StatelessWidget {
     return IconButton(
       icon: const Icon(Icons.person_search_outlined),
       tooltip: 'Find patient',
-      onPressed: () => PatientSearchSheet.show(context),
+      onPressed: () {
+        Telemetry.event('patient_picker.open', {'from': 'appbar'});
+        PatientSearchSheet.show(context);
+      },
     );
   }
 }
