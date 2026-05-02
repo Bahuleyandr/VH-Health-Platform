@@ -93,6 +93,10 @@ import '../../features/messaging/screens/messaging_thread_screen.dart';
 import '../widgets/main_scaffold.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
+// Re-exported for the global keyboard-shortcut layer in main.dart so
+// Ctrl+K can open the patient picker against the live root navigator
+// from outside the widget tree.
+GlobalKey<NavigatorState> get rootNavigatorKey => _rootNavigatorKey;
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
 
 final GoRouter appRouter = GoRouter(

@@ -13,6 +13,7 @@ import '../../../core/services/schedule_api_service.dart';
 import '../../../core/services/attendance_api_service.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/first_run_welcome.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/patient_search_action.dart';
 
@@ -451,6 +452,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               );
                             },
                           ),
+
+                          // First-run welcome card (only shows once,
+                          // then writes a SharedPreferences flag).
+                          const FirstRunWelcome(),
 
                           // Quick stats row
                           _buildQuickStats(),

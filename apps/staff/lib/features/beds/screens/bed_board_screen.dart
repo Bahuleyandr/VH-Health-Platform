@@ -211,11 +211,65 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                 ? const SkeletonList()
                 : _error != null
                 ? _buildError()
-                : _selectedWardId == null
-                ? _buildWardList()
-                : _buildBedGrid(),
+                : LayoutBuilder(
+                    builder: (context, constraints) {
+                      // Desktop / tablet two-pane: ≥1024px wide gets a
+                      // fixed 320px wards rail on the left + the bed grid
+                      // taking the rest. Tapping a ward swaps the right
+                      // pane in place rather than navigating "into" the
+                      // ward, so the user keeps both lists visible.
+                      if (constraints.maxWidth >= 1024) {
+                        return _buildTwoPane();
+                      }
+                      // Phone-width: existing drill-in flow.
+                      return _selectedWardId == null
+                          ? _buildWardList()
+                          : _buildBedGrid();
+                    },
+                  ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildTwoPane() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: 320,
+          child: _buildWardList(),
+        ),
+        const VerticalDivider(width: 1),
+        Expanded(
+          child: _selectedWardId == null
+              ? _buildSelectWardPlaceholder()
+              : _buildBedGrid(forceHideBack: true),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSelectWardPlaceholder() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.local_hospital_outlined,
+              size: 48,
+              color: AppTheme.textSecondary,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Select a ward to view its beds',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -360,7 +414,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     );
   }
 
-  Widget _buildBedGrid() {
+  Widget _buildBedGrid({bool forceHideBack = false}) {
     final available = _beds
         .where(
           (b) => (b['status'] ?? '').toString().toLowerCase() == 'available',
@@ -379,22 +433,28 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
 
     return Column(
       children: [
-        // Header with back
+        // Header. The back button is only meaningful in single-pane
+        // (phone) mode where tapping it returns to the wards list.
+        // On the desktop two-pane layout the wards list is always
+        // visible on the left, so the back button would flip the
+        // right pane to a placeholder for no good reason.
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           color: Colors.white,
           child: Row(
             children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => setState(() {
-                  _selectedWardId = null;
-                  _selectedWardName = null;
-                  _beds = [];
-                  _bedQuery = '';
-                  _bedStatusFilter = 'all';
-                }),
-              ),
+              if (!forceHideBack)
+                IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => setState(() {
+                    _selectedWardId = null;
+                    _selectedWardName = null;
+                    _beds = [];
+                    _bedQuery = '';
+                    _bedStatusFilter = 'all';
+                  }),
+                ),
+              if (forceHideBack) const SizedBox(width: 12),
               Text(
                 _selectedWardName ?? 'Ward',
                 style: TextStyle(
