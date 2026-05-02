@@ -69,6 +69,7 @@ import internalRoutes from './routes/internalRoutes.js';
 import investigationRoutes from './routes/investigation/index.js';
 import logRoutes from './routes/logs/index.js';
 import notificationRoutes from './routes/notification/index.js';
+import patientSearchRoutes from './routes/patient/patientSearchRoutes.js';
 import pharmacyRoutes from './routes/pharmacy/index.js';
 import prescriptionRoutes from './routes/prescription/index.js';
 import recordRoutes from './routes/record/index.js';
@@ -434,6 +435,14 @@ app.use('/api/v1/delivery', patientRateLimiter, requireRole('ADMIN', 'SUPER_ADMI
 app.use('/api/v1/departments', publicCache(300), departmentRoutes);
 app.use('/api/v1/doctors', publicCache(300), doctorRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
+// Clinical-staff patient lookup (Cmd+K picker on the staff app). Kept
+// open to clinical roles + admins; medical-records staff also need it
+// for chart finding. Patient self-search isn't applicable.
+app.use(
+  '/api/v1/patients',
+  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'),
+  patientSearchRoutes,
+);
 app.use('/api/v1/upload', patientRateLimiter, uploadRoutes);
 
 // Patient reminders (medication) — JWT via global jwtAuth above

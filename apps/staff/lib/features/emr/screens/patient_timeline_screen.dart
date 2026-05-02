@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/services/recent_patients_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 
@@ -39,6 +40,10 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
   void initState() {
     super.initState();
     _loadTimeline();
+    // Record the patient in the local "recently viewed" cache so the
+    // dashboard's recent-patients tile can offer one-tap return. Fire
+    // and forget — failures here shouldn't block the timeline load.
+    RecentPatientsService.add(widget.patientUid, widget.patientName);
   }
 
   Future<void> _loadTimeline() async {

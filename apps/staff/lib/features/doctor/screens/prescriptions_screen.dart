@@ -7,6 +7,10 @@ import '../../../core/services/api_client.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/states/empty_state.dart';
+import '../../../core/widgets/states/error_state.dart';
+import '../../../core/widgets/states/skeleton_list.dart';
+import '../../../core/widgets/states/success_toast.dart';
 import '../widgets/cds_blocker_modal.dart';
 
 /// E-Prescriptions screen — structured prescription entry with medicine type-ahead.
@@ -310,12 +314,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
           '';
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('✅ Prescription $rxNum created'),
-            backgroundColor: AppTheme.successGreen,
-          ),
-        );
+        SuccessToast.show(context, 'Prescription $rxNum created');
         // Reset form
         _formKey.currentState!.reset();
         setState(() {
@@ -344,12 +343,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: AppTheme.errorRed,
-          ),
-        );
+        ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -1194,49 +1188,17 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return Center(child: CircularProgressIndicator());
+    if (_loading) return const SkeletonList();
     if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
-            const SizedBox(height: 8),
-            Text(
-              _error!,
-              style: TextStyle(color: AppTheme.textSecondary),
-            ),
-            TextButton(onPressed: _load, child: const Text('Retry')),
-          ],
-        ),
+      return ErrorState(
+        message: _error!.replaceFirst('Exception: ', ''),
+        onRetry: _load,
       );
     }
     if (_prescriptions.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.medication_liquid_outlined,
-              size: 56,
-              color: AppTheme.textSecondary,
-            ),
-            SizedBox(height: 16),
-            Text(
-              'No prescriptions yet',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary,
-              ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Created prescriptions will appear here',
-              style: TextStyle(color: AppTheme.textSecondary),
-            ),
-          ],
-        ),
+      return const EmptyState(
+        icon: Icons.receipt_long_outlined,
+        title: 'No prescriptions yet',
       );
     }
     return RefreshIndicator(

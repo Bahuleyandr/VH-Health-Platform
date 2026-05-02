@@ -5,6 +5,7 @@ import '../theme/app_theme.dart';
 import 'code_blue_listener.dart';
 import 'logout_action.dart';
 import 'offline_sync_badge.dart';
+import 'patient_search_action.dart';
 
 class StaffScaffold extends StatelessWidget {
   final String title;
@@ -38,6 +39,11 @@ class StaffScaffold extends StatelessWidget {
           actions: [
             const OfflineSyncBadge(),
             ...?actions,
+            // Global patient picker — magnifier next to logout. Open
+            // from any StaffScaffold screen via this icon (or Cmd+K
+            // when shortcuts are wired). Non-clinical roles will get
+            // a 403 displayed inside the sheet, not a crash.
+            const PatientSearchAction(),
             // Universal logout — visible from every screen so the user
             // doesn't have to navigate to Settings (the nurse / doctor /
             // pharmacy bottom-nav variants don't include Settings, so

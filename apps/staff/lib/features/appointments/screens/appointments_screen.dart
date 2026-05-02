@@ -1,8 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/states/empty_state.dart';
+import '../../../core/widgets/states/error_state.dart';
+import '../../../core/widgets/states/skeleton_list.dart';
+import '../../../core/widgets/states/success_toast.dart';
 
 class AppointmentsScreen extends StatefulWidget {
   const AppointmentsScreen({super.key});
@@ -16,6 +23,20 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   bool _loading = true;
   String? _error;
   String _selectedStatus = 'all';
+  String _searchQuery = '';
+
+  List<dynamic> get _filtered {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return _appointments;
+    return _appointments.where((a) {
+      final name = (a['patientName']?.toString() ??
+              a['patient']?['name']?.toString() ??
+              a['patient_name']?.toString() ??
+              '')
+          .toLowerCase();
+      return name.contains(q);
+    }).toList();
+  }
 
   static const _statuses = [
     'all',
@@ -25,10 +46,35 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     'cancelled',
   ];
 
+  StreamSubscription<RealtimeEvent>? _appointmentsSub;
+  Timer? _refreshDebounce;
+
   @override
   void initState() {
     super.initState();
     _load();
+    _attachRealtime();
+  }
+
+  Future<void> _attachRealtime() async {
+    final rt = RealtimeClient.instance;
+    await rt.connect();
+    // Backend `appointmentStatusController.broadcast('staff:appointments', …)`
+    // fires whenever any appointment status changes. Debounce so a burst
+    // of status flips (queue marshalling) doesn't refetch N times.
+    _appointmentsSub = rt.events('staff:appointments').listen((_) {
+      _refreshDebounce?.cancel();
+      _refreshDebounce = Timer(const Duration(milliseconds: 400), () {
+        if (mounted) _load();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _appointmentsSub?.cancel();
+    _refreshDebounce?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -57,21 +103,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     try {
       await ScheduleApiService.updateAppointmentStatus(id, status);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Appointment $status successfully'),
-          backgroundColor: AppTheme.successGreen,
-        ),
-      );
+      SuccessToast.show(context, 'Appointment $status successfully');
       _load();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: AppTheme.errorRed,
-        ),
-      );
+      ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
     }
   }
 
@@ -119,58 +155,50 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
             ),
           ),
 
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: TextField(
+              decoration: InputDecoration(
+                hintText: 'Search by patient name…',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: Colors.white,
+              ),
+              onChanged: (v) => setState(() => _searchQuery = v),
+            ),
+          ),
+
           Expanded(
             child: RefreshIndicator(
               onRefresh: _load,
               child: _loading
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const SkeletonList()
                   : _error != null
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.error_outline,
-                            color: AppTheme.errorRed,
-                            size: 40,
-                          ),
-                          SizedBox(height: 8),
-                          Text(
-                            _error!,
-                            style: TextStyle(
-                              color: AppTheme.textSecondary,
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: _load,
-                            child: const Text('Retry'),
-                          ),
-                        ],
-                      ),
+                  ? ErrorState(
+                      message: _error!.replaceFirst('Exception: ', ''),
+                      onRetry: _load,
                     )
-                  : _appointments.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.calendar_today,
-                            size: 48,
-                            color: AppTheme.textSecondary,
-                          ),
-                          SizedBox(height: 12),
-                          Text(
-                            'No appointments found',
+                  : _filtered.isEmpty
+                  ? (_searchQuery.trim().isNotEmpty
+                      ? Center(
+                          child: Text(
+                            'No matches for "$_searchQuery"',
                             style: TextStyle(color: AppTheme.textSecondary),
                           ),
-                        ],
-                      ),
-                    )
+                        )
+                      : const EmptyState(
+                          icon: Icons.event_available_outlined,
+                          title: 'No appointments today',
+                          body: 'New appointments will show up here.',
+                        ))
                   : ListView.builder(
                       padding: const EdgeInsets.all(16),
-                      itemCount: _appointments.length,
+                      itemCount: _filtered.length,
                       itemBuilder: (ctx, i) => _AppointmentCard(
-                        appointment: _appointments[i],
+                        appointment: _filtered[i],
                         onConfirm: (id) => _updateStatus(id, 'confirmed'),
                         onCancel: (id) => _updateStatus(id, 'cancelled'),
                       ),

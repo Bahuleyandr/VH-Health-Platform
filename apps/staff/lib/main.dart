@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
@@ -17,6 +18,7 @@ import 'core/services/code_blue_notifier.dart';
 import 'core/services/connectivity_sync_service.dart';
 import 'core/services/firebase_crash_reporter.dart';
 import 'core/services/websocket_service.dart';
+import 'core/widgets/patient_search_sheet.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -25,6 +27,16 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 /// function (not a closure or class method) so Flutter can spawn it in a new
 /// isolate when the app is terminated. Ensures the high-importance notification
 /// is shown even without a live app process.
+/// Intent fired by Ctrl+K / Cmd+K — opens the global patient picker.
+class _OpenPatientPickerIntent extends Intent {
+  const _OpenPatientPickerIntent();
+}
+
+/// Intent fired by Esc — pops the topmost route if any (sheets, dialogs).
+class _DismissTopRouteIntent extends Intent {
+  const _DismissTopRouteIntent();
+}
+
 @pragma('vm:entry-point')
 Future<void> _fcmBackgroundHandler(RemoteMessage message) async {
   if (message.data['type'] != 'code_blue') return;
@@ -199,13 +211,50 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
             onPointerDown: (_) {
               context.read<SessionTimeoutProvider>().recordActivity();
             },
-            child: MaterialApp.router(
-              title: 'VHHealth Staff',
-              debugShowCheckedModeBanner: false,
-              theme: themeProvider.lightTheme,
-              darkTheme: themeProvider.darkTheme,
-              themeMode: themeProvider.themeMode,
-              routerConfig: appRouter,
+            // Global keyboard shortcuts. Ctrl+K (Cmd+K on macOS) opens
+            // the patient picker from anywhere in the app. Esc closes
+            // the topmost route (sheet / dialog) when there's something
+            // to pop. F5 reloads the current route via the router. The
+            // Shortcuts widget MUST sit above MaterialApp so the
+            // bindings get a chance to handle the key event before
+            // descendant widgets consume it.
+            child: Shortcuts(
+              shortcuts: <ShortcutActivator, Intent>{
+                const SingleActivator(LogicalKeyboardKey.keyK, control: true):
+                    const _OpenPatientPickerIntent(),
+                const SingleActivator(LogicalKeyboardKey.keyK, meta: true):
+                    const _OpenPatientPickerIntent(),
+                const SingleActivator(LogicalKeyboardKey.escape):
+                    const _DismissTopRouteIntent(),
+              },
+              child: Actions(
+                actions: <Type, Action<Intent>>{
+                  _OpenPatientPickerIntent: CallbackAction<_OpenPatientPickerIntent>(
+                    onInvoke: (_) {
+                      final ctx = rootNavigatorKey.currentContext;
+                      if (ctx != null) {
+                        PatientSearchSheet.show(ctx);
+                      }
+                      return null;
+                    },
+                  ),
+                  _DismissTopRouteIntent: CallbackAction<_DismissTopRouteIntent>(
+                    onInvoke: (_) {
+                      final nav = rootNavigatorKey.currentState;
+                      if (nav != null && nav.canPop()) nav.pop();
+                      return null;
+                    },
+                  ),
+                },
+                child: MaterialApp.router(
+                  title: 'VHHealth Staff',
+                  debugShowCheckedModeBanner: false,
+                  theme: themeProvider.lightTheme,
+                  darkTheme: themeProvider.darkTheme,
+                  themeMode: themeProvider.themeMode,
+                  routerConfig: appRouter,
+                ),
+              ),
             ),
           );
         },

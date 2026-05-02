@@ -93,6 +93,10 @@ import '../../features/messaging/screens/messaging_thread_screen.dart';
 import '../widgets/main_scaffold.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
+// Re-exported for the global keyboard-shortcut layer in main.dart so
+// Ctrl+K can open the patient picker against the live root navigator
+// from outside the widget tree.
+GlobalKey<NavigatorState> get rootNavigatorKey => _rootNavigatorKey;
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
 
 final GoRouter appRouter = GoRouter(
@@ -307,17 +311,39 @@ final GoRouter appRouter = GoRouter(
         ),
 
         // Nursing
+        //
+        // /vitals and /nursing-notes accept optional `patient_uid`,
+        // `name`, and `phone` query params. The bed-board quick actions
+        // pass these in so the form's identifier fields pre-fill — turns
+        // a 5-tap "type the phone number" flow into a 0-tap deep link.
         GoRoute(
           path: '/vitals',
           name: 'vitals',
-          pageBuilder: (context, state) =>
-              const NoTransitionPage(child: VitalsScreen()),
+          pageBuilder: (context, state) {
+            final q = state.uri.queryParameters;
+            return NoTransitionPage(
+              child: VitalsScreen(
+                prefillPatientUid: q['patient_uid'],
+                prefillPatientId: q['patient_id'],
+                prefillPatientName: q['name'],
+                prefillPatientPhone: q['phone'],
+              ),
+            );
+          },
         ),
         GoRoute(
           path: '/nursing-notes',
           name: 'nursing-notes',
-          pageBuilder: (context, state) =>
-              const NoTransitionPage(child: NursingNotesScreen()),
+          pageBuilder: (context, state) {
+            final q = state.uri.queryParameters;
+            return NoTransitionPage(
+              child: NursingNotesScreen(
+                prefillPatientUid: q['patient_uid'],
+                prefillPatientName: q['name'],
+                prefillPatientPhone: q['phone'],
+              ),
+            );
+          },
         ),
         GoRoute(
           path: '/mar/due',
@@ -384,12 +410,22 @@ final GoRouter appRouter = GoRouter(
               const NoTransitionPage(child: ScheduleScreen()),
         ),
 
-        // Handover
+        // Handover — accepts optional `patient_ref` and `phone` query
+        // params (passed in from the bed-board sheet's "Handover" quick
+        // action so the form's free-text reference field pre-fills with
+        // ward + bed + patient name).
         GoRoute(
           path: '/handover',
           name: 'handover',
-          pageBuilder: (context, state) =>
-              const NoTransitionPage(child: HandoverScreen()),
+          pageBuilder: (context, state) {
+            final q = state.uri.queryParameters;
+            return NoTransitionPage(
+              child: HandoverScreen(
+                prefillPatientRef: q['patient_ref'],
+                prefillPhone: q['phone'],
+              ),
+            );
+          },
         ),
 
         // Notifications

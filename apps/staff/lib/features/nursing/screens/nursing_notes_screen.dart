@@ -2,12 +2,26 @@ import 'package:flutter/material.dart';
 import '../../../core/services/connectivity_sync_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/patient_context_chip.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/states/success_toast.dart';
 
 /// Nursing Notes screen — for Nursing Staff to add clinical notes per patient.
 /// TODO: Integrate with backend when /staff/nursing/notes endpoint is available.
+///
+/// Optional prefill via route query params: `?patient_uid=&name=&phone=`.
+/// Used by the bed-board's "Add Note" quick action so the nurse doesn't
+/// re-key the patient's phone number for every note during a round.
 class NursingNotesScreen extends StatefulWidget {
-  const NursingNotesScreen({super.key});
+  final String? prefillPatientUid;
+  final String? prefillPatientName;
+  final String? prefillPatientPhone;
+  const NursingNotesScreen({
+    super.key,
+    this.prefillPatientUid,
+    this.prefillPatientName,
+    this.prefillPatientPhone,
+  });
 
   @override
   State<NursingNotesScreen> createState() => _NursingNotesScreenState();
@@ -31,10 +45,20 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
 
   @override
   Widget build(BuildContext context) {
+    final hasContext =
+        (widget.prefillPatientName ?? '').isNotEmpty ||
+        (widget.prefillPatientPhone ?? '').isNotEmpty;
+
     return StaffScaffold(
       title: 'Nursing Notes',
       body: Column(
         children: [
+          if (hasContext)
+            PatientContextChip(
+              name: widget.prefillPatientName,
+              phone: widget.prefillPatientPhone,
+              accent: const Color(0xFF00695C),
+            ),
           Container(
             color: Colors.white,
             child: TabBar(
@@ -51,7 +75,10 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: const [_AddNoteTab(), _RecentNotesTab()],
+              children: [
+                _AddNoteTab(prefillPhone: widget.prefillPatientPhone),
+                const _RecentNotesTab(),
+              ],
             ),
           ),
         ],
@@ -61,7 +88,8 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
 }
 
 class _AddNoteTab extends StatefulWidget {
-  const _AddNoteTab();
+  final String? prefillPhone;
+  const _AddNoteTab({this.prefillPhone});
 
   @override
   State<_AddNoteTab> createState() => _AddNoteTabState();
@@ -71,6 +99,14 @@ class _AddNoteTabState extends State<_AddNoteTab> {
   final _formKey = GlobalKey<FormState>();
   final _phoneCtrl = TextEditingController();
   final _noteCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    if ((widget.prefillPhone ?? '').isNotEmpty) {
+      _phoneCtrl.text = widget.prefillPhone!;
+    }
+  }
   String? _noteType;
   String _priority = 'normal';
   bool _submitting = false;
@@ -125,12 +161,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
       } else {
         await MedicalApiService.createClinicalNote(body);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Nursing note saved successfully'),
-              backgroundColor: AppTheme.successGreen,
-            ),
-          );
+          SuccessToast.show(context, 'Nursing note saved successfully');
         }
       }
 
@@ -143,12 +174,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: AppTheme.errorRed,
-          ),
-        );
+        ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _submitting = false);

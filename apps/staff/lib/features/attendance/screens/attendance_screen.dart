@@ -7,6 +7,7 @@ import '../../../core/services/schedule_api_service.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/states/success_toast.dart';
 import '../widgets/shift_card.dart';
 import '../widgets/break_tracker.dart';
 import 'dispute_screen.dart';
@@ -177,26 +178,20 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         location: location,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _checkedIn
-                  ? '✅ Checked out successfully'
-                  : '✅ Checked in successfully',
-            ),
-            backgroundColor: AppTheme.primaryBlue,
-          ),
+        SuccessToast.show(
+          context,
+          _checkedIn
+              ? 'Checked out successfully'
+              : 'Checked in successfully',
         );
       }
       await _loadTodayStatus();
       await _loadCalendar();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: Colors.red,
-          ),
+        ErrorToast.show(
+          context,
+          e.toString().replaceFirst('Exception: ', ''),
         );
       }
     } finally {
