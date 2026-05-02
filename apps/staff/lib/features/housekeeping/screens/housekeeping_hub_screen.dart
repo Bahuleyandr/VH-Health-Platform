@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 import 'log_cleaning_screen.dart';
 import 'raise_request_screen.dart';
 import 'my_housekeeping_screen.dart';
@@ -9,10 +10,11 @@ class HousekeepingHubScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       backgroundColor: const Color(0xFFE0F5F6),
       appBar: AppBar(
-        title: const Text('Housekeeping'),
+        title: Text(s.housekeepingHubTitle),
         actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
@@ -25,8 +27,8 @@ class HousekeepingHubScreen extends StatelessWidget {
             _HubCard(
               icon: Icons.cleaning_services_outlined,
               color: const Color(0xFF007A64),
-              title: 'Log Cleaning',
-              subtitle: 'Record completed cleaning with photo evidence',
+              title: s.housekeepingHubLogTitle,
+              subtitle: s.housekeepingHubLogSubtitle,
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const LogCleaningScreen()),
@@ -36,8 +38,8 @@ class HousekeepingHubScreen extends StatelessWidget {
             _HubCard(
               icon: Icons.report_problem_outlined,
               color: Colors.orange,
-              title: 'Raise Request',
-              subtitle: 'Report a dirty area or request cleaning',
+              title: s.housekeepingHubRaiseTitle,
+              subtitle: s.housekeepingHubRaiseSubtitle,
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const RaiseRequestScreen()),
@@ -47,8 +49,8 @@ class HousekeepingHubScreen extends StatelessWidget {
             _HubCard(
               icon: Icons.history_outlined,
               color: Colors.blue,
-              title: 'My Activity',
-              subtitle: 'View your logs, assigned tasks, and requests',
+              title: s.housekeepingHubMyTitle,
+              subtitle: s.housekeepingHubMySubtitle,
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const MyHousekeepingScreen()),

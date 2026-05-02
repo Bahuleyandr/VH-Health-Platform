@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 class LabBookingsScreen extends StatefulWidget {
   const LabBookingsScreen({super.key});
@@ -135,8 +136,9 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Lab Bookings',
+      title: s.labBookingsTitle,
       body: Column(
         children: [
           Container(
@@ -147,9 +149,9 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
               unselectedLabelColor: AppTheme.textSecondary,
               indicatorColor: AppTheme.primaryBlue,
               tabs: [
-                Tab(text: 'New (${_newBookings.length})'),
-                Tab(text: 'Active (${_activeBookings.length})'),
-                Tab(text: 'Done (${_completedBookings.length})'),
+                Tab(text: '${s.labBookingsTabNew} (${_newBookings.length})'),
+                Tab(text: '${s.labBookingsTabActive} (${_activeBookings.length})'),
+                Tab(text: '${s.labBookingsTabDone} (${_completedBookings.length})'),
               ],
             ),
           ),
@@ -168,7 +170,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                         const SizedBox(height: 16),
                         ElevatedButton(
                           onPressed: _fetchBookings,
-                          child: const Text('Retry'),
+                          child: Text(s.actionRetry),
                         ),
                       ],
                     ),
@@ -188,6 +190,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
   }
 
   Widget _buildBookingList(List<dynamic> bookings, String type) {
+    final s = AppStrings.of(context);
     if (bookings.isEmpty) {
       return Center(
         child: Column(
@@ -196,7 +199,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
             Icon(Icons.inbox_outlined, size: 48, color: Colors.grey.shade400),
             const SizedBox(height: 8),
             Text(
-              'No $type bookings',
+              '${s.labBookingsEmptyPrefix} $type',
               style: TextStyle(color: Colors.grey.shade600),
             ),
           ],
@@ -214,6 +217,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
   }
 
   Widget _buildBookingCard(Map<String, dynamic> booking) {
+    final s = AppStrings.of(context);
     final status = booking['status'] ?? 'BOOKED';
     final testNames = booking['test_names'] as List<dynamic>?;
     final customTests = booking['custom_test_names'] as String?;
@@ -321,7 +325,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  collectionType == 'home' ? 'Home' : 'Walk-in',
+                  collectionType == 'home' ? s.labBookingsHomeCollection : s.labBookingsWalkIn,
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
                 const SizedBox(width: 12),
@@ -363,7 +367,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                     Icon(Icons.photo, size: 14, color: Colors.blue.shade700),
                     const SizedBox(width: 4),
                     Text(
-                      'View Prescription Slip',
+                      s.labBookingsViewSlip,
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.blue.shade700,
@@ -440,6 +444,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
   }
 
   Widget _buildActions(Map<String, dynamic> booking) {
+    final s = AppStrings.of(context);
     final status = booking['status'] ?? '';
     final id = booking['id'];
 
@@ -451,7 +456,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
               child: ElevatedButton.icon(
                 onPressed: () => _showConfirmDialog(id, booking),
                 icon: const Icon(Icons.check, size: 16),
-                label: const Text('Confirm'),
+                label: Text(s.labBookingsConfirmButton),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green,
                   foregroundColor: Colors.white,
@@ -467,7 +472,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
               child: ElevatedButton.icon(
                 onPressed: () => _showDispatchDialog(id),
                 icon: const Icon(Icons.local_shipping, size: 16),
-                label: const Text('Dispatch Collector'),
+                label: Text(s.labBookingsDispatchDialog),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.indigo,
                   foregroundColor: Colors.white,
@@ -499,7 +504,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      '📍 Sharing location...',
+                      s.labBookingsSharingLocation,
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.green.shade700,
@@ -511,7 +516,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
             ElevatedButton.icon(
               onPressed: () => _markCollected(id),
               icon: const Icon(Icons.science, size: 16),
-              label: const Text('Mark Collected'),
+              label: Text(s.labBookingsMarkCollected),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.purple,
                 foregroundColor: Colors.white,
@@ -526,7 +531,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
               child: ElevatedButton.icon(
                 onPressed: () => _startProcessing(id),
                 icon: const Icon(Icons.hourglass_top, size: 16),
-                label: const Text('Start Processing'),
+                label: Text(s.labBookingsStartProcessing),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.amber.shade700,
                   foregroundColor: Colors.white,
@@ -542,7 +547,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
               child: ElevatedButton.icon(
                 onPressed: () => _showUploadResultDialog(id),
                 icon: const Icon(Icons.upload_file, size: 16),
-                label: const Text('Upload Result'),
+                label: Text(s.labBookingsUploadResult),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.teal,
                   foregroundColor: Colors.white,
@@ -567,7 +572,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                     }
                   },
                   icon: const Icon(Icons.download, size: 16),
-                  label: const Text('View Result'),
+                  label: Text(s.labBookingsViewResult),
                 ),
               ),
           ],
@@ -580,6 +585,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
   // ─── Action Dialogs ───────────────────────────────────────────────
 
   Future<void> _showConfirmDialog(int id, Map<String, dynamic> booking) async {
+    final s = AppStrings.of(context);
     final notesCtrl = TextEditingController();
     final costCtrl = TextEditingController(
       text: booking['estimated_cost']?.toString() ?? '',
@@ -589,16 +595,16 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Confirm Booking'),
+        title: Text(s.labBookingsConfirmDialog),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: actualTestsCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Actual Tests (if different)',
-                  hintText: 'Verify/add test names',
+                decoration: InputDecoration(
+                  labelText: s.labBookingsActualTestsLabel,
+                  hintText: s.labBookingsActualTestsHint,
                   isDense: true,
                 ),
                 maxLines: 2,
@@ -606,8 +612,8 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
               const SizedBox(height: 12),
               TextField(
                 controller: costCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Final Cost (₹)',
+                decoration: InputDecoration(
+                  labelText: s.labBookingsFinalCostLabel,
                   isDense: true,
                 ),
                 keyboardType: TextInputType.number,
@@ -627,11 +633,11 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(s.actionCancel),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Confirm'),
+            child: Text(s.labBookingsConfirmButton),
           ),
         ],
       ),
@@ -647,7 +653,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
         if (costCtrl.text.isNotEmpty)
           'final_cost': double.tryParse(costCtrl.text),
       });
-      _showSnack('Booking confirmed');
+      _showSnack(s.labBookingsConfirmedToast);
       _fetchBookings();
     } catch (e) {
       _showSnack('Error: $e', isError: true);
@@ -655,20 +661,21 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
   }
 
   Future<void> _showDispatchDialog(int id) async {
+    final s = AppStrings.of(context);
     final phoneCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
 
     final dispatched = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Dispatch Collector'),
+        title: Text(s.labBookingsDispatchDialog),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: phoneCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Collector Phone',
+              decoration: InputDecoration(
+                labelText: s.labBookingsCollectorPhone,
                 isDense: true,
               ),
               keyboardType: TextInputType.phone,
@@ -686,11 +693,11 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+            child: Text(s.actionCancel),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Dispatch'),
+            child: Text(s.labBookingsDispatchButton),
           ),
         ],
       ),
@@ -703,7 +710,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
         if (phoneCtrl.text.isNotEmpty) 'collector_phone': phoneCtrl.text,
         if (notesCtrl.text.isNotEmpty) 'notes': notesCtrl.text,
       });
-      _showSnack('Collector dispatched');
+      _showSnack(s.labBookingsDispatchedToast);
       _startLocationSharing(id);
       _fetchBookings();
     } catch (e) {
@@ -712,10 +719,11 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
   }
 
   Future<void> _markCollected(int id) async {
+    final s = AppStrings.of(context);
     try {
       await MedicalApiService.markSamplesCollected(id);
       _stopLocationSharing();
-      _showSnack('Samples collected');
+      _showSnack(s.labBookingsSamplesCollectedToast);
       _fetchBookings();
     } catch (e) {
       _showSnack('Error: $e', isError: true);
@@ -723,9 +731,10 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
   }
 
   Future<void> _startProcessing(int id) async {
+    final s = AppStrings.of(context);
     try {
       await MedicalApiService.startBookingProcessing(id);
-      _showSnack('Processing started');
+      _showSnack(s.labBookingsProcessingStartedToast);
       _fetchBookings();
     } catch (e) {
       _showSnack('Error: $e', isError: true);
@@ -733,6 +742,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
   }
 
   Future<void> _showUploadResultDialog(int id) async {
+    final s = AppStrings.of(context);
     final notesCtrl = TextEditingController();
     PlatformFile? pickedFile;
 
@@ -740,7 +750,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Upload Result'),
+          title: Text(s.labBookingsUploadResult),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -756,9 +766,9 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                     if (fileSize > maxSizeBytes) {
                       if (ctx.mounted) {
                         ScaffoldMessenger.of(ctx).showSnackBar(
-                          const SnackBar(
+                          SnackBar(
                             content: Text(
-                              'File too large. Maximum size is 10 MB.',
+                              s.investigationsFileTooLarge,
                             ),
                           ),
                         );
@@ -769,7 +779,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                   }
                 },
                 icon: const Icon(Icons.attach_file),
-                label: Text(pickedFile?.name ?? 'Select File'),
+                label: Text(pickedFile?.name ?? s.labBookingsSelectFile),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -784,7 +794,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Cancel'),
+              child: Text(s.actionCancel),
             ),
             ElevatedButton(
               onPressed: pickedFile != null
@@ -806,7 +816,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
         notes: notesCtrl.text.isNotEmpty ? notesCtrl.text : null,
         fileName: pickedFile!.name,
       );
-      _showSnack('Result uploaded');
+      _showSnack(s.labBookingsResultUploadedToast);
       _fetchBookings();
     } catch (e) {
       _showSnack('Error: $e', isError: true);

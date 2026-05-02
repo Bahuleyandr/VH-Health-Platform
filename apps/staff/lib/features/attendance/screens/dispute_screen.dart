@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/services/attendance_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class DisputeScreen extends StatefulWidget {
   const DisputeScreen({super.key});
@@ -107,9 +108,10 @@ class _DisputeScreenState extends State<DisputeScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Attendance Dispute'),
+        title: Text(s.disputeTitle),
         actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
@@ -118,8 +120,8 @@ class _DisputeScreenState extends State<DisputeScreen>
           labelColor: Colors.white,
           indicatorColor: Colors.white,
           tabs: [
-            const Tab(text: 'Submit'),
-            Tab(text: 'My Disputes (${_myDisputes.length})'),
+            Tab(text: s.disputeTabSubmit),
+            Tab(text: '${s.disputeTabMy} (${_myDisputes.length})'),
           ],
         ),
       ),
@@ -131,12 +133,13 @@ class _DisputeScreenState extends State<DisputeScreen>
   }
 
   Widget _buildSubmitTab() {
+    final s = AppStrings.of(context);
     final disputeTypes = {
-      'missed_checkin': 'Missed Check-in',
-      'missed_checkout': 'Missed Check-out',
-      'wrong_time': 'Wrong Time Recorded',
-      'app_failure': 'App/Network Failure',
-      'other': 'Other',
+      'missed_checkin': s.disputeTypeMissedCheckin,
+      'missed_checkout': s.disputeTypeMissedCheckout,
+      'wrong_time': s.disputeTypeWrongTime,
+      'app_failure': s.disputeTypeAppFailure,
+      'other': s.disputeTypeOther,
     };
 
     return SingleChildScrollView(
@@ -151,21 +154,21 @@ class _DisputeScreenState extends State<DisputeScreen>
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: Colors.blue.shade200),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(Icons.info_outline, color: Colors.blue, size: 18),
-                SizedBox(width: 8),
+                const Icon(Icons.info_outline, color: Colors.blue, size: 18),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Use this to report attendance recording issues. HR will review and correct your record.',
-                    style: TextStyle(fontSize: 12, color: Colors.blue),
+                    s.disputeIntro,
+                    style: const TextStyle(fontSize: 12, color: Colors.blue),
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 16),
-          const Text('Date', style: TextStyle(fontWeight: FontWeight.w600)),
+          Text(s.disputeDateLabel, style: const TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           InkWell(
             onTap: () async {
@@ -194,7 +197,7 @@ class _DisputeScreenState extends State<DisputeScreen>
                   Text(
                     _disputeDate != null
                         ? DateFormat('d MMMM yyyy').format(_disputeDate!)
-                        : 'Select date of issue',
+                        : s.disputeSelectDate,
                     style: TextStyle(
                       color: _disputeDate != null
                           ? Colors.black
@@ -206,9 +209,9 @@ class _DisputeScreenState extends State<DisputeScreen>
             ),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'Issue Type',
-            style: TextStyle(fontWeight: FontWeight.w600),
+          Text(
+            s.disputeIssueTypeLabel,
+            style: const TextStyle(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
@@ -222,27 +225,27 @@ class _DisputeScreenState extends State<DisputeScreen>
             onChanged: (v) => setState(() => _disputeType = v!),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'Description',
-            style: TextStyle(fontWeight: FontWeight.w600),
+          Text(
+            s.disputeDescriptionLabel,
+            style: const TextStyle(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
           TextField(
             controller: _descriptionCtrl,
-            decoration: const InputDecoration(
-              hintText: 'Explain what happened...',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              hintText: s.disputeDescriptionHint,
+              border: const OutlineInputBorder(),
             ),
             maxLines: 4,
           ),
           const SizedBox(height: 16),
-          const Text(
-            'Correct Times (Optional)',
-            style: TextStyle(fontWeight: FontWeight.w600),
+          Text(
+            s.disputeCorrectTimes,
+            style: const TextStyle(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 4),
           Text(
-            'If you know what the correct times should be, enter them here.',
+            s.disputeCorrectTimesHint,
             style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 8),
@@ -250,7 +253,7 @@ class _DisputeScreenState extends State<DisputeScreen>
             children: [
               Expanded(
                 child: _timePicker(
-                  'Check-in',
+                  s.disputeCheckIn,
                   _requestedCheckIn,
                   (t) => setState(() => _requestedCheckIn = t),
                 ),
@@ -258,7 +261,7 @@ class _DisputeScreenState extends State<DisputeScreen>
               const SizedBox(width: 12),
               Expanded(
                 child: _timePicker(
-                  'Check-out',
+                  s.disputeCheckOut,
                   _requestedCheckOut,
                   (t) => setState(() => _requestedCheckOut = t),
                 ),
@@ -282,9 +285,9 @@ class _DisputeScreenState extends State<DisputeScreen>
                       color: Colors.white,
                       strokeWidth: 2,
                     )
-                  : const Text(
-                      'Submit Dispute',
-                      style: TextStyle(
+                  : Text(
+                      s.disputeSubmitButton,
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,

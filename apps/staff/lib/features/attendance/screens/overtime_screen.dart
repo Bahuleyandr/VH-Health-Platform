@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/attendance_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class OvertimeScreen extends StatefulWidget {
   const OvertimeScreen({super.key});
@@ -95,9 +96,10 @@ class _OvertimeScreenState extends State<OvertimeScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Overtime Requests'),
+        title: Text(s.overtimeTitle),
         actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
@@ -106,8 +108,8 @@ class _OvertimeScreenState extends State<OvertimeScreen>
           labelColor: Colors.white,
           indicatorColor: Colors.white,
           tabs: [
-            const Tab(text: 'Request'),
-            Tab(text: 'My Requests (${_requests.length})'),
+            Tab(text: s.overtimeTabRequest),
+            Tab(text: '${s.overtimeTabMy} (${_requests.length})'),
           ],
         ),
       ),
@@ -119,12 +121,13 @@ class _OvertimeScreenState extends State<OvertimeScreen>
   }
 
   Widget _buildRequestTab() {
+    final s = AppStrings.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Date', style: TextStyle(fontWeight: FontWeight.w600)),
+          Text(s.disputeDateLabel, style: const TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           InkWell(
             onTap: () async {
@@ -153,7 +156,7 @@ class _OvertimeScreenState extends State<OvertimeScreen>
                   Text(
                     _date != null
                         ? DateFormat('d MMMM yyyy').format(_date!)
-                        : 'Select date',
+                        : s.disputeSelectDate,
                     style: TextStyle(
                       color: _date != null
                           ? Colors.black
@@ -167,14 +170,14 @@ class _OvertimeScreenState extends State<OvertimeScreen>
           const SizedBox(height: 16),
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
-                  'Extra Hours',
-                  style: TextStyle(fontWeight: FontWeight.w600),
+                  s.overtimeExtraHoursLabel,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
               Text(
-                '${_hours.toStringAsFixed(1)} hrs',
+                '${_hours.toStringAsFixed(1)} ${s.overtimeHoursSuffix}',
                 style: const TextStyle(
                   color: Color(0xFF007A64),
                   fontWeight: FontWeight.bold,
@@ -192,30 +195,30 @@ class _OvertimeScreenState extends State<OvertimeScreen>
             onChanged: (v) => setState(() => _hours = (v * 2).round() / 2),
           ),
           const SizedBox(height: 16),
-          const Text('Type', style: TextStyle(fontWeight: FontWeight.w600)),
+          Text(s.overtimeTypeLabel, style: const TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             initialValue: _type,
             decoration: const InputDecoration(border: OutlineInputBorder()),
-            items: const [
+            items: [
               DropdownMenuItem(
                 value: 'comp_time',
-                child: Text('Compensatory Time Off'),
+                child: Text(s.overtimeTypeCompTime),
               ),
               DropdownMenuItem(
                 value: 'payment',
-                child: Text('Overtime Payment'),
+                child: Text(s.overtimeTypePayment),
               ),
             ],
             onChanged: (v) => setState(() => _type = v!),
           ),
           const SizedBox(height: 16),
-          const Text('Reason', style: TextStyle(fontWeight: FontWeight.w600)),
+          Text(s.overtimeReasonLabel, style: const TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           TextField(
-            decoration: const InputDecoration(
-              hintText: 'Why did you work overtime?',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              hintText: s.overtimeReasonHint,
+              border: const OutlineInputBorder(),
             ),
             maxLines: 3,
             onChanged: (v) => _reason = v,
@@ -237,9 +240,9 @@ class _OvertimeScreenState extends State<OvertimeScreen>
                       color: Colors.white,
                       strokeWidth: 2,
                     )
-                  : const Text(
-                      'Submit Overtime Request',
-                      style: TextStyle(
+                  : Text(
+                      s.overtimeSubmitButton,
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
@@ -253,11 +256,12 @@ class _OvertimeScreenState extends State<OvertimeScreen>
   }
 
   Widget _buildHistoryTab() {
+    final s = AppStrings.of(context);
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_requests.isEmpty) {
       return Center(
         child: Text(
-          'No overtime requests',
+          s.overtimeEmpty,
           style: TextStyle(color: Colors.grey.shade600),
         ),
       );

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class PayslipDetailScreen extends StatefulWidget {
   final String payslipId;
@@ -48,12 +49,13 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
   }
 
   Future<void> _downloadPDF() async {
+    final s = AppStrings.of(context);
     final pdfUrl = _payslip?['pdf_url'] as String?;
     if (pdfUrl == null || pdfUrl.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('PDF not available yet — check back later'),
+          SnackBar(
+            content: Text(s.payrollDetailPdfNotAvailable),
             backgroundColor: Colors.orange,
           ),
         );
@@ -74,7 +76,7 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Failed to open PDF: ${e.toString().replaceFirst('Exception: ', '')}',
+              '${s.payrollDetailPdfFailedPrefix} ${e.toString().replaceFirst('Exception: ', '')}',
             ),
             backgroundColor: Colors.red,
           ),
@@ -87,10 +89,11 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       backgroundColor: const Color(0xFFE0F5F6),
       appBar: AppBar(
-        title: Text('Payslip — ${widget.monthLabel}'),
+        title: Text('${s.payrollDetailTitlePrefix} — ${widget.monthLabel}'),
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
         actions: [
@@ -110,7 +113,7 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
                 : IconButton(
                     icon: const Icon(Icons.download_outlined),
                     onPressed: _downloadPDF,
-                    tooltip: 'Download PDF',
+                    tooltip: s.payrollDetailDownloadPdf,
                   ),
           const LogoutAction(),
         ],
@@ -144,19 +147,20 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
                         backgroundColor: const Color(0xFF007A64),
                         foregroundColor: Colors.white,
                       ),
-                      child: const Text('Retry'),
+                      child: Text(s.actionRetry),
                     ),
                   ],
                 ),
               ),
             )
           : _payslip == null
-          ? const Center(child: Text('Payslip not found'))
+          ? Center(child: Text(s.payrollDetailNotFound))
           : _buildBody(),
     );
   }
 
   Widget _buildBody() {
+    final s = AppStrings.of(context);
     final p = _payslip!;
     final fmt = NumberFormat('#,##,##0.00');
     final hasPDF = p['pdf_key'] != null;
@@ -176,9 +180,9 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
               padding: const EdgeInsets.all(24),
               child: Column(
                 children: [
-                  const Text(
-                    'Net Pay',
-                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                  Text(
+                    s.payrollPayslipNetPay,
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
                   ),
                   const SizedBox(height: 6),
                   Text(
@@ -240,21 +244,21 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
 
           // ─── Attendance ─────────────────────────────────────────────────
           _Section(
-            title: '📅 Attendance',
+            title: s.payrollDetailAttendanceHeader,
             rows: [
-              _Row('Working Days', '${p['total_working_days'] ?? 0}'),
-              _Row('Days Present', '${p['days_present'] ?? 0}', isGood: true),
+              _Row(s.payrollDetailWorkingDays, '${p['total_working_days'] ?? 0}'),
+              _Row(s.payrollDetailDaysPresent, '${p['days_present'] ?? 0}', isGood: true),
               _Row(
-                'Days Absent',
+                s.payrollDetailDaysAbsent,
                 '${p['days_absent'] ?? 0}',
                 isBad: (p['days_absent'] as num? ?? 0) > 0,
               ),
               // FEATURE 5: LOP line item
               if ((p['lop_days'] as num? ?? 0) > 0)
-                _Row('Loss of Pay Days', '${p['lop_days']} days', isBad: true),
-              _Row('Leave Days', '${p['days_leave'] ?? 0}'),
+                _Row(s.payrollDetailLopDays, '${p['lop_days']}', isBad: true),
+              _Row(s.payrollDetailLeaveDays, '${p['days_leave'] ?? 0}'),
               _Row(
-                'Overtime Hours',
+                s.payrollDetailOvertimeHours,
                 '${(p['overtime_hours'] as num?)?.toStringAsFixed(1) ?? '0.0'} hrs',
               ),
             ],
@@ -262,42 +266,42 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
 
           // ─── Earnings ───────────────────────────────────────────────────
           _Section(
-            title: '💰 Earnings',
+            title: s.payrollDetailEarningsHeader,
             rows: [
               if ((p['basic_earned'] as num? ?? 0) > 0)
-                _Row('Basic Salary', '₹${fmt.format(p['basic_earned'])}'),
+                _Row(s.payrollDetailBasic, '₹${fmt.format(p['basic_earned'])}'),
               if ((p['hra_earned'] as num? ?? 0) > 0)
-                _Row('HRA', '₹${fmt.format(p['hra_earned'])}'),
+                _Row(s.payrollDetailHra, '₹${fmt.format(p['hra_earned'])}'),
               if ((p['da_earned'] as num? ?? 0) > 0)
-                _Row('DA', '₹${fmt.format(p['da_earned'])}'),
+                _Row(s.payrollDetailDa, '₹${fmt.format(p['da_earned'])}'),
               if ((p['special_allowance_earned'] as num? ?? 0) > 0)
                 _Row(
-                  'Special Allowance',
+                  s.payrollDetailSpecialAllowance,
                   '₹${fmt.format(p['special_allowance_earned'])}',
                 ),
               if ((p['transport_allowance_earned'] as num? ?? 0) > 0)
                 _Row(
-                  'Transport Allowance',
+                  s.payrollDetailTransportAllowance,
                   '₹${fmt.format(p['transport_allowance_earned'])}',
                 ),
               if ((p['medical_allowance_earned'] as num? ?? 0) > 0)
                 _Row(
-                  'Medical Allowance',
+                  s.payrollDetailMedicalAllowance,
                   '₹${fmt.format(p['medical_allowance_earned'])}',
                 ),
               if ((p['overtime_pay'] as num? ?? 0) > 0)
-                _Row('Overtime Pay', '₹${fmt.format(p['overtime_pay'])}'),
+                _Row(s.payrollDetailOvertimePay, '₹${fmt.format(p['overtime_pay'])}'),
               if ((p['bonus_this_month'] as num? ?? 0) > 0)
-                _Row('Bonus', '₹${fmt.format(p['bonus_this_month'])}'),
+                _Row(s.payrollDetailBonus, '₹${fmt.format(p['bonus_this_month'])}'),
               // FEATURE 4: Arrears
               if ((p['arrears_amount'] as num? ?? 0) > 0)
                 _Row(
-                  'Arrears Paid',
+                  s.payrollDetailArrears,
                   '₹${fmt.format(p['arrears_amount'])}',
                   isGood: true,
                 ),
               _Row(
-                'Gross Salary',
+                s.payrollDetailGrossSalary,
                 '₹${fmt.format(p['gross_salary'] ?? 0)}',
                 isBold: true,
                 color: const Color(0xFF007A64),
@@ -307,35 +311,35 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
 
           // ─── Deductions ─────────────────────────────────────────────────
           _Section(
-            title: '📉 Deductions',
+            title: s.payrollDetailDeductionsHeader,
             rows: [
               // FEATURE 5: LOP deduction
               if ((p['lop_days'] as num? ?? 0) > 0)
                 _Row(
-                  'Loss of Pay (${p['lop_days']} days)',
+                  '${s.payrollDetailLopDeduction} (${p['lop_days']})',
                   '₹${fmt.format(p['lop_deduction'] ?? 0)}',
                   isBad: true,
                 ),
               if ((p['pf_employee'] as num? ?? 0) > 0)
-                _Row('PF (Employee 12%)', '₹${fmt.format(p['pf_employee'])}'),
+                _Row(s.payrollDetailPfEmployee, '₹${fmt.format(p['pf_employee'])}'),
               if ((p['esi_employee'] as num? ?? 0) > 0)
-                _Row('ESI (0.75%)', '₹${fmt.format(p['esi_employee'])}'),
+                _Row(s.payrollDetailEsi, '₹${fmt.format(p['esi_employee'])}'),
               if ((p['professional_tax'] as num? ?? 0) > 0)
                 _Row(
-                  'Professional Tax',
+                  s.payrollDetailProfessionalTax,
                   '₹${fmt.format(p['professional_tax'])}',
                 ),
               if ((p['tds'] as num? ?? 0) > 0)
-                _Row('TDS', '₹${fmt.format(p['tds'])}'),
+                _Row(s.payrollDetailTds, '₹${fmt.format(p['tds'])}'),
               // FEATURE 3: Advance deduction
               if ((p['advance_deduction'] as num? ?? 0) > 0)
                 _Row(
-                  'Salary Advance Deduction',
+                  s.payrollDetailAdvanceDeduction,
                   '₹${fmt.format(p['advance_deduction'])}',
                   isBad: true,
                 ),
               _Row(
-                'Total Deductions',
+                s.payrollDetailTotalDeductions,
                 '₹${fmt.format(p['total_deductions'] ?? 0)}',
                 isBold: true,
                 color: Colors.red.shade700,
@@ -368,7 +372,7 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
                       )
                     : const Icon(Icons.download_outlined, color: Colors.white),
                 label: Text(
-                  _downloadingPdf ? 'Opening...' : 'Download PDF Payslip',
+                  _downloadingPdf ? s.payrollDetailOpening : s.payrollDetailPdfDownloadButton,
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
@@ -397,7 +401,7 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'PDF payslip is being generated. It will appear here shortly.',
+                      s.payrollDetailPdfBeingGenerated,
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.orange.shade700,

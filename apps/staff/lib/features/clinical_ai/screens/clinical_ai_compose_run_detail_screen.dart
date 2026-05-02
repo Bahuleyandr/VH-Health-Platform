@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 class ClinicalAiComposeRunDetailScreen extends StatefulWidget {
   const ClinicalAiComposeRunDetailScreen({
@@ -69,14 +70,16 @@ class _ClinicalAiComposeRunDetailScreenState extends State<ClinicalAiComposeRunD
     try {
       await ClinicalAiApiService.resumeDischargeCompose(widget.runId);
       if (!mounted) return;
+      final s = AppStrings.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Compose resumed.')),
+        SnackBar(content: Text(s.clinicalAiComposeRunResumed)),
       );
       await _load();
     } catch (err) {
       if (!mounted) return;
+      final s = AppStrings.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Resume failed: $err')),
+        SnackBar(content: Text(s.clinicalAiComposeResumeFailed(err.toString()))),
       );
     } finally {
       if (mounted) setState(() => _resuming = false);
@@ -90,15 +93,16 @@ class _ClinicalAiComposeRunDetailScreenState extends State<ClinicalAiComposeRunD
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final run = _run;
     return StaffScaffold(
-      title: 'Compose run #${widget.runId}',
+      title: s.clinicalAiComposeRunDetailTitle(widget.runId),
       body: _loading && run == null
           ? const Center(child: CircularProgressIndicator())
           : _error != null && run == null
               ? _ErrorState(message: _error!, onRetry: _load)
               : run == null
-                  ? const Center(child: Text('Run not found.'))
+                  ? Center(child: Text(s.clinicalAiComposeRunDetailNotFound))
                   : RefreshIndicator(
                       onRefresh: _load,
                       child: ListView(
@@ -111,7 +115,7 @@ class _ClinicalAiComposeRunDetailScreenState extends State<ClinicalAiComposeRunD
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            'Subgraphs',
+                            s.clinicalAiComposeSubgraphsHeader,
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                           const SizedBox(height: 8),
@@ -123,13 +127,14 @@ class _ClinicalAiComposeRunDetailScreenState extends State<ClinicalAiComposeRunD
   }
 
   List<Widget> _buildChildren(Map<String, dynamic> run) {
+    final s = AppStrings.of(context);
     final children = (run['children'] as List?) ?? const [];
     if (children.isEmpty) {
       return [
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 24),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24),
           child: Center(
-            child: Text('No subgraph runs.', style: TextStyle(color: Colors.grey)),
+            child: Text(s.clinicalAiComposeNoSubgraphs, style: const TextStyle(color: Colors.grey)),
           ),
         ),
       ];
@@ -152,6 +157,7 @@ class _ParentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final status = run['status']?.toString() ?? '—';
     final pauseReason = run['pause_reason']?.toString();
     final admissionId = run['admission_id']?.toString() ?? '—';
@@ -171,7 +177,7 @@ class _ParentCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    'Admission $admissionId',
+                    s.clinicalAiComposeAdmissionHeader(admissionId),
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
@@ -196,7 +202,7 @@ class _ParentCard extends StatelessWidget {
                       const SizedBox(width: 4),
                       Flexible(
                         child: Text(
-                          'Paused: $pauseReason',
+                          s.clinicalAiComposePausedPrefix(pauseReason),
                           style: TextStyle(color: Colors.orange.shade900, fontSize: 12),
                         ),
                       ),
@@ -205,9 +211,9 @@ class _ParentCard extends StatelessWidget {
                 ),
               ),
             if (reviewStatus != null && reviewStatus != 'null')
-              _kv('Review status', reviewStatus, context),
-            if (startedAt != null) _kv('Started', startedAt, context),
-            if (finishedAt != null && finishedAt != 'null') _kv('Finished', finishedAt, context),
+              _kv(s.clinicalAiComposeReviewStatusKey, reviewStatus, context),
+            if (startedAt != null) _kv(s.clinicalAiComposeStartedKey, startedAt, context),
+            if (finishedAt != null && finishedAt != 'null') _kv(s.clinicalAiComposeFinishedKey, finishedAt, context),
             if (canResume) ...[
               const SizedBox(height: 12),
               FilledButton.icon(
@@ -219,7 +225,7 @@ class _ParentCard extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.play_arrow),
-                label: Text(resuming ? 'Resuming...' : 'Resume compose'),
+                label: Text(resuming ? s.clinicalAiComposeResumingButton : s.clinicalAiComposeResumeButton),
               ),
             ],
           ],
@@ -299,11 +305,11 @@ class _ChildCard extends StatelessWidget {
                   spacing: 6,
                   runSpacing: 4,
                   children: [
-                    _SmallChip(label: 'review: $reviewStatus'),
+                    _SmallChip(label: '${AppStrings.of(context).clinicalAiComposeReviewPrefix} $reviewStatus'),
                     if (critical > 0)
-                      _SmallChip(label: '$critical critical', color: Colors.red),
+                      _SmallChip(label: AppStrings.of(context).clinicalAiComposeCriticalCount(critical), color: Colors.red),
                     if (high > 0)
-                      _SmallChip(label: '$high high', color: Colors.orange),
+                      _SmallChip(label: AppStrings.of(context).clinicalAiComposeHighCount(high), color: Colors.orange),
                   ],
                 ),
               ),
@@ -312,7 +318,7 @@ class _ChildCard extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: () => onOpenReview(reviewIdInt),
                 icon: const Icon(Icons.open_in_new, size: 16),
-                label: const Text('Open in review queue'),
+                label: Text(AppStrings.of(context).clinicalAiComposeOpenInQueue),
               ),
             ],
           ],
@@ -372,6 +378,7 @@ class _ErrorState extends StatelessWidget {
   final VoidCallback onRetry;
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -382,7 +389,7 @@ class _ErrorState extends StatelessWidget {
             const SizedBox(height: 8),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 16),
-            FilledButton(onPressed: onRetry, child: const Text('Retry')),
+            FilledButton(onPressed: onRetry, child: Text(s.actionRetry)),
           ],
         ),
       ),

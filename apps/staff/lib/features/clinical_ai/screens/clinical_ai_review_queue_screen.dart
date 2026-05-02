@@ -16,14 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/widgets/staff_scaffold.dart';
-
-const _statusFilters = <_StatusFilter>[
-  _StatusFilter(label: 'Pending', value: 'pending'),
-  _StatusFilter(label: 'Accepted', value: 'accepted'),
-  _StatusFilter(label: 'Edited', value: 'edited'),
-  _StatusFilter(label: 'Rejected', value: 'rejected'),
-  _StatusFilter(label: 'All', value: null),
-];
+import '../../../l10n/app_strings.dart';
 
 class ClinicalAiReviewQueueScreen extends StatefulWidget {
   const ClinicalAiReviewQueueScreen({super.key});
@@ -77,13 +70,21 @@ class _ClinicalAiReviewQueueScreenState extends State<ClinicalAiReviewQueueScree
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    final statusFilters = <_StatusFilter>[
+      _StatusFilter(label: s.clinicalAiQueueFilterPending, value: 'pending'),
+      _StatusFilter(label: s.clinicalAiQueueFilterAccepted, value: 'accepted'),
+      _StatusFilter(label: s.clinicalAiQueueFilterEdited, value: 'edited'),
+      _StatusFilter(label: s.clinicalAiQueueFilterRejected, value: 'rejected'),
+      _StatusFilter(label: s.clinicalAiQueueFilterAll, value: null),
+    ];
     return StaffScaffold(
-      title: 'AI Review Queue',
+      title: s.clinicalAiQueueTitle,
       body: Column(
         children: [
           _QuickAccessRow(),
           _FilterBar(
-            filters: _statusFilters,
+            filters: statusFilters,
             value: _statusFilter,
             onChanged: _onFilterChanged,
           ),
@@ -137,6 +138,7 @@ class _StatusFilter {
 class _QuickAccessRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: Row(
@@ -144,13 +146,13 @@ class _QuickAccessRow extends StatelessWidget {
           OutlinedButton.icon(
             onPressed: () => context.push('/clinical-ai/compose'),
             icon: const Icon(Icons.account_tree_outlined, size: 16),
-            label: const Text('Compose runs'),
+            label: Text(s.clinicalAiQueueComposeButton),
           ),
           const SizedBox(width: 8),
           OutlinedButton.icon(
             onPressed: () => context.push('/clinical-ai/voice-notes'),
             icon: const Icon(Icons.mic_none, size: 16),
-            label: const Text('Voice notes'),
+            label: Text(s.clinicalAiQueueVoiceNotesButton),
           ),
         ],
       ),
@@ -195,9 +197,10 @@ class _ReviewListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final moduleKey = review['module_key']?.toString() ?? '—';
     final decision = review['decision']?.toString() ?? 'pending';
-    final patientName = review['patient_name']?.toString() ?? 'Patient';
+    final patientName = review['patient_name']?.toString() ?? s.clinicalAiQueuePatientFallback;
     final flags = (review['safety_flags'] as List?) ?? const [];
     final criticalCount = flags
         .where((f) => f is Map && f['severity']?.toString().toLowerCase() == 'critical')
@@ -284,21 +287,22 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      children: const [
-        SizedBox(height: 80),
-        Icon(Icons.inbox, size: 64, color: Colors.grey),
-        SizedBox(height: 12),
-        Center(child: Text('No drafts in this filter', style: TextStyle(fontSize: 16))),
-        SizedBox(height: 6),
+      children: [
+        const SizedBox(height: 80),
+        const Icon(Icons.inbox, size: 64, color: Colors.grey),
+        const SizedBox(height: 12),
+        Center(child: Text(s.clinicalAiQueueEmptyTitle, style: const TextStyle(fontSize: 16))),
+        const SizedBox(height: 6),
         Center(
           child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 32),
+            padding: const EdgeInsets.symmetric(horizontal: 32),
             child: Text(
-              'When a clinical AI draft is generated for an admission you reviewer-cover, it will appear here.',
+              s.clinicalAiQueueEmptyBody,
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey),
+              style: const TextStyle(color: Colors.grey),
             ),
           ),
         ),
@@ -314,6 +318,7 @@ class _ErrorState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -322,7 +327,7 @@ class _ErrorState extends StatelessWidget {
           children: [
             const Icon(Icons.error_outline, size: 48, color: Colors.red),
             const SizedBox(height: 12),
-            Text('Failed to load reviews', style: Theme.of(context).textTheme.titleMedium),
+            Text(s.clinicalAiQueueLoadFailed, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 6),
             Text(
               message,
@@ -333,7 +338,7 @@ class _ErrorState extends StatelessWidget {
             FilledButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
+              label: Text(s.actionRetry),
             ),
           ],
         ),

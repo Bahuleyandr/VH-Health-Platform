@@ -6,6 +6,7 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/pharmacy_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 class PharmacyScreen extends StatefulWidget {
   const PharmacyScreen({super.key});
@@ -145,6 +146,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> _confirmOrder(Map<String, dynamic> order) async {
+    final s = AppStrings.of(context);
     final itemsController = TextEditingController();
     final costController = TextEditingController();
     final notesController = TextEditingController();
@@ -171,7 +173,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Confirm ${order['order_number'] ?? ''}',
+                    '${s.pharmacyConfirmDialog} ${order['order_number'] ?? ''}',
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -179,7 +181,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
-                    tooltip: 'Close',
+                    tooltip: s.actionClose,
                     onPressed: () => Navigator.pop(ctx, false),
                   ),
                 ],
@@ -208,7 +210,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                   order['order_note'].toString().isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Text(
-                  'Patient Note: ${order['order_note']}',
+                  '${s.pharmacyPatientNotePrefix} ${order['order_note']}',
                   style: const TextStyle(fontStyle: FontStyle.italic),
                 ),
               ],
@@ -218,8 +220,8 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                 controller: itemsController,
                 maxLines: 3,
                 decoration: InputDecoration(
-                  labelText: 'Items (one per line: name, qty, price)',
-                  hintText: 'Dolo 650, 2, 60\nPan 40, 1, 95',
+                  labelText: s.pharmacyItemsLabel,
+                  hintText: s.pharmacyItemsHint,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -230,7 +232,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                 controller: costController,
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
-                  labelText: 'Total Cost (₹)',
+                  labelText: s.pharmacyTotalCostLabel,
                   prefixText: '₹ ',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -253,7 +255,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                 child: ElevatedButton.icon(
                   onPressed: () => Navigator.pop(ctx, true),
                   icon: const Icon(Icons.check, color: Colors.white),
-                  label: const Text('Confirm Order'),
+                  label: Text(s.pharmacyConfirmOrder),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.primaryBlue,
                     foregroundColor: Colors.white,
@@ -289,7 +291,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
         'total_cost': double.tryParse(costController.text) ?? 0,
         'confirmation_notes': notesController.text.trim(),
       });
-      _snack('Order confirmed');
+      _snack(s.pharmacyOrderConfirmedToast);
       _loadOrders();
     } catch (e) {
       _snack(e.toString(), isError: true);
@@ -297,9 +299,10 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   }
 
   Future<void> _markPreparing(Map<String, dynamic> order) async {
+    final s = AppStrings.of(context);
     try {
       await PharmacyApiService.markPharmacyPreparing(order['id']);
-      _snack('Marked as preparing');
+      _snack(s.pharmacyMarkPreparingToast);
       _loadOrders();
     } catch (e) {
       _snack(e.toString(), isError: true);
@@ -307,30 +310,31 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   }
 
   Future<void> _dispatchOrder(Map<String, dynamic> order) async {
+    final s = AppStrings.of(context);
     final personCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Dispatch Order'),
+        title: Text(s.pharmacyDispatchDialog),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: personCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Delivery Person Name',
-                prefixIcon: ExcludeSemantics(child: Icon(Icons.person)),
+              decoration: InputDecoration(
+                labelText: s.pharmacyDeliveryPersonName,
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.person)),
               ),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: phoneCtrl,
               keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: 'Delivery Person Phone',
-                prefixIcon: ExcludeSemantics(child: Icon(Icons.phone)),
+              decoration: InputDecoration(
+                labelText: s.pharmacyDeliveryPersonPhone,
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.phone)),
               ),
             ),
           ],
@@ -338,11 +342,11 @@ class _PharmacyScreenState extends State<PharmacyScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(s.actionCancel),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Dispatch'),
+            child: Text(s.pharmacyDispatch),
           ),
         ],
       ),
@@ -355,7 +359,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
         'delivery_person': personCtrl.text.trim(),
         'delivery_person_phone': phoneCtrl.text.trim(),
       });
-      _snack('Order dispatched');
+      _snack(s.pharmacyOrderDispatchedToast);
       _startLocationSharing(order['id']);
       _loadOrders();
     } catch (e) {
@@ -364,10 +368,11 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   }
 
   Future<void> _markDelivered(Map<String, dynamic> order) async {
+    final s = AppStrings.of(context);
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Mark Delivered?'),
+        title: Text(s.pharmacyMarkDeliveredDialog),
         content: Text(
           'Confirm that order ${order['order_number']} has been delivered.',
         ),
@@ -378,7 +383,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Yes, Delivered'),
+            child: Text(s.pharmacyMarkDeliveredYes),
           ),
         ],
       ),
@@ -389,7 +394,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
     try {
       await PharmacyApiService.markPharmacyDelivered(order['id']);
       _stopLocationSharing();
-      _snack('Marked as delivered');
+      _snack(s.pharmacyOrderDeliveredToast);
       _loadOrders();
     } catch (e) {
       _snack(e.toString(), isError: true);
@@ -397,11 +402,12 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   }
 
   Future<void> _cancelOrder(Map<String, dynamic> order) async {
+    final s = AppStrings.of(context);
     final reasonCtrl = TextEditingController();
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Cancel Order?'),
+        title: Text(s.pharmacyCancelDialog),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -409,8 +415,8 @@ class _PharmacyScreenState extends State<PharmacyScreen>
             const SizedBox(height: 12),
             TextField(
               controller: reasonCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Reason for cancellation',
+              decoration: InputDecoration(
+                labelText: s.pharmacyCancellationReason,
               ),
               maxLines: 2,
             ),
@@ -424,9 +430,9 @@ class _PharmacyScreenState extends State<PharmacyScreen>
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text(
-              'Cancel Order',
-              style: TextStyle(color: Colors.white),
+            child: Text(
+              s.pharmacyCancelDialog,
+              style: const TextStyle(color: Colors.white),
             ),
           ),
         ],
@@ -440,7 +446,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
         order['id'],
         reasonCtrl.text.trim(),
       );
-      _snack('Order cancelled');
+      _snack(s.pharmacyOrderCancelledToast);
       _loadOrders();
     } catch (e) {
       _snack(e.toString(), isError: true);
@@ -453,8 +459,9 @@ class _PharmacyScreenState extends State<PharmacyScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Pharmacy Orders',
+      title: s.pharmacyTitle,
       body: Column(
         children: [
           // Header
@@ -477,9 +484,9 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Pharmacy Queue',
-                        style: TextStyle(
+                      Text(
+                        s.pharmacyQueueTitle,
+                        style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
@@ -498,7 +505,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                 ),
                 IconButton(
                   icon: const Icon(Icons.refresh, color: Colors.white),
-                  tooltip: 'Refresh orders',
+                  tooltip: s.actionRefresh,
                   onPressed: _loadOrders,
                 ),
               ],
@@ -511,9 +518,9 @@ class _PharmacyScreenState extends State<PharmacyScreen>
             unselectedLabelColor: Colors.grey,
             indicatorColor: const Color(0xFFE65100),
             tabs: [
-              Tab(text: 'New (${_newOrders.length})'),
-              Tab(text: 'Active (${_activeOrders.length})'),
-              Tab(text: 'Done (${_completedOrders.length})'),
+              Tab(text: '${s.pharmacyTabNew} (${_newOrders.length})'),
+              Tab(text: '${s.pharmacyTabActive} (${_activeOrders.length})'),
+              Tab(text: '${s.pharmacyTabDone} (${_completedOrders.length})'),
             ],
           ),
 
@@ -532,7 +539,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                         const SizedBox(height: 12),
                         ElevatedButton(
                           onPressed: _loadOrders,
-                          child: const Text('Retry'),
+                          child: Text(s.actionRetry),
                         ),
                       ],
                     ),
@@ -540,9 +547,9 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                 : TabBarView(
                     controller: _tabController,
                     children: [
-                      _buildOrderList(_newOrders, 'No new orders'),
-                      _buildOrderList(_activeOrders, 'No active orders'),
-                      _buildOrderList(_completedOrders, 'No completed orders'),
+                      _buildOrderList(_newOrders, s.pharmacyEmptyNew),
+                      _buildOrderList(_activeOrders, s.pharmacyEmptyActive),
+                      _buildOrderList(_completedOrders, s.pharmacyEmptyDone),
                     ],
                   ),
           ),
@@ -572,6 +579,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   }
 
   Widget _buildOrderCard(Map<String, dynamic> order) {
+    final s = AppStrings.of(context);
     final status = order['status'] ?? '';
     final orderNum = order['order_number'] ?? '#${order['id']}';
     final patientName = order['patient_name'] ?? 'Unknown';
@@ -654,7 +662,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  deliveryType == 'pickup' ? 'Pickup' : 'Delivery',
+                  deliveryType == 'pickup' ? s.pharmacyDeliveryTypePickup : s.pharmacyDeliveryTypeDelivery,
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                 ),
                 const Spacer(),
@@ -719,6 +727,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   }
 
   Widget _buildActions(Map<String, dynamic> order) {
+    final s = AppStrings.of(context);
     final status = order['status'];
 
     return Wrap(
@@ -727,21 +736,21 @@ class _PharmacyScreenState extends State<PharmacyScreen>
       children: [
         if (status == 'PLACED')
           _ActionBtn(
-            label: 'View & Confirm',
+            label: s.pharmacyViewConfirm,
             icon: Icons.check_circle_outline,
             color: AppTheme.primaryBlue,
             onTap: () => _confirmOrder(order),
           ),
         if (status == 'CONFIRMED')
           _ActionBtn(
-            label: 'Start Preparing',
+            label: s.pharmacyStartPreparing,
             icon: Icons.medication,
             color: AppTheme.warningAmber,
             onTap: () => _markPreparing(order),
           ),
         if (status == 'PREPARING')
           _ActionBtn(
-            label: 'Dispatch',
+            label: s.pharmacyDispatch,
             icon: Icons.delivery_dining,
             color: Colors.teal,
             onTap: () => _dispatchOrder(order),
@@ -765,7 +774,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    '📍 Sharing location...',
+                    s.labBookingsSharingLocation,
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.green.shade700,
@@ -775,7 +784,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
               ),
             ),
           _ActionBtn(
-            label: 'Mark Delivered',
+            label: s.pharmacyMarkDelivered,
             icon: Icons.done_all,
             color: AppTheme.successGreen,
             onTap: () => _markDelivered(order),
@@ -783,7 +792,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
         ],
         if (!['DELIVERED', 'CANCELLED'].contains(status))
           _ActionBtn(
-            label: 'Cancel',
+            label: s.actionCancel,
             icon: Icons.cancel_outlined,
             color: AppTheme.errorRed,
             onTap: () => _cancelOrder(order),
@@ -793,13 +802,14 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   }
 
   Widget _buildStatusChip(String status) {
+    final s = AppStrings.of(context);
     final (color, label) = switch (status) {
-      'PLACED' => (Colors.orange, 'Placed'),
-      'CONFIRMED' => (AppTheme.primaryBlue, 'Confirmed'),
-      'PREPARING' => (AppTheme.warningAmber, 'Preparing'),
-      'DISPATCHED' => (Colors.teal, 'Dispatched'),
-      'DELIVERED' => (AppTheme.successGreen, 'Delivered'),
-      'CANCELLED' => (AppTheme.errorRed, 'Cancelled'),
+      'PLACED' => (Colors.orange, s.pharmacyStatusPlaced),
+      'CONFIRMED' => (AppTheme.primaryBlue, s.pharmacyStatusConfirmed),
+      'PREPARING' => (AppTheme.warningAmber, s.pharmacyStatusPreparing),
+      'DISPATCHED' => (Colors.teal, s.pharmacyStatusDispatched),
+      'DELIVERED' => (AppTheme.successGreen, s.pharmacyStatusDelivered),
+      'CANCELLED' => (AppTheme.errorRed, s.pharmacyStatusCancelled),
       _ => (Colors.grey, status),
     };
 

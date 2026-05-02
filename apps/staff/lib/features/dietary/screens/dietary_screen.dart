@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class DietaryScreen extends StatefulWidget {
   const DietaryScreen({super.key});
@@ -326,16 +327,17 @@ class _DietaryScreenState extends State<DietaryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
-        title: const Text('Dietary Management'),
+        title: Text(s.dietaryTitle),
         backgroundColor: AppTheme.primaryTeal,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh worklist',
+            tooltip: s.dietaryRefreshTooltip,
             onPressed: _fetchOrders,
           ),
           const LogoutAction(),
@@ -346,7 +348,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
         backgroundColor: AppTheme.primaryTeal,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
-        label: const Text('New Order'),
+        label: Text(s.dietaryNewOrderButton),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:intl/intl.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class MyHousekeepingScreen extends StatefulWidget {
   const MyHousekeepingScreen({super.key});
@@ -66,9 +67,10 @@ class _MyHousekeepingScreenState extends State<MyHousekeepingScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Activity'),
+        title: Text(s.housekeepingMyTitle),
         actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
@@ -78,10 +80,10 @@ class _MyHousekeepingScreenState extends State<MyHousekeepingScreen>
           unselectedLabelColor: Colors.white70,
           indicatorColor: Colors.white,
           tabs: [
-            Tab(text: 'My Logs (${_logs.length})'),
+            Tab(text: '${s.housekeepingMyTabLogs} (${_logs.length})'),
             Tab(
               text:
-                  'Requests (${_raisedRequests.length + _assignedRequests.length})',
+                  '${s.housekeepingMyTabRequests} (${_raisedRequests.length + _assignedRequests.length})',
             ),
           ],
         ),
@@ -118,6 +120,7 @@ class _LogsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -132,9 +135,9 @@ class _LogsTab extends StatelessWidget {
               color: Colors.grey.shade400,
             ),
             const SizedBox(height: 12),
-            const Text(
-              'No cleaning logs yet',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
+            Text(
+              s.housekeepingNoLogs,
+              style: const TextStyle(fontSize: 16, color: Colors.grey),
             ),
           ],
         ),
@@ -158,11 +161,12 @@ class _LogCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final status = log['status'] as String? ?? 'submitted';
     final statusStyle = switch (status) {
-      'verified' => (color: Colors.green, label: 'VERIFIED'),
-      'flagged' => (color: Colors.red, label: 'FLAGGED'),
-      _ => (color: Colors.grey, label: 'SUBMITTED'),
+      'verified' => (color: Colors.green, label: s.housekeepingStatusVerified),
+      'flagged' => (color: Colors.red, label: s.housekeepingStatusFlagged),
+      _ => (color: Colors.grey, label: s.housekeepingStatusSubmitted),
     };
     final loggedAt = log['logged_at'] != null
         ? DateFormat(
@@ -228,7 +232,7 @@ class _LogCard extends StatelessWidget {
                   Text(
                     log['zone_name'] as String? ??
                         log['location_text'] as String? ??
-                        'Unknown location',
+                        s.housekeepingUnknownLocation,
                     style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                   const SizedBox(height: 2),
@@ -308,6 +312,7 @@ class _RequestsTabState extends State<_RequestsTab>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (widget.loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -321,8 +326,8 @@ class _RequestsTabState extends State<_RequestsTab>
             unselectedLabelColor: Colors.grey,
             indicatorColor: const Color(0xFF007A64),
             tabs: [
-              Tab(text: 'Raised by me (${widget.raised.length})'),
-              Tab(text: 'Assigned to me (${widget.assigned.length})'),
+              Tab(text: '${s.housekeepingMyTabRaised} (${widget.raised.length})'),
+              Tab(text: '${s.housekeepingMyTabAssigned} (${widget.assigned.length})'),
             ],
           ),
         ),
@@ -365,6 +370,7 @@ class _RequestList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (requests.isEmpty) {
       return Center(
         child: Column(
@@ -372,9 +378,9 @@ class _RequestList extends StatelessWidget {
           children: [
             Icon(Icons.inbox_outlined, size: 56, color: Colors.grey.shade400),
             const SizedBox(height: 12),
-            const Text(
-              'No requests here',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
+            Text(
+              s.housekeepingNoRequests,
+              style: const TextStyle(fontSize: 16, color: Colors.grey),
             ),
           ],
         ),
@@ -521,9 +527,9 @@ class _RequestCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    child: const Text(
-                      'Mark Complete',
-                      style: TextStyle(
+                    child: Text(
+                      AppStrings.of(context).housekeepingMarkComplete,
+                      style: const TextStyle(
                         fontSize: 12,
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -539,6 +545,7 @@ class _RequestCard extends StatelessWidget {
   }
 
   void _showCompleteDialog(BuildContext context, String requestId) {
+    final s = AppStrings.of(context);
     final notesCtrl = TextEditingController();
     File? photo;
     bool submitting = false;
@@ -547,7 +554,7 @@ class _RequestCard extends StatelessWidget {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Mark as Complete'),
+          title: Text(s.housekeepingCompleteDialogTitle),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -555,9 +562,9 @@ class _RequestCard extends StatelessWidget {
               children: [
                 TextField(
                   controller: notesCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Completion notes (optional)',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: s.housekeepingCompletionNotes,
+                    border: const OutlineInputBorder(),
                   ),
                   maxLines: 3,
                 ),
@@ -589,16 +596,16 @@ class _RequestCard extends StatelessWidget {
                               width: double.infinity,
                             ),
                           )
-                        : const Column(
+                        : Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(
+                              const Icon(
                                 Icons.camera_alt_outlined,
                                 color: Colors.grey,
                               ),
                               Text(
-                                'Add completion photo',
-                                style: TextStyle(
+                                s.housekeepingAddCompletionPhoto,
+                                style: const TextStyle(
                                   fontSize: 12,
                                   color: Colors.grey,
                                 ),
@@ -613,7 +620,7 @@ class _RequestCard extends StatelessWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
+              child: Text(s.actionCancel),
             ),
             ElevatedButton(
               onPressed: submitting
@@ -630,9 +637,9 @@ class _RequestCard extends StatelessWidget {
                         if (ctx.mounted) {
                           Navigator.pop(ctx);
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('✅ Request marked as completed'),
-                              backgroundColor: Color(0xFF007A64),
+                            SnackBar(
+                              content: Text(s.housekeepingMarkedComplete),
+                              backgroundColor: const Color(0xFF007A64),
                             ),
                           );
                           onCompleted();
@@ -666,7 +673,7 @@ class _RequestCard extends StatelessWidget {
                         strokeWidth: 2,
                       ),
                     )
-                  : const Text('Submit', style: TextStyle(color: Colors.white)),
+                  : Text(s.actionSubmit, style: const TextStyle(color: Colors.white)),
             ),
           ],
         ),

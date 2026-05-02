@@ -1083,6 +1083,794 @@ class AppStrings {
       _t('vitals_chart.record_patient');
   String get vitalsChartRecordNow => _t('vitals_chart.record_now');
 
+  // ── Payroll ────────────────────────────────────────────────────────
+  String get payrollPayslipTitle => _t('payroll.payslip.title');
+  String get payrollPayslipBannerTax => _t('payroll.payslip.banner_tax');
+  String get payrollPayslipBannerDeclaration => _t('payroll.payslip.banner_declaration');
+  String get payrollPayslipBannerQueries => _t('payroll.payslip.banner_queries');
+  String get payrollPayslipEmptyTitle => _t('payroll.payslip.empty_title');
+  String get payrollPayslipEmptyBody => _t('payroll.payslip.empty_body');
+  String get payrollPayslipNewBadge => _t('payroll.payslip.new_badge');
+  String get payrollPayslipNetPay => _t('payroll.payslip.net_pay');
+  String get payrollPayslipGross => _t('payroll.payslip.gross');
+  String get payrollPayslipDeductions => _t('payroll.payslip.deductions');
+  String get payrollDetailTitlePrefix => _t('payroll.detail.title_prefix');
+  String get payrollDetailDownloadPdf => _t('payroll.detail.download_pdf');
+  String get payrollDetailPdfNotAvailable => _t('payroll.detail.pdf_not_available');
+  String get payrollDetailPdfFailedPrefix => _t('payroll.detail.pdf_failed_prefix');
+  String get payrollDetailPdfBeingGenerated => _t('payroll.detail.pdf_being_generated');
+  String get payrollDetailPdfDownloadButton => _t('payroll.detail.pdf_download_button');
+  String get payrollDetailOpening => _t('payroll.detail.opening');
+  String get payrollDetailNotFound => _t('payroll.detail.not_found');
+  String get payrollDetailAttendanceHeader => _t('payroll.detail.attendance_header');
+  String get payrollDetailEarningsHeader => _t('payroll.detail.earnings_header');
+  String get payrollDetailDeductionsHeader => _t('payroll.detail.deductions_header');
+  String get payrollDetailWorkingDays => _t('payroll.detail.working_days');
+  String get payrollDetailDaysPresent => _t('payroll.detail.days_present');
+  String get payrollDetailDaysAbsent => _t('payroll.detail.days_absent');
+  String get payrollDetailLopDays => _t('payroll.detail.lop_days');
+  String get payrollDetailLeaveDays => _t('payroll.detail.leave_days');
+  String get payrollDetailOvertimeHours => _t('payroll.detail.overtime_hours');
+  String get payrollDetailBasic => _t('payroll.detail.basic');
+  String get payrollDetailHra => _t('payroll.detail.hra');
+  String get payrollDetailDa => _t('payroll.detail.da');
+  String get payrollDetailSpecialAllowance => _t('payroll.detail.special_allowance');
+  String get payrollDetailTransportAllowance => _t('payroll.detail.transport_allowance');
+  String get payrollDetailMedicalAllowance => _t('payroll.detail.medical_allowance');
+  String get payrollDetailOvertimePay => _t('payroll.detail.overtime_pay');
+  String get payrollDetailBonus => _t('payroll.detail.bonus');
+  String get payrollDetailArrears => _t('payroll.detail.arrears');
+  String get payrollDetailGrossSalary => _t('payroll.detail.gross_salary');
+  String get payrollDetailLopDeduction => _t('payroll.detail.lop_deduction');
+  String get payrollDetailPfEmployee => _t('payroll.detail.pf_employee');
+  String get payrollDetailEsi => _t('payroll.detail.esi');
+  String get payrollDetailProfessionalTax => _t('payroll.detail.professional_tax');
+  String get payrollDetailTds => _t('payroll.detail.tds');
+  String get payrollDetailAdvanceDeduction => _t('payroll.detail.advance_deduction');
+  String get payrollDetailTotalDeductions => _t('payroll.detail.total_deductions');
+  String get payrollQueryTitle => _t('payroll.query.title');
+  String get payrollQueryTabMy => _t('payroll.query.tab_my');
+  String get payrollQueryTabRaise => _t('payroll.query.tab_raise');
+  String get payrollQueryEmpty => _t('payroll.query.empty');
+  String get payrollQueryRepliesHeader => _t('payroll.query.replies_header');
+  String get payrollQueryRaiseHeader => _t('payroll.query.raise_header');
+  String get payrollQuerySelectPayslip => _t('payroll.query.select_payslip');
+  String get payrollQueryChoosePayslipHint => _t('payroll.query.choose_payslip_hint');
+  String get payrollQueryCategoryLabel => _t('payroll.query.category_label');
+  String get payrollQuerySubjectLabel => _t('payroll.query.subject_label');
+  String get payrollQuerySubjectRequired => _t('payroll.query.subject_required');
+  String get payrollQueryDescriptionLabel => _t('payroll.query.description_label');
+  String get payrollQueryDescriptionRequired => _t('payroll.query.description_required');
+  String get payrollQueryPickPayslip => _t('payroll.query.pick_payslip');
+  String get payrollQuerySubmitButton => _t('payroll.query.submit_button');
+  // REVIEW: clinical / financial confirmation
+  String get payrollQuerySubmittedSuccess => _t('payroll.query.submitted_success');
+  String get payrollTaxSummaryTitle => _t('payroll.tax_summary.title');
+  String get payrollTaxSummaryFyLabel => _t('payroll.tax_summary.fy_label');
+  String get payrollTaxSummaryTotalGross => _t('payroll.tax_summary.total_gross');
+  String get payrollTaxSummaryTotalNet => _t('payroll.tax_summary.total_net');
+  String get payrollTaxSummaryTaxableIncome => _t('payroll.tax_summary.taxable_income');
+  String get payrollTaxSummaryTaxPayable => _t('payroll.tax_summary.tax_payable');
+  String get payrollTaxSummaryEarningsBreakdown => _t('payroll.tax_summary.earnings_breakdown');
+  String get payrollTaxSummaryDeductionsBreakdown => _t('payroll.tax_summary.deductions_breakdown');
+  String get payrollTaxSummaryTaxComputation => _t('payroll.tax_summary.tax_computation');
+  String get payrollTaxSummaryStandardDeduction => _t('payroll.tax_summary.standard_deduction');
+  String get payrollTaxSummaryDisclaimer => _t('payroll.tax_summary.disclaimer');
+  String get payrollTaxSummaryDownloadPdf => _t('payroll.tax_summary.download_pdf');
+  String get payrollTaxSummaryDownloadForm16 => _t('payroll.tax_summary.download_form16');
+  String get payrollDeclarationTitle => _t('payroll.declaration.title');
+  String get payrollDeclarationEstimatedDeductions => _t('payroll.declaration.estimated_deductions');
+  String get payrollDeclarationTotalDeductions => _t('payroll.declaration.total_deductions');
+  String get payrollDeclarationSection80c => _t('payroll.declaration.section_80c');
+  String get payrollDeclarationSection80d => _t('payroll.declaration.section_80d');
+  String get payrollDeclarationSectionOther => _t('payroll.declaration.section_other');
+  String get payrollDeclarationSectionRent => _t('payroll.declaration.section_rent');
+  String get payrollDeclarationFieldPpf => _t('payroll.declaration.field_ppf');
+  String get payrollDeclarationFieldEpf => _t('payroll.declaration.field_epf');
+  String get payrollDeclarationFieldElss => _t('payroll.declaration.field_elss');
+  String get payrollDeclarationFieldLic => _t('payroll.declaration.field_lic');
+  String get payrollDeclarationFieldNsc => _t('payroll.declaration.field_nsc');
+  String get payrollDeclarationFieldHomeLoanPrincipal => _t('payroll.declaration.field_home_loan_principal');
+  String get payrollDeclarationFieldTuition => _t('payroll.declaration.field_tuition');
+  String get payrollDeclarationFieldOther80c => _t('payroll.declaration.field_other_80c');
+  String get payrollDeclarationFieldHiSelf => _t('payroll.declaration.field_hi_self');
+  String get payrollDeclarationFieldHiParents => _t('payroll.declaration.field_hi_parents');
+  String get payrollDeclarationFieldNps => _t('payroll.declaration.field_nps');
+  String get payrollDeclarationFieldHomeLoanInterest => _t('payroll.declaration.field_home_loan_interest');
+  String get payrollDeclarationFieldEduLoan => _t('payroll.declaration.field_edu_loan');
+  String get payrollDeclarationFieldRentMonthly => _t('payroll.declaration.field_rent_monthly');
+  String get payrollDeclarationRentReceipts => _t('payroll.declaration.rent_receipts');
+  String get payrollDeclarationSubmitButton => _t('payroll.declaration.submit_button');
+  // REVIEW: financial confirmation
+  String get payrollDeclarationSubmittedSuccess => _t('payroll.declaration.submitted_success');
+  String get payrollDeclarationPastTitle => _t('payroll.declaration.past_title');
+  String get payrollDeclarationFySubmitted => _t('payroll.declaration.fy_submitted');
+
+  // ── HR ─────────────────────────────────────────────────────────────
+  String get hrDashboardTitle => _t('hr.dashboard.title');
+  String get hrTimeframeThisMonth => _t('hr.timeframe.this_month');
+  String get hrTimeframeLastMonth => _t('hr.timeframe.last_month');
+  String get hrTimeframeThisQuarter => _t('hr.timeframe.this_quarter');
+  String get hrTimeframeThisYear => _t('hr.timeframe.this_year');
+  String get hrSectionAttendanceOverview => _t('hr.section.attendance_overview');
+  String get hrSectionLeaveSummary => _t('hr.section.leave_summary');
+  String get hrSectionQuickActions => _t('hr.section.quick_actions');
+  String get hrStatTotalStaff => _t('hr.stat.total_staff');
+  String get hrStatPresentToday => _t('hr.stat.present_today');
+  String get hrStatOnLeave => _t('hr.stat.on_leave');
+  String get hrStatPendingLeaves => _t('hr.stat.pending_leaves');
+  String get hrAvgAttendanceRate => _t('hr.avg_attendance_rate');
+  String get hrLateArrivals => _t('hr.late_arrivals');
+  String get hrAbsentees => _t('hr.absentees');
+  String get hrTotalApplications => _t('hr.total_applications');
+  String get hrApproved => _t('hr.approved');
+  String get hrRejected => _t('hr.rejected');
+  String get hrPendingApproval => _t('hr.pending_approval');
+  String get hrActionStaffManagement => _t('hr.action.staff_management');
+  String get hrActionStaffManagementSubtitle => _t('hr.action.staff_management.subtitle');
+  String get hrActionPerformance => _t('hr.action.performance');
+  String get hrActionPerformanceSubtitle => _t('hr.action.performance.subtitle');
+  String get hrActionStaffDirectory => _t('hr.action.staff_directory');
+  String get hrActionStaffDirectorySubtitle => _t('hr.action.staff_directory.subtitle');
+  String get hrActionReports => _t('hr.action.reports');
+  String get hrActionReportsSubtitle => _t('hr.action.reports.subtitle');
+  String get hrActionPayslips => _t('hr.action.payslips');
+  String get hrActionPayslipsSubtitle => _t('hr.action.payslips.subtitle');
+  String get staffMgmtTitle => _t('staff_mgmt.title');
+  String get staffMgmtSearchHint => _t('staff_mgmt.search_hint');
+  String get staffMgmtAddStaff => _t('staff_mgmt.add_staff');
+  String get staffMgmtEditStaff => _t('staff_mgmt.edit_staff');
+  String get staffMgmtFullName => _t('staff_mgmt.full_name');
+  String get staffMgmtNameRequired => _t('staff_mgmt.name_required');
+  String get staffMgmtDepartment => _t('staff_mgmt.department');
+  String get staffMgmtClearFilter => _t('staff_mgmt.clear_filter');
+  String get staffMgmtActive => _t('staff_mgmt.active');
+  String get staffMgmtInactive => _t('staff_mgmt.inactive');
+  String get staffMgmtNoStaffFound => _t('staff_mgmt.no_staff_found');
+  String get staffMgmtNoStaffMembers => _t('staff_mgmt.no_staff_members');
+  String get staffMgmtSearchEmpty => _t('staff_mgmt.search_empty');
+  String get staffMgmtApiPending => _t('staff_mgmt.api_pending');
+  // REVIEW: HR confirmation
+  String get staffMgmtUpdatedSuccess => _t('staff_mgmt.updated_success');
+  String get staffMgmtAddedPending => _t('staff_mgmt.added_pending');
+  String get staffMgmtListApiUnavailable => _t('staff_mgmt.list_api_unavailable');
+  String get performanceTitle => _t('performance.title');
+  String get performanceTabAdd => _t('performance.tab.add');
+  String get performanceTabReviews => _t('performance.tab.reviews');
+  String get performanceEmployeeIdLabel => _t('performance.employee_id_label');
+  String get performanceEmployeeIdHint => _t('performance.employee_id_hint');
+  String get performanceEmployeeIdRequired => _t('performance.employee_id_required');
+  String get performanceReviewPeriodLabel => _t('performance.review_period_label');
+  String get performanceOverallRating => _t('performance.overall_rating');
+  String get performanceCommentsLabel => _t('performance.comments_label');
+  String get performanceCommentsHint => _t('performance.comments_hint');
+  String get performanceCommentsRequired => _t('performance.comments_required');
+  String get performanceGoalsLabel => _t('performance.goals_label');
+  String get performanceGoalsHint => _t('performance.goals_hint');
+  String get performanceSavingButton => _t('performance.saving_button');
+  String get performanceSaveReview => _t('performance.save_review');
+  // REVIEW: HR confirmation
+  String get performanceSavedSuccess => _t('performance.saved_success');
+  String get performanceRatingExceptional => _t('performance.rating.exceptional');
+  String get performanceRatingExceeds => _t('performance.rating.exceeds');
+  String get performanceRatingMeets => _t('performance.rating.meets');
+  String get performanceRatingNeedsImprovement => _t('performance.rating.needs_improvement');
+  String get performanceRatingUnsatisfactory => _t('performance.rating.unsatisfactory');
+  String get performanceNoReviews => _t('performance.no_reviews');
+  String get directoryTitle => _t('directory.title');
+  String get directorySearchHint => _t('directory.search_hint');
+  String get directoryEmpty => _t('directory.empty');
+  String get directorySearchEmpty => _t('directory.search_empty');
+  String get directoryApiPending => _t('directory.api_pending');
+  String get directoryApiUnavailable => _t('directory.api_unavailable');
+  String get directoryStaffEmptyBody => _t('directory.staff_empty_body');
+
+  // ── Reports & Grievances ───────────────────────────────────────────
+  String get reportsHubTitle => _t('reports.hub.title');
+  String get reportsHubConfidentialityNote => _t('reports.hub.confidentiality_note');
+  String get reportsHubPrompt => _t('reports.hub.prompt');
+  String get reportsHubIncidentTitle => _t('reports.hub.incident_title');
+  String get reportsHubIncidentSubtitle => _t('reports.hub.incident_subtitle');
+  String get reportsHubIncidentNote => _t('reports.hub.incident_note');
+  String get reportsHubGrievanceTitle => _t('reports.hub.grievance_title');
+  String get reportsHubGrievanceSubtitle => _t('reports.hub.grievance_subtitle');
+  String get reportsHubGrievanceNote => _t('reports.hub.grievance_note');
+  String get reportsHubMyReports => _t('reports.hub.my_reports');
+  String get myReportsTitle => _t('my_reports.title');
+  String get myReportsTabIncidents => _t('my_reports.tab.incidents');
+  String get myReportsTabGrievances => _t('my_reports.tab.grievances');
+  String get myReportsEmptyIncidents => _t('my_reports.empty_incidents');
+  String get myReportsEmptyGrievances => _t('my_reports.empty_grievances');
+  String get myReportsLabelStatus => _t('my_reports.label.status');
+  String get myReportsLabelSeverity => _t('my_reports.label.severity');
+  String get myReportsLabelType => _t('my_reports.label.type');
+  String get myReportsLabelLocation => _t('my_reports.label.location');
+  String get myReportsLabelDescription => _t('my_reports.label.description');
+  String get incidentReportTitle => _t('incident_report.title');
+  String get incidentReportSeverityLabel => _t('incident_report.severity_label');
+  // REVIEW: clinical / safety severity wording
+  String get incidentReportSeverityLow => _t('incident_report.severity.low');
+  String get incidentReportSeverityLowDesc => _t('incident_report.severity.low_desc');
+  String get incidentReportSeverityModerate => _t('incident_report.severity.moderate');
+  String get incidentReportSeverityModerateDesc => _t('incident_report.severity.moderate_desc');
+  String get incidentReportSeveritySevere => _t('incident_report.severity.severe');
+  String get incidentReportSeveritySevereDesc => _t('incident_report.severity.severe_desc');
+  String get incidentReportSeveritySentinel => _t('incident_report.severity.sentinel');
+  String get incidentReportSeveritySentinelDesc => _t('incident_report.severity.sentinel_desc');
+  String get incidentReportTypeLabel => _t('incident_report.type_label');
+  String get incidentReportTypeNearMiss => _t('incident_report.type.near_miss');
+  String get incidentReportTypePatientFall => _t('incident_report.type.patient_fall');
+  String get incidentReportTypeMedicationError => _t('incident_report.type.medication_error');
+  String get incidentReportTypeNeedleStick => _t('incident_report.type.needle_stick');
+  String get incidentReportTypeEquipmentFailure => _t('incident_report.type.equipment_failure');
+  String get incidentReportTypeInfection => _t('incident_report.type.infection');
+  String get incidentReportTypeFireSafety => _t('incident_report.type.fire_safety');
+  String get incidentReportTypePatientAggression => _t('incident_report.type.patient_aggression');
+  String get incidentReportTypeSecurityBreach => _t('incident_report.type.security_breach');
+  String get incidentReportTypeOther => _t('incident_report.type.other');
+  String get incidentReportTitleLabel => _t('incident_report.title_label');
+  String get incidentReportTitleHint => _t('incident_report.title_hint');
+  String get incidentReportTitleRequired => _t('incident_report.title_required');
+  String get incidentReportWhatHappened => _t('incident_report.what_happened');
+  String get incidentReportWhatHappenedHint => _t('incident_report.what_happened_hint');
+  String get incidentReportDescriptionRequired => _t('incident_report.description_required');
+  String get incidentReportDateLabel => _t('incident_report.date_label');
+  String get incidentReportTimeLabel => _t('incident_report.time_label');
+  String get incidentReportLocationLabel => _t('incident_report.location_label');
+  String get incidentReportLocationHint => _t('incident_report.location_hint');
+  String get incidentReportPatientInvolved => _t('incident_report.patient_involved');
+  String get incidentReportPatientNameLabel => _t('incident_report.patient_name_label');
+  String get incidentReportWitnessesLabel => _t('incident_report.witnesses_label');
+  String get incidentReportWitnessesHint => _t('incident_report.witnesses_hint');
+  String get incidentReportImmediateAction => _t('incident_report.immediate_action');
+  String get incidentReportImmediateActionHint => _t('incident_report.immediate_action_hint');
+  String get incidentReportAnonymous => _t('incident_report.anonymous');
+  String get incidentReportAnonymousNote => _t('incident_report.anonymous_note');
+  String get incidentReportSubmitButton => _t('incident_report.submit_button');
+  // REVIEW: clinical / safety confirmation
+  String get incidentReportSubmittedTitle => _t('incident_report.submitted_title');
+  String get incidentReportEscalationNote => _t('incident_report.escalation_note');
+  String get incidentReportRoutineNote => _t('incident_report.routine_note');
+  String get incidentReportDoneButton => _t('incident_report.done_button');
+  String get grievanceTitle => _t('grievance.title');
+  String get grievancePrivacyNote => _t('grievance.privacy_note');
+  String get grievanceTypeLabel => _t('grievance.type_label');
+  String get grievanceTypeHarassment => _t('grievance.type.harassment');
+  String get grievanceTypeDiscrimination => _t('grievance.type.discrimination');
+  String get grievanceTypeUnfairTreatment => _t('grievance.type.unfair_treatment');
+  String get grievanceTypeUnsafeConditions => _t('grievance.type.unsafe_conditions');
+  String get grievanceTypeWorkload => _t('grievance.type.workload');
+  String get grievanceTypePayDispute => _t('grievance.type.pay_dispute');
+  String get grievanceTypeScheduleConflict => _t('grievance.type.schedule_conflict');
+  String get grievanceTypePolicyViolation => _t('grievance.type.policy_violation');
+  String get grievanceTypeOther => _t('grievance.type.other');
+  String get grievanceSubjectLabel => _t('grievance.subject_label');
+  String get grievanceSubjectHint => _t('grievance.subject_hint');
+  String get grievanceSubjectRequired => _t('grievance.subject_required');
+  String get grievanceDescribeLabel => _t('grievance.describe_label');
+  String get grievanceDescribeHint => _t('grievance.describe_hint');
+  String get grievanceDescriptionRequired => _t('grievance.description_required');
+  String get grievanceAgainstWhomLabel => _t('grievance.against_whom_label');
+  String get grievanceAgainstWhomHint => _t('grievance.against_whom_hint');
+  String get grievanceDeptLabel => _t('grievance.dept_label');
+  String get grievanceDateOptional => _t('grievance.date_optional');
+  String get grievanceDatePrefix => _t('grievance.date_prefix');
+  String get grievanceAnonymous => _t('grievance.anonymous');
+  String get grievanceAnonymousNote => _t('grievance.anonymous_note');
+  String get grievanceSubmitButton => _t('grievance.submit_button');
+  // REVIEW: HR confirmation
+  String get grievanceSubmittedTitle => _t('grievance.submitted_title');
+  String get grievanceAcknowledgementNote => _t('grievance.acknowledgement_note');
+  String get grievanceAcknowledgementAnonymous => _t('grievance.acknowledgement_anonymous');
+
+  // ── Housekeeping ───────────────────────────────────────────────────
+  String get housekeepingHubTitle => _t('housekeeping.hub.title');
+  String get housekeepingHubLogTitle => _t('housekeeping.hub.log_title');
+  String get housekeepingHubLogSubtitle => _t('housekeeping.hub.log_subtitle');
+  String get housekeepingHubRaiseTitle => _t('housekeeping.hub.raise_title');
+  String get housekeepingHubRaiseSubtitle => _t('housekeeping.hub.raise_subtitle');
+  String get housekeepingHubMyTitle => _t('housekeeping.hub.my_title');
+  String get housekeepingHubMySubtitle => _t('housekeeping.hub.my_subtitle');
+  String get housekeepingLogTitle => _t('housekeeping.log.title');
+  String get housekeepingLogTypeLabel => _t('housekeeping.log.type_label');
+  String get housekeepingTypeRoutine => _t('housekeeping.type.routine');
+  String get housekeepingTypeDeep => _t('housekeeping.type.deep');
+  String get housekeepingTypeDisinfection => _t('housekeeping.type.disinfection');
+  String get housekeepingTypeSpillage => _t('housekeeping.type.spillage');
+  String get housekeepingTypePostProcedure => _t('housekeeping.type.post_procedure');
+  String get housekeepingZoneLocationLabel => _t('housekeeping.zone_location_label');
+  String get housekeepingSelectZoneLabel => _t('housekeeping.select_zone_label');
+  String get housekeepingSelectZoneOrType => _t('housekeeping.select_zone_or_type');
+  String get housekeepingDescribeLocation => _t('housekeeping.describe_location');
+  String get housekeepingLocationHint => _t('housekeeping.location_hint');
+  String get housekeepingPhotoEvidence => _t('housekeeping.photo_evidence');
+  String get housekeepingTakePhoto => _t('housekeeping.take_photo');
+  String get housekeepingNotesLabel => _t('housekeeping.notes_label');
+  String get housekeepingSubmitLog => _t('housekeeping.submit_log');
+  String get housekeepingSubmittingLog => _t('housekeeping.submitting_log');
+  String get housekeepingSelectZoneError => _t('housekeeping.select_zone_error');
+  // REVIEW: confirmation
+  String get housekeepingLoggedTitle => _t('housekeeping.logged_title');
+  String get housekeepingLoggedBody => _t('housekeeping.logged_body');
+  String get housekeepingDoneButton => _t('housekeeping.done_button');
+  String get housekeepingRaiseTitle => _t('housekeeping.raise.title');
+  String get housekeepingRaiseTypeLabel => _t('housekeeping.raise.type_label');
+  String get housekeepingRaiseUrgencyLabel => _t('housekeeping.raise.urgency_label');
+  String get housekeepingRequestTypeCleaning => _t('housekeeping.request_type.cleaning');
+  String get housekeepingRequestTypeSpillage => _t('housekeeping.request_type.spillage');
+  String get housekeepingRequestTypeWaste => _t('housekeeping.request_type.waste');
+  String get housekeepingRequestTypeLinen => _t('housekeeping.request_type.linen');
+  String get housekeepingRequestTypeDisinfection => _t('housekeeping.request_type.disinfection');
+  String get housekeepingRequestTypeOther => _t('housekeeping.request_type.other');
+  String get housekeepingDescriptionLabel => _t('housekeeping.description_label');
+  String get housekeepingDescriptionHint => _t('housekeeping.description_hint');
+  String get housekeepingProblemPhoto => _t('housekeeping.problem_photo');
+  String get housekeepingPhotographProblem => _t('housekeeping.photograph_problem');
+  String get housekeepingRaiseRequestButton => _t('housekeeping.raise_request_button');
+  String get housekeepingRaisingButton => _t('housekeeping.raising_button');
+  // REVIEW: confirmation
+  String get housekeepingRaisedTitle => _t('housekeeping.raised_title');
+  String get housekeepingNotifiedNote => _t('housekeeping.notified_note');
+  String get housekeepingMyTitle => _t('housekeeping.my.title');
+  String get housekeepingMyTabLogs => _t('housekeeping.my.tab_logs');
+  String get housekeepingMyTabRequests => _t('housekeeping.my.tab_requests');
+  String get housekeepingMyTabRaised => _t('housekeeping.my.tab_raised');
+  String get housekeepingMyTabAssigned => _t('housekeeping.my.tab_assigned');
+  String get housekeepingNoLogs => _t('housekeeping.no_logs');
+  String get housekeepingNoRequests => _t('housekeeping.no_requests');
+  String get housekeepingUnknownLocation => _t('housekeeping.unknown_location');
+  String get housekeepingMarkComplete => _t('housekeeping.mark_complete');
+  String get housekeepingCompleteDialogTitle => _t('housekeeping.complete_dialog_title');
+  String get housekeepingCompletionNotes => _t('housekeeping.completion_notes');
+  String get housekeepingAddCompletionPhoto => _t('housekeeping.add_completion_photo');
+  // REVIEW: confirmation
+  String get housekeepingMarkedComplete => _t('housekeeping.marked_complete');
+  String get housekeepingStatusVerified => _t('housekeeping.status.verified');
+  String get housekeepingStatusFlagged => _t('housekeeping.status.flagged');
+  String get housekeepingStatusSubmitted => _t('housekeeping.status.submitted');
+
+  // ── Hospital departments ──────────────────────────────────────────
+  String get bloodBankTitle => _t('blood_bank.title');
+  String get bloodBankTabInventory => _t('blood_bank.tab.inventory');
+  String get bloodBankTabRequests => _t('blood_bank.tab.requests');
+  String get bloodBankTabDonations => _t('blood_bank.tab.donations');
+  String get bloodBankRefreshTooltip => _t('blood_bank.refresh_tooltip');
+  String get bloodBankLegendAdequate => _t('blood_bank.legend.adequate');
+  String get bloodBankLegendLow => _t('blood_bank.legend.low');
+  String get bloodBankLegendCritical => _t('blood_bank.legend.critical');
+  String get bloodBankUnitsSuffix => _t('blood_bank.units_suffix');
+  String get bloodBankStockCriticalLow => _t('blood_bank.stock.critical_low');
+  String get bloodBankStockLow => _t('blood_bank.stock.low');
+  String get bloodBankStockAdequate => _t('blood_bank.stock.adequate');
+  String get bloodBankRequestHeader => _t('blood_bank.request_header');
+  String get bloodBankPatientNameLabel => _t('blood_bank.patient_name_label');
+  String get bloodBankPatientNameRequired => _t('blood_bank.patient_name_required');
+  String get bloodBankBloodTypeLabel => _t('blood_bank.blood_type_label');
+  String get bloodBankBloodTypeRequired => _t('blood_bank.blood_type_required');
+  String get bloodBankUnitsLabel => _t('blood_bank.units_label');
+  String get bloodBankUnitsRequired => _t('blood_bank.units_required');
+  String get bloodBankUnitsInvalid => _t('blood_bank.units_invalid');
+  String get bloodBankReasonLabel => _t('blood_bank.reason_label');
+  String get bloodBankSubmitRequest => _t('blood_bank.submit_request');
+  String get bloodBankSubmittingButton => _t('blood_bank.submitting_button');
+  // REVIEW: clinical confirmation
+  String get bloodBankRequestSuccess => _t('blood_bank.request_success');
+  String get bloodBankDonationsTitle => _t('blood_bank.donations.title');
+  String get bloodBankDonationsBody => _t('blood_bank.donations.body');
+  String get dietaryTitle => _t('dietary.title');
+  String get dietaryRefreshTooltip => _t('dietary.refresh_tooltip');
+  String get dietaryNewOrderButton => _t('dietary.new_order_button');
+  String get dietaryNewOrderDialog => _t('dietary.new_order_dialog');
+  String get dietaryPatientUidLabel => _t('dietary.patient_uid_label');
+  String get dietaryPatientUidRequired => _t('dietary.patient_uid_required');
+  String get dietaryDietTypeLabel => _t('dietary.diet_type_label');
+  String get dietaryDietTypeRequired => _t('dietary.diet_type_required');
+  String get dietaryMealTimeLabel => _t('dietary.meal_time_label');
+  String get dietaryMealTimeRequired => _t('dietary.meal_time_required');
+  String get dietaryRestrictionsLabel => _t('dietary.restrictions_label');
+  String get dietaryNotesLabel => _t('dietary.notes_label');
+  String get dietaryCreateButton => _t('dietary.create_button');
+  // REVIEW: clinical confirmation
+  String get dietaryCreatedSuccess => _t('dietary.created_success');
+  String get dietaryDiscontinuedSuccess => _t('dietary.discontinued_success');
+  String get dietaryDiscontinue => _t('dietary.discontinue');
+  String get dietaryDietRegular => _t('dietary.diet.regular');
+  String get dietaryDietDiabetic => _t('dietary.diet.diabetic');
+  String get dietaryDietCardiac => _t('dietary.diet.cardiac');
+  String get dietaryDietRenal => _t('dietary.diet.renal');
+  String get dietaryDietSoft => _t('dietary.diet.soft');
+  String get dietaryDietLiquid => _t('dietary.diet.liquid');
+  String get dietaryDietNpo => _t('dietary.diet.npo');
+  String get dietaryDietEnteral => _t('dietary.diet.enteral');
+  String get dietaryMealBreakfast => _t('dietary.meal.breakfast');
+  String get dietaryMealLunch => _t('dietary.meal.lunch');
+  String get dietaryMealDinner => _t('dietary.meal.dinner');
+  String get dietaryMealSnack => _t('dietary.meal.snack');
+  String get dietaryEmptyTitle => _t('dietary.empty_title');
+  String get dietaryEmptyBody => _t('dietary.empty_body');
+  String get theatreTitle => _t('theatre.title');
+  String get theatrePickDate => _t('theatre.pick_date');
+  String get theatreTabSchedule => _t('theatre.tab.schedule');
+  String get theatreTabAvailability => _t('theatre.tab.availability');
+  String get theatreNoSurgeries => _t('theatre.no_surgeries');
+  String get theatreNoRoomData => _t('theatre.no_room_data');
+  String get theatreStatusScheduled => _t('theatre.status.scheduled');
+  String get theatreStatusInProgress => _t('theatre.status.in_progress');
+  String get theatreStatusCompleted => _t('theatre.status.completed');
+  String get theatreStatusCancelled => _t('theatre.status.cancelled');
+  String get theatreSurgeonPrefix => _t('theatre.surgeon_prefix');
+  String get theatreLabelPatientUid => _t('theatre.label.patient_uid');
+  String get theatreLabelProcedureCode => _t('theatre.label.procedure_code');
+  String get theatreLabelOtRoom => _t('theatre.label.ot_room');
+  String get theatreLabelDate => _t('theatre.label.date');
+  String get theatreLabelTime => _t('theatre.label.time');
+  String get theatreLabelDuration => _t('theatre.label.duration');
+  String get theatreLabelSurgeon => _t('theatre.label.surgeon');
+  String get theatreLabelAnesthetist => _t('theatre.label.anesthetist');
+  String get theatreLabelStatus => _t('theatre.label.status');
+  String get theatreLabelBloodArranged => _t('theatre.label.blood_arranged');
+  String get theatreLabelConsent => _t('theatre.label.consent');
+  String get theatreLabelEquipment => _t('theatre.label.equipment');
+  // REVIEW: clinical-action — surgery start/complete
+  String get theatreStartSurgery => _t('theatre.start_surgery');
+  String get theatreMarkComplete => _t('theatre.mark_complete');
+  String get theatreCancelButton => _t('theatre.cancel_button');
+  String get theatrePreOpChecklist => _t('theatre.preop_checklist');
+  String get theatreChecklistConsent => _t('theatre.checklist.consent');
+  String get theatreChecklistBlood => _t('theatre.checklist.blood');
+  String get theatreChecklistEquipment => _t('theatre.checklist.equipment');
+  String get theatreChecklistPatientId => _t('theatre.checklist.patient_id');
+  String get theatreSubmitChecklist => _t('theatre.submit_checklist');
+  String get theatreChecklistUpdated => _t('theatre.checklist_updated');
+  String get theatreStatusUpdatedTo => _t('theatre.status_updated_to');
+  String get theatreYes => _t('theatre.yes');
+  String get theatreNo => _t('theatre.no');
+  String get theatreAvailable => _t('theatre.available');
+  String get theatreOccupied => _t('theatre.occupied');
+  String get radiologyTitle => _t('radiology.title');
+  String get radiologyFiltersTooltip => _t('radiology.filters_tooltip');
+  String get radiologyFiltersHeader => _t('radiology.filters_header');
+  String get radiologyStatusLabel => _t('radiology.status_label');
+  String get radiologyModalityLabel => _t('radiology.modality_label');
+  String get radiologyStatusAll => _t('radiology.status.all');
+  String get radiologyStatusPending => _t('radiology.status.pending');
+  String get radiologyStatusInProgress => _t('radiology.status.in_progress');
+  String get radiologyStatusCompleted => _t('radiology.status.completed');
+  String get radiologyStatusCancelled => _t('radiology.status.cancelled');
+  String get radiologyNoOrders => _t('radiology.no_orders');
+  String get radiologyLabelStudyType => _t('radiology.label.study_type');
+  String get radiologyLabelModality => _t('radiology.label.modality');
+  String get radiologyLabelBodyPart => _t('radiology.label.body_part');
+  String get radiologyLabelPriority => _t('radiology.label.priority');
+  String get radiologyLabelClinicalIndication => _t('radiology.label.clinical_indication');
+  String get radiologyLabelNotes => _t('radiology.label.notes');
+  String get radiologyLabelReport => _t('radiology.label.report');
+  String get radiologyLabelFindings => _t('radiology.label.findings');
+  String get radiologyLabelImpression => _t('radiology.label.impression');
+  String get radiologySubmitReport => _t('radiology.submit_report');
+  String get radiologyCancelOrder => _t('radiology.cancel_order');
+  String get radiologyFindingsRequired => _t('radiology.findings_required');
+  // REVIEW: clinical confirmation
+  String get radiologyReportSubmitted => _t('radiology.report_submitted');
+  String get radiologyOrderCancelled => _t('radiology.order_cancelled');
+  String get scheduleTitle => _t('schedule.title');
+  String get schedulePrevWeek => _t('schedule.prev_week');
+  String get scheduleNextWeek => _t('schedule.next_week');
+  String get scheduleWeekThis => _t('schedule.week_this');
+  String get scheduleWeekNext => _t('schedule.week_next');
+  String get scheduleWeekLast => _t('schedule.week_last');
+  String get scheduleTotalLabel => _t('schedule.total_label');
+  String get scheduleDaysLogged => _t('schedule.days_logged');
+  String get scheduleHoursWorkedSuffix => _t('schedule.hours_worked_suffix');
+  String get scheduleUpcoming => _t('schedule.upcoming');
+  String get scheduleNoRecord => _t('schedule.no_record');
+  String get scheduleLoadFailedPrefix => _t('schedule.load_failed_prefix');
+
+  // ── Lab / Pharmacy / Investigations ───────────────────────────────
+  String get investigationsTitle => _t('investigations.title');
+  String get investigationsTabUpload => _t('investigations.tab.upload');
+  String get investigationsTabPending => _t('investigations.tab.pending');
+  String get investigationsTabRecent => _t('investigations.tab.recent');
+  String get investigationsUploadIntro => _t('investigations.upload_intro');
+  String get investigationsPhoneLabel => _t('investigations.phone_label');
+  String get investigationsPhoneHint => _t('investigations.phone_hint');
+  String get investigationsPhoneRequired => _t('investigations.phone_required');
+  String get investigationsPhoneInvalid => _t('investigations.phone_invalid');
+  String get investigationsTestTypeLabel => _t('investigations.test_type_label');
+  String get investigationsTestTypeRequired => _t('investigations.test_type_required');
+  String get investigationsResultLabel => _t('investigations.result_label');
+  String get investigationsResultHint => _t('investigations.result_hint');
+  String get investigationsClinicalNotesLabel => _t('investigations.clinical_notes_label');
+  String get investigationsClinicalNotesHint => _t('investigations.clinical_notes_hint');
+  String get investigationsAttachReport => _t('investigations.attach_report');
+  String get investigationsClearFile => _t('investigations.clear_file');
+  String get investigationsFileTooLarge => _t('investigations.file_too_large');
+  String get investigationsFilePickFailed => _t('investigations.file_pick_failed');
+  String get investigationsUploading => _t('investigations.uploading');
+  String get investigationsUploadButton => _t('investigations.upload_button');
+  // REVIEW: clinical confirmation
+  String get investigationsUploadSuccess => _t('investigations.upload_success');
+  String get investigationsPendingEmpty => _t('investigations.pending_empty');
+  String get investigationsPendingEmptyBody => _t('investigations.pending_empty_body');
+  String get investigationsRecentEmpty => _t('investigations.recent_empty');
+  String get investigationsRecentEmptyBody => _t('investigations.recent_empty_body');
+  String get investigationsStartButton => _t('investigations.start_button');
+  String get investigationsCompleteButton => _t('investigations.complete_button');
+  String get investigationsMarkedAsPrefix => _t('investigations.marked_as_prefix');
+  String get labBookingsTitle => _t('lab_bookings.title');
+  String get labBookingsTabNew => _t('lab_bookings.tab.new');
+  String get labBookingsTabActive => _t('lab_bookings.tab.active');
+  String get labBookingsTabDone => _t('lab_bookings.tab.done');
+  String get labBookingsEmptyPrefix => _t('lab_bookings.empty_prefix');
+  String get labBookingsViewSlip => _t('lab_bookings.view_slip');
+  String get labBookingsHomeCollection => _t('lab_bookings.home_collection');
+  String get labBookingsWalkIn => _t('lab_bookings.walk_in');
+  String get labBookingsConfirmDialog => _t('lab_bookings.confirm_dialog');
+  String get labBookingsActualTestsLabel => _t('lab_bookings.actual_tests_label');
+  String get labBookingsActualTestsHint => _t('lab_bookings.actual_tests_hint');
+  String get labBookingsFinalCostLabel => _t('lab_bookings.final_cost_label');
+  String get labBookingsConfirmButton => _t('lab_bookings.confirm_button');
+  // REVIEW: clinical confirmation
+  String get labBookingsConfirmedToast => _t('lab_bookings.confirmed_toast');
+  String get labBookingsDispatchDialog => _t('lab_bookings.dispatch_dialog');
+  String get labBookingsCollectorPhone => _t('lab_bookings.collector_phone');
+  String get labBookingsDispatchButton => _t('lab_bookings.dispatch_button');
+  String get labBookingsDispatchedToast => _t('lab_bookings.dispatched_toast');
+  String get labBookingsSharingLocation => _t('lab_bookings.sharing_location');
+  String get labBookingsMarkCollected => _t('lab_bookings.mark_collected');
+  String get labBookingsSamplesCollectedToast => _t('lab_bookings.samples_collected_toast');
+  String get labBookingsStartProcessing => _t('lab_bookings.start_processing');
+  String get labBookingsProcessingStartedToast => _t('lab_bookings.processing_started_toast');
+  String get labBookingsUploadResult => _t('lab_bookings.upload_result');
+  String get labBookingsSelectFile => _t('lab_bookings.select_file');
+  String get labBookingsResultUploadedToast => _t('lab_bookings.result_uploaded_toast');
+  String get labBookingsViewResult => _t('lab_bookings.view_result');
+  String get pharmacyTitle => _t('pharmacy.title');
+  String get pharmacyQueueTitle => _t('pharmacy.queue_title');
+  String get pharmacyQueueSubtitle => _t('pharmacy.queue_subtitle');
+  String get pharmacyTabNew => _t('pharmacy.tab.new');
+  String get pharmacyTabActive => _t('pharmacy.tab.active');
+  String get pharmacyTabDone => _t('pharmacy.tab.done');
+  String get pharmacyEmptyNew => _t('pharmacy.empty.new');
+  String get pharmacyEmptyActive => _t('pharmacy.empty.active');
+  String get pharmacyEmptyDone => _t('pharmacy.empty.done');
+  String get pharmacyConfirmDialog => _t('pharmacy.confirm_dialog');
+  String get pharmacyPatientNotePrefix => _t('pharmacy.patient_note_prefix');
+  String get pharmacyItemsLabel => _t('pharmacy.items_label');
+  String get pharmacyItemsHint => _t('pharmacy.items_hint');
+  String get pharmacyTotalCostLabel => _t('pharmacy.total_cost_label');
+  String get pharmacyConfirmOrder => _t('pharmacy.confirm_order');
+  String get pharmacyViewConfirm => _t('pharmacy.view_confirm');
+  String get pharmacyStartPreparing => _t('pharmacy.start_preparing');
+  String get pharmacyDispatch => _t('pharmacy.dispatch');
+  String get pharmacyMarkDelivered => _t('pharmacy.mark_delivered');
+  String get pharmacyDispatchDialog => _t('pharmacy.dispatch_dialog');
+  String get pharmacyDeliveryPersonName => _t('pharmacy.delivery_person_name');
+  String get pharmacyDeliveryPersonPhone => _t('pharmacy.delivery_person_phone');
+  String get pharmacyMarkDeliveredDialog => _t('pharmacy.mark_delivered_dialog');
+  String get pharmacyMarkDeliveredYes => _t('pharmacy.mark_delivered_yes');
+  String get pharmacyCancelDialog => _t('pharmacy.cancel_dialog');
+  String get pharmacyCancellationReason => _t('pharmacy.cancellation_reason');
+  String get pharmacyDeliveryTypePickup => _t('pharmacy.delivery_type.pickup');
+  String get pharmacyDeliveryTypeDelivery => _t('pharmacy.delivery_type.delivery');
+  // REVIEW: clinical confirmation
+  String get pharmacyOrderConfirmedToast => _t('pharmacy.order_confirmed_toast');
+  String get pharmacyMarkPreparingToast => _t('pharmacy.mark_preparing_toast');
+  String get pharmacyOrderDispatchedToast => _t('pharmacy.order_dispatched_toast');
+  String get pharmacyOrderDeliveredToast => _t('pharmacy.order_delivered_toast');
+  String get pharmacyOrderCancelledToast => _t('pharmacy.order_cancelled_toast');
+  String get pharmacyStatusPlaced => _t('pharmacy.status.placed');
+  String get pharmacyStatusConfirmed => _t('pharmacy.status.confirmed');
+  String get pharmacyStatusPreparing => _t('pharmacy.status.preparing');
+  String get pharmacyStatusDispatched => _t('pharmacy.status.dispatched');
+  String get pharmacyStatusDelivered => _t('pharmacy.status.delivered');
+  String get pharmacyStatusCancelled => _t('pharmacy.status.cancelled');
+
+  // ── Nursing (due meds + MAR scan) ─────────────────────────────────
+  String get dueMedsTitle => _t('due_meds.title');
+  String get dueMedsSearchHint => _t('due_meds.search_hint');
+  String get dueMedsEmptyTitle => _t('due_meds.empty_title');
+  String get dueMedsEmptyBody => _t('due_meds.empty_body');
+  String get dueMedsHeldBadge => _t('due_meds.held_badge');
+  String get dueMedsUnknownPatient => _t('due_meds.unknown_patient');
+  String get dueMedsUnnamedMedication => _t('due_meds.unnamed_medication');
+  String get marScanTitle => _t('mar_scan.title');
+  // REVIEW: clinical-action / safety wording for medication 5-rights
+  String get marScanStep1Prompt => _t('mar_scan.step1_prompt');
+  String get marScanStep1Subtitle => _t('mar_scan.step1_subtitle');
+  String get marScanStep2Prompt => _t('mar_scan.step2_prompt');
+  String get marScanStep2Subtitle => _t('mar_scan.step2_subtitle');
+  String get marScanStep3Header => _t('mar_scan.step3_header');
+  String get marScanRightPatient => _t('mar_scan.right_patient');
+  String get marScanRightDrug => _t('mar_scan.right_drug');
+  String get marScanRightDose => _t('mar_scan.right_dose');
+  String get marScanRightRoute => _t('mar_scan.right_route');
+  String get marScanRightTime => _t('mar_scan.right_time');
+  String get marScanRecording => _t('mar_scan.recording');
+  String get marScanAdminister => _t('mar_scan.administer');
+  String get marScanCheckFailed => _t('mar_scan.check_failed');
+  String get marScanOverrideHint => _t('mar_scan.override_hint');
+  String get marScanOverrideReasonLabel => _t('mar_scan.override_reason_label');
+  String get marScanOverrideButton => _t('mar_scan.override_button');
+  String get marScanRecorded => _t('mar_scan.recorded');
+  String get marScanScanNext => _t('mar_scan.scan_next');
+  String get marScanScanAgain => _t('mar_scan.scan_again');
+  String get marScanTryAgain => _t('mar_scan.try_again');
+  String get marScanUnknownMedication => _t('mar_scan.unknown_medication');
+
+  // ── EMR / Discharge Summary ───────────────────────────────────────
+  String get dischargeTitlePrefix => _t('discharge.title_prefix');
+  String get dischargeSaveDraft => _t('discharge.save_draft');
+  String get dischargeDraftSaved => _t('discharge.draft_saved');
+  String get dischargeSignSummary => _t('discharge.sign_summary');
+  String get dischargeSignDialogTitle => _t('discharge.sign_dialog_title');
+  String get dischargeSignDialogBody => _t('discharge.sign_dialog_body');
+  String get dischargeSignButton => _t('discharge.sign_button');
+  // REVIEW: clinical-action confirmation
+  String get dischargeSignedSuccess => _t('discharge.signed_success');
+  String get dischargeSignedBadge => _t('discharge.signed_badge');
+  String get dischargeProceedTitle => _t('discharge.proceed_title');
+  String get dischargeProceedBodyPrefix => _t('discharge.proceed_body_prefix');
+  String get dischargeProceedButton => _t('discharge.proceed_button');
+  String get dischargeMustSignFirst => _t('discharge.must_sign_first');
+  String get dischargePatientDischarged => _t('discharge.patient_discharged');
+  String get dischargePatientButton => _t('discharge.patient_button');
+  String get dischargeGenerateTitle => _t('discharge.generate_title');
+  String get dischargeGenerateBody => _t('discharge.generate_body');
+  String get dischargeGenerateButton => _t('discharge.generate_button');
+  String get dischargeGenerating => _t('discharge.generating');
+  String get dischargeRegenerate => _t('discharge.regenerate');
+  String get dischargeSectionHospitalCourse => _t('discharge.section.hospital_course');
+  String get dischargeSectionDiagnosis => _t('discharge.section.diagnosis');
+  String get dischargeSectionCondition => _t('discharge.section.condition');
+  String get dischargeSectionFollowUp => _t('discharge.section.follow_up');
+  String get dischargeSectionActivity => _t('discharge.section.activity');
+  String get dischargeSectionDiet => _t('discharge.section.diet');
+  String get dischargeSectionWarningSigns => _t('discharge.section.warning_signs');
+  String get dischargeSectionMedications => _t('discharge.section.medications');
+  String get dischargeSectionInvestigations => _t('discharge.section.investigations');
+  String get dischargeSectionProcedures => _t('discharge.section.procedures');
+
+  // ── Attendance dispute / overtime ─────────────────────────────────
+  String get disputeTitle => _t('dispute.title');
+  String get disputeTabSubmit => _t('dispute.tab.submit');
+  String get disputeTabMy => _t('dispute.tab.my');
+  String get disputeIntro => _t('dispute.intro');
+  String get disputeDateLabel => _t('dispute.date_label');
+  String get disputeSelectDate => _t('dispute.select_date');
+  String get disputeIssueTypeLabel => _t('dispute.issue_type_label');
+  String get disputeTypeMissedCheckin => _t('dispute.type.missed_checkin');
+  String get disputeTypeMissedCheckout => _t('dispute.type.missed_checkout');
+  String get disputeTypeWrongTime => _t('dispute.type.wrong_time');
+  String get disputeTypeAppFailure => _t('dispute.type.app_failure');
+  String get disputeTypeOther => _t('dispute.type.other');
+  String get disputeDescriptionLabel => _t('dispute.description_label');
+  String get disputeDescriptionHint => _t('dispute.description_hint');
+  String get disputeCorrectTimes => _t('dispute.correct_times');
+  String get disputeCorrectTimesHint => _t('dispute.correct_times_hint');
+  String get disputeCheckIn => _t('dispute.check_in');
+  String get disputeCheckOut => _t('dispute.check_out');
+  String get disputeRequiredError => _t('dispute.required_error');
+  String get disputeSubmitButton => _t('dispute.submit_button');
+  // REVIEW: HR confirmation
+  String get disputeSubmittedSuccess => _t('dispute.submitted_success');
+  String get disputeEmpty => _t('dispute.empty');
+  String get disputeHrCommentPrefix => _t('dispute.hr_comment_prefix');
+  String get overtimeTitle => _t('overtime.title');
+  String get overtimeTabRequest => _t('overtime.tab.request');
+  String get overtimeTabMy => _t('overtime.tab.my');
+  String get overtimeExtraHoursLabel => _t('overtime.extra_hours_label');
+  String get overtimeHoursSuffix => _t('overtime.hours_suffix');
+  String get overtimeTypeLabel => _t('overtime.type_label');
+  String get overtimeTypeCompTime => _t('overtime.type.comp_time');
+  String get overtimeTypePayment => _t('overtime.type.payment');
+  String get overtimeReasonLabel => _t('overtime.reason_label');
+  String get overtimeReasonHint => _t('overtime.reason_hint');
+  String get overtimeRequiredError => _t('overtime.required_error');
+  String get overtimeSubmitButton => _t('overtime.submit_button');
+  // REVIEW: HR confirmation
+  String get overtimeSubmittedSuccess => _t('overtime.submitted_success');
+  String get overtimeEmpty => _t('overtime.empty');
+  String get overtimeRejectedPrefix => _t('overtime.rejected_prefix');
+
+  // ── Telemedicine ──────────────────────────────────────────────────
+  String get telemedicineTitlePrefix => _t('telemedicine.title_prefix');
+  String get telemedicineSdkMissingTitle => _t('telemedicine.sdk_missing_title');
+  String get telemedicineSdkMissingBody => _t('telemedicine.sdk_missing_body');
+  String get telemedicineMute => _t('telemedicine.mute');
+  String get telemedicineUnmute => _t('telemedicine.unmute');
+  String get telemedicineCameraOff => _t('telemedicine.camera_off');
+  String get telemedicineCameraOn => _t('telemedicine.camera_on');
+  String get telemedicineEndCall => _t('telemedicine.end_call');
+
+  // ── Clinical AI ───────────────────────────────────────────────────
+  String get clinicalAiQueueTitle => _t('clinical_ai.queue.title');
+  String get clinicalAiQueueComposeButton => _t('clinical_ai.queue.compose_button');
+  String get clinicalAiQueueVoiceNotesButton => _t('clinical_ai.queue.voice_notes_button');
+  String get clinicalAiQueueFilterPending => _t('clinical_ai.queue.filter.pending');
+  String get clinicalAiQueueFilterAccepted => _t('clinical_ai.queue.filter.accepted');
+  String get clinicalAiQueueFilterEdited => _t('clinical_ai.queue.filter.edited');
+  String get clinicalAiQueueFilterRejected => _t('clinical_ai.queue.filter.rejected');
+  String get clinicalAiQueueFilterAll => _t('clinical_ai.queue.filter.all');
+  String get clinicalAiQueueEmptyTitle => _t('clinical_ai.queue.empty_title');
+  String get clinicalAiQueueEmptyBody => _t('clinical_ai.queue.empty_body');
+  String get clinicalAiQueueLoadFailed => _t('clinical_ai.queue.load_failed');
+  String get clinicalAiQueuePatientFallback => _t('clinical_ai.queue.patient_fallback');
+  String get clinicalAiDraftRejectTitle => _t('clinical_ai.draft.reject_title');
+  String get clinicalAiDraftRejectReasonLabel => _t('clinical_ai.draft.reject_reason_label');
+  String get clinicalAiDraftRejectReasonHint => _t('clinical_ai.draft.reject_reason_hint');
+  String get clinicalAiDraftRejectButton => _t('clinical_ai.draft.reject_button');
+  String get clinicalAiDraftReviewNotFound => _t('clinical_ai.draft.review_not_found');
+  String get clinicalAiDraftInvalidJson => _t('clinical_ai.draft.invalid_json');
+  String get clinicalAiDraftAccept => _t('clinical_ai.draft.accept');
+  String get clinicalAiDraftAcceptEdits => _t('clinical_ai.draft.accept_edits');
+  String get clinicalAiDraftNeedsRevision => _t('clinical_ai.draft.needs_revision');
+  String get clinicalAiDraftDecisionRecorded => _t('clinical_ai.draft.decision_recorded');
+  String get clinicalAiDraftNoSafetyFlags => _t('clinical_ai.draft.no_safety_flags');
+  String get clinicalAiDraftScreenTitle => _t('clinical_ai.draft.screen_title');
+  // REVIEW: clinical-action / safety wording — drafts surfaced here have a CRITICAL severity flag
+  String get clinicalAiDraftCriticalTitle => _t('clinical_ai.draft.critical_title');
+  String get clinicalAiDraftSafetyHeader => _t('clinical_ai.draft.safety_header');
+  String get clinicalAiDraftBodyHeader => _t('clinical_ai.draft.body_header');
+  String get clinicalAiDraftEditHeader => _t('clinical_ai.draft.edit_header');
+  String get clinicalAiDraftEditButton => _t('clinical_ai.draft.edit_button');
+  String get clinicalAiDraftCancelEditButton => _t('clinical_ai.draft.cancel_edit_button');
+  String get clinicalAiDraftFailedLoad => _t('clinical_ai.draft.failed_load');
+  String get clinicalAiDraftPatientPrefix => _t('clinical_ai.draft.patient_prefix');
+  String get clinicalAiDraftAdmissionPrefix => _t('clinical_ai.draft.admission_prefix');
+  String get clinicalAiDraftStatusPrefix => _t('clinical_ai.draft.status_prefix');
+  String get clinicalAiDraftProviderPrefix => _t('clinical_ai.draft.provider_prefix');
+  String clinicalAiDraftDecidedToast(String decision) =>
+      '${_t('clinical_ai.draft.decided_prefix')} $decision';
+  String clinicalAiDraftDecisionFailed(String err) =>
+      '${_t('clinical_ai.draft.decision_failed_prefix')} $err';
+  String get clinicalAiComposeRunsTitle => _t('clinical_ai.compose_runs.title');
+  String get clinicalAiComposeRunsEmpty => _t('clinical_ai.compose_runs.empty');
+  String get clinicalAiComposeFilterActive => _t('clinical_ai.compose_runs.filter.active');
+  String get clinicalAiComposeFilterPaused => _t('clinical_ai.compose_runs.filter.paused');
+  String get clinicalAiComposeFilterCompleted => _t('clinical_ai.compose_runs.filter.completed');
+  String get clinicalAiComposeFilterFailed => _t('clinical_ai.compose_runs.filter.failed');
+  String get clinicalAiComposeFilterAll => _t('clinical_ai.compose_runs.filter.all');
+  String get clinicalAiComposeReviewPrefix => _t('clinical_ai.compose_runs.review_prefix');
+  String get clinicalAiComposeStartedPrefix => _t('clinical_ai.compose_runs.started_prefix');
+  String clinicalAiComposeRunHeader(String id, String admissionId) =>
+      '${_t('clinical_ai.compose_runs.run_prefix')} #$id · ${_t('clinical_ai.compose_runs.admission_word')} $admissionId';
+  String get clinicalAiComposeRunDetailNotFound => _t('clinical_ai.compose_run.not_found');
+  String get clinicalAiComposeRunResumed => _t('clinical_ai.compose_run.resumed');
+  String get clinicalAiComposeOpenInQueue => _t('clinical_ai.compose_run.open_in_queue');
+  String clinicalAiComposeRunDetailTitle(int id) =>
+      '${_t('clinical_ai.compose_run.detail_title_prefix')} #$id';
+  String clinicalAiComposeAdmissionHeader(String admissionId) =>
+      '${_t('clinical_ai.compose_run.admission_header_prefix')} $admissionId';
+  String get clinicalAiComposeSubgraphsHeader => _t('clinical_ai.compose_run.subgraphs');
+  String get clinicalAiComposeNoSubgraphs => _t('clinical_ai.compose_run.no_subgraphs');
+  String clinicalAiComposePausedPrefix(String reason) =>
+      '${_t('clinical_ai.compose_run.paused_prefix')} $reason';
+  String get clinicalAiComposeReviewStatusKey => _t('clinical_ai.compose_run.review_status_key');
+  String get clinicalAiComposeStartedKey => _t('clinical_ai.compose_run.started_key');
+  String get clinicalAiComposeFinishedKey => _t('clinical_ai.compose_run.finished_key');
+  String get clinicalAiComposeResumeButton => _t('clinical_ai.compose_run.resume_button');
+  String get clinicalAiComposeResumingButton => _t('clinical_ai.compose_run.resuming_button');
+  String clinicalAiComposeResumeFailed(String err) =>
+      '${_t('clinical_ai.compose_run.resume_failed_prefix')} $err';
+  String clinicalAiComposeCriticalCount(int count) =>
+      '$count ${_t('clinical_ai.compose_run.critical_word')}';
+  String clinicalAiComposeHighCount(int count) =>
+      '$count ${_t('clinical_ai.compose_run.high_word')}';
+  String get clinicalAiVoiceNotesEmpty => _t('clinical_ai.voice_notes.empty');
+  String get clinicalAiVoiceSoapGenerated => _t('clinical_ai.voice_notes.soap_generated');
+  String get clinicalAiVoiceNotesTitle => _t('clinical_ai.voice_notes.title');
+  String get clinicalAiVoiceNotesEmptySubtitle => _t('clinical_ai.voice_notes.empty_subtitle');
+  String clinicalAiVoiceNoteHeader(String id) =>
+      '${_t('clinical_ai.voice_notes.note_prefix')} #$id';
+  String clinicalAiVoicePatientPrefix(String uid) =>
+      '${_t('clinical_ai.voice_notes.patient_prefix')} $uid';
+  String get clinicalAiVoiceDraftAlreadyGenerated => _t('clinical_ai.voice_notes.draft_exists');
+  String get clinicalAiVoiceGenerateSoap => _t('clinical_ai.voice_notes.generate_soap');
+  String get clinicalAiVoiceDraftingButton => _t('clinical_ai.voice_notes.drafting');
+  String clinicalAiVoiceGenerationFailed(String err) =>
+      '${_t('clinical_ai.voice_notes.generation_failed_prefix')} $err';
+
   // ── Clinical notes screen ──────────────────────────────────────────
   String get clinicalNotesTitle => _t('clinical_notes.title');
   String clinicalNotesTitleWithName(String name) =>
@@ -2016,6 +2804,753 @@ class AppStrings {
       'clinical_notes.save_note': 'Save Note',
       'clinical_notes.created_success': 'Note created successfully',
       'clinical_notes.create_failed_prefix': 'Failed to create note:',
+      // ── Payroll ───────────────────────────────────────────────────
+      'payroll.payslip.title': 'My Payslips',
+      'payroll.payslip.banner_tax': 'Annual Tax Summary (Form 16)',
+      'payroll.payslip.banner_declaration': 'Tax Declaration (80C/80D)',
+      'payroll.payslip.banner_queries': 'Payslip Queries',
+      'payroll.payslip.empty_title': 'No payslips available yet',
+      'payroll.payslip.empty_body': 'Payslips are issued on the 5th of each month',
+      'payroll.payslip.new_badge': 'NEW',
+      'payroll.payslip.net_pay': 'Net Pay',
+      'payroll.payslip.gross': 'Gross',
+      'payroll.payslip.deductions': 'Deductions',
+      'payroll.detail.title_prefix': 'Payslip',
+      'payroll.detail.download_pdf': 'Download PDF',
+      'payroll.detail.pdf_not_available': 'PDF not available yet — check back later',
+      'payroll.detail.pdf_failed_prefix': 'Failed to open PDF:',
+      'payroll.detail.pdf_being_generated': 'PDF payslip is being generated. It will appear here shortly.',
+      'payroll.detail.pdf_download_button': 'Download PDF Payslip',
+      'payroll.detail.opening': 'Opening...',
+      'payroll.detail.not_found': 'Payslip not found',
+      'payroll.detail.attendance_header': '📅 Attendance',
+      'payroll.detail.earnings_header': '💰 Earnings',
+      'payroll.detail.deductions_header': '📉 Deductions',
+      'payroll.detail.working_days': 'Working Days',
+      'payroll.detail.days_present': 'Days Present',
+      'payroll.detail.days_absent': 'Days Absent',
+      'payroll.detail.lop_days': 'Loss of Pay Days',
+      'payroll.detail.leave_days': 'Leave Days',
+      'payroll.detail.overtime_hours': 'Overtime Hours',
+      'payroll.detail.basic': 'Basic Salary',
+      'payroll.detail.hra': 'HRA',
+      'payroll.detail.da': 'DA',
+      'payroll.detail.special_allowance': 'Special Allowance',
+      'payroll.detail.transport_allowance': 'Transport Allowance',
+      'payroll.detail.medical_allowance': 'Medical Allowance',
+      'payroll.detail.overtime_pay': 'Overtime Pay',
+      'payroll.detail.bonus': 'Bonus',
+      'payroll.detail.arrears': 'Arrears Paid',
+      'payroll.detail.gross_salary': 'Gross Salary',
+      'payroll.detail.lop_deduction': 'Loss of Pay',
+      'payroll.detail.pf_employee': 'PF (Employee 12%)',
+      'payroll.detail.esi': 'ESI (0.75%)',
+      'payroll.detail.professional_tax': 'Professional Tax',
+      'payroll.detail.tds': 'TDS',
+      'payroll.detail.advance_deduction': 'Salary Advance Deduction',
+      'payroll.detail.total_deductions': 'Total Deductions',
+      'payroll.query.title': 'Payslip Queries',
+      'payroll.query.tab_my': 'My Queries',
+      'payroll.query.tab_raise': 'Raise Query',
+      'payroll.query.empty': 'No queries raised yet',
+      'payroll.query.replies_header': 'Replies',
+      'payroll.query.raise_header': 'Raise a Payslip Query',
+      'payroll.query.select_payslip': 'Select Payslip *',
+      'payroll.query.choose_payslip_hint': 'Choose payslip',
+      'payroll.query.category_label': 'Category *',
+      'payroll.query.subject_label': 'Subject *',
+      'payroll.query.subject_required': 'Subject is required',
+      'payroll.query.description_label': 'Description *',
+      'payroll.query.description_required': 'Description is required',
+      'payroll.query.pick_payslip': 'Please select a payslip',
+      'payroll.query.submit_button': 'Submit Query',
+      'payroll.query.submitted_success': 'Query raised successfully!',
+      'payroll.tax_summary.title': 'Annual Tax Summary',
+      'payroll.tax_summary.fy_label': 'Financial Year:',
+      'payroll.tax_summary.total_gross': 'Total Gross',
+      'payroll.tax_summary.total_net': 'Total Net',
+      'payroll.tax_summary.taxable_income': 'Taxable Income',
+      'payroll.tax_summary.tax_payable': 'Tax Payable',
+      'payroll.tax_summary.earnings_breakdown': '💰 Earnings Breakdown',
+      'payroll.tax_summary.deductions_breakdown': '📉 Deductions Breakdown',
+      'payroll.tax_summary.tax_computation': '🧾 Tax Computation (New Regime)',
+      'payroll.tax_summary.standard_deduction': 'Less: Standard Deduction',
+      'payroll.tax_summary.disclaimer': 'This is indicative only, calculated under the New Tax Regime. Actual Form 16 will be issued by your employer at the end of the financial year.',
+      'payroll.tax_summary.download_pdf': 'Download PDF',
+      'payroll.tax_summary.download_form16': 'Download Form 16 PDF',
+      'payroll.declaration.title': 'Tax Declaration (80C/80D)',
+      'payroll.declaration.estimated_deductions': 'Estimated Tax Deductions',
+      'payroll.declaration.total_deductions': 'Total Deductions',
+      'payroll.declaration.section_80c': '80C Investments (Max ₹1,50,000)',
+      'payroll.declaration.section_80d': '80D Health Insurance',
+      'payroll.declaration.section_other': 'Other Deductions',
+      'payroll.declaration.section_rent': 'HRA / Rent',
+      'payroll.declaration.field_ppf': 'PPF',
+      'payroll.declaration.field_epf': 'EPF Voluntary',
+      'payroll.declaration.field_elss': 'ELSS (Mutual Funds)',
+      'payroll.declaration.field_lic': 'LIC Premium',
+      'payroll.declaration.field_nsc': 'NSC',
+      'payroll.declaration.field_home_loan_principal': 'Home Loan Principal',
+      'payroll.declaration.field_tuition': 'Tuition Fees (children)',
+      'payroll.declaration.field_other_80c': 'Other 80C',
+      'payroll.declaration.field_hi_self': 'Health Insurance — Self',
+      'payroll.declaration.field_hi_parents': 'Health Insurance — Parents',
+      'payroll.declaration.field_nps': 'NPS Contribution (80CCD)',
+      'payroll.declaration.field_home_loan_interest': 'Home Loan Interest (24b)',
+      'payroll.declaration.field_edu_loan': 'Education Loan Interest (80E)',
+      'payroll.declaration.field_rent_monthly': 'Monthly Rent Paid',
+      'payroll.declaration.rent_receipts': 'Rent Receipts Provided',
+      'payroll.declaration.submit_button': 'Submit Declaration',
+      'payroll.declaration.submitted_success': 'Declaration submitted successfully!',
+      'payroll.declaration.past_title': 'Past Declarations',
+      'payroll.declaration.fy_submitted': 'Submitted',
+      // HR
+      'hr.dashboard.title': 'HR Dashboard',
+      'hr.timeframe.this_month': 'This Month',
+      'hr.timeframe.last_month': 'Last Month',
+      'hr.timeframe.this_quarter': 'This Quarter',
+      'hr.timeframe.this_year': 'This Year',
+      'hr.section.attendance_overview': 'Attendance Overview',
+      'hr.section.leave_summary': 'Leave Summary',
+      'hr.section.quick_actions': 'Quick Actions',
+      'hr.stat.total_staff': 'Total Staff',
+      'hr.stat.present_today': 'Present Today',
+      'hr.stat.on_leave': 'On Leave',
+      'hr.stat.pending_leaves': 'Pending Leaves',
+      'hr.avg_attendance_rate': 'Avg. Attendance Rate',
+      'hr.late_arrivals': 'Late Arrivals',
+      'hr.absentees': 'Absentees',
+      'hr.total_applications': 'Total Applications',
+      'hr.approved': 'Approved',
+      'hr.rejected': 'Rejected',
+      'hr.pending_approval': 'Pending Approval',
+      'hr.action.staff_management': 'Staff Management',
+      'hr.action.staff_management.subtitle': 'View, add & edit staff',
+      'hr.action.performance': 'Performance Reviews',
+      'hr.action.performance.subtitle': 'Manage performance records',
+      'hr.action.staff_directory': 'Staff Directory',
+      'hr.action.staff_directory.subtitle': 'Browse all staff members',
+      'hr.action.reports': 'Reports & Grievances',
+      'hr.action.reports.subtitle': 'Incident reports, staff grievances',
+      'hr.action.payslips': 'My Payslips',
+      'hr.action.payslips.subtitle': 'View & download last 3 months',
+      'staff_mgmt.title': 'Staff Management',
+      'staff_mgmt.search_hint': 'Search by name, department, role...',
+      'staff_mgmt.add_staff': 'Add Staff',
+      'staff_mgmt.edit_staff': 'Edit Staff',
+      'staff_mgmt.full_name': 'Full Name',
+      'staff_mgmt.name_required': 'Name is required',
+      'staff_mgmt.department': 'Department',
+      'staff_mgmt.clear_filter': 'Remove filter',
+      'staff_mgmt.active': 'Active',
+      'staff_mgmt.inactive': 'Inactive',
+      'staff_mgmt.no_staff_found': 'No staff found',
+      'staff_mgmt.no_staff_members': 'No staff members',
+      'staff_mgmt.search_empty': 'Try a different search term',
+      'staff_mgmt.api_pending': 'Staff data will appear here once the API is connected',
+      'staff_mgmt.updated_success': '✅ Staff updated successfully',
+      'staff_mgmt.added_pending': '✅ Staff added (backend API pending)',
+      'staff_mgmt.list_api_unavailable': 'Staff list API may not be available yet.',
+      'performance.title': 'Performance Reviews',
+      'performance.tab.add': 'Add Review',
+      'performance.tab.reviews': 'Reviews',
+      'performance.employee_id_label': 'Employee ID',
+      'performance.employee_id_hint': 'e.g. EMP-001',
+      'performance.employee_id_required': 'Employee ID is required',
+      'performance.review_period_label': 'Review Period',
+      'performance.overall_rating': 'Overall Rating',
+      'performance.comments_label': 'Performance Comments',
+      'performance.comments_hint': 'Describe performance, achievements, areas of improvement...',
+      'performance.comments_required': 'Comments are required',
+      'performance.goals_label': 'Goals for Next Period (optional)',
+      'performance.goals_hint': 'Set goals and expectations...',
+      'performance.saving_button': 'Saving...',
+      'performance.save_review': 'Save Review',
+      'performance.saved_success': '✅ Performance review saved',
+      'performance.rating.exceptional': 'Exceptional',
+      'performance.rating.exceeds': 'Exceeds Expectations',
+      'performance.rating.meets': 'Meets Expectations',
+      'performance.rating.needs_improvement': 'Needs Improvement',
+      'performance.rating.unsatisfactory': 'Unsatisfactory',
+      'performance.no_reviews': 'No reviews yet',
+      'directory.title': 'Staff Directory',
+      'directory.search_hint': 'Search by name, dept, role...',
+      'directory.empty': 'Directory is empty',
+      'directory.search_empty': 'Try a different search term',
+      'directory.api_pending': 'Staff members will appear here once the API is connected',
+      'directory.api_unavailable': 'Staff directory API may not be available yet.',
+      'directory.staff_empty_body': 'No staff found',
+      // Reports & Grievances
+      'reports.hub.title': 'Reports & Grievances',
+      'reports.hub.confidentiality_note': 'All reports are handled confidentially. Retaliation against reporters is strictly prohibited.',
+      'reports.hub.prompt': 'What would you like to report?',
+      'reports.hub.incident_title': 'Incident Report',
+      'reports.hub.incident_subtitle': 'Patient fall, medication error, near-miss, equipment failure, or any adverse event',
+      'reports.hub.incident_note': 'Sentinel/Severe events are escalated immediately',
+      'reports.hub.grievance_title': 'Staff Grievance',
+      'reports.hub.grievance_subtitle': 'Harassment, unfair treatment, unsafe working conditions, or policy violations',
+      'reports.hub.grievance_note': 'Can be submitted anonymously. HR only.',
+      'reports.hub.my_reports': 'My Reports & Status',
+      'my_reports.title': 'My Reports',
+      'my_reports.tab.incidents': 'Incidents',
+      'my_reports.tab.grievances': 'Grievances',
+      'my_reports.empty_incidents': 'No incident reports',
+      'my_reports.empty_grievances': 'No grievances filed',
+      'my_reports.label.status': 'Status',
+      'my_reports.label.severity': 'Severity',
+      'my_reports.label.type': 'Type',
+      'my_reports.label.location': 'Location',
+      'my_reports.label.description': 'Description',
+      'incident_report.title': 'Incident Report',
+      'incident_report.severity_label': 'Severity *',
+      'incident_report.severity.low': 'Low',
+      'incident_report.severity.low_desc': 'Minor, no harm caused',
+      'incident_report.severity.moderate': 'Moderate',
+      'incident_report.severity.moderate_desc': 'Some impact, managed locally',
+      'incident_report.severity.severe': 'Severe',
+      'incident_report.severity.severe_desc': 'Significant harm, requires investigation',
+      'incident_report.severity.sentinel': 'Sentinel',
+      'incident_report.severity.sentinel_desc': 'Unexpected death or serious harm',
+      'incident_report.type_label': 'Incident Type *',
+      'incident_report.type.near_miss': 'Near Miss',
+      'incident_report.type.patient_fall': 'Patient Fall',
+      'incident_report.type.medication_error': 'Medication Error',
+      'incident_report.type.needle_stick': 'Needle Stick / Sharps Injury',
+      'incident_report.type.equipment_failure': 'Equipment Failure',
+      'incident_report.type.infection': 'Infection / Exposure',
+      'incident_report.type.fire_safety': 'Fire / Safety Hazard',
+      'incident_report.type.patient_aggression': 'Patient Aggression',
+      'incident_report.type.security_breach': 'Security Breach',
+      'incident_report.type.other': 'Other',
+      'incident_report.title_label': 'Brief Title *',
+      'incident_report.title_hint': 'e.g. Patient fell near bed 12B',
+      'incident_report.title_required': 'Title is required',
+      'incident_report.what_happened': 'What happened? *',
+      'incident_report.what_happened_hint': 'Describe the incident in detail — what happened, who was involved, what the conditions were...',
+      'incident_report.description_required': 'Description is required',
+      'incident_report.date_label': 'Date *',
+      'incident_report.time_label': 'Time *',
+      'incident_report.location_label': 'Location (optional)',
+      'incident_report.location_hint': 'Ward, room, or area',
+      'incident_report.patient_involved': 'Patient Involved',
+      'incident_report.patient_name_label': 'Patient Name / ID (optional)',
+      'incident_report.witnesses_label': 'Witnesses (optional)',
+      'incident_report.witnesses_hint': 'Names of anyone who saw the incident',
+      'incident_report.immediate_action': 'Immediate Action Taken (optional)',
+      'incident_report.immediate_action_hint': 'What was done right after the incident?',
+      'incident_report.anonymous': 'Submit Anonymously',
+      'incident_report.anonymous_note': 'Your name will not be attached to this report',
+      'incident_report.submit_button': 'Submit Incident Report',
+      'incident_report.submitted_title': 'Report Submitted',
+      'incident_report.escalation_note': 'This has been escalated as HIGH PRIORITY. Management has been notified.',
+      'incident_report.routine_note': 'Your report has been received and will be reviewed within 24 hours.',
+      'incident_report.done_button': 'Done',
+      'grievance.title': 'Staff Grievance',
+      'grievance.privacy_note': 'This form is seen only by HR and senior management. You may submit anonymously.',
+      'grievance.type_label': 'Grievance Type *',
+      'grievance.type.harassment': 'Harassment',
+      'grievance.type.discrimination': 'Discrimination',
+      'grievance.type.unfair_treatment': 'Unfair Treatment',
+      'grievance.type.unsafe_conditions': 'Unsafe Working Conditions',
+      'grievance.type.workload': 'Excessive Workload',
+      'grievance.type.pay_dispute': 'Pay / Compensation Dispute',
+      'grievance.type.schedule_conflict': 'Schedule / Roster Conflict',
+      'grievance.type.policy_violation': 'Policy Violation',
+      'grievance.type.other': 'Other',
+      'grievance.subject_label': 'Subject *',
+      'grievance.subject_hint': 'Brief summary of your concern',
+      'grievance.subject_required': 'Subject is required',
+      'grievance.describe_label': 'Describe your grievance *',
+      'grievance.describe_hint': 'Please provide as much detail as you feel comfortable sharing...',
+      'grievance.description_required': 'Description is required',
+      'grievance.against_whom_label': 'Against whom (optional)',
+      'grievance.against_whom_hint': 'Name or role, if applicable',
+      'grievance.dept_label': 'Department (optional)',
+      'grievance.date_optional': 'When did this occur? (optional)',
+      'grievance.date_prefix': 'When did this occur:',
+      'grievance.anonymous': 'Submit Anonymously',
+      'grievance.anonymous_note': 'Your identity will not be disclosed',
+      'grievance.submit_button': 'Submit Grievance',
+      'grievance.submitted_title': 'Grievance Submitted',
+      'grievance.acknowledgement_note': 'Your grievance has been received. HR will acknowledge within 2 working days.',
+      'grievance.acknowledgement_anonymous': 'Submitted anonymously. HR will acknowledge within 2 working days.',
+      // Housekeeping
+      'housekeeping.hub.title': 'Housekeeping',
+      'housekeeping.hub.log_title': 'Log Cleaning',
+      'housekeeping.hub.log_subtitle': 'Record completed cleaning with photo evidence',
+      'housekeeping.hub.raise_title': 'Raise Request',
+      'housekeeping.hub.raise_subtitle': 'Report a dirty area or request cleaning',
+      'housekeeping.hub.my_title': 'My Activity',
+      'housekeeping.hub.my_subtitle': 'View your logs, assigned tasks, and requests',
+      'housekeeping.log.title': 'Log Cleaning',
+      'housekeeping.log.type_label': 'Cleaning Type *',
+      'housekeeping.type.routine': 'Routine Cleaning',
+      'housekeeping.type.deep': 'Deep Cleaning',
+      'housekeeping.type.disinfection': 'Disinfection',
+      'housekeeping.type.spillage': 'Spillage Clean-up',
+      'housekeeping.type.post_procedure': 'Post-Procedure',
+      'housekeeping.zone_location_label': 'Zone / Location *',
+      'housekeeping.select_zone_label': 'Select Zone (optional)',
+      'housekeeping.select_zone_or_type': '-- Select or type below --',
+      'housekeeping.describe_location': 'Or describe exact location',
+      'housekeeping.location_hint': 'e.g. Room 204, Corridor near lift',
+      'housekeeping.photo_evidence': 'Photo Evidence',
+      'housekeeping.take_photo': 'Tap to take photo',
+      'housekeeping.notes_label': 'Notes (optional)',
+      'housekeeping.submit_log': 'Submit Cleaning Log',
+      'housekeeping.submitting_log': 'Submitting...',
+      'housekeeping.select_zone_error': 'Select a zone or enter location',
+      'housekeeping.logged_title': 'Cleaning Logged',
+      'housekeeping.logged_body': 'Your cleaning record has been signed and submitted.',
+      'housekeeping.done_button': 'Done',
+      'housekeeping.raise.title': 'Raise Request',
+      'housekeeping.raise.type_label': 'Request Type *',
+      'housekeeping.raise.urgency_label': 'Urgency *',
+      'housekeeping.request_type.cleaning': 'General Cleaning',
+      'housekeeping.request_type.spillage': 'Spillage / Spill',
+      'housekeeping.request_type.waste': 'Waste Disposal',
+      'housekeeping.request_type.linen': 'Linen / Bedding',
+      'housekeeping.request_type.disinfection': 'Disinfection',
+      'housekeeping.request_type.other': 'Other',
+      'housekeeping.description_label': 'Description (optional)',
+      'housekeeping.description_hint': 'What needs attention?',
+      'housekeeping.problem_photo': 'Photo of Problem (optional)',
+      'housekeeping.photograph_problem': 'Tap to photograph the problem',
+      'housekeeping.raise_request_button': 'Raise Request',
+      'housekeeping.raising_button': 'Raising...',
+      'housekeeping.raised_title': 'Request Raised',
+      'housekeeping.notified_note': 'Housekeeping staff will be notified.',
+      'housekeeping.my.title': 'My Activity',
+      'housekeeping.my.tab_logs': 'My Logs',
+      'housekeeping.my.tab_requests': 'Requests',
+      'housekeeping.my.tab_raised': 'Raised by me',
+      'housekeeping.my.tab_assigned': 'Assigned to me',
+      'housekeeping.no_logs': 'No cleaning logs yet',
+      'housekeeping.no_requests': 'No requests here',
+      'housekeeping.unknown_location': 'Unknown location',
+      'housekeeping.mark_complete': 'Mark Complete',
+      'housekeeping.complete_dialog_title': 'Mark as Complete',
+      'housekeeping.completion_notes': 'Completion notes (optional)',
+      'housekeeping.add_completion_photo': 'Add completion photo',
+      'housekeeping.marked_complete': '✅ Request marked as completed',
+      'housekeeping.status.verified': 'VERIFIED',
+      'housekeeping.status.flagged': 'FLAGGED',
+      'housekeeping.status.submitted': 'SUBMITTED',
+      // Hospital departments
+      'blood_bank.title': 'Blood Bank',
+      'blood_bank.tab.inventory': 'Inventory',
+      'blood_bank.tab.requests': 'Requests',
+      'blood_bank.tab.donations': 'Donations',
+      'blood_bank.refresh_tooltip': 'Refresh inventory',
+      'blood_bank.legend.adequate': '>= 10 units',
+      'blood_bank.legend.low': '5-9 units',
+      'blood_bank.legend.critical': '< 5 units',
+      'blood_bank.units_suffix': 'units',
+      'blood_bank.stock.critical_low': 'Critical low',
+      'blood_bank.stock.low': 'Low stock',
+      'blood_bank.stock.adequate': 'Adequate',
+      'blood_bank.request_header': 'Request Blood',
+      'blood_bank.patient_name_label': 'Patient Name',
+      'blood_bank.patient_name_required': 'Patient name is required',
+      'blood_bank.blood_type_label': 'Blood Type',
+      'blood_bank.blood_type_required': 'Select blood type',
+      'blood_bank.units_label': 'Units Required',
+      'blood_bank.units_required': 'Units required',
+      'blood_bank.units_invalid': 'Enter a valid number',
+      'blood_bank.reason_label': 'Reason / Notes',
+      'blood_bank.submit_request': 'Submit Request',
+      'blood_bank.submitting_button': 'Submitting...',
+      'blood_bank.request_success': 'Blood request submitted successfully',
+      'blood_bank.donations.title': 'Donation Records',
+      'blood_bank.donations.body': 'View and manage blood donation records.\nThis section will display donation history and upcoming donation drives.',
+      'dietary.title': 'Dietary Management',
+      'dietary.refresh_tooltip': 'Refresh worklist',
+      'dietary.new_order_button': 'New Order',
+      'dietary.new_order_dialog': 'New Dietary Order',
+      'dietary.patient_uid_label': 'Patient UID',
+      'dietary.patient_uid_required': 'Required',
+      'dietary.diet_type_label': 'Diet Type',
+      'dietary.diet_type_required': 'Select diet type',
+      'dietary.meal_time_label': 'Meal Time',
+      'dietary.meal_time_required': 'Select meal time',
+      'dietary.restrictions_label': 'Restrictions / Allergies',
+      'dietary.notes_label': 'Notes',
+      'dietary.create_button': 'Create',
+      'dietary.created_success': 'Dietary order created',
+      'dietary.discontinued_success': 'Diet order discontinued',
+      'dietary.discontinue': 'Discontinue',
+      'dietary.diet.regular': 'Regular',
+      'dietary.diet.diabetic': 'Diabetic',
+      'dietary.diet.cardiac': 'Cardiac',
+      'dietary.diet.renal': 'Renal',
+      'dietary.diet.soft': 'Soft',
+      'dietary.diet.liquid': 'Liquid',
+      'dietary.diet.npo': 'NPO',
+      'dietary.diet.enteral': 'Enteral',
+      'dietary.meal.breakfast': 'Breakfast',
+      'dietary.meal.lunch': 'Lunch',
+      'dietary.meal.dinner': 'Dinner',
+      'dietary.meal.snack': 'Snack',
+      'dietary.empty_title': 'No dietary orders',
+      'dietary.empty_body': 'Tap the button below to create a new order',
+      'theatre.title': 'Operating Theatre',
+      'theatre.pick_date': 'Pick date',
+      'theatre.tab.schedule': 'Schedule',
+      'theatre.tab.availability': 'Availability',
+      'theatre.no_surgeries': 'No surgeries scheduled',
+      'theatre.no_room_data': 'No room data available',
+      'theatre.status.scheduled': 'Scheduled',
+      'theatre.status.in_progress': 'In Progress',
+      'theatre.status.completed': 'Completed',
+      'theatre.status.cancelled': 'Cancelled',
+      'theatre.surgeon_prefix': 'Surgeon:',
+      'theatre.label.patient_uid': 'Patient UID',
+      'theatre.label.procedure_code': 'Procedure Code',
+      'theatre.label.ot_room': 'OT Room',
+      'theatre.label.date': 'Date',
+      'theatre.label.time': 'Time',
+      'theatre.label.duration': 'Duration',
+      'theatre.label.surgeon': 'Surgeon',
+      'theatre.label.anesthetist': 'Anesthetist',
+      'theatre.label.status': 'Status',
+      'theatre.label.blood_arranged': 'Blood Arranged',
+      'theatre.label.consent': 'Consent',
+      'theatre.label.equipment': 'Equipment',
+      'theatre.start_surgery': 'Start Surgery',
+      'theatre.mark_complete': 'Mark Complete',
+      'theatre.cancel_button': 'Cancel',
+      'theatre.preop_checklist': 'Pre-op Checklist',
+      'theatre.checklist.consent': 'Consent Obtained',
+      'theatre.checklist.blood': 'Blood Arranged',
+      'theatre.checklist.equipment': 'Equipment Checked',
+      'theatre.checklist.patient_id': 'Patient Identified',
+      'theatre.submit_checklist': 'Submit Checklist',
+      'theatre.checklist_updated': 'Checklist updated',
+      'theatre.status_updated_to': 'Status updated to',
+      'theatre.yes': 'Yes',
+      'theatre.no': 'No',
+      'theatre.available': 'Available',
+      'theatre.occupied': 'Occupied',
+      'radiology.title': 'Radiology',
+      'radiology.filters_tooltip': 'Filters',
+      'radiology.filters_header': 'Filters',
+      'radiology.status_label': 'Status',
+      'radiology.modality_label': 'Modality',
+      'radiology.status.all': 'All',
+      'radiology.status.pending': 'Pending',
+      'radiology.status.in_progress': 'In Progress',
+      'radiology.status.completed': 'Completed',
+      'radiology.status.cancelled': 'Cancelled',
+      'radiology.no_orders': 'No radiology orders',
+      'radiology.label.study_type': 'Study Type',
+      'radiology.label.modality': 'Modality',
+      'radiology.label.body_part': 'Body Part',
+      'radiology.label.priority': 'Priority',
+      'radiology.label.clinical_indication': 'Clinical Indication',
+      'radiology.label.notes': 'Notes',
+      'radiology.label.report': 'Report',
+      'radiology.label.findings': 'Findings',
+      'radiology.label.impression': 'Impression',
+      'radiology.submit_report': 'Submit Report',
+      'radiology.cancel_order': 'Cancel Order',
+      'radiology.findings_required': 'Findings are required',
+      'radiology.report_submitted': 'Report submitted',
+      'radiology.order_cancelled': 'Order cancelled',
+      'schedule.title': 'Shift Schedule',
+      'schedule.prev_week': 'Previous week',
+      'schedule.next_week': 'Next week',
+      'schedule.week_this': 'This Week',
+      'schedule.week_next': 'Next Week',
+      'schedule.week_last': 'Last Week',
+      'schedule.total_label': 'Total',
+      'schedule.days_logged': 'days logged',
+      'schedule.hours_worked_suffix': 'h worked',
+      'schedule.upcoming': 'Upcoming',
+      'schedule.no_record': 'No record',
+      'schedule.load_failed_prefix': 'Could not load schedule:',
+      // Lab / Pharmacy / Investigations
+      'investigations.title': 'Investigations',
+      'investigations.tab.upload': 'Upload Result',
+      'investigations.tab.pending': 'Pending',
+      'investigations.tab.recent': 'Recent',
+      'investigations.upload_intro': 'Search patient by phone number and upload their investigation results.',
+      'investigations.phone_label': 'Patient Phone Number',
+      'investigations.phone_hint': '+91 XXXXX XXXXX',
+      'investigations.phone_required': 'Phone is required',
+      'investigations.phone_invalid': 'Enter valid phone number',
+      'investigations.test_type_label': 'Test Type',
+      'investigations.test_type_required': 'Select test type',
+      'investigations.result_label': 'Result / Summary',
+      'investigations.result_hint': 'Enter test results or summary...',
+      'investigations.clinical_notes_label': 'Clinical Notes (optional)',
+      'investigations.clinical_notes_hint': 'Additional observations...',
+      'investigations.attach_report': 'Attach Report File (optional)',
+      'investigations.clear_file': 'Clear',
+      'investigations.file_too_large': 'File too large. Maximum size is 10 MB.',
+      'investigations.file_pick_failed': 'Failed to pick file',
+      'investigations.uploading': 'Uploading...',
+      'investigations.upload_button': 'Upload Investigation',
+      'investigations.upload_success': '✅ Investigation result uploaded successfully',
+      'investigations.pending_empty': 'No pending investigations',
+      'investigations.pending_empty_body': 'All caught up!',
+      'investigations.recent_empty': 'No recent investigations',
+      'investigations.recent_empty_body': 'Your investigation uploads will appear here',
+      'investigations.start_button': 'Start',
+      'investigations.complete_button': 'Complete',
+      'investigations.marked_as_prefix': '✅ Investigation marked as',
+      'lab_bookings.title': 'Lab Bookings',
+      'lab_bookings.tab.new': 'New',
+      'lab_bookings.tab.active': 'Active',
+      'lab_bookings.tab.done': 'Done',
+      'lab_bookings.empty_prefix': 'No bookings',
+      'lab_bookings.view_slip': 'View Prescription Slip',
+      'lab_bookings.home_collection': 'Home',
+      'lab_bookings.walk_in': 'Walk-in',
+      'lab_bookings.confirm_dialog': 'Confirm Booking',
+      'lab_bookings.actual_tests_label': 'Actual Tests (if different)',
+      'lab_bookings.actual_tests_hint': 'Verify/add test names',
+      'lab_bookings.final_cost_label': 'Final Cost (₹)',
+      'lab_bookings.confirm_button': 'Confirm',
+      'lab_bookings.confirmed_toast': 'Booking confirmed',
+      'lab_bookings.dispatch_dialog': 'Dispatch Collector',
+      'lab_bookings.collector_phone': 'Collector Phone',
+      'lab_bookings.dispatch_button': 'Dispatch',
+      'lab_bookings.dispatched_toast': 'Collector dispatched',
+      'lab_bookings.sharing_location': '📍 Sharing location...',
+      'lab_bookings.mark_collected': 'Mark Collected',
+      'lab_bookings.samples_collected_toast': 'Samples collected',
+      'lab_bookings.start_processing': 'Start Processing',
+      'lab_bookings.processing_started_toast': 'Processing started',
+      'lab_bookings.upload_result': 'Upload Result',
+      'lab_bookings.select_file': 'Select File',
+      'lab_bookings.result_uploaded_toast': 'Result uploaded',
+      'lab_bookings.view_result': 'View Result',
+      'pharmacy.title': 'Pharmacy Orders',
+      'pharmacy.queue_title': 'Pharmacy Queue',
+      'pharmacy.queue_subtitle': 'orders queued',
+      'pharmacy.tab.new': 'New',
+      'pharmacy.tab.active': 'Active',
+      'pharmacy.tab.done': 'Done',
+      'pharmacy.empty.new': 'No new orders',
+      'pharmacy.empty.active': 'No active orders',
+      'pharmacy.empty.done': 'No completed orders',
+      'pharmacy.confirm_dialog': 'Confirm Order',
+      'pharmacy.patient_note_prefix': 'Patient Note:',
+      'pharmacy.items_label': 'Items (one per line: name, qty, price)',
+      'pharmacy.items_hint': 'Dolo 650, 2, 60\nPan 40, 1, 95',
+      'pharmacy.total_cost_label': 'Total Cost (₹)',
+      'pharmacy.confirm_order': 'Confirm Order',
+      'pharmacy.view_confirm': 'View & Confirm',
+      'pharmacy.start_preparing': 'Start Preparing',
+      'pharmacy.dispatch': 'Dispatch',
+      'pharmacy.mark_delivered': 'Mark Delivered',
+      'pharmacy.dispatch_dialog': 'Dispatch Order',
+      'pharmacy.delivery_person_name': 'Delivery Person Name',
+      'pharmacy.delivery_person_phone': 'Delivery Person Phone',
+      'pharmacy.mark_delivered_dialog': 'Mark Delivered?',
+      'pharmacy.mark_delivered_yes': 'Yes, Delivered',
+      'pharmacy.cancel_dialog': 'Cancel Order?',
+      'pharmacy.cancellation_reason': 'Reason for cancellation',
+      'pharmacy.delivery_type.pickup': 'Pickup',
+      'pharmacy.delivery_type.delivery': 'Delivery',
+      'pharmacy.order_confirmed_toast': 'Order confirmed',
+      'pharmacy.mark_preparing_toast': 'Marked as preparing',
+      'pharmacy.order_dispatched_toast': 'Order dispatched',
+      'pharmacy.order_delivered_toast': 'Marked as delivered',
+      'pharmacy.order_cancelled_toast': 'Order cancelled',
+      'pharmacy.status.placed': 'Placed',
+      'pharmacy.status.confirmed': 'Confirmed',
+      'pharmacy.status.preparing': 'Preparing',
+      'pharmacy.status.dispatched': 'Dispatched',
+      'pharmacy.status.delivered': 'Delivered',
+      'pharmacy.status.cancelled': 'Cancelled',
+      // Nursing
+      'due_meds.title': 'Due Medications',
+      'due_meds.search_hint': 'Search by patient or medication…',
+      'due_meds.empty_title': 'No medications due',
+      'due_meds.empty_body': 'Tap a bed on the bed board to record vitals.',
+      'due_meds.held_badge': 'HELD',
+      'due_meds.unknown_patient': 'Unknown patient',
+      'due_meds.unnamed_medication': '(unnamed medication)',
+      'mar_scan.title': 'Administer Medication',
+      'mar_scan.step1_prompt': 'Step 1 of 3 — Scan patient wristband',
+      'mar_scan.step1_subtitle': "Point the camera at the QR code on the patient's wristband.",
+      'mar_scan.step2_prompt': 'Step 2 of 3 — Scan drug barcode',
+      'mar_scan.step2_subtitle': 'Now scan the barcode on the medication label.',
+      'mar_scan.step3_header': 'Step 3 of 3 — 5-rights check',
+      'mar_scan.right_patient': 'Right patient',
+      'mar_scan.right_drug': 'Right drug',
+      'mar_scan.right_dose': 'Right dose',
+      'mar_scan.right_route': 'Right route',
+      'mar_scan.right_time': 'Right time',
+      'mar_scan.recording': 'Recording…',
+      'mar_scan.administer': 'Administer',
+      'mar_scan.check_failed': '5-rights check failed',
+      'mar_scan.override_hint': 'To record this administration, document the reason. This entry is audited.',
+      'mar_scan.override_reason_label': 'Override reason (required, min 5 chars)',
+      'mar_scan.override_button': 'Override & administer',
+      'mar_scan.recorded': 'Administration recorded',
+      'mar_scan.scan_next': 'Scan next dose',
+      'mar_scan.scan_again': 'Scan again',
+      'mar_scan.try_again': 'Try again',
+      'mar_scan.unknown_medication': '(unknown medication)',
+      // Discharge Summary
+      'discharge.title_prefix': 'Discharge —',
+      'discharge.save_draft': 'Save Draft',
+      'discharge.draft_saved': 'Draft saved',
+      'discharge.sign_summary': 'Sign Summary',
+      'discharge.sign_dialog_title': 'Sign Discharge Summary',
+      'discharge.sign_dialog_body':
+          'Once signed, this discharge summary becomes the official record and cannot be modified (only addenda are allowed).\n\nAre you sure you want to sign?',
+      'discharge.sign_button': 'Sign',
+      'discharge.signed_success': 'Discharge summary signed — now official',
+      'discharge.signed_badge': 'Signed — This summary is now official and immutable',
+      'discharge.proceed_title': 'Confirm Discharge',
+      'discharge.proceed_body_prefix': 'Discharge',
+      'discharge.proceed_button': 'Discharge',
+      'discharge.must_sign_first': 'Discharge summary must be signed by a doctor first',
+      'discharge.patient_discharged': 'Patient discharged successfully',
+      'discharge.patient_button': 'Discharge Patient',
+      'discharge.generate_title': 'Generate Discharge Summary',
+      'discharge.generate_body':
+          'This will automatically aggregate all ward notes, vitals, investigations, medications, and diagnoses from this admission into a structured discharge summary.',
+      'discharge.generate_button': 'Generate Summary',
+      'discharge.generating': 'Generating...',
+      'discharge.regenerate': 'Regenerate Summary',
+      'discharge.section.hospital_course': 'Hospital Course',
+      'discharge.section.diagnosis': 'Discharge Diagnosis',
+      'discharge.section.condition': 'Discharge Condition',
+      'discharge.section.follow_up': 'Follow-up Instructions',
+      'discharge.section.activity': 'Activity Restrictions',
+      'discharge.section.diet': 'Diet Instructions',
+      'discharge.section.warning_signs': 'Warning Signs',
+      'discharge.section.medications': 'Medications on Discharge',
+      'discharge.section.investigations': 'Investigations',
+      'discharge.section.procedures': 'Procedures Performed',
+      // Attendance dispute / overtime
+      'dispute.title': 'Attendance Dispute',
+      'dispute.tab.submit': 'Submit',
+      'dispute.tab.my': 'My Disputes',
+      'dispute.intro': 'Use this to report attendance recording issues. HR will review and correct your record.',
+      'dispute.date_label': 'Date',
+      'dispute.select_date': 'Select date of issue',
+      'dispute.issue_type_label': 'Issue Type',
+      'dispute.type.missed_checkin': 'Missed Check-in',
+      'dispute.type.missed_checkout': 'Missed Check-out',
+      'dispute.type.wrong_time': 'Wrong Time Recorded',
+      'dispute.type.app_failure': 'App/Network Failure',
+      'dispute.type.other': 'Other',
+      'dispute.description_label': 'Description',
+      'dispute.description_hint': 'Explain what happened...',
+      'dispute.correct_times': 'Correct Times (Optional)',
+      'dispute.correct_times_hint': 'If you know what the correct times should be, enter them here.',
+      'dispute.check_in': 'Check-in',
+      'dispute.check_out': 'Check-out',
+      'dispute.required_error': 'Date and description are required',
+      'dispute.submit_button': 'Submit Dispute',
+      'dispute.submitted_success': '✅ Dispute submitted. HR will review within 24 hours.',
+      'dispute.empty': 'No disputes filed',
+      'dispute.hr_comment_prefix': 'HR:',
+      'overtime.title': 'Overtime Requests',
+      'overtime.tab.request': 'Request',
+      'overtime.tab.my': 'My Requests',
+      'overtime.extra_hours_label': 'Extra Hours',
+      'overtime.hours_suffix': 'hrs',
+      'overtime.type_label': 'Type',
+      'overtime.type.comp_time': 'Compensatory Time Off',
+      'overtime.type.payment': 'Overtime Payment',
+      'overtime.reason_label': 'Reason',
+      'overtime.reason_hint': 'Why did you work overtime?',
+      'overtime.required_error': 'Date and reason required',
+      'overtime.submit_button': 'Submit Overtime Request',
+      'overtime.submitted_success': '✅ Overtime request submitted',
+      'overtime.empty': 'No overtime requests',
+      'overtime.rejected_prefix': 'Rejected:',
+      // Telemedicine
+      'telemedicine.title_prefix': 'Video Call —',
+      'telemedicine.sdk_missing_title': 'Video SDK not yet integrated',
+      'telemedicine.sdk_missing_body': 'Add agora_rtc_engine or flutter_webrtc to enable.',
+      'telemedicine.mute': 'Mute',
+      'telemedicine.unmute': 'Unmute',
+      'telemedicine.camera_off': 'Camera Off',
+      'telemedicine.camera_on': 'Camera On',
+      'telemedicine.end_call': 'End Call',
+      // Clinical AI
+      'clinical_ai.queue.title': 'AI Review Queue',
+      'clinical_ai.queue.compose_button': 'Compose runs',
+      'clinical_ai.queue.voice_notes_button': 'Voice notes',
+      'clinical_ai.queue.filter.pending': 'Pending',
+      'clinical_ai.queue.filter.accepted': 'Accepted',
+      'clinical_ai.queue.filter.edited': 'Edited',
+      'clinical_ai.queue.filter.rejected': 'Rejected',
+      'clinical_ai.queue.filter.all': 'All',
+      'clinical_ai.queue.empty_title': 'No drafts in this filter',
+      'clinical_ai.queue.empty_body':
+          'When a clinical AI draft is generated for an admission you reviewer-cover, it will appear here.',
+      'clinical_ai.queue.load_failed': 'Failed to load reviews',
+      'clinical_ai.queue.patient_fallback': 'Patient',
+      'clinical_ai.draft.reject_title': 'Reject draft',
+      'clinical_ai.draft.reject_reason_label': 'Reason',
+      'clinical_ai.draft.reject_reason_hint': 'Why is this draft unsuitable?',
+      'clinical_ai.draft.reject_button': 'Reject',
+      'clinical_ai.draft.review_not_found': 'Review not found.',
+      'clinical_ai.draft.invalid_json': 'Edited draft is not valid JSON.',
+      'clinical_ai.draft.accept': 'Accept',
+      'clinical_ai.draft.accept_edits': 'Accept edits',
+      'clinical_ai.draft.needs_revision': 'Needs revision',
+      'clinical_ai.draft.decision_recorded': 'Draft decision recorded',
+      'clinical_ai.draft.no_safety_flags': 'No safety flags raised.',
+      'clinical_ai.draft.screen_title': 'AI Draft Review',
+      'clinical_ai.draft.critical_title': 'Critical safety flags',
+      'clinical_ai.draft.safety_header': 'Safety flags',
+      'clinical_ai.draft.body_header': 'Draft',
+      'clinical_ai.draft.edit_header': 'Edit draft (JSON)',
+      'clinical_ai.draft.edit_button': 'Edit',
+      'clinical_ai.draft.cancel_edit_button': 'Cancel edit',
+      'clinical_ai.draft.failed_load': 'Failed to load draft',
+      'clinical_ai.draft.patient_prefix': 'Patient:',
+      'clinical_ai.draft.admission_prefix': 'Admission:',
+      'clinical_ai.draft.status_prefix': 'Status:',
+      'clinical_ai.draft.provider_prefix': 'Provider:',
+      'clinical_ai.draft.decided_prefix': 'Draft',
+      'clinical_ai.draft.decision_failed_prefix': 'Failed to record decision:',
+      'clinical_ai.compose_runs.title': 'Compose Runs',
+      'clinical_ai.compose_runs.empty': 'No compose runs in this view.',
+      'clinical_ai.compose_runs.filter.active': 'Active',
+      'clinical_ai.compose_runs.filter.paused': 'Paused',
+      'clinical_ai.compose_runs.filter.completed': 'Completed',
+      'clinical_ai.compose_runs.filter.failed': 'Failed',
+      'clinical_ai.compose_runs.filter.all': 'All',
+      'clinical_ai.compose_runs.review_prefix': 'review:',
+      'clinical_ai.compose_runs.started_prefix': 'started',
+      'clinical_ai.compose_runs.run_prefix': 'Run',
+      'clinical_ai.compose_runs.admission_word': 'admission',
+      'clinical_ai.compose_run.not_found': 'Run not found.',
+      'clinical_ai.compose_run.resumed': 'Compose resumed.',
+      'clinical_ai.compose_run.open_in_queue': 'Open in review queue',
+      'clinical_ai.compose_run.detail_title_prefix': 'Compose run',
+      'clinical_ai.compose_run.admission_header_prefix': 'Admission',
+      'clinical_ai.compose_run.subgraphs': 'Subgraphs',
+      'clinical_ai.compose_run.no_subgraphs': 'No subgraph runs.',
+      'clinical_ai.compose_run.paused_prefix': 'Paused:',
+      'clinical_ai.compose_run.review_status_key': 'Review status',
+      'clinical_ai.compose_run.started_key': 'Started',
+      'clinical_ai.compose_run.finished_key': 'Finished',
+      'clinical_ai.compose_run.resume_button': 'Resume compose',
+      'clinical_ai.compose_run.resuming_button': 'Resuming...',
+      'clinical_ai.compose_run.resume_failed_prefix': 'Resume failed:',
+      'clinical_ai.compose_run.critical_word': 'critical',
+      'clinical_ai.compose_run.high_word': 'high',
+      'clinical_ai.voice_notes.empty': 'No voice notes yet.',
+      'clinical_ai.voice_notes.soap_generated': 'SOAP draft generated; opening review queue.',
+      'clinical_ai.voice_notes.title': 'Voice notes',
+      'clinical_ai.voice_notes.empty_subtitle': 'Record a voice note from the desktop client; it will appear here for SOAP drafting.',
+      'clinical_ai.voice_notes.note_prefix': 'Voice note',
+      'clinical_ai.voice_notes.patient_prefix': 'Patient:',
+      'clinical_ai.voice_notes.draft_exists': 'SOAP draft already generated',
+      'clinical_ai.voice_notes.generate_soap': 'Generate SOAP draft',
+      'clinical_ai.voice_notes.drafting': 'Drafting...',
+      'clinical_ai.voice_notes.generation_failed_prefix': 'SOAP generation failed:',
     },
     // ── हिन्दी (Hindi) ────────────────────────────────────────────────
     // Second-pass reviewed for register, common clinical-staff
@@ -2943,6 +4478,234 @@ class AppStrings {
           'नोट सफलतापूर्वक बनाया गया',
       'clinical_notes.create_failed_prefix':
           'नोट बनाने में विफल:',
+      // Payroll
+      'payroll.payslip.title': 'मेरी वेतन-पर्चियाँ',
+      'payroll.payslip.banner_tax': 'वार्षिक कर सारांश (फॉर्म 16)',
+      'payroll.payslip.banner_declaration': 'कर घोषणा (80C/80D)',
+      'payroll.payslip.banner_queries': 'वेतन-पर्ची प्रश्न',
+      'payroll.payslip.empty_title': 'अभी कोई वेतन-पर्ची उपलब्ध नहीं',
+      'payroll.payslip.empty_body': 'वेतन-पर्चियाँ हर महीने की 5 तारीख को जारी होती हैं',
+      'payroll.payslip.new_badge': 'नया',
+      'payroll.payslip.net_pay': 'शुद्ध वेतन',
+      'payroll.payslip.gross': 'सकल',
+      'payroll.payslip.deductions': 'कटौतियाँ',
+      'payroll.detail.title_prefix': 'वेतन-पर्ची',
+      'payroll.detail.download_pdf': 'PDF डाउनलोड करें',
+      'payroll.detail.attendance_header': '📅 उपस्थिति',
+      'payroll.detail.earnings_header': '💰 आय',
+      'payroll.detail.deductions_header': '📉 कटौतियाँ',
+      'payroll.detail.gross_salary': 'सकल वेतन',
+      'payroll.detail.total_deductions': 'कुल कटौतियाँ',
+      'payroll.query.title': 'वेतन-पर्ची प्रश्न',
+      'payroll.query.tab_my': 'मेरे प्रश्न',
+      'payroll.query.tab_raise': 'प्रश्न उठाएँ',
+      'payroll.query.empty': 'अभी तक कोई प्रश्न नहीं उठाया गया',
+      'payroll.query.submit_button': 'प्रश्न सबमिट करें',
+      // REVIEW: financial confirmation
+      'payroll.query.submitted_success': 'प्रश्न सफलतापूर्वक उठाया गया!',
+      'payroll.tax_summary.title': 'वार्षिक कर सारांश',
+      'payroll.tax_summary.fy_label': 'वित्तीय वर्ष:',
+      'payroll.tax_summary.total_gross': 'कुल सकल',
+      'payroll.tax_summary.total_net': 'कुल शुद्ध',
+      'payroll.tax_summary.taxable_income': 'कर योग्य आय',
+      'payroll.tax_summary.tax_payable': 'देय कर',
+      'payroll.declaration.title': 'कर घोषणा (80C/80D)',
+      'payroll.declaration.section_80c': '80C निवेश (अधिकतम ₹1,50,000)',
+      'payroll.declaration.section_80d': '80D स्वास्थ्य बीमा',
+      'payroll.declaration.submit_button': 'घोषणा सबमिट करें',
+      // REVIEW: financial confirmation
+      'payroll.declaration.submitted_success': 'घोषणा सफलतापूर्वक सबमिट की गई!',
+      // HR
+      'hr.dashboard.title': 'HR डैशबोर्ड',
+      'hr.timeframe.this_month': 'इस महीने',
+      'hr.timeframe.last_month': 'पिछले महीने',
+      'hr.timeframe.this_quarter': 'इस तिमाही',
+      'hr.timeframe.this_year': 'इस वर्ष',
+      'hr.section.attendance_overview': 'उपस्थिति अवलोकन',
+      'hr.section.leave_summary': 'अवकाश सारांश',
+      'hr.section.quick_actions': 'त्वरित कार्य',
+      'hr.stat.total_staff': 'कुल कर्मचारी',
+      'hr.stat.present_today': 'आज उपस्थित',
+      'hr.stat.on_leave': 'अवकाश पर',
+      'hr.stat.pending_leaves': 'लंबित अवकाश',
+      'hr.approved': 'स्वीकृत',
+      'hr.rejected': 'अस्वीकृत',
+      'hr.action.staff_management': 'कर्मचारी प्रबंधन',
+      'hr.action.performance': 'प्रदर्शन समीक्षा',
+      'hr.action.staff_directory': 'कर्मचारी निर्देशिका',
+      'hr.action.reports': 'रिपोर्ट और शिकायतें',
+      'hr.action.payslips': 'मेरी वेतन-पर्चियाँ',
+      'staff_mgmt.title': 'कर्मचारी प्रबंधन',
+      'staff_mgmt.add_staff': 'कर्मचारी जोड़ें',
+      'staff_mgmt.edit_staff': 'कर्मचारी संपादित करें',
+      'staff_mgmt.full_name': 'पूरा नाम',
+      'staff_mgmt.department': 'विभाग',
+      'staff_mgmt.active': 'सक्रिय',
+      'staff_mgmt.inactive': 'निष्क्रिय',
+      'staff_mgmt.no_staff_found': 'कोई कर्मचारी नहीं मिला',
+      'staff_mgmt.no_staff_members': 'कोई कर्मचारी नहीं',
+      // REVIEW: HR confirmation
+      'staff_mgmt.updated_success': '✅ कर्मचारी सफलतापूर्वक अपडेट किया गया',
+      'performance.title': 'प्रदर्शन समीक्षा',
+      'performance.tab.add': 'समीक्षा जोड़ें',
+      'performance.tab.reviews': 'समीक्षाएँ',
+      'performance.employee_id_label': 'कर्मचारी ID',
+      'performance.review_period_label': 'समीक्षा अवधि',
+      'performance.overall_rating': 'समग्र रेटिंग',
+      'performance.save_review': 'समीक्षा सहेजें',
+      // REVIEW: HR confirmation
+      'performance.saved_success': '✅ प्रदर्शन समीक्षा सहेजी गई',
+      'performance.no_reviews': 'अभी तक कोई समीक्षा नहीं',
+      'directory.title': 'कर्मचारी निर्देशिका',
+      'directory.empty': 'निर्देशिका खाली है',
+      // Reports
+      'reports.hub.title': 'रिपोर्ट और शिकायतें',
+      'reports.hub.prompt': 'आप क्या रिपोर्ट करना चाहेंगे?',
+      'reports.hub.incident_title': 'घटना रिपोर्ट',
+      'reports.hub.grievance_title': 'कर्मचारी शिकायत',
+      'reports.hub.my_reports': 'मेरी रिपोर्ट और स्थिति',
+      'my_reports.title': 'मेरी रिपोर्ट',
+      'my_reports.tab.incidents': 'घटनाएँ',
+      'my_reports.tab.grievances': 'शिकायतें',
+      'my_reports.empty_incidents': 'कोई घटना रिपोर्ट नहीं',
+      'my_reports.empty_grievances': 'कोई शिकायत दर्ज नहीं',
+      'incident_report.title': 'घटना रिपोर्ट',
+      // REVIEW: clinical / safety severity wording
+      'incident_report.severity.low': 'कम',
+      'incident_report.severity.moderate': 'मध्यम',
+      'incident_report.severity.severe': 'गंभीर',
+      'incident_report.severity.sentinel': 'सेंटिनल',
+      'incident_report.submit_button': 'घटना रिपोर्ट सबमिट करें',
+      // REVIEW: clinical / safety confirmation
+      'incident_report.submitted_title': 'रिपोर्ट सबमिट की गई',
+      'incident_report.done_button': 'पूरा',
+      'grievance.title': 'कर्मचारी शिकायत',
+      'grievance.submit_button': 'शिकायत सबमिट करें',
+      // REVIEW: HR confirmation
+      'grievance.submitted_title': 'शिकायत सबमिट की गई',
+      // Housekeeping
+      'housekeeping.hub.title': 'हाउसकीपिंग',
+      'housekeeping.hub.log_title': 'सफाई दर्ज करें',
+      'housekeeping.hub.raise_title': 'अनुरोध उठाएँ',
+      'housekeeping.hub.my_title': 'मेरी गतिविधि',
+      'housekeeping.log.title': 'सफाई दर्ज करें',
+      'housekeeping.type.routine': 'नियमित सफाई',
+      'housekeeping.type.deep': 'गहरी सफाई',
+      'housekeeping.type.disinfection': 'कीटाणुशोधन',
+      'housekeeping.submit_log': 'सफाई लॉग सबमिट करें',
+      // REVIEW: confirmation
+      'housekeeping.logged_title': 'सफाई दर्ज की गई',
+      'housekeeping.raise_request_button': 'अनुरोध उठाएँ',
+      // REVIEW: confirmation
+      'housekeeping.raised_title': 'अनुरोध उठाया गया',
+      'housekeeping.no_logs': 'अभी तक कोई सफाई लॉग नहीं',
+      'housekeeping.no_requests': 'यहाँ कोई अनुरोध नहीं',
+      'housekeeping.mark_complete': 'पूर्ण के रूप में चिह्नित करें',
+      // Hospital departments
+      'blood_bank.title': 'ब्लड बैंक',
+      'blood_bank.tab.inventory': 'इन्वेंटरी',
+      'blood_bank.tab.requests': 'अनुरोध',
+      'blood_bank.tab.donations': 'दान',
+      'blood_bank.units_suffix': 'यूनिट',
+      'blood_bank.request_header': 'रक्त अनुरोध',
+      'blood_bank.submit_request': 'अनुरोध सबमिट करें',
+      // REVIEW: clinical confirmation
+      'blood_bank.request_success': 'रक्त अनुरोध सफलतापूर्वक सबमिट किया गया',
+      'dietary.title': 'आहार प्रबंधन',
+      'dietary.new_order_button': 'नया आदेश',
+      'dietary.create_button': 'बनाएँ',
+      // REVIEW: clinical confirmation
+      'dietary.created_success': 'आहार आदेश बनाया गया',
+      'theatre.title': 'ऑपरेटिंग थिएटर',
+      'theatre.tab.schedule': 'अनुसूची',
+      'theatre.tab.availability': 'उपलब्धता',
+      'theatre.no_surgeries': 'कोई सर्जरी निर्धारित नहीं',
+      // REVIEW: clinical-action — surgery
+      'theatre.start_surgery': 'सर्जरी प्रारंभ करें',
+      'theatre.mark_complete': 'पूर्ण के रूप में चिह्नित करें',
+      'theatre.preop_checklist': 'प्री-ऑप चेकलिस्ट',
+      'radiology.title': 'रेडियोलॉजी',
+      'radiology.no_orders': 'कोई रेडियोलॉजी आदेश नहीं',
+      'radiology.submit_report': 'रिपोर्ट सबमिट करें',
+      'schedule.title': 'पाली अनुसूची',
+      'schedule.week_this': 'इस सप्ताह',
+      // Lab / Pharmacy / Investigations
+      'investigations.title': 'जाँचें',
+      'investigations.tab.upload': 'परिणाम अपलोड करें',
+      'investigations.tab.pending': 'लंबित',
+      'investigations.tab.recent': 'हाल का',
+      'investigations.upload_button': 'जाँच अपलोड करें',
+      // REVIEW: clinical confirmation
+      'investigations.upload_success': '✅ जाँच परिणाम सफलतापूर्वक अपलोड किया गया',
+      'lab_bookings.title': 'लैब बुकिंग',
+      'pharmacy.title': 'फार्मेसी आदेश',
+      'pharmacy.queue_title': 'फार्मेसी कतार',
+      'pharmacy.confirm_order': 'आदेश की पुष्टि करें',
+      'pharmacy.start_preparing': 'तैयारी शुरू करें',
+      'pharmacy.dispatch': 'भेजें',
+      'pharmacy.mark_delivered': 'पहुँचा हुआ चिह्नित करें',
+      // Nursing
+      'due_meds.title': 'देय दवाएँ',
+      'due_meds.empty_title': 'कोई दवा देय नहीं',
+      'mar_scan.title': 'दवा प्रशासित करें',
+      // REVIEW: clinical-action / safety wording for medication 5-rights
+      'mar_scan.right_patient': 'सही रोगी',
+      'mar_scan.right_drug': 'सही दवा',
+      'mar_scan.right_dose': 'सही खुराक',
+      'mar_scan.right_route': 'सही मार्ग',
+      'mar_scan.right_time': 'सही समय',
+      'mar_scan.administer': 'प्रशासित करें',
+      'mar_scan.recorded': 'प्रशासन रिकॉर्ड किया गया',
+      // Discharge Summary
+      'discharge.save_draft': 'ड्राफ्ट सहेजें',
+      'discharge.draft_saved': 'ड्राफ्ट सहेजा गया',
+      // REVIEW: clinical-action confirmation — discharge wording
+      'discharge.sign_summary': 'सारांश पर हस्ताक्षर करें',
+      'discharge.sign_button': 'हस्ताक्षर करें',
+      // REVIEW: clinical-action confirmation
+      'discharge.signed_success': 'डिस्चार्ज सारांश हस्ताक्षरित — अब आधिकारिक',
+      'discharge.proceed_button': 'डिस्चार्ज',
+      'discharge.patient_discharged': 'रोगी सफलतापूर्वक डिस्चार्ज किया गया',
+      'discharge.patient_button': 'रोगी डिस्चार्ज करें',
+      'discharge.generate_button': 'सारांश तैयार करें',
+      // Attendance dispute / overtime
+      'dispute.title': 'उपस्थिति विवाद',
+      'dispute.tab.submit': 'सबमिट करें',
+      'dispute.submit_button': 'विवाद सबमिट करें',
+      // REVIEW: HR confirmation
+      'dispute.submitted_success': '✅ विवाद सबमिट किया गया। HR 24 घंटे के भीतर समीक्षा करेगा।',
+      'overtime.title': 'ओवरटाइम अनुरोध',
+      'overtime.submit_button': 'ओवरटाइम अनुरोध सबमिट करें',
+      // REVIEW: HR confirmation
+      'overtime.submitted_success': '✅ ओवरटाइम अनुरोध सबमिट किया गया',
+      // Telemedicine
+      'telemedicine.mute': 'म्यूट',
+      'telemedicine.unmute': 'अनम्यूट',
+      'telemedicine.end_call': 'कॉल समाप्त',
+      // Clinical AI
+      'clinical_ai.queue.title': 'AI समीक्षा कतार',
+      'clinical_ai.queue.filter.pending': 'लंबित',
+      'clinical_ai.queue.filter.accepted': 'स्वीकृत',
+      'clinical_ai.queue.filter.edited': 'संपादित',
+      'clinical_ai.queue.filter.rejected': 'अस्वीकृत',
+      'clinical_ai.queue.filter.all': 'सभी',
+      // REVIEW: clinical-action wording
+      'clinical_ai.draft.accept': 'स्वीकार करें',
+      'clinical_ai.draft.reject_button': 'अस्वीकार करें',
+      'clinical_ai.draft.needs_revision': 'संशोधन आवश्यक',
+      // REVIEW: clinical/security wording — confirm with reviewing clinician
+      'clinical_ai.draft.screen_title': 'AI मसौदा समीक्षा',
+      'clinical_ai.draft.critical_title': 'गंभीर सुरक्षा फ्लैग',
+      'clinical_ai.draft.safety_header': 'सुरक्षा फ्लैग',
+      'clinical_ai.draft.body_header': 'मसौदा',
+      'clinical_ai.draft.edit_header': 'मसौदा संपादित करें (JSON)',
+      'clinical_ai.draft.edit_button': 'संपादित करें',
+      'clinical_ai.draft.cancel_edit_button': 'संपादन रद्द करें',
+      'clinical_ai.draft.failed_load': 'मसौदा लोड करने में विफल',
+      'clinical_ai.draft.patient_prefix': 'रोगी:',
+      'clinical_ai.draft.admission_prefix': 'भर्ती:',
+      'clinical_ai.draft.status_prefix': 'स्थिति:',
+      'clinical_ai.draft.provider_prefix': 'प्रदाता:',
     },
     // ── தமிழ் (Tamil) ─────────────────────────────────────────────────
     // First-pass machine translation. REVIEW required before production.
@@ -3893,6 +5656,158 @@ class AppStrings {
           'குறிப்பு வெற்றிகரமாக உருவாக்கப்பட்டது',
       'clinical_notes.create_failed_prefix':
           'குறிப்பை உருவாக்க முடியவில்லை:',
+      // Payroll
+      // REVIEW: financial / payroll wording
+      'payroll.payslip.title': 'என் சம்பளப் பட்டியல்கள்',
+      'payroll.payslip.banner_tax': 'வருடாந்திர வரி சுருக்கம் (படிவம் 16)',
+      'payroll.payslip.banner_declaration': 'வரி அறிவிப்பு (80C/80D)',
+      'payroll.payslip.banner_queries': 'சம்பளப் பட்டியல் கேள்விகள்',
+      'payroll.payslip.empty_title': 'சம்பளப் பட்டியல்கள் கிடைக்கவில்லை',
+      'payroll.payslip.net_pay': 'நிகர சம்பளம்',
+      'payroll.payslip.gross': 'மொத்தம்',
+      'payroll.payslip.deductions': 'கழிவுகள்',
+      'payroll.detail.title_prefix': 'சம்பளப் பட்டியல்',
+      'payroll.detail.gross_salary': 'மொத்த சம்பளம்',
+      'payroll.detail.total_deductions': 'மொத்த கழிவுகள்',
+      'payroll.query.title': 'சம்பளப் பட்டியல் கேள்விகள்',
+      'payroll.query.tab_my': 'என் கேள்விகள்',
+      'payroll.query.tab_raise': 'கேள்வி எழுப்பு',
+      'payroll.query.empty': 'இதுவரை கேள்விகள் எழுப்பப்படவில்லை',
+      'payroll.query.submit_button': 'கேள்வி சமர்ப்பி',
+      // REVIEW: financial confirmation
+      'payroll.query.submitted_success': 'கேள்வி வெற்றிகரமாக எழுப்பப்பட்டது!',
+      'payroll.tax_summary.title': 'வருடாந்திர வரி சுருக்கம்',
+      'payroll.declaration.title': 'வரி அறிவிப்பு (80C/80D)',
+      'payroll.declaration.submit_button': 'அறிவிப்பு சமர்ப்பி',
+      // REVIEW: financial confirmation
+      'payroll.declaration.submitted_success': 'அறிவிப்பு வெற்றிகரமாக சமர்ப்பிக்கப்பட்டது!',
+      // HR
+      'hr.dashboard.title': 'HR டாஷ்போர்டு',
+      'hr.section.attendance_overview': 'வருகை மேலோட்டம்',
+      'hr.section.leave_summary': 'விடுப்பு சுருக்கம்',
+      'hr.section.quick_actions': 'விரைவு செயல்கள்',
+      'hr.stat.total_staff': 'மொத்த ஊழியர்கள்',
+      'hr.stat.present_today': 'இன்று வந்தவர்கள்',
+      'hr.stat.on_leave': 'விடுப்பில்',
+      'hr.stat.pending_leaves': 'நிலுவையிலுள்ள விடுப்புகள்',
+      'hr.action.staff_management': 'ஊழியர் மேலாண்மை',
+      'hr.action.staff_directory': 'ஊழியர் பட்டியல்',
+      'hr.action.payslips': 'என் சம்பளப் பட்டியல்கள்',
+      'staff_mgmt.title': 'ஊழியர் மேலாண்மை',
+      'staff_mgmt.add_staff': 'ஊழியர் சேர்',
+      'staff_mgmt.no_staff_found': 'ஊழியர் காணப்படவில்லை',
+      // REVIEW: HR confirmation
+      'staff_mgmt.updated_success': '✅ ஊழியர் வெற்றிகரமாக புதுப்பிக்கப்பட்டார்',
+      'performance.title': 'செயல்திறன் மதிப்பீடுகள்',
+      'performance.save_review': 'மதிப்பீட்டை சேமி',
+      // REVIEW: HR confirmation
+      'performance.saved_success': '✅ செயல்திறன் மதிப்பீடு சேமிக்கப்பட்டது',
+      'directory.title': 'ஊழியர் பட்டியல்',
+      // Reports
+      'reports.hub.title': 'அறிக்கைகள் & குற்றச்சாட்டுகள்',
+      'reports.hub.incident_title': 'சம்பவ அறிக்கை',
+      'reports.hub.grievance_title': 'ஊழியர் குற்றச்சாட்டு',
+      'my_reports.title': 'என் அறிக்கைகள்',
+      'incident_report.title': 'சம்பவ அறிக்கை',
+      // REVIEW: clinical / safety severity wording
+      'incident_report.severity.low': 'குறைவு',
+      'incident_report.severity.moderate': 'மிதமான',
+      'incident_report.severity.severe': 'கடுமையான',
+      'incident_report.severity.sentinel': 'செண்டினல்',
+      'incident_report.submit_button': 'சம்பவ அறிக்கை சமர்ப்பி',
+      // REVIEW: clinical / safety confirmation
+      'incident_report.submitted_title': 'அறிக்கை சமர்ப்பிக்கப்பட்டது',
+      'grievance.title': 'ஊழியர் குற்றச்சாட்டு',
+      'grievance.submit_button': 'குற்றச்சாட்டு சமர்ப்பி',
+      // REVIEW: HR confirmation
+      'grievance.submitted_title': 'குற்றச்சாட்டு சமர்ப்பிக்கப்பட்டது',
+      // Housekeeping
+      'housekeeping.hub.title': 'வீட்டு பராமரிப்பு',
+      'housekeeping.log.title': 'சுத்தம் பதிவு',
+      'housekeeping.submit_log': 'சுத்தம் பதிவை சமர்ப்பி',
+      // REVIEW: confirmation
+      'housekeeping.logged_title': 'சுத்தம் பதிவு செய்யப்பட்டது',
+      'housekeeping.raise_request_button': 'கோரிக்கை எழுப்பு',
+      'housekeeping.raised_title': 'கோரிக்கை எழுப்பப்பட்டது',
+      'housekeeping.mark_complete': 'முடிக்கப்பட்டதாக குறி',
+      // Hospital departments
+      'blood_bank.title': 'இரத்த வங்கி',
+      'blood_bank.units_suffix': 'அலகுகள்',
+      'blood_bank.submit_request': 'கோரிக்கை சமர்ப்பி',
+      // REVIEW: clinical confirmation
+      'blood_bank.request_success': 'இரத்த கோரிக்கை வெற்றிகரமாக சமர்ப்பிக்கப்பட்டது',
+      'dietary.title': 'உணவு மேலாண்மை',
+      'dietary.create_button': 'உருவாக்கு',
+      // REVIEW: clinical confirmation
+      'dietary.created_success': 'உணவு கட்டளை உருவாக்கப்பட்டது',
+      'theatre.title': 'அறுவை சிகிச்சை அறை',
+      // REVIEW: clinical-action — surgery
+      'theatre.start_surgery': 'அறுவை சிகிச்சையை தொடங்கு',
+      'theatre.mark_complete': 'முடிக்கப்பட்டதாக குறி',
+      'theatre.preop_checklist': 'அறுவை சிகிச்சைக்கு முன் சரிபார்ப்பு பட்டியல்',
+      'radiology.title': 'கதிரியக்கவியல்',
+      'radiology.submit_report': 'அறிக்கை சமர்ப்பி',
+      'schedule.title': 'பணி அட்டவணை',
+      // Lab / Pharmacy
+      'investigations.title': 'புலனாய்வுகள்',
+      'investigations.upload_button': 'புலனாய்வு பதிவேற்று',
+      // REVIEW: clinical confirmation
+      'investigations.upload_success': '✅ புலனாய்வு முடிவு வெற்றிகரமாக பதிவேற்றப்பட்டது',
+      'lab_bookings.title': 'ஆய்வக முன்பதிவுகள்',
+      'pharmacy.title': 'மருந்தக கட்டளைகள்',
+      'pharmacy.confirm_order': 'கட்டளையை உறுதி செய்',
+      'pharmacy.dispatch': 'அனுப்பு',
+      'pharmacy.mark_delivered': 'வழங்கப்பட்டதாக குறி',
+      // Nursing
+      'due_meds.title': 'வரவேண்டிய மருந்துகள்',
+      'mar_scan.title': 'மருந்து வழங்கு',
+      // REVIEW: clinical-action / safety wording for medication 5-rights
+      'mar_scan.right_patient': 'சரியான நோயாளி',
+      'mar_scan.right_drug': 'சரியான மருந்து',
+      'mar_scan.right_dose': 'சரியான அளவு',
+      'mar_scan.right_route': 'சரியான வழி',
+      'mar_scan.right_time': 'சரியான நேரம்',
+      'mar_scan.administer': 'வழங்கு',
+      'mar_scan.recorded': 'வழங்கல் பதிவு செய்யப்பட்டது',
+      // Discharge
+      'discharge.save_draft': 'வரைவை சேமி',
+      // REVIEW: clinical-action confirmation — discharge wording
+      'discharge.sign_summary': 'சுருக்கத்தில் கையெழுத்திடு',
+      'discharge.sign_button': 'கையெழுத்திடு',
+      // REVIEW: clinical-action confirmation
+      'discharge.signed_success': 'டிஸ்சார்ஜ் சுருக்கம் கையெழுத்திடப்பட்டது — இப்போது அதிகாரப்பூர்வம்',
+      'discharge.proceed_button': 'டிஸ்சார்ஜ்',
+      'discharge.patient_discharged': 'நோயாளி வெற்றிகரமாக டிஸ்சார்ஜ் செய்யப்பட்டார்',
+      // Attendance / Overtime
+      'dispute.title': 'வருகை சர்ச்சை',
+      'dispute.submit_button': 'சர்ச்சை சமர்ப்பி',
+      // REVIEW: HR confirmation
+      'dispute.submitted_success': '✅ சர்ச்சை சமர்ப்பிக்கப்பட்டது. HR 24 மணி நேரத்திற்குள் மதிப்பாய்வு செய்யும்.',
+      'overtime.title': 'கூடுதல் நேர கோரிக்கைகள்',
+      'overtime.submit_button': 'கூடுதல் நேர கோரிக்கை சமர்ப்பி',
+      // REVIEW: HR confirmation
+      'overtime.submitted_success': '✅ கூடுதல் நேர கோரிக்கை சமர்ப்பிக்கப்பட்டது',
+      // Telemedicine
+      'telemedicine.end_call': 'அழைப்பை முடி',
+      // Clinical AI
+      'clinical_ai.queue.title': 'AI மதிப்பாய்வு வரிசை',
+      // REVIEW: clinical-action wording
+      'clinical_ai.draft.accept': 'ஏற்றுக்கொள்',
+      'clinical_ai.draft.reject_button': 'நிராகரி',
+      'clinical_ai.draft.needs_revision': 'திருத்தம் தேவை',
+      // REVIEW: clinical-action / security wording — Tamil-fluent clinician must verify
+      'clinical_ai.draft.screen_title': 'AI வரைவு மதிப்பாய்வு',
+      'clinical_ai.draft.critical_title': 'அவசர பாதுகாப்பு கொடிகள்',
+      'clinical_ai.draft.safety_header': 'பாதுகாப்பு கொடிகள்',
+      'clinical_ai.draft.body_header': 'வரைவு',
+      'clinical_ai.draft.edit_header': 'வரைவை திருத்தவும் (JSON)',
+      'clinical_ai.draft.edit_button': 'திருத்து',
+      'clinical_ai.draft.cancel_edit_button': 'திருத்தம் ரத்து செய்',
+      'clinical_ai.draft.failed_load': 'வரைவை ஏற்ற முடியவில்லை',
+      'clinical_ai.draft.patient_prefix': 'நோயாளி:',
+      'clinical_ai.draft.admission_prefix': 'அனுமதி:',
+      'clinical_ai.draft.status_prefix': 'நிலை:',
+      'clinical_ai.draft.provider_prefix': 'வழங்குநர்:',
     },
     // ── తెలుగు (Telugu) ──────────────────────────────────────────────
     // First-pass machine translation. REVIEW required before production.
@@ -4851,6 +6766,158 @@ class AppStrings {
           'నోట్ విజయవంతంగా సృష్టించబడింది',
       'clinical_notes.create_failed_prefix':
           'నోట్ సృష్టించడంలో విఫలమైంది:',
+      // Payroll
+      // REVIEW: financial / payroll wording
+      'payroll.payslip.title': 'నా జీతం స్లిప్‌లు',
+      'payroll.payslip.banner_tax': 'వార్షిక పన్ను సారాంశం (ఫారం 16)',
+      'payroll.payslip.banner_declaration': 'పన్ను ప్రకటన (80C/80D)',
+      'payroll.payslip.banner_queries': 'జీతం స్లిప్ ప్రశ్నలు',
+      'payroll.payslip.empty_title': 'జీతం స్లిప్‌లు అందుబాటులో లేవు',
+      'payroll.payslip.net_pay': 'నికర వేతనం',
+      'payroll.payslip.gross': 'మొత్తం',
+      'payroll.payslip.deductions': 'మినహాయింపులు',
+      'payroll.detail.title_prefix': 'జీతం స్లిప్',
+      'payroll.detail.gross_salary': 'స్థూల జీతం',
+      'payroll.detail.total_deductions': 'మొత్తం మినహాయింపులు',
+      'payroll.query.title': 'జీతం స్లిప్ ప్రశ్నలు',
+      'payroll.query.tab_my': 'నా ప్రశ్నలు',
+      'payroll.query.tab_raise': 'ప్రశ్న లేవనెత్తు',
+      'payroll.query.empty': 'ఇంకా ప్రశ్నలు లేవు',
+      'payroll.query.submit_button': 'ప్రశ్న సమర్పించు',
+      // REVIEW: financial confirmation
+      'payroll.query.submitted_success': 'ప్రశ్న విజయవంతంగా లేవనెత్తబడింది!',
+      'payroll.tax_summary.title': 'వార్షిక పన్ను సారాంశం',
+      'payroll.declaration.title': 'పన్ను ప్రకటన (80C/80D)',
+      'payroll.declaration.submit_button': 'ప్రకటన సమర్పించు',
+      // REVIEW: financial confirmation
+      'payroll.declaration.submitted_success': 'ప్రకటన విజయవంతంగా సమర్పించబడింది!',
+      // HR
+      'hr.dashboard.title': 'HR డాష్‌బోర్డ్',
+      'hr.section.attendance_overview': 'హాజరు అవలోకనం',
+      'hr.section.leave_summary': 'సెలవు సారాంశం',
+      'hr.section.quick_actions': 'శీఘ్ర చర్యలు',
+      'hr.stat.total_staff': 'మొత్తం సిబ్బంది',
+      'hr.stat.present_today': 'ఈరోజు హాజరు',
+      'hr.stat.on_leave': 'సెలవులో',
+      'hr.stat.pending_leaves': 'పెండింగ్ సెలవులు',
+      'hr.action.staff_management': 'సిబ్బంది నిర్వహణ',
+      'hr.action.staff_directory': 'సిబ్బంది డైరెక్టరీ',
+      'hr.action.payslips': 'నా జీతం స్లిప్‌లు',
+      'staff_mgmt.title': 'సిబ్బంది నిర్వహణ',
+      'staff_mgmt.add_staff': 'సిబ్బందిని జోడించు',
+      'staff_mgmt.no_staff_found': 'సిబ్బంది కనుగొనబడలేదు',
+      // REVIEW: HR confirmation
+      'staff_mgmt.updated_success': '✅ సిబ్బంది విజయవంతంగా నవీకరించబడింది',
+      'performance.title': 'పనితీరు సమీక్షలు',
+      'performance.save_review': 'సమీక్షను సేవ్ చేయి',
+      // REVIEW: HR confirmation
+      'performance.saved_success': '✅ పనితీరు సమీక్ష సేవ్ చేయబడింది',
+      'directory.title': 'సిబ్బంది డైరెక్టరీ',
+      // Reports
+      'reports.hub.title': 'నివేదికలు & ఫిర్యాదులు',
+      'reports.hub.incident_title': 'సంఘటన నివేదిక',
+      'reports.hub.grievance_title': 'సిబ్బంది ఫిర్యాదు',
+      'my_reports.title': 'నా నివేదికలు',
+      'incident_report.title': 'సంఘటన నివేదిక',
+      // REVIEW: clinical / safety severity wording
+      'incident_report.severity.low': 'తక్కువ',
+      'incident_report.severity.moderate': 'మధ్యస్థ',
+      'incident_report.severity.severe': 'తీవ్రమైన',
+      'incident_report.severity.sentinel': 'సెంటినెల్',
+      'incident_report.submit_button': 'సంఘటన నివేదిక సమర్పించు',
+      // REVIEW: clinical / safety confirmation
+      'incident_report.submitted_title': 'నివేదిక సమర్పించబడింది',
+      'grievance.title': 'సిబ్బంది ఫిర్యాదు',
+      'grievance.submit_button': 'ఫిర్యాదు సమర్పించు',
+      // REVIEW: HR confirmation
+      'grievance.submitted_title': 'ఫిర్యాదు సమర్పించబడింది',
+      // Housekeeping
+      'housekeeping.hub.title': 'హౌస్‌కీపింగ్',
+      'housekeeping.log.title': 'శుభ్రపరచడం లాగ్',
+      'housekeeping.submit_log': 'శుభ్రపరచడం లాగ్ సమర్పించు',
+      // REVIEW: confirmation
+      'housekeeping.logged_title': 'శుభ్రపరచడం లాగ్ చేయబడింది',
+      'housekeeping.raise_request_button': 'అభ్యర్థన లేవనెత్తు',
+      'housekeeping.raised_title': 'అభ్యర్థన లేవనెత్తబడింది',
+      'housekeeping.mark_complete': 'పూర్తయినట్లు గుర్తించు',
+      // Hospital departments
+      'blood_bank.title': 'రక్త నిధి',
+      'blood_bank.units_suffix': 'యూనిట్‌లు',
+      'blood_bank.submit_request': 'అభ్యర్థన సమర్పించు',
+      // REVIEW: clinical confirmation
+      'blood_bank.request_success': 'రక్త అభ్యర్థన విజయవంతంగా సమర్పించబడింది',
+      'dietary.title': 'ఆహార నిర్వహణ',
+      'dietary.create_button': 'సృష్టించు',
+      // REVIEW: clinical confirmation
+      'dietary.created_success': 'ఆహార ఆర్డర్ సృష్టించబడింది',
+      'theatre.title': 'ఆపరేటింగ్ థియేటర్',
+      // REVIEW: clinical-action — surgery
+      'theatre.start_surgery': 'శస్త్రచికిత్స ప్రారంభించు',
+      'theatre.mark_complete': 'పూర్తయినట్లు గుర్తించు',
+      'theatre.preop_checklist': 'శస్త్రచికిత్స ముందు చెక్‌లిస్ట్',
+      'radiology.title': 'రేడియాలజీ',
+      'radiology.submit_report': 'నివేదిక సమర్పించు',
+      'schedule.title': 'షిఫ్ట్ షెడ్యూల్',
+      // Lab / Pharmacy
+      'investigations.title': 'పరిశోధనలు',
+      'investigations.upload_button': 'పరిశోధన అప్‌లోడ్',
+      // REVIEW: clinical confirmation
+      'investigations.upload_success': '✅ పరిశోధన ఫలితం విజయవంతంగా అప్‌లోడ్ చేయబడింది',
+      'lab_bookings.title': 'ల్యాబ్ బుకింగ్‌లు',
+      'pharmacy.title': 'ఫార్మసీ ఆర్డర్‌లు',
+      'pharmacy.confirm_order': 'ఆర్డర్ నిర్ధారించు',
+      'pharmacy.dispatch': 'పంపు',
+      'pharmacy.mark_delivered': 'డెలివర్ అయినట్లు గుర్తించు',
+      // Nursing
+      'due_meds.title': 'వచ్చే మందులు',
+      'mar_scan.title': 'మందు వేయి',
+      // REVIEW: clinical-action / safety wording for medication 5-rights
+      'mar_scan.right_patient': 'సరైన రోగి',
+      'mar_scan.right_drug': 'సరైన మందు',
+      'mar_scan.right_dose': 'సరైన మోతాదు',
+      'mar_scan.right_route': 'సరైన మార్గం',
+      'mar_scan.right_time': 'సరైన సమయం',
+      'mar_scan.administer': 'వేయి',
+      'mar_scan.recorded': 'వేయడం రికార్డ్ చేయబడింది',
+      // Discharge
+      'discharge.save_draft': 'డ్రాఫ్ట్ సేవ్',
+      // REVIEW: clinical-action confirmation — discharge wording
+      'discharge.sign_summary': 'సారాంశంపై సంతకం చేయి',
+      'discharge.sign_button': 'సంతకం',
+      // REVIEW: clinical-action confirmation
+      'discharge.signed_success': 'డిశ్చార్జ్ సారాంశం సంతకం చేయబడింది — ఇప్పుడు అధికారికం',
+      'discharge.proceed_button': 'డిశ్చార్జ్',
+      'discharge.patient_discharged': 'రోగి విజయవంతంగా డిశ్చార్జ్ చేయబడ్డారు',
+      // Attendance / Overtime
+      'dispute.title': 'హాజరు వివాదం',
+      'dispute.submit_button': 'వివాదం సమర్పించు',
+      // REVIEW: HR confirmation
+      'dispute.submitted_success': '✅ వివాదం సమర్పించబడింది. HR 24 గంటల్లో సమీక్షిస్తుంది.',
+      'overtime.title': 'ఓవర్‌టైమ్ అభ్యర్థనలు',
+      'overtime.submit_button': 'ఓవర్‌టైమ్ అభ్యర్థన సమర్పించు',
+      // REVIEW: HR confirmation
+      'overtime.submitted_success': '✅ ఓవర్‌టైమ్ అభ్యర్థన సమర్పించబడింది',
+      // Telemedicine
+      'telemedicine.end_call': 'కాల్ ముగించు',
+      // Clinical AI
+      'clinical_ai.queue.title': 'AI సమీక్ష క్యూ',
+      // REVIEW: clinical-action wording
+      'clinical_ai.draft.accept': 'అంగీకరించు',
+      'clinical_ai.draft.reject_button': 'తిరస్కరించు',
+      'clinical_ai.draft.needs_revision': 'పునర్విమర్శ అవసరం',
+      // REVIEW: clinical-action / security wording — Telugu-fluent clinician must verify
+      'clinical_ai.draft.screen_title': 'AI ముసాయిదా సమీక్ష',
+      'clinical_ai.draft.critical_title': 'క్లిష్ట భద్రత ఫ్లాగ్‌లు',
+      'clinical_ai.draft.safety_header': 'భద్రత ఫ్లాగ్‌లు',
+      'clinical_ai.draft.body_header': 'ముసాయిదా',
+      'clinical_ai.draft.edit_header': 'ముసాయిదాను సవరించండి (JSON)',
+      'clinical_ai.draft.edit_button': 'సవరించు',
+      'clinical_ai.draft.cancel_edit_button': 'సవరణ రద్దు',
+      'clinical_ai.draft.failed_load': 'ముసాయిదాను లోడ్ చేయడంలో విఫలమైంది',
+      'clinical_ai.draft.patient_prefix': 'రోగి:',
+      'clinical_ai.draft.admission_prefix': 'ప్రవేశం:',
+      'clinical_ai.draft.status_prefix': 'స్థితి:',
+      'clinical_ai.draft.provider_prefix': 'ప్రదాత:',
     },
   };
 }

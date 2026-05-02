@@ -4,6 +4,7 @@ import '../../../core/config/api_config.dart';
 import '../../../core/services/attendance_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({super.key});
@@ -152,9 +153,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Shift Schedule'),
+        title: Text(s.scheduleTitle),
         actions: const [LogoutAction()],
       ),
       body: RefreshIndicator(

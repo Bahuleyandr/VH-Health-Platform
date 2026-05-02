@@ -7,6 +7,7 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
+import '../../../l10n/app_strings.dart';
 
 /// Nurse-facing "due meds" list. Calls `GET /clinical/mar/due` and renders
 /// one row per scheduled/held dose in a ±window around now. Tapping a row
@@ -65,15 +66,16 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Due Medications',
+      title: s.dueMedsTitle,
       body: Column(
         children: [
           Padding(
             padding: const EdgeInsets.all(16),
             child: TextField(
               decoration: InputDecoration(
-                hintText: 'Search by patient or medication…',
+                hintText: s.dueMedsSearchHint,
                 prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -100,6 +102,7 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
       return _errorView(_error!);
     }
     final rows = _filtered;
+    final s = AppStrings.of(context);
     if (rows.isEmpty) {
       if (_searchQuery.trim().isNotEmpty) {
         return ListView(
@@ -108,7 +111,7 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
             const SizedBox(height: 120),
             Center(
               child: Text(
-                'No matches for "$_searchQuery"',
+                s.noMatchesFor(_searchQuery),
                 style: const TextStyle(color: Colors.black54),
               ),
             ),
@@ -117,12 +120,12 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
       }
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        children: const [
-          SizedBox(height: 80),
+        children: [
+          const SizedBox(height: 80),
           EmptyState(
             icon: Icons.medication_outlined,
-            title: 'No medications due',
-            body: 'Tap a bed on the bed board to record vitals.',
+            title: s.dueMedsEmptyTitle,
+            body: s.dueMedsEmptyBody,
           ),
         ],
       );

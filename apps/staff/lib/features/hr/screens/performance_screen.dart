@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 /// Performance Reviews screen — HR/Admin manages staff performance records.
 /// TODO: Integrate with backend when /staff/hr/performance endpoint is available.
@@ -30,8 +31,9 @@ class _PerformanceScreenState extends State<PerformanceScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Performance Reviews',
+      title: s.performanceTitle,
       body: Column(
         children: [
           Container(
@@ -41,9 +43,9 @@ class _PerformanceScreenState extends State<PerformanceScreen>
               labelColor: const Color(0xFFF57F17),
               unselectedLabelColor: AppTheme.textSecondary,
               indicatorColor: const Color(0xFFF57F17),
-              tabs: const [
-                Tab(text: 'Add Review'),
-                Tab(text: 'Reviews'),
+              tabs: [
+                Tab(text: s.performanceTabAdd),
+                Tab(text: s.performanceTabReviews),
               ],
             ),
           ),
@@ -110,9 +112,10 @@ class _AddReviewTabState extends State<_AddReviewTab> {
             : null,
       );
       if (mounted) {
+        final s = AppStrings.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Performance review saved'),
+          SnackBar(
+            content: Text(s.performanceSavedSuccess),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -135,6 +138,7 @@ class _AddReviewTabState extends State<_AddReviewTab> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -148,13 +152,13 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                 // Employee ID
                 TextFormField(
                   controller: _employeeIdCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Employee ID',
-                    hintText: 'e.g. EMP-001',
-                    prefixIcon: ExcludeSemantics(child: Icon(Icons.badge_outlined)),
+                  decoration: InputDecoration(
+                    labelText: s.performanceEmployeeIdLabel,
+                    hintText: s.performanceEmployeeIdHint,
+                    prefixIcon: const ExcludeSemantics(child: Icon(Icons.badge_outlined)),
                   ),
                   validator: (v) => (v == null || v.trim().isEmpty)
-                      ? 'Employee ID is required'
+                      ? s.performanceEmployeeIdRequired
                       : null,
                 ),
                 const SizedBox(height: 14),
@@ -162,9 +166,9 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                 // Review period
                 DropdownButtonFormField<String>(
                   initialValue: _reviewPeriod,
-                  decoration: const InputDecoration(
-                    labelText: 'Review Period',
-                    prefixIcon: ExcludeSemantics(child: Icon(Icons.date_range_outlined)),
+                  decoration: InputDecoration(
+                    labelText: s.performanceReviewPeriodLabel,
+                    prefixIcon: const ExcludeSemantics(child: Icon(Icons.date_range_outlined)),
                   ),
                   items: _periods
                       .map((p) => DropdownMenuItem(value: p, child: Text(p)))
@@ -175,7 +179,7 @@ class _AddReviewTabState extends State<_AddReviewTab> {
 
                 // Overall rating
                 Text(
-                  'Overall Rating',
+                  s.performanceOverallRating,
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
@@ -231,16 +235,15 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                 // Comments
                 TextFormField(
                   controller: _commentsCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Performance Comments',
-                    hintText:
-                        'Describe performance, achievements, areas of improvement...',
-                    prefixIcon: ExcludeSemantics(child: Icon(Icons.comment_outlined)),
+                  decoration: InputDecoration(
+                    labelText: s.performanceCommentsLabel,
+                    hintText: s.performanceCommentsHint,
+                    prefixIcon: const ExcludeSemantics(child: Icon(Icons.comment_outlined)),
                     alignLabelWithHint: true,
                   ),
                   maxLines: 4,
                   validator: (v) => (v == null || v.trim().isEmpty)
-                      ? 'Comments are required'
+                      ? s.performanceCommentsRequired
                       : null,
                 ),
                 const SizedBox(height: 14),
@@ -248,10 +251,10 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                 // Goals
                 TextFormField(
                   controller: _goalsCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Goals for Next Period (optional)',
-                    hintText: 'Set goals and expectations...',
-                    prefixIcon: ExcludeSemantics(child: Icon(Icons.flag_outlined)),
+                  decoration: InputDecoration(
+                    labelText: s.performanceGoalsLabel,
+                    hintText: s.performanceGoalsHint,
+                    prefixIcon: const ExcludeSemantics(child: Icon(Icons.flag_outlined)),
                     alignLabelWithHint: true,
                   ),
                   maxLines: 3,
@@ -270,7 +273,7 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                           ),
                         )
                       : const Icon(Icons.save, color: Colors.white),
-                  label: Text(_submitting ? 'Saving...' : 'Save Review'),
+                  label: Text(_submitting ? s.performanceSavingButton : s.performanceSaveReview),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFF57F17),
                   ),
@@ -290,15 +293,16 @@ class _RatingLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final label = switch (rating) {
-      >= 4.5 => 'Exceptional',
-      >= 3.5 => 'Exceeds Expectations',
-      >= 2.5 => 'Meets Expectations',
-      >= 1.5 => 'Needs Improvement',
-      _ => 'Unsatisfactory',
+      >= 4.5 => s.performanceRatingExceptional,
+      >= 3.5 => s.performanceRatingExceeds,
+      >= 2.5 => s.performanceRatingMeets,
+      >= 1.5 => s.performanceRatingNeedsImprovement,
+      _ => s.performanceRatingUnsatisfactory,
     };
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Text(
         label,
         style: TextStyle(
@@ -350,19 +354,20 @@ class _ReviewListTabState extends State<_ReviewListTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return Center(child: CircularProgressIndicator());
+    final s = AppStrings.of(context);
+    if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
+            Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
             const SizedBox(height: 8),
             Text(
               _error!,
               style: TextStyle(color: AppTheme.textSecondary),
             ),
-            TextButton(onPressed: _load, child: const Text('Retry')),
+            TextButton(onPressed: _load, child: Text(s.actionRetry)),
           ],
         ),
       );
@@ -377,9 +382,9 @@ class _ReviewListTabState extends State<_ReviewListTab> {
               size: 56,
               color: AppTheme.textSecondary,
             ),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             Text(
-              'No reviews yet',
+              s.performanceNoReviews,
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,

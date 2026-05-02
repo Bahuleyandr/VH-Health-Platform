@@ -3,6 +3,7 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class RaiseRequestScreen extends StatefulWidget {
   const RaiseRequestScreen({super.key});
@@ -24,20 +25,20 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
   bool _submitted = false;
   String? _requestNumber;
 
-  static const _requestTypes = {
-    'cleaning': 'General Cleaning',
-    'spillage': 'Spillage / Spill',
-    'waste': 'Waste Disposal',
-    'linen': 'Linen / Bedding',
-    'disinfection': 'Disinfection',
-    'other': 'Other',
+  Map<String, String> _requestTypesFor(AppStrings s) => {
+    'cleaning': s.housekeepingRequestTypeCleaning,
+    'spillage': s.housekeepingRequestTypeSpillage,
+    'waste': s.housekeepingRequestTypeWaste,
+    'linen': s.housekeepingRequestTypeLinen,
+    'disinfection': s.housekeepingRequestTypeDisinfection,
+    'other': s.housekeepingRequestTypeOther,
   };
 
-  static const _urgencyConfig = {
-    'low': (label: 'Low', color: Color(0xFF4CAF50)),
-    'normal': (label: 'Normal', color: Color(0xFF607D8B)),
-    'high': (label: 'High', color: Color(0xFFF57C00)),
-    'urgent': (label: 'Urgent', color: Color(0xFFD32F2F)),
+  Map<String, ({String label, Color color})> _urgencyConfigFor(AppStrings s) => {
+    'low': (label: s.urgencyLow, color: const Color(0xFF4CAF50)),
+    'normal': (label: s.urgencyNormal, color: const Color(0xFF607D8B)),
+    'high': (label: s.urgencyHigh, color: const Color(0xFFF57C00)),
+    'urgent': (label: s.priorityUrgent, color: const Color(0xFFD32F2F)),
   };
 
   @override
@@ -75,11 +76,12 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
   }
 
   Future<void> _submit() async {
+    final s = AppStrings.of(context);
     final location = _locationCtrl.text.trim();
     if (_selectedZoneId == null && location.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Select a zone or enter location'),
+        SnackBar(
+          content: Text(s.housekeepingSelectZoneError),
           backgroundColor: Colors.red,
         ),
       );
@@ -126,6 +128,7 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (_submitted) {
       return Scaffold(
         backgroundColor: const Color(0xFFE0F5F6),
@@ -145,9 +148,9 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
                   child: const Icon(Icons.check, color: Colors.white, size: 44),
                 ),
                 const SizedBox(height: 20),
-                const Text(
-                  'Request Raised',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                Text(
+                  s.housekeepingRaisedTitle,
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 ),
                 if (_requestNumber != null) ...[
                   const SizedBox(height: 8),
@@ -163,7 +166,7 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
                 ],
                 const SizedBox(height: 12),
                 Text(
-                  'Housekeeping staff will be notified.',
+                  s.housekeepingNotifiedNote,
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey.shade600),
                 ),
@@ -177,9 +180,9 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  child: const Text(
-                    'Done',
-                    style: TextStyle(
+                  child: Text(
+                    s.housekeepingDoneButton,
+                    style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
                     ),
@@ -194,7 +197,7 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Raise Request'),
+        title: Text(s.housekeepingRaiseTitle),
         actions: const [LogoutAction()],
         backgroundColor: Colors.orange,
         foregroundColor: Colors.white,
@@ -205,15 +208,15 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Request type
-            const Text(
-              'Request Type *',
-              style: TextStyle(fontWeight: FontWeight.w600),
+            Text(
+              s.housekeepingRaiseTypeLabel,
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               initialValue: _requestType,
               decoration: const InputDecoration(border: OutlineInputBorder()),
-              items: _requestTypes.entries
+              items: _requestTypesFor(s).entries
                   .map(
                     (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
                   )
@@ -223,13 +226,13 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
             const SizedBox(height: 16),
 
             // Urgency
-            const Text(
-              'Urgency *',
-              style: TextStyle(fontWeight: FontWeight.w600),
+            Text(
+              s.housekeepingRaiseUrgencyLabel,
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             Row(
-              children: _urgencyConfig.entries.map((e) {
+              children: _urgencyConfigFor(s).entries.map((e) {
                 final selected = _urgency == e.key;
                 return Expanded(
                   child: GestureDetector(
@@ -261,9 +264,9 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
             const SizedBox(height: 16),
 
             // Zone / Location
-            const Text(
-              'Zone / Location *',
-              style: TextStyle(fontWeight: FontWeight.w600),
+            Text(
+              s.housekeepingZoneLocationLabel,
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             if (_loading)
@@ -271,14 +274,14 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
             else ...[
               DropdownButtonFormField<int?>(
                 initialValue: _selectedZoneId,
-                decoration: const InputDecoration(
-                  labelText: 'Select Zone (optional)',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: s.housekeepingSelectZoneLabel,
+                  border: const OutlineInputBorder(),
                 ),
                 items: [
-                  const DropdownMenuItem<int?>(
+                  DropdownMenuItem<int?>(
                     value: null,
-                    child: Text('-- Select or type below --'),
+                    child: Text(s.housekeepingSelectZoneOrType),
                   ),
                   ..._zones.map((z) {
                     final zone = z as Map<String, dynamic>;
@@ -293,10 +296,10 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
               const SizedBox(height: 8),
               TextField(
                 controller: _locationCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Or describe exact location *',
-                  hintText: 'e.g. Room 204, near door',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: s.housekeepingDescribeLocation,
+                  hintText: s.housekeepingLocationHint,
+                  border: const OutlineInputBorder(),
                 ),
               ),
             ],
@@ -305,19 +308,19 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
             // Description
             TextField(
               controller: _descCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Description (optional)',
-                hintText: 'What needs attention?',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: s.housekeepingDescriptionLabel,
+                hintText: s.housekeepingDescriptionHint,
+                border: const OutlineInputBorder(),
               ),
               maxLines: 3,
             ),
             const SizedBox(height: 16),
 
             // Photo of problem
-            const Text(
-              'Photo of Problem (optional)',
-              style: TextStyle(fontWeight: FontWeight.w600),
+            Text(
+              s.housekeepingProblemPhoto,
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             InkWell(
@@ -376,7 +379,7 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            'Tap to photograph the problem',
+                            s.housekeepingPhotographProblem,
                             style: TextStyle(
                               color: Colors.grey.shade600,
                               fontSize: 13,
@@ -410,7 +413,7 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
                       )
                     : const Icon(Icons.send_outlined, color: Colors.white),
                 label: Text(
-                  _submitting ? 'Raising...' : 'Raise Request',
+                  _submitting ? s.housekeepingRaisingButton : s.housekeepingRaiseRequestButton,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,

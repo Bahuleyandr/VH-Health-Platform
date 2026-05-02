@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 /// Telemedicine video consultation screen.
 ///
@@ -33,9 +34,10 @@ class _TelemedicineScreenState extends State<TelemedicineScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Text('Video Call — ${widget.patientName}'),
+        title: Text('${s.telemedicineTitlePrefix} ${widget.patientName}'),
         actions: const [LogoutAction()],
         backgroundColor: theme.colorScheme.primary,
         foregroundColor: theme.colorScheme.onPrimary,
@@ -58,14 +60,14 @@ class _TelemedicineScreenState extends State<TelemedicineScreen> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'Video SDK not yet integrated',
+                      s.telemedicineSdkMissingTitle,
                       style: theme.textTheme.titleMedium?.copyWith(
                         color: Colors.grey.shade400,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Add agora_rtc_engine or flutter_webrtc to enable.',
+                      s.telemedicineSdkMissingBody,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: Colors.grey.shade500,
                       ),
@@ -98,17 +100,17 @@ class _TelemedicineScreenState extends State<TelemedicineScreen> {
               children: [
                 _ControlButton(
                   icon: _micOn ? Icons.mic : Icons.mic_off,
-                  label: _micOn ? 'Mute' : 'Unmute',
+                  label: _micOn ? s.telemedicineMute : s.telemedicineUnmute,
                   onTap: () => setState(() => _micOn = !_micOn),
                 ),
                 _ControlButton(
                   icon: _cameraOn ? Icons.videocam : Icons.videocam_off,
-                  label: _cameraOn ? 'Camera Off' : 'Camera On',
+                  label: _cameraOn ? s.telemedicineCameraOff : s.telemedicineCameraOn,
                   onTap: () => setState(() => _cameraOn = !_cameraOn),
                 ),
                 _ControlButton(
                   icon: Icons.call_end,
-                  label: 'End Call',
+                  label: s.telemedicineEndCall,
                   color: Colors.red,
                   onTap: () => Navigator.of(context).pop(),
                 ),

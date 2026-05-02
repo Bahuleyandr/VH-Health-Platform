@@ -18,6 +18,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 class ClinicalAiDraftDetailScreen extends StatefulWidget {
   const ClinicalAiDraftDetailScreen({
@@ -113,14 +114,16 @@ class _ClinicalAiDraftDetailScreenState extends State<ClinicalAiDraftDetailScree
         rejectionReason: rejectionReason,
       );
       if (!mounted) return;
+      final s = AppStrings.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Draft $decision')),
+        SnackBar(content: Text(s.clinicalAiDraftDecidedToast(decision))),
       );
       Navigator.of(context).pop();
     } catch (err) {
       if (!mounted) return;
+      final s = AppStrings.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to record decision: $err')),
+        SnackBar(content: Text(s.clinicalAiDraftDecisionFailed(err.toString()))),
       );
       setState(() => _submitting = false);
     }
@@ -139,19 +142,21 @@ class _ClinicalAiDraftDetailScreenState extends State<ClinicalAiDraftDetailScree
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'AI Draft Review',
+      title: s.clinicalAiDraftScreenTitle,
       body: _buildBody(),
     );
   }
 
   Widget _buildBody() {
+    final s = AppStrings.of(context);
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
       return _ErrorState(message: _error!, onRetry: _load);
     }
     if (_review == null) {
-      return const Center(child: Text('Review not found.'));
+      return Center(child: Text(s.clinicalAiDraftReviewNotFound));
     }
 
     final review = _review!;
@@ -189,7 +194,7 @@ class _ClinicalAiDraftDetailScreenState extends State<ClinicalAiDraftDetailScree
             final edited = _parseEdits();
             if (edited == null) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Edited draft is not valid JSON.')),
+                SnackBar(content: Text(s.clinicalAiDraftInvalidJson)),
               );
               return;
             }
@@ -208,17 +213,18 @@ class _ClinicalAiDraftDetailScreenState extends State<ClinicalAiDraftDetailScree
   }
 
   Future<String?> _askRejectionReason() async {
+    final s = AppStrings.of(context);
     _rejectionController.clear();
     return showDialog<String>(
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: const Text('Reject draft'),
+          title: Text(s.clinicalAiDraftRejectTitle),
           content: TextField(
             controller: _rejectionController,
-            decoration: const InputDecoration(
-              labelText: 'Reason',
-              hintText: 'Why is this draft unsuitable?',
+            decoration: InputDecoration(
+              labelText: s.clinicalAiDraftRejectReasonLabel,
+              hintText: s.clinicalAiDraftRejectReasonHint,
             ),
             maxLines: 4,
             autofocus: true,
@@ -226,7 +232,7 @@ class _ClinicalAiDraftDetailScreenState extends State<ClinicalAiDraftDetailScree
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancel'),
+              child: Text(s.actionCancel),
             ),
             FilledButton(
               onPressed: () {
@@ -234,7 +240,7 @@ class _ClinicalAiDraftDetailScreenState extends State<ClinicalAiDraftDetailScree
                 if (text.isEmpty) return;
                 Navigator.of(ctx).pop(text);
               },
-              child: const Text('Reject'),
+              child: Text(s.clinicalAiDraftRejectButton),
             ),
           ],
         );
@@ -249,6 +255,7 @@ class _CriticalFlagBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(12),
@@ -265,7 +272,7 @@ class _CriticalFlagBanner extends StatelessWidget {
               const Icon(Icons.warning, color: Colors.red),
               const SizedBox(width: 8),
               Text(
-                'Critical safety flags',
+                s.clinicalAiDraftCriticalTitle,
                 style: TextStyle(
                   color: Colors.red.shade900,
                   fontWeight: FontWeight.bold,
@@ -292,6 +299,7 @@ class _ReviewHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -303,11 +311,11 @@ class _ReviewHeader extends StatelessWidget {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 4),
-            Text('Patient: ${review['patient_name'] ?? '—'}'),
-            if (review['admission_id'] != null) Text('Admission: #${review['admission_id']}'),
-            Text('Status: ${review['decision'] ?? 'pending'}'),
+            Text('${s.clinicalAiDraftPatientPrefix} ${review['patient_name'] ?? '—'}'),
+            if (review['admission_id'] != null) Text('${s.clinicalAiDraftAdmissionPrefix} #${review['admission_id']}'),
+            Text('${s.clinicalAiDraftStatusPrefix} ${review['decision'] ?? 'pending'}'),
             if (review['provider'] != null)
-              Text('Provider: ${review['provider']} · ${review['model'] ?? '—'}'),
+              Text('${s.clinicalAiDraftProviderPrefix} ${review['provider']} · ${review['model'] ?? '—'}'),
           ],
         ),
       ),
@@ -321,15 +329,16 @@ class _SafetyFlagsList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (flags.isEmpty) {
-      return const Card(
+      return Card(
         child: Padding(
-          padding: EdgeInsets.all(12),
+          padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              Icon(Icons.check_circle, color: Colors.green),
-              SizedBox(width: 8),
-              Text('No safety flags raised.'),
+              const Icon(Icons.check_circle, color: Colors.green),
+              const SizedBox(width: 8),
+              Text(s.clinicalAiDraftNoSafetyFlags),
             ],
           ),
         ),
@@ -341,7 +350,7 @@ class _SafetyFlagsList extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Safety flags', style: Theme.of(context).textTheme.titleMedium),
+            Text(s.clinicalAiDraftSafetyHeader, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             ...flags.whereType<Map>().map((f) {
               final severity = f['severity']?.toString().toLowerCase() ?? 'low';
@@ -406,6 +415,7 @@ class _DraftBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final draft = review['draft'] ?? review['edited_draft'];
     final pretty = draft is Map ? const JsonEncoder.withIndent('  ').convert(draft) : '—';
     return Card(
@@ -415,7 +425,7 @@ class _DraftBody extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              editMode ? 'Edit draft (JSON)' : 'Draft',
+              editMode ? s.clinicalAiDraftEditHeader : s.clinicalAiDraftBodyHeader,
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
@@ -461,6 +471,7 @@ class _DecisionButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -468,29 +479,29 @@ class _DecisionButtons extends StatelessWidget {
         FilledButton.icon(
           onPressed: submitting || editMode ? null : onAccept,
           icon: const Icon(Icons.check),
-          label: const Text('Accept'),
+          label: Text(s.clinicalAiDraftAccept),
           style: FilledButton.styleFrom(backgroundColor: Colors.green),
         ),
         FilledButton.icon(
           onPressed: submitting || !editMode ? null : onAcceptEdited,
           icon: const Icon(Icons.check_circle_outline),
-          label: const Text('Accept edits'),
+          label: Text(s.clinicalAiDraftAcceptEdits),
           style: FilledButton.styleFrom(backgroundColor: Colors.blue),
         ),
         OutlinedButton.icon(
           onPressed: submitting ? null : onToggleEdit,
           icon: const Icon(Icons.edit),
-          label: Text(editMode ? 'Cancel edit' : 'Edit'),
+          label: Text(editMode ? s.clinicalAiDraftCancelEditButton : s.clinicalAiDraftEditButton),
         ),
         OutlinedButton.icon(
           onPressed: submitting ? null : onNeedsRevision,
           icon: const Icon(Icons.refresh),
-          label: const Text('Needs revision'),
+          label: Text(s.clinicalAiDraftNeedsRevision),
         ),
         OutlinedButton.icon(
           onPressed: submitting ? null : onReject,
           icon: const Icon(Icons.close),
-          label: const Text('Reject'),
+          label: Text(s.clinicalAiDraftRejectButton),
           style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
         ),
       ],
@@ -505,6 +516,7 @@ class _ErrorState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -513,14 +525,14 @@ class _ErrorState extends StatelessWidget {
           children: [
             const Icon(Icons.error_outline, size: 48, color: Colors.red),
             const SizedBox(height: 12),
-            Text('Failed to load draft', style: Theme.of(context).textTheme.titleMedium),
+            Text(s.clinicalAiDraftFailedLoad, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 6),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
+              label: Text(s.actionRetry),
             ),
           ],
         ),

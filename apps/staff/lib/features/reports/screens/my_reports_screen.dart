@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class MyReportsScreen extends StatefulWidget {
   const MyReportsScreen({super.key});
@@ -85,9 +86,10 @@ class _MyReportsScreenState extends State<MyReportsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Reports'),
+        title: Text(s.myReportsTitle),
         actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
@@ -96,8 +98,8 @@ class _MyReportsScreenState extends State<MyReportsScreen>
           labelColor: Colors.white,
           indicatorColor: Colors.white,
           tabs: [
-            Tab(text: 'Incidents (${_incidents.length})'),
-            Tab(text: 'Grievances (${_grievances.length})'),
+            Tab(text: '${s.myReportsTabIncidents} (${_incidents.length})'),
+            Tab(text: '${s.myReportsTabGrievances} (${_grievances.length})'),
           ],
         ),
       ),
@@ -111,6 +113,7 @@ class _MyReportsScreenState extends State<MyReportsScreen>
   }
 
   Widget _buildIncidentsList() {
+    final s = AppStrings.of(context);
     if (_incidents.isEmpty) {
       return Center(
         child: Column(
@@ -123,7 +126,7 @@ class _MyReportsScreenState extends State<MyReportsScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              'No incident reports',
+              s.myReportsEmptyIncidents,
               style: TextStyle(color: Colors.grey.shade600),
             ),
           ],
@@ -283,6 +286,7 @@ class _MyReportsScreenState extends State<MyReportsScreen>
   }
 
   Widget _buildGrievancesList() {
+    final s = AppStrings.of(context);
     if (_grievances.isEmpty) {
       return Center(
         child: Column(
@@ -295,7 +299,7 @@ class _MyReportsScreenState extends State<MyReportsScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              'No grievances filed',
+              s.myReportsEmptyGrievances,
               style: TextStyle(color: Colors.grey.shade600),
             ),
           ],

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class PayslipQueryScreen extends StatefulWidget {
   const PayslipQueryScreen({super.key});
@@ -27,9 +28,10 @@ class _PayslipQueryScreenState extends State<PayslipQueryScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Payslip Queries'),
+        title: Text(s.payrollQueryTitle),
         actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
@@ -38,9 +40,9 @@ class _PayslipQueryScreenState extends State<PayslipQueryScreen>
           indicatorColor: Colors.white,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
-          tabs: const [
-            Tab(text: 'My Queries'),
-            Tab(text: 'Raise Query'),
+          tabs: [
+            Tab(text: s.payrollQueryTabMy),
+            Tab(text: s.payrollQueryTabRaise),
           ],
         ),
       ),
@@ -121,6 +123,7 @@ class _MyQueriesTabState extends State<_MyQueriesTab> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
       return Center(
@@ -128,16 +131,16 @@ class _MyQueriesTabState extends State<_MyQueriesTab> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(_error!, style: const TextStyle(color: Colors.red)),
-            TextButton(onPressed: _load, child: const Text('Retry')),
+            TextButton(onPressed: _load, child: Text(s.actionRetry)),
           ],
         ),
       );
     }
     if (_queries.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
-          'No queries raised yet',
-          style: TextStyle(color: Colors.grey),
+          s.payrollQueryEmpty,
+          style: const TextStyle(color: Colors.grey),
         ),
       );
     }
@@ -220,9 +223,9 @@ class _MyQueriesTabState extends State<_MyQueriesTab> {
                         ),
                         if (replies.isNotEmpty) ...[
                           const SizedBox(height: 12),
-                          const Text(
-                            'Replies',
-                            style: TextStyle(
+                          Text(
+                            s.payrollQueryRepliesHeader,
+                            style: const TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 12,
                             ),
@@ -363,11 +366,12 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
   ];
 
   Future<void> _submit() async {
+    final s = AppStrings.of(context);
     if (!_formKey.currentState!.validate()) return;
     if (_selectedPayslipId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select a payslip'),
+        SnackBar(
+          content: Text(s.payrollQueryPickPayslip),
           backgroundColor: Colors.orange,
         ),
       );
@@ -383,9 +387,9 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Query raised successfully!'),
-            backgroundColor: Color(0xFF007A64),
+          SnackBar(
+            content: Text(s.payrollQuerySubmittedSuccess),
+            backgroundColor: const Color(0xFF007A64),
           ),
         );
         _formKey.currentState!.reset();
@@ -412,6 +416,7 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (_loading) return const Center(child: CircularProgressIndicator());
 
     return SingleChildScrollView(
@@ -421,16 +426,16 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Raise a Payslip Query',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            Text(
+              s.payrollQueryRaiseHeader,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 16),
 
             // Payslip selector
-            const Text(
-              'Select Payslip *',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+            Text(
+              s.payrollQuerySelectPayslip,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
             ),
             const SizedBox(height: 6),
             DropdownButtonFormField<int>(
@@ -439,7 +444,7 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
-                hintText: 'Choose payslip',
+                hintText: s.payrollQueryChoosePayslipHint,
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 10,
@@ -461,9 +466,9 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
             const SizedBox(height: 14),
 
             // Category
-            const Text(
-              'Category *',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+            Text(
+              s.payrollQueryCategoryLabel,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
             ),
             const SizedBox(height: 6),
             DropdownButtonFormField<String>(
@@ -494,7 +499,7 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
             TextFormField(
               controller: _subject,
               decoration: InputDecoration(
-                labelText: 'Subject *',
+                labelText: s.payrollQuerySubjectLabel,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -505,7 +510,7 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
                 isDense: true,
               ),
               validator: (v) => (v == null || v.trim().isEmpty)
-                  ? 'Subject is required'
+                  ? s.payrollQuerySubjectRequired
                   : null,
             ),
             const SizedBox(height: 14),
@@ -515,7 +520,7 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
               controller: _description,
               maxLines: 4,
               decoration: InputDecoration(
-                labelText: 'Description *',
+                labelText: s.payrollQueryDescriptionLabel,
                 alignLabelWithHint: true,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
@@ -526,7 +531,7 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
                 ),
               ),
               validator: (v) => (v == null || v.trim().isEmpty)
-                  ? 'Description is required'
+                  ? s.payrollQueryDescriptionRequired
                   : null,
             ),
             const SizedBox(height: 20),
@@ -551,9 +556,9 @@ class _RaiseQueryTabState extends State<_RaiseQueryTab> {
                           color: Colors.white,
                         ),
                       )
-                    : const Text(
-                        'Submit Query',
-                        style: TextStyle(
+                    : Text(
+                        s.payrollQuerySubmitButton,
+                        style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
                         ),

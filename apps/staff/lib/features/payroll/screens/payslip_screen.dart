@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 import 'payslip_detail_screen.dart';
 import 'tax_summary_screen.dart';
 import 'investment_declaration_screen.dart';
@@ -63,17 +64,18 @@ class _PayslipScreenState extends State<PayslipScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       backgroundColor: const Color(0xFFE0F5F6),
       appBar: AppBar(
-        title: const Text('My Payslips'),
+        title: Text(s.payrollPayslipTitle),
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _load,
-            tooltip: 'Refresh',
+            tooltip: s.actionRefresh,
           ),
           const LogoutAction(),
         ],
@@ -99,21 +101,21 @@ class _PayslipScreenState extends State<PayslipScreen> {
                   end: Alignment.centerRight,
                 ),
               ),
-              child: const Row(
+              child: Row(
                 children: [
-                  Icon(Icons.summarize_outlined, color: Colors.white, size: 20),
-                  SizedBox(width: 10),
+                  const Icon(Icons.summarize_outlined, color: Colors.white, size: 20),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Annual Tax Summary (Form 16)',
-                      style: TextStyle(
+                      s.payrollPayslipBannerTax,
+                      style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
                       ),
                     ),
                   ),
-                  Icon(Icons.chevron_right, color: Colors.white70, size: 20),
+                  const Icon(Icons.chevron_right, color: Colors.white70, size: 20),
                 ],
               ),
             ),
@@ -121,7 +123,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
           // Tax Declaration quick-action card
           _QuickActionBanner(
             icon: Icons.receipt_long_outlined,
-            label: '📋 Tax Declaration (80C/80D)',
+            label: '📋 ${s.payrollPayslipBannerDeclaration}',
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
@@ -133,7 +135,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
           // Payslip Queries quick-action card
           _QuickActionBanner(
             icon: Icons.chat_bubble_outline,
-            label: '💬 Payslip Queries',
+            label: '💬 ${s.payrollPayslipBannerQueries}',
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const PayslipQueryScreen()),
@@ -167,7 +169,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
                           ElevatedButton.icon(
                             onPressed: _load,
                             icon: const Icon(Icons.refresh),
-                            label: const Text('Retry'),
+                            label: Text(s.actionRetry),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF007A64),
                               foregroundColor: Colors.white,
@@ -189,7 +191,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          'No payslips available yet',
+                          s.payrollPayslipEmptyTitle,
                           style: TextStyle(
                             fontSize: 16,
                             color: Colors.grey.shade600,
@@ -197,7 +199,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Payslips are issued on the 5th of each month',
+                          s.payrollPayslipEmptyBody,
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey.shade400,
@@ -232,6 +234,7 @@ class _PayslipCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final month = payslip['month'] as int? ?? 0;
     final year = payslip['year'] as int? ?? 0;
     final net = (payslip['net_salary'] as num?)?.toDouble() ?? 0;
@@ -303,7 +306,7 @@ class _PayslipCard extends StatelessWidget {
                                   ),
                                 ),
                                 child: Text(
-                                  'NEW',
+                                  s.payrollPayslipNewBadge,
                                   style: TextStyle(
                                     fontSize: 9,
                                     fontWeight: FontWeight.bold,
@@ -316,7 +319,7 @@ class _PayslipCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Net Pay: ₹${NumberFormat('#,##,##0.00').format(net)}',
+                          '${s.payrollPayslipNetPay}: ₹${NumberFormat('#,##,##0.00').format(net)}',
                           style: const TextStyle(
                             fontSize: 15,
                             color: Color(0xFF007A64),
@@ -344,7 +347,7 @@ class _PayslipCard extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
                     _SummaryItem(
-                      label: 'Gross',
+                      label: s.payrollPayslipGross,
                       value: gross,
                       color: Colors.grey.shade700,
                     ),
@@ -354,7 +357,7 @@ class _PayslipCard extends StatelessWidget {
                       color: Colors.grey.shade300,
                     ),
                     _SummaryItem(
-                      label: 'Deductions',
+                      label: s.payrollPayslipDeductions,
                       value: deductions,
                       color: Colors.red.shade400,
                     ),
@@ -364,7 +367,7 @@ class _PayslipCard extends StatelessWidget {
                       color: Colors.grey.shade300,
                     ),
                     _SummaryItem(
-                      label: 'Net Pay',
+                      label: s.payrollPayslipNetPay,
                       value: net,
                       color: const Color(0xFF007A64),
                     ),

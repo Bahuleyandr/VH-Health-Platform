@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class TaxSummaryScreen extends StatefulWidget {
   const TaxSummaryScreen({super.key});
@@ -54,11 +55,12 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
   }
 
   Future<void> _downloadPDF() async {
+    final str = AppStrings.of(context);
     final pdfUrl = _summary?['pdf_url'] as String?;
     if (pdfUrl == null || pdfUrl.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('PDF not available yet'),
+        SnackBar(
+          content: Text(str.payrollDetailPdfNotAvailable),
           backgroundColor: Colors.orange,
         ),
       );
@@ -72,10 +74,11 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final str = AppStrings.of(context);
     return Scaffold(
       backgroundColor: const Color(0xFFE0F5F6),
       appBar: AppBar(
-        title: const Text('Annual Tax Summary'),
+        title: Text(str.payrollTaxSummaryTitle),
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
         actions: [
@@ -83,7 +86,7 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
             IconButton(
               icon: const Icon(Icons.download_outlined),
               onPressed: _downloadPDF,
-              tooltip: 'Download PDF',
+              tooltip: str.payrollTaxSummaryDownloadPdf,
             ),
           const LogoutAction(),
         ],
@@ -96,9 +99,9 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             child: Row(
               children: [
-                const Text(
-                  'Financial Year:',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                Text(
+                  str.payrollTaxSummaryFyLabel,
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -158,14 +161,14 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
                               backgroundColor: const Color(0xFF007A64),
                               foregroundColor: Colors.white,
                             ),
-                            child: const Text('Retry'),
+                            child: Text(str.actionRetry),
                           ),
                         ],
                       ),
                     ),
                   )
                 : _summary == null
-                ? const Center(child: Text('No data'))
+                ? Center(child: Text(str.labelNoData))
                 : _buildBody(),
           ),
         ],
@@ -174,7 +177,8 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
   }
 
   Widget _buildBody() {
-    final s = _summary!;
+    final str = AppStrings.of(context);
+    final summary = _summary!;
     final fmt = NumberFormat('#,##,##0.00');
 
     String fmtAmt(dynamic v) =>
@@ -190,8 +194,8 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
             children: [
               Expanded(
                 child: _SummaryCard(
-                  label: 'Total Gross',
-                  value: fmtAmt(s['total_gross']),
+                  label: str.payrollTaxSummaryTotalGross,
+                  value: fmtAmt(summary['total_gross']),
                   icon: Icons.trending_up,
                   color: const Color(0xFF007A64),
                 ),
@@ -199,8 +203,8 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: _SummaryCard(
-                  label: 'Total Net',
-                  value: fmtAmt(s['total_net']),
+                  label: str.payrollTaxSummaryTotalNet,
+                  value: fmtAmt(summary['total_net']),
                   icon: Icons.account_balance_wallet_outlined,
                   color: Colors.blue.shade700,
                 ),
@@ -212,8 +216,8 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
             children: [
               Expanded(
                 child: _SummaryCard(
-                  label: 'Taxable Income',
-                  value: fmtAmt(s['taxable_income']),
+                  label: str.payrollTaxSummaryTaxableIncome,
+                  value: fmtAmt(summary['taxable_income']),
                   icon: Icons.calculate_outlined,
                   color: Colors.orange.shade700,
                 ),
@@ -221,8 +225,8 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: _SummaryCard(
-                  label: 'Tax Payable',
-                  value: fmtAmt(s['tax_payable']),
+                  label: str.payrollTaxSummaryTaxPayable,
+                  value: fmtAmt(summary['tax_payable']),
                   icon: Icons.receipt_long_outlined,
                   color: Colors.red.shade700,
                 ),
@@ -231,95 +235,95 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            '${s['months_included'] ?? 0} payslips included in FY $_selectedFY',
+            '${summary['months_included'] ?? 0} payslips included in FY $_selectedFY',
             style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 16),
 
           // ─── Earnings Breakdown ─────────────────────────────────────────
           _DetailCard(
-            title: '💰 Earnings Breakdown',
+            title: str.payrollTaxSummaryEarningsBreakdown,
             rows: [
-              if ((double.tryParse(s['total_basic']?.toString() ?? '0') ?? 0) >
+              if ((double.tryParse(summary['total_basic']?.toString() ?? '0') ?? 0) >
                   0)
-                _DetailRow('Basic Salary', fmtAmt(s['total_basic'])),
-              if ((double.tryParse(s['total_hra']?.toString() ?? '0') ?? 0) > 0)
-                _DetailRow('HRA', fmtAmt(s['total_hra'])),
-              if ((double.tryParse(s['total_da']?.toString() ?? '0') ?? 0) > 0)
-                _DetailRow('DA', fmtAmt(s['total_da'])),
+                _DetailRow(str.payrollDetailBasic, fmtAmt(summary['total_basic'])),
+              if ((double.tryParse(summary['total_hra']?.toString() ?? '0') ?? 0) > 0)
+                _DetailRow(str.payrollDetailHra, fmtAmt(summary['total_hra'])),
+              if ((double.tryParse(summary['total_da']?.toString() ?? '0') ?? 0) > 0)
+                _DetailRow(str.payrollDetailDa, fmtAmt(summary['total_da'])),
               if ((double.tryParse(
-                        s['total_special_allowance']?.toString() ?? '0',
+                        summary['total_special_allowance']?.toString() ?? '0',
                       ) ??
                       0) >
                   0)
                 _DetailRow(
-                  'Special Allowance',
-                  fmtAmt(s['total_special_allowance']),
+                  str.payrollDetailSpecialAllowance,
+                  fmtAmt(summary['total_special_allowance']),
                 ),
               if ((double.tryParse(
-                        s['total_transport_allowance']?.toString() ?? '0',
+                        summary['total_transport_allowance']?.toString() ?? '0',
                       ) ??
                       0) >
                   0)
                 _DetailRow(
-                  'Transport Allowance',
-                  fmtAmt(s['total_transport_allowance']),
+                  str.payrollDetailTransportAllowance,
+                  fmtAmt(summary['total_transport_allowance']),
                 ),
               if ((double.tryParse(
-                        s['total_medical_allowance']?.toString() ?? '0',
+                        summary['total_medical_allowance']?.toString() ?? '0',
                       ) ??
                       0) >
                   0)
                 _DetailRow(
-                  'Medical Allowance',
-                  fmtAmt(s['total_medical_allowance']),
+                  str.payrollDetailMedicalAllowance,
+                  fmtAmt(summary['total_medical_allowance']),
                 ),
-              if ((double.tryParse(s['total_overtime']?.toString() ?? '0') ??
+              if ((double.tryParse(summary['total_overtime']?.toString() ?? '0') ??
                       0) >
                   0)
-                _DetailRow('Overtime Pay', fmtAmt(s['total_overtime'])),
-              if ((double.tryParse(s['total_bonus']?.toString() ?? '0') ?? 0) >
+                _DetailRow(str.payrollDetailOvertimePay, fmtAmt(summary['total_overtime'])),
+              if ((double.tryParse(summary['total_bonus']?.toString() ?? '0') ?? 0) >
                   0)
-                _DetailRow('Bonus', fmtAmt(s['total_bonus'])),
-              if ((double.tryParse(s['total_arrears']?.toString() ?? '0') ??
+                _DetailRow(str.payrollDetailBonus, fmtAmt(summary['total_bonus'])),
+              if ((double.tryParse(summary['total_arrears']?.toString() ?? '0') ??
                       0) >
                   0)
-                _DetailRow('Arrears', fmtAmt(s['total_arrears'])),
-              _DetailRow('Total Gross', fmtAmt(s['total_gross']), isBold: true),
+                _DetailRow(str.payrollDetailArrears, fmtAmt(summary['total_arrears'])),
+              _DetailRow(str.payrollTaxSummaryTotalGross, fmtAmt(summary['total_gross']), isBold: true),
             ],
           ),
 
           // ─── Deductions Breakdown ────────────────────────────────────────
           _DetailCard(
-            title: '📉 Deductions Breakdown',
+            title: str.payrollTaxSummaryDeductionsBreakdown,
             rows: [
-              if ((double.tryParse(s['total_pf']?.toString() ?? '0') ?? 0) > 0)
-                _DetailRow('Provident Fund (PF)', fmtAmt(s['total_pf'])),
-              if ((double.tryParse(s['total_esi']?.toString() ?? '0') ?? 0) > 0)
-                _DetailRow('ESI', fmtAmt(s['total_esi'])),
+              if ((double.tryParse(summary['total_pf']?.toString() ?? '0') ?? 0) > 0)
+                _DetailRow(str.payrollDetailPfEmployee, fmtAmt(summary['total_pf'])),
+              if ((double.tryParse(summary['total_esi']?.toString() ?? '0') ?? 0) > 0)
+                _DetailRow(str.payrollDetailEsi, fmtAmt(summary['total_esi'])),
               if ((double.tryParse(
-                        s['total_professional_tax']?.toString() ?? '0',
+                        summary['total_professional_tax']?.toString() ?? '0',
                       ) ??
                       0) >
                   0)
                 _DetailRow(
-                  'Professional Tax',
-                  fmtAmt(s['total_professional_tax']),
+                  str.payrollDetailProfessionalTax,
+                  fmtAmt(summary['total_professional_tax']),
                 ),
-              if ((double.tryParse(s['total_tds']?.toString() ?? '0') ?? 0) > 0)
-                _DetailRow('TDS Deducted', fmtAmt(s['total_tds'])),
+              if ((double.tryParse(summary['total_tds']?.toString() ?? '0') ?? 0) > 0)
+                _DetailRow(str.payrollDetailTds, fmtAmt(summary['total_tds'])),
               if ((double.tryParse(
-                        s['total_advance_deductions']?.toString() ?? '0',
+                        summary['total_advance_deductions']?.toString() ?? '0',
                       ) ??
                       0) >
                   0)
                 _DetailRow(
-                  'Salary Advance Deductions',
-                  fmtAmt(s['total_advance_deductions']),
+                  str.payrollDetailAdvanceDeduction,
+                  fmtAmt(summary['total_advance_deductions']),
                 ),
               _DetailRow(
-                'Total Deductions',
-                fmtAmt(s['total_deductions']),
+                str.payrollDetailTotalDeductions,
+                fmtAmt(summary['total_deductions']),
                 isBold: true,
               ),
             ],
@@ -327,23 +331,23 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
 
           // ─── Tax Computation ─────────────────────────────────────────────
           _DetailCard(
-            title: '🧾 Tax Computation (New Regime)',
+            title: str.payrollTaxSummaryTaxComputation,
             rows: [
-              _DetailRow('Total Gross Income', fmtAmt(s['total_gross'])),
-              _DetailRow('Less: Provident Fund', '- ${fmtAmt(s['total_pf'])}'),
+              _DetailRow(str.payrollTaxSummaryTotalGross, fmtAmt(summary['total_gross'])),
+              _DetailRow(str.payrollDetailPfEmployee, '- ${fmtAmt(summary['total_pf'])}'),
               _DetailRow(
-                'Less: Professional Tax',
-                '- ${fmtAmt(s['total_professional_tax'])}',
+                str.payrollDetailProfessionalTax,
+                '- ${fmtAmt(summary['total_professional_tax'])}',
               ),
-              const _DetailRow('Less: Standard Deduction', '- ₹50,000'),
+              _DetailRow(str.payrollTaxSummaryStandardDeduction, '- ₹50,000'),
               _DetailRow(
-                'Taxable Income',
-                fmtAmt(s['taxable_income']),
+                str.payrollTaxSummaryTaxableIncome,
+                fmtAmt(summary['taxable_income']),
                 isBold: true,
               ),
               _DetailRow(
-                'Tax Payable (incl. 4% cess)',
-                fmtAmt(s['tax_payable']),
+                str.payrollTaxSummaryTaxPayable,
+                fmtAmt(summary['tax_payable']),
                 isBold: true,
               ),
             ],
@@ -370,8 +374,7 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'This is indicative only, calculated under the New Tax Regime (FY $_selectedFY slabs). '
-                    'Actual Form 16 will be issued by your employer at the end of the financial year.',
+                    str.payrollTaxSummaryDisclaimer,
                     style: TextStyle(
                       fontSize: 11,
                       color: Colors.amber.shade900,
@@ -396,9 +399,9 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
                   ),
                 ),
                 icon: const Icon(Icons.download_outlined, color: Colors.white),
-                label: const Text(
-                  'Download Form 16 PDF',
-                  style: TextStyle(
+                label: Text(
+                  str.payrollTaxSummaryDownloadForm16,
+                  style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
                     fontSize: 15,
