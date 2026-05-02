@@ -39,10 +39,24 @@ class CodeBlueNotifier {
       requestBadgePermission: true,
       requestSoundPermission: true,
     );
+    // Windows desktop builds require windowsInitializationSettings —
+    // omitting it throws `Windows settings must be set when targeting
+    // Windows platform` on the very first call to initialize() and the
+    // app crashes before the splash screen renders. The appUserModelId
+    // and guid are arbitrary stable identifiers used by Windows to
+    // group toast notifications under the right app icon. The guid
+    // here is one we generated for VH Health staff (regen with
+    // `uuidgen` if you fork — must stay stable per-install).
+    const windowsInit = WindowsInitializationSettings(
+      appName: 'VH Health Staff',
+      appUserModelId: 'com.vhhealth.staff',
+      guid: '6f3d2f48-2c9e-4b13-8a3a-8e8c2c9ad701',
+    );
     await _plugin.initialize(
       settings: const InitializationSettings(
         android: androidInit,
         iOS: iosInit,
+        windows: windowsInit,
       ),
     );
 

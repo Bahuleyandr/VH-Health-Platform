@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite_ffi;
 import 'firebase_options.dart';
 import 'core/navigation/app_router.dart';
 import 'core/providers/notification_provider.dart';
@@ -33,6 +35,16 @@ Future<void> _fcmBackgroundHandler(RemoteMessage message) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Desktop platforms (Windows/Linux/macOS) need the sqflite FFI bridge
+  // wired before any DB-touching code runs (OfflineQueue, ConnectivitySync-
+  // Service, etc.). Mobile (Android/iOS) uses the default native plugin
+  // and skips this. Web isn't supported by sqflite at all — kIsWeb gate.
+  if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+    sqflite_ffi.sqfliteFfiInit();
+    sqflite_ffi.databaseFactory = sqflite_ffi.databaseFactoryFfi;
+  }
+
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // Route non-fatal errors from core + app through the same Crashlytics-backed
