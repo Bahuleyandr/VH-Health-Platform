@@ -8,83 +8,98 @@ export const getStaffList = async (filters, userRole) => {
   const { page, limit, role, department, shift, active, search, supervisor_id, skill } = filters;
   const offset = (page - 1) * limit;
 
+  // Build a SINGLE WHERE clause used by both the paged SELECT and the
+  // COUNT query. Placeholder numbering starts at $1 (allowedRoles) and
+  // walks forward through any optional filters; the SELECT additionally
+  // appends limit/offset placeholders at the END so the WHERE clause
+  // stays portable. Earlier the WHERE referenced $1 then jumped to $4
+  // (skipping limit/offset) and the COUNT query passed `params.slice(3)`,
+  // which silently rebound $1 to whatever the first dynamic filter was —
+  // 42809 "ANY/ALL requires array on right side" when it was a string,
+  // or P1016 "Expected: N, actual: 1" when no filters were set. The
+  // single-numbering scheme below avoids both bugs.
   let whereClause = 'WHERE u.role = ANY($1)';
-  const params = [allowedRoles, parseInt(limit), parseInt(offset)];
-  let paramIndex = 4;
+  const whereParams = [allowedRoles];
+  let paramIndex = 2;
 
-  // Build WHERE clause based on filters
   if (active !== undefined) {
     whereClause += ` AND (s.is_active = $${paramIndex} OR s.is_active IS NULL)`;
-    params.push(active);
+    whereParams.push(active);
     paramIndex++;
   }
 
   if (role) {
     whereClause += ` AND u.role = $${paramIndex}`;
-    params.push(role);
+    whereParams.push(role);
     paramIndex++;
   }
 
   if (department) {
     whereClause += ` AND s.department = $${paramIndex}`;
-    params.push(department);
+    whereParams.push(department);
     paramIndex++;
   }
 
   if (shift) {
     whereClause += ` AND s.shift = $${paramIndex}`;
-    params.push(shift);
+    whereParams.push(shift);
     paramIndex++;
   }
 
   if (supervisor_id) {
     whereClause += ` AND s.supervisor_id = $${paramIndex}`;
-    params.push(supervisor_id);
+    whereParams.push(supervisor_id);
     paramIndex++;
   }
 
   if (search) {
     whereClause += ` AND (LOWER(u.name) LIKE $${paramIndex} OR LOWER(s.employee_id) LIKE $${paramIndex} OR LOWER(s.position) LIKE $${paramIndex})`;
-    params.push(`%${search.toLowerCase()}%`);
+    whereParams.push(`%${search.toLowerCase()}%`);
     paramIndex++;
   }
 
   if (skill) {
     whereClause += ` AND s.skills::text ILIKE $${paramIndex}`;
-    params.push(`%${skill}%`);
+    whereParams.push(`%${skill}%`);
     paramIndex++;
   }
 
+  // Append limit + offset placeholders for the paged SELECT only —
+  // the COUNT query doesn't need them.
+  const limitParamIndex = paramIndex;
+  const offsetParamIndex = paramIndex + 1;
+  const selectParams = [...whereParams, parseInt(limit), parseInt(offset)];
+
   const query = `
-    SELECT 
+    SELECT
       u.id, u.uid, u.phone, u.name, u.email, u.gender, u.registered_at, u.role,
       s.employee_id, s.position, s.department, s.shift, s.salary,
       s.hire_date, s.is_active, s.supervisor_id, s.emergency_contact,
       s.skills, s.certifications, s.performance_rating, s.notes,
       sup.name as supervisor_name,
-      CASE 
+      CASE
         WHEN s.last_check_in IS NOT NULL AND s.last_check_out IS NULL THEN 'checked_in'
         WHEN s.last_check_in IS NOT NULL AND s.last_check_out IS NOT NULL THEN 'checked_out'
         ELSE 'not_checked_in'
       END as current_status,
       s.last_check_in, s.last_check_out
-    FROM users u 
-    LEFT JOIN staff s ON u.uid = s.user_id 
+    FROM users u
+    LEFT JOIN staff s ON u.uid = s.user_id
     LEFT JOIN users sup ON s.supervisor_id = sup.id
     ${whereClause}
-    ORDER BY 
+    ORDER BY
       CASE WHEN s.is_active = true THEN 0 ELSE 1 END,
       u.name ASC
-    LIMIT $2 OFFSET $3
+    LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
   `;
 
   // `prisma.$queryRawUnsafe(sql, ...params)` takes spread args — passing
   // the array as a single argument binds the WHOLE array to $1 and the
-  // remaining placeholders go unbound (P1016, "Expected: N, actual: 1").
-  // See `apps/backend/CLAUDE.md` Phase 0.5 conventions.
-  const result = await prisma.$queryRawUnsafe(query, ...params);
+  // remaining placeholders go unbound (P1016). See Phase 0.5 conventions.
+  const result = await prisma.$queryRawUnsafe(query, ...selectParams);
 
-  // Get total count
+  // Count query reuses the same WHERE clause but skips limit/offset.
+  // Bind only the where-side params so $1..$N stay aligned.
   const countQuery = `
     SELECT COUNT(*)
     FROM users u
@@ -92,7 +107,7 @@ export const getStaffList = async (filters, userRole) => {
     LEFT JOIN users sup ON s.supervisor_id = sup.id
     ${whereClause}
   `;
-  const countResult = await prisma.$queryRawUnsafe(countQuery, ...params.slice(3));
+  const countResult = await prisma.$queryRawUnsafe(countQuery, ...whereParams);
   const totalStaff = parseInt(countResult[0].count);
 
   // Get statistics
