@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class BloodBankScreen extends StatefulWidget {
   const BloodBankScreen({super.key});
@@ -139,16 +140,17 @@ class _BloodBankScreenState extends State<BloodBankScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
-        title: const Text('Blood Bank'),
+        title: Text(s.bloodBankTitle),
         backgroundColor: AppTheme.errorRed,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh inventory',
+            tooltip: s.bloodBankRefreshTooltip,
             onPressed: _fetchInventory,
           ),
           const LogoutAction(),
@@ -158,10 +160,10 @@ class _BloodBankScreenState extends State<BloodBankScreen>
           indicatorColor: Colors.white,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white60,
-          tabs: const [
-            Tab(text: 'Inventory'),
-            Tab(text: 'Requests'),
-            Tab(text: 'Donations'),
+          tabs: [
+            Tab(text: s.bloodBankTabInventory),
+            Tab(text: s.bloodBankTabRequests),
+            Tab(text: s.bloodBankTabDonations),
           ],
         ),
       ),

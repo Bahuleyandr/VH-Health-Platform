@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 class ClinicalAiVoiceNotesScreen extends StatefulWidget {
   const ClinicalAiVoiceNotesScreen({super.key});
@@ -65,8 +66,9 @@ class _ClinicalAiVoiceNotesScreenState extends State<ClinicalAiVoiceNotesScreen>
     try {
       final result = await ClinicalAiApiService.generateSoapFromVoiceNote(intId);
       if (!mounted) return;
+      final s = AppStrings.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('SOAP draft generated; opening review queue.')),
+        SnackBar(content: Text(s.clinicalAiVoiceSoapGenerated)),
       );
       final reviewId = result['review_id'] ?? result['draft']?['review_id'];
       if (reviewId is int) {
@@ -78,8 +80,9 @@ class _ClinicalAiVoiceNotesScreenState extends State<ClinicalAiVoiceNotesScreen>
       }
     } catch (err) {
       if (!mounted) return;
+      final s = AppStrings.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('SOAP generation failed: $err')),
+        SnackBar(content: Text(s.clinicalAiVoiceGenerationFailed(err.toString()))),
       );
     } finally {
       if (mounted) setState(() => _generatingId = null);
@@ -88,8 +91,9 @@ class _ClinicalAiVoiceNotesScreenState extends State<ClinicalAiVoiceNotesScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Voice notes',
+      title: s.clinicalAiVoiceNotesTitle,
       body: _buildBody(),
     );
   }
@@ -128,6 +132,7 @@ class _VoiceNoteTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final id = note['id']?.toString() ?? '—';
     final status = note['status']?.toString() ?? note['transcription_status']?.toString() ?? '—';
     final transcript = note['transcript']?.toString() ?? note['final_transcript']?.toString();
@@ -153,7 +158,7 @@ class _VoiceNoteTile extends StatelessWidget {
                 children: [
                   const Icon(Icons.mic, size: 18),
                   const SizedBox(width: 6),
-                  Text('Voice note #$id', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text(s.clinicalAiVoiceNoteHeader(id), style: const TextStyle(fontWeight: FontWeight.bold)),
                   const Spacer(),
                   _StatusChip(label: status),
                 ],
@@ -162,7 +167,7 @@ class _VoiceNoteTile extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
-                    'Patient: $patientUid',
+                    s.clinicalAiVoicePatientPrefix(patientUid),
                     style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 11),
                   ),
                 ),
@@ -199,7 +204,7 @@ class _VoiceNoteTile extends StatelessWidget {
                         const Icon(Icons.check_circle_outline, size: 14, color: Colors.green),
                         const SizedBox(width: 4),
                         Text(
-                          'SOAP draft already generated',
+                          s.clinicalAiVoiceDraftAlreadyGenerated,
                           style: TextStyle(color: Colors.green.shade800, fontSize: 11),
                         ),
                       ],
@@ -218,7 +223,7 @@ class _VoiceNoteTile extends StatelessWidget {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.auto_awesome, size: 16),
-                    label: Text(generating ? 'Drafting...' : 'Generate SOAP draft'),
+                    label: Text(generating ? s.clinicalAiVoiceDraftingButton : s.clinicalAiVoiceGenerateSoap),
                   ),
                 ),
             ],
@@ -257,20 +262,21 @@ class _EmptyState extends StatelessWidget {
   const _EmptyState();
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    final s = AppStrings.of(context);
+    return Center(
       child: Padding(
-        padding: EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.mic_none, size: 48, color: Colors.grey),
-            SizedBox(height: 8),
-            Text('No voice notes yet.'),
-            SizedBox(height: 4),
+            const Icon(Icons.mic_none, size: 48, color: Colors.grey),
+            const SizedBox(height: 8),
+            Text(s.clinicalAiVoiceNotesEmpty),
+            const SizedBox(height: 4),
             Text(
-              'Record a voice note from the desktop client; it will appear here for SOAP drafting.',
+              s.clinicalAiVoiceNotesEmptySubtitle,
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey, fontSize: 12),
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
             ),
           ],
         ),
@@ -285,6 +291,7 @@ class _ErrorState extends StatelessWidget {
   final VoidCallback onRetry;
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -295,7 +302,7 @@ class _ErrorState extends StatelessWidget {
             const SizedBox(height: 8),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 16),
-            FilledButton(onPressed: onRetry, child: const Text('Retry')),
+            FilledButton(onPressed: onRetry, child: Text(s.actionRetry)),
           ],
         ),
       ),

@@ -3,6 +3,7 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class LogCleaningScreen extends StatefulWidget {
   const LogCleaningScreen({super.key});
@@ -24,12 +25,12 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
   bool _submitted = false;
   String? _logNumber;
 
-  static const _cleaningTypes = {
-    'routine': 'Routine Cleaning',
-    'deep': 'Deep Cleaning',
-    'disinfection': 'Disinfection',
-    'spillage': 'Spillage Clean-up',
-    'post_procedure': 'Post-Procedure',
+  Map<String, String> _cleaningTypesFor(AppStrings s) => {
+    'routine': s.housekeepingTypeRoutine,
+    'deep': s.housekeepingTypeDeep,
+    'disinfection': s.housekeepingTypeDisinfection,
+    'spillage': s.housekeepingTypeSpillage,
+    'post_procedure': s.housekeepingTypePostProcedure,
   };
 
   @override
@@ -67,10 +68,11 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
   }
 
   Future<void> _submit() async {
+    final s = AppStrings.of(context);
     if (_selectedZoneId == null && _locationCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Select a zone or enter location'),
+        SnackBar(
+          content: Text(s.housekeepingSelectZoneError),
           backgroundColor: Colors.red,
         ),
       );
@@ -111,6 +113,7 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (_submitted) {
       return Scaffold(
         backgroundColor: const Color(0xFFE0F5F6),
@@ -130,9 +133,9 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
                   child: const Icon(Icons.check, color: Colors.white, size: 44),
                 ),
                 const SizedBox(height: 20),
-                const Text(
-                  'Cleaning Logged',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                Text(
+                  s.housekeepingLoggedTitle,
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 ),
                 if (_logNumber != null) ...[
                   const SizedBox(height: 8),
@@ -148,7 +151,7 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
                 ],
                 const SizedBox(height: 12),
                 Text(
-                  'Your cleaning record has been signed and submitted.',
+                  s.housekeepingLoggedBody,
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey.shade600),
                 ),
@@ -162,9 +165,9 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  child: const Text(
-                    'Done',
-                    style: TextStyle(
+                  child: Text(
+                    s.housekeepingDoneButton,
+                    style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
                     ),
@@ -179,7 +182,7 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Log Cleaning'),
+        title: Text(s.housekeepingLogTitle),
         actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
@@ -189,15 +192,15 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Cleaning Type *',
-              style: TextStyle(fontWeight: FontWeight.w600),
+            Text(
+              s.housekeepingLogTypeLabel,
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               initialValue: _cleaningType,
               decoration: const InputDecoration(border: OutlineInputBorder()),
-              items: _cleaningTypes.entries
+              items: _cleaningTypesFor(s).entries
                   .map(
                     (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
                   )
@@ -205,9 +208,9 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
               onChanged: (v) => setState(() => _cleaningType = v!),
             ),
             const SizedBox(height: 16),
-            const Text(
-              'Zone / Location *',
-              style: TextStyle(fontWeight: FontWeight.w600),
+            Text(
+              s.housekeepingZoneLocationLabel,
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             if (_loading)
@@ -215,14 +218,14 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
             else ...[
               DropdownButtonFormField<int?>(
                 initialValue: _selectedZoneId,
-                decoration: const InputDecoration(
-                  labelText: 'Select Zone (optional)',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: s.housekeepingSelectZoneLabel,
+                  border: const OutlineInputBorder(),
                 ),
                 items: [
-                  const DropdownMenuItem<int?>(
+                  DropdownMenuItem<int?>(
                     value: null,
-                    child: Text('-- Select or type below --'),
+                    child: Text(s.housekeepingSelectZoneOrType),
                   ),
                   ..._zones.map((z) {
                     final zone = z as Map<String, dynamic>;
@@ -247,17 +250,17 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
               const SizedBox(height: 8),
               TextField(
                 controller: _locationCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Or describe exact location',
-                  hintText: 'e.g. Room 204, Corridor near lift',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: s.housekeepingDescribeLocation,
+                  hintText: s.housekeepingLocationHint,
+                  border: const OutlineInputBorder(),
                 ),
               ),
             ],
             const SizedBox(height: 16),
-            const Text(
-              'Photo Evidence',
-              style: TextStyle(fontWeight: FontWeight.w600),
+            Text(
+              s.housekeepingPhotoEvidence,
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             InkWell(
@@ -316,7 +319,7 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            'Tap to take photo',
+                            s.housekeepingTakePhoto,
                             style: TextStyle(
                               color: Colors.grey.shade600,
                               fontSize: 13,
@@ -329,9 +332,9 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
             const SizedBox(height: 16),
             TextField(
               controller: _notesCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Notes (optional)',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: s.housekeepingNotesLabel,
+                border: const OutlineInputBorder(),
               ),
               maxLines: 3,
             ),
@@ -361,7 +364,7 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
                         color: Colors.white,
                       ),
                 label: Text(
-                  _submitting ? 'Submitting...' : 'Submit Cleaning Log',
+                  _submitting ? s.housekeepingSubmittingLog : s.housekeepingSubmitLog,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,

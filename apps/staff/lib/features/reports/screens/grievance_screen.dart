@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class GrievanceScreen extends StatefulWidget {
   const GrievanceScreen({super.key});
@@ -24,16 +25,16 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
   DateTime? _incidentDate;
   bool _isAnonymous = false;
 
-  final _types = {
-    'harassment': 'Harassment',
-    'discrimination': 'Discrimination',
-    'unfair_treatment': 'Unfair Treatment',
-    'unsafe_conditions': 'Unsafe Working Conditions',
-    'workload': 'Excessive Workload',
-    'pay_dispute': 'Pay / Compensation Dispute',
-    'schedule_conflict': 'Schedule / Roster Conflict',
-    'policy_violation': 'Policy Violation',
-    'other': 'Other',
+  Map<String, String> _typesFor(AppStrings s) => {
+    'harassment': s.grievanceTypeHarassment,
+    'discrimination': s.grievanceTypeDiscrimination,
+    'unfair_treatment': s.grievanceTypeUnfairTreatment,
+    'unsafe_conditions': s.grievanceTypeUnsafeConditions,
+    'workload': s.grievanceTypeWorkload,
+    'pay_dispute': s.grievanceTypePayDispute,
+    'schedule_conflict': s.grievanceTypeScheduleConflict,
+    'policy_violation': s.grievanceTypePolicyViolation,
+    'other': s.grievanceTypeOther,
   };
 
   @override
@@ -87,6 +88,7 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (_submitted) {
       return Scaffold(
         backgroundColor: const Color(0xFFE0F5F6),
@@ -110,9 +112,9 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                   ),
                 ),
                 const SizedBox(height: 20),
-                const Text(
-                  'Grievance Submitted',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                Text(
+                  s.grievanceSubmittedTitle,
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 ),
                 if (_grievanceNumber != null) ...[
                   const SizedBox(height: 8),
@@ -129,8 +131,8 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                 const SizedBox(height: 12),
                 Text(
                   _isAnonymous
-                      ? 'Submitted anonymously. HR will acknowledge within 2 working days.'
-                      : 'Your grievance has been received. HR will acknowledge within 2 working days.',
+                      ? s.grievanceAcknowledgementAnonymous
+                      : s.grievanceAcknowledgementNote,
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey.shade600),
                 ),
@@ -144,9 +146,9 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  child: const Text(
-                    'Done',
-                    style: TextStyle(
+                  child: Text(
+                    s.incidentReportDoneButton,
+                    style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
                     ),
@@ -161,7 +163,7 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Staff Grievance'),
+        title: Text(s.grievanceTitle),
         actions: const [LogoutAction()],
         backgroundColor: Colors.purple,
         foregroundColor: Colors.white,
@@ -180,14 +182,14 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: Colors.purple.shade200),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(Icons.lock_outline, color: Colors.purple, size: 18),
-                    SizedBox(width: 8),
+                    const Icon(Icons.lock_outline, color: Colors.purple, size: 18),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'This form is seen only by HR and senior management. You may submit anonymously.',
-                        style: TextStyle(fontSize: 12, color: Colors.purple),
+                        s.grievancePrivacyNote,
+                        style: const TextStyle(fontSize: 12, color: Colors.purple),
                       ),
                     ),
                   ],
@@ -195,15 +197,15 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
               ),
 
               const SizedBox(height: 16),
-              const Text(
-                'Grievance Type *',
-                style: TextStyle(fontWeight: FontWeight.w600),
+              Text(
+                s.grievanceTypeLabel,
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 initialValue: _grievanceType,
                 decoration: const InputDecoration(border: OutlineInputBorder()),
-                items: _types.entries
+                items: _typesFor(s).entries
                     .map(
                       (e) =>
                           DropdownMenuItem(value: e.key, child: Text(e.value)),
@@ -213,59 +215,58 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
               ),
 
               const SizedBox(height: 16),
-              const Text(
-                'Subject *',
-                style: TextStyle(fontWeight: FontWeight.w600),
+              Text(
+                s.grievanceSubjectLabel,
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _subjectCtrl,
-                decoration: const InputDecoration(
-                  hintText: 'Brief summary of your concern',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  hintText: s.grievanceSubjectHint,
+                  border: const OutlineInputBorder(),
                 ),
                 validator: (v) =>
-                    (v?.trim().isEmpty ?? true) ? 'Subject is required' : null,
+                    (v?.trim().isEmpty ?? true) ? s.grievanceSubjectRequired : null,
                 maxLength: 200,
               ),
 
               const SizedBox(height: 8),
-              const Text(
-                'Describe your grievance *',
-                style: TextStyle(fontWeight: FontWeight.w600),
+              Text(
+                s.grievanceDescribeLabel,
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _descCtrl,
-                decoration: const InputDecoration(
-                  hintText:
-                      'Please provide as much detail as you feel comfortable sharing...',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  hintText: s.grievanceDescribeHint,
+                  border: const OutlineInputBorder(),
                 ),
                 maxLines: 6,
                 validator: (v) => (v?.trim().isEmpty ?? true)
-                    ? 'Description is required'
+                    ? s.grievanceDescriptionRequired
                     : null,
               ),
 
               const SizedBox(height: 16),
               TextFormField(
                 controller: _againstCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Against whom (optional)',
-                  hintText: 'Name or role, if applicable',
-                  border: OutlineInputBorder(),
-                  prefixIcon: ExcludeSemantics(child: Icon(Icons.person_outline)),
+                decoration: InputDecoration(
+                  labelText: s.grievanceAgainstWhomLabel,
+                  hintText: s.grievanceAgainstWhomHint,
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const ExcludeSemantics(child: Icon(Icons.person_outline)),
                 ),
               ),
 
               const SizedBox(height: 12),
               TextFormField(
                 controller: _deptCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Department (optional)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: ExcludeSemantics(child: Icon(Icons.business_outlined)),
+                decoration: InputDecoration(
+                  labelText: s.grievanceDeptLabel,
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const ExcludeSemantics(child: Icon(Icons.business_outlined)),
                 ),
               ),
 
@@ -299,8 +300,8 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                       const SizedBox(width: 8),
                       Text(
                         _incidentDate != null
-                            ? 'When did this occur: ${DateFormat('d MMMM yyyy').format(_incidentDate!)}'
-                            : 'When did this occur? (optional)',
+                            ? '${s.grievanceDatePrefix} ${DateFormat('d MMMM yyyy').format(_incidentDate!)}'
+                            : s.grievanceDateOptional,
                         style: TextStyle(
                           color: _incidentDate != null
                               ? Colors.black
@@ -343,15 +344,15 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Submit Anonymously',
-                            style: TextStyle(
+                          Text(
+                            s.grievanceAnonymous,
+                            style: const TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 13,
                             ),
                           ),
                           Text(
-                            'Your identity will not be disclosed',
+                            s.grievanceAnonymousNote,
                             style: TextStyle(
                               fontSize: 11,
                               color: Colors.grey.shade600,
@@ -381,9 +382,9 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                           color: Colors.white,
                           strokeWidth: 2,
                         )
-                      : const Text(
-                          'Submit Grievance',
-                          style: TextStyle(
+                      : Text(
+                          s.grievanceSubmitButton,
+                          style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                             color: Colors.white,

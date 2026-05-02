@@ -18,13 +18,14 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
-const _statusFilters = <_StatusFilter>[
-  _StatusFilter(label: 'Active', value: 'running'),
-  _StatusFilter(label: 'Paused', value: 'paused'),
-  _StatusFilter(label: 'Completed', value: 'completed'),
-  _StatusFilter(label: 'Failed', value: 'failed'),
-  _StatusFilter(label: 'All', value: null),
+List<_StatusFilter> _statusFiltersFor(AppStrings s) => <_StatusFilter>[
+  _StatusFilter(label: s.clinicalAiComposeFilterActive, value: 'running'),
+  _StatusFilter(label: s.clinicalAiComposeFilterPaused, value: 'paused'),
+  _StatusFilter(label: s.clinicalAiComposeFilterCompleted, value: 'completed'),
+  _StatusFilter(label: s.clinicalAiComposeFilterFailed, value: 'failed'),
+  _StatusFilter(label: s.clinicalAiComposeFilterAll, value: null),
 ];
 
 class ClinicalAiComposeRunsScreen extends StatefulWidget {
@@ -88,12 +89,13 @@ class _ClinicalAiComposeRunsScreenState extends State<ClinicalAiComposeRunsScree
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'AI Compose Runs',
+      title: s.clinicalAiComposeRunsTitle,
       body: Column(
         children: [
           _FilterBar(
-            filters: _statusFilters,
+            filters: _statusFiltersFor(s),
             value: _statusFilter,
             onChanged: _onFilterChanged,
           ),
@@ -167,6 +169,7 @@ class _RunListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final id = run['id']?.toString() ?? '—';
     final status = run['status']?.toString() ?? '—';
     final admissionId = run['admission_id']?.toString() ?? '—';
@@ -181,7 +184,7 @@ class _RunListTile extends StatelessWidget {
         foregroundColor: _statusColor(context, status),
         child: const Icon(Icons.account_tree_outlined),
       ),
-      title: Text('Run #$id · admission $admissionId'),
+      title: Text(s.clinicalAiComposeRunHeader(id, admissionId)),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -191,7 +194,7 @@ class _RunListTile extends StatelessWidget {
             children: [
               _Chip(label: status, color: _statusColor(context, status)),
               if (reviewStatus != null && reviewStatus != 'null')
-                _Chip(label: 'review: $reviewStatus', color: Theme.of(context).colorScheme.tertiary),
+                _Chip(label: '${s.clinicalAiComposeReviewPrefix} $reviewStatus', color: Theme.of(context).colorScheme.tertiary),
               if (pauseReason != null && pauseReason != 'null')
                 _Chip(label: pauseReason, color: Theme.of(context).colorScheme.error),
             ],
@@ -199,7 +202,7 @@ class _RunListTile extends StatelessWidget {
           if (startedAt != null) Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              'started $startedAt',
+              '${s.clinicalAiComposeStartedPrefix} $startedAt',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
@@ -243,15 +246,16 @@ class _EmptyState extends StatelessWidget {
   const _EmptyState();
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    final s = AppStrings.of(context);
+    return Center(
       child: Padding(
-        padding: EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.account_tree_outlined, size: 48, color: Colors.grey),
-            SizedBox(height: 8),
-            Text('No compose runs in this view.'),
+            const Icon(Icons.account_tree_outlined, size: 48, color: Colors.grey),
+            const SizedBox(height: 8),
+            Text(s.clinicalAiComposeRunsEmpty),
           ],
         ),
       ),
@@ -265,6 +269,7 @@ class _ErrorState extends StatelessWidget {
   final VoidCallback onRetry;
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -275,7 +280,7 @@ class _ErrorState extends StatelessWidget {
             const SizedBox(height: 8),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 16),
-            FilledButton(onPressed: onRetry, child: const Text('Retry')),
+            FilledButton(onPressed: onRetry, child: Text(s.actionRetry)),
           ],
         ),
       ),

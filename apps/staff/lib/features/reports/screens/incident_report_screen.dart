@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class IncidentReportScreen extends StatefulWidget {
   const IncidentReportScreen({super.key});
@@ -29,33 +30,33 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
   final _patientNameCtrl = TextEditingController();
   bool _isAnonymous = false;
 
-  final _incidentTypes = {
-    'near_miss': 'Near Miss',
-    'patient_fall': 'Patient Fall',
-    'medication_error': 'Medication Error',
-    'needle_stick': 'Needle Stick / Sharps Injury',
-    'equipment_failure': 'Equipment Failure',
-    'infection': 'Infection / Exposure',
-    'fire_safety': 'Fire / Safety Hazard',
-    'patient_aggression': 'Patient Aggression',
-    'security_breach': 'Security Breach',
-    'other': 'Other',
+  Map<String, String> _incidentTypes(AppStrings s) => {
+    'near_miss': s.incidentReportTypeNearMiss,
+    'patient_fall': s.incidentReportTypePatientFall,
+    'medication_error': s.incidentReportTypeMedicationError,
+    'needle_stick': s.incidentReportTypeNeedleStick,
+    'equipment_failure': s.incidentReportTypeEquipmentFailure,
+    'infection': s.incidentReportTypeInfection,
+    'fire_safety': s.incidentReportTypeFireSafety,
+    'patient_aggression': s.incidentReportTypePatientAggression,
+    'security_breach': s.incidentReportTypeSecurityBreach,
+    'other': s.incidentReportTypeOther,
   };
 
-  static const _severities = [
-    ('low', 'Low', Color(0xFF388E3C), 'Minor, no harm caused'),
-    ('moderate', 'Moderate', Color(0xFFF57C00), 'Some impact, managed locally'),
+  List<(String, String, Color, String)> _severitiesFor(AppStrings s) => [
+    ('low', s.incidentReportSeverityLow, const Color(0xFF388E3C), s.incidentReportSeverityLowDesc),
+    ('moderate', s.incidentReportSeverityModerate, const Color(0xFFF57C00), s.incidentReportSeverityModerateDesc),
     (
       'severe',
-      'Severe',
-      Color(0xFFD32F2F),
-      'Significant harm, requires investigation',
+      s.incidentReportSeveritySevere,
+      const Color(0xFFD32F2F),
+      s.incidentReportSeveritySevereDesc,
     ),
     (
       'sentinel',
-      'Sentinel',
-      Color(0xFF7B0000),
-      'Unexpected death or serious harm',
+      s.incidentReportSeveritySentinel,
+      const Color(0xFF7B0000),
+      s.incidentReportSeveritySentinelDesc,
     ),
   ];
 
@@ -127,11 +128,12 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (_submitted) return _buildSuccessScreen();
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Incident Report'),
+        title: Text(s.incidentReportTitle),
         actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
@@ -143,12 +145,12 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Severity *',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+              Text(
+                s.incidentReportSeverityLabel,
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
               ),
               const SizedBox(height: 8),
-              ..._severities.map((entry) {
+              ..._severitiesFor(s).map((entry) {
                 final (key, label, color, desc) = entry;
                 final selected = _severity == key;
                 return Padding(
@@ -213,15 +215,15 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
               }),
 
               const SizedBox(height: 16),
-              const Text(
-                'Incident Type *',
-                style: TextStyle(fontWeight: FontWeight.w600),
+              Text(
+                s.incidentReportTypeLabel,
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 initialValue: _incidentType,
                 decoration: const InputDecoration(border: OutlineInputBorder()),
-                items: _incidentTypes.entries
+                items: _incidentTypes(s).entries
                     .map(
                       (e) =>
                           DropdownMenuItem(value: e.key, child: Text(e.value)),
@@ -231,38 +233,37 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
               ),
 
               const SizedBox(height: 16),
-              const Text(
-                'Brief Title *',
-                style: TextStyle(fontWeight: FontWeight.w600),
+              Text(
+                s.incidentReportTitleLabel,
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _titleCtrl,
-                decoration: const InputDecoration(
-                  hintText: 'e.g. Patient fell near bed 12B',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  hintText: s.incidentReportTitleHint,
+                  border: const OutlineInputBorder(),
                 ),
                 validator: (v) =>
-                    (v?.trim().isEmpty ?? true) ? 'Title is required' : null,
+                    (v?.trim().isEmpty ?? true) ? s.incidentReportTitleRequired : null,
                 maxLength: 200,
               ),
 
               const SizedBox(height: 8),
-              const Text(
-                'What happened? *',
-                style: TextStyle(fontWeight: FontWeight.w600),
+              Text(
+                s.incidentReportWhatHappened,
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _descCtrl,
-                decoration: const InputDecoration(
-                  hintText:
-                      'Describe the incident in detail — what happened, who was involved, what the conditions were...',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  hintText: s.incidentReportWhatHappenedHint,
+                  border: const OutlineInputBorder(),
                 ),
                 maxLines: 5,
                 validator: (v) => (v?.trim().isEmpty ?? true)
-                    ? 'Description is required'
+                    ? s.incidentReportDescriptionRequired
                     : null,
               ),
 
@@ -273,9 +274,9 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Date *',
-                          style: TextStyle(fontWeight: FontWeight.w600),
+                        Text(
+                          s.incidentReportDateLabel,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                         const SizedBox(height: 6),
                         InkWell(
@@ -322,9 +323,9 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Time *',
-                          style: TextStyle(fontWeight: FontWeight.w600),
+                        Text(
+                          s.incidentReportTimeLabel,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                         const SizedBox(height: 6),
                         InkWell(
@@ -366,20 +367,20 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _locationCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Location (optional)',
-                  hintText: 'Ward, room, or area',
-                  border: OutlineInputBorder(),
-                  prefixIcon: ExcludeSemantics(child: Icon(Icons.location_on_outlined)),
+                decoration: InputDecoration(
+                  labelText: s.incidentReportLocationLabel,
+                  hintText: s.incidentReportLocationHint,
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const ExcludeSemantics(child: Icon(Icons.location_on_outlined)),
                 ),
               ),
 
               const SizedBox(height: 16),
               Row(
                 children: [
-                  const Text(
-                    'Patient Involved',
-                    style: TextStyle(fontWeight: FontWeight.w600),
+                  Text(
+                    s.incidentReportPatientInvolved,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                   const Spacer(),
                   Switch(
@@ -393,9 +394,9 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _patientNameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Patient Name / ID (optional)',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: s.incidentReportPatientNameLabel,
+                    border: const OutlineInputBorder(),
                   ),
                 ),
               ],
@@ -403,21 +404,21 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _witnessesCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Witnesses (optional)',
-                  hintText: 'Names of anyone who saw the incident',
-                  border: OutlineInputBorder(),
-                  prefixIcon: ExcludeSemantics(child: Icon(Icons.people_outline)),
+                decoration: InputDecoration(
+                  labelText: s.incidentReportWitnessesLabel,
+                  hintText: s.incidentReportWitnessesHint,
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const ExcludeSemantics(child: Icon(Icons.people_outline)),
                 ),
               ),
 
               const SizedBox(height: 16),
               TextFormField(
                 controller: _actionCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Immediate Action Taken (optional)',
-                  hintText: 'What was done right after the incident?',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: s.incidentReportImmediateAction,
+                  hintText: s.incidentReportImmediateActionHint,
+                  border: const OutlineInputBorder(),
                 ),
                 maxLines: 3,
               ),
@@ -441,15 +442,15 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Submit Anonymously',
-                            style: TextStyle(
+                          Text(
+                            s.incidentReportAnonymous,
+                            style: const TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 13,
                             ),
                           ),
                           Text(
-                            'Your name will not be attached to this report',
+                            s.incidentReportAnonymousNote,
                             style: TextStyle(
                               fontSize: 11,
                               color: Colors.grey.shade600,
@@ -479,9 +480,9 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                           color: Colors.white,
                           strokeWidth: 2,
                         )
-                      : const Text(
-                          'Submit Incident Report',
-                          style: TextStyle(
+                      : Text(
+                          s.incidentReportSubmitButton,
+                          style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
@@ -498,6 +499,7 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
   }
 
   Widget _buildSuccessScreen() {
+    final s = AppStrings.of(context);
     return Scaffold(
       backgroundColor: const Color(0xFFE0F5F6),
       body: Center(
@@ -516,9 +518,9 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                 child: const Icon(Icons.check, color: Colors.white, size: 44),
               ),
               const SizedBox(height: 20),
-              const Text(
-                'Report Submitted',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              Text(
+                s.incidentReportSubmittedTitle,
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
               ),
               if (_reportNumber != null) ...[
                 const SizedBox(height: 8),
@@ -535,8 +537,8 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
               const SizedBox(height: 12),
               Text(
                 _severity == 'sentinel' || _severity == 'severe'
-                    ? 'This has been escalated as HIGH PRIORITY. Management has been notified.'
-                    : 'Your report has been received and will be reviewed within 24 hours.',
+                    ? s.incidentReportEscalationNote
+                    : s.incidentReportRoutineNote,
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey.shade600),
               ),
@@ -550,9 +552,9 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
-                child: const Text(
-                  'Done',
-                  style: TextStyle(
+                child: Text(
+                  s.incidentReportDoneButton,
+                  style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
                   ),

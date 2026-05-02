@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class InvestmentDeclarationScreen extends StatefulWidget {
   const InvestmentDeclarationScreen({super.key});
@@ -203,10 +204,11 @@ class _InvestmentDeclarationScreenState
         'nps_contribution': _val(_nps),
       });
       if (mounted) {
+        final s = AppStrings.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Declaration submitted successfully!'),
-            backgroundColor: Color(0xFF007A64),
+          SnackBar(
+            content: Text(s.payrollDeclarationSubmittedSuccess),
+            backgroundColor: const Color(0xFF007A64),
           ),
         );
         _loadDeclarations();
@@ -320,13 +322,14 @@ class _InvestmentDeclarationScreenState
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     if (_loading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Tax Declaration (80C/80D)'),
+        title: Text(s.payrollDeclarationTitle),
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
         actions: [
@@ -382,9 +385,9 @@ class _InvestmentDeclarationScreenState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Estimated Tax Deductions',
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                  Text(
+                    s.payrollDeclarationEstimatedDeductions,
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -406,9 +409,9 @@ class _InvestmentDeclarationScreenState
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Total Deductions',
-                        style: TextStyle(
+                      Text(
+                        s.payrollDeclarationTotalDeductions,
+                        style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w600,
                         ),
@@ -427,40 +430,40 @@ class _InvestmentDeclarationScreenState
               ),
             ),
 
-            _section('80C Investments (Max ₹1,50,000)', [
-              _field('PPF', _ppf),
-              _field('EPF Voluntary', _epfVol),
-              _field('ELSS (Mutual Funds)', _elss),
-              _field('LIC Premium', _lic),
-              _field('NSC', _nsc),
-              _field('Home Loan Principal', _homeLoanPrincipal),
-              _field('Tuition Fees (children)', _tuition),
-              _field('Other 80C', _other80c),
+            _section(s.payrollDeclarationSection80c, [
+              _field(s.payrollDeclarationFieldPpf, _ppf),
+              _field(s.payrollDeclarationFieldEpf, _epfVol),
+              _field(s.payrollDeclarationFieldElss, _elss),
+              _field(s.payrollDeclarationFieldLic, _lic),
+              _field(s.payrollDeclarationFieldNsc, _nsc),
+              _field(s.payrollDeclarationFieldHomeLoanPrincipal, _homeLoanPrincipal),
+              _field(s.payrollDeclarationFieldTuition, _tuition),
+              _field(s.payrollDeclarationFieldOther80c, _other80c),
             ]),
 
-            _section('80D Health Insurance', [
-              _field('Health Insurance — Self', _hiSelf, max: 25000),
-              _field('Health Insurance — Parents', _hiParents, max: 25000),
+            _section(s.payrollDeclarationSection80d, [
+              _field(s.payrollDeclarationFieldHiSelf, _hiSelf, max: 25000),
+              _field(s.payrollDeclarationFieldHiParents, _hiParents, max: 25000),
             ]),
 
-            _section('Other Deductions', [
-              _field('NPS Contribution (80CCD)', _nps, max: 50000),
+            _section(s.payrollDeclarationSectionOther, [
+              _field(s.payrollDeclarationFieldNps, _nps, max: 50000),
               _field(
-                'Home Loan Interest (24b)',
+                s.payrollDeclarationFieldHomeLoanInterest,
                 _homeLoanInterest,
                 max: 200000,
               ),
-              _field('Education Loan Interest (80E)', _eduLoanInterest),
+              _field(s.payrollDeclarationFieldEduLoan, _eduLoanInterest),
             ]),
 
-            _section('HRA / Rent', [
-              _field('Monthly Rent Paid', _rentMonthly),
+            _section(s.payrollDeclarationSectionRent, [
+              _field(s.payrollDeclarationFieldRentMonthly, _rentMonthly),
               SwitchListTile(
                 value: _rentReceipt,
                 onChanged: (v) => setState(() => _rentReceipt = v),
-                title: const Text(
-                  'Rent Receipts Provided',
-                  style: TextStyle(fontSize: 14),
+                title: Text(
+                  s.payrollDeclarationRentReceipts,
+                  style: const TextStyle(fontSize: 14),
                 ),
                 activeThumbColor: const Color(0xFF007A64),
                 contentPadding: EdgeInsets.zero,
@@ -488,9 +491,9 @@ class _InvestmentDeclarationScreenState
                           color: Colors.white,
                         ),
                       )
-                    : const Text(
-                        'Submit Declaration',
-                        style: TextStyle(
+                    : Text(
+                        s.payrollDeclarationSubmitButton,
+                        style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
                         ),
@@ -500,9 +503,9 @@ class _InvestmentDeclarationScreenState
             const SizedBox(height: 24),
 
             if (_declarations.isNotEmpty) ...[
-              const Text(
-                'Past Declarations',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+              Text(
+                s.payrollDeclarationPastTitle,
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
               ),
               const SizedBox(height: 8),
               ..._declarations.map((d) => _DeclarationCard(d: d)),

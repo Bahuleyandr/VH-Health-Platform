@@ -7,6 +7,7 @@ import '../../../core/config/api_config.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 class InvestigationsScreen extends StatefulWidget {
   const InvestigationsScreen({super.key});
@@ -33,8 +34,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Investigations',
+      title: s.investigationsTitle,
       body: Column(
         children: [
           Container(
@@ -44,10 +46,10 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
               labelColor: AppTheme.primaryBlue,
               unselectedLabelColor: AppTheme.textSecondary,
               indicatorColor: AppTheme.primaryBlue,
-              tabs: const [
-                Tab(text: 'Upload Result'),
-                Tab(text: 'Pending'),
-                Tab(text: 'Recent'),
+              tabs: [
+                Tab(text: s.investigationsTabUpload),
+                Tab(text: s.investigationsTabPending),
+                Tab(text: s.investigationsTabRecent),
               ],
             ),
           ),
@@ -126,9 +128,10 @@ class _UploadTabState extends State<_UploadTab> {
         fileName: _fileName,
       );
       if (mounted) {
+        final s = AppStrings.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Investigation result uploaded successfully'),
+          SnackBar(
+            content: Text(s.investigationsUploadSuccess),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -155,6 +158,7 @@ class _UploadTabState extends State<_UploadTab> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Form(
@@ -172,18 +176,18 @@ class _UploadTabState extends State<_UploadTab> {
                   color: AppTheme.accentCyan.withValues(alpha: 0.3),
                 ),
               ),
-              child: const Row(
+              child: Row(
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.info_outline,
                     color: AppTheme.accentCyan,
                     size: 18,
                   ),
-                  SizedBox(width: 8),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Search patient by phone number and upload their investigation results.',
-                      style: TextStyle(
+                      s.investigationsUploadIntro,
+                      style: const TextStyle(
                         color: AppTheme.accentCyan,
                         fontSize: 13,
                       ),
@@ -196,37 +200,37 @@ class _UploadTabState extends State<_UploadTab> {
             TextFormField(
               controller: _phoneCtrl,
               keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: 'Patient Phone Number',
-                hintText: '+91 XXXXX XXXXX',
-                prefixIcon: ExcludeSemantics(child: Icon(Icons.phone_outlined)),
+              decoration: InputDecoration(
+                labelText: s.investigationsPhoneLabel,
+                hintText: s.investigationsPhoneHint,
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.phone_outlined)),
               ),
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Phone is required';
-                if (v.trim().length < 10) return 'Enter valid phone number';
+                if (v == null || v.trim().isEmpty) return s.investigationsPhoneRequired;
+                if (v.trim().length < 10) return s.investigationsPhoneInvalid;
                 return null;
               },
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               initialValue: _testType,
-              decoration: const InputDecoration(
-                labelText: 'Test Type',
-                prefixIcon: ExcludeSemantics(child: Icon(Icons.biotech_outlined)),
+              decoration: InputDecoration(
+                labelText: s.investigationsTestTypeLabel,
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.biotech_outlined)),
               ),
               items: _testTypes
                   .map((t) => DropdownMenuItem(value: t, child: Text(t)))
                   .toList(),
               onChanged: (v) => setState(() => _testType = v),
-              validator: (v) => v == null ? 'Select test type' : null,
+              validator: (v) => v == null ? s.investigationsTestTypeRequired : null,
             ),
             const SizedBox(height: 16),
             TextFormField(
               controller: _resultCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Result / Summary',
-                hintText: 'Enter test results or summary...',
-                prefixIcon: ExcludeSemantics(child: Icon(Icons.assignment_outlined)),
+              decoration: InputDecoration(
+                labelText: s.investigationsResultLabel,
+                hintText: s.investigationsResultHint,
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.assignment_outlined)),
                 alignLabelWithHint: true,
               ),
               maxLines: 3,
@@ -234,10 +238,10 @@ class _UploadTabState extends State<_UploadTab> {
             const SizedBox(height: 16),
             TextFormField(
               controller: _notesCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Clinical Notes (optional)',
-                hintText: 'Additional observations...',
-                prefixIcon: ExcludeSemantics(child: Icon(Icons.notes_outlined)),
+              decoration: InputDecoration(
+                labelText: s.investigationsClinicalNotesLabel,
+                hintText: s.investigationsClinicalNotesHint,
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.notes_outlined)),
                 alignLabelWithHint: true,
               ),
               maxLines: 2,
@@ -267,9 +271,9 @@ class _UploadTabState extends State<_UploadTab> {
                             if (mounted) {
                               // ignore: use_build_context_synchronously
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
+                                SnackBar(
                                   content: Text(
-                                    'File too large. Maximum size is 10 MB.',
+                                    s.investigationsFileTooLarge,
                                   ),
                                   backgroundColor: AppTheme.errorRed,
                                 ),
@@ -286,8 +290,8 @@ class _UploadTabState extends State<_UploadTab> {
                         if (mounted) {
                           // ignore: use_build_context_synchronously
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Failed to pick file'),
+                            SnackBar(
+                              content: Text(s.investigationsFilePickFailed),
                               backgroundColor: AppTheme.errorRed,
                             ),
                           );
@@ -320,9 +324,9 @@ class _UploadTabState extends State<_UploadTab> {
                           ? AppTheme.accentCyan
                           : AppTheme.textSecondary,
                     ),
-                    SizedBox(height: 4),
+                    const SizedBox(height: 4),
                     Text(
-                      _fileName ?? 'Attach Report File (optional)',
+                      _fileName ?? s.investigationsAttachReport,
                       style: TextStyle(
                         color: _file != null
                             ? AppTheme.accentCyan
@@ -337,11 +341,11 @@ class _UploadTabState extends State<_UploadTab> {
                           _file = null;
                           _fileName = null;
                         }),
-                        child: const Padding(
-                          padding: EdgeInsets.only(top: 2),
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 2),
                           child: Text(
-                            'Clear',
-                            style: TextStyle(
+                            s.investigationsClearFile,
+                            style: const TextStyle(
                               color: AppTheme.errorRed,
                               fontSize: 11,
                             ),
@@ -366,7 +370,7 @@ class _UploadTabState extends State<_UploadTab> {
                     )
                   : const Icon(Icons.upload, color: Colors.white),
               label: Text(
-                _submitting ? 'Uploading...' : 'Upload Investigation',
+                _submitting ? s.investigationsUploading : s.investigationsUploadButton,
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.accentCyan,
@@ -431,12 +435,13 @@ class _PendingTabState extends State<_PendingTab> {
   }
 
   Future<void> _updateStatus(String id, String status) async {
+    final s = AppStrings.of(context);
     try {
       await MedicalApiService.updateInvestigationStatus(id, status);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('✅ Investigation marked as $status'),
+            content: Text('${s.investigationsMarkedAsPrefix} $status'),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -456,19 +461,20 @@ class _PendingTabState extends State<_PendingTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return Center(child: CircularProgressIndicator());
+    final s = AppStrings.of(context);
+    if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
+            Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
             const SizedBox(height: 8),
             Text(
               _error!,
               style: TextStyle(color: AppTheme.textSecondary),
             ),
-            TextButton(onPressed: _load, child: const Text('Retry')),
+            TextButton(onPressed: _load, child: Text(s.actionRetry)),
           ],
         ),
       );
@@ -483,18 +489,18 @@ class _PendingTabState extends State<_PendingTab> {
               size: 56,
               color: AppTheme.successGreen,
             ),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             Text(
-              'No pending investigations',
+              s.investigationsPendingEmpty,
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
                 color: AppTheme.textPrimary,
               ),
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             Text(
-              'All caught up!',
+              s.investigationsPendingEmptyBody,
               style: TextStyle(color: AppTheme.textSecondary),
             ),
           ],
@@ -599,7 +605,7 @@ class _PendingTabState extends State<_PendingTab> {
                     children: [
                       TextButton(
                         onPressed: () => _updateStatus(id, 'in_progress'),
-                        child: const Text('Start'),
+                        child: Text(s.investigationsStartButton),
                       ),
                       const SizedBox(width: 8),
                       ElevatedButton(
@@ -607,9 +613,9 @@ class _PendingTabState extends State<_PendingTab> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.successGreen,
                         ),
-                        child: const Text(
-                          'Complete',
-                          style: TextStyle(color: Colors.white),
+                        child: Text(
+                          s.investigationsCompleteButton,
+                          style: const TextStyle(color: Colors.white),
                         ),
                       ),
                     ],
@@ -666,19 +672,20 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return Center(child: CircularProgressIndicator());
+    final s = AppStrings.of(context);
+    if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
+            Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
             const SizedBox(height: 8),
             Text(
               _error!,
               style: TextStyle(color: AppTheme.textSecondary),
             ),
-            TextButton(onPressed: _load, child: const Text('Retry')),
+            TextButton(onPressed: _load, child: Text(s.actionRetry)),
           ],
         ),
       );
@@ -693,18 +700,18 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
               size: 56,
               color: AppTheme.textSecondary,
             ),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             Text(
-              'No recent investigations',
+              s.investigationsRecentEmpty,
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
                 color: AppTheme.textPrimary,
               ),
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             Text(
-              'Your investigation uploads will appear here',
+              s.investigationsRecentEmptyBody,
               style: TextStyle(color: AppTheme.textSecondary),
             ),
           ],

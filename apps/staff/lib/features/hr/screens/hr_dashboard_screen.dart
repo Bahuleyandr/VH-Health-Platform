@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 import '../../reports/screens/reports_hub_screen.dart';
 import '../../payroll/screens/payslip_screen.dart';
 
@@ -19,13 +20,6 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
   bool _loading = true;
   String? _error;
   String _timeframe = 'current_month';
-
-  static const _timeframes = {
-    'current_month': 'This Month',
-    'last_month': 'Last Month',
-    'current_quarter': 'This Quarter',
-    'current_year': 'This Year',
-  };
 
   @override
   void initState() {
@@ -61,8 +55,15 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
+    final timeframes = {
+      'current_month': s.hrTimeframeThisMonth,
+      'last_month': s.hrTimeframeLastMonth,
+      'current_quarter': s.hrTimeframeThisQuarter,
+      'current_year': s.hrTimeframeThisYear,
+    };
     return StaffScaffold(
-      title: 'HR Dashboard',
+      title: s.hrDashboardTitle,
       actions: [
         PopupMenuButton<String>(
           icon: const Icon(Icons.tune, color: Colors.white),
@@ -70,7 +71,7 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
             setState(() => _timeframe = v);
             _load();
           },
-          itemBuilder: (_) => _timeframes.entries
+          itemBuilder: (_) => timeframes.entries
               .map((e) => PopupMenuItem(value: e.key, child: Text(e.value)))
               .toList(),
         ),
@@ -88,7 +89,7 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
                   Wrap(
                     children: [
                       Chip(
-                        label: Text(_timeframes[_timeframe] ?? _timeframe),
+                        label: Text(timeframes[_timeframe] ?? _timeframe),
                         avatar: const Icon(Icons.date_range, size: 16),
                       ),
                     ],
@@ -96,32 +97,32 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
                   const SizedBox(height: 16),
 
                   // Summary stats grid
-                  _buildStatsGrid(),
+                  _buildStatsGrid(s),
                   const SizedBox(height: 20),
 
                   // Attendance overview
-                  const _SectionTitle('Attendance Overview'),
+                  _SectionTitle(s.hrSectionAttendanceOverview),
                   const SizedBox(height: 10),
-                  _buildAttendanceCard(),
+                  _buildAttendanceCard(s),
                   const SizedBox(height: 20),
 
                   // Leave summary
-                  const _SectionTitle('Leave Summary'),
+                  _SectionTitle(s.hrSectionLeaveSummary),
                   const SizedBox(height: 10),
-                  _buildLeaveCard(),
+                  _buildLeaveCard(s),
                   const SizedBox(height: 20),
 
                   // Quick actions
-                  const _SectionTitle('Quick Actions'),
+                  _SectionTitle(s.hrSectionQuickActions),
                   const SizedBox(height: 10),
-                  _buildQuickActions(context),
+                  _buildQuickActions(context, s),
                 ],
               ),
       ),
     );
   }
 
-  Widget _buildStatsGrid() {
+  Widget _buildStatsGrid(AppStrings s) {
     final totalStaff =
         _data?['totalStaff'] ??
         _data?['summary']?['totalStaff'] ??
@@ -152,25 +153,25 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
       childAspectRatio: 1.6,
       children: [
         _StatTile(
-          label: 'Total Staff',
+          label: s.hrStatTotalStaff,
           value: totalStaff.toString(),
           icon: Icons.people,
           color: AppTheme.primaryBlue,
         ),
         _StatTile(
-          label: 'Present Today',
+          label: s.hrStatPresentToday,
           value: presentToday.toString(),
           icon: Icons.check_circle,
           color: AppTheme.successGreen,
         ),
         _StatTile(
-          label: 'On Leave',
+          label: s.hrStatOnLeave,
           value: onLeave.toString(),
           icon: Icons.beach_access,
           color: AppTheme.warningAmber,
         ),
         _StatTile(
-          label: 'Pending Leaves',
+          label: s.hrStatPendingLeaves,
           value: pendingLeave.toString(),
           icon: Icons.pending_actions,
           color: AppTheme.errorRed,
@@ -179,7 +180,7 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
     );
   }
 
-  Widget _buildAttendanceCard() {
+  Widget _buildAttendanceCard(AppStrings s) {
     final attendance = _data?['attendance'] as Map<String, dynamic>? ?? {};
     final avgRate =
         attendance['averageAttendanceRate'] ?? attendance['rate'] ?? '—';
@@ -191,18 +192,18 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            _DataRow('Avg. Attendance Rate', '$avgRate%'),
+            _DataRow(s.hrAvgAttendanceRate, '$avgRate%'),
             const Divider(),
-            _DataRow('Late Arrivals', '$lateArrivals'),
+            _DataRow(s.hrLateArrivals, '$lateArrivals'),
             const Divider(),
-            _DataRow('Absentees', '$absentees'),
+            _DataRow(s.hrAbsentees, '$absentees'),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildLeaveCard() {
+  Widget _buildLeaveCard(AppStrings s) {
     final leaves = _data?['leaves'] as Map<String, dynamic>? ?? {};
     final total = leaves['total'] ?? leaves['totalApplied'] ?? '—';
     final approved = leaves['approved'] ?? '—';
@@ -214,50 +215,50 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            _DataRow('Total Applications', '$total'),
+            _DataRow(s.hrTotalApplications, '$total'),
             const Divider(),
-            _DataRow('Approved', '$approved'),
+            _DataRow(s.hrApproved, '$approved'),
             const Divider(),
-            _DataRow('Rejected', '$rejected'),
+            _DataRow(s.hrRejected, '$rejected'),
             const Divider(),
-            _DataRow('Pending Approval', '$pending'),
+            _DataRow(s.hrPendingApproval, '$pending'),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildQuickActions(BuildContext context) {
+  Widget _buildQuickActions(BuildContext context, AppStrings s) {
     return Column(
       children: [
         _ActionTile(
           icon: Icons.manage_accounts,
-          title: 'Staff Management',
-          subtitle: 'View, add & edit staff',
+          title: s.hrActionStaffManagement,
+          subtitle: s.hrActionStaffManagementSubtitle,
           color: AppTheme.primaryBlue,
           onTap: () => context.go('/staff-management'),
         ),
         const SizedBox(height: 10),
         _ActionTile(
           icon: Icons.star_rate,
-          title: 'Performance Reviews',
-          subtitle: 'Manage performance records',
+          title: s.hrActionPerformance,
+          subtitle: s.hrActionPerformanceSubtitle,
           color: const Color(0xFFF57F17),
           onTap: () => context.go('/performance'),
         ),
         const SizedBox(height: 10),
         _ActionTile(
           icon: Icons.people,
-          title: 'Staff Directory',
-          subtitle: 'Browse all staff members',
+          title: s.hrActionStaffDirectory,
+          subtitle: s.hrActionStaffDirectorySubtitle,
           color: const Color(0xFF455A64),
           onTap: () => context.go('/staff-directory'),
         ),
         const SizedBox(height: 10),
         _ActionTile(
           icon: Icons.warning_amber_rounded,
-          title: 'Reports & Grievances',
-          subtitle: 'Incident reports, staff grievances',
+          title: s.hrActionReports,
+          subtitle: s.hrActionReportsSubtitle,
           color: Colors.orange,
           onTap: () => Navigator.push(
             context,
@@ -267,8 +268,8 @@ class _HrDashboardScreenState extends State<HrDashboardScreen> {
         const SizedBox(height: 10),
         _ActionTile(
           icon: Icons.receipt_long_outlined,
-          title: 'My Payslips',
-          subtitle: 'View & download last 3 months',
+          title: s.hrActionPayslips,
+          subtitle: s.hrActionPayslipsSubtitle,
           color: const Color(0xFF007A64),
           onTap: () => Navigator.push(
             context,
@@ -468,7 +469,7 @@ class _ErrorState extends StatelessWidget {
             style: TextStyle(color: AppTheme.textSecondary),
             textAlign: TextAlign.center,
           ),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
+          TextButton(onPressed: onRetry, child: Text(AppStrings.of(context).actionRetry)),
         ],
       ),
     );

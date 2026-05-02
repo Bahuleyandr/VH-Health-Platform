@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 /// Staff Management screen — HR/Admin can view and edit staff members.
 class StaffManagementScreen extends StatefulWidget {
@@ -63,12 +64,13 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Staff Management',
+      title: s.staffMgmtTitle,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddStaffDialog(context),
         icon: const Icon(Icons.person_add),
-        label: const Text('Add Staff'),
+        label: Text(s.staffMgmtAddStaff),
         backgroundColor: AppTheme.primaryBlue,
       ),
       body: Column(
@@ -80,12 +82,12 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
             child: TextField(
               controller: _searchCtrl,
               decoration: InputDecoration(
-                hintText: 'Search by name, department, role...',
+                hintText: s.staffMgmtSearchHint,
                 prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear),
-                        tooltip: 'Clear search',
+                        tooltip: s.actionSearch,
                         onPressed: () {
                           _searchCtrl.clear();
                           setState(() => _searchQuery = '');
@@ -369,9 +371,10 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     final isEdit = widget.staff != null;
     return AlertDialog(
-      title: Text(isEdit ? 'Edit Staff' : 'Add Staff'),
+      title: Text(isEdit ? s.staffMgmtEditStaff : s.staffMgmtAddStaff),
       content: Form(
         key: _formKey,
         child: Column(
@@ -379,14 +382,14 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
           children: [
             TextFormField(
               controller: _nameCtrl,
-              decoration: const InputDecoration(labelText: 'Full Name'),
+              decoration: InputDecoration(labelText: s.staffMgmtFullName),
               validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Name is required' : null,
+                  (v == null || v.trim().isEmpty) ? s.staffMgmtNameRequired : null,
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _deptCtrl,
-              decoration: const InputDecoration(labelText: 'Department'),
+              decoration: InputDecoration(labelText: s.staffMgmtDepartment),
             ),
           ],
         ),
@@ -394,11 +397,11 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(s.actionCancel),
         ),
         ElevatedButton(
           onPressed: _submitting ? null : _submit,
-          child: Text(_submitting ? 'Saving...' : 'Save'),
+          child: Text(_submitting ? s.profileSavingButton : s.actionSave),
         ),
       ],
     );
@@ -428,7 +431,7 @@ class _ErrorState extends StatelessWidget {
             'Staff list API may not be available yet.',
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
           ),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
+          TextButton(onPressed: onRetry, child: Text(AppStrings.of(context).actionRetry)),
         ],
       ),
     );
@@ -441,6 +444,7 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -452,7 +456,7 @@ class _EmptyState extends StatelessWidget {
           ),
           SizedBox(height: 16),
           Text(
-            hasSearch ? 'No staff found' : 'No staff members',
+            hasSearch ? s.staffMgmtNoStaffFound : s.staffMgmtNoStaffMembers,
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
@@ -462,8 +466,8 @@ class _EmptyState extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             hasSearch
-                ? 'Try a different search term'
-                : 'Staff data will appear here once the API is connected',
+                ? s.staffMgmtSearchEmpty
+                : s.staffMgmtApiPending,
             textAlign: TextAlign.center,
             style: TextStyle(color: AppTheme.textSecondary),
           ),

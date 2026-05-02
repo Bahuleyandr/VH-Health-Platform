@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/services/hr_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 /// Staff Directory screen — Browse all staff members.
 class StaffDirectoryScreen extends StatefulWidget {
@@ -74,8 +75,9 @@ class _StaffDirectoryScreenState extends State<StaffDirectoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'Staff Directory',
+      title: s.directoryTitle,
       body: Column(
         children: [
           // Search bar
@@ -85,12 +87,12 @@ class _StaffDirectoryScreenState extends State<StaffDirectoryScreen> {
             child: TextField(
               controller: _searchCtrl,
               decoration: InputDecoration(
-                hintText: 'Search by name, dept, role...',
+                hintText: s.directorySearchHint,
                 prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear),
-                        tooltip: 'Clear search',
+                        tooltip: s.actionSearch,
                         onPressed: () {
                           _searchCtrl.clear();
                           setState(() => _searchQuery = '');
@@ -262,6 +264,7 @@ class _StaffTile extends StatelessWidget {
     String dept,
     String role,
   ) {
+    final s = AppStrings.of(context);
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -278,7 +281,7 @@ class _StaffTile extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
+            child: Text(s.actionClose),
           ),
         ],
       ),
@@ -333,7 +336,7 @@ class _ErrorState extends StatelessWidget {
             'Staff directory API may not be available yet.',
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
           ),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
+          TextButton(onPressed: onRetry, child: Text(AppStrings.of(context).actionRetry)),
         ],
       ),
     );
@@ -346,6 +349,7 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -357,7 +361,7 @@ class _EmptyState extends StatelessWidget {
           ),
           SizedBox(height: 16),
           Text(
-            hasSearch ? 'No staff found' : 'Directory is empty',
+            hasSearch ? s.directoryStaffEmptyBody : s.directoryEmpty,
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
@@ -366,9 +370,7 @@ class _EmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            hasSearch
-                ? 'Try a different search term'
-                : 'Staff members will appear here once the API is connected',
+            hasSearch ? s.directorySearchEmpty : s.directoryApiPending,
             textAlign: TextAlign.center,
             style: TextStyle(color: AppTheme.textSecondary),
           ),

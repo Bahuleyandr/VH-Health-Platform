@@ -4,6 +4,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 /// Bedside medication administration with 5-rights barcode verification.
 ///
@@ -129,26 +130,26 @@ class _MarScanScreenState extends State<MarScanScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return StaffScaffold(title: 'Administer Medication', body: _buildBody());
+    final s = AppStrings.of(context);
+    return StaffScaffold(title: s.marScanTitle, body: _buildBody(s));
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(AppStrings s) {
     switch (_step) {
       case _Step.scanWristband:
         return _scanPanel(
-          prompt: 'Step 1 of 3 — Scan patient wristband',
-          subtitle:
-              'Point the camera at the QR code on the patient\'s wristband.',
+          prompt: s.marScanStep1Prompt,
+          subtitle: s.marScanStep1Subtitle,
         );
       case _Step.scanDrug:
         return _scanPanel(
-          prompt: 'Step 2 of 3 — Scan drug barcode',
-          subtitle: 'Now scan the barcode on the medication label.',
+          prompt: s.marScanStep2Prompt,
+          subtitle: s.marScanStep2Subtitle,
         );
       case _Step.verify:
-        return _verifyPanel();
+        return _verifyPanel(s);
       case _Step.done:
-        return _donePanel();
+        return _donePanel(s);
     }
   }
 
@@ -185,12 +186,12 @@ class _MarScanScreenState extends State<MarScanScreen> {
     );
   }
 
-  Widget _verifyPanel() {
+  Widget _verifyPanel(AppStrings s) {
     if (_busy && _verifyResult == null) {
       return const Center(child: CircularProgressIndicator());
     }
     if (_errorMessage != null && _verifyResult == null) {
-      return _errorView(_errorMessage!);
+      return _errorView(_errorMessage!, s);
     }
     final r = _verifyResult;
     if (r == null) return const SizedBox.shrink();
@@ -204,7 +205,7 @@ class _MarScanScreenState extends State<MarScanScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Step 3 of 3 — 5-rights check',
+            s.marScanStep3Header,
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 12),
@@ -218,7 +219,7 @@ class _MarScanScreenState extends State<MarScanScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  ma['medication_name']?.toString() ?? '(unknown medication)',
+                  ma['medication_name']?.toString() ?? s.marScanUnknownMedication,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 Text(
@@ -229,11 +230,11 @@ class _MarScanScreenState extends State<MarScanScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          _rightRow('Right patient', rights['patient'] == true),
-          _rightRow('Right drug', rights['drug'] == true),
-          _rightRow('Right dose', rights['dose'] == true),
-          _rightRow('Right route', rights['route'] == true),
-          _rightRow('Right time', rights['time'] == true),
+          _rightRow(s.marScanRightPatient, rights['patient'] == true),
+          _rightRow(s.marScanRightDrug, rights['drug'] == true),
+          _rightRow(s.marScanRightDose, rights['dose'] == true),
+          _rightRow(s.marScanRightRoute, rights['route'] == true),
+          _rightRow(s.marScanRightTime, rights['time'] == true),
           const SizedBox(height: 20),
           if (allPassed)
             SizedBox(
@@ -246,7 +247,7 @@ class _MarScanScreenState extends State<MarScanScreen> {
                 ),
                 onPressed: _busy ? null : () => _administer(),
                 icon: const Icon(Icons.check_circle),
-                label: Text(_busy ? 'Recording…' : 'Administer'),
+                label: Text(_busy ? s.marScanRecording : s.marScanAdminister),
               ),
             )
           else
@@ -258,7 +259,7 @@ class _MarScanScreenState extends State<MarScanScreen> {
             const SizedBox(height: 12),
             Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
           ],
-          TextButton(onPressed: _reset, child: const Text('Scan again')),
+          TextButton(onPressed: _reset, child: Text(s.marScanScanAgain)),
         ],
       ),
     );
@@ -280,7 +281,7 @@ class _MarScanScreenState extends State<MarScanScreen> {
     );
   }
 
-  Widget _donePanel() {
+  Widget _donePanel(AppStrings s) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -293,14 +294,14 @@ class _MarScanScreenState extends State<MarScanScreen> {
               size: 72,
             ),
             const SizedBox(height: 12),
-            const Text(
-              'Administration recorded',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Text(
+              s.marScanRecorded,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 24),
             ElevatedButton(
               onPressed: _reset,
-              child: const Text('Scan next dose'),
+              child: Text(s.marScanScanNext),
             ),
           ],
         ),
@@ -308,7 +309,7 @@ class _MarScanScreenState extends State<MarScanScreen> {
     );
   }
 
-  Widget _errorView(String msg) {
+  Widget _errorView(String msg, AppStrings s) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -319,7 +320,7 @@ class _MarScanScreenState extends State<MarScanScreen> {
             const SizedBox(height: 12),
             Text(msg, textAlign: TextAlign.center),
             const SizedBox(height: 24),
-            ElevatedButton(onPressed: _reset, child: const Text('Try again')),
+            ElevatedButton(onPressed: _reset, child: Text(s.marScanTryAgain)),
           ],
         ),
       ),

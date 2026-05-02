@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../../../core/services/radiology_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class RadiologyScreen extends StatefulWidget {
   const RadiologyScreen({super.key});
@@ -95,15 +96,16 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
-        title: const Text('Radiology'),
+        title: Text(s.radiologyTitle),
         actions: [
           IconButton(
             icon: const Icon(Icons.filter_list),
             onPressed: _showFilterSheet,
-            tooltip: 'Filters',
+            tooltip: s.radiologyFiltersTooltip,
           ),
           const LogoutAction(),
         ],

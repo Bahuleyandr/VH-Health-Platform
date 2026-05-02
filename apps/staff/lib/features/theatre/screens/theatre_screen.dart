@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../../../core/services/theatre_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class TheatreScreen extends StatefulWidget {
   const TheatreScreen({super.key});
@@ -133,15 +134,16 @@ class _TheatreScreenState extends State<TheatreScreen>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
-        title: const Text('Operating Theatre'),
+        title: Text(s.theatreTitle),
         actions: [
           IconButton(
             icon: const Icon(Icons.calendar_today),
             onPressed: _pickDate,
-            tooltip: 'Pick date',
+            tooltip: s.theatrePickDate,
           ),
           const LogoutAction(),
         ],
@@ -150,9 +152,9 @@ class _TheatreScreenState extends State<TheatreScreen>
           indicatorColor: Colors.white,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
-          tabs: const [
-            Tab(text: 'Schedule'),
-            Tab(text: 'Availability'),
+          tabs: [
+            Tab(text: s.theatreTabSchedule),
+            Tab(text: s.theatreTabAvailability),
           ],
         ),
       ),

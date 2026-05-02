@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 import 'incident_report_screen.dart';
 import 'grievance_screen.dart';
 import 'my_reports_screen.dart';
@@ -9,10 +10,11 @@ class ReportsHubScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       backgroundColor: const Color(0xFFE0F5F6),
       appBar: AppBar(
-        title: const Text('Reports & Grievances'),
+        title: Text(s.reportsHubTitle),
         actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,
@@ -38,29 +40,28 @@ class ReportsHubScreen extends StatelessWidget {
                     size: 20,
                   ),
                   const SizedBox(width: 8),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'All reports are handled confidentially. Retaliation against reporters is strictly prohibited.',
-                      style: TextStyle(fontSize: 12),
+                      s.reportsHubConfidentialityNote,
+                      style: const TextStyle(fontSize: 12),
                     ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 20),
-            const Text(
-              'What would you like to report?',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Text(
+              s.reportsHubPrompt,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
 
             _HubCard(
               icon: Icons.warning_amber_rounded,
               color: Colors.orange,
-              title: 'Incident Report',
-              subtitle:
-                  'Patient fall, medication error, near-miss, equipment failure, or any adverse event',
-              urgencyNote: 'Sentinel/Severe events are escalated immediately',
+              title: s.reportsHubIncidentTitle,
+              subtitle: s.reportsHubIncidentSubtitle,
+              urgencyNote: s.reportsHubIncidentNote,
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const IncidentReportScreen()),
@@ -71,10 +72,9 @@ class ReportsHubScreen extends StatelessWidget {
             _HubCard(
               icon: Icons.support_agent_outlined,
               color: Colors.purple,
-              title: 'Staff Grievance',
-              subtitle:
-                  'Harassment, unfair treatment, unsafe working conditions, or policy violations',
-              urgencyNote: 'Can be submitted anonymously. HR only.',
+              title: s.reportsHubGrievanceTitle,
+              subtitle: s.reportsHubGrievanceSubtitle,
+              urgencyNote: s.reportsHubGrievanceNote,
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const GrievanceScreen()),
@@ -88,7 +88,7 @@ class ReportsHubScreen extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const MyReportsScreen()),
               ),
               icon: const Icon(Icons.history),
-              label: const Text('My Reports & Status'),
+              label: Text(s.reportsHubMyReports),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 48),
                 foregroundColor: const Color(0xFF007A64),

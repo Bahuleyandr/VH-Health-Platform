@@ -11,6 +11,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/widgets/logout_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class DischargeSummaryScreen extends StatefulWidget {
   final int admissionId;
@@ -105,6 +106,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   }
 
   Future<void> _save() async {
+    final s = AppStrings.of(context);
     setState(() {
       _saving = true;
       _error = null;
@@ -114,8 +116,8 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
       await MedicalApiService.saveDischargeSummary(widget.admissionId, edited);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Draft saved'),
+          SnackBar(
+            content: Text(s.dischargeDraftSaved),
             backgroundColor: Colors.green,
           ),
         );
@@ -128,24 +130,21 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   }
 
   Future<void> _sign() async {
+    final s = AppStrings.of(context);
     // Confirm before signing
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Sign Discharge Summary'),
-        content: const Text(
-          'Once signed, this discharge summary becomes the official record '
-          'and cannot be modified (only addenda are allowed).\n\n'
-          'Are you sure you want to sign?',
-        ),
+        title: Text(s.dischargeSignDialogTitle),
+        content: Text(s.dischargeSignDialogBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(s.actionCancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Sign'),
+            child: Text(s.dischargeSignButton),
           ),
         ],
       ),
@@ -164,8 +163,8 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
       setState(() => _isSigned = true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Discharge summary signed — now official'),
+          SnackBar(
+            content: Text(s.dischargeSignedSuccess),
             backgroundColor: Colors.green,
           ),
         );
@@ -178,10 +177,11 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   }
 
   Future<void> _proceedToDischarge() async {
+    final s = AppStrings.of(context);
     if (!_isSigned) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Discharge summary must be signed by a doctor first'),
+        SnackBar(
+          content: Text(s.dischargeMustSignFirst),
           backgroundColor: Colors.orange,
         ),
       );
@@ -191,19 +191,19 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Confirm Discharge'),
+        title: Text(s.dischargeProceedTitle),
         content: Text(
-          'Discharge ${widget.patientName}? This will release the bed and finalize the admission.',
+          '${s.dischargeProceedBodyPrefix} ${widget.patientName}',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(s.actionCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Discharge'),
+            child: Text(s.dischargeProceedButton),
           ),
         ],
       ),
@@ -219,8 +219,8 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Patient discharged successfully'),
+          SnackBar(
+            content: Text(s.dischargePatientDischarged),
             backgroundColor: Colors.green,
           ),
         );
@@ -236,10 +236,11 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final s = AppStrings.of(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Discharge — ${widget.patientName}'),
+        title: Text('${s.dischargeTitlePrefix} ${widget.patientName}'),
         actions: [
           if (_summary != null && !_isSigned)
             TextButton.icon(
@@ -251,7 +252,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.save_outlined),
-              label: const Text('Save Draft'),
+              label: Text(s.dischargeSaveDraft),
             ),
           const LogoutAction(),
         ],
@@ -280,7 +281,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                                   ),
                                 )
                               : const Icon(Icons.verified_outlined),
-                          label: const Text('Sign Summary'),
+                          label: Text(s.dischargeSignSummary),
                         ),
                       ),
                     if (!_isSigned) const SizedBox(width: 12),
@@ -288,7 +289,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                       child: FilledButton.icon(
                         onPressed: _isSigned ? _proceedToDischarge : null,
                         icon: const Icon(Icons.exit_to_app),
-                        label: const Text('Discharge Patient'),
+                        label: Text(s.dischargePatientButton),
                         style: FilledButton.styleFrom(
                           backgroundColor: _isSigned ? Colors.red : Colors.grey,
                         ),
@@ -303,6 +304,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   }
 
   Widget _buildGeneratePrompt(ThemeData theme) {
+    final s = AppStrings.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -316,14 +318,12 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
             ),
             const SizedBox(height: 16),
             Text(
-              'Generate Discharge Summary',
+              s.dischargeGenerateTitle,
               style: theme.textTheme.titleLarge,
             ),
             const SizedBox(height: 8),
             Text(
-              'This will automatically aggregate all ward notes, vitals, '
-              'investigations, medications, and diagnoses from this admission '
-              'into a structured discharge summary.',
+              s.dischargeGenerateBody,
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
@@ -342,7 +342,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                       ),
                     )
                   : const Icon(Icons.auto_awesome),
-              label: Text(_generating ? 'Generating...' : 'Generate Summary'),
+              label: Text(_generating ? s.dischargeGenerating : s.dischargeGenerateButton),
             ),
             if (_error != null) ...[
               const SizedBox(height: 16),
@@ -355,6 +355,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   }
 
   Widget _buildSummaryEditor(ThemeData theme) {
+    final s = AppStrings.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -370,13 +371,13 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: Colors.green),
               ),
-              child: const Row(
+              child: Row(
                 children: [
-                  Icon(Icons.verified, color: Colors.green),
-                  SizedBox(width: 8),
+                  const Icon(Icons.verified, color: Colors.green),
+                  const SizedBox(width: 8),
                   Text(
-                    'Signed — This summary is now official and immutable',
-                    style: TextStyle(
+                    s.dischargeSignedBadge,
+                    style: const TextStyle(
                       color: Colors.green,
                       fontWeight: FontWeight.w600,
                     ),
@@ -399,26 +400,26 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
               ),
             ),
 
-          _buildSection('Hospital Course', _hospitalCourseCtrl, maxLines: 8),
+          _buildSection(s.dischargeSectionHospitalCourse, _hospitalCourseCtrl, maxLines: 8),
           _buildSection(
-            'Discharge Diagnosis',
+            s.dischargeSectionDiagnosis,
             _dischargeDiagnosisCtrl,
             maxLines: 3,
           ),
           _buildSection(
-            'Discharge Condition',
+            s.dischargeSectionCondition,
             _dischargeConditionCtrl,
             maxLines: 2,
           ),
-          _buildSection('Follow-up Instructions', _followUpCtrl, maxLines: 4),
-          _buildSection('Activity Restrictions', _activityCtrl, maxLines: 3),
-          _buildSection('Diet Instructions', _dietCtrl, maxLines: 3),
-          _buildSection('Warning Signs', _warningSignsCtrl, maxLines: 4),
+          _buildSection(s.dischargeSectionFollowUp, _followUpCtrl, maxLines: 4),
+          _buildSection(s.dischargeSectionActivity, _activityCtrl, maxLines: 3),
+          _buildSection(s.dischargeSectionDiet, _dietCtrl, maxLines: 3),
+          _buildSection(s.dischargeSectionWarningSigns, _warningSignsCtrl, maxLines: 4),
 
           // Medications on discharge (read-only)
           if (_summary?['medications_on_discharge'] != null) ...[
             const SizedBox(height: 16),
-            Text('Medications on Discharge', style: theme.textTheme.titleSmall),
+            Text(s.dischargeSectionMedications, style: theme.textTheme.titleSmall),
             const SizedBox(height: 8),
             ...(_summary!['medications_on_discharge'] as List).map(
               (med) => Card(
@@ -436,7 +437,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
           // Investigations summary (read-only)
           if (_summary?['investigations_summary'] != null) ...[
             const SizedBox(height: 16),
-            Text('Investigations', style: theme.textTheme.titleSmall),
+            Text(s.dischargeSectionInvestigations, style: theme.textTheme.titleSmall),
             const SizedBox(height: 8),
             ...(_summary!['investigations_summary'] as List).map(
               (inv) => Card(
@@ -455,7 +456,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
           if (_summary?['procedures_performed'] != null &&
               (_summary!['procedures_performed'] as List).isNotEmpty) ...[
             const SizedBox(height: 16),
-            Text('Procedures Performed', style: theme.textTheme.titleSmall),
+            Text(s.dischargeSectionProcedures, style: theme.textTheme.titleSmall),
             const SizedBox(height: 8),
             ...(_summary!['procedures_performed'] as List).map(
               (proc) => Card(
@@ -473,7 +474,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
               child: TextButton.icon(
                 onPressed: _generate,
                 icon: const Icon(Icons.refresh),
-                label: const Text('Regenerate Summary'),
+                label: Text(s.dischargeRegenerate),
               ),
             ),
           const SizedBox(height: 80), // space for bottom bar
