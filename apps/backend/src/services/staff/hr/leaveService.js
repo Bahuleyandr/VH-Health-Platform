@@ -4,9 +4,32 @@ import logger from '../../../logging/logger.js';
 
 // Fetch users row + associated staff row via the users↔staff relation
 // (FK declared in migration 090). Used by the balance + apply flows.
+//
+// Tolerates THREE identifier shapes the staff app might send for "my
+// own balance":
+//   - integer  users.id          (admin tooling)
+//   - UUID     users.uid         (req.user.uid in the staff JWT)
+//   - EMP-NNNN staff.employee_id (legacy URL pattern)
+// The old implementation only handled int — `Number(uuid) → NaN` and
+// Prisma rejected with PrismaClientValidationError → controller 500.
 async function fetchStaffInfo(staffId) {
+  const idStr = String(staffId);
+  let where;
+  if (/^\d+$/.test(idStr)) {
+    where = { id: Number(idStr) };
+  } else if (/^EMP-/i.test(idStr)) {
+    // employee_id lives on staff, not users. Resolve via the staff side.
+    const staffRow = await prisma.staff.findFirst({
+      where: { employee_id: idStr.toUpperCase() },
+      select: { user_id: true },
+    });
+    if (!staffRow?.user_id) return null;
+    where = { id: staffRow.user_id };
+  } else {
+    where = { uid: idStr };
+  }
   const user = await prisma.users.findUnique({
-    where: { id: Number(staffId) },
+    where,
     select: {
       id: true,
       uid: true,
@@ -39,7 +62,12 @@ async function fetchStaffInfo(staffId) {
 // Replaces the raw `GROUP BY leave_type ... SUM(days_taken)` query
 // with typed findMany + JS reduce. All leave_types are returned (left
 // outer join semantics) so unused types still show their entitlement.
-async function getLeaveBalanceByType(staffId, year, { leaveType = null } = {}) {
+//
+// `staffIntId` MUST be the resolved users.id integer — callers should
+// run input through `fetchStaffInfo()` first if they only have a UUID
+// or employee_id. (`leave_applications.staff_id` is an INT FK and
+// `Number(uuid) → NaN` triggers a Prisma validation error.)
+async function getLeaveBalanceByType(staffIntId, year, { leaveType = null } = {}) {
   const yearStart = new Date(year, 0, 1);
   const yearEnd = new Date(year + 1, 0, 1);
 
@@ -51,7 +79,7 @@ async function getLeaveBalanceByType(staffId, year, { leaveType = null } = {}) {
     }),
     prisma.leave_applications.findMany({
       where: {
-        staff_id: Number(staffId),
+        staff_id: Number(staffIntId),
         status: 'APPROVED',
         start_date: { gte: yearStart, lt: yearEnd },
         ...(leaveType ? { leave_type: leaveType } : {}),
@@ -87,15 +115,19 @@ export const getStaffLeaveBalance = async (staffId, year) => {
   const staff = await fetchStaffInfo(staffId);
   if (!staff) return null;
 
+  // After fetchStaffInfo resolves identifier shapes, downstream queries
+  // ALWAYS use the resolved int (`staff.id`) — not the raw `staffId`,
+  // which may still be a UUID or "EMP-NNNN" string.
+  const staffIntId = staff.id;
   const yearInt = Number(year);
   const yearStart = new Date(yearInt, 0, 1);
   const yearEnd = new Date(yearInt + 1, 0, 1);
 
   const [leaveBalance, historyRows] = await Promise.all([
-    getLeaveBalanceByType(staffId, yearInt),
+    getLeaveBalanceByType(staffIntId, yearInt),
     prisma.leave_applications.findMany({
       where: {
-        staff_id: Number(staffId),
+        staff_id: staffIntId,
         start_date: { gte: yearStart, lt: yearEnd },
       },
       select: {
@@ -167,9 +199,15 @@ export const applyForLeave = async (leaveData) => {
     throw new Error('INVALID_DATE_RANGE');
   }
 
+  // Resolve identifier first so balance + insert both use the int FK.
+  const staff = await fetchStaffInfo(staff_id);
+  if (!staff) {
+    throw new Error('STAFF_NOT_FOUND');
+  }
+
   // Check leave balance for the requested year + leave type.
   const balance = await getLeaveBalanceByType(
-    staff_id,
+    staff.id,
     startDate.getFullYear(),
     { leaveType: leave_type },
   );
@@ -177,15 +215,10 @@ export const applyForLeave = async (leaveData) => {
     throw new Error('INSUFFICIENT_LEAVE_BALANCE');
   }
 
-  const staff = await fetchStaffInfo(staff_id);
-  if (!staff) {
-    throw new Error('STAFF_NOT_FOUND');
-  }
-
   // Create leave application.
   const application = await prisma.leave_applications.create({
     data: {
-      staff_id: Number(staff_id),
+      staff_id: staff.id,
       leave_type,
       start_date: startDate,
       end_date: endDate,
@@ -260,29 +293,22 @@ export const applyForLeave = async (leaveData) => {
 };
 
 /**
- * Check if user is viewing their own data
- * @param {number} staffId - Staff ID
- * @param {string} userUid - User UID
- * @returns {boolean} True if viewing own data
+ * Check if user is viewing their own data.
+ * Tolerates int / UUID / EMP- identifiers (same shapes fetchStaffInfo
+ * accepts). Trivially returns true when the URL identifier is already
+ * the JWT uid — saves a DB round-trip on the most common call path.
  */
 export const isUserViewingOwnData = async (staffId, userUid) => {
-  const user = await prisma.users.findUnique({
-    where: { id: Number(staffId) },
-    select: { uid: true },
-  });
-  return user?.uid === userUid;
+  if (!userUid) return false;
+  if (String(staffId) === String(userUid)) return true;
+  const staff = await fetchStaffInfo(staffId);
+  return staff?.uid === userUid;
 };
 
-/**
- * Check if user is applying for their own leave
- * @param {number} staffId - Staff ID
- * @param {string} userUid - User UID
- * @returns {boolean} True if applying for own leave
- */
+/** Same as above; preserved as a separate name for the apply-leave path. */
 export const isUserApplyingOwnLeave = async (staffId, userUid) => {
-  const user = await prisma.users.findUnique({
-    where: { id: Number(staffId) },
-    select: { uid: true },
-  });
-  return user?.uid === userUid;
+  if (!userUid) return false;
+  if (String(staffId) === String(userUid)) return true;
+  const staff = await fetchStaffInfo(staffId);
+  return staff?.uid === userUid;
 };

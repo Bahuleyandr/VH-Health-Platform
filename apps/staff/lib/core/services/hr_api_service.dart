@@ -43,9 +43,13 @@ class HrApiService {
     return _get('/staff/hr/dashboard', query: {'timeframe': timeframe});
   }
 
-  /// GET /staff — list of all staff (for replacement picker)
+  /// GET /staff/list — list of all staff (for replacement picker).
+  /// Path was `/staff` historically; that hits `/api/v1/staff` which
+  /// the backend's staffRoutes router does not register (no GET `/`),
+  /// so it returned `Cannot GET /api/v1/staff` (404). The actual
+  /// listing endpoint is `/staff/list`.
   static Future<List<dynamic>> getStaffList({String? department}) async {
-    final url = '/staff${department != null ? '?department=$department' : ''}';
+    final url = '/staff/list${department != null ? '?department=$department' : ''}';
     try {
       final result = await _get(url);
       return result['data'] as List? ??

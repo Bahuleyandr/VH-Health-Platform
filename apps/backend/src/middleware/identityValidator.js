@@ -1,4 +1,5 @@
 // src/middleware/identityValidator.js
+import { isPatient } from '../utils/roleHelpers.js';
 import { isValidPhone, normalizePhone } from '../utils/phoneUtils.js';
 
 // Patient endpoints establish identity from a phone or uid; staff endpoints
@@ -6,15 +7,20 @@ import { isValidPhone, normalizePhone } from '../utils/phoneUtils.js';
 // middlewares for any non-PATIENT role so the same wrapAutoRBAC defaults
 // (requirePhone/requireUID = true) don't 400 staff calls that legitimately
 // have no phone in the JWT or URL.
-const NON_PATIENT_ROLES = new Set([
-  'ADMIN', 'SUPER_ADMIN',
-  'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF', 'LAB_TECH', 'PHARMACY_STAFF', 'PHARMACIST',
-  'MEDICAL_RECORDS', 'TECHNICIAN', 'NURSE', 'STAFF', 'HR', 'GENERAL',
-]);
+//
+// Previously this used a hardcoded allowlist (`'HR'`, `'GENERAL'`,
+// `'NURSE'`, …) that drifted out of sync with the canonical role
+// vocabulary in `roleHelpers.js`. Roles like HR_STAFF and GENERAL_STAFF
+// 400'd "Missing or invalid phone number" because the staff JWT only
+// signs `{ uid, role }` (no phone claim) and the role string didn't
+// match the bypass set. Inverting the predicate — bypass everything
+// that isn't a PATIENT — keeps the validator in sync as new staff
+// roles are added without further drift.
+const isNonPatient = (role) => Boolean(role) && !isPatient(role);
 
 export function validateUID(req, res, next) {
   const userRole = req.user?.role;
-  if (userRole && NON_PATIENT_ROLES.has(userRole)) {return next();}
+  if (isNonPatient(userRole)) {return next();}
 
   const explicitUid = req.body?.uid || req.query?.uid || req.params?.uid;
   const uid = explicitUid || req.user?.uid;
@@ -26,7 +32,7 @@ export function validateUID(req, res, next) {
 
 export function validatePhone(req, res, next) {
   const userRole = req.user?.role;
-  if (userRole && NON_PATIENT_ROLES.has(userRole)) {return next();}
+  if (isNonPatient(userRole)) {return next();}
 
   const explicitPhone =
     req.body?.phone ||
