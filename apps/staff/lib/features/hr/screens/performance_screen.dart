@@ -151,7 +151,7 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                   decoration: const InputDecoration(
                     labelText: 'Employee ID',
                     hintText: 'e.g. EMP-001',
-                    prefixIcon: Icon(Icons.badge_outlined),
+                    prefixIcon: ExcludeSemantics(child: Icon(Icons.badge_outlined)),
                   ),
                   validator: (v) => (v == null || v.trim().isEmpty)
                       ? 'Employee ID is required'
@@ -164,7 +164,7 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                   initialValue: _reviewPeriod,
                   decoration: const InputDecoration(
                     labelText: 'Review Period',
-                    prefixIcon: Icon(Icons.date_range_outlined),
+                    prefixIcon: ExcludeSemantics(child: Icon(Icons.date_range_outlined)),
                   ),
                   items: _periods
                       .map((p) => DropdownMenuItem(value: p, child: Text(p)))
@@ -235,7 +235,7 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                     labelText: 'Performance Comments',
                     hintText:
                         'Describe performance, achievements, areas of improvement...',
-                    prefixIcon: Icon(Icons.comment_outlined),
+                    prefixIcon: ExcludeSemantics(child: Icon(Icons.comment_outlined)),
                     alignLabelWithHint: true,
                   ),
                   maxLines: 4,
@@ -251,7 +251,7 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                   decoration: const InputDecoration(
                     labelText: 'Goals for Next Period (optional)',
                     hintText: 'Set goals and expectations...',
-                    prefixIcon: Icon(Icons.flag_outlined),
+                    prefixIcon: ExcludeSemantics(child: Icon(Icons.flag_outlined)),
                     alignLabelWithHint: true,
                   ),
                   maxLines: 3,

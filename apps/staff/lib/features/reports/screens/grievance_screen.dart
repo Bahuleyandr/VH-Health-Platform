@@ -255,7 +255,7 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                   labelText: 'Against whom (optional)',
                   hintText: 'Name or role, if applicable',
                   border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.person_outline),
+                  prefixIcon: ExcludeSemantics(child: Icon(Icons.person_outline)),
                 ),
               ),
 
@@ -265,7 +265,7 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Department (optional)',
                   border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.business_outlined),
+                  prefixIcon: ExcludeSemantics(child: Icon(Icons.business_outlined)),
                 ),
               ),
 

@@ -168,6 +168,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               children: [
                 IconButton(
                   icon: const Icon(Icons.chevron_left),
+                  tooltip: 'Previous week',
                   onPressed: () => _changeWeek(-1),
                 ),
                 Text(
@@ -179,6 +180,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.chevron_right),
+                  tooltip: 'Next week',
                   onPressed: () => _changeWeek(1),
                 ),
               ],

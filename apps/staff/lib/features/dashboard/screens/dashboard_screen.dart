@@ -16,6 +16,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/first_run_welcome.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/patient_search_action.dart';
+import '../../../l10n/app_strings.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -200,11 +201,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  String get _greeting {
+  // Greeting now resolves through AppStrings so it localises into
+  // Hindi/Tamil/Telugu when the device locale is set. Sourced from
+  // `lib/l10n/app_strings.dart`.
+  String _greetingFor(BuildContext context) {
+    final s = AppStrings.of(context);
     final hour = DateTime.now().hour;
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
+    if (hour < 12) return s.dashboardGreetingMorning;
+    if (hour < 17) return s.dashboardGreetingAfternoon;
+    return s.dashboardGreetingEvening;
   }
 
   @override
@@ -278,7 +283,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       Text(
-                        _greeting,
+                        _greetingFor(context),
                         style: const TextStyle(
                           color: Colors.white70,
                           fontSize: 14,
@@ -543,6 +548,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // Recent-patients horizontal chip strip. Each chip routes back to
   // the patient's timeline. Capped at 5 entries by RecentPatientsService.
+  //
+  // Semantics: wrap the strip in a `Semantics(container: true, label:
+  // 'Recent patients')` so screen readers announce "Recent patients,
+  // list" as the user enters the section, then read each chip with
+  // its position ("1 of 5: Demo Patient Ravi, button"). Without the
+  // container the chips read in isolation with no scoping.
   Widget _buildRecentPatients() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -556,42 +567,54 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        SizedBox(
-          height: 44,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: _recentPatients.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (context, i) {
-              final p = _recentPatients[i];
-              final uid = (p['uid'] ?? '').toString();
-              final name = (p['name'] ?? 'Patient').toString();
-              return ActionChip(
-                avatar: CircleAvatar(
-                  backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.15),
-                  child: Text(
-                    name.isNotEmpty ? name[0].toUpperCase() : '?',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.primaryBlue,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                label: Text(
-                  name,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                onPressed: uid.isEmpty
-                    ? null
-                    : () => context.go(
-                          '/emr/timeline/$uid?name=${Uri.encodeQueryComponent(name)}',
+        Semantics(
+          container: true,
+          label: 'Recent patients (${_recentPatients.length})',
+          child: SizedBox(
+            height: 44,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _recentPatients.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (context, i) {
+                final p = _recentPatients[i];
+                final uid = (p['uid'] ?? '').toString();
+                final name = (p['name'] ?? 'Patient').toString();
+                return Semantics(
+                  button: true,
+                  label: '${i + 1} of ${_recentPatients.length}: $name',
+                  hint: 'Opens patient chart',
+                  child: ActionChip(
+                    avatar: ExcludeSemantics(
+                      child: CircleAvatar(
+                        backgroundColor:
+                            AppTheme.primaryBlue.withValues(alpha: 0.15),
+                        child: Text(
+                          name.isNotEmpty ? name[0].toUpperCase() : '?',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppTheme.primaryBlue,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-              );
-            },
+                      ),
+                    ),
+                    label: Text(
+                      name,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    onPressed: uid.isEmpty
+                        ? null
+                        : () => context.go(
+                              '/emr/timeline/$uid?name=${Uri.encodeQueryComponent(name)}',
+                            ),
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ],

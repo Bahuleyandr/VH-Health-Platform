@@ -225,7 +225,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                   decoration: const InputDecoration(
                     labelText: 'Patient Phone Number',
                     hintText: '+91 XXXXX XXXXX',
-                    prefixIcon: Icon(Icons.phone_outlined),
+                    prefixIcon: ExcludeSemantics(child: Icon(Icons.phone_outlined)),
                   ),
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) {
@@ -244,7 +244,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                   initialValue: _noteType,
                   decoration: const InputDecoration(
                     labelText: 'Note Type',
-                    prefixIcon: Icon(Icons.category_outlined),
+                    prefixIcon: ExcludeSemantics(child: Icon(Icons.category_outlined)),
                   ),
                   items: _noteTypes
                       .map((t) => DropdownMenuItem(value: t, child: Text(t)))
@@ -317,7 +317,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                     labelText: 'Clinical Note',
                     hintText:
                         'Describe observations, care provided, patient response...',
-                    prefixIcon: const Icon(Icons.edit_note_outlined),
+                    prefixIcon: const ExcludeSemantics(child: Icon(Icons.edit_note_outlined)),
                     // Voice dictation — appends transcript to the note.
                     suffixIcon: VoiceDictateButton(controller: _noteCtrl),
                     alignLabelWithHint: true,

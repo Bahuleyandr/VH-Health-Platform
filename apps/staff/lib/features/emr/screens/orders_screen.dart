@@ -291,7 +291,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
           controller: medication,
           decoration: const InputDecoration(
             labelText: 'Medication Name',
-            prefixIcon: Icon(Icons.medication),
+            prefixIcon: ExcludeSemantics(child: Icon(Icons.medication)),
             border: OutlineInputBorder(),
           ),
           validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
@@ -398,7 +398,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
           controller: investigation,
           decoration: const InputDecoration(
             labelText: 'Investigation',
-            prefixIcon: Icon(Icons.biotech),
+            prefixIcon: ExcludeSemantics(child: Icon(Icons.biotech)),
             hintText: 'CBC, RFT, CT Scan...',
             border: OutlineInputBorder(),
           ),
@@ -463,7 +463,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
           controller: description,
           decoration: const InputDecoration(
             labelText: 'Order Description',
-            prefixIcon: Icon(Icons.medical_services),
+            prefixIcon: ExcludeSemantics(child: Icon(Icons.medical_services)),
             hintText: 'Wound care, positioning, monitoring...',
             border: OutlineInputBorder(),
           ),

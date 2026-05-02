@@ -148,6 +148,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh inventory',
             onPressed: _fetchInventory,
           ),
           const LogoutAction(),
@@ -328,7 +329,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
               controller: _patientNameController,
               decoration: InputDecoration(
                 labelText: 'Patient Name',
-                prefixIcon: const Icon(Icons.person_outline),
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.person_outline)),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -346,7 +347,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
               initialValue: _requestBloodType,
               decoration: InputDecoration(
                 labelText: 'Blood Type',
-                prefixIcon: const Icon(Icons.bloodtype_outlined),
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.bloodtype_outlined)),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -367,7 +368,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
               keyboardType: TextInputType.number,
               decoration: InputDecoration(
                 labelText: 'Units Required',
-                prefixIcon: const Icon(Icons.numbers),
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.numbers)),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),

@@ -28,7 +28,7 @@ class SettingsScreen extends StatelessWidget {
             maxLength: 6,
             decoration: const InputDecoration(
               labelText: 'Enter 4–6 digit PIN',
-              prefixIcon: Icon(Icons.pin_outlined),
+              prefixIcon: ExcludeSemantics(child: Icon(Icons.pin_outlined)),
             ),
             validator: (v) {
               if (v == null || v.isEmpty) return 'PIN is required';

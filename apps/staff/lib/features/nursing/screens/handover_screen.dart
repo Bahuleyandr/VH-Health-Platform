@@ -192,7 +192,7 @@ class _HandoverScreenState extends State<HandoverScreen>
               initialValue: _department,
               decoration: const InputDecoration(
                 labelText: 'Department',
-                prefixIcon: Icon(Icons.business),
+                prefixIcon: ExcludeSemantics(child: Icon(Icons.business)),
                 border: OutlineInputBorder(),
               ),
               items: _departments
@@ -207,7 +207,7 @@ class _HandoverScreenState extends State<HandoverScreen>
               initialValue: _urgency,
               decoration: const InputDecoration(
                 labelText: 'Urgency',
-                prefixIcon: Icon(Icons.warning_amber),
+                prefixIcon: ExcludeSemantics(child: Icon(Icons.warning_amber)),
                 border: OutlineInputBorder(),
               ),
               items: _urgencies.map((u) {
@@ -240,7 +240,7 @@ class _HandoverScreenState extends State<HandoverScreen>
                 labelText: 'Handover Notes',
                 hintText:
                     'Key observations, pending tasks, medication changes...',
-                prefixIcon: const Icon(Icons.notes),
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.notes)),
                 // Voice dictation — appends transcript onto the notes
                 // controller. Useful during shift handovers when typing
                 // is slower than speaking.
@@ -259,7 +259,7 @@ class _HandoverScreenState extends State<HandoverScreen>
               decoration: const InputDecoration(
                 labelText: 'Patient References (optional)',
                 hintText: 'Room 201 - Mr. Sharma, Room 305 - Mrs. Patel',
-                prefixIcon: Icon(Icons.person_search),
+                prefixIcon: ExcludeSemantics(child: Icon(Icons.person_search)),
                 border: OutlineInputBorder(),
               ),
               maxLines: 2,

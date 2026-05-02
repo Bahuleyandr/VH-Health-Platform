@@ -223,7 +223,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             labelText: 'Employee ID',
                             hintText: '1001',
                             prefixText: _empIdPrefix,
-                            prefixIcon: Icon(Icons.badge_outlined),
+                            prefixIcon: ExcludeSemantics(child: Icon(Icons.badge_outlined)),
                           ),
                           keyboardType: TextInputType.number,
                           inputFormatters: [
@@ -281,7 +281,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             decoration: const InputDecoration(
                               labelText: 'PIN (or use biometric)',
                               hintText: 'Enter PIN for quick access',
-                              prefixIcon: Icon(Icons.speed),
+                              prefixIcon: ExcludeSemantics(child: Icon(Icons.speed)),
                             ),
                             validator: (v) {
                               if (v == null || v.isEmpty) {
@@ -297,7 +297,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             obscureText: _obscurePassword,
                             decoration: InputDecoration(
                               labelText: 'Password',
-                              prefixIcon: const Icon(Icons.lock_outlined),
+                              prefixIcon: const ExcludeSemantics(child: Icon(Icons.lock_outlined)),
                               suffixIcon: IconButton(
                                 icon: Icon(
                                   _obscurePassword
@@ -320,7 +320,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             decoration: const InputDecoration(
                               labelText: 'PIN',
                               hintText: '4–6 digits',
-                              prefixIcon: Icon(Icons.pin_outlined),
+                              prefixIcon: ExcludeSemantics(child: Icon(Icons.pin_outlined)),
                             ),
                             validator: (v) {
                               if (v == null || v.isEmpty) return 'PIN required';

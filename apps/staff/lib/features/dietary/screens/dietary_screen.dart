@@ -124,7 +124,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
                       controller: patientUidCtrl,
                       decoration: const InputDecoration(
                         labelText: 'Patient UID',
-                        prefixIcon: Icon(Icons.person_outline),
+                        prefixIcon: ExcludeSemantics(child: Icon(Icons.person_outline)),
                       ),
                       validator: (v) =>
                           (v == null || v.trim().isEmpty) ? 'Required' : null,
@@ -134,7 +134,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
                       initialValue: dietType,
                       decoration: const InputDecoration(
                         labelText: 'Diet Type',
-                        prefixIcon: Icon(Icons.restaurant_menu),
+                        prefixIcon: ExcludeSemantics(child: Icon(Icons.restaurant_menu)),
                       ),
                       items: dietTypes.entries
                           .map(
@@ -152,7 +152,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
                       initialValue: mealTime,
                       decoration: const InputDecoration(
                         labelText: 'Meal Time',
-                        prefixIcon: Icon(Icons.access_time),
+                        prefixIcon: ExcludeSemantics(child: Icon(Icons.access_time)),
                       ),
                       items: mealTimes
                           .map(
@@ -167,7 +167,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
                       controller: restrictionsCtrl,
                       decoration: const InputDecoration(
                         labelText: 'Restrictions / Allergies',
-                        prefixIcon: Icon(Icons.warning_amber_outlined),
+                        prefixIcon: ExcludeSemantics(child: Icon(Icons.warning_amber_outlined)),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -176,7 +176,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
                       maxLines: 2,
                       decoration: const InputDecoration(
                         labelText: 'Notes',
-                        prefixIcon: Icon(Icons.notes),
+                        prefixIcon: ExcludeSemantics(child: Icon(Icons.notes)),
                       ),
                     ),
                   ],
@@ -333,7 +333,11 @@ class _DietaryScreenState extends State<DietaryScreen> {
         backgroundColor: AppTheme.primaryTeal,
         foregroundColor: Colors.white,
         actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchOrders),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh worklist',
+            onPressed: _fetchOrders,
+          ),
           const LogoutAction(),
         ],
       ),

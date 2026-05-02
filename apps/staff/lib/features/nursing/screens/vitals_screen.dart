@@ -284,7 +284,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                   decoration: const InputDecoration(
                     labelText: 'Patient ID',
                     hintText: 'Enter patient ID',
-                    prefixIcon: Icon(Icons.person_outlined),
+                    prefixIcon: ExcludeSemantics(child: Icon(Icons.person_outlined)),
                   ),
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) {
@@ -365,7 +365,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                     labelText: 'Temperature',
                     hintText: 'e.g. 98.6',
                     suffixText: '°F',
-                    prefixIcon: Icon(Icons.thermostat_outlined),
+                    prefixIcon: ExcludeSemantics(child: Icon(Icons.thermostat_outlined)),
                   ),
                   validator: (v) {
                     if (v == null || v.isEmpty) return null;
@@ -393,7 +393,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                           labelText: 'Pulse',
                           hintText: 'e.g. 72',
                           suffixText: 'bpm',
-                          prefixIcon: Icon(Icons.speed_outlined),
+                          prefixIcon: ExcludeSemantics(child: Icon(Icons.speed_outlined)),
                         ),
                         validator: (v) {
                           if (v == null || v.isEmpty) return null;
@@ -414,7 +414,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                           labelText: 'SpO₂',
                           hintText: 'e.g. 98',
                           suffixText: '%',
-                          prefixIcon: Icon(Icons.air_outlined),
+                          prefixIcon: ExcludeSemantics(child: Icon(Icons.air_outlined)),
                         ),
                         validator: (v) {
                           if (v == null || v.isEmpty) return null;
@@ -444,7 +444,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                     labelText: 'Weight',
                     hintText: 'e.g. 70.5',
                     suffixText: 'kg',
-                    prefixIcon: Icon(Icons.monitor_weight_outlined),
+                    prefixIcon: ExcludeSemantics(child: Icon(Icons.monitor_weight_outlined)),
                   ),
                   validator: (v) {
                     if (v == null || v.isEmpty) return null;
@@ -461,7 +461,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                   decoration: const InputDecoration(
                     labelText: 'Nurse Notes (optional)',
                     hintText: 'Any observations or concerns...',
-                    prefixIcon: Icon(Icons.notes_outlined),
+                    prefixIcon: ExcludeSemantics(child: Icon(Icons.notes_outlined)),
                     alignLabelWithHint: true,
                   ),
                   maxLines: 3,
@@ -551,7 +551,7 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
                   decoration: const InputDecoration(
                     labelText: 'Patient ID',
                     hintText: 'Enter patient ID',
-                    prefixIcon: Icon(Icons.person_search_outlined),
+                    prefixIcon: ExcludeSemantics(child: Icon(Icons.person_search_outlined)),
                   ),
                 ),
               ),

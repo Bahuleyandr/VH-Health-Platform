@@ -86,10 +86,11 @@ class _StaffDirectoryScreenState extends State<StaffDirectoryScreen> {
               controller: _searchCtrl,
               decoration: InputDecoration(
                 hintText: 'Search by name, dept, role...',
-                prefixIcon: const Icon(Icons.search),
+                prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear),
+                        tooltip: 'Clear search',
                         onPressed: () {
                           _searchCtrl.clear();
                           setState(() => _searchQuery = '');
