@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../config/role_config.dart';
+import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import 'code_blue_listener.dart';
 import 'offline_sync_badge.dart';
-import 'sos_button.dart';
 
 class StaffScaffold extends StatelessWidget {
   final String title;
   final Widget body;
   final List<Widget>? actions;
   final Widget? floatingActionButton;
-  final bool showSos;
   final int? currentIndex;
   final bool showBottomNav;
   final Widget? bottomSheet;
@@ -23,7 +22,6 @@ class StaffScaffold extends StatelessWidget {
     required this.body,
     this.actions,
     this.floatingActionButton,
-    this.showSos = false,
     this.currentIndex,
     this.showBottomNav = false,
     this.bottomSheet,
@@ -39,8 +37,12 @@ class StaffScaffold extends StatelessWidget {
           title: Text(title),
           actions: [
             const OfflineSyncBadge(),
-            if (showSos) const SosButton(),
             ...?actions,
+            // Universal logout — visible from every screen so the user
+            // doesn't have to navigate to Settings (the nurse / doctor /
+            // pharmacy bottom-nav variants don't include Settings, so
+            // without this the only logout path was to fully reinstall).
+            _LogoutAction(),
           ],
         ),
         body: body,
@@ -269,4 +271,48 @@ class _NavItem {
   final IconData activeIcon;
   final String route;
   const _NavItem(this.label, this.icon, this.activeIcon, this.route);
+}
+
+/// AppBar logout action shown on every StaffScaffold. Calls
+/// AuthService.logout (clears JWT + refresh + role + employeeId from
+/// secure storage) and routes to /login. The auth-redirect guard in
+/// app_router.dart picks the unauthenticated case up automatically,
+/// but pushing /login explicitly avoids a stale-state flash on slow
+/// devices.
+class _LogoutAction extends StatelessWidget {
+  Future<void> _logout(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Logout?'),
+        content: const Text(
+          'You will need to sign in again with your employee ID and password.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.errorRed),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await AuthService.logout();
+    if (!context.mounted) return;
+    context.go('/login');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      icon: const Icon(Icons.logout),
+      tooltip: 'Logout',
+      onPressed: () => _logout(context),
+    );
+  }
 }

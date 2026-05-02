@@ -19,18 +19,28 @@ export const APPOINTMENT_CONFIG = {
   
   ROLES: {
     ADMIN: 'ADMIN',
+    SUPER_ADMIN: 'SUPER_ADMIN',
     DOCTOR: 'DOCTOR',
     PATIENT: 'PATIENT',
-    NURSE: 'NURSE',
+    // The canonical role constant in roleHelpers.js + roles.js + the
+    // user_role enum is NURSING_STAFF. The legacy 'NURSE' string lived
+    // here from an early stub and never got reconciled — the result was
+    // every NURSING_STAFF user got 403 INSUFFICIENT_PERMISSIONS on the
+    // appointments / book / update / view-today flows because the
+    // controller checked req.user.role against this list and the JWT
+    // carries NURSING_STAFF, not NURSE. (The route-level RBAC at
+    // rbacConfig.js correctly uses NURSING_STAFF; the drift was
+    // controller-side.)
+    NURSING_STAFF: 'NURSING_STAFF',
     RECEPTIONIST: 'RECEPTIONIST'
   },
-  
+
   PERMISSIONS: {
-    VIEW_ALL: ['ADMIN', 'DOCTOR', 'NURSE'],
-    VIEW_TODAY: ['ADMIN', 'DOCTOR', 'NURSE', 'RECEPTIONIST'],
-    BOOK: ['ADMIN', 'DOCTOR', 'NURSE', 'RECEPTIONIST', 'PATIENT'],
-    UPDATE: ['ADMIN', 'DOCTOR', 'NURSE', 'PATIENT'],
-    CANCEL: ['ADMIN', 'DOCTOR', 'PATIENT']
+    VIEW_ALL: ['ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'],
+    VIEW_TODAY: ['ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RECEPTIONIST'],
+    BOOK: ['ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RECEPTIONIST', 'PATIENT'],
+    UPDATE: ['ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PATIENT'],
+    CANCEL: ['ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'PATIENT']
   },
   
   MESSAGES: {

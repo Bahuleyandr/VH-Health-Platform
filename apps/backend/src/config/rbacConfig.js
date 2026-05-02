@@ -54,7 +54,16 @@ export default {
   // Mixed/utility
   feedbackRoutes: [PATIENT, GENERAL_STAFF, ADMIN],
   sosRoutes: [PATIENT, GENERAL_STAFF, ADMIN],
-  staffRoutes: [ADMIN, GENERAL_STAFF],
+  // /api/v1/staff/* — staff profile (GET /:identifier), staff list,
+  // staff by department/shift, staff statistics. Every staff role
+  // needs to read their OWN profile (the staff app's Profile screen
+  // calls GET /staff/:employeeId on launch). Authorisation is then
+  // refined inside the controller (only ADMIN/HR_STAFF can read OTHER
+  // staff's full PII; non-admins get the limited public-profile
+  // shape). Including all staff roles here closes the 403-on-Profile
+  // surface that NURSING_STAFF / DOCTOR / PHARMACY_STAFF / LAB_STAFF
+  // / HR_STAFF were hitting on the freshly-installed staff app.
+  staffRoutes: [ADMIN, GENERAL_STAFF, NURSING_STAFF, DOCTOR, PHARMACY_STAFF, LAB_STAFF, HR_STAFF],
   lookupRoutes: [ADMIN, GENERAL_STAFF],
 
   // Public / open routes
