@@ -74,23 +74,53 @@ async function fetchStaffRow(staffId) {
 }
 
 export const markAttendance = async (data, markedBy, markerRole, markerName) => {
+  // Accept both snake_case (staff_id) and camelCase (staffId) — the
+  // Flutter staff app and any direct/curl callers may use either.
+  // Also accept `action: 'check-in' | 'check-out'` as shorthand for
+  // setting check_in_time / check_out_time (the staff app's screen
+  // sends this shape; the controller's body shape is the historical
+  // explicit-time one).
+  const staff_id = data.staff_id ?? data.staffId;
+  let { check_in_time, check_out_time } = data;
+  if (!check_in_time && !check_out_time && data.action) {
+    const action = String(data.action).toLowerCase();
+    if (action === 'check-in' || action === 'checkin') {
+      check_in_time = new Date().toISOString();
+    } else if (action === 'check-out' || action === 'checkout') {
+      check_out_time = new Date().toISOString();
+    }
+  }
   const {
-    staff_id, check_in_time, check_out_time,
     location, notes, break_duration_minutes = 0,
     attendance_type = 'regular',
   } = data;
 
-  // Verify permission to mark attendance
-  const canMarkAttendance = ['ADMIN', 'HR_STAFF'].includes(markerRole) ||
-                           parseInt(staff_id) === markedBy;
-
-  if (!canMarkAttendance) {
-    throw new Error('INSUFFICIENT_PERMISSIONS');
+  if (!staff_id) {
+    throw new Error('STAFF_NOT_FOUND');
   }
 
+  // Resolve the staff row first so the self-mark RBAC check can compare
+  // the row's user_id UUID against markedBy (which is req.user.uid from
+  // the JWT). The previous check did `parseInt(staff_id) === markedBy`
+  // which compared an integer to a UUID string and always failed —
+  // every clinical user got INSUFFICIENT_PERMISSIONS marking their own
+  // attendance, even though the route-level RBAC + business intent both
+  // allow self-mark.
   const staff = await fetchStaffRow(staff_id);
   if (!staff) {
     throw new Error('STAFF_NOT_FOUND');
+  }
+
+  // Self-mark RBAC: a staff member can mark THEIR OWN attendance
+  // regardless of role (NURSING_STAFF / DOCTOR / etc.). ADMIN +
+  // SUPER_ADMIN + HR_STAFF can also mark anyone else's.
+  const isPrivilegedMarker = ['ADMIN', 'SUPER_ADMIN', 'HR_STAFF'].includes(markerRole);
+  const isSelfMark =
+    String(staff.uid || '') === String(markedBy || '') ||
+    String(staff.user_id || '') === String(markedBy || '') ||
+    String(staff.id) === String(markedBy);
+  if (!isPrivilegedMarker && !isSelfMark) {
+    throw new Error('INSUFFICIENT_PERMISSIONS');
   }
 
   // Check if attendance already exists for today (server-local day bounds).
