@@ -262,18 +262,29 @@ melos run analyze
 
 ## Branch state (as of 2026-05-02)
 
-- **Local: `main` only.** All session branches merged + pruned.
-- **Remote: 14 unrelated branches still exist** (telemedicine,
-  tasks-workflow, payer-tpa, totp-api-clients, facility-location,
-  care-plans, pharmacy-supply-chain, abdm-hip-hiu,
-  encounter-cds-hooks, smart-on-fhir-scopes, ed-operational,
-  surgical-ai-modules, surgical-schema, error-scan-2026-05-01).
-  These aren't from this session and were not pruned. Triage them
-  separately when resuming.
+- **Local: `main` only.**
+- **Remote: `main` only.** All 14 historical branches were
+  triaged and pruned in the closing minutes of this session:
+    - 13 `feat/*` branches (b1–b4, c1, c3, c4, d1–d4, tier-b
+      surgical schema/ai-modules) had been **fully merged into
+      `main` already** (HEAD commits ancestor of `main` per
+      `git merge-base --is-ancestor`). 0 commits ahead, 110–134
+      behind. Safe to delete; no work lost.
+    - 1 `chore/error-scan-2026-05-01` branch had **4 unique commits**
+      but was 52 behind `main` — merging would have reverted this
+      session's work. Solution: cherry-picked those 4 commits onto
+      `main` (gitleaks TOTP allowlist, gitleaks kubeseal allowlist,
+      sealed-secret placeholder standardisation, weekly scan
+      `REPORT.md`), then deleted the branch.
 
 ## Recent commits on `main`
 
 ```
+3efd9059 fix: allowlist RFC 4226/6238 TOTP test vector in gitleaks    ← cherry-pick
+5ec6e046 fix: allowlist legacy REPLACE_WITH_KUBESEAL_OUTPUT placeholder ← cherry-pick
+5b43c28b fix: standardise sealed-secret placeholder to allowlisted string ← cherry-pick
+cc3c147c chore: weekly error scan — 5 patterns flagged                 ← cherry-pick
+9c84045f Docs: refresh SESSION_HANDOFF.md with current main-branch state + punch list
 24e3c974 Merge feat/hindi-100pct-patient-i18n: staff Hindi 100% + patient app i18n parity
 a297ed37 Merge feat/i18n-health-verify: i18n verification script + report + final hardcoded sweep
 223d2dc2 Merge feat/i18n-migration-finish: full staff-app i18n coverage
