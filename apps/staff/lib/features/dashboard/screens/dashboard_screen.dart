@@ -120,7 +120,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             if (raw is Map<String, dynamic>) {
               final data = raw['data'];
               if (data is Map<String, dynamic>) {
-                final list = data['due'] ?? data['medications'] ?? data['items'];
+                final list =
+                    data['due'] ?? data['medications'] ?? data['items'];
                 if (list is List) count = list.length;
               }
             }
@@ -591,8 +592,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   child: ActionChip(
                     avatar: ExcludeSemantics(
                       child: CircleAvatar(
-                        backgroundColor:
-                            AppTheme.primaryBlue.withValues(alpha: 0.15),
+                        backgroundColor: AppTheme.primaryBlue.withValues(
+                          alpha: 0.15,
+                        ),
                         child: Text(
                           name.isNotEmpty ? name[0].toUpperCase() : '?',
                           style: const TextStyle(
@@ -613,8 +615,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     onPressed: uid.isEmpty
                         ? null
                         : () => context.go(
-                              '/emr/timeline/$uid?name=${Uri.encodeQueryComponent(name)}',
-                            ),
+                            '/emr/timeline/$uid?name=${Uri.encodeQueryComponent(name)}',
+                          ),
                   ),
                 );
               },
@@ -662,9 +664,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           label: s.dashboardStatAppointments,
           value: '$_appointmentCount',
           color: const Color(0xFF6A1B9A),
-          route: _role == StaffRole.doctor
-              ? '/queue'
-              : '/appointments',
+          route: _role == StaffRole.doctor ? '/queue' : '/appointments',
         ),
       );
     }
@@ -717,9 +717,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             margin: const EdgeInsets.symmetric(horizontal: 4),
             child: InkWell(
               borderRadius: BorderRadius.circular(8),
-              onTap: s.route != null
-                  ? () => context.go(s.route!)
-                  : null,
+              onTap: s.route != null ? () => context.go(s.route!) : null,
               child: Padding(
                 padding: const EdgeInsets.all(12),
                 child: Column(

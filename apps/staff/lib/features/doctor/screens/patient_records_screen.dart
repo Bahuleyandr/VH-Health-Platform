@@ -320,10 +320,7 @@ class _PatientDetailsSheet extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           if (phone != '—')
-            Text(
-              '📱 $phone',
-              style: TextStyle(color: AppTheme.textSecondary),
-            ),
+            Text('📱 $phone', style: TextStyle(color: AppTheme.textSecondary)),
           SizedBox(height: 16),
           Text(
             AppStrings.of(context).patientRecordsDetails,
@@ -398,10 +395,7 @@ class _InfoRow extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: TextStyle(
-                fontSize: 12,
-                color: AppTheme.textSecondary,
-              ),
+              style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
             ),
           ),
         ],

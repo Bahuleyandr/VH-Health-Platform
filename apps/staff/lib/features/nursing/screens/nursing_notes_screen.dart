@@ -110,6 +110,7 @@ class _AddNoteTabState extends State<_AddNoteTab> {
       _phoneCtrl.text = widget.prefillPhone!;
     }
   }
+
   String? _noteType;
   String _priority = 'normal';
   bool _submitting = false;
@@ -415,7 +416,9 @@ class _AddNoteTabState extends State<_AddNoteTab> {
                         )
                       : const Icon(Icons.save, color: Colors.white),
                   label: Text(
-                    _submitting ? s.bedSheetSavingLabel : s.nursingNotesSaveButton,
+                    _submitting
+                        ? s.bedSheetSavingLabel
+                        : s.nursingNotesSaveButton,
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF00695C),

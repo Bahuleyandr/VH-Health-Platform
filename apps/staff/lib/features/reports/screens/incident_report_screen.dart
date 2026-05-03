@@ -44,8 +44,18 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
   };
 
   List<(String, String, Color, String)> _severitiesFor(AppStrings s) => [
-    ('low', s.incidentReportSeverityLow, const Color(0xFF388E3C), s.incidentReportSeverityLowDesc),
-    ('moderate', s.incidentReportSeverityModerate, const Color(0xFFF57C00), s.incidentReportSeverityModerateDesc),
+    (
+      'low',
+      s.incidentReportSeverityLow,
+      const Color(0xFF388E3C),
+      s.incidentReportSeverityLowDesc,
+    ),
+    (
+      'moderate',
+      s.incidentReportSeverityModerate,
+      const Color(0xFFF57C00),
+      s.incidentReportSeverityModerateDesc,
+    ),
     (
       'severe',
       s.incidentReportSeveritySevere,
@@ -147,7 +157,10 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
             children: [
               Text(
                 s.incidentReportSeverityLabel,
-                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                ),
               ),
               const SizedBox(height: 8),
               ..._severitiesFor(s).map((entry) {
@@ -244,8 +257,9 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                   hintText: s.incidentReportTitleHint,
                   border: const OutlineInputBorder(),
                 ),
-                validator: (v) =>
-                    (v?.trim().isEmpty ?? true) ? s.incidentReportTitleRequired : null,
+                validator: (v) => (v?.trim().isEmpty ?? true)
+                    ? s.incidentReportTitleRequired
+                    : null,
                 maxLength: 200,
               ),
 
@@ -371,7 +385,9 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                   labelText: s.incidentReportLocationLabel,
                   hintText: s.incidentReportLocationHint,
                   border: const OutlineInputBorder(),
-                  prefixIcon: const ExcludeSemantics(child: Icon(Icons.location_on_outlined)),
+                  prefixIcon: const ExcludeSemantics(
+                    child: Icon(Icons.location_on_outlined),
+                  ),
                 ),
               ),
 
@@ -408,7 +424,9 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                   labelText: s.incidentReportWitnessesLabel,
                   hintText: s.incidentReportWitnessesHint,
                   border: const OutlineInputBorder(),
-                  prefixIcon: const ExcludeSemantics(child: Icon(Icons.people_outline)),
+                  prefixIcon: const ExcludeSemantics(
+                    child: Icon(Icons.people_outline),
+                  ),
                 ),
               ),
 
@@ -520,7 +538,10 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
               const SizedBox(height: 20),
               Text(
                 s.incidentReportSubmittedTitle,
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               if (_reportNumber != null) ...[
                 const SizedBox(height: 8),

@@ -406,7 +406,10 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
               const SizedBox(height: 16),
               Text(
                 AppLocalizations.of(ctx)!.yourHealthClinicalNotes,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
               ),
               const SizedBox(height: 4),
               Text(rx['clinical_notes']),
@@ -507,7 +510,10 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                 children: [
                   Text(
                     AppLocalizations.of(ctx)!.yourHealthOrderMedicines,
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(

@@ -465,7 +465,10 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
                         value: 'urgent',
                         child: Row(
                           children: [
-                            const Icon(Icons.priority_high, color: Colors.orange),
+                            const Icon(
+                              Icons.priority_high,
+                              color: Colors.orange,
+                            ),
                             const SizedBox(width: 8),
                             Text(s.priorityUrgent),
                           ],

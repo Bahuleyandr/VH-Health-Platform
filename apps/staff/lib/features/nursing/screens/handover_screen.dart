@@ -20,11 +20,7 @@ import '../../../l10n/app_strings.dart';
 class HandoverScreen extends StatefulWidget {
   final String? prefillPatientRef;
   final String? prefillPhone;
-  const HandoverScreen({
-    super.key,
-    this.prefillPatientRef,
-    this.prefillPhone,
-  });
+  const HandoverScreen({super.key, this.prefillPatientRef, this.prefillPhone});
 
   @override
   State<HandoverScreen> createState() => _HandoverScreenState();
@@ -291,7 +287,9 @@ class _HandoverScreenState extends State<HandoverScreen>
                     )
                   : const Icon(Icons.send),
               label: Text(
-                _submitting ? s.handoverSubmittingButton : s.handoverSubmitButton,
+                _submitting
+                    ? s.handoverSubmittingButton
+                    : s.handoverSubmitButton,
               ),
             ),
           ],
@@ -431,7 +429,8 @@ class _HandoverScreenState extends State<HandoverScreen>
     try {
       final dt = DateTime.parse(ts);
       final diff = DateTime.now().difference(dt);
-      if (diff.inMinutes < 60) return '${diff.inMinutes}${s.timeMinutesAgoSuffix}';
+      if (diff.inMinutes < 60)
+        return '${diff.inMinutes}${s.timeMinutesAgoSuffix}';
       if (diff.inHours < 24) return '${diff.inHours}${s.timeHoursAgoSuffix}';
       return DateFormat('d MMM, HH:mm').format(dt);
     } catch (e) {

@@ -150,8 +150,13 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
               indicatorColor: AppTheme.primaryBlue,
               tabs: [
                 Tab(text: '${s.labBookingsTabNew} (${_newBookings.length})'),
-                Tab(text: '${s.labBookingsTabActive} (${_activeBookings.length})'),
-                Tab(text: '${s.labBookingsTabDone} (${_completedBookings.length})'),
+                Tab(
+                  text: '${s.labBookingsTabActive} (${_activeBookings.length})',
+                ),
+                Tab(
+                  text:
+                      '${s.labBookingsTabDone} (${_completedBookings.length})',
+                ),
               ],
             ),
           ),
@@ -325,7 +330,9 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  collectionType == 'home' ? s.labBookingsHomeCollection : s.labBookingsWalkIn,
+                  collectionType == 'home'
+                      ? s.labBookingsHomeCollection
+                      : s.labBookingsWalkIn,
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
                 const SizedBox(width: 12),
@@ -766,11 +773,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                     if (fileSize > maxSizeBytes) {
                       if (ctx.mounted) {
                         ScaffoldMessenger.of(ctx).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              s.investigationsFileTooLarge,
-                            ),
-                          ),
+                          SnackBar(content: Text(s.investigationsFileTooLarge)),
                         );
                       }
                       return;

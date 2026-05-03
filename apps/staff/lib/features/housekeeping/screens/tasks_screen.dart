@@ -148,8 +148,12 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
               indicatorColor: AppTheme.successGreen,
               tabs: [
                 Tab(text: '${s.housekeepingTabAll} (${_tasks.length})'),
-                Tab(text: '${s.housekeepingTabPending} (${_pendingTasks.length})'),
-                Tab(text: '${s.housekeepingTabDone} (${_completedTasks.length})'),
+                Tab(
+                  text: '${s.housekeepingTabPending} (${_pendingTasks.length})',
+                ),
+                Tab(
+                  text: '${s.housekeepingTabDone} (${_completedTasks.length})',
+                ),
               ],
             ),
           ),

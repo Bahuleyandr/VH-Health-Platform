@@ -77,7 +77,11 @@ class SmartPrescriptionCard extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                           textStyle: const TextStyle(fontSize: 11),
                         ),
-                        child: Text(AppLocalizations.of(context)!.yourHealthOrderMedicines),
+                        child: Text(
+                          AppLocalizations.of(
+                            context,
+                          )!.yourHealthOrderMedicines,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),

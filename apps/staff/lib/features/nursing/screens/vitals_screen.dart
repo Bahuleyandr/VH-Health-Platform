@@ -98,10 +98,7 @@ class _VitalsScreenState extends State<VitalsScreen>
 class _RecordVitalsTab extends StatefulWidget {
   final String? prefillPatientId;
   final String? prefillPatientName;
-  const _RecordVitalsTab({
-    this.prefillPatientId,
-    this.prefillPatientName,
-  });
+  const _RecordVitalsTab({this.prefillPatientId, this.prefillPatientName});
 
   @override
   State<_RecordVitalsTab> createState() => _RecordVitalsTabState();
@@ -118,6 +115,7 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
       _patientIdCtrl.text = widget.prefillPatientId!;
     }
   }
+
   final _bpSysCtrl = TextEditingController();
   final _bpDiaCtrl = TextEditingController();
   final _tempCtrl = TextEditingController();

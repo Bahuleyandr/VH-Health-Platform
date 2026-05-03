@@ -123,7 +123,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
           if (mounted) {
             messenger.showSnackBar(
               SnackBar(
-                content: Text(AppLocalizations.of(context)!.investigationsFileTooLarge),
+                content: Text(
+                  AppLocalizations.of(context)!.investigationsFileTooLarge,
+                ),
                 backgroundColor: theme.colorScheme.error,
                 behavior: SnackBarBehavior.floating,
               ),
@@ -513,7 +515,11 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                       setState(() => _expandedIds.add(id));
                     },
                     icon: const Icon(Icons.download_outlined),
-                    label: Text(AppLocalizations.of(context)!.investigationsViewDownloadReport),
+                    label: Text(
+                      AppLocalizations.of(
+                        context,
+                      )!.investigationsViewDownloadReport,
+                    ),
                   ),
                 ),
               ],
@@ -616,7 +622,9 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                 );
               },
               icon: const Icon(Icons.add),
-              label: Text(AppLocalizations.of(context)!.investigationsBookButton),
+              label: Text(
+                AppLocalizations.of(context)!.investigationsBookButton,
+              ),
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),

@@ -179,11 +179,18 @@ class _TheatreScreenState extends State<TheatreScreen>
                 Center(
                   child: Column(
                     children: [
-                      const Icon(Icons.event_busy, size: 64, color: Colors.grey),
+                      const Icon(
+                        Icons.event_busy,
+                        size: 64,
+                        color: Colors.grey,
+                      ),
                       const SizedBox(height: 12),
                       Text(
                         AppStrings.of(context).theatreNoSurgeries,
-                        style: const TextStyle(color: Colors.grey, fontSize: 16),
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 16,
+                        ),
                       ),
                     ],
                   ),
@@ -269,10 +276,7 @@ class _TheatreScreenState extends State<TheatreScreen>
               SizedBox(height: 6),
               Text(
                 '${AppStrings.of(context).theatreSurgeonPrefix} ${s['surgeon']?.toString() ?? '-'}',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: AppTheme.textSecondary,
-                ),
+                style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
               ),
             ],
           ),
@@ -346,14 +350,26 @@ class _TheatreScreenState extends State<TheatreScreen>
                     str.theatreLabelProcedureCode,
                     s['procedure_code']?.toString() ?? '-',
                   ),
-                  _detailRow(str.theatreLabelOtRoom, s['ot_room']?.toString() ?? '-'),
-                  _detailRow(str.theatreLabelDate, s['scheduled_date']?.toString() ?? '-'),
-                  _detailRow(str.theatreLabelTime, s['scheduled_time']?.toString() ?? '-'),
+                  _detailRow(
+                    str.theatreLabelOtRoom,
+                    s['ot_room']?.toString() ?? '-',
+                  ),
+                  _detailRow(
+                    str.theatreLabelDate,
+                    s['scheduled_date']?.toString() ?? '-',
+                  ),
+                  _detailRow(
+                    str.theatreLabelTime,
+                    s['scheduled_time']?.toString() ?? '-',
+                  ),
                   _detailRow(
                     str.theatreLabelDuration,
                     '${s['estimated_duration'] ?? '-'} min',
                   ),
-                  _detailRow(str.theatreLabelSurgeon, s['surgeon']?.toString() ?? '-'),
+                  _detailRow(
+                    str.theatreLabelSurgeon,
+                    s['surgeon']?.toString() ?? '-',
+                  ),
                   _detailRow(
                     str.theatreLabelAnesthetist,
                     s['anesthetist']?.toString() ?? '-',
@@ -361,14 +377,21 @@ class _TheatreScreenState extends State<TheatreScreen>
                   _detailRow(str.theatreLabelStatus, _statusLabel(status)),
                   _detailRow(
                     str.theatreLabelBloodArranged,
-                    s['blood_arranged'] == true ? str.theatreYes : str.theatreNo,
+                    s['blood_arranged'] == true
+                        ? str.theatreYes
+                        : str.theatreNo,
                   ),
                   _detailRow(
                     str.theatreLabelConsent,
-                    s['consent_obtained'] == true ? str.theatreYes : str.theatreNo,
+                    s['consent_obtained'] == true
+                        ? str.theatreYes
+                        : str.theatreNo,
                   ),
                   if (s['equipment_needed'] != null)
-                    _detailRow(str.theatreLabelEquipment, s['equipment_needed'].toString()),
+                    _detailRow(
+                      str.theatreLabelEquipment,
+                      s['equipment_needed'].toString(),
+                    ),
                   const SizedBox(height: 24),
                   if (id != null) ...[
                     if (status == 'scheduled')
@@ -441,10 +464,7 @@ class _TheatreScreenState extends State<TheatreScreen>
             width: 130,
             child: Text(
               label,
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
             ),
           ),
           Expanded(
@@ -469,7 +489,11 @@ class _TheatreScreenState extends State<TheatreScreen>
       await TheatreApiService.updateStatus(id, status);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${str.theatreStatusUpdatedTo} ${_statusLabel(status)}')),
+          SnackBar(
+            content: Text(
+              '${str.theatreStatusUpdatedTo} ${_statusLabel(status)}',
+            ),
+          ),
         );
       }
       _fetchSchedule();
@@ -573,7 +597,9 @@ class _TheatreScreenState extends State<TheatreScreen>
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text('${str.theatreChecklistUpdated}: $e'),
+                                content: Text(
+                                  '${str.theatreChecklistUpdated}: $e',
+                                ),
                                 backgroundColor: AppTheme.errorRed,
                               ),
                             );
@@ -605,11 +631,18 @@ class _TheatreScreenState extends State<TheatreScreen>
                 Center(
                   child: Column(
                     children: [
-                      const Icon(Icons.meeting_room, size: 64, color: Colors.grey),
+                      const Icon(
+                        Icons.meeting_room,
+                        size: 64,
+                        color: Colors.grey,
+                      ),
                       const SizedBox(height: 12),
                       Text(
                         AppStrings.of(context).theatreNoRoomData,
-                        style: const TextStyle(color: Colors.grey, fontSize: 16),
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 16,
+                        ),
                       ),
                     ],
                   ),
@@ -671,7 +704,9 @@ class _TheatreScreenState extends State<TheatreScreen>
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
-                            available ? AppStrings.of(context).theatreAvailable : AppStrings.of(context).theatreOccupied,
+                            available
+                                ? AppStrings.of(context).theatreAvailable
+                                : AppStrings.of(context).theatreOccupied,
                             style: TextStyle(
                               color: available
                                   ? AppTheme.successGreen

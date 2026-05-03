@@ -39,7 +39,10 @@ class _DebugTelemetrySink implements TelemetrySink {
   }
 
   @override
-  Future<void> screenView(String screenName, {Map<String, String>? props}) async {
+  Future<void> screenView(
+    String screenName, {
+    Map<String, String>? props,
+  }) async {
     if (kDebugMode) {
       debugPrint('[telemetry] screen: $screenName ${props ?? ''}');
     }
@@ -73,10 +76,7 @@ class Telemetry {
 
   /// Record a named event. Best-effort — swallows backend errors so a
   /// flaky analytics endpoint never crashes the app.
-  static Future<void> event(
-    String name, [
-    Map<String, String>? props,
-  ]) async {
+  static Future<void> event(String name, [Map<String, String>? props]) async {
     try {
       await _sink.event(name, props ?? const {});
     } catch (e) {
@@ -104,10 +104,7 @@ class Telemetry {
     String? employeeIdHash,
   }) async {
     try {
-      await _sink.setUserProperties(
-        role: role,
-        employeeIdHash: employeeIdHash,
-      );
+      await _sink.setUserProperties(role: role, employeeIdHash: employeeIdHash);
     } catch (e) {
       if (kDebugMode) debugPrint('Telemetry.setUserProperties failed: $e');
     }

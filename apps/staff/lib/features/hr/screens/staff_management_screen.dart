@@ -287,10 +287,7 @@ class _StaffCard extends StatelessWidget {
               ),
             ),
             IconButton(
-              icon: Icon(
-                Icons.edit_outlined,
-                color: AppTheme.textSecondary,
-              ),
+              icon: Icon(Icons.edit_outlined, color: AppTheme.textSecondary),
               onPressed: onEdit,
             ),
           ],
@@ -383,8 +380,9 @@ class _StaffFormDialogState extends State<_StaffFormDialog> {
             TextFormField(
               controller: _nameCtrl,
               decoration: InputDecoration(labelText: s.staffMgmtFullName),
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? s.staffMgmtNameRequired : null,
+              validator: (v) => (v == null || v.trim().isEmpty)
+                  ? s.staffMgmtNameRequired
+                  : null,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -431,7 +429,10 @@ class _ErrorState extends StatelessWidget {
             AppStrings.of(context).staffMgmtListApiUnavailable,
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
           ),
-          TextButton(onPressed: onRetry, child: Text(AppStrings.of(context).actionRetry)),
+          TextButton(
+            onPressed: onRetry,
+            child: Text(AppStrings.of(context).actionRetry),
+          ),
         ],
       ),
     );
@@ -449,11 +450,7 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.people_outline,
-            size: 56,
-            color: AppTheme.textSecondary,
-          ),
+          Icon(Icons.people_outline, size: 56, color: AppTheme.textSecondary),
           SizedBox(height: 16),
           Text(
             hasSearch ? s.staffMgmtNoStaffFound : s.staffMgmtNoStaffMembers,
@@ -465,9 +462,7 @@ class _EmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            hasSearch
-                ? s.staffMgmtSearchEmpty
-                : s.staffMgmtApiPending,
+            hasSearch ? s.staffMgmtSearchEmpty : s.staffMgmtApiPending,
             textAlign: TextAlign.center,
             style: TextStyle(color: AppTheme.textSecondary),
           ),

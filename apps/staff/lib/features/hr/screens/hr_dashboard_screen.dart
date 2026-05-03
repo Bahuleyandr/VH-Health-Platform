@@ -469,7 +469,10 @@ class _ErrorState extends StatelessWidget {
             style: TextStyle(color: AppTheme.textSecondary),
             textAlign: TextAlign.center,
           ),
-          TextButton(onPressed: onRetry, child: Text(AppStrings.of(context).actionRetry)),
+          TextButton(
+            onPressed: onRetry,
+            child: Text(AppStrings.of(context).actionRetry),
+          ),
         ],
       ),
     );

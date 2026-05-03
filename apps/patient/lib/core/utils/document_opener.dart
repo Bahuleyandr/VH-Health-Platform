@@ -99,7 +99,9 @@ class DocumentOpener {
         );
         if (!launched && context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(AppLocalizations.of(context)!.documentCouldNotOpen)),
+            SnackBar(
+              content: Text(AppLocalizations.of(context)!.documentCouldNotOpen),
+            ),
           );
         }
       }

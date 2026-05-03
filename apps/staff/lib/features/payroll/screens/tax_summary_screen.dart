@@ -101,7 +101,10 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
               children: [
                 Text(
                   str.payrollTaxSummaryFyLabel,
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -244,12 +247,20 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
           _DetailCard(
             title: str.payrollTaxSummaryEarningsBreakdown,
             rows: [
-              if ((double.tryParse(summary['total_basic']?.toString() ?? '0') ?? 0) >
+              if ((double.tryParse(summary['total_basic']?.toString() ?? '0') ??
+                      0) >
                   0)
-                _DetailRow(str.payrollDetailBasic, fmtAmt(summary['total_basic'])),
-              if ((double.tryParse(summary['total_hra']?.toString() ?? '0') ?? 0) > 0)
+                _DetailRow(
+                  str.payrollDetailBasic,
+                  fmtAmt(summary['total_basic']),
+                ),
+              if ((double.tryParse(summary['total_hra']?.toString() ?? '0') ??
+                      0) >
+                  0)
                 _DetailRow(str.payrollDetailHra, fmtAmt(summary['total_hra'])),
-              if ((double.tryParse(summary['total_da']?.toString() ?? '0') ?? 0) > 0)
+              if ((double.tryParse(summary['total_da']?.toString() ?? '0') ??
+                      0) >
+                  0)
                 _DetailRow(str.payrollDetailDa, fmtAmt(summary['total_da'])),
               if ((double.tryParse(
                         summary['total_special_allowance']?.toString() ?? '0',
@@ -278,18 +289,36 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
                   str.payrollDetailMedicalAllowance,
                   fmtAmt(summary['total_medical_allowance']),
                 ),
-              if ((double.tryParse(summary['total_overtime']?.toString() ?? '0') ??
+              if ((double.tryParse(
+                        summary['total_overtime']?.toString() ?? '0',
+                      ) ??
                       0) >
                   0)
-                _DetailRow(str.payrollDetailOvertimePay, fmtAmt(summary['total_overtime'])),
-              if ((double.tryParse(summary['total_bonus']?.toString() ?? '0') ?? 0) >
-                  0)
-                _DetailRow(str.payrollDetailBonus, fmtAmt(summary['total_bonus'])),
-              if ((double.tryParse(summary['total_arrears']?.toString() ?? '0') ??
+                _DetailRow(
+                  str.payrollDetailOvertimePay,
+                  fmtAmt(summary['total_overtime']),
+                ),
+              if ((double.tryParse(summary['total_bonus']?.toString() ?? '0') ??
                       0) >
                   0)
-                _DetailRow(str.payrollDetailArrears, fmtAmt(summary['total_arrears'])),
-              _DetailRow(str.payrollTaxSummaryTotalGross, fmtAmt(summary['total_gross']), isBold: true),
+                _DetailRow(
+                  str.payrollDetailBonus,
+                  fmtAmt(summary['total_bonus']),
+                ),
+              if ((double.tryParse(
+                        summary['total_arrears']?.toString() ?? '0',
+                      ) ??
+                      0) >
+                  0)
+                _DetailRow(
+                  str.payrollDetailArrears,
+                  fmtAmt(summary['total_arrears']),
+                ),
+              _DetailRow(
+                str.payrollTaxSummaryTotalGross,
+                fmtAmt(summary['total_gross']),
+                isBold: true,
+              ),
             ],
           ),
 
@@ -297,9 +326,16 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
           _DetailCard(
             title: str.payrollTaxSummaryDeductionsBreakdown,
             rows: [
-              if ((double.tryParse(summary['total_pf']?.toString() ?? '0') ?? 0) > 0)
-                _DetailRow(str.payrollDetailPfEmployee, fmtAmt(summary['total_pf'])),
-              if ((double.tryParse(summary['total_esi']?.toString() ?? '0') ?? 0) > 0)
+              if ((double.tryParse(summary['total_pf']?.toString() ?? '0') ??
+                      0) >
+                  0)
+                _DetailRow(
+                  str.payrollDetailPfEmployee,
+                  fmtAmt(summary['total_pf']),
+                ),
+              if ((double.tryParse(summary['total_esi']?.toString() ?? '0') ??
+                      0) >
+                  0)
                 _DetailRow(str.payrollDetailEsi, fmtAmt(summary['total_esi'])),
               if ((double.tryParse(
                         summary['total_professional_tax']?.toString() ?? '0',
@@ -310,7 +346,9 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
                   str.payrollDetailProfessionalTax,
                   fmtAmt(summary['total_professional_tax']),
                 ),
-              if ((double.tryParse(summary['total_tds']?.toString() ?? '0') ?? 0) > 0)
+              if ((double.tryParse(summary['total_tds']?.toString() ?? '0') ??
+                      0) >
+                  0)
                 _DetailRow(str.payrollDetailTds, fmtAmt(summary['total_tds'])),
               if ((double.tryParse(
                         summary['total_advance_deductions']?.toString() ?? '0',
@@ -333,8 +371,14 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
           _DetailCard(
             title: str.payrollTaxSummaryTaxComputation,
             rows: [
-              _DetailRow(str.payrollTaxSummaryTotalGross, fmtAmt(summary['total_gross'])),
-              _DetailRow(str.payrollDetailPfEmployee, '- ${fmtAmt(summary['total_pf'])}'),
+              _DetailRow(
+                str.payrollTaxSummaryTotalGross,
+                fmtAmt(summary['total_gross']),
+              ),
+              _DetailRow(
+                str.payrollDetailPfEmployee,
+                '- ${fmtAmt(summary['total_pf'])}',
+              ),
               _DetailRow(
                 str.payrollDetailProfessionalTax,
                 '- ${fmtAmt(summary['total_professional_tax'])}',

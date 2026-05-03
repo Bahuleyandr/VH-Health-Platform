@@ -212,7 +212,8 @@ class _QueueScreenState extends State<QueueScreen> {
     try {
       final parsed = DateTime.parse(dt);
       final diff = DateTime.now().difference(parsed);
-      if (diff.isNegative) return '${s.queueInPrefix} ${_formatDuration(-diff)}';
+      if (diff.isNegative)
+        return '${s.queueInPrefix} ${_formatDuration(-diff)}';
       return '${s.queueWaitingPrefix} ${_formatDuration(diff)}';
     } catch (e) {
       return '';
@@ -862,10 +863,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
               Text(
                 '${gender.isNotEmpty ? gender : ''} ${age.isNotEmpty ? '${s.queueAgePrefix} $age' : ''}'
                     .trim(),
-                style: TextStyle(
-                  fontSize: 13,
-                  color: AppTheme.textSecondary,
-                ),
+                style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
               ),
             if (allergies != null && allergies.toString().isNotEmpty) ...[
               const SizedBox(height: 6),
@@ -918,8 +916,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
             Navigator.pop(context);
           },
         ),
-        _ActionChip(Icons.note_add, s.queueAddNotes, AppTheme.warningAmber,
-            () {
+        _ActionChip(Icons.note_add, s.queueAddNotes, AppTheme.warningAmber, () {
           Navigator.pop(context);
         }),
       ],

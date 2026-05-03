@@ -161,7 +161,10 @@ class _SymptomCheckerScreenState extends State<SymptomCheckerScreen> {
       ],
       if (redFlags.isNotEmpty) ...[
         const SizedBox(height: 12),
-        Text(l.symptomCheckerRedFlags, style: const TextStyle(fontWeight: FontWeight.bold)),
+        Text(
+          l.symptomCheckerRedFlags,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
         for (final f in redFlags)
           Padding(
             padding: const EdgeInsets.only(top: 2),

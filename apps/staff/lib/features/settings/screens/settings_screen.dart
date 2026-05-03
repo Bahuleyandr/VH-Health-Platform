@@ -30,7 +30,9 @@ class SettingsScreen extends StatelessWidget {
             maxLength: 6,
             decoration: InputDecoration(
               labelText: s.settingsSetupPinDialogLabel,
-              prefixIcon: const ExcludeSemantics(child: Icon(Icons.pin_outlined)),
+              prefixIcon: const ExcludeSemantics(
+                child: Icon(Icons.pin_outlined),
+              ),
             ),
             validator: (v) {
               if (v == null || v.isEmpty) return s.loginPinRequired;
@@ -385,10 +387,7 @@ class _SettingsTile extends StatelessWidget {
       subtitle: subtitle != null
           ? Text(
               subtitle!,
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 12,
-              ),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
             )
           : null,
       trailing: trailing,

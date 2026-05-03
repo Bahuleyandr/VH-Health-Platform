@@ -29,24 +29,23 @@ class BedBoardPrintService {
     // Sort beds by bed_number so the printout matches what the eye
     // expects on a paper handover sheet (lexicographic, "A-101" before
     // "A-102").
-    final sorted = [...beds]..sort(
-      (a, b) {
+    final sorted = [...beds]
+      ..sort((a, b) {
         final an = (a['bed_number'] ?? a['bedNumber'] ?? '').toString();
         final bn = (b['bed_number'] ?? b['bedNumber'] ?? '').toString();
         return an.compareTo(bn);
-      },
-    );
+      });
 
     final headers = ['Bed', 'Status', 'Patient', 'Age', 'Admitted', 'Notes'];
     final rows = sorted.map((bed) {
-      final bedNum =
-          (bed['bed_number'] ?? bed['bedNumber'] ?? '—').toString();
+      final bedNum = (bed['bed_number'] ?? bed['bedNumber'] ?? '—').toString();
       final status = (bed['status'] ?? '').toString();
-      final patient = (bed['patient_full_name'] ??
-              bed['patient_name'] ??
-              bed['patientName'] ??
-              '')
-          .toString();
+      final patient =
+          (bed['patient_full_name'] ??
+                  bed['patient_name'] ??
+                  bed['patientName'] ??
+                  '')
+              .toString();
       final age = bed['patient_age'];
       final admitted = bed['admission_admitted_at'] ?? bed['admitted_at'];
       final notes = (bed['notes'] ?? '').toString();
@@ -55,9 +54,7 @@ class BedBoardPrintService {
         _capitalize(status),
         patient.isEmpty ? '—' : patient,
         (age == null || age.toString().isEmpty) ? '—' : age.toString(),
-        admitted == null
-            ? '—'
-            : _shortDate(admitted.toString()),
+        admitted == null ? '—' : _shortDate(admitted.toString()),
         notes.isEmpty ? '—' : _truncate(notes, 80),
       ];
     }).toList();

@@ -106,18 +106,15 @@ class AppTheme {
   // Use these getters for:
   //   - body text rendered directly on `cardSurface` or `backgroundGrey`
   //   - inline error/success messages
-  static Color get successOnSurface =>
-      brightness == Brightness.dark
-          ? const Color(0xFF66BB6A) // Material Green 400 — 6.45:1 on darkCard
-          : successGreen;
-  static Color get errorOnSurface =>
-      brightness == Brightness.dark
-          ? const Color(0xFFFF8A80) // Material Red A100 — 6.42:1 on darkCard
-          : errorRed;
-  static Color get warningOnSurface =>
-      brightness == Brightness.dark
-          ? const Color(0xFFFFB74D) // Material Orange 300 — 6.92:1 on darkCard
-          : warningAmber;
+  static Color get successOnSurface => brightness == Brightness.dark
+      ? const Color(0xFF66BB6A) // Material Green 400 — 6.45:1 on darkCard
+      : successGreen;
+  static Color get errorOnSurface => brightness == Brightness.dark
+      ? const Color(0xFFFF8A80) // Material Red A100 — 6.42:1 on darkCard
+      : errorRed;
+  static Color get warningOnSurface => brightness == Brightness.dark
+      ? const Color(0xFFFFB74D) // Material Orange 300 — 6.92:1 on darkCard
+      : warningAmber;
 
   // ── Light theme ───────────────────────────────────────────────────────
   static ThemeData get lightTheme {

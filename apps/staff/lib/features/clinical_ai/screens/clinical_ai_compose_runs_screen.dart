@@ -32,10 +32,12 @@ class ClinicalAiComposeRunsScreen extends StatefulWidget {
   const ClinicalAiComposeRunsScreen({super.key});
 
   @override
-  State<ClinicalAiComposeRunsScreen> createState() => _ClinicalAiComposeRunsScreenState();
+  State<ClinicalAiComposeRunsScreen> createState() =>
+      _ClinicalAiComposeRunsScreenState();
 }
 
-class _ClinicalAiComposeRunsScreenState extends State<ClinicalAiComposeRunsScreen> {
+class _ClinicalAiComposeRunsScreenState
+    extends State<ClinicalAiComposeRunsScreen> {
   String? _statusFilter;
   List<Map<String, dynamic>> _runs = const [];
   bool _loading = true;
@@ -133,7 +135,11 @@ class _StatusFilter {
 }
 
 class _FilterBar extends StatelessWidget {
-  const _FilterBar({required this.filters, required this.value, required this.onChanged});
+  const _FilterBar({
+    required this.filters,
+    required this.value,
+    required this.onChanged,
+  });
   final List<_StatusFilter> filters;
   final String? value;
   final ValueChanged<String?> onChanged;
@@ -194,18 +200,25 @@ class _RunListTile extends StatelessWidget {
             children: [
               _Chip(label: status, color: _statusColor(context, status)),
               if (reviewStatus != null && reviewStatus != 'null')
-                _Chip(label: '${s.clinicalAiComposeReviewPrefix} $reviewStatus', color: Theme.of(context).colorScheme.tertiary),
+                _Chip(
+                  label: '${s.clinicalAiComposeReviewPrefix} $reviewStatus',
+                  color: Theme.of(context).colorScheme.tertiary,
+                ),
               if (pauseReason != null && pauseReason != 'null')
-                _Chip(label: pauseReason, color: Theme.of(context).colorScheme.error),
+                _Chip(
+                  label: pauseReason,
+                  color: Theme.of(context).colorScheme.error,
+                ),
             ],
           ),
-          if (startedAt != null) Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              '${s.clinicalAiComposeStartedPrefix} $startedAt',
-              style: Theme.of(context).textTheme.bodySmall,
+          if (startedAt != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '${s.clinicalAiComposeStartedPrefix} $startedAt',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ),
-          ),
         ],
       ),
       trailing: const Icon(Icons.chevron_right),
@@ -214,11 +227,16 @@ class _RunListTile extends StatelessWidget {
 
   Color _statusColor(BuildContext context, String status) {
     switch (status.toLowerCase()) {
-      case 'running': return Colors.blue.shade700;
-      case 'paused': return Colors.orange.shade700;
-      case 'completed': return Colors.green.shade700;
-      case 'failed': return Theme.of(context).colorScheme.error;
-      default: return Theme.of(context).colorScheme.onSurfaceVariant;
+      case 'running':
+        return Colors.blue.shade700;
+      case 'paused':
+        return Colors.orange.shade700;
+      case 'completed':
+        return Colors.green.shade700;
+      case 'failed':
+        return Theme.of(context).colorScheme.error;
+      default:
+        return Theme.of(context).colorScheme.onSurfaceVariant;
     }
   }
 }
@@ -253,7 +271,11 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.account_tree_outlined, size: 48, color: Colors.grey),
+            const Icon(
+              Icons.account_tree_outlined,
+              size: 48,
+              color: Colors.grey,
+            ),
             const SizedBox(height: 8),
             Text(s.clinicalAiComposeRunsEmpty),
           ],

@@ -30,11 +30,12 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     final q = _searchQuery.trim().toLowerCase();
     if (q.isEmpty) return _appointments;
     return _appointments.where((a) {
-      final name = (a['patientName']?.toString() ??
-              a['patient']?['name']?.toString() ??
-              a['patient_name']?.toString() ??
-              '')
-          .toLowerCase();
+      final name =
+          (a['patientName']?.toString() ??
+                  a['patient']?['name']?.toString() ??
+                  a['patient_name']?.toString() ??
+                  '')
+              .toLowerCase();
       return name.contains(q);
     }).toList();
   }
@@ -184,17 +185,17 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                     )
                   : _filtered.isEmpty
                   ? (_searchQuery.trim().isNotEmpty
-                      ? Center(
-                          child: Text(
-                            AppStrings.of(context).noMatchesFor(_searchQuery),
-                            style: TextStyle(color: AppTheme.textSecondary),
-                          ),
-                        )
-                      : EmptyState(
-                          icon: Icons.event_available_outlined,
-                          title: AppStrings.of(context).appointmentsNoToday,
-                          body: 'New appointments will show up here.',
-                        ))
+                        ? Center(
+                            child: Text(
+                              AppStrings.of(context).noMatchesFor(_searchQuery),
+                              style: TextStyle(color: AppTheme.textSecondary),
+                            ),
+                          )
+                        : EmptyState(
+                            icon: Icons.event_available_outlined,
+                            title: AppStrings.of(context).appointmentsNoToday,
+                            body: 'New appointments will show up here.',
+                          ))
                   : ListView.builder(
                       padding: const EdgeInsets.all(16),
                       itemCount: _filtered.length,
@@ -360,10 +361,7 @@ class _InfoRow extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: TextStyle(
-                fontSize: 13,
-                color: AppTheme.textSecondary,
-              ),
+              style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
             ),
           ),
         ],

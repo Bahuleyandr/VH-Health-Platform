@@ -190,10 +190,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       await _loadCalendar();
     } catch (e) {
       if (mounted) {
-        ErrorToast.show(
-          context,
-          e.toString().replaceFirst('Exception: ', ''),
-        );
+        ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _actionLoading = false);
@@ -634,7 +631,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _summaryCell('$present', s.attendanceLegendPresent, Colors.green),
+                _summaryCell(
+                  '$present',
+                  s.attendanceLegendPresent,
+                  Colors.green,
+                ),
                 _summaryCell('$absent', s.attendanceLegendAbsent, Colors.red),
                 _summaryCell('$leave', s.attendanceLegendLeave, Colors.blue),
                 _summaryCell('$late', s.attendanceLegendLate, Colors.orange),

@@ -1124,7 +1124,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
                 child: TextButton.icon(
                   onPressed: () => _viewPrescription(appt),
                   icon: const Icon(Icons.description_outlined, size: 18),
-                  label: Text(AppLocalizations.of(context)!.appointmentsViewPrescription),
+                  label: Text(
+                    AppLocalizations.of(context)!.appointmentsViewPrescription,
+                  ),
                   style: TextButton.styleFrom(
                     foregroundColor: const Color(0xFF00796B),
                   ),

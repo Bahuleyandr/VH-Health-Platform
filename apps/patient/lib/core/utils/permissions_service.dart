@@ -225,7 +225,9 @@ class PermissionsService {
               ),
               ElevatedButton(
                 onPressed: () => Navigator.of(dialogCtx).pop(true),
-                child: Text(AppLocalizations.of(dialogCtx)!.permissionsOpenSettings),
+                child: Text(
+                  AppLocalizations.of(dialogCtx)!.permissionsOpenSettings,
+                ),
               ),
             ],
           ),

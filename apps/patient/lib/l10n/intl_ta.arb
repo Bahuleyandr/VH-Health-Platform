@@ -1,7 +1,6 @@
 {
   "@@locale": "ta",
   "@@last_modified": "2025-06-13T10:05:12.000Z",
-
   "authLoginTitle": "உங்கள் கணக்கில் உள்நுழையவும்",
   "@authLoginTitle": {
     "description": "உள்நுழைவுத் திரையில் உள்ள தலைப்பு"
@@ -28,19 +27,20 @@
   },
   "authSendingOtp": "OTP அனுப்பப்படுகிறது...",
   "@authSendingOtp": {
-    "description": "OTP கோரிக்கை செயல்பாட்டில் இருக்கும்போது காட்டப்படும் நிலை லேபிள்" },
-"authMagicLinkSent": "மேஜிக் இணைப்பு வெற்றிகரமாக அனுப்பப்பட்டது",
-"@authMagicLinkSent": {
-  "description": "மேஜிக் இணைப்பு மின்னஞ்சல் அனுப்பப்பட்ட பிறகு காட்டப்படும் வெற்றிச் செய்தி."
-},
-"authMagicLinkFailed": "மேஜிக் இணைப்பை அனுப்பத் தவறிவிட்டது",
-"@authMagicLinkFailed": {
-  "description": "மேஜிக் இணைப்பை அனுப்ப சேவையகம் தவறும்போது காட்டப்படும் பிழைச் செய்தி."
-},
-"authMagicLinkError": "மேஜிக் இணைப்பை அனுப்பும்போது பிழை ஏற்பட்டது",
-"@authMagicLinkError": {
-  "description": "மேஜிக் இணைப்பு செயல்பாட்டின் போது எதிர்பாராத சிக்கல்களுக்கான பொதுவான பிழைச் செய்தி."
-},
+    "description": "OTP கோரிக்கை செயல்பாட்டில் இருக்கும்போது காட்டப்படும் நிலை லேபிள்"
+  },
+  "authMagicLinkSent": "மேஜிக் இணைப்பு வெற்றிகரமாக அனுப்பப்பட்டது",
+  "@authMagicLinkSent": {
+    "description": "மேஜிக் இணைப்பு மின்னஞ்சல் அனுப்பப்பட்ட பிறகு காட்டப்படும் வெற்றிச் செய்தி."
+  },
+  "authMagicLinkFailed": "மேஜிக் இணைப்பை அனுப்பத் தவறிவிட்டது",
+  "@authMagicLinkFailed": {
+    "description": "மேஜிக் இணைப்பை அனுப்ப சேவையகம் தவறும்போது காட்டப்படும் பிழைச் செய்தி."
+  },
+  "authMagicLinkError": "மேஜிக் இணைப்பை அனுப்பும்போது பிழை ஏற்பட்டது",
+  "@authMagicLinkError": {
+    "description": "மேஜிக் இணைப்பு செயல்பாட்டின் போது எதிர்பாராத சிக்கல்களுக்கான பொதுவான பிழைச் செய்தி."
+  },
   "authContinueAsGuest": "விருந்தினராக தொடரவும்",
   "@authContinueAsGuest": {
     "description": "விருந்தினர் உள்நுழைவு ஓட்டத்திற்கான பொத்தான் உரை"
@@ -78,221 +78,432 @@
     "description": "உள்நுழைந்த தொலைபேசி இல்லாமல் SOS தூண்டப்படும்போது பயன்படுத்தப்படும் அடையாளங்காட்டி"
   },
   "otpVerifyOtpTitle": "OTP சரிபார்க்கவும்",
-  "@otpVerifyOtpTitle": { "description": "OTP சரிபார்ப்புத் திரையின் ஆப் பாரில் உள்ள தலைப்பு" },
+  "@otpVerifyOtpTitle": {
+    "description": "OTP சரிபார்ப்புத் திரையின் ஆப் பாரில் உள்ள தலைப்பு"
+  },
   "otpOtpSentTo": "OTP அனுப்பப்பட்டது",
-  "@otpOtpSentTo": { "description": "பயனர் தொலைபேசி எண்ணுக்கு முன் உள்ள முன்னொட்டு" },
+  "@otpOtpSentTo": {
+    "description": "பயனர் தொலைபேசி எண்ணுக்கு முன் உள்ள முன்னொட்டு"
+  },
   "otpEnterOtp": "OTP உள்ளிடவும்",
-  "@otpEnterOtp": { "description": "ஆறு இலக்க OTP உள்ளீட்டிற்கு மேலே உள்ள லேபிள்" },
+  "@otpEnterOtp": {
+    "description": "ஆறு இலக்க OTP உள்ளீட்டிற்கு மேலே உள்ள லேபிள்"
+  },
   "otpPleaseEnterOtp": "OTP எண்ணை உள்ளிடவும்",
-  "@otpPleaseEnterOtp": { "description": "OTP புலம் காலியாக இருக்கும்போது சரிபார்ப்பு செய்தி" },
+  "@otpPleaseEnterOtp": {
+    "description": "OTP புலம் காலியாக இருக்கும்போது சரிபார்ப்பு செய்தி"
+  },
   "otpOtpMustBe6Digits": "OTP 6 இலக்கங்களாக இருக்க வேண்டும்",
-  "@otpOtpMustBe6Digits": { "description": "OTP நீளம் ஆறாக இல்லாதபோது சரிபார்ப்பு செய்தி" },
+  "@otpOtpMustBe6Digits": {
+    "description": "OTP நீளம் ஆறாக இல்லாதபோது சரிபார்ப்பு செய்தி"
+  },
   "otpVerify": "சரிபார்க்கவும்",
-  "@otpVerify": { "description": "OTP சரிபார்க்க முதன்மை பொத்தான் உரை" },
+  "@otpVerify": {
+    "description": "OTP சரிபார்க்க முதன்மை பொத்தான் உரை"
+  },
   "otpResendOtpIn": "OTP மீண்டும் அனுப்ப",
-  "@otpResendOtpIn": { "description": "குளிர்விக்கும் வினாடிகளுக்கு முன் உள்ள முன்னொட்டு, எ.கா. 'OTP மீண்டும் அனுப்ப 25 வி'" },
+  "@otpResendOtpIn": {
+    "description": "குளிர்விக்கும் வினாடிகளுக்கு முன் உள்ள முன்னொட்டு, எ.கா. 'OTP மீண்டும் அனுப்ப 25 வி'"
+  },
   "otpResendOtp": "மீண்டும் OTP அனுப்பவும்",
-  "@otpResendOtp": { "description": "குளிர்விப்பு முடிந்ததும் OTP மீண்டும் அனுப்ப கிளிக் செய்யக்கூடிய உரை" },
+  "@otpResendOtp": {
+    "description": "குளிர்விப்பு முடிந்ததும் OTP மீண்டும் அனுப்ப கிளிக் செய்யக்கூடிய உரை"
+  },
   "otpErrorOccurred": "ஒரு பிழை ஏற்பட்டது",
-  "@otpErrorOccurred": { "description": "சிற்றுண்டிப் பட்டிகளில் பொதுவான பிழை முன்னொட்டு" },
+  "@otpErrorOccurred": {
+    "description": "சிற்றுண்டிப் பட்டிகளில் பொதுவான பிழை முன்னொட்டு"
+  },
   "otpLoginSuccessful": "உள்நுழைவு வெற்றிகரமாக முடிந்தது",
-  "@otpLoginSuccessful": { "description": "வெற்றிகரமான உள்நுழைவுக்குப் பிறகு காட்டப்படும் சிற்றுண்டிப் பட்டி" },
+  "@otpLoginSuccessful": {
+    "description": "வெற்றிகரமான உள்நுழைவுக்குப் பிறகு காட்டப்படும் சிற்றுண்டிப் பட்டி"
+  },
   "otpLoginFailed": "உள்நுழைவு தோல்வியடைந்தது",
-  "@otpLoginFailed": { "description": "பின்தள உள்நுழைவு தோல்வியடையும் போது சிற்றுண்டிப் பட்டி" },
+  "@otpLoginFailed": {
+    "description": "பின்தள உள்நுழைவு தோல்வியடையும் போது சிற்றுண்டிப் பட்டி"
+  },
   "otpFailed": "OTP சரிபார்க்க முடியவில்லை",
-  "@otpFailed": { "description": "பொதுவான OTP சரிபார்ப்பு தோல்வி செய்தி" },
+  "@otpFailed": {
+    "description": "பொதுவான OTP சரிபார்ப்பு தோல்வி செய்தி"
+  },
   "otpInvalidOtp": "தவறான OTP",
-  "@otpInvalidOtp": { "description": "FirebaseAuthException: invalid-verification-code" },
+  "@otpInvalidOtp": {
+    "description": "FirebaseAuthException: invalid-verification-code"
+  },
   "otpOtpSessionExpired": "OTP அமர்வு காலாவதியானது",
-  "@otpOtpSessionExpired": { "description": "FirebaseAuthException: session-expired" },
+  "@otpOtpSessionExpired": {
+    "description": "FirebaseAuthException: session-expired"
+  },
   "otpOtpResendFailed": "OTP மீண்டும் அனுப்ப முடியவில்லை",
-  "@otpOtpResendFailed": { "description": "மீண்டும் அனுப்பும் முயற்சி தோல்வியடையும் போது சிற்றுண்டிப் பட்டி" },
+  "@otpOtpResendFailed": {
+    "description": "மீண்டும் அனுப்பும் முயற்சி தோல்வியடையும் போது சிற்றுண்டிப் பட்டி"
+  },
   "otpOtpResentSuccessfully": "OTP வெற்றிகரமாக மீண்டும் அனுப்பப்பட்டது",
-  "@otpOtpResentSuccessfully": { "description": "மீண்டும் அனுப்பும் முயற்சி வெற்றிபெறும்போது சிற்றுண்டிப் பட்டி" },
+  "@otpOtpResentSuccessfully": {
+    "description": "மீண்டும் அனுப்பும் முயற்சி வெற்றிபெறும்போது சிற்றுண்டிப் பட்டி"
+  },
   "otpInvalidFirebaseToken": "தவறான Firebase டோக்கன்",
-  "@otpInvalidFirebaseToken": { "description": "Firebase null ID டோக்கனை வழங்கும்போது ஏற்படும் அரிதான பிழை" },
+  "@otpInvalidFirebaseToken": {
+    "description": "Firebase null ID டோக்கனை வழங்கும்போது ஏற்படும் அரிதான பிழை"
+  },
   "autoSignInSuccess": "நீங்கள் தானாகவே உள்நுழைந்துள்ளீர்கள்!",
-"@autoSignInSuccess": {
-  "description": "Firebase ஃபோன் அங்கீகரிப்பு தானியங்கு சரிபார்ப்பு வெற்றி பெற்ற பிறகு வரும் ஸ்நாக்பார்"},
+  "@autoSignInSuccess": {
+    "description": "Firebase ஃபோன் அங்கீகரிப்பு தானியங்கு சரிபார்ப்பு வெற்றி பெற்ற பிறகு வரும் ஸ்நாக்பார்"
+  },
   "commonTermsConditionsDisclaimerTitle": "விதிமுறைகள், நிபந்தனைகள் & தனியுரிமை",
-  "@commonTermsConditionsDisclaimerTitle": { "description": "விதிமுறைகள் / நிபந்தனைகள் / தனியுரிமைத் திரையின் ஆப்-பார் தலைப்பு" },
+  "@commonTermsConditionsDisclaimerTitle": {
+    "description": "விதிமுறைகள் / நிபந்தனைகள் / தனியுரிமைத் திரையின் ஆப்-பார் தலைப்பு"
+  },
   "commonTermsOfUse": "பயன்பாட்டு விதிமுறைகள்",
-  "@commonTermsOfUse": { "description": "பயன்பாட்டு விதிமுறைகளுக்கான பகுதி தலைப்பு" },
+  "@commonTermsOfUse": {
+    "description": "பயன்பாட்டு விதிமுறைகளுக்கான பகுதி தலைப்பு"
+  },
   "commonConditions": "நிபந்தனைகள்",
-  "@commonConditions": { "description": "நிபந்தனைகள் / மறுப்புகளுக்கான பகுதி தலைப்பு" },
+  "@commonConditions": {
+    "description": "நிபந்தனைகள் / மறுப்புகளுக்கான பகுதி தலைப்பு"
+  },
   "commonPrivacyPolicy": "தனியுரிமைக் கொள்கை",
-  "@commonPrivacyPolicy": { "description": "தனியுரிமைக் கொள்கைக்கான பகுதி தலைப்பு" },
+  "@commonPrivacyPolicy": {
+    "description": "தனியுரிமைக் கொள்கைக்கான பகுதி தலைப்பு"
+  },
   "commonBackToLogin": "உள்நுழைவுக்குத் திரும்புக",
-  "@commonBackToLogin": { "description": "உள்நுழைவுத் திரைக்குத் திரும்புவதற்கான பொத்தான் உரை" },
-"backToDashboard": "டாஷ்போர்டுக்குத் திரும்பு",
-"@backToDashboard": { "description": "முதன்மை டாஷْبోర్డు திரைக்குத் திரும்புவதற்கான பொத்தான் உரை" },
+  "@commonBackToLogin": {
+    "description": "உள்நுழைவுத் திரைக்குத் திரும்புவதற்கான பொத்தான் உரை"
+  },
+  "backToDashboard": "டாஷ்போர்டுக்குத் திரும்பு",
+  "@backToDashboard": {
+    "description": "முதன்மை டாஷْبోర్డు திரைக்குத் திரும்புவதற்கான பொத்தான் உரை"
+  },
   "termsBody": "VH Health-க்கு வரவேற்கிறோம். இந்த மொபைல் செயலியை அணுகுவதன் மூலமும் பயன்படுத்துவதன் மூலமும், இந்த பயன்பாட்டு விதிமுறைகளுக்குக் கட்டுப்படுவதை ஒப்புக்கொள்கிறீர்கள்.\n\n1. நோக்கம்: VH Health என்பது நோயாளிகள் தங்கள் சுகாதாரப் பதிவுகள், சந்திப்புகள், மருந்துகள், ஆய்வுகள் மற்றும் மருத்துவமனையுடனான தகவல்தொடர்புகளை நிர்வகிக்க உதவும் ஒரு மொபைல் செயலியாகும்.\n2. தகுதி: இந்த செயலியைத் தனியாகப் பயன்படுத்த உங்களுக்கு குறைந்தது 18 வயது இருக்க வேண்டும். சிறார்கள் பயன்படுத்தும்போது ஒரு பாதுகாவலரால் கண்காணிக்கப்பட வேண்டும்.\n3. சேவைகளின் பயன்பாடு:\n   • நீங்கள் துல்லியமான மற்றும் முழுமையான தகவல்களை வழங்க ஒப்புக்கொள்கிறீர்கள்.\n   • செயலியின் செயல்பாடு அல்லது பாதுகாப்பில் தவறாகப் பயன்படுத்தவோ அல்லது தலையிடவோ மாட்டீர்கள் என்று ஒப்புக்கொள்கிறீர்கள்.\n   • எந்தவொரு சட்டவிரோத அல்லது தடைசெய்யப்பட்ட பயன்பாடும் கண்டிப்பாகத் தடைசெய்யப்பட்டுள்ளது.\n4. அறிவுசார் சொத்து: லோகோக்கள், உரை, படங்கள் மற்றும் தரவு உட்பட செயலியிலுள்ள அனைத்து உள்ளடக்கங்களும் VH Health அல்லது அதன் உரிமதாரர்களின் சொத்து மற்றும் பொருந்தக்கூடிய பதிப்புரிமை மற்றும் வர்த்தக முத்திரை சட்டங்களால் பாதுகாக்கப்படுகின்றன.\n5. மாற்றம்: எந்தவொரு அம்சத்தையும் அல்லது செயல்பாட்டையும் எந்த நேரத்திலும், அறிவிப்புடனோ அல்லது அறிவிப்பு இல்லாமலோ மாற்றுவதற்கோ அல்லது நிறுத்துவதற்கோ எங்களுக்கு உரிமை உண்டு.\n6. நிறுத்தம்: விதிமுறைகளை மீறும் அல்லது தவறாகப் பயன்படுத்தும் எந்தவொரு பயனரின் அணுகலையும் VH Health இடைநிறுத்தலாம் அல்லது நிறுத்தலாம்.",
-  "@termsBody": { "description": "விதிமுறைகள் மறுப்புத் திரையில் காட்டப்படும் முழு பயன்பாட்டு விதிமுறைகள் உள்ளடக்கம்" },
+  "@termsBody": {
+    "description": "விதிமுறைகள் மறுப்புத் திரையில் காட்டப்படும் முழு பயன்பாட்டு விதிமுறைகள் உள்ளடக்கம்"
+  },
   "conditionsBody": "1. **மருத்துவ ஆலோசனை மறுப்பு:**\n   • இந்த செயலி பொதுவான தகவல் நோக்கங்களுக்காகவும் வசதிக்காகவும் வடிவமைக்கப்பட்டுள்ளது.\n   • இது தகுதிவாய்ந்த சுகாதார நிபுணர்களுடன் நேரடி ஆலோசனைக்கு மாற்றாகாது.\n   • நோய் నిర్ధారణ மற்றும் சிகிச்சைக்காக எப்போதும் உங்கள் மருத்துவர் அல்லது மருத்துவமனை ஊழியர்களை அணுகவும்.\n\n2. அவசர காலப் பயன்பாடு:\n   • இந்த செயலி அவசர மருத்துவ உதவிக்காக அல்ல.\n   • அவசர காலத்தில், உங்கள் உள்ளூர் அவசர எண்ணை அழைக்கவும் அல்லது அருகிலுள்ள மருத்துவமனைக்குச் செல்லவும்.\n\n3. சேவை கிடைக்கும் தன்மை:\n   • நாங்கள் நிலையான கிடைக்கும் தன்மைக்கு முயற்சி செய்கிறோம், ஆனால் தடையற்ற அணுகலுக்கு உத்தரவாதம் அளிக்கவில்லை.\n   • தொழில்நுட்பச் சிக்கல்கள், புதுப்பிப்புகள் அல்லது நெட்வொர்க் தோல்விகள் எப்போதாவது அணுகலைப் பாதிக்கலாம்.\n\n4. தரவு துல்லியம்:\n   • சந்திப்பு அட்டவணைகள் மற்றும் அறிக்கைகள் போன்ற தகவல்கள் மருத்துவமனை அமைப்புகளிலிருந்து பெறப்படுகின்றன, மேலும் அவை கைமுறை உள்ளீட்டிற்கு உட்பட்டிருக்கலாம்.\n   • தவறான தரவு உள்ளீடு அல்லது மூன்றாம் தரப்பு அமைப்புச் சிக்கல்களால் ஏற்படும் பிழைகளுக்கு VH Health பொறுப்பாகாது.",
-  "@conditionsBody": { "description": "முழு நிபந்தனைகள் / மருத்துவ மறுப்பு உரை" },
+  "@conditionsBody": {
+    "description": "முழு நிபந்தனைகள் / மருத்துவ மறுப்பு உரை"
+  },
   "privacyBody": "1. **தகவல் சேகரிப்பு:**\n   • நாங்கள் உங்கள் பெயர், தொலைபேசி எண், UID, மருத்துவப் பதிவுகள், சந்திப்புத் தரவு மற்றும் பதிவேற்றங்களைச் சேகரிக்கிறோம்.\n   • செயலியின் செயல்திறனை மேம்படுத்த சாதன அடையாளங்காட்டிகள் மற்றும் பயன்பாட்டுப் பகுப்பாய்வுகளையும் நாங்கள் சேகரிக்கலாம்.\n\n2. தகவலின் பயன்பாடு:\n   • உங்கள் தகவல்கள் செயலியினுள் சேவைகளை வழங்குவதற்காக மட்டுமே பயன்படுத்தப்படுகின்றன.\n   • நாங்கள் உங்கள் தரவை விற்பனை செய்வதில்லை அல்லது விளம்பர நோக்கங்களுக்காகப் பயன்படுத்துவதில்லை.\n\n3. தரவுப் பகிர்வு:\n   • உங்கள் தரவு உங்கள் கவனிப்பில் ஈடுபட்டுள்ள அங்கீகரிக்கப்பட்ட மருத்துவமனை ஊழியர்கள் மற்றும் மருத்துவ நிபுணர்களுடன் பகிரப்படலாம்.\n   • சட்டம் தேவைப்பட்டால் அல்லது சட்டப்பூர்வக் கடமைகளின் போது நாங்கள் தரவை வெளியிடலாம்.\n\n4. தரவுப் பாதுகாப்பு:\n   • உங்கள் தரவைப் பாதுகாக்க நாங்கள் தொழில்-தரப் பாதுகாப்பு நடைமுறைகளைப் பயன்படுத்துகிறோம்.\n   • இருப்பினும், எந்த அமைப்பும் 100% பாதுகாப்பானது அல்ல; செயலியைப் பயன்படுத்துவது உங்கள் சொந்தப் பொறுப்பில் உள்ளது.\n\n5. உங்கள் உரிமைகள்:\n   • நீங்கள் சேமிக்கப்பட்ட தகவலுக்கான அணுகலைக் கோரலாம் அல்லது திருத்தங்களைக் கோரலாம்.\n   • மருத்துவமனை நிர்வாகத்தைத் தொடர்புகொள்வதன் மூலம் உங்கள் கணக்கை நீக்கக் கோரலாம்.\n\n6. தரவு வைத்திருத்தல்:\n   • உங்கள் தரவு சுகாதாரம் அல்லது சட்ட நோக்கங்களுக்காகத் தேவைப்படும் வரை தக்கவைக்கப்படும்.",
-  "@privacyBody": { "description": "முழு தனியுரிமைக் கொள்கை உரை" },
+  "@privacyBody": {
+    "description": "முழு தனியுரிமைக் கொள்கை உரை"
+  },
   "profileEditScreenTitle": "சுயவிவரத்தைத் திருத்தவும்",
-  "@profileEditScreenTitle": { "description": "சுயவிவரம் திருத்தும் திரையின் தலைப்பு" },
+  "@profileEditScreenTitle": {
+    "description": "சுயவிவரம் திருத்தும் திரையின் தலைப்பு"
+  },
   "profileNameLabel": "முழு பெயர்",
-  "@profileNameLabel": { "description": "பெயர் உள்ளீட்டிற்கான லேபிள்" },
+  "@profileNameLabel": {
+    "description": "பெயர் உள்ளீட்டிற்கான லேபிள்"
+  },
   "profileNameHint": "உங்கள் முழுப் பெயரை உள்ளிடவும்",
-  "@profileNameHint": { "description": "பெயர் உள்ளீட்டிற்கான குறிப்பு" },
+  "@profileNameHint": {
+    "description": "பெயர் உள்ளீட்டிற்கான குறிப்பு"
+  },
   "profileNameValidationRequired": "பெயர் தேவை",
-  "@profileNameValidationRequired": { "description": "பெயர் காலியாக இருக்கும்போது சரிபார்ப்பு செய்தி" },
+  "@profileNameValidationRequired": {
+    "description": "பெயர் காலியாக இருக்கும்போது சரிபார்ப்பு செய்தி"
+  },
   "profileEmailLabel": "மின்னஞ்சல் முகவரி",
-  "@profileEmailLabel": { "description": "மின்னஞ்சல் உள்ளீட்டிற்கான லேபிள்" },
+  "@profileEmailLabel": {
+    "description": "மின்னஞ்சல் உள்ளீட்டிற்கான லேபிள்"
+  },
   "profileEmailHint": "example@domain.com",
-  "@profileEmailHint": { "description": "மின்னஞ்சல் உள்ளீட்டிற்கான குறிப்பு" },
+  "@profileEmailHint": {
+    "description": "மின்னஞ்சல் உள்ளீட்டிற்கான குறிப்பு"
+  },
   "profileEmailValidationInvalid": "சரியான மின்னஞ்சல் முகவரியை உள்ளிடவும்",
-  "@profileEmailValidationInvalid": { "description": "தவறான மின்னஞ்சலுக்கான சரிபார்ப்பு செய்தி" },
+  "@profileEmailValidationInvalid": {
+    "description": "தவறான மின்னஞ்சலுக்கான சரிபார்ப்பு செய்தி"
+  },
   "profileBirthdayLabel": "பிறந்தநாள்",
-  "@profileBirthdayLabel": { "description": "பிறந்தநாள் புலத்திற்கான லேபிள்" },
+  "@profileBirthdayLabel": {
+    "description": "பிறந்தநாள் புலத்திற்கான லேபிள்"
+  },
   "profileBirthdayHint": "உங்கள் பிறந்த தேதியைத் தேர்ந்தெடுக்கவும்",
-  "@profileBirthdayHint": { "description": "பிறந்தநாள் புலத்திற்கான குறிப்பு" },
+  "@profileBirthdayHint": {
+    "description": "பிறந்தநாள் புலத்திற்கான குறிப்பு"
+  },
   "profileSaveChangesButton": "மாற்றங்களை சேமிக்கவும்",
-  "@profileSaveChangesButton": { "description": "சுயவிவரத் திருத்தங்களைச் சேமிப்பதற்கான பொத்தான் உரை" },
+  "@profileSaveChangesButton": {
+    "description": "சுயவிவரத் திருத்தங்களைச் சேமிப்பதற்கான பொத்தான் உரை"
+  },
   "profileUpdatedSuccessfully": "சுயவிவரம் வெற்றிகரமாகப் புதுப்பிக்கப்பட்டது",
-  "@profileUpdatedSuccessfully": { "description": "வெற்றிகரமான சுயவிவரப் புதுப்பித்தலுக்குப் பிறகு சிற்றுண்டிப் பட்டி உரை" },
+  "@profileUpdatedSuccessfully": {
+    "description": "வெற்றிகரமான சுயவிவரப் புதுப்பித்தலுக்குப் பிறகு சிற்றுண்டிப் பட்டி உரை"
+  },
   "networkError": "நெட்வொர்க் பிழை. மீண்டும் முயற்சிக்கவும்.",
-  "@networkError": { "description": "ஒரு பொதுவான நெட்வொர்க் பிழை ஏற்படும்போது சிற்றுண்டிப் பட்டி உரை" },
+  "@networkError": {
+    "description": "ஒரு பொதுவான நெட்வொர்க் பிழை ஏற்படும்போது சிற்றுண்டிப் பட்டி உரை"
+  },
   "profileSetupTitle": "உங்கள் சுயவிவரத்தை அமைக்கவும்",
-  "@profileSetupTitle": { "description": "சுயவிவர அமைப்புத் திரையின் ஆப்-பார் தலைப்பு" },
+  "@profileSetupTitle": {
+    "description": "சுயவிவர அமைப்புத் திரையின் ஆப்-பார் தலைப்பு"
+  },
   "profileUploadProfilePic": "புகைப்படம் சேர்க்கவும்",
-  "@profileUploadProfilePic": { "description": "காலி அவதாரத்திற்குள் உள்ள தூண்டுதல்" },
+  "@profileUploadProfilePic": {
+    "description": "காலி அவதாரத்திற்குள் உள்ள தூண்டுதல்"
+  },
   "profileSetupSaved": "சுயவிவரம் வெற்றிகரமாக சேமிக்கப்பட்டது",
-  "@profileSetupSaved": { "description": "சுயவிவரம் சேமிக்கப்பட்ட பிறகு சிற்றுண்டிப் பட்டி" },
+  "@profileSetupSaved": {
+    "description": "சுயவிவரம் சேமிக்கப்பட்ட பிறகு சிற்றுண்டிப் பட்டி"
+  },
   "profileSetupSaveFailed": "சுயவிவரத்தை சேமிக்க முடியவில்லை",
-  "@profileSetupSaveFailed": { "description": "சேமிப்பு தோல்வியடையும் போது சிற்றுண்டிப் பட்டி" },
+  "@profileSetupSaveFailed": {
+    "description": "சேமிப்பு தோல்வியடையும் போது சிற்றுண்டிப் பட்டி"
+  },
   "profileGenderLabel": "பாலினம்",
-  "@profileGenderLabel": { "description": "பாலினம் கீழ்தோன்றும் மெனுவிற்கான லேபிள்" },
+  "@profileGenderLabel": {
+    "description": "பாலினம் கீழ்தோன்றும் மெனுவிற்கான லேபிள்"
+  },
   "profileGenderMale": "ஆண்",
-  "@profileGenderMale": { "description": "பாலின விருப்பம்: ஆண்" },
+  "@profileGenderMale": {
+    "description": "பாலின விருப்பம்: ஆண்"
+  },
   "profileGenderFemale": "பெண்",
-  "@profileGenderFemale": { "description": "பாலின விருப்பம்: பெண்" },
+  "@profileGenderFemale": {
+    "description": "பாலின விருப்பம்: பெண்"
+  },
   "profileGenderOther": "மற்றவை",
-  "@profileGenderOther": { "description": "பாலின விருப்பம்: மற்றவை" },
+  "@profileGenderOther": {
+    "description": "பாலின விருப்பம்: மற்றவை"
+  },
   "profileGenderValidationRequired": "ஒரு பாலினத்தைத் தேர்ந்தெடுக்கவும்",
-  "@profileGenderValidationRequired": { "description": "பாலினம் தேர்ந்தெடுக்கப்படாதபோது சரிபார்ப்பு" },
+  "@profileGenderValidationRequired": {
+    "description": "பாலினம் தேர்ந்தெடுக்கப்படாதபோது சரிபார்ப்பு"
+  },
   "profileEmailHintOptional": "விருப்பத்தேர்வு",
-  "@profileEmailHintOptional": { "description": "மின்னஞ்சல் புலம் விருப்பத்தேர்வு என்பதைக் காட்டும் குறிப்பு உரை" },
+  "@profileEmailHintOptional": {
+    "description": "மின்னஞ்சல் புலம் விருப்பத்தேர்வு என்பதைக் காட்டும் குறிப்பு உரை"
+  },
   "profileBirthdaySelectLabel": "பிறந்தநாளைத் தேர்ந்தெடுக்கவும்",
-  "@profileBirthdaySelectLabel": { "description": "பிறந்தநாள் தேர்ந்தெடுக்கப்படாதபோது லேபிள்" },
+  "@profileBirthdaySelectLabel": {
+    "description": "பிறந்தநாள் தேர்ந்தெடுக்கப்படாதபோது லேபிள்"
+  },
   "profileBirthdayLabelShort": "பிறந்தநாள்",
-  "@profileBirthdayLabelShort": { "description": "வடிவமைக்கப்பட்ட தேதிக்கு முன் பயன்படுத்தப்படும் குறுகிய லேபிள்" },
+  "@profileBirthdayLabelShort": {
+    "description": "வடிவமைக்கப்பட்ட தேதிக்கு முன் பயன்படுத்தப்படும் குறுகிய லேபிள்"
+  },
   "profileAnniversarySelectLabel": "திருமண நாளைத் தேர்ந்தெடுக்கவும்",
-  "@profileAnniversarySelectLabel": { "description": "திருமண நாள் தேர்ந்தெடுக்கப்படாதபோது லேபிள்" },
+  "@profileAnniversarySelectLabel": {
+    "description": "திருமண நாள் தேர்ந்தெடுக்கப்படாதபோது லேபிள்"
+  },
   "profileAnniversaryLabelShort": "திருமண நாள்",
-  "@profileAnniversaryLabelShort": { "description": "வடிவமைக்கப்பட்ட தேதிக்கு முன் பயன்படுத்தப்படும் குறுகிய லேபிள்" },
-"commonSkipButton": "தவிர்",
-"@commonSkipButton": { "description": "பயனர் ஒரு விருப்பப் படியைத் தவிர்க்க உதவும் இரண்டாம் நிலை பொத்தான்"},
-"commonSubmitButton": "சமர்ப்பி",
-"@commonSubmitButton": { "description": "ஒரு செயலை உறுதிப்படுத்த அல்லது முடிக்கப் பயன்படுத்தப்படும் முதன்மைப் பொத்தான்"},
-"commonCancelButton": "ரத்துசெய்",
-"@commonCancelButton": { "description": "ஒரு உரையாடல் அல்லது செயலை ரத்து செய்வதற்கான பொதுவான பொத்தான் லேபிள்"},
+  "@profileAnniversaryLabelShort": {
+    "description": "வடிவமைக்கப்பட்ட தேதிக்கு முன் பயன்படுத்தப்படும் குறுகிய லேபிள்"
+  },
+  "commonSkipButton": "தவிர்",
+  "@commonSkipButton": {
+    "description": "பயனர் ஒரு விருப்பப் படியைத் தவிர்க்க உதவும் இரண்டாம் நிலை பொத்தான்"
+  },
+  "commonSubmitButton": "சமர்ப்பி",
+  "@commonSubmitButton": {
+    "description": "ஒரு செயலை உறுதிப்படுத்த அல்லது முடிக்கப் பயன்படுத்தப்படும் முதன்மைப் பொத்தான்"
+  },
+  "commonCancelButton": "ரத்துசெய்",
+  "@commonCancelButton": {
+    "description": "ஒரு உரையாடல் அல்லது செயலை ரத்து செய்வதற்கான பொதுவான பொத்தான் லேபிள்"
+  },
   "filesPickerError": "கோப்பைத் தேர்ந்தெடுக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
-  "@filesPickerError": { "description": "படத் தேர்வி தோல்வியடையும் போது சிற்றுண்டிப் பட்டி" },
+  "@filesPickerError": {
+    "description": "படத் தேர்வி தோல்வியடையும் போது சிற்றுண்டிப் பட்டி"
+  },
   "hello": "வணக்கம்",
-  "@hello": { "description": "டாஷ்போர்டு ஆப்-பாரில் பயன்படுத்தப்படும் வாழ்த்து" },
+  "@hello": {
+    "description": "டாஷ்போர்டு ஆப்-பாரில் பயன்படுத்தப்படும் வாழ்த்து"
+  },
   "changeLanguage": "மொழியை மாற்று",
-  "@changeLanguage": { "description": "மொழி மாற்றிக்கான உதவிக்குறிப்பு" },
+  "@changeLanguage": {
+    "description": "மொழி மாற்றிக்கான உதவிக்குறிப்பு"
+  },
   "lastAppointment": "கடைசி சந்திப்பு",
-  "@lastAppointment": { "description": "கடைசி சந்திப்பு தேதிக்கு முன் உள்ள லேபிள்" },
+  "@lastAppointment": {
+    "description": "கடைசி சந்திப்பு தேதிக்கு முன் உள்ள லேபிள்"
+  },
   "upcomingAppointment": "வரவிருக்கும் சந்திப்பு",
-  "@upcomingAppointment": { "description": "அடுத்த சந்திப்பு தேதிக்கு முன் உள்ள லேபிள்" },
+  "@upcomingAppointment": {
+    "description": "அடுத்த சந்திப்பு தேதிக்கு முன் உள்ள லேபிள்"
+  },
   "notAvailable": "கிடைக்கவில்லை",
-  "@notAvailable": { "description": "ஒரு மதிப்பு கிடைக்காதபோது காட்டப்படும்" },
+  "@notAvailable": {
+    "description": "ஒரு மதிப்பு கிடைக்காதபோது காட்டப்படும்"
+  },
   "yourHealth": "உங்கள் ஆரோக்கியம்",
-  "@yourHealth": { "description": "டாஷ்போர்டு ஓடு: உங்கள் ஆரோக்கியம்" },
+  "@yourHealth": {
+    "description": "டாஷ்போர்டு ஓடு: உங்கள் ஆரோக்கியம்"
+  },
   "appointments": "சந்திப்புகள்",
-  "@appointments": { "description": "டாஷ்போர்டு ஓடு: சந்திப்புகள்" },
+  "@appointments": {
+    "description": "டாஷ்போர்டு ஓடு: சந்திப்புகள்"
+  },
   "pharmacy": "மருந்தகம்",
-  "@pharmacy": { "description": "டாஷ்போர்டு ஓடு: மருந்தகம்" },
+  "@pharmacy": {
+    "description": "டாஷ்போர்டு ஓடு: மருந்தகம்"
+  },
   "investigations": "ஆய்வுகள்",
-  "@investigations": { "description": "டாஷ்போர்டு ஓடு: ஆய்வுகள்" },
+  "@investigations": {
+    "description": "டாஷ்போர்டு ஓடு: ஆய்வுகள்"
+  },
   "askDoubt": "சந்தேகம் கேட்க",
-  "@askDoubt": { "description": "டாஷ்போர்டு ஓடு: சந்தேகம் கேட்க" },
+  "@askDoubt": {
+    "description": "டாஷ்போர்டு ஓடு: சந்தேகம் கேட்க"
+  },
   "triviaLabel": "ஆரோக்கியத் துணுக்குகள்",
-  "@triviaLabel": { "description": "டாஷ்போர்டு ஓடு: ஆரோக்கியத் துணுக்குகள்" },
+  "@triviaLabel": {
+    "description": "டாஷ்போர்டு ஓடு: ஆரோக்கியத் துணுக்குகள்"
+  },
   "departments": "துறைகள்",
-  "@departments": { "description": "டாஷ்போர்டு ஓடு: துறைகள்" },
+  "@departments": {
+    "description": "டாஷ்போர்டு ஓடு: துறைகள்"
+  },
   "aboutUsLabel": "எங்களைப் பற்றி",
-  "@aboutUsLabel": { "description": "டாஷ்போர்டு ஓடு: எங்களைப் பற்றி" },
+  "@aboutUsLabel": {
+    "description": "டாஷ்போர்டு ஓடு: எங்களைப் பற்றி"
+  },
   "yourHealthTitle": "உங்கள் ஆரோக்கியம்",
-  "@yourHealthTitle": { "description": "உங்கள் ஆரோக்கியம் திரையின் ஆப்-பார் தலைப்பு" },
+  "@yourHealthTitle": {
+    "description": "உங்கள் ஆரோக்கியம் திரையின் ஆப்-பார் தலைப்பு"
+  },
   "yourHealthSortNewest": "வரிசைப்படுத்து: புதியவை முதலில்",
-  "@yourHealthSortNewest": { "description": "பட்டியல் பழையது→புதியது ஆக இருக்கும்போது உதவிக்குறிப்பு; தட்டினால் புதியது முதலில் மாறும்" },
+  "@yourHealthSortNewest": {
+    "description": "பட்டியல் பழையது→புதியது ஆக இருக்கும்போது உதவிக்குறிப்பு; தட்டினால் புதியது முதலில் மாறும்"
+  },
   "yourHealthSortOldest": "வரிசைப்படுத்து: பழையவை முதலில்",
-  "@yourHealthSortOldest": { "description": "பட்டியல் புதியது→பழையது ஆக இருக்கும்போது உதவிக்குறிப்பு; தட்டினால் பழையது முதலில் மாறும்" },
+  "@yourHealthSortOldest": {
+    "description": "பட்டியல் புதியது→பழையது ஆக இருக்கும்போது உதவிக்குறிப்பு; தட்டினால் பழையது முதலில் மாறும்"
+  },
   "yourHealthFilterByType": "வகைப்படி வடிகட்டவும்",
-  "@yourHealthFilterByType": { "description": "பதிவு வகை வடிகட்டிக்கான கீழ்தோன்றும் லேபிள்" },
+  "@yourHealthFilterByType": {
+    "description": "பதிவு வகை வடிகட்டிக்கான கீழ்தோன்றும் லேபிள்"
+  },
   "yourHealthNoRecords": "பதிவுகள் எதுவும் இல்லை",
-  "@yourHealthNoRecords": { "description": "பதிவுகள் பட்டியல் காலியாக இருக்கும்போது காட்டப்படும்" },
+  "@yourHealthNoRecords": {
+    "description": "பதிவுகள் பட்டியல் காலியாக இருக்கும்போது காட்டப்படும்"
+  },
   "yourHealthUploaded": "பதிவேற்றப்பட்டது",
-  "@yourHealthUploaded": { "description": "பதிவேற்ற தேதிக்கு முன் உள்ள முன்னொட்டு" },
+  "@yourHealthUploaded": {
+    "description": "பதிவேற்ற தேதிக்கு முன் உள்ள முன்னொட்டு"
+  },
   "yourHealthLoginToView": "உங்கள் மருத்துவப் பதிவுகளை அணுக உள்நுழையவும்",
-  "@yourHealthLoginToView": { "description": "விருந்தினர் பயனர்களுக்குக் காட்டப்படும் செய்தி" },
+  "@yourHealthLoginToView": {
+    "description": "விருந்தினர் பயனர்களுக்குக் காட்டப்படும் செய்தி"
+  },
   "recordsLoadFailed": "பதிவுகளை ஏற்ற முடியவில்லை",
-  "@recordsLoadFailed": { "description": "API மீட்டெடுப்பு தோல்வியடையும் போது சிற்றுண்டிப் பட்டி உரை" },
+  "@recordsLoadFailed": {
+    "description": "API மீட்டெடுப்பு தோல்வியடையும் போது சிற்றுண்டிப் பட்டி உரை"
+  },
   "recordsShowingOffline": "ஆஃப்லைன் தரவு காட்டப்படுகிறது",
-  "@recordsShowingOffline": { "description": "தற்காலிகச் சேமிப்பு தரவு காட்டப்படும்போது சிற்றுண்டிப் பட்டி" },
+  "@recordsShowingOffline": {
+    "description": "தற்காலிகச் சேமிப்பு தரவு காட்டப்படும்போது சிற்றுண்டிப் பட்டி"
+  },
   "fileQuarantined": "கோப்பு தனிமைப்படுத்தப்பட்டுள்ளது, பதிவிறக்க முடியாது",
-  "@fileQuarantined": { "description": "பின்தளம் கோப்பு தனிமைப்படுத்தப்பட்டதைக் குறிக்கும்போது சிற்றுண்டிப் பட்டி" },
+  "@fileQuarantined": {
+    "description": "பின்தளம் கோப்பு தனிமைப்படுத்தப்பட்டதைக் குறிக்கும்போது சிற்றுண்டிப் பட்டி"
+  },
   "fileCouldNotOpen": "கோப்பைத் திறக்க முடியவில்லை",
-  "@fileCouldNotOpen": { "description": "கோப்பைப் பதிவிறக்கவோ அல்லது திறக்கவோ முடியாதபோது சிற்றுண்டிப் பட்டி" },
+  "@fileCouldNotOpen": {
+    "description": "கோப்பைப் பதிவிறக்கவோ அல்லது திறக்கவோ முடியாதபோது சிற்றுண்டிப் பட்டி"
+  },
   "recordTypeAll": "அனைத்தும்",
-  "@recordTypeAll": { "description": "பதிவு வகை விருப்பம்: அனைத்தும்" },
+  "@recordTypeAll": {
+    "description": "பதிவு வகை விருப்பம்: அனைத்தும்"
+  },
   "recordTypeConsultation": "ஆலோசனை",
-  "@recordTypeConsultation": { "description": "பதிவு வகை விருப்பம்: ஆலோசனை" },
+  "@recordTypeConsultation": {
+    "description": "பதிவு வகை விருப்பம்: ஆலோசனை"
+  },
   "recordTypeInvestigation": "ஆய்வு",
-  "@recordTypeInvestigation": { "description": "பதிவு வகை விருப்பம்: ஆய்வு" },
+  "@recordTypeInvestigation": {
+    "description": "பதிவு வகை விருப்பம்: ஆய்வு"
+  },
   "recordTypeReport": "அறிக்கை",
-  "@recordTypeReport": { "description": "பதிவு வகை விருப்பம்: அறிக்கை" },
+  "@recordTypeReport": {
+    "description": "பதிவு வகை விருப்பம்: அறிக்கை"
+  },
   "login": "உள்நுழைய",
-  "@login": { "description": "பொதுவான உள்நுழைவு பொத்தான் லேபிள்" },
+  "@login": {
+    "description": "பொதுவான உள்நுழைவு பொத்தான் லேபிள்"
+  },
   "requestAppointment": "சந்திப்புக்கு கோரிக்கை",
-  "@requestAppointment": { "description": "ஆப்-பார் தலைப்பு" },
+  "@requestAppointment": {
+    "description": "ஆப்-பார் தலைப்பு"
+  },
   "enterYourPhone": "உங்கள் தொலைபேசி எண்ணை உள்ளிடவும்",
-  "@enterYourPhone": { "description": "விருந்தினராக இருக்கும்போது தொலைபேசி உள்ளீட்டிற்கான தலைப்பு" },
+  "@enterYourPhone": {
+    "description": "விருந்தினராக இருக்கும்போது தொலைபேசி உள்ளீட்டிற்கான தலைப்பு"
+  },
   "enterValidPhone": "சரியான 10 இலக்க தொலைபேசி எண்ணை உள்ளிடவும்",
-  "@enterValidPhone": { "description": "தொலைபேசி புலத்திற்கான சரிபார்ப்பு" },
+  "@enterValidPhone": {
+    "description": "தொலைபேசி புலத்திற்கான சரிபார்ப்பு"
+  },
   "chooseDepartmentOrDoctor": "துறையைத் தேர்ந்தெடுக்கவும்",
-  "@chooseDepartmentOrDoctor": { "description": "துறை தேர்வுக்கான கீழ்தோன்றும் லேபிள்" },
+  "@chooseDepartmentOrDoctor": {
+    "description": "துறை தேர்வுக்கான கீழ்தோன்றும் லேபிள்"
+  },
   "selectDoctorPlaceholder": "மருத்துவரைத் தேர்ந்தெடுக்கவும் (விருப்பத்தேர்வு)",
-  "@selectDoctorPlaceholder": { "description": "மருத்துவர் கீழ்தோன்றும் மெனுவிற்கான லேபிள்" },
+  "@selectDoctorPlaceholder": {
+    "description": "மருத்துவர் கீழ்தோன்றும் மெனுவிற்கான லேபிள்"
+  },
   "selectDoctorAndDate": "தயவுசெய்து ஒரு துறையைத் தேர்ந்தெடுக்கவும்",
-  "@selectDoctorAndDate": { "description": "துறை தேர்ந்தெடுக்கப்படாதபோது சரிபார்ப்பு" },
+  "@selectDoctorAndDate": {
+    "description": "துறை தேர்ந்தெடுக்கப்படாதபோது சரிபார்ப்பு"
+  },
   "submitRequest": "கோரிக்கையைச் சமர்ப்பிக்கவும்",
-  "@submitRequest": { "description": "சந்திப்புக் கோரிக்கையைச் சமர்ப்பிப்பதற்கான பொத்தான் உரை" },
+  "@submitRequest": {
+    "description": "சந்திப்புக் கோரிக்கையைச் சமர்ப்பிப்பதற்கான பொத்தான் உரை"
+  },
   "appointmentConfirmationNote": "சந்திப்புக் கோரிக்கை பெறப்பட்டது! விரைவில் உறுதிசெய்வோம்.",
-  "@appointmentConfirmationNote": { "description": "வெற்றிகரமான சமர்ப்பிப்புக்குப் பிறகு சிற்றுண்டிப் பட்டி" },
+  "@appointmentConfirmationNote": {
+    "description": "வெற்றிகரமான சமர்ப்பிப்புக்குப் பிறகு சிற்றுண்டிப் பட்டி"
+  },
   "appointmentFailed": "சந்திப்பை பதிவு செய்ய முடியவில்லை",
-  "@appointmentFailed": { "description": "பொதுவான API தோல்வி செய்தி" },
+  "@appointmentFailed": {
+    "description": "பொதுவான API தோல்வி செய்தி"
+  },
   "genericError": "ஏதோ தவறு நடந்துவிட்டது. மீண்டும் முயற்சிக்கவும்.",
-  "@genericError": { "description": "பொதுவான நெட்வொர்க்/பிழை சிற்றுண்டிப் பட்டி" },
+  "@genericError": {
+    "description": "பொதுவான நெட்வொர்க்/பிழை சிற்றுண்டிப் பட்டி"
+  },
   "calendarSyncTitle": "நாட்காட்டியில் சேர்க்கவா?",
-  "@calendarSyncTitle": { "description": "நாட்காட்டி ஒத்திசைவுக்கான உரையாடல் தலைப்பு" },
+  "@calendarSyncTitle": {
+    "description": "நாட்காட்டி ஒத்திசைவுக்கான உரையாடல் தலைப்பு"
+  },
   "calendarSyncPrompt": "இந்த சந்திப்பை உங்கள் நாட்காட்டியில் சேர்க்க விரும்புகிறீர்களா?",
-  "@calendarSyncPrompt": { "description": "நாட்காட்டி ஒத்திசைவுக்கான உரையாடல் உடல்" },
+  "@calendarSyncPrompt": {
+    "description": "நாட்காட்டி ஒத்திசைவுக்கான உரையாடல் உடல்"
+  },
   "yesAlways": "ஆம், எப்போதும்",
-  "@yesAlways": { "description": "உரையாடல் பொத்தான்: எப்போதும் நாட்காட்டியில் சேர்க்கவும்" },
+  "@yesAlways": {
+    "description": "உரையாடல் பொத்தான்: எப்போதும் நாட்காட்டியில் சேர்க்கவும்"
+  },
   "no": "இல்லை",
-  "@no": { "description": "உரையாடல் பொத்தான்: நாட்காட்டியில் சேர்ப்பதை நிராகரிக்கவும்" },
+  "@no": {
+    "description": "உரையாடல் பொத்தான்: நாட்காட்டியில் சேர்ப்பதை நிராகரிக்கவும்"
+  },
   "calendarEventTitle": "VH Health சந்திப்பு",
-  "@calendarEventTitle": { "description": "நாட்காட்டி நிகழ்விற்கான தலைப்பு" },
+  "@calendarEventTitle": {
+    "description": "நாட்காட்டி நிகழ்விற்கான தலைப்பு"
+  },
   "calendarEventDescription": "{doctor} உடன் சந்திப்பு",
   "@calendarEventDescription": {
     "description": "நாட்காட்டி நிகழ்விற்கான விளக்கம்",
-    "placeholders": { "doctor": {} }
+    "placeholders": {
+      "doctor": {}
+    }
   },
   "calendarEventLocation": "VH Health மருத்துவமனை",
-  "@calendarEventLocation": { "description": "நாட்காட்டி நிகழ்விற்கான இருப்பிடச் சரம்" },
+  "@calendarEventLocation": {
+    "description": "நாட்காட்டி நிகழ்விற்கான இருப்பிடச் சரம்"
+  },
   "generalDoctor": "மருத்துவர்",
-  "@generalDoctor": { "description": "நாட்காட்டி விளக்கத்தில் மாற்று மருத்துவர் பெயர்" },
+  "@generalDoctor": {
+    "description": "நாட்காட்டி விளக்கத்தில் மாற்று மருத்துவர் பெயர்"
+  },
   "sosSent": "SOS எச்சரிக்கை அனுப்பப்பட்டது!",
-  "@sosSent": { "description": "SOS பொத்தானைத் தட்டிய பிறகு சிற்றுண்டிப் பட்டி" },
+  "@sosSent": {
+    "description": "SOS பொத்தானைத் தட்டிய பிறகு சிற்றுண்டிப் பட்டி"
+  },
   "requestAppointmentPhoneNumber": "தொலைபேசி எண்",
-  "@requestAppointmentPhoneNumber": { "description": "தொலைபேசி உரை புலத்திற்கான லேபிள்" },
+  "@requestAppointmentPhoneNumber": {
+    "description": "தொலைபேசி உரை புலத்திற்கான லேபிள்"
+  },
   "cardiology": "இதயவியல்",
   "neurology": "நரம்பியல்",
   "orthopedics": "எலும்பியல்",
@@ -300,175 +511,341 @@
   "pediatrics": "குழந்தை மருத்துவம்",
   "general_medicine": "பொது மருத்துவம்",
   "pharmacyTitle": "மருந்துகள் ஆர்டர் செய்யவும்",
-  "@pharmacyTitle": { "description": "மருந்தகத் திரையின் ஆப்-பார் தலைப்பு" },
+  "@pharmacyTitle": {
+    "description": "மருந்தகத் திரையின் ஆப்-பார் தலைப்பு"
+  },
   "pharmacyPermissionsRequired": "கோப்புகளைத் தேர்ந்தெடுக்க சேமிப்பக அனுமதி தேவை.",
-  "@pharmacyPermissionsRequired": { "description": "பயனர் கோப்பு-தேர்வி அனுமதிகளை மறுக்கும்போது சிற்றுண்டிப் பட்டி" },
+  "@pharmacyPermissionsRequired": {
+    "description": "பயனர் கோப்பு-தேர்வி அனுமதிகளை மறுக்கும்போது சிற்றுண்டிப் பட்டி"
+  },
   "pharmacyFilePickerError": "கோப்பைத் தேர்ந்தெடுக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
-  "@pharmacyFilePickerError": { "description": "கோப்பு-தேர்வி தோல்வியடையும் போது சிற்றுண்டிப் பட்டி" },
+  "@pharmacyFilePickerError": {
+    "description": "கோப்பு-தேர்வி தோல்வியடையும் போது சிற்றுண்டிப் பட்டி"
+  },
   "pharmacyFormAndFileRequired": "தயவுசெய்து படிவத்தை பூர்த்தி செய்து மருந்துச் சீட்டுக் கோப்பை இணைக்கவும்.",
-  "@pharmacyFormAndFileRequired": { "description": "படிவம்/கோப்பு இல்லாமல் சமர்ப்பி பொத்தானை அழுத்தும்போது சிற்றுண்டிப் பட்டி" },
+  "@pharmacyFormAndFileRequired": {
+    "description": "படிவம்/கோப்பு இல்லாமல் சமர்ப்பி பொத்தானை அழுத்தும்போது சிற்றுண்டிப் பட்டி"
+  },
   "pharmacyUploadFailed": "பதிவேற்றம் தோல்வியடைந்தது. மீண்டும் முயற்சிக்கவும்.",
-  "@pharmacyUploadFailed": { "description": "மருந்துச் சீட்டு பதிவேற்றம் தோல்வியடையும் போது சிற்றுண்டிப் பட்டி" },
+  "@pharmacyUploadFailed": {
+    "description": "மருந்துச் சீட்டு பதிவேற்றம் தோல்வியடையும் போது சிற்றுண்டிப் பட்டி"
+  },
   "pharmacySubmissionFailed": "ஆர்டர் சமர்ப்பிப்பு தோல்வியடைந்தது.",
-  "@pharmacySubmissionFailed": { "description": "பின்தளப் பிழையிலிருந்து பொதுவான மாற்று செய்தி" },
+  "@pharmacySubmissionFailed": {
+    "description": "பின்தளப் பிழையிலிருந்து பொதுவான மாற்று செய்தி"
+  },
   "pharmacyConfirmationNote": "ஆர்டர் செய்யப்பட்டது! எங்கள் மருந்தகம் உறுதிப்படுத்த அழைக்கும்.",
-  "@pharmacyConfirmationNote": { "description": "வெற்றிகரமான ஆர்டருக்குப் பிறகு சிற்றுண்டிப் பட்டி" },
+  "@pharmacyConfirmationNote": {
+    "description": "வெற்றிகரமான ஆர்டருக்குப் பிறகு சிற்றுண்டிப் பட்டி"
+  },
   "pharmacyInfoBanner": "உங்கள் மருத்துவரின் மருந்துச் சீட்டை (PDF அல்லது படம்) மற்றும் விநியோக முகவரியைப் பதிவேற்றவும்.",
-  "@pharmacyInfoBanner": { "description": "வழிமுறைகளுடன் கூடிய மேல் பதாகை" },
+  "@pharmacyInfoBanner": {
+    "description": "வழிமுறைகளுடன் கூடிய மேல் பதாகை"
+  },
   "pharmacyUploadPrescriptionButton": "மருந்துச் சீட்டைப் பதிவேற்றவும்",
-  "@pharmacyUploadPrescriptionButton": { "description": "ஒரு கோப்பைத் தேர்ந்தெடுப்பதற்கான பொத்தான் உரை" },
+  "@pharmacyUploadPrescriptionButton": {
+    "description": "ஒரு கோப்பைத் தேர்ந்தெடுப்பதற்கான பொத்தான் உரை"
+  },
   "fileSelected": "தேர்ந்தெடுக்கப்பட்டது",
-  "@fileSelected": { "description": "தேர்ந்தெடுக்கப்பட்ட கோப்புப்பெயருக்கு முன் உள்ள முன்னொட்டு" },
+  "@fileSelected": {
+    "description": "தேர்ந்தெடுக்கப்பட்ட கோப்புப்பெயருக்கு முன் உள்ள முன்னொட்டு"
+  },
   "fileClearSelection": "நீக்கு",
-  "@fileClearSelection": { "description": "தேர்ந்தெடுக்கப்பட்ட கோப்பை அகற்றுவதற்கான இணைப்பு" },
+  "@fileClearSelection": {
+    "description": "தேர்ந்தெடுக்கப்பட்ட கோப்பை அகற்றுவதற்கான இணைப்பு"
+  },
   "pharmacyDeliveryAddressLabel": "விநியோக முகவரி",
-  "@pharmacyDeliveryAddressLabel": { "description": "முகவரி உரைப் பகுதிக்கான லேபிள்" },
+  "@pharmacyDeliveryAddressLabel": {
+    "description": "முகவரி உரைப் பகுதிக்கான லேபிள்"
+  },
   "pharmacyDeliveryAddressHint": "வீடு / பிளாட் எண், தெரு, பகுதி, பின்கோடு...",
-  "@pharmacyDeliveryAddressHint": { "description": "முகவரி உரைப் பகுதிக்குள் உள்ள குறிப்பு" },
+  "@pharmacyDeliveryAddressHint": {
+    "description": "முகவரி உரைப் பகுதிக்குள் உள்ள குறிப்பு"
+  },
   "pharmacyDeliveryAddressValidationRequired": "முகவரி தேவை",
-  "@pharmacyDeliveryAddressValidationRequired": { "description": "முகவரி காலியாக இருக்கும்போது சரிபார்ப்பு" },
+  "@pharmacyDeliveryAddressValidationRequired": {
+    "description": "முகவரி காலியாக இருக்கும்போது சரிபார்ப்பு"
+  },
   "pharmacySubmitOrderButton": "ஆர்டரைச் சமர்ப்பிக்கவும்",
-  "@pharmacySubmitOrderButton": { "description": "மருந்தக ஆர்டரைச் சமர்ப்பிக்க முதன்மை பொத்தான்" },
+  "@pharmacySubmitOrderButton": {
+    "description": "மருந்தக ஆர்டரைச் சமர்ப்பிக்க முதன்மை பொத்தான்"
+  },
   "pharmacyCallButton": "மருந்தகத்தை அழைக்கவும்",
-  "@pharmacyCallButton": { "description": "மருந்தகத்திற்கு தொலைபேசி அழைப்பைத் தூண்டும் பொத்தான்" },
+  "@pharmacyCallButton": {
+    "description": "மருந்தகத்திற்கு தொலைபேசி அழைப்பைத் தூண்டும் பொத்தான்"
+  },
   "pharmacyCallFailed": "டயலரைத் தொடங்க முடியவில்லை.",
-  "@pharmacyCallFailed": { "description": "tel: தொடக்கம் தோல்வியடையும் போது சிற்றுண்டிப் பட்டி" },
+  "@pharmacyCallFailed": {
+    "description": "tel: தொடக்கம் தோல்வியடையும் போது சிற்றுண்டிப் பட்டி"
+  },
   "pharmacyPhoneNumberLabel": "தொலைபேசி எண்",
-  "@pharmacyPhoneNumberLabel": { "description": "தொலைபேசி புலத்திற்கான லேபிள் (விருந்தினர் பயன்முறை)" },
+  "@pharmacyPhoneNumberLabel": {
+    "description": "தொலைபேசி புலத்திற்கான லேபிள் (விருந்தினர் பயன்முறை)"
+  },
   "pharmacyPhoneNumberHint": "10-இலக்க மொபைல் எண்",
-  "@pharmacyPhoneNumberHint": { "description": "தொலைபேசி புலத்திற்கான குறிப்பு" },
+  "@pharmacyPhoneNumberHint": {
+    "description": "தொலைபேசி புலத்திற்கான குறிப்பு"
+  },
   "pharmacyPhoneNumberValidationInvalid": "சரியான 10-இலக்க மொபைல் எண்ணை உள்ளிடவும்",
-  "@pharmacyPhoneNumberValidationInvalid": { "description": "தொலைபேசி உள்ளீட்டிற்கான சரிபார்ப்புப் பிழை" },
+  "@pharmacyPhoneNumberValidationInvalid": {
+    "description": "தொலைபேசி உள்ளீட்டிற்கான சரிபார்ப்புப் பிழை"
+  },
   "investigationsTitle": "ஆய்வுக்குக் கோரிக்கை",
-  "@investigationsTitle": { "description": "ஆப்-பார் தலைப்பு" },
+  "@investigationsTitle": {
+    "description": "ஆப்-பார் தலைப்பு"
+  },
   "investigationsTestNameLabel": "சோதனையின் பெயர்",
-  "@investigationsTestNameLabel": { "description": "ஆய்வு சோதனைப் பெயருக்கான லேபிள்" },
+  "@investigationsTestNameLabel": {
+    "description": "ஆய்வு சோதனைப் பெயருக்கான லேபிள்"
+  },
   "investigationsTestNameHint": "எ.கா. முழுமையான இரத்த எண்ணிக்கை",
-  "@investigationsTestNameHint": { "description": "சோதனைப் பெயர் புலத்தில் உள்ள குறிப்பு" },
+  "@investigationsTestNameHint": {
+    "description": "சோதனைப் பெயர் புலத்தில் உள்ள குறிப்பு"
+  },
   "investigationsTestNameValidationRequired": "சோதனையின் பெயர் தேவை",
-  "@investigationsTestNameValidationRequired": { "description": "சோதனைப் பெயர் காலியாக இருக்கும்போது சரிபார்ப்பு" },
+  "@investigationsTestNameValidationRequired": {
+    "description": "சோதனைப் பெயர் காலியாக இருக்கும்போது சரிபார்ப்பு"
+  },
   "investigationsUploadFileButtonLabel": "மருத்துவரின் உத்தரவைப் பதிவேற்றவும்",
-  "@investigationsUploadFileButtonLabel": { "description": "கோப்பைத் தேர்ந்தெடுப்பதற்கான பொத்தான் உரை" },
+  "@investigationsUploadFileButtonLabel": {
+    "description": "கோப்பைத் தேர்ந்தெடுப்பதற்கான பொத்தான் உரை"
+  },
   "investigationsSubmitRequestButton": "கோரிக்கையைச் சமர்ப்பிக்கவும்",
-  "@investigationsSubmitRequestButton": { "description": "முதன்மை பொத்தான் உரை" },
+  "@investigationsSubmitRequestButton": {
+    "description": "முதன்மை பொத்தான் உரை"
+  },
   "investigationsViewReportsButton": "ஆய்வு அறிக்கைகளைப் பார்க்கவும்",
-  "@investigationsViewReportsButton": { "description": "உங்கள் ஆரோக்கியம் ஆய்வு வடிகட்டிக்கான இணைப்பு" },
+  "@investigationsViewReportsButton": {
+    "description": "உங்கள் ஆரோக்கியம் ஆய்வு வடிகட்டிக்கான இணைப்பு"
+  },
   "investigationsFormAndFileRequired": "படிவத்தைப் பூர்த்தி செய்து ஒரு கோப்பை இணைக்கவும்.",
-  "@investigationsFormAndFileRequired": { "description": "படிவம்/கோப்பு இல்லாதபோது சிற்றுண்டிப் பட்டி" },
+  "@investigationsFormAndFileRequired": {
+    "description": "படிவம்/கோப்பு இல்லாதபோது சிற்றுண்டிப் பட்டி"
+  },
   "investigationsConfirmationNote": "கோரிக்கை அனுப்பப்பட்டது! திட்டமிட உங்களைத் தொடர்புகொள்வோம்.",
-  "@investigationsConfirmationNote": { "description": "வெற்றிகரமான சமர்ப்பிப்புக்குப் பிறகு சிற்றுண்டிப் பட்டி" },
+  "@investigationsConfirmationNote": {
+    "description": "வெற்றிகரமான சமர்ப்பிப்புக்குப் பிறகு சிற்றுண்டிப் பட்டி"
+  },
   "investigationsFailed": "கோரிக்கையைச் சமர்ப்பிக்க முடியவில்லை.",
-  "@investigationsFailed": { "description": "பொதுவான பின்தளத் தோல்வி" },
+  "@investigationsFailed": {
+    "description": "பொதுவான பின்தளத் தோல்வி"
+  },
   "investigationsUploadFailed": "கோப்பு பதிவேற்றம் தோல்வியடைந்தது. மீண்டும் முயற்சிக்கவும்.",
-  "@investigationsUploadFailed": { "description": "பதிவேற்றம் தோல்வியடையும் போது சிற்றுண்டிப் பட்டி" },
+  "@investigationsUploadFailed": {
+    "description": "பதிவேற்றம் தோல்வியடையும் போது சிற்றுண்டிப் பட்டி"
+  },
   "investigationsPermissionsRequired": "சேமிப்பக அனுமதி தேவை.",
-  "@investigationsPermissionsRequired": { "description": "பயனர் அனுமதிகளை மறுக்கும்போது சிற்றுண்டிப் பட்டி" },
+  "@investigationsPermissionsRequired": {
+    "description": "பயனர் அனுமதிகளை மறுக்கும்போது சிற்றுண்டிப் பட்டி"
+  },
   "investigationsFilePickerError": "ஒரு கோப்பைத் தேர்ந்தெடுக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
-  "@investigationsFilePickerError": { "description": "கோப்பு-தேர்வி பிழை ஏற்படும்போது சிற்றுண்டிப் பட்டி" },
+  "@investigationsFilePickerError": {
+    "description": "கோப்பு-தேர்வி பிழை ஏற்படும்போது சிற்றுண்டிப் பட்டி"
+  },
   "triviaTitle": "ஆரோக்கியத் துணுக்குகள்",
-  "@triviaTitle": { "description": "ஆரோக்கியத் துணுக்குகள் திரையின் ஆப்-பார் தலைப்பு" },
+  "@triviaTitle": {
+    "description": "ஆரோக்கியத் துணுக்குகள் திரையின் ஆப்-பார் தலைப்பு"
+  },
   "triviaDidYouKnow": "உங்களுக்குத் தெரியுமா?",
-  "@triviaDidYouKnow": { "description": "ஆரோக்கியத் துணுக்கு உண்மைக்கு மேலே உள்ள தலைப்பு" },
+  "@triviaDidYouKnow": {
+    "description": "ஆரோக்கியத் துணுக்கு உண்மைக்கு மேலே உள்ள தலைப்பு"
+  },
   "triviaNewTriviaButton": "மற்றொரு உண்மையைக் காட்டு",
-  "@triviaNewTriviaButton": { "description": "புதிய சீரற்ற ஆரோக்கியத் துணுக்கு உண்மையை ஏற்ற பொத்தான்" },
+  "@triviaNewTriviaButton": {
+    "description": "புதிய சீரற்ற ஆரோக்கியத் துணுக்கு உண்மையை ஏற்ற பொத்தான்"
+  },
   "triviaFact1": "மனித இதயம் ஒரு நாளைக்கு சுமார் 100,000 முறை துடிக்கிறது.",
-  "@triviaFact1": { "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #1" },
+  "@triviaFact1": {
+    "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #1"
+  },
   "triviaFact2": "100 முறை சிரிப்பது, நிலையான பைக்கில் 15 நிமிடங்கள் உடற்பயிற்சி செய்வதற்கு சமம்.",
-  "@triviaFact2": { "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #2" },
+  "@triviaFact2": {
+    "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #2"
+  },
   "triviaFact3": "உங்கள் மூக்கு 50,000 வெவ்வேறு வாசனைகளை நினைவில் கொள்ள முடியும்.",
-  "@triviaFact3": { "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #3" },
+  "@triviaFact3": {
+    "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #3"
+  },
   "triviaFact4": "எலும்புகள் அதே எடையுள்ள எஃகை விட ஐந்து மடங்கு வலிமையானவை.",
-  "@triviaFact4": { "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #4" },
+  "@triviaFact4": {
+    "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #4"
+  },
   "triviaFact5": "சராசரி வயது வந்தோரின் தோல் சுமார் 2 சதுர மீட்டர் பரப்பளவைக் கொண்டுள்ளது.",
-  "@triviaFact5": { "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #5" },
+  "@triviaFact5": {
+    "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #5"
+  },
   "triviaFact6": "உங்கள் வயிற்றின் உட்சுவர் தன்னைத்தானே ஜீரணிப்பதைத் தவிர்க்க சில நாட்களுக்கு ஒருமுறை தன்னை மாற்றிக் கொள்கிறது.",
-  "@triviaFact6": { "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #6" },
+  "@triviaFact6": {
+    "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #6"
+  },
   "triviaFact7": "மிகவும் வலிமையான தசை (எடை அடிப்படையில்) தாடைத் தசையான மாசெட்டர் ஆகும்.",
-  "@triviaFact7": { "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #7" },
+  "@triviaFact7": {
+    "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #7"
+  },
   "triviaFact8": "இரவை விட காலையில் மக்கள் சுமார் 1 செ.மீ உயரமானவர்கள்.",
-  "@triviaFact8": { "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #8" },
+  "@triviaFact8": {
+    "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #8"
+  },
   "triviaFact9": "வியர்வை மணமற்றது; தோலில் உள்ள பாக்டீரியாக்கள் தான் உடல் துர்நாற்றத்தை உருவாக்குகின்றன.",
-  "@triviaFact9": { "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #9" },
+  "@triviaFact9": {
+    "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #9"
+  },
   "triviaFact10": "மனிதர்கள் வாழைப்பழங்களுடன் 50% டிஎன்ஏ-வைப் பகிர்ந்து கொள்கிறார்கள்.",
-  "@triviaFact10": { "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #10" },
+  "@triviaFact10": {
+    "description": "சீரற்ற ஆரோக்கியத் துணுக்கு #10"
+  },
   "departmentsTitle": "மருத்துவமனைத் துறைகள்",
-  "@departmentsTitle": { "description": "துறைகள் திரையின் ஆப்-பார் தலைப்பு" },
+  "@departmentsTitle": {
+    "description": "துறைகள் திரையின் ஆப்-பார் தலைப்பு"
+  },
   "departmentsLoadFailed": "துறைகளை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்க கீழே இழுக்கவும்.",
-  "@departmentsLoadFailed": { "description": "மீட்டெடுப்பு தோல்வியடையும் போது சிற்றுண்டிப் பட்டி" },
+  "@departmentsLoadFailed": {
+    "description": "மீட்டெடுப்பு தோல்வியடையும் போது சிற்றுண்டிப் பட்டி"
+  },
   "departmentsNoneFound": "துறைகள் எதுவும் இல்லை.",
-  "@departmentsNoneFound": { "description": "API காலி பட்டியலை வழங்கும்போது காட்டப்படும்" },
+  "@departmentsNoneFound": {
+    "description": "API காலி பட்டியலை வழங்கும்போது காட்டப்படும்"
+  },
   "departmentsUnknown": "அறியப்படாத துறை",
-  "@departmentsUnknown": { "description": "துறை புலம் இல்லாதபோது மாற்று பெயர்" },
+  "@departmentsUnknown": {
+    "description": "துறை புலம் இல்லாதபோது மாற்று பெயர்"
+  },
   "departmentsDoctor": "மருத்துவர்",
-  "@departmentsDoctor": { "description": "மாற்று மருத்துவர் பெயர்" },
+  "@departmentsDoctor": {
+    "description": "மாற்று மருத்துவர் பெயர்"
+  },
   "departmentsBook": "பதிவு செய்",
-  "@departmentsBook": { "description": "ஒரு மருத்துவருடன் சந்திப்பைப் பதிவு செய்வதற்கான பொத்தான் உரை" },
+  "@departmentsBook": {
+    "description": "ஒரு மருத்துவருடன் சந்திப்பைப் பதிவு செய்வதற்கான பொத்தான் உரை"
+  },
   "guestUser": "விருந்தினர்",
-  "@guestUser": { "description": "விருந்தினர் பயனர்களுக்கான காட்சி பெயர்" },
+  "@guestUser": {
+    "description": "விருந்தினர் பயனர்களுக்கான காட்சி பெயர்"
+  },
   "aboutUsContent": "2003-ல் நாங்கள் தொடங்கியதிலிருந்து, வெங்கடேஸ்வரா மருத்துவமனைகள் சென்னையின் இதயத்தில் நம்பிக்கையின் மற்றும் குணமடைதலின் ஒரு கலங்கரை விளக்கமாக నిలుస్తుంది. தொலைநோக்குப் பார்வை கொண்ட இதயநோய் நிபுணர் டாக்டர் தில்லை வள்ளல் அவர்களால் நிறுவப்பட்ட நாங்கள், ஒரு சிறப்பு இதய சிகிச்சை மையத்திலிருந்து சென்னையின் மிகவும் நம்பகமான பன்முக சிறப்பு சுகாதார நிறுவனங்களில் ஒன்றாக வளர்ந்துள்ளோம், எங்கள் கருணையான கவனிப்பு அர்ப்பணிப்புடன் பத்து லட்சத்திற்கும் அதிகமான உயிர்களைத் தொட்டுள்ளோம்.\n\n## எங்கள் நோக்கம்: தடுப்பே எங்கள் பேரார்வம்\nவெங்கடேஸ்வரா மருத்துவமனைகளில், சிறந்த சிகிச்சை தடுப்புதான் என்று நாங்கள் நம்புகிறோம். எங்கள் முதன்மை நோக்கம் குணப்படுத்துவதைத் தாண்டியது—முழுமையான பரிசோதனை, கல்வி மற்றும் தனிப்பயனாக்கப்பட்ட ஆரோக்கிய திட்டங்கள் மூலம் வாழ்க்கைமுறை நோய்கள் ஏற்படுவதைத் தடுப்பதில் நாங்கள் அர்ப்பணிப்புடன் உள்ளோம். இந்த முன்கூட்டிய அணுகுமுறை ஆயிரக்கணக்கான நோயாளிகள் மாரடைப்பு, பக்கவாதம் மற்றும் பிற தடுக்கக்கூடிய நிலைமைகளைத் தவிர்க்க உதவியுள்ளது.\n\n## உலகத்தரம் வாய்ந்த வசதிகள், உள்ளூர் கவனிப்பு\nநந்தனம், ஷாமியர்ஸ் சாலையில் உள்ள எங்கள் 150 படுக்கைகள் கொண்ட வசதி, அதிநவீன தொழில்நுட்பத்தை தனிப்பயனாக்கப்பட்ட கவனிப்பின் அரவணைப்புடன் இணைக்கிறது. பல சிறப்புகளில் 100-க்கும் மேற்பட்ட புகழ்பெற்ற மருத்துவர்கள் மற்றும் அதிநவீன உள்கட்டமைப்புடன், நாங்கள் வழங்குகிறோம்:\n\n- **மேம்பட்ட இதய சிகிச்சை**: 100,000-க்கும் மேற்பட்ட வெற்றிகரமான இதய செயல்முறைகள் முடிக்கப்பட்டுள்ளன\n- **24/7 அவசர சேவைகள்**: круглосуточная травматологическая и реанимационная помощь\n- **விரிவான சிறப்புகள்**: இதயவியல் முதல் அழகியல் வரை, நரம்பியல் முதல் சிறுநீரகவியல் வரை\n- **நவீன ICU**: 1:1 செவிலியர்-நோயாளி விகிதம் மற்றும் மேம்பட்ட கண்காணிப்பு அமைப்புகளுடன் 25 படுக்கைகள் கொண்ட மூடிய ICU\n- **அதிநவீன கண்டறிதல்**: எம்ஆர்ஐ, சிடி ஸ்கேன், மேம்பட்ட நோயியல் ஆய்வகம் மற்றும் இமேஜிங் வசதிகள்\n\n## மருத்துவச் சிறப்பில் முன்னோடி\n### சமீபத்திய செயல்முறைகள் & தொழில்நுட்பங்கள்\n\n**குறைந்தபட்ச ஊடுருவும் இதய தலையீடுகள்**\n- மருந்து-வெளியிடும் ஸ்டென்ட்களுடன் மேம்பட்ட ஆஞ்சியோபிளாஸ்டி நுட்பங்கள்\n- டிரான்ஸ்கேதெட்டர் பெருநாடி வால்வு மாற்று (TAVR)\n- ஈயமற்ற இதயமுடுக்கி பொருத்துதல்\n- சிக்கலான அரித்மியா நீக்கத்திற்கான 3D மேப்பிங்\n- இன்ட்ராவாஸ்குலர் அல்ட்ராசவுண்ட் (IVUS) வழிகாட்டும் செயல்முறைகள்\n\n**ரோபோடிக் & லேப்ராஸ்கோபிக் அறுவை சிகிச்சை**\n- துல்லியமான கட்டி அகற்றுதலுக்கான ரோபோ-உதவி அறுவை சிகிச்சைகள்\n- ஒற்றை-கீறல் லேப்ராஸ்கோபிக் செயல்முறைகள்\n- விரைவான மீட்புடன் கூடிய எண்டோஸ்கோபிக் முதுகுத்தண்டு அறுவை சிகிச்சைகள்\n- குறைந்த வடுவுக்கு லேசர்-உதவி அறுவை சிகிச்சைகள்\n\n**மேம்பட்ட புற்றுநோய் சிகிச்சை**\n- இலக்கு சிகிச்சை மற்றும் நோயெதிர்ப்பு சிகிச்சை நெறிமுறைகள்\n- பட-வழிகாட்டப்பட்ட கதிர்வீச்சு சிகிச்சை (IGRT)\n- கட்டி சிகிச்சைக்கான சைபர்கத்தி ரேடியோசர்ஜரி\n- தனிப்பயனாக்கப்பட்ட புற்றுநோய் மரபியல் சோதனை\n- வலி இல்லாத கீமோதெரபி விநியோக அமைப்புகள்\n\n**அதிநவீன கண்டறிதல்**\n- மிக உயர்ந்த தெளிவுத்திறன் இமேஜிங்கிற்கான 3 டெஸ்லா எம்ஆர்ஐ\n- இதயம் மற்றும் முழு உடல் ஸ்கேன்களுக்கான 256-ஸ்லைஸ் சிடி ஸ்கேனர்\n- ஆரம்ப புற்றுநோய் கண்டறிதலுக்கான PET-CT\n- மேம்பட்ட 4D அல்ட்ராசவுண்ட் தொழில்நுட்பம்\n- AI-ஆதரவு கண்டறிதல் விளக்கம் அமைப்புகள்\n\n**புதுமையான சிகிச்சை அணுகுமுறைகள்**\n- இதய পুনর্জন্মத்திற்கு ஸ்டெம் செல் சிகிச்சை\n- பிளேட்லெட்-நிறைந்த பிளாஸ்மா (PRP) சிகிச்சை\n- அறுவை சிகிச்சை அல்லாத உடல் வடிவமைப்பு மற்றும் அழகியல் செயல்முறைகள்\n- హైపర్‌బారిక్ ఆక్సిజన్ థెరపీతో అధునాతన గాయం నయం\n- சித்தா மற்றும் நவீன மருத்துவத்தை இணைக்கும் ஒருங்கிணைந்த முழுமையான சிகிச்சை\n\n## அங்கீகாரம் & சிறப்பு\n- **ரேடியோ சிட்டி ஐகான் விருது 2022** இதய சிகிச்சையில் சிறப்புக்காக\n- **NABH அங்கீகாரம்** நோயாளியின் கவனிப்பு மற்றும் பாதுகாப்பின் உயர்ந்த தரங்களை உறுதி செய்கிறது\n- **4.7/5 நோயாளி திருப்தி மதிப்பீடு** ஆயிரக்கணக்கான மதிப்புரைகளின் அடிப்படையில்\n- பல சிறப்புகளில் **சிறப்பு மையம்** என்ற தகுதி\n\n## சுகாதாரக் கல்வியில் புதுமை\nநோயாளி கவனிப்புக்கு அப்பால், நாங்கள் எங்கள் சார்பு சுகாதார அறிவியல் திட்டங்கள் மூலம் அடுத்த தலைமுறை சுகாதார நிபுணர்களை வளர்க்கிறோம். தமிழ்நாடு டாக்டர் எம்.ஜி.ஆர். மருத்துவப் பல்கலைக்கழகத்துடன் இணைக்கப்பட்டு, நாங்கள் இதய தொழில்நுட்பம், தீவிர சிகிச்சை மற்றும் சுகாதார மேலாண்மையில் சிறப்புப் படிப்புகளை வழங்குகிறோம்.\n\n## எங்கள் மதிப்புகள், உங்கள் நம்பிக்கை\n**கருணை** – ஒவ்வொரு நோயாளியும் குடும்பம்\n**சிறப்பு** – உயர்ந்த மருத்துவத் தரங்களைத் தொடருதல்\n**புதுமை** – மேம்பட்ட சிகிச்சைகள் மற்றும் தொழில்நுட்பங்களை ஏற்றுக்கொள்வது\n**ஒருமைப்பாடு** – வெளிப்படையான, நெறிமுறை சார்ந்த சுகாதார விநியோகம்\n\n## ஊக்கமளிக்கும் தலைமை\nஇந்திய கார்டியாலஜிக்கல் சொசைட்டி, ஐரோப்பிய சொசைட்டி ஆஃப் கார்டியாலஜி மற்றும் இந்திய மருத்துவ சங்கத்தின் செயலில் உறுப்பினராக உள்ள டாக்டர் தில்லை வள்ளல் அவர்களின் தலைமையில், எங்கள் மருத்துவமனை நவீன மருத்துவத்தை முழுமையான ஆரோக்கியத்துடன் இணைத்து ஒருங்கிணைந்த சுகாதார அணுகுமுறைகளில் தொடர்ந்து முன்னோடியாக உள்ளது.\n\n## உங்கள் ஆரோக்கியம், எங்கள் அர்ப்பணிப்பு\nவழக்கமான பரிசோதனைகள் முதல் சிக்கலான அறுவை சிகிச்சைகள் வரை, தடுப்பு கவனிப்பு முதல் அவசரத் தலையீடுகள் வரை, வெங்கடேஸ்வரா மருத்துவமனைகள் உங்களுக்கு 24/7 சேவை செய்யத் தயாராக உள்ளன. பணமில்லா காப்பீட்டு வசதிகள், மலிவு விலையில் சிகிச்சை விருப்பங்கள் மற்றும் நோயாளி-முதல் அணுகுமுறையுடன், தரமான சுகாதாரம் அனைவருக்கும் అందుబాటులో ఉండేలా చూస్తాము.\n\n**எங்களைப் பார்வையிட:**\n36-A, ஷாமியர்ஸ் சாலை, நந்தனம்\nசென்னை – 600035\n(தேவர் சிலைக்கு அருகில்)\n\n*குணப்படுத்துதல் இதயத்தைச் சந்திக்கும் இடத்தில், மற்றும் தொழில்நுட்பம் கருணையைச் சந்திக்கும் இடத்தில்—வெங்கடேஸ்வரா மருத்துவமனைகளுக்கு வரவேற்கிறோம், உங்கள் வாழ்நாள் ஆரோக்கியத்தில் உங்கள் கூட்டாளி.*",
   "@aboutUsContent": {
     "description": "எங்களைப் பற்றி திரையின் முழு மார்க்டவுன் உள்ளடக்கம்"
   },
   "settingsTitle": "அமைப்புகள்",
-  "@settingsTitle": { "description": "ஆப்-பார் தலைப்பு" },
+  "@settingsTitle": {
+    "description": "ஆப்-பார் தலைப்பு"
+  },
   "settingsEditProfile": "சுயவிவரத்தைத் திருத்தவும்",
-  "@settingsEditProfile": { "description": "சுயவிவரத்தைத் திருத்துவதற்கான பட்டியல்-ஓடு லேபிள்" },
+  "@settingsEditProfile": {
+    "description": "சுயவிவரத்தைத் திருத்துவதற்கான பட்டியல்-ஓடு லேபிள்"
+  },
   "settingsLanguage": "மொழி",
-  "@settingsLanguage": { "description": "மொழிக்கான பகுதி தலைப்பு" },
+  "@settingsLanguage": {
+    "description": "மொழிக்கான பகுதி தலைப்பு"
+  },
   "settingsAccessibility": "அணுகல்தன்மை",
-  "@settingsAccessibility": { "description": "எழுத்துரு அளவு ஸ்லைடருக்கான பகுதி தலைப்பு" },
+  "@settingsAccessibility": {
+    "description": "எழுத்துரு அளவு ஸ்லைடருக்கான பகுதி தலைப்பு"
+  },
   "settingsFontSize": "எழுத்துரு அளவு",
-  "@settingsFontSize": { "description": "எழுத்துரு அளவு விருப்பத்திற்கான லேபிள்" },
+  "@settingsFontSize": {
+    "description": "எழுத்துரு அளவு விருப்பத்திற்கான லேபிள்"
+  },
   "settingsFontSizeChanged": "எழுத்துரு அளவு மாற்றப்பட்டது",
-  "@settingsFontSizeChanged": { "description": "எழுத்துரு அளவு மாற்றத்திற்குப் பிறகு சிற்றுண்டிப் பட்டி முன்னொட்டு" },
+  "@settingsFontSizeChanged": {
+    "description": "எழுத்துரு அளவு மாற்றத்திற்குப் பிறகு சிற்றுண்டிப் பட்டி முன்னொட்டு"
+  },
   "settingsTheme": "இருண்ட தீம்",
-  "@settingsTheme": { "description": "தீம் மாற்றுவதற்கான லேபிள்" },
+  "@settingsTheme": {
+    "description": "தீம் மாற்றுவதற்கான லேபிள்"
+  },
   "settingsDarkTheme": "இருண்ட பயன்முறை இயக்கப்பட்டது",
-  "@settingsDarkTheme": { "description": "இருண்ட பயன்முறை ஆன் ஆக இருக்கும்போது துணைத்தலைப்பு" },
+  "@settingsDarkTheme": {
+    "description": "இருண்ட பயன்முறை ஆன் ஆக இருக்கும்போது துணைத்தலைப்பு"
+  },
   "settingsLightTheme": "ஒளி பயன்முறை இயக்கப்பட்டது",
-  "@settingsLightTheme": { "description": "இருண்ட பயன்முறை ஆஃப் ஆக இருக்கும்போது துணைத்தலைப்பு" },
+  "@settingsLightTheme": {
+    "description": "இருண்ட பயன்முறை ஆஃப் ஆக இருக்கும்போது துணைத்தலைப்பு"
+  },
   "settingsSecurity": "பாதுகாப்பு",
-  "@settingsSecurity": { "description": "பயோமெட்ரிக் உள்நுழைவிற்கான பகுதி தலைப்பு" },
+  "@settingsSecurity": {
+    "description": "பயோமெட்ரிக் உள்நுழைவிற்கான பகுதி தலைப்பு"
+  },
   "settingsBiometricLogin": "பயோமெட்ரிக் உள்நுழைவைப் பயன்படுத்தவும்",
-  "@settingsBiometricLogin": { "description": "பயோமெட்ரிக் மாற்றுவதற்கான லேபிள்" },
+  "@settingsBiometricLogin": {
+    "description": "பயோமெட்ரிக் மாற்றுவதற்கான லேபிள்"
+  },
   "settingsBiometricNotSupported": "இந்தச் சாதனத்தில் பயோமெட்ரிக்ஸ் ஆதரிக்கப்படவில்லை.",
-  "@settingsBiometricNotSupported": { "description": "சாதனத்தில் பயோமெட்ரிக்ஸ் இல்லாதபோது சிற்றுண்டிப் பட்டி" },
+  "@settingsBiometricNotSupported": {
+    "description": "சாதனத்தில் பயோமெட்ரிக்ஸ் இல்லாதபோது சிற்றுண்டிப் பட்டி"
+  },
   "settingsLogout": "வெளியேறு",
-  "@settingsLogout": { "description": "வெளியேறு பொத்தானில் உள்ள லேபிள்" },
+  "@settingsLogout": {
+    "description": "வெளியேறு பொத்தானில் உள்ள லேபிள்"
+  },
   "settingsLogoutConfirmation": "வெளியேறு",
-  "@settingsLogoutConfirmation": { "description": "வெளியேறுவதை உறுதிப்படுத்தக் கேட்கும் உரையாடல் தலைப்பு" },
+  "@settingsLogoutConfirmation": {
+    "description": "வெளியேறுவதை உறுதிப்படுத்தக் கேட்கும் உரையாடல் தலைப்பு"
+  },
   "settingsAreYouSureLogout": "நீங்கள் நிச்சயமாக வெளியேற விரும்புகிறீர்களா?",
-  "@settingsAreYouSureLogout": { "description": "வெளியேறுவதை உறுதிப்படுத்துவதற்கான உரையாடல் உடல்" },
+  "@settingsAreYouSureLogout": {
+    "description": "வெளியேறுவதை உறுதிப்படுத்துவதற்கான உரையாடல் உடல்"
+  },
   "settingsConfirmLogout": "ஆம், வெளியேறு",
-  "@settingsConfirmLogout": { "description": "உரையாடல் உறுதிப்படுத்தும் பொத்தான்" },
+  "@settingsConfirmLogout": {
+    "description": "உரையாடல் உறுதிப்படுத்தும் பொத்தான்"
+  },
   "calendarFullAccess": "எனது சுகாதார நாட்காட்டி",
-  "@calendarFullAccess": { "description": "ஆப்-பார் தலைப்பு மற்றும் அனுமதி கோரும் தலைப்பு" },
+  "@calendarFullAccess": {
+    "description": "ஆப்-பார் தலைப்பு மற்றும் அனுமதி கோரும் தலைப்பு"
+  },
   "calendarPermissionDenied": "நாட்காட்டி அனுமதி மறுக்கப்பட்டது.",
-  "@calendarPermissionDenied": { "description": "பயனர் நாட்காட்டி அனுமதியை மறுக்கும்போது சிற்றுண்டிப் பட்டி உரை" },
+  "@calendarPermissionDenied": {
+    "description": "பயனர் நாட்காட்டி அனுமதியை மறுக்கும்போது சிற்றுண்டிப் பட்டி உரை"
+  },
   "calendarEnablePermissions": "உங்கள் நிகழ்வுகளைப் பார்க்க அமைப்புகளில் நாட்காட்டி அனுமதியை இயக்கவும்.",
-  "@calendarEnablePermissions": { "description": "அனுமதி வழங்கப்படாதபோது காட்டப்படும் செய்தி" },
+  "@calendarEnablePermissions": {
+    "description": "அனுமதி வழங்கப்படாதபோது காட்டப்படும் செய்தி"
+  },
   "openSettings": "அமைப்புகளைத் திற",
-  "@openSettings": { "description": "கணினி அமைப்புகளைத் திறப்பதற்கான பொத்தான் லேபிள்" },
-"settingsPermissionsTitle": "அனுமதிகள்",
-"@settingsPermissionsTitle": { "description": "கேலெண்டர், கேமரா போன்ற செயலி அனுமதிகளுக்கான பகுதித் தலைப்பு" },
-"settingsPermissionCalendar": "கேலெண்டர் அணுகல்",
-"@settingsPermissionCalendar": { "description": "கேலெண்டர் அனுமதிக்கான லேபிள்" },
-"settingsPermissionCalendarDesc": "சந்திப்புகள் மற்றும் ஆய்வுகளைக் காட்டப் பயன்படுகிறது",
-"@settingsPermissionCalendarDesc": { "description": "கேலெண்டர் அனுமதி பயன்பாட்டின் விளக்கம்" },
-"settingsPermissionLocation": "இருப்பிட அணுகல்",
-"@settingsPermissionLocation": { "description": "இருப்பிட அனுமதிக்கான லேபிள்" },
-"settingsPermissionLocationDesc": "SOS மற்றும் அருகிலுள்ள மருத்துவமனையைக் கண்டறியப் பயன்படுகிறது",
-"@settingsPermissionLocationDesc": { "description": "இருப்பிட அனுமதி பயன்பாட்டின் விளக்கம்" },
-"settingsPermissionCamera": "கேமரா அணுகல்",
-"@settingsPermissionCamera": { "description": "கேமரா அனுமதிக்கான லேபிள்" },
-"settingsPermissionCameraDesc": "மருந்துச்சீட்டுகளை ஸ்கேன் செய்வதற்கும் படங்களைப் பதிவேற்றுவதற்கும் பயன்படுகிறது",
-"@settingsPermissionCameraDesc": { "description": "கேமரா அனுமதி பயன்பாட்டின் விளக்கம்"},
-"settingsPermissionManage": "நிர்வகி",
-"@settingsPermissionManage": { "description": "அனுமதி கட்டுப்பாட்டிற்காக கணினி அமைப்புகளைத் திறக்கும் பொத்தானுக்கான லேபிள்" },
-"settingsPermissionGranted": "வழங்கப்பட்டது",
-"@settingsPermissionGranted": { "description": "அனுமதி வழங்கப்பட்டதைக் காட்டும் லேபிள்" },
-"settingsPermissionDenied": "மறுக்கப்பட்டது",
-"@settingsPermissionDenied": { "description": "அனுமதி மறுக்கப்பட்டதைக் காட்டும் லேபிள்" },
+  "@openSettings": {
+    "description": "கணினி அமைப்புகளைத் திறப்பதற்கான பொத்தான் லேபிள்"
+  },
+  "settingsPermissionsTitle": "அனுமதிகள்",
+  "@settingsPermissionsTitle": {
+    "description": "கேலெண்டர், கேமரா போன்ற செயலி அனுமதிகளுக்கான பகுதித் தலைப்பு"
+  },
+  "settingsPermissionCalendar": "கேலெண்டர் அணுகல்",
+  "@settingsPermissionCalendar": {
+    "description": "கேலெண்டர் அனுமதிக்கான லேபிள்"
+  },
+  "settingsPermissionCalendarDesc": "சந்திப்புகள் மற்றும் ஆய்வுகளைக் காட்டப் பயன்படுகிறது",
+  "@settingsPermissionCalendarDesc": {
+    "description": "கேலெண்டர் அனுமதி பயன்பாட்டின் விளக்கம்"
+  },
+  "settingsPermissionLocation": "இருப்பிட அணுகல்",
+  "@settingsPermissionLocation": {
+    "description": "இருப்பிட அனுமதிக்கான லேபிள்"
+  },
+  "settingsPermissionLocationDesc": "SOS மற்றும் அருகிலுள்ள மருத்துவமனையைக் கண்டறியப் பயன்படுகிறது",
+  "@settingsPermissionLocationDesc": {
+    "description": "இருப்பிட அனுமதி பயன்பாட்டின் விளக்கம்"
+  },
+  "settingsPermissionCamera": "கேமரா அணுகல்",
+  "@settingsPermissionCamera": {
+    "description": "கேமரா அனுமதிக்கான லேபிள்"
+  },
+  "settingsPermissionCameraDesc": "மருந்துச்சீட்டுகளை ஸ்கேன் செய்வதற்கும் படங்களைப் பதிவேற்றுவதற்கும் பயன்படுகிறது",
+  "@settingsPermissionCameraDesc": {
+    "description": "கேமரா அனுமதி பயன்பாட்டின் விளக்கம்"
+  },
+  "settingsPermissionManage": "நிர்வகி",
+  "@settingsPermissionManage": {
+    "description": "அனுமதி கட்டுப்பாட்டிற்காக கணினி அமைப்புகளைத் திறக்கும் பொத்தானுக்கான லேபிள்"
+  },
+  "settingsPermissionGranted": "வழங்கப்பட்டது",
+  "@settingsPermissionGranted": {
+    "description": "அனுமதி வழங்கப்பட்டதைக் காட்டும் லேபிள்"
+  },
+  "settingsPermissionDenied": "மறுக்கப்பட்டது",
+  "@settingsPermissionDenied": {
+    "description": "அனுமதி மறுக்கப்பட்டதைக் காட்டும் லேபிள்"
+  },
   "settingsDynamicColors": "டைனமிக் தீம் நிறங்கள்",
   "@settingsDynamicColors": {
     "description": "Label for the dynamic theme colors option"
@@ -506,74 +883,941 @@
     "description": "Generic label for a reset button"
   },
   "refreshCalendar": "நிகழ்வுகளைப் புதுப்பிக்கவும்",
-  "@refreshCalendar": { "description": "புதுப்பிப்பு ஐகானில் உள்ள உதவிக்குறிப்பு" },
+  "@refreshCalendar": {
+    "description": "புதுப்பிப்பு ஐகானில் உள்ள உதவிக்குறிப்பு"
+  },
   "calendarLoadFailed": "நாட்காட்டி நிகழ்வுகளை ஏற்ற முடியவில்லை.",
-  "@calendarLoadFailed": { "description": "API மீட்டெடுப்பு தோல்வியடையும் போது சிற்றுண்டிப் பட்டி" },
+  "@calendarLoadFailed": {
+    "description": "API மீட்டெடுப்பு தோல்வியடையும் போது சிற்றுண்டிப் பட்டி"
+  },
   "selectDayPrompt": "நிகழ்வுகளைப் பார்க்க ஒரு நாளைத் தேர்ந்தெடுக்கவும்",
-  "@selectDayPrompt": { "description": "தேதி தேர்ந்தெடுக்கப்படாதபோது காட்டப்படும்" },
+  "@selectDayPrompt": {
+    "description": "தேதி தேர்ந்தெடுக்கப்படாதபோது காட்டப்படும்"
+  },
   "noEventsForDay": "இந்த நாளுக்கு நிகழ்வுகள் எதுவும் இல்லை",
-  "@noEventsForDay": { "description": "தேர்ந்தெடுக்கப்பட்ட நாளில் நிகழ்வுகள் இல்லாதபோது காட்டப்படும்" },
+  "@noEventsForDay": {
+    "description": "தேர்ந்தெடுக்கப்பட்ட நாளில் நிகழ்வுகள் இல்லாதபோது காட்டப்படும்"
+  },
   "unknownEvent": "அறியப்படாத நிகழ்வு",
-  "@unknownEvent": { "description": "நிகழ்வு வகை/தலைப்பு இல்லாதபோது மாற்று தலைப்பு" },
+  "@unknownEvent": {
+    "description": "நிகழ்வு வகை/தலைப்பு இல்லாதபோது மாற்று தலைப்பு"
+  },
   "eventTypesAppointment": "சந்திப்பு",
-  "@eventTypesAppointment": { "description": "சந்திப்பு நிகழ்வுகளுக்கான படிக்கக்கூடிய பெயர்" },
+  "@eventTypesAppointment": {
+    "description": "சந்திப்பு நிகழ்வுகளுக்கான படிக்கக்கூடிய பெயர்"
+  },
   "eventTypesInvestigation": "ஆய்வு",
-  "@eventTypesInvestigation": { "description": "ஆய்வு நிகழ்வுகளுக்கான படிக்கக்கூடிய பெயர்" },
+  "@eventTypesInvestigation": {
+    "description": "ஆய்வு நிகழ்வுகளுக்கான படிக்கக்கூடிய பெயர்"
+  },
   "eventTypesPharmacyOrder": "மருந்தக ஆர்டர்",
-  "@eventTypesPharmacyOrder": { "description": "மருந்தக நிகழ்வுகளுக்கான படிக்கக்கூடிய பெயர்" },
+  "@eventTypesPharmacyOrder": {
+    "description": "மருந்தக நிகழ்வுகளுக்கான படிக்கக்கூடிய பெயர்"
+  },
   "feedbackPhoneNumber": "தொலைபேசி எண்",
-  "@feedbackPhoneNumber": { "description": "விருந்தினர் பயனர்கள் சந்தேகம் கேட்கும்போது தொலைபேசி உரை புலத்திற்கான லேபிள்" },
+  "@feedbackPhoneNumber": {
+    "description": "விருந்தினர் பயனர்கள் சந்தேகம் கேட்கும்போது தொலைபேசி உரை புலத்திற்கான லேபிள்"
+  },
   "feedbackPlaceholder": "உங்கள் கேள்வியை இங்கே தட்டச்சு செய்யவும்",
-  "@feedbackPlaceholder": { "description": "பல-வரி கேள்வி புலத்தில் உள்ள லேபிள்" },
+  "@feedbackPlaceholder": {
+    "description": "பல-வரி கேள்வி புலத்தில் உள்ள லேபிள்"
+  },
   "feedbackHint": "உதாரணம்: அறுவை சிகிச்சைக்குப் பிறகு எனது மருந்தை நான் தொடர வேண்டுமா?",
-  "@feedbackHint": { "description": "கேள்வி உள்ளீட்டிற்குள் உள்ள குறிப்பு உரை" },
+  "@feedbackHint": {
+    "description": "கேள்வி உள்ளீட்டிற்குள் உள்ள குறிப்பு உரை"
+  },
   "questionCannotBeEmpty": "கேள்வி காலியாக இருக்கக்கூடாது.",
-  "@questionCannotBeEmpty": { "description": "கேள்வி புலம் காலியாக இருக்கும்போது சரிபார்ப்பு செய்தி" },
+  "@questionCannotBeEmpty": {
+    "description": "கேள்வி புலம் காலியாக இருக்கும்போது சரிபார்ப்பு செய்தி"
+  },
   "submit": "சமர்ப்பிக்கவும்",
-  "@submit": { "description": "பொதுவான சமர்ப்பிப்பு பொத்தான் லேபிள்" },
+  "@submit": {
+    "description": "பொதுவான சமர்ப்பிப்பு பொத்தான் லேபிள்"
+  },
   "feedbackSuccess": "உங்கள் கேள்வி அனுப்பப்பட்டது! எங்கள் குழு விரைவில் பதிலளிக்கும்.",
-  "@feedbackSuccess": { "description": "வெற்றிகரமான சமர்ப்பிப்புக்குப் பிறகு சிற்றுண்டிப் பட்டி" },
+  "@feedbackSuccess": {
+    "description": "வெற்றிகரமான சமர்ப்பிப்புக்குப் பிறகு சிற்றுண்டிப் பட்டி"
+  },
   "feedbackFailed": "உங்கள் கேள்வியை அனுப்ப முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
-  "@feedbackFailed": { "description": "API அழைப்பு தோல்வியடையும் போது மாற்றுப் பிழை செய்தி" },
+  "@feedbackFailed": {
+    "description": "API அழைப்பு தோல்வியடையும் போது மாற்றுப் பிழை செய்தி"
+  },
   "notifications": "அறிவிப்புகள்",
-  "@notifications": { "description": "ஆப்-பார் தலைப்பு" },
+  "@notifications": {
+    "description": "ஆப்-பார் தலைப்பு"
+  },
   "failedToFetchNotifications": "அறிவிப்புகளைப் பெற முடியவில்லை. புதுப்பிக்க கீழே இழுக்கவும்.",
-  "@failedToFetchNotifications": { "description": "பின்தளம் பிழை நிலையை வழங்கும்போது சிற்றுண்டிப் பட்டி" },
+  "@failedToFetchNotifications": {
+    "description": "பின்தளம் பிழை நிலையை வழங்கும்போது சிற்றுண்டிப் பட்டி"
+  },
   "errorFetchingNotifications": "அறிவிப்புகளைப் பெறும்போது நெட்வொர்க் பிழை.",
-  "@errorFetchingNotifications": { "description": "கோரிக்கை விதிவிலக்கை வீசும்போது சிற்றுண்டிப் பட்டி" },
+  "@errorFetchingNotifications": {
+    "description": "கோரிக்கை விதிவிலக்கை வீசும்போது சிற்றுண்டிப் பட்டி"
+  },
   "noNotifications": "உங்களுக்கு அறிவிப்புகள் எதுவும் இல்லை.",
-  "@noNotifications": { "description": "அறிவிப்புகள் பட்டியல் காலியாக இருக்கும்போது காட்டப்படும்" },
+  "@noNotifications": {
+    "description": "அறிவிப்புகள் பட்டியல் காலியாக இருக்கும்போது காட்டப்படும்"
+  },
   "notificationMarkedAsRead": "அறிவிப்பு படித்ததாகக் குறிக்கப்பட்டது",
-  "@notificationMarkedAsRead": { "description": "பயனர் படித்ததாகக் குறிக்க ஸ்வைப் செய்த பிறகு சிற்றுண்டிப் பட்டி" },
+  "@notificationMarkedAsRead": {
+    "description": "பயனர் படித்ததாகக் குறிக்க ஸ்வைப் செய்த பிறகு சிற்றுண்டிப் பட்டி"
+  },
   "notification": "அறிவிப்பு",
-  "@notification": { "description": "அறிவிப்பு தலைப்பு இல்லாதபோது மாற்று தலைப்பு" },
-"downloadPermissionDenied": "கோப்புகளைப் பதிவிறக்க சேமிப்பக அனுமதி தேவை.",
-"@downloadPermissionDenied": { "description": "பயனர் சேமிப்பக அனுமதியை மறுக்கும்போது காட்டப்படும்" },
-
+  "@notification": {
+    "description": "அறிவிப்பு தலைப்பு இல்லாதபோது மாற்று தலைப்பு"
+  },
+  "downloadPermissionDenied": "கோப்புகளைப் பதிவிறக்க சேமிப்பக அனுமதி தேவை.",
+  "@downloadPermissionDenied": {
+    "description": "பயனர் சேமிப்பக அனுமதியை மறுக்கும்போது காட்டப்படும்"
+  },
+  "yourHealthTabRecords": "பதிவுகள்",
+  "yourHealthTabConsultations": "ஆலோசனைகள்",
+  "yourHealthTabSummary": "சுருக்கம்",
+  "consultationDoctor": "டாக்டர்",
+  "consultationDiagnosis": "நோய் கண்டறிதல்",
+  "consultationNotes": "குறிப்புகள்",
+  "consultationDate": "தேதி",
+  "consultationsEmpty": "ஆலோசனைகள் எதுவும் இல்லை",
+  "summaryAllergies": "ஒவ்வாமை",
+  "summaryConditions": "நிபந்தனைகள்",
+  "summaryOverview": "சுகாதார கண்ணோட்டம்",
+  "summaryNoAllergies": "அறியப்பட்ட ஒவ்வாமை இல்லை",
+  "summaryNoConditions": "அறியப்பட்ட நிபந்தனைகள் இல்லை",
+  "summaryNoData": "சுகாதார சுருக்கம் இல்லை",
+  "investigationsResultsTitle": "விசாரணை முடிவுகள்",
+  "investigationsTabUpload": "பதிவேற்றவும்",
+  "investigationsTabResults": "முடிவுகள்",
+  "investigationsStatusPending": "நிலுவையில் உள்ளது",
+  "investigationsStatusCompleted": "முடிக்கப்பட்டது",
+  "investigationsNoResults": "இதுவரை விசாரணை முடிவுகள் இல்லை",
+  "investigationsDownloadReport": "அறிக்கையைப் பதிவிறக்கவும்",
+  "investigationsDownloadFailed": "அறிக்கையைப் பதிவிறக்க முடியவில்லை",
+  "investigationsFiles": "கோப்புகள்",
+  "profileIncomplete": "தொடர உங்கள் சுயவிவரத்தை நிரப்பவும்",
   "vitalsTitle": "உடல் அறிகுறிகள்",
   "vitalsLogTab": "பதிவு செய்",
   "vitalsHistoryTab": "வரலாறு",
+  "vitalsLogHeading": "உங்கள் தினசரி உயிர்களை பதிவு செய்யவும்",
+  "vitalsLogSubheading": "இன்றே பதிவு செய்ய விரும்பும் எந்த முக்கிய விஷயங்களையும் நிரப்பவும்.",
+  "vitalsBloodPressure": "இரத்த அழுத்தம்",
+  "vitalsSystolic": "சிஸ்டாலிக்",
+  "vitalsDiastolic": "டயஸ்டாலிக்",
+  "vitalsHeartRate": "இதய துடிப்பு",
+  "vitalsTemperature": "வெப்பநிலை",
+  "vitalsBloodSugar": "இரத்த சர்க்கரை",
+  "vitalsWeight": "எடை",
+  "vitalsSpO2": "SpO2",
   "vitalsRecordButton": "பதிவு செய்",
+  "vitalsSubmitting": "சமர்ப்பிக்கிறது...",
   "vitalsRecordedSuccess": "உடல் அறிகுறிகள் வெற்றிகரமாக பதிவு செய்யப்பட்டன",
+  "vitalsRecordFailed": "உயிர்களை பதிவு செய்ய முடியவில்லை",
+  "vitalsAtLeastOne": "குறைந்தது ஒரு முக்கிய அடையாளத்தை உள்ளிடவும்",
   "vitalsNoHistory": "இதுவரை பதிவு இல்லை",
-
+  "vitalsNoHistoryHint": "லாக் வைட்டல்ஸ் தாவலைப் பயன்படுத்தி உங்கள் உயிர்களை பதிவு செய்யவும்.",
+  "vitalsHistoryFailed": "முக்கிய வரலாற்றை ஏற்றுவதில் தோல்வி",
   "familyTitle": "குடும்ப உறுப்பினர்கள்",
-  "familyAddMember": "குடும்ப உறுப்பினரைச் சேர்",
+  "familyYourFamily": "உங்கள் குடும்பம்",
+  "familyManageHint": "உங்கள் கணக்கில் இணைக்கப்பட்ட குடும்ப உறுப்பினர்களை நிர்வகிக்கவும்.",
   "familyNoMembers": "இதுவரை குடும்ப உறுப்பினர்கள் இல்லை",
+  "familyNoMembersHint": "பகிரப்பட்ட பராமரிப்பை நிர்வகிக்க குடும்ப உறுப்பினர்களைச் சேர்க்கவும்.",
+  "familyAddMember": "குடும்ப உறுப்பினரைச் சேர்",
   "familyFullName": "முழு பெயர்",
   "familyPhone": "தொலைபேசி எண்",
   "familyRelationship": "உறவு",
-
+  "familyDateOfBirth": "பிறந்த தேதி (விரும்பினால்)",
+  "familyAdding": "சேர்க்கிறது...",
+  "familyAddedSuccess": "குடும்ப உறுப்பினர் வெற்றிகரமாக சேர்க்கப்பட்டார்",
+  "familyAddFailed": "குடும்ப உறுப்பினரைச் சேர்க்க முடியவில்லை",
+  "familyRemoveTitle": "குடும்ப உறுப்பினரை அகற்று",
+  "familyRemoveConfirm": "{name} ஐ நிச்சயமாக அகற்ற விரும்புகிறீர்களா?",
+  "@familyRemoveConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "familyRemoved": "{name} குடும்ப உறுப்பினர்களிடமிருந்து அகற்றப்பட்டது",
+  "@familyRemoved": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "familyRemoveFailed": "உறுப்பினரை அகற்ற முடியவில்லை",
   "refillTitle": "மருந்து நிரப்புதல்",
-  "refillRequestButton": "நிரப்புதல் கோரிக்கை",
+  "refillActivePrescriptions": "செயலில் உள்ள மருந்துகள்",
+  "refillHint": "உங்கள் மருத்துவரிடம் புதுப்பித்தலைக் கேட்க \"மீண்டும் நிரப்பக் கோரவும்\" என்பதைத் தட்டவும்.",
   "refillNoActive": "செயலில் மருந்துச் சீட்டுகள் இல்லை",
-
+  "refillNoActiveHint": "ஆலோசனைகளின் உங்கள் மருந்துகள் இங்கே தோன்றும்.",
+  "refillRequestButton": "நிரப்புதல் கோரிக்கை",
+  "refillRequesting": "கோருகிறது...",
+  "refillRetry": "மறு நிரப்பு கோரிக்கையை மீண்டும் முயற்சிக்கவும்",
+  "refillConfirmTitle": "மறு நிரப்பு கோரிக்கை",
+  "refillConfirmBody": "{medication} க்கு மீண்டும் நிரப்பக் கோரவா?",
+  "@refillConfirmBody": {
+    "placeholders": {
+      "medication": {
+        "type": "String"
+      }
+    }
+  },
+  "refillRequested": "{medication} க்கு மீண்டும் நிரப்புதல் கோரப்பட்டது",
+  "@refillRequested": {
+    "placeholders": {
+      "medication": {
+        "type": "String"
+      }
+    }
+  },
+  "refillRequestFailed": "மீண்டும் நிரப்பக் கோர முடியவில்லை",
+  "refillStatusActive": "ACTIVE",
+  "refillStatusExpired": "காலாவதியானது",
   "stepsTitle": "நடை சவால்",
+  "stepsProfile": "சுயவிவரம்",
+  "stepsHistory": "வரலாறு",
+  "stepsLeaderboard": "லீடர்போர்டு",
+  "stepsRewards": "வெகுமதிகள்",
   "stepsStartWalk": "நடக்கத் தொடங்கு",
   "stepsStopWalk": "நடப்பை நிறுத்து",
-
+  "stepsSessionStarted": "நடை அமர்வு தொடங்கியது",
+  "stepsSessionStopped": "நடந்து முடிந்தது!",
+  "stepsNoHistory": "இதுவரை நடைப்பயிற்சிகள் இல்லை",
+  "stepsNoHistoryHint": "உங்கள் படிகளைக் கண்காணிக்க ஒரு நடையைத் தொடங்குங்கள்.",
+  "abdmTitle": "ABDM (ஆயுஷ்மான் பாரத்)",
+  "abdmRegister": "பதிவு ABHA",
+  "abdmVerify": "ABHA சரிபார்க்கவும்",
+  "abdmConsents": "சம்மதம்",
+  "abdmNoConsents": "ஒப்புதல் கோரிக்கைகள் இல்லை",
+  "medicationRemindersTitle": "மருந்து நினைவூட்டல்கள்",
+  "medicationReminderAdd": "நினைவூட்டலைச் சேர்க்கவும்",
+  "medicationReminderName": "மருந்தின் பெயர்",
+  "medicationReminderDosage": "மருந்தளவு",
+  "medicationReminderFrequency": "அதிர்வெண்",
+  "medicationReminderNoReminders": "மருந்து நினைவூட்டல்கள் எதுவும் அமைக்கப்படவில்லை",
   "updateAvailableTitle": "புதுப்பிப்பு கிடைக்கிறது",
   "updateAvailableBody": "VH Health-ன் புதிய பதிப்பு கிடைக்கிறது. சிறந்த அனுபவத்திற்கு புதுப்பிக்கவும்.",
   "updateNow": "இப்போது புதுப்பிக்கவும்",
-  "updateLater": "பின்னர்"
+  "updateLater": "பின்னர்",
+  "bookInvestigationTitle": "புத்தக விசாரணை",
+  "@bookInvestigationTitle": {
+    "description": "AppBar title for the investigation booking screen"
+  },
+  "bookInvestigationStepChoose": "சோதனைகளைத் தேர்ந்தெடுக்கவும்",
+  "@bookInvestigationStepChoose": {
+    "description": "Stepper label for choosing tests"
+  },
+  "bookInvestigationStepCollection": "சேகரிப்பு விருப்பம்",
+  "@bookInvestigationStepCollection": {
+    "description": "Stepper label for collection preference"
+  },
+  "bookInvestigationStepReview": "மதிப்பாய்வு & புத்தகம்",
+  "@bookInvestigationStepReview": {
+    "description": "Stepper label for review and book"
+  },
+  "bookInvestigationOrType": "அல்லது சோதனைப் பெயர்களைத் தட்டச்சு செய்யவும்:",
+  "@bookInvestigationOrType": {
+    "description": "Heading above the custom test input"
+  },
+  "bookInvestigationOrUploadSlip": "அல்லது மருந்துச் சீட்டைப் பதிவேற்றவும்:",
+  "@bookInvestigationOrUploadSlip": {
+    "description": "Heading above the slip upload buttons"
+  },
+  "bookInvestigationEstimatedCost": "மதிப்பிடப்பட்ட செலவு",
+  "@bookInvestigationEstimatedCost": {
+    "description": "Label for the estimated cost summary"
+  },
+  "bookInvestigationHomeCollection": "வீட்டு சேகரிப்பு",
+  "@bookInvestigationHomeCollection": {
+    "description": "Segmented button label for home collection"
+  },
+  "bookInvestigationVisitLab": "ஆய்வகத்தைப் பார்வையிடவும்",
+  "@bookInvestigationVisitLab": {
+    "description": "Segmented button label for visiting the lab"
+  },
+  "bookInvestigationTapToSelect": "தேர்ந்தெடுக்க தட்டவும்",
+  "@bookInvestigationTapToSelect": {
+    "description": "Subtitle for date tile when no date picked"
+  },
+  "bookInvestigationPreferredTimeSlot": "விருப்பமான நேர ஸ்லாட்",
+  "@bookInvestigationPreferredTimeSlot": {
+    "description": "Heading above time-slot chips"
+  },
+  "bookInvestigationReviewBooking": "உங்கள் முன்பதிவை மதிப்பாய்வு செய்யவும்",
+  "@bookInvestigationReviewBooking": {
+    "description": "Title above review summary"
+  },
+  "bookInvestigationSelectedTests": "தேர்ந்தெடுக்கப்பட்ட சோதனைகள்:",
+  "@bookInvestigationSelectedTests": {
+    "description": "Heading above selected tests list"
+  },
+  "bookInvestigationCustomTests": "தனிப்பயன் சோதனைகள்:",
+  "@bookInvestigationCustomTests": {
+    "description": "Heading above custom tests text"
+  },
+  "bookInvestigationSlipAttached": "மருந்துச் சீட்டு இணைக்கப்பட்டுள்ளது",
+  "@bookInvestigationSlipAttached": {
+    "description": "Indicator that prescription slip was attached"
+  },
+  "bookInvestigationBooked": "விசாரணை பதிவு!",
+  "@bookInvestigationBooked": {
+    "description": "Success heading after booking"
+  },
+  "bookInvestigationConfirmationNote": "விரைவில் உறுதிப்படுத்தல் அழைப்பைப் பெறுவீர்கள்.\nஉங்கள் முன்பதிவு நிலையைப் பற்றி உங்களுக்குத் தெரிவிப்போம்.",
+  "@bookInvestigationConfirmationNote": {
+    "description": "Success body text after booking"
+  },
+  "bookInvestigationBackButton": "விசாரணைகளுக்குத் திரும்பு",
+  "@bookInvestigationBackButton": {
+    "description": "Button to return to investigations from success screen"
+  },
+  "stepsSetupProfileTitle": "உங்கள் சுயவிவரத்தை அமைக்கவும்",
+  "@stepsSetupProfileTitle": {
+    "description": "Heading on step challenge profile setup card"
+  },
+  "stepsPickColor": "வண்ணத்தைத் தேர்ந்தெடு:",
+  "@stepsPickColor": {
+    "description": "Label above color picker on profile setup"
+  },
+  "stepsSaveProfile": "சுயவிவரத்தை சேமிக்கவும்",
+  "@stepsSaveProfile": {
+    "description": "Button label to save step challenge profile"
+  },
+  "stepsStartWalkUpper": "நடையைத் தொடங்கு",
+  "@stepsStartWalkUpper": {
+    "description": "Button label to begin a walk session (uppercase)"
+  },
+  "stepsWalkInProgress": "நடந்து கொண்டிருக்கிறது…",
+  "@stepsWalkInProgress": {
+    "description": "Indicator during active walk"
+  },
+  "stepsStopWalkUpper": "நடையை நிறுத்து",
+  "@stepsStopWalkUpper": {
+    "description": "Button label to stop a walk session (uppercase)"
+  },
+  "stepsNoDailyData": "இதுவரை தினசரி தரவு இல்லை",
+  "@stepsNoDailyData": {
+    "description": "Empty state for daily steps chart"
+  },
+  "stepsNoWeeklyData": "வாராந்திர தரவு இன்னும் இல்லை",
+  "@stepsNoWeeklyData": {
+    "description": "Empty state for weekly steps chart"
+  },
+  "stepsNoMonthlyData": "மாதாந்திர தரவு இன்னும் இல்லை",
+  "@stepsNoMonthlyData": {
+    "description": "Empty state for monthly steps chart"
+  },
+  "stepsThisMonth": "இந்த மாதம்",
+  "@stepsThisMonth": {
+    "description": "Label for current month section"
+  },
+  "stepsNoLeaderboardData": "லீடர்போர்டு தரவு இன்னும் இல்லை",
+  "@stepsNoLeaderboardData": {
+    "description": "Empty state for leaderboard"
+  },
+  "stepsYourRewards": "உங்கள் வெகுமதிகள்",
+  "@stepsYourRewards": {
+    "description": "Section heading for user rewards"
+  },
+  "familyMemberIdNotFound": "உறுப்பினர் ஐடி கிடைக்கவில்லை",
+  "@familyMemberIdNotFound": {
+    "description": "Snackbar when member id missing during remove"
+  },
+  "familyRemoveFailedRetry": "உறுப்பினரை அகற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
+  "@familyRemoveFailedRetry": {
+    "description": "Snackbar when remove member request fails (retryable)"
+  },
+  "familyAddFailedRetry": "குடும்ப உறுப்பினரைச் சேர்க்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
+  "@familyAddFailedRetry": {
+    "description": "Snackbar when add family member request fails (retryable)"
+  },
+  "familyRemoveButton": "அகற்று",
+  "@familyRemoveButton": {
+    "description": "Dialog action label to confirm removing a member"
+  },
+  "familyRemoveTooltip": "உறுப்பினரை அகற்று",
+  "@familyRemoveTooltip": {
+    "description": "Tooltip for the remove member icon"
+  },
+  "familyRetryButton": "மீண்டும் முயற்சிக்கவும்",
+  "@familyRetryButton": {
+    "description": "Button label to retry loading family members"
+  },
+  "familyAddMemberShort": "உறுப்பினரைச் சேர்க்கவும்",
+  "@familyAddMemberShort": {
+    "description": "Submit button on add family member sheet"
+  },
+  "familyTapToSelect": "தேர்ந்தெடுக்க தட்டவும்",
+  "@familyTapToSelect": {
+    "description": "Hint inside the date of birth field"
+  },
+  "familyDobPrefix": "DOB:",
+  "@familyDobPrefix": {
+    "description": "Prefix before formatted date of birth on member card"
+  },
+  "familyNameRequired": "பெயர் தேவை",
+  "@familyNameRequired": {
+    "description": "Validation when family member name empty"
+  },
+  "familyPhoneRequired": "தொலைபேசி தேவை",
+  "@familyPhoneRequired": {
+    "description": "Validation when family member phone empty"
+  },
+  "familyPhoneInvalid": "சரியான தொலைபேசி எண்ணை உள்ளிடவும்",
+  "@familyPhoneInvalid": {
+    "description": "Validation when family member phone invalid"
+  },
+  "familyLoadFailed": "குடும்ப உறுப்பினர்களை ஏற்ற முடியவில்லை",
+  "@familyLoadFailed": {
+    "description": "Error state when family members fetch fails"
+  },
+  "familyUnknown": "தெரியவில்லை",
+  "@familyUnknown": {
+    "description": "Fallback name when family member name missing"
+  },
+  "recordsDocumentUrlMissing": "ஆவணம் URL கிடைக்கவில்லை",
+  "@recordsDocumentUrlMissing": {
+    "description": "Snackbar when document URL is missing"
+  },
+  "recordsDeleteTitle": "பதிவை நீக்கவா?",
+  "@recordsDeleteTitle": {
+    "description": "Dialog title to confirm record deletion"
+  },
+  "recordsDeletePrefix": "நீக்கு",
+  "@recordsDeletePrefix": {
+    "description": "Prefix before record title in delete confirmation"
+  },
+  "recordsDeleted": "பதிவு நீக்கப்பட்டது",
+  "@recordsDeleted": {
+    "description": "Snackbar after record deleted"
+  },
+  "recordsPickFileFirst": "ஒரு கோப்பைத் தேர்ந்தெடுத்து தலைப்பை உள்ளிடவும்",
+  "@recordsPickFileFirst": {
+    "description": "Validation when file or title missing on upload"
+  },
+  "recordsUploaded": "பதிவு பதிவேற்றப்பட்டது",
+  "@recordsUploaded": {
+    "description": "Snackbar after record uploaded"
+  },
+  "recordsUploadButton": "பதிவைப் பதிவேற்றவும்",
+  "@recordsUploadButton": {
+    "description": "Button label to open upload record sheet"
+  },
+  "recordsHospitalEmpty": "உங்கள் மருந்துச்சீட்டுகள் மற்றும் வருகைகளின் அறிக்கைகள் இங்கே தோன்றும்",
+  "@recordsHospitalEmpty": {
+    "description": "Empty-state body for hospital documents tab"
+  },
+  "recordsUploadEmptyHint": "உங்கள் முந்தைய மருந்துச்சீட்டுகளையும் அறிக்கைகளையும் ஒரே இடத்தில் வைக்க அவற்றைப் பதிவேற்றவும்",
+  "@recordsUploadEmptyHint": {
+    "description": "Empty-state hint for my uploads tab"
+  },
+  "recordsUploadSheetTitle": "ஒரு பதிவைப் பதிவேற்றவும்",
+  "@recordsUploadSheetTitle": {
+    "description": "Title of the upload record bottom sheet"
+  },
+  "abdmHeading": "ஆயுஷ்மான் பாரத் சுகாதார கணக்கு",
+  "@abdmHeading": {
+    "description": "Heading on ABDM screen"
+  },
+  "abdmDescription": "ABHA (ஆயுஷ்மான் பாரத் ஹெல்த் அக்கவுண்ட்) என்பது ஒரு தனிப்பட்ட ஹெல்த் ஐடி ஆகும், இது உங்கள் உடல்நலப் பதிவுகளை டிஜிட்டல் முறையில் சேமிக்கவும் பகிரவும் உங்களை அனுமதிக்கிறது.",
+  "@abdmDescription": {
+    "description": "Description paragraph on ABDM screen"
+  },
+  "abdmDataSecurityNote": "உங்கள் தரவு பாதுகாப்பாக இருக்கும் மற்றும் உங்கள் ஒப்புதலுடன் மட்டுமே பகிரப்படும்.",
+  "@abdmDataSecurityNote": {
+    "description": "Reassurance about data privacy"
+  },
+  "abdmYourNumber": "உங்கள் ABHA எண்",
+  "@abdmYourNumber": {
+    "description": "Label above the user's ABHA number"
+  },
+  "abdmVerifyHeading": "உங்கள் ABHA சரிபார்க்கவும்",
+  "@abdmVerifyHeading": {
+    "description": "Heading on verify ABHA screen"
+  },
+  "abdmEnterOtp": "உங்கள் மொபைல் எண்ணுக்கு அனுப்பப்பட்ட OTP ஐ உள்ளிடவும்",
+  "@abdmEnterOtp": {
+    "description": "Instruction above OTP input on verify ABHA screen"
+  },
+  "medicationRemindersEmpty": "இன்னும் மருந்து நினைவூட்டல்கள் இல்லை",
+  "@medicationRemindersEmpty": {
+    "description": "Empty state for medication reminders"
+  },
+  "medicationRemindersEmptyHint": "ஒன்றைச் சேர்க்க + தட்டவும்",
+  "@medicationRemindersEmptyHint": {
+    "description": "Hint below empty state"
+  },
+  "medicationReminderRequiredFields": "மருந்தின் பெயர் மற்றும் அளவு தேவை",
+  "@medicationReminderRequiredFields": {
+    "description": "Validation when name/dosage empty"
+  },
+  "medicationReminderSaveFailed": "நினைவூட்டலைச் சேமிக்க முடியவில்லை",
+  "@medicationReminderSaveFailed": {
+    "description": "Snackbar when reminder save fails"
+  },
+  "medicationReminderAddSheetTitle": "மருந்து நினைவூட்டலைச் சேர்க்கவும்",
+  "@medicationReminderAddSheetTitle": {
+    "description": "Title of the add reminder bottom sheet"
+  },
+  "medicationReminderTimes": "நினைவூட்டல் நேரங்கள்",
+  "@medicationReminderTimes": {
+    "description": "Heading for list of reminder times"
+  },
+  "medicationReminderAddTime": "நேரத்தைச் சேர்க்கவும்",
+  "@medicationReminderAddTime": {
+    "description": "Button to add another reminder time"
+  },
+  "medicationReminderSave": "நினைவூட்டலைச் சேமிக்கவும்",
+  "@medicationReminderSave": {
+    "description": "Button to save reminder"
+  },
+  "pharmacyTakePhoto": "புகைப்படம் எடு",
+  "@pharmacyTakePhoto": {
+    "description": "Action label to take a photo from camera"
+  },
+  "pharmacyChooseFromGallery": "கேலரியில் இருந்து தேர்வு செய்யவும்",
+  "@pharmacyChooseFromGallery": {
+    "description": "Action label to pick from gallery"
+  },
+  "pharmacyOrderPlacedTitle": "ஆர்டர் செய்யப்பட்டது!",
+  "@pharmacyOrderPlacedTitle": {
+    "description": "Success heading after pharmacy order"
+  },
+  "pharmacyOrderPlacedBody": "எங்கள் மருந்தாளர் உங்கள் மருந்துச் சீட்டை மதிப்பாய்வு செய்து விரைவில் உங்கள் ஆர்டரை உறுதி செய்வார்.",
+  "@pharmacyOrderPlacedBody": {
+    "description": "Success body after pharmacy order"
+  },
+  "pharmacyUploadHeading": "மருந்துச் சீட்டைப் பதிவேற்றவும்",
+  "@pharmacyUploadHeading": {
+    "description": "Heading above pharmacy upload area"
+  },
+  "pharmacyTapToUpload": "மருந்துச் சீட்டைப் பதிவேற்ற தட்டவும்",
+  "@pharmacyTapToUpload": {
+    "description": "Empty-state text inside upload card"
+  },
+  "pharmacyCameraOrGallery": "கேமரா அல்லது கேலரி",
+  "@pharmacyCameraOrGallery": {
+    "description": "Subtitle below tap to upload"
+  },
+  "pharmacyOrDescribe": "அல்லது உங்கள் ஆர்டரை விவரிக்கவும்",
+  "@pharmacyOrDescribe": {
+    "description": "Heading above the description input"
+  },
+  "pharmacyDeliveryPreference": "விநியோக விருப்பம்",
+  "@pharmacyDeliveryPreference": {
+    "description": "Heading for delivery option chooser"
+  },
+  "refillPrescriptionIdMissing": "மருந்துச் சீட்டு ஐடி கிடைக்கவில்லை",
+  "@refillPrescriptionIdMissing": {
+    "description": "Snackbar when prescription id missing during refill"
+  },
+  "refillRequestRetry": "மீண்டும் நிரப்பக் கோர முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
+  "@refillRequestRetry": {
+    "description": "Snackbar when refill request fails (retryable)"
+  },
+  "refillTapPrefix": "தட்டவும்",
+  "@refillTapPrefix": {
+    "description": "Hint prefix before button name"
+  },
+  "refillRequestedHeading": "மீண்டும் நிரப்பக் கோரப்பட்டது",
+  "@refillRequestedHeading": {
+    "description": "Heading shown when a refill request is in flight"
+  },
+  "vitalsTrendsHeading": "போக்குகள் மற்றும் கடைசி வாசிப்பு",
+  "@vitalsTrendsHeading": {
+    "description": "Heading above vitals trends chart"
+  },
+  "vitalsRecordFailedRetry": "உயிர்களை பதிவு செய்ய முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
+  "@vitalsRecordFailedRetry": {
+    "description": "Snackbar when vitals record fails (retryable)"
+  },
+  "yourHealthPrescriptionsEmpty": "இன்னும் மருந்துச்சீட்டுகள் இல்லை",
+  "@yourHealthPrescriptionsEmpty": {
+    "description": "Empty state for prescriptions tab"
+  },
+  "yourHealthPrescriptionsEmptyHint": "உங்கள் மருத்துவரின் பரிந்துரைகள் இங்கே தோன்றும்",
+  "@yourHealthPrescriptionsEmptyHint": {
+    "description": "Empty state hint for prescriptions tab"
+  },
+  "yourHealthClinicalNotes": "மருத்துவ குறிப்புகள்",
+  "@yourHealthClinicalNotes": {
+    "description": "Heading for clinical notes section"
+  },
+  "yourHealthDownloadPdf": "PDF ஐப் பதிவிறக்கு",
+  "@yourHealthDownloadPdf": {
+    "description": "Button to download a prescription PDF"
+  },
+  "yourHealthOrderMedicines": "மருந்துகளை ஆர்டர் செய்யுங்கள்",
+  "@yourHealthOrderMedicines": {
+    "description": "Button to start a pharmacy order from a prescription"
+  },
+  "yourHealthPlaceOrder": "ஆர்டர் வைக்கவும்",
+  "@yourHealthPlaceOrder": {
+    "description": "Button to confirm a pharmacy order"
+  },
+  "yourHealthSafetyNotes": "பாதுகாப்பு குறிப்புகள்",
+  "@yourHealthSafetyNotes": {
+    "description": "Heading for safety notes section"
+  },
+  "yourHealthClinicianOverride": "கோப்பில் மருத்துவர் மேலெழுதல்:",
+  "@yourHealthClinicianOverride": {
+    "description": "Label before clinician override note"
+  },
+  "appointmentsCancel": "அப்பாயிண்ட்மெண்ட்டை ரத்து செய்",
+  "@appointmentsCancel": {
+    "description": "Dialog title to cancel an appointment"
+  },
+  "appointmentsConfirmCancel": "ஆம், ரத்துசெய்",
+  "@appointmentsConfirmCancel": {
+    "description": "Confirm button to cancel an appointment"
+  },
+  "appointmentsSelectTimeSlot": "டைம் ஸ்லாட்டைத் தேர்ந்தெடுக்கவும்",
+  "@appointmentsSelectTimeSlot": {
+    "description": "Sheet title for time slot picker"
+  },
+  "appointmentsLogOutAndBack": "உங்கள் சந்திப்புகளைப் பார்க்க வெளியேறி மீண்டும் உள்நுழையவும்.",
+  "@appointmentsLogOutAndBack": {
+    "description": "Message asking user to re-login when patient id missing"
+  },
+  "appointmentsEmpty": "இதுவரை சந்திப்புகள் இல்லை",
+  "@appointmentsEmpty": {
+    "description": "Empty state for appointments list"
+  },
+  "appointmentsBookOneNow": "இப்போதே ஒன்றை முன்பதிவு செய்யுங்கள்",
+  "@appointmentsBookOneNow": {
+    "description": "Button label to book first appointment"
+  },
+  "appointmentsViewPrescription": "மருந்துச்சீட்டைப் பார்க்கவும்",
+  "@appointmentsViewPrescription": {
+    "description": "Button to view prescription from appointment"
+  },
+  "symptomCheckerTitle": "அறிகுறி சரிபார்ப்பவர்",
+  "@symptomCheckerTitle": {
+    "description": "AppBar title for symptom checker"
+  },
+  "symptomCheckerDescribePrompt": "நீங்கள் என்ன உணர்கிறீர்கள் என்பதை விவரிக்கவும்",
+  "@symptomCheckerDescribePrompt": {
+    "description": "Heading above symptom input"
+  },
+  "symptomCheckerRedFlags": "சிவப்பு கொடிகள்",
+  "@symptomCheckerRedFlags": {
+    "description": "Section heading for red-flag symptoms"
+  },
+  "symptomCheckerPossibleCauses": "சாத்தியமான காரணங்கள்",
+  "@symptomCheckerPossibleCauses": {
+    "description": "Section heading for possible causes"
+  },
+  "symptomCheckerBookAppointment": "சந்திப்பை பதிவு செய்யுங்கள்",
+  "@symptomCheckerBookAppointment": {
+    "description": "Button to book an appointment from symptom checker"
+  },
+  "symptomCheckerDisclaimer": "சோதனை வெளியீடு AI-உதவி மற்றும் மருத்துவ நோயறிதல் அல்ல. எப்போதும் தகுதி வாய்ந்த மருத்துவரை அணுகவும்.",
+  "@symptomCheckerDisclaimer": {
+    "description": "Footer disclaimer about AI triage"
+  },
+  "checkinSaveFailed": "செக்-இன் சேமிக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
+  "@checkinSaveFailed": {
+    "description": "Snackbar when daily check-in save fails"
+  },
+  "checkinTitle": "தினசரி செக்-இன்",
+  "@checkinTitle": {
+    "description": "Sheet title for daily check-in"
+  },
+  "checkinHowFeeling": "இன்று நீங்கள் எப்படி உணர்கிறீர்கள்?",
+  "@checkinHowFeeling": {
+    "description": "Mood prompt in check-in sheet"
+  },
+  "checkinQuickVitals": "விரைவு உயிர்கள் (விரும்பினால்)",
+  "@checkinQuickVitals": {
+    "description": "Heading for optional quick vitals"
+  },
+  "checkinSaveButton": "செக்-இன் · +10 புள்ளிகளைச் சேமிக்கவும்",
+  "@checkinSaveButton": {
+    "description": "Submit button on check-in sheet"
+  },
+  "checkinSavedToast": "+10 சுகாதார புள்ளிகள் சேர்க்கப்பட்டன. நாளை சந்திப்போம்!",
+  "@checkinSavedToast": {
+    "description": "Snackbar after successful check-in"
+  },
+  "settingsHealthIdLabel": "சுகாதார ஐடி (ABHA)",
+  "@settingsHealthIdLabel": {
+    "description": "Section title for ABHA in settings"
+  },
+  "settingsHealthIdSubtitle": "ஆயுஷ்மான் பாரத் சுகாதார கணக்கு",
+  "@settingsHealthIdSubtitle": {
+    "description": "Subtitle under Health ID section"
+  },
+  "settingsConnectWearables": "அணியக்கூடியவற்றை இணைக்கவும்",
+  "@settingsConnectWearables": {
+    "description": "Section title for wearables connection"
+  },
+  "settingsConnectWearablesSubtitle": "Apple Health / Google Health Connect இலிருந்து படிகள், இதயத் துடிப்பு, SpO₂ ஆகியவற்றை ஒத்திசைக்கவும்",
+  "@settingsConnectWearablesSubtitle": {
+    "description": "Subtitle under wearables section"
+  },
+  "settingsHealthPermissionsDenied": "சுகாதார அனுமதிகள் வழங்கப்படவில்லை",
+  "@settingsHealthPermissionsDenied": {
+    "description": "Snackbar when health permissions denied"
+  },
+  "settingsSyncingHealth": "சுகாதாரத் தரவை ஒத்திசைக்கிறது…",
+  "@settingsSyncingHealth": {
+    "description": "Snackbar while syncing health data"
+  },
+  "otpVerifyPhoneHeading": "உங்கள் தொலைபேசி எண்ணைச் சரிபார்க்கவும்",
+  "@otpVerifyPhoneHeading": {
+    "description": "Heading on the OTP verification screen"
+  },
+  "otpEnterDigits": "அனுப்பப்பட்ட 6 இலக்க OTP ஐ உள்ளிடவும்",
+  "@otpEnterDigits": {
+    "description": "Subheading prefix above phone number on OTP screen"
+  },
+  "otpVerifyButtonText": "OTP சரிபார்க்கவும்",
+  "@otpVerifyButtonText": {
+    "description": "Button label to verify OTP"
+  },
+  "otpResendingOtp": "OTP ஐ மீண்டும் அனுப்புகிறது...",
+  "@otpResendingOtp": {
+    "description": "Status while OTP resend is in progress"
+  },
+  "otpSentSuccess": "OTP உங்கள் தொலைபேசி எண்ணுக்கு அனுப்பப்பட்டது",
+  "@otpSentSuccess": {
+    "description": "Snackbar after OTP resend succeeds"
+  },
+  "dashboardScheduleNextVisit": "உங்கள் அடுத்த வருகையைத் திட்டமிடுங்கள்",
+  "@dashboardScheduleNextVisit": {
+    "description": "Dashboard widget title when no upcoming visit"
+  },
+  "dashboardStayOnTop": "உங்கள் ஆரோக்கியத்தின் மேல் இருங்கள்",
+  "@dashboardStayOnTop": {
+    "description": "Dashboard widget body when no upcoming visit"
+  },
+  "dashboardBookNow": "இப்போதே முன்பதிவு செய்யுங்கள்",
+  "@dashboardBookNow": {
+    "description": "Dashboard CTA to book an appointment"
+  },
+  "dashboardLastVisit": "கடைசி வருகை",
+  "@dashboardLastVisit": {
+    "description": "Label for last visit date"
+  },
+  "dashboardNextVisit": "அடுத்த வருகை",
+  "@dashboardNextVisit": {
+    "description": "Label for next visit date"
+  },
+  "dashboardLastVisitColon": "கடைசியாக:",
+  "@dashboardLastVisitColon": {
+    "description": "Compact label for last visit"
+  },
+  "dashboardNextVisitColon": "அடுத்து:",
+  "@dashboardNextVisitColon": {
+    "description": "Compact label for next visit"
+  },
+  "dashboardToggleTheme": "தீம் மாறு",
+  "@dashboardToggleTheme": {
+    "description": "Tooltip on theme toggle"
+  },
+  "dashboardToggleFontSize": "எழுத்துரு அளவை மாற்றவும்",
+  "@dashboardToggleFontSize": {
+    "description": "Tooltip on font size toggle"
+  },
+  "dashboardHealthPoints": "சுகாதார புள்ளிகள்",
+  "@dashboardHealthPoints": {
+    "description": "Dashboard widget title for health points"
+  },
+  "dashboardWellnessScore": "ஆரோக்கிய மதிப்பெண்",
+  "@dashboardWellnessScore": {
+    "description": "Dashboard widget title for wellness score"
+  },
+  "dashboardLastVisitTitle": "கடைசி வருகை",
+  "@dashboardLastVisitTitle": {
+    "description": "Title for last visit card"
+  },
+  "dashboardNextVisitTitle": "அடுத்த வருகை",
+  "@dashboardNextVisitTitle": {
+    "description": "Title for next visit card"
+  },
+  "investigationsFileTooLarge": "கோப்பு மிகவும் பெரியது. அதிகபட்ச அளவு 10 எம்பி.",
+  "@investigationsFileTooLarge": {
+    "description": "Snackbar when uploaded file exceeds size limit"
+  },
+  "investigationsViewDownloadReport": "அறிக்கையைப் பார்க்கவும் / பதிவிறக்கவும்",
+  "@investigationsViewDownloadReport": {
+    "description": "Button label to view or download a report"
+  },
+  "investigationsBookButton": "புத்தக விசாரணை",
+  "@investigationsBookButton": {
+    "description": "Button to navigate to book investigation"
+  },
+  "investigationsNoFiles": "கோப்புகள் இல்லை",
+  "@investigationsNoFiles": {
+    "description": "Empty state for investigation files list"
+  },
+  "myBookingsSlipAttached": "மருந்துச் சீட்டு இணைக்கப்பட்டுள்ளது",
+  "@myBookingsSlipAttached": {
+    "description": "Indicator on bookings list"
+  },
+  "myBookingsDownloadResult": "முடிவைப் பதிவிறக்கவும்",
+  "@myBookingsDownloadResult": {
+    "description": "Button to download investigation result"
+  },
+  "pharmacyOrderNote": "ஆர்டர் குறிப்பு",
+  "@pharmacyOrderNote": {
+    "description": "Label for order note section"
+  },
+  "pharmacyDeliveryInfo": "டெலிவரி தகவல்",
+  "@pharmacyDeliveryInfo": {
+    "description": "Label for delivery info section"
+  },
+  "pharmacyOrdersEmpty": "இதுவரை ஆர்டர்கள் இல்லை",
+  "@pharmacyOrdersEmpty": {
+    "description": "Empty state for orders list"
+  },
+  "pharmacyOrdersEmptyHint": "ஆர்டர் தாவலில் இருந்து உங்கள் முதல் ஆர்டரை வைக்கவும்",
+  "@pharmacyOrdersEmptyHint": {
+    "description": "Empty-state hint for orders list"
+  },
+  "pharmacyOrderCancelled": "ஆர்டர் ரத்து செய்யப்பட்டது",
+  "@pharmacyOrderCancelled": {
+    "description": "Status label when order cancelled"
+  },
+  "splashDeviceNotSupported": "சாதனம் ஆதரிக்கப்படவில்லை",
+  "@splashDeviceNotSupported": {
+    "description": "Heading shown when device fails attestation"
+  },
+  "splashDeviceNotSupportedBody": "உங்கள் பாதுகாப்பிற்காக, VH Health இந்தச் சாதனத்தில் இயங்க முடியாது. காரணம்:",
+  "@splashDeviceNotSupportedBody": {
+    "description": "Body shown when device fails attestation"
+  },
+  "splashAppName": "VH Health",
+  "@splashAppName": {
+    "description": "App name shown on splash screen"
+  },
+  "splashTapAnywhere": "தொடர எங்கும் தட்டவும்",
+  "@splashTapAnywhere": {
+    "description": "Splash hint to tap to continue"
+  },
+  "gamificationRewardClaimed": "ரிவார்டு கோரப்பட்டது!",
+  "@gamificationRewardClaimed": {
+    "description": "Dialog title after redeeming a reward"
+  },
+  "gamificationVoucherCode": "உங்கள் வவுச்சர் குறியீடு:",
+  "@gamificationVoucherCode": {
+    "description": "Label above voucher code"
+  },
+  "gamificationVoucherCopied": "வவுச்சர் குறியீடு நகலெடுக்கப்பட்டது!",
+  "@gamificationVoucherCopied": {
+    "description": "Snackbar after copying voucher code"
+  },
+  "gamificationCouldNotShare": "இப்போது பகிர முடியவில்லை",
+  "@gamificationCouldNotShare": {
+    "description": "Snackbar when share fails"
+  },
+  "gamificationShareSubtitle": "உங்கள் முன்னேற்றத்தை குடும்பத்தினருடனும் நண்பர்களுடனும் பகிர்ந்து கொள்ளுங்கள்",
+  "@gamificationShareSubtitle": {
+    "description": "Subtitle on share card"
+  },
+  "gamificationLoadFailed": "உங்கள் புள்ளிகளின் சுருக்கத்தை ஏற்ற முடியவில்லை",
+  "@gamificationLoadFailed": {
+    "description": "Error state for points summary"
+  },
+  "gamificationHowToEarn": "புள்ளிகளைப் பெறுவது எப்படி",
+  "@gamificationHowToEarn": {
+    "description": "Heading above earning rules"
+  },
+  "gamificationCompleteMilestones": "வெகுமதிகளைப் பெற மைல்கற்களை முடிக்கவும்!",
+  "@gamificationCompleteMilestones": {
+    "description": "Empty state for rewards tab"
+  },
+  "gamificationNoPointHistory": "இதுவரை புள்ளி வரலாறு இல்லை",
+  "@gamificationNoPointHistory": {
+    "description": "Empty state for points history"
+  },
+  "gamificationNoMilestones": "இதுவரை மைல்கற்கள் எதுவும் கிடைக்கவில்லை",
+  "@gamificationNoMilestones": {
+    "description": "Empty state for milestones"
+  },
+  "stepsShareCardTitle": "VH Health படி சவால்",
+  "@stepsShareCardTitle": {
+    "description": "Title on the step share card image"
+  },
+  "stepsShareCardSubtitle": "Venkataeswara Hospitals, சென்னை",
+  "@stepsShareCardSubtitle": {
+    "description": "Subtitle on the step share card image"
+  },
+  "stepsShareCardFooter": "VH Health ஆப்",
+  "@stepsShareCardFooter": {
+    "description": "Footer on the step share card image"
+  },
+  "documentOpening": "ஆவணத்தைத் திறக்கிறது...",
+  "@documentOpening": {
+    "description": "Snackbar while opening a document"
+  },
+  "documentCouldNotOpen": "ஆவணத்தைத் திறக்க முடியவில்லை",
+  "@documentCouldNotOpen": {
+    "description": "Snackbar when document fails to open"
+  },
+  "permissionsNotNow": "இப்போது இல்லை",
+  "@permissionsNotNow": {
+    "description": "Permission prompt: dismiss button"
+  },
+  "permissionsOpenSettings": "அமைப்புகளைத் திறக்கவும்",
+  "@permissionsOpenSettings": {
+    "description": "Permission prompt: open settings button"
+  },
+  "feedbackRateExperience": "உங்கள் அனுபவத்தை மதிப்பிடுங்கள்",
+  "@feedbackRateExperience": {
+    "description": "Heading on feedback prompt"
+  },
+  "feedbackSubmitButton": "கருத்தைச் சமர்ப்பிக்கவும்",
+  "@feedbackSubmitButton": {
+    "description": "Button to submit feedback"
+  },
+  "feedbackHistoryTitle": "எனது கருத்து",
+  "@feedbackHistoryTitle": {
+    "description": "AppBar title for feedback history"
+  },
+  "logoutConfirmTitle": "வெளியேறுவதை உறுதிப்படுத்தவும்",
+  "@logoutConfirmTitle": {
+    "description": "Dialog title to confirm logout"
+  },
+  "logoutConfirmBody": "நிச்சயமாக வெளியேற விரும்புகிறீர்களா?",
+  "@logoutConfirmBody": {
+    "description": "Dialog body to confirm logout"
+  },
+  "aboutHospitalName": "Venkataeswara Hospitals",
+  "@aboutHospitalName": {
+    "description": "Hospital name heading on About Us"
+  },
+  "aboutOpenInMaps": "Google வரைபடத்தில் திறக்க தட்டவும் →",
+  "@aboutOpenInMaps": {
+    "description": "Link to open hospital location in Google Maps"
+  },
+  "departmentsConsultationFee": "ஆலோசனை கட்டணம்",
+  "@departmentsConsultationFee": {
+    "description": "Label for doctor consultation fee"
+  },
+  "departmentsNoDoctors": "இந்த பிரிவில் டாக்டர்கள் இல்லை",
+  "@departmentsNoDoctors": {
+    "description": "Empty state for doctors in a department"
+  },
+  "circularDialNoFeatures": "அம்சங்கள் இல்லை",
+  "@circularDialNoFeatures": {
+    "description": "Empty state for circular feature dial"
+  },
+  "deliveryYourLocation": "உங்கள் இருப்பிடம்",
+  "@deliveryYourLocation": {
+    "description": "Label for user location on delivery map"
+  },
+  "authDevLoginSkipOtp": "டெவ் உள்நுழைவு (OTP தவிர்க்கவும்)",
+  "@authDevLoginSkipOtp": {
+    "description": "Dev-only button to skip OTP"
+  },
+  "permissionGateSettingUp": "அமைக்கிறது...",
+  "@permissionGateSettingUp": {
+    "description": "Status text while permission gate runs"
+  },
+  "yourHealthUploadRecord": "பதிவைப் பதிவேற்றவும்",
+  "@yourHealthUploadRecord": {
+    "description": "Action button on Your Health screen to open upload sheet"
+  }
 }

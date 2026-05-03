@@ -162,7 +162,8 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
     final now = DateTime.now();
     final diff = now.difference(dt);
     if (diff.inMinutes < 1) return s.timeJustNow;
-    if (diff.inMinutes < 60) return '${diff.inMinutes}${s.timeMinutesAgoSuffix}';
+    if (diff.inMinutes < 60)
+      return '${diff.inMinutes}${s.timeMinutesAgoSuffix}';
     if (diff.inHours < 24) return '${diff.inHours}${s.timeHoursAgoSuffix}';
     if (diff.inDays == 1) return s.timeYesterday;
     if (diff.inDays < 7) return DateFormat('EEE').format(dt);

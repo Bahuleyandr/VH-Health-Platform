@@ -56,9 +56,7 @@ class SuccessToast {
           backgroundColor: AppTheme.successGreen,
           duration: duration,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           action: action,
         ),
       );
@@ -105,9 +103,7 @@ class ErrorToast {
           backgroundColor: AppTheme.errorRed,
           duration: duration,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           action: action,
         ),
       );

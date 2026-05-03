@@ -810,76 +810,77 @@ class AppLocalizationsMl extends AppLocalizations {
       'ഫയലുകൾ ഡൗൺലോഡ് ചെയ്യാൻ സ്റ്റോറേജ് അനുമതി ആവശ്യമാണ്.';
 
   @override
-  String get yourHealthTabRecords => 'Records';
+  String get yourHealthTabRecords => 'റെക്കോർഡുകൾ';
 
   @override
-  String get yourHealthTabConsultations => 'Consultations';
+  String get yourHealthTabConsultations => 'കൂടിയാലോചനകൾ';
 
   @override
-  String get yourHealthTabSummary => 'Summary';
+  String get yourHealthTabSummary => 'സംഗ്രഹം';
 
   @override
-  String get consultationDoctor => 'Doctor';
+  String get consultationDoctor => 'ഡോക്ടർ';
 
   @override
-  String get consultationDiagnosis => 'Diagnosis';
+  String get consultationDiagnosis => 'രോഗനിർണയം';
 
   @override
-  String get consultationNotes => 'Notes';
+  String get consultationNotes => 'കുറിപ്പുകൾ';
 
   @override
-  String get consultationDate => 'Date';
+  String get consultationDate => 'തീയതി';
 
   @override
-  String get consultationsEmpty => 'No consultations found';
+  String get consultationsEmpty => 'കൂടിയാലോചനകളൊന്നും കണ്ടെത്തിയില്ല';
 
   @override
-  String get summaryAllergies => 'Allergies';
+  String get summaryAllergies => 'അലർജികൾ';
 
   @override
-  String get summaryConditions => 'Conditions';
+  String get summaryConditions => 'വ്യവസ്ഥകൾ';
 
   @override
-  String get summaryOverview => 'Health Overview';
+  String get summaryOverview => 'ആരോഗ്യ അവലോകനം';
 
   @override
-  String get summaryNoAllergies => 'No known allergies';
+  String get summaryNoAllergies => 'അറിയപ്പെടുന്ന അലർജികളൊന്നുമില്ല';
 
   @override
-  String get summaryNoConditions => 'No known conditions';
+  String get summaryNoConditions => 'അറിയപ്പെടുന്ന വ്യവസ്ഥകളൊന്നുമില്ല';
 
   @override
-  String get summaryNoData => 'No health summary available';
+  String get summaryNoData => 'ആരോഗ്യ സംഗ്രഹം ലഭ്യമല്ല';
 
   @override
-  String get investigationsResultsTitle => 'Investigation Results';
+  String get investigationsResultsTitle => 'അന്വേഷണ ഫലങ്ങൾ';
 
   @override
-  String get investigationsTabUpload => 'Upload';
+  String get investigationsTabUpload => 'അപ്‌ലോഡ് ചെയ്യുക';
 
   @override
-  String get investigationsTabResults => 'Results';
+  String get investigationsTabResults => 'ഫലങ്ങൾ';
 
   @override
-  String get investigationsStatusPending => 'Pending';
+  String get investigationsStatusPending => 'തീർപ്പാക്കാത്തത്';
 
   @override
-  String get investigationsStatusCompleted => 'Completed';
+  String get investigationsStatusCompleted => 'പൂർത്തിയാക്കി';
 
   @override
-  String get investigationsNoResults => 'No investigation results yet';
+  String get investigationsNoResults => 'ഇതുവരെ അന്വേഷണ ഫലങ്ങളൊന്നുമില്ല';
 
   @override
-  String get investigationsDownloadReport => 'Download Report';
+  String get investigationsDownloadReport => 'റിപ്പോർട്ട് ഡൗൺലോഡ് ചെയ്യുക';
 
   @override
-  String get investigationsDownloadFailed => 'Failed to download report';
+  String get investigationsDownloadFailed =>
+      'റിപ്പോർട്ട് ഡൗൺലോഡ് ചെയ്യുന്നതിൽ പരാജയപ്പെട്ടു';
 
   @override
-  String get investigationsFiles => 'Files';
+  String get investigationsFiles => 'ഫയലുകൾ';
 
   @override
-  String get profileIncomplete => 'Please complete your profile to continue';
+  String get profileIncomplete => 'തുടരാൻ നിങ്ങളുടെ പ്രൊഫൈൽ പൂർത്തിയാക്കുക';
 
   @override
   String get vitalsTitle => 'ആരോഗ്യ സൂചകങ്ങൾ';
@@ -891,32 +892,32 @@ class AppLocalizationsMl extends AppLocalizations {
   String get vitalsHistoryTab => 'ചരിത്രം';
 
   @override
-  String get vitalsLogHeading => 'Log Your Daily Vitals';
+  String get vitalsLogHeading => 'നിങ്ങളുടെ ദൈനംദിന ജീവകങ്ങൾ ലോഗ് ചെയ്യുക';
 
   @override
   String get vitalsLogSubheading =>
-      'Fill in any vitals you want to record today.';
+      'ഇന്ന് നിങ്ങൾ റെക്കോർഡ് ചെയ്യാൻ ആഗ്രഹിക്കുന്ന എല്ലാ ജീവജാലങ്ങളും പൂരിപ്പിക്കുക.';
 
   @override
-  String get vitalsBloodPressure => 'Blood Pressure';
+  String get vitalsBloodPressure => 'രക്തസമ്മർദ്ദം';
 
   @override
-  String get vitalsSystolic => 'Systolic';
+  String get vitalsSystolic => 'സിസ്റ്റോളിക്';
 
   @override
-  String get vitalsDiastolic => 'Diastolic';
+  String get vitalsDiastolic => 'ഡയസ്റ്റോളിക്';
 
   @override
-  String get vitalsHeartRate => 'Heart Rate';
+  String get vitalsHeartRate => 'ഹൃദയമിടിപ്പ്';
 
   @override
-  String get vitalsTemperature => 'Temperature';
+  String get vitalsTemperature => 'താപനില';
 
   @override
-  String get vitalsBloodSugar => 'Blood Sugar';
+  String get vitalsBloodSugar => 'രക്തത്തിലെ പഞ്ചസാര';
 
   @override
-  String get vitalsWeight => 'Weight';
+  String get vitalsWeight => 'ഭാരം';
 
   @override
   String get vitalsSpO2 => 'SpO2';
@@ -925,42 +926,46 @@ class AppLocalizationsMl extends AppLocalizations {
   String get vitalsRecordButton => 'രേഖപ്പെടുത്തുക';
 
   @override
-  String get vitalsSubmitting => 'Submitting...';
+  String get vitalsSubmitting => 'സമർപ്പിക്കുന്നു...';
 
   @override
   String get vitalsRecordedSuccess =>
       'ആരോഗ്യ സൂചകങ്ങൾ വിജയകരമായി രേഖപ്പെടുത്തി';
 
   @override
-  String get vitalsRecordFailed => 'Failed to record vitals';
+  String get vitalsRecordFailed =>
+      'സുപ്രധാന കാര്യങ്ങൾ രേഖപ്പെടുത്തുന്നതിൽ പരാജയപ്പെട്ടു';
 
   @override
-  String get vitalsAtLeastOne => 'Please enter at least one vital sign';
+  String get vitalsAtLeastOne => 'ദയവായി ഒരു സുപ്രധാന ചിഹ്നമെങ്കിലും നൽകുക';
 
   @override
   String get vitalsNoHistory => 'ഇതുവരെ രേഖകളൊന്നുമില്ല';
 
   @override
-  String get vitalsNoHistoryHint => 'Log your vitals using the Log Vitals tab.';
+  String get vitalsNoHistoryHint =>
+      'ലോഗ് വൈറ്റൽസ് ടാബ് ഉപയോഗിച്ച് നിങ്ങളുടെ വൈറ്റലുകൾ ലോഗ് ചെയ്യുക.';
 
   @override
-  String get vitalsHistoryFailed => 'Failed to load vitals history';
+  String get vitalsHistoryFailed =>
+      'വൈറ്റൽ ഹിസ്റ്ററി ലോഡ് ചെയ്യുന്നതിൽ പരാജയപ്പെട്ടു';
 
   @override
   String get familyTitle => 'കുടുംബ അംഗങ്ങൾ';
 
   @override
-  String get familyYourFamily => 'Your Family';
+  String get familyYourFamily => 'നിങ്ങളുടെ കുടുംബം';
 
   @override
   String get familyManageHint =>
-      'Manage family members linked to your account.';
+      'നിങ്ങളുടെ അക്കൗണ്ടിലേക്ക് ലിങ്ക് ചെയ്‌തിരിക്കുന്ന കുടുംബാംഗങ്ങളെ നിയന്ത്രിക്കുക.';
 
   @override
   String get familyNoMembers => 'ഇതുവരെ കുടുംബ അംഗങ്ങളില്ല';
 
   @override
-  String get familyNoMembersHint => 'Add family members to manage shared care.';
+  String get familyNoMembersHint =>
+      'പങ്കിട്ട പരിചരണം നിയന്ത്രിക്കാൻ കുടുംബാംഗങ്ങളെ ചേർക്കുക.';
 
   @override
   String get familyAddMember => 'കുടുംബ അംഗത്തെ ചേർക്കുക';
@@ -975,95 +980,95 @@ class AppLocalizationsMl extends AppLocalizations {
   String get familyRelationship => 'ബന്ധം';
 
   @override
-  String get familyDateOfBirth => 'Date of Birth (optional)';
+  String get familyDateOfBirth => 'ജനനത്തീയതി (ഓപ്ഷണൽ)';
 
   @override
-  String get familyAdding => 'Adding...';
+  String get familyAdding => 'ചേർക്കുന്നു...';
 
   @override
-  String get familyAddedSuccess => 'Family member added successfully';
+  String get familyAddedSuccess => 'കുടുംബാംഗം വിജയകരമായി ചേർത്തു';
 
   @override
-  String get familyAddFailed => 'Failed to add family member';
+  String get familyAddFailed => 'കുടുംബാംഗങ്ങളെ ചേർക്കുന്നതിൽ പരാജയപ്പെട്ടു';
 
   @override
-  String get familyRemoveTitle => 'Remove Family Member';
+  String get familyRemoveTitle => 'കുടുംബാംഗത്തെ നീക്കം ചെയ്യുക';
 
   @override
   String familyRemoveConfirm(String name) {
-    return 'Are you sure you want to remove $name?';
+    return '$name നീക്കം ചെയ്യണമെന്ന് തീർച്ചയാണോ?';
   }
 
   @override
   String familyRemoved(String name) {
-    return '$name removed from family members';
+    return 'കുടുംബാംഗങ്ങളിൽ നിന്ന് $name നീക്കം ചെയ്തു';
   }
 
   @override
-  String get familyRemoveFailed => 'Failed to remove member';
+  String get familyRemoveFailed => 'അംഗത്തെ നീക്കം ചെയ്യുന്നതിൽ പരാജയപ്പെട്ടു';
 
   @override
   String get refillTitle => 'കുറിപ്പടി റീഫിൽ';
 
   @override
-  String get refillActivePrescriptions => 'Active Prescriptions';
+  String get refillActivePrescriptions => 'സജീവ കുറിപ്പടികൾ';
 
   @override
   String get refillHint =>
-      'Tap \"Request Refill\" to ask your doctor for a renewal.';
+      'ഒരു പുതുക്കലിനായി ഡോക്ടറോട് ആവശ്യപ്പെടാൻ \"റീഫിൽ അഭ്യർത്ഥിക്കുക\" ടാപ്പ് ചെയ്യുക.';
 
   @override
   String get refillNoActive => 'സജീവ കുറിപ്പടികളൊന്നുമില്ല';
 
   @override
   String get refillNoActiveHint =>
-      'Your prescriptions from consultations will appear here.';
+      'കൺസൾട്ടേഷനുകളിൽ നിന്നുള്ള നിങ്ങളുടെ കുറിപ്പടികൾ ഇവിടെ ദൃശ്യമാകും.';
 
   @override
   String get refillRequestButton => 'റീഫിൽ അഭ്യർത്ഥിക്കുക';
 
   @override
-  String get refillRequesting => 'Requesting...';
+  String get refillRequesting => 'അഭ്യർത്ഥിക്കുന്നു...';
 
   @override
-  String get refillRetry => 'Retry Refill Request';
+  String get refillRetry => 'റീഫിൽ അഭ്യർത്ഥന വീണ്ടും ശ്രമിക്കുക';
 
   @override
-  String get refillConfirmTitle => 'Request Refill';
+  String get refillConfirmTitle => 'റീഫിൽ അഭ്യർത്ഥിക്കുക';
 
   @override
   String refillConfirmBody(String medication) {
-    return 'Request a refill for $medication?';
+    return '$medication എന്നതിനായി ഒരു റീഫിൽ അഭ്യർത്ഥിക്കണോ?';
   }
 
   @override
   String refillRequested(String medication) {
-    return 'Refill requested for $medication';
+    return '$medication എന്നതിനായി റീഫിൽ അഭ്യർത്ഥിച്ചു';
   }
 
   @override
-  String get refillRequestFailed => 'Failed to request refill';
+  String get refillRequestFailed => 'റീഫിൽ അഭ്യർത്ഥിക്കുന്നതിൽ പരാജയപ്പെട്ടു';
 
   @override
   String get refillStatusActive => 'ACTIVE';
 
   @override
-  String get refillStatusExpired => 'EXPIRED';
+  String get refillStatusExpired => 'കാലഹരണപ്പെട്ടു';
 
   @override
   String get stepsTitle => 'നടത്ത വെല്ലുവിളി';
 
   @override
-  String get stepsProfile => 'Profile';
+  String get stepsProfile => 'പ്രൊഫൈൽ';
 
   @override
-  String get stepsHistory => 'History';
+  String get stepsHistory => 'ചരിത്രം';
 
   @override
-  String get stepsLeaderboard => 'Leaderboard';
+  String get stepsLeaderboard => 'ലീഡർബോർഡ്';
 
   @override
-  String get stepsRewards => 'Rewards';
+  String get stepsRewards => 'പ്രതിഫലം';
 
   @override
   String get stepsStartWalk => 'നടത്തം ആരംഭിക്കുക';
@@ -1072,49 +1077,51 @@ class AppLocalizationsMl extends AppLocalizations {
   String get stepsStopWalk => 'നടത്തം നിർത്തുക';
 
   @override
-  String get stepsSessionStarted => 'Walk session started';
+  String get stepsSessionStarted => 'പദയാത്ര ആരംഭിച്ചു';
 
   @override
-  String get stepsSessionStopped => 'Walk done!';
+  String get stepsSessionStopped => 'നടന്നു!';
 
   @override
-  String get stepsNoHistory => 'No walk sessions yet';
+  String get stepsNoHistory => 'ഇതുവരെ നടത്ത സെഷനുകളൊന്നുമില്ല';
 
   @override
-  String get stepsNoHistoryHint => 'Start a walk to begin tracking your steps.';
+  String get stepsNoHistoryHint =>
+      'നിങ്ങളുടെ ചുവടുകൾ ട്രാക്ക് ചെയ്യാൻ ആരംഭിക്കാൻ ഒരു നടത്തം ആരംഭിക്കുക.';
 
   @override
-  String get abdmTitle => 'ABDM (Ayushman Bharat)';
+  String get abdmTitle => 'ABDM (ആയുഷ്മാൻ ഭാരത്)';
 
   @override
-  String get abdmRegister => 'Register ABHA';
+  String get abdmRegister => 'രജിസ്റ്റർ ചെയ്യുക ABHA';
 
   @override
-  String get abdmVerify => 'Verify ABHA';
+  String get abdmVerify => 'ABHA പരിശോധിക്കുക';
 
   @override
-  String get abdmConsents => 'Consents';
+  String get abdmConsents => 'സമ്മതം';
 
   @override
-  String get abdmNoConsents => 'No consent requests';
+  String get abdmNoConsents => 'സമ്മത അഭ്യർത്ഥനകളൊന്നുമില്ല';
 
   @override
-  String get medicationRemindersTitle => 'Medication Reminders';
+  String get medicationRemindersTitle => 'മരുന്ന് ഓർമ്മപ്പെടുത്തലുകൾ';
 
   @override
-  String get medicationReminderAdd => 'Add Reminder';
+  String get medicationReminderAdd => 'ഓർമ്മപ്പെടുത്തൽ ചേർക്കുക';
 
   @override
-  String get medicationReminderName => 'Medication Name';
+  String get medicationReminderName => 'മരുന്നിൻ്റെ പേര്';
 
   @override
-  String get medicationReminderDosage => 'Dosage';
+  String get medicationReminderDosage => 'അളവ്';
 
   @override
-  String get medicationReminderFrequency => 'Frequency';
+  String get medicationReminderFrequency => 'ആവൃത്തി';
 
   @override
-  String get medicationReminderNoReminders => 'No medication reminders set';
+  String get medicationReminderNoReminders =>
+      'മരുന്ന് റിമൈൻഡറുകൾ സജ്ജീകരിച്ചിട്ടില്ല';
 
   @override
   String get updateAvailableTitle => 'അപ്‌ഡേറ്റ് ലഭ്യമാണ്';
@@ -1130,563 +1137,579 @@ class AppLocalizationsMl extends AppLocalizations {
   String get updateLater => 'പിന്നീട്';
 
   @override
-  String get bookInvestigationTitle => 'Book Investigation';
+  String get bookInvestigationTitle => 'പുസ്തക അന്വേഷണം';
 
   @override
-  String get bookInvestigationStepChoose => 'Choose Tests';
+  String get bookInvestigationStepChoose => 'ടെസ്റ്റുകൾ തിരഞ്ഞെടുക്കുക';
 
   @override
-  String get bookInvestigationStepCollection => 'Collection Preference';
+  String get bookInvestigationStepCollection => 'ശേഖരണ മുൻഗണന';
 
   @override
-  String get bookInvestigationStepReview => 'Review & Book';
+  String get bookInvestigationStepReview => 'അവലോകനം & ബുക്ക് ചെയ്യുക';
 
   @override
-  String get bookInvestigationOrType => 'Or type test names:';
+  String get bookInvestigationOrType =>
+      'അല്ലെങ്കിൽ ടെസ്റ്റ് പേരുകൾ ടൈപ്പ് ചെയ്യുക:';
 
   @override
-  String get bookInvestigationOrUploadSlip => 'Or upload prescription slip:';
+  String get bookInvestigationOrUploadSlip =>
+      'അല്ലെങ്കിൽ കുറിപ്പടി സ്ലിപ്പ് അപ്ലോഡ് ചെയ്യുക:';
 
   @override
-  String get bookInvestigationEstimatedCost => 'Estimated Cost';
+  String get bookInvestigationEstimatedCost => 'കണക്കാക്കിയ ചെലവ്';
 
   @override
-  String get bookInvestigationHomeCollection => 'Home Collection';
+  String get bookInvestigationHomeCollection => 'ഹോം കളക്ഷൻ';
 
   @override
-  String get bookInvestigationVisitLab => 'Visit Lab';
+  String get bookInvestigationVisitLab => 'ലാബ് സന്ദർശിക്കുക';
 
   @override
-  String get bookInvestigationTapToSelect => 'Tap to select';
+  String get bookInvestigationTapToSelect => 'തിരഞ്ഞെടുക്കാൻ ടാപ്പ് ചെയ്യുക';
 
   @override
-  String get bookInvestigationPreferredTimeSlot => 'Preferred Time Slot';
+  String get bookInvestigationPreferredTimeSlot => 'തിരഞ്ഞെടുത്ത ടൈം സ്ലോട്ട്';
 
   @override
-  String get bookInvestigationReviewBooking => 'Review Your Booking';
+  String get bookInvestigationReviewBooking =>
+      'നിങ്ങളുടെ ബുക്കിംഗ് അവലോകനം ചെയ്യുക';
 
   @override
-  String get bookInvestigationSelectedTests => 'Selected Tests:';
+  String get bookInvestigationSelectedTests => 'തിരഞ്ഞെടുത്ത ടെസ്റ്റുകൾ:';
 
   @override
-  String get bookInvestigationCustomTests => 'Custom Tests:';
+  String get bookInvestigationCustomTests => 'ഇഷ്‌ടാനുസൃത പരിശോധനകൾ:';
 
   @override
-  String get bookInvestigationSlipAttached => 'Prescription slip attached';
+  String get bookInvestigationSlipAttached =>
+      'കുറിപ്പടി സ്ലിപ്പ് ഘടിപ്പിച്ചിരിക്കുന്നു';
 
   @override
-  String get bookInvestigationBooked => 'Investigation Booked!';
+  String get bookInvestigationBooked => 'അന്വേഷണം ബുക്ക് ചെയ്തു!';
 
   @override
   String get bookInvestigationConfirmationNote =>
-      'You will receive a confirmation call shortly.\nWe\'ll keep you updated on your booking status.';
+      'താമസിയാതെ നിങ്ങൾക്ക് ഒരു സ്ഥിരീകരണ കോൾ ലഭിക്കും.\nനിങ്ങളുടെ ബുക്കിംഗ് നിലയെക്കുറിച്ച് ഞങ്ങൾ നിങ്ങളെ അറിയിക്കും.';
 
   @override
-  String get bookInvestigationBackButton => 'Back to Investigations';
+  String get bookInvestigationBackButton => 'അന്വേഷണങ്ങളിലേക്ക് മടങ്ങുക';
 
   @override
-  String get stepsSetupProfileTitle => 'Set up your profile';
+  String get stepsSetupProfileTitle => 'നിങ്ങളുടെ പ്രൊഫൈൽ സജ്ജീകരിക്കുക';
 
   @override
-  String get stepsPickColor => 'Pick a color:';
+  String get stepsPickColor => 'ഒരു നിറം തിരഞ്ഞെടുക്കുക:';
 
   @override
-  String get stepsSaveProfile => 'Save Profile';
+  String get stepsSaveProfile => 'പ്രൊഫൈൽ സംരക്ഷിക്കുക';
 
   @override
-  String get stepsStartWalkUpper => 'START WALK';
+  String get stepsStartWalkUpper => 'നടക്കാൻ തുടങ്ങുക';
 
   @override
-  String get stepsWalkInProgress => 'Walk in progress…';
+  String get stepsWalkInProgress => 'നടത്തം പുരോഗമിക്കുന്നു...';
 
   @override
-  String get stepsStopWalkUpper => 'STOP WALK';
+  String get stepsStopWalkUpper => 'സ്റ്റോപ്പ് വാക്ക്';
 
   @override
-  String get stepsNoDailyData => 'No daily data yet';
+  String get stepsNoDailyData => 'ഇതുവരെ പ്രതിദിന ഡാറ്റയില്ല';
 
   @override
-  String get stepsNoWeeklyData => 'No weekly data yet';
+  String get stepsNoWeeklyData => 'ഇതുവരെ പ്രതിവാര ഡാറ്റയില്ല';
 
   @override
-  String get stepsNoMonthlyData => 'No monthly data yet';
+  String get stepsNoMonthlyData => 'ഇതുവരെ പ്രതിമാസ ഡാറ്റയില്ല';
 
   @override
-  String get stepsThisMonth => 'This month';
+  String get stepsThisMonth => 'ഈ മാസം';
 
   @override
-  String get stepsNoLeaderboardData => 'No leaderboard data yet';
+  String get stepsNoLeaderboardData => 'ഇതുവരെ ലീഡർബോർഡ് ഡാറ്റയില്ല';
 
   @override
-  String get stepsYourRewards => 'Your Rewards';
+  String get stepsYourRewards => 'നിങ്ങളുടെ റിവാർഡുകൾ';
 
   @override
-  String get familyMemberIdNotFound => 'Member ID not found';
+  String get familyMemberIdNotFound => 'അംഗ ഐഡി കണ്ടെത്തിയില്ല';
 
   @override
   String get familyRemoveFailedRetry =>
-      'Failed to remove member. Please try again.';
+      'അംഗത്തെ നീക്കം ചെയ്യുന്നതിൽ പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.';
 
   @override
   String get familyAddFailedRetry =>
-      'Failed to add family member. Please try again.';
+      'കുടുംബാംഗങ്ങളെ ചേർക്കുന്നതിൽ പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.';
 
   @override
-  String get familyRemoveButton => 'Remove';
+  String get familyRemoveButton => 'നീക്കം ചെയ്യുക';
 
   @override
-  String get familyRemoveTooltip => 'Remove member';
+  String get familyRemoveTooltip => 'അംഗത്തെ നീക്കം ചെയ്യുക';
 
   @override
-  String get familyRetryButton => 'Retry';
+  String get familyRetryButton => 'വീണ്ടും ശ്രമിക്കുക';
 
   @override
-  String get familyAddMemberShort => 'Add Member';
+  String get familyAddMemberShort => 'അംഗത്തെ ചേർക്കുക';
 
   @override
-  String get familyTapToSelect => 'Tap to select';
+  String get familyTapToSelect => 'തിരഞ്ഞെടുക്കാൻ ടാപ്പ് ചെയ്യുക';
 
   @override
   String get familyDobPrefix => 'DOB:';
 
   @override
-  String get familyNameRequired => 'Name is required';
+  String get familyNameRequired => 'പേര് ആവശ്യമാണ്';
 
   @override
-  String get familyPhoneRequired => 'Phone is required';
+  String get familyPhoneRequired => 'ഫോൺ ആവശ്യമാണ്';
 
   @override
-  String get familyPhoneInvalid => 'Enter a valid phone number';
+  String get familyPhoneInvalid => 'സാധുവായ ഒരു ഫോൺ നമ്പർ നൽകുക';
 
   @override
-  String get familyLoadFailed => 'Failed to load family members';
+  String get familyLoadFailed =>
+      'കുടുംബാംഗങ്ങളെ ലോഡ് ചെയ്യുന്നതിൽ പരാജയപ്പെട്ടു';
 
   @override
-  String get familyUnknown => 'Unknown';
+  String get familyUnknown => 'അജ്ഞാതം';
 
   @override
-  String get recordsDocumentUrlMissing => 'Document URL not available';
+  String get recordsDocumentUrlMissing => 'പ്രമാണം URL ലഭ്യമല്ല';
 
   @override
-  String get recordsDeleteTitle => 'Delete Record?';
+  String get recordsDeleteTitle => 'റെക്കോർഡ് ഇല്ലാതാക്കണോ?';
 
   @override
-  String get recordsDeletePrefix => 'Delete ';
+  String get recordsDeletePrefix => 'ഇല്ലാതാക്കുക';
 
   @override
-  String get recordsDeleted => 'Record deleted';
+  String get recordsDeleted => 'റെക്കോർഡ് ഇല്ലാതാക്കി';
 
   @override
-  String get recordsPickFileFirst => 'Please pick a file and enter a title';
+  String get recordsPickFileFirst =>
+      'ദയവായി ഒരു ഫയൽ തിരഞ്ഞെടുത്ത് ഒരു ശീർഷകം നൽകുക';
 
   @override
-  String get recordsUploaded => 'Record uploaded';
+  String get recordsUploaded => 'റെക്കോർഡ് അപ്ലോഡ് ചെയ്തു';
 
   @override
-  String get recordsUploadButton => 'Upload Record';
+  String get recordsUploadButton => 'റെക്കോർഡ് അപ്‌ലോഡ് ചെയ്യുക';
 
   @override
   String get recordsHospitalEmpty =>
-      'Your prescriptions and reports from visits will appear here';
+      'നിങ്ങളുടെ കുറിപ്പുകളും സന്ദർശനങ്ങളിൽ നിന്നുള്ള റിപ്പോർട്ടുകളും ഇവിടെ ദൃശ്യമാകും';
 
   @override
   String get recordsUploadEmptyHint =>
-      'Upload your previous prescriptions and reports to keep them in one place';
+      'നിങ്ങളുടെ മുൻ കുറിപ്പുകളും റിപ്പോർട്ടുകളും ഒരിടത്ത് സൂക്ഷിക്കാൻ അപ്‌ലോഡ് ചെയ്യുക';
 
   @override
-  String get recordsUploadSheetTitle => 'Upload a Record';
+  String get recordsUploadSheetTitle => 'ഒരു റെക്കോർഡ് അപ്‌ലോഡ് ചെയ്യുക';
 
   @override
-  String get abdmHeading => 'Ayushman Bharat Health Account';
+  String get abdmHeading => 'ആയുഷ്മാൻ ഭാരത് ഹെൽത്ത് അക്കൗണ്ട്';
 
   @override
   String get abdmDescription =>
-      'ABHA (Ayushman Bharat Health Account) is a unique health ID that lets you store and share your health records digitally.';
+      'ABHA (ആയുഷ്മാൻ ഭാരത് ഹെൽത്ത് അക്കൗണ്ട്) നിങ്ങളുടെ ആരോഗ്യ രേഖകൾ ഡിജിറ്റലായി സംഭരിക്കാനും പങ്കിടാനും നിങ്ങളെ അനുവദിക്കുന്ന ഒരു അദ്വിതീയ ആരോഗ്യ ഐഡിയാണ്.';
 
   @override
   String get abdmDataSecurityNote =>
-      'Your data stays secure and is shared only with your consent.';
+      'നിങ്ങളുടെ ഡാറ്റ സുരക്ഷിതമായി തുടരുകയും നിങ്ങളുടെ സമ്മതത്തോടെ മാത്രം പങ്കിടുകയും ചെയ്യുന്നു.';
 
   @override
-  String get abdmYourNumber => 'Your ABHA Number';
+  String get abdmYourNumber => 'നിങ്ങളുടെ ABHA നമ്പർ';
 
   @override
-  String get abdmVerifyHeading => 'Verify Your ABHA';
+  String get abdmVerifyHeading => 'നിങ്ങളുടെ ABHA പരിശോധിച്ചുറപ്പിക്കുക';
 
   @override
-  String get abdmEnterOtp => 'Enter the OTP sent to your mobile number';
+  String get abdmEnterOtp => 'നിങ്ങളുടെ മൊബൈൽ നമ്പറിലേക്ക് അയച്ച OTP നൽകുക';
 
   @override
-  String get medicationRemindersEmpty => 'No medication reminders yet';
+  String get medicationRemindersEmpty =>
+      'ഇതുവരെ മരുന്ന് ഓർമ്മപ്പെടുത്തലുകളൊന്നുമില്ല';
 
   @override
-  String get medicationRemindersEmptyHint => 'Tap + to add one';
+  String get medicationRemindersEmptyHint =>
+      'ഒരെണ്ണം ചേർക്കാൻ + ടാപ്പ് ചെയ്യുക';
 
   @override
   String get medicationReminderRequiredFields =>
-      'Medication name and dosage are required';
+      'മരുന്നിൻ്റെ പേരും അളവും ആവശ്യമാണ്';
 
   @override
-  String get medicationReminderSaveFailed => 'Unable to save reminder';
+  String get medicationReminderSaveFailed => 'റിമൈൻഡർ സംരക്ഷിക്കാനായില്ല';
 
   @override
-  String get medicationReminderAddSheetTitle => 'Add Medication Reminder';
+  String get medicationReminderAddSheetTitle =>
+      'മരുന്ന് ഓർമ്മപ്പെടുത്തൽ ചേർക്കുക';
 
   @override
-  String get medicationReminderTimes => 'Reminder Times';
+  String get medicationReminderTimes => 'റിമൈൻഡർ ടൈംസ്';
 
   @override
-  String get medicationReminderAddTime => 'Add time';
+  String get medicationReminderAddTime => 'സമയം ചേർക്കുക';
 
   @override
-  String get medicationReminderSave => 'Save Reminder';
+  String get medicationReminderSave => 'ഓർമ്മപ്പെടുത്തൽ സംരക്ഷിക്കുക';
 
   @override
-  String get pharmacyTakePhoto => 'Take Photo';
+  String get pharmacyTakePhoto => 'ഫോട്ടോ എടുക്കുക';
 
   @override
-  String get pharmacyChooseFromGallery => 'Choose from Gallery';
+  String get pharmacyChooseFromGallery => 'ഗാലറിയിൽ നിന്ന് തിരഞ്ഞെടുക്കുക';
 
   @override
-  String get pharmacyOrderPlacedTitle => 'Order Placed!';
+  String get pharmacyOrderPlacedTitle => 'ഓർഡർ ചെയ്തു!';
 
   @override
   String get pharmacyOrderPlacedBody =>
-      'Our pharmacist will review your prescription and confirm your order shortly.';
+      'ഞങ്ങളുടെ ഫാർമസിസ്റ്റ് നിങ്ങളുടെ കുറിപ്പടി അവലോകനം ചെയ്യുകയും ഉടൻ തന്നെ നിങ്ങളുടെ ഓർഡർ സ്ഥിരീകരിക്കുകയും ചെയ്യും.';
 
   @override
-  String get pharmacyUploadHeading => 'Upload Prescription';
+  String get pharmacyUploadHeading => 'കുറിപ്പടി അപ്‌ലോഡ് ചെയ്യുക';
 
   @override
-  String get pharmacyTapToUpload => 'Tap to upload prescription';
+  String get pharmacyTapToUpload => 'കുറിപ്പടി അപ്‌ലോഡ് ചെയ്യാൻ ടാപ്പ് ചെയ്യുക';
 
   @override
-  String get pharmacyCameraOrGallery => 'Camera or Gallery';
+  String get pharmacyCameraOrGallery => 'ക്യാമറ അല്ലെങ്കിൽ ഗാലറി';
 
   @override
-  String get pharmacyOrDescribe => 'Or Describe Your Order';
+  String get pharmacyOrDescribe => 'അല്ലെങ്കിൽ നിങ്ങളുടെ ഓർഡർ വിവരിക്കുക';
 
   @override
-  String get pharmacyDeliveryPreference => 'Delivery Preference';
+  String get pharmacyDeliveryPreference => 'ഡെലിവറി മുൻഗണന';
 
   @override
-  String get refillPrescriptionIdMissing => 'Prescription ID not found';
+  String get refillPrescriptionIdMissing => 'കുറിപ്പടി ഐഡി കണ്ടെത്തിയില്ല';
 
   @override
   String get refillRequestRetry =>
-      'Failed to request refill. Please try again.';
+      'റീഫിൽ അഭ്യർത്ഥിക്കുന്നതിൽ പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.';
 
   @override
-  String get refillTapPrefix => 'Tap ';
+  String get refillTapPrefix => 'ടാപ്പ് ചെയ്യുക';
 
   @override
-  String get refillRequestedHeading => 'Refill Requested';
+  String get refillRequestedHeading => 'റീഫിൽ അഭ്യർത്ഥിച്ചു';
 
   @override
-  String get vitalsTrendsHeading => 'Trends vs Last Reading';
+  String get vitalsTrendsHeading => 'ട്രെൻഡുകൾ vs അവസാന വായന';
 
   @override
   String get vitalsRecordFailedRetry =>
-      'Failed to record vitals. Please try again.';
+      'സുപ്രധാന കാര്യങ്ങൾ രേഖപ്പെടുത്തുന്നതിൽ പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.';
 
   @override
-  String get yourHealthPrescriptionsEmpty => 'No prescriptions yet';
+  String get yourHealthPrescriptionsEmpty => 'ഇതുവരെ കുറിപ്പടികളൊന്നുമില്ല';
 
   @override
   String get yourHealthPrescriptionsEmptyHint =>
-      'Your doctor prescriptions will appear here';
+      'നിങ്ങളുടെ ഡോക്ടറുടെ കുറിപ്പടി ഇവിടെ ദൃശ്യമാകും';
 
   @override
-  String get yourHealthClinicalNotes => 'Clinical Notes';
+  String get yourHealthClinicalNotes => 'ക്ലിനിക്കൽ കുറിപ്പുകൾ';
 
   @override
-  String get yourHealthDownloadPdf => 'Download PDF';
+  String get yourHealthDownloadPdf => 'PDF ഡൗൺലോഡ് ചെയ്യുക';
 
   @override
-  String get yourHealthOrderMedicines => 'Order Medicines';
+  String get yourHealthOrderMedicines => 'മരുന്നുകൾ ഓർഡർ ചെയ്യുക';
 
   @override
-  String get yourHealthPlaceOrder => 'Place Order';
+  String get yourHealthPlaceOrder => 'ഓർഡർ നൽകുക';
 
   @override
-  String get yourHealthSafetyNotes => 'Safety notes';
+  String get yourHealthSafetyNotes => 'സുരക്ഷാ കുറിപ്പുകൾ';
 
   @override
-  String get yourHealthClinicianOverride => 'Clinician override on file:';
+  String get yourHealthClinicianOverride => 'ഫയലിൽ ക്ലിനിഷ്യൻ അസാധുവാക്കുന്നു:';
 
   @override
-  String get appointmentsCancel => 'Cancel Appointment';
+  String get appointmentsCancel => 'അപ്പോയിൻ്റ്മെൻ്റ് റദ്ദാക്കുക';
 
   @override
-  String get appointmentsConfirmCancel => 'Yes, Cancel';
+  String get appointmentsConfirmCancel => 'അതെ, റദ്ദാക്കുക';
 
   @override
-  String get appointmentsSelectTimeSlot => 'Select Time Slot';
+  String get appointmentsSelectTimeSlot => 'ടൈം സ്ലോട്ട് തിരഞ്ഞെടുക്കുക';
 
   @override
   String get appointmentsLogOutAndBack =>
-      'Please log out and log back in to view your appointments.';
+      'നിങ്ങളുടെ കൂടിക്കാഴ്‌ചകൾ കാണുന്നതിന് ദയവായി ലോഗ് ഔട്ട് ചെയ്‌ത് വീണ്ടും ലോഗിൻ ചെയ്യുക.';
 
   @override
-  String get appointmentsEmpty => 'No appointments yet';
+  String get appointmentsEmpty => 'ഇതുവരെ നിയമനങ്ങളൊന്നുമില്ല';
 
   @override
-  String get appointmentsBookOneNow => 'Book one now';
+  String get appointmentsBookOneNow => 'ഇപ്പോൾ ഒന്ന് ബുക്ക് ചെയ്യൂ';
 
   @override
-  String get appointmentsViewPrescription => 'View Prescription';
+  String get appointmentsViewPrescription => 'കുറിപ്പടി കാണുക';
 
   @override
-  String get symptomCheckerTitle => 'Symptom checker';
+  String get symptomCheckerTitle => 'രോഗലക്ഷണ പരിശോധന';
 
   @override
-  String get symptomCheckerDescribePrompt => 'Describe what you\'re feeling';
+  String get symptomCheckerDescribePrompt =>
+      'നിങ്ങൾക്ക് എന്താണ് തോന്നുന്നതെന്ന് വിവരിക്കുക';
 
   @override
-  String get symptomCheckerRedFlags => 'Red flags';
+  String get symptomCheckerRedFlags => 'ചുവന്ന പതാകകൾ';
 
   @override
-  String get symptomCheckerPossibleCauses => 'Possible causes';
+  String get symptomCheckerPossibleCauses => 'സാധ്യമായ കാരണങ്ങൾ';
 
   @override
-  String get symptomCheckerBookAppointment => 'Book an appointment';
+  String get symptomCheckerBookAppointment =>
+      'ഒരു അപ്പോയിൻ്റ്മെൻ്റ് ബുക്ക് ചെയ്യുക';
 
   @override
   String get symptomCheckerDisclaimer =>
-      'Triage output is AI-assisted and not a medical diagnosis. Always consult a qualified clinician.';
+      'ട്രയേജ് ഔട്ട്‌പുട്ട് AI-അസിസ്റ്റഡ് ആണ്, ഒരു മെഡിക്കൽ ഡയഗ്‌നോസിസ് അല്ല. എല്ലായ്പ്പോഴും യോഗ്യതയുള്ള ഒരു ഡോക്ടറെ സമീപിക്കുക.';
 
   @override
-  String get checkinSaveFailed => 'Could not save check-in. Please try again.';
+  String get checkinSaveFailed =>
+      'ചെക്ക്-ഇൻ സംരക്ഷിക്കാൻ കഴിഞ്ഞില്ല. ദയവായി വീണ്ടും ശ്രമിക്കുക.';
 
   @override
-  String get checkinTitle => 'Daily Check-In';
+  String get checkinTitle => 'പ്രതിദിന ചെക്ക്-ഇൻ';
 
   @override
-  String get checkinHowFeeling => 'How are you feeling today?';
+  String get checkinHowFeeling => 'ഇന്ന് നിങ്ങൾക്ക് എങ്ങനെ തോന്നുന്നു?';
 
   @override
-  String get checkinQuickVitals => 'Quick vitals (optional)';
+  String get checkinQuickVitals => 'ദ്രുത ജീവികൾ (ഓപ്ഷണൽ)';
 
   @override
-  String get checkinSaveButton => 'Save check-in  ·  +10 points';
+  String get checkinSaveButton => 'ചെക്ക്-ഇൻ സംരക്ഷിക്കുക · +10 പോയിൻ്റുകൾ';
 
   @override
-  String get checkinSavedToast => '+10 health points added. See you tomorrow!';
+  String get checkinSavedToast =>
+      '+10 ആരോഗ്യ പോയിൻ്റുകൾ ചേർത്തു. നാളെ നിന്നെ കാണാം!';
 
   @override
-  String get settingsHealthIdLabel => 'Health ID (ABHA)';
+  String get settingsHealthIdLabel => 'ആരോഗ്യ ഐഡി (ABHA)';
 
   @override
-  String get settingsHealthIdSubtitle => 'Ayushman Bharat Health Account';
+  String get settingsHealthIdSubtitle => 'ആയുഷ്മാൻ ഭാരത് ഹെൽത്ത് അക്കൗണ്ട്';
 
   @override
-  String get settingsConnectWearables => 'Connect wearables';
+  String get settingsConnectWearables => 'ധരിക്കാവുന്നവ ബന്ധിപ്പിക്കുക';
 
   @override
   String get settingsConnectWearablesSubtitle =>
-      'Sync steps, heart rate, SpO₂ from Apple Health / Google Health Connect';
+      'Apple Health / Google Health Connect-ൽ നിന്ന് ഘട്ടങ്ങൾ, ഹൃദയമിടിപ്പ്, SpO₂ എന്നിവ സമന്വയിപ്പിക്കുക';
 
   @override
-  String get settingsHealthPermissionsDenied =>
-      'Health permissions were not granted';
+  String get settingsHealthPermissionsDenied => 'ആരോഗ്യ അനുമതികൾ നൽകിയിട്ടില്ല';
 
   @override
-  String get settingsSyncingHealth => 'Syncing health data…';
+  String get settingsSyncingHealth => 'ആരോഗ്യ ഡാറ്റ സമന്വയിപ്പിക്കുന്നു...';
 
   @override
-  String get otpVerifyPhoneHeading => 'Verify Your Phone Number';
+  String get otpVerifyPhoneHeading => 'നിങ്ങളുടെ ഫോൺ നമ്പർ പരിശോധിക്കുക';
 
   @override
-  String get otpEnterDigits => 'Enter the 6-digit OTP sent to';
+  String get otpEnterDigits => 'അയച്ച 6-അക്ക OTP നൽകുക';
 
   @override
-  String get otpVerifyButtonText => 'Verify OTP';
+  String get otpVerifyButtonText => 'OTP പരിശോധിക്കുക';
 
   @override
-  String get otpResendingOtp => 'Resending OTP...';
+  String get otpResendingOtp => 'OTP വീണ്ടും അയയ്‌ക്കുന്നു...';
 
   @override
-  String get otpSentSuccess => 'OTP has been sent to your phone number';
+  String get otpSentSuccess => 'OTP നിങ്ങളുടെ ഫോൺ നമ്പറിലേക്ക് അയച്ചു';
 
   @override
-  String get dashboardScheduleNextVisit => 'Schedule your next visit';
+  String get dashboardScheduleNextVisit =>
+      'നിങ്ങളുടെ അടുത്ത സന്ദർശനം ഷെഡ്യൂൾ ചെയ്യുക';
 
   @override
-  String get dashboardStayOnTop => 'Stay on top of your health';
+  String get dashboardStayOnTop => 'നിങ്ങളുടെ ആരോഗ്യത്തിന് മുകളിൽ നിൽക്കുക';
 
   @override
-  String get dashboardBookNow => 'Book Now';
+  String get dashboardBookNow => 'ഇപ്പോൾ ബുക്ക് ചെയ്യുക';
 
   @override
-  String get dashboardLastVisit => 'Last visit';
+  String get dashboardLastVisit => 'അവസാന സന്ദർശനം';
 
   @override
-  String get dashboardNextVisit => 'Next visit';
+  String get dashboardNextVisit => 'അടുത്ത സന്ദർശനം';
 
   @override
-  String get dashboardLastVisitColon => 'Last:';
+  String get dashboardLastVisitColon => 'അവസാനം:';
 
   @override
-  String get dashboardNextVisitColon => 'Next:';
+  String get dashboardNextVisitColon => 'അടുത്തത്:';
 
   @override
-  String get dashboardToggleTheme => 'Toggle theme';
+  String get dashboardToggleTheme => 'തീം ടോഗിൾ ചെയ്യുക';
 
   @override
-  String get dashboardToggleFontSize => 'Toggle font size';
+  String get dashboardToggleFontSize => 'ഫോണ്ട് സൈസ് ടോഗിൾ ചെയ്യുക';
 
   @override
-  String get dashboardHealthPoints => 'Health Points';
+  String get dashboardHealthPoints => 'ആരോഗ്യ പോയിൻ്റുകൾ';
 
   @override
-  String get dashboardWellnessScore => 'Wellness Score';
+  String get dashboardWellnessScore => 'വെൽനസ് സ്കോർ';
 
   @override
-  String get dashboardLastVisitTitle => 'Last Visit';
+  String get dashboardLastVisitTitle => 'അവസാന സന്ദർശനം';
 
   @override
-  String get dashboardNextVisitTitle => 'Next Visit';
+  String get dashboardNextVisitTitle => 'അടുത്ത സന്ദർശനം';
 
   @override
   String get investigationsFileTooLarge =>
-      'File too large. Maximum size is 10 MB.';
+      'ഫയൽ വളരെ വലുതാണ്. പരമാവധി വലിപ്പം 10 MB ആണ്.';
 
   @override
-  String get investigationsViewDownloadReport => 'View / Download Report';
+  String get investigationsViewDownloadReport =>
+      'റിപ്പോർട്ട് കാണുക / ഡൗൺലോഡ് ചെയ്യുക';
 
   @override
-  String get investigationsBookButton => 'Book Investigation';
+  String get investigationsBookButton => 'പുസ്തക അന്വേഷണം';
 
   @override
-  String get investigationsNoFiles => 'No files available';
+  String get investigationsNoFiles => 'ഫയലുകളൊന്നും ലഭ്യമല്ല';
 
   @override
-  String get myBookingsSlipAttached => 'Prescription slip attached';
+  String get myBookingsSlipAttached =>
+      'കുറിപ്പടി സ്ലിപ്പ് ഘടിപ്പിച്ചിരിക്കുന്നു';
 
   @override
-  String get myBookingsDownloadResult => 'Download Result';
+  String get myBookingsDownloadResult => 'ഫലം ഡൗൺലോഡ് ചെയ്യുക';
 
   @override
-  String get pharmacyOrderNote => 'Order Note';
+  String get pharmacyOrderNote => 'ഓർഡർ കുറിപ്പ്';
 
   @override
-  String get pharmacyDeliveryInfo => 'Delivery Info';
+  String get pharmacyDeliveryInfo => 'ഡെലിവറി വിവരം';
 
   @override
-  String get pharmacyOrdersEmpty => 'No orders yet';
+  String get pharmacyOrdersEmpty => 'ഇതുവരെ ഉത്തരവുകളൊന്നുമില്ല';
 
   @override
   String get pharmacyOrdersEmptyHint =>
-      'Place your first order from the Order tab';
+      'ഓർഡർ ടാബിൽ നിന്ന് നിങ്ങളുടെ ആദ്യ ഓർഡർ നൽകുക';
 
   @override
-  String get pharmacyOrderCancelled => 'Order Cancelled';
+  String get pharmacyOrderCancelled => 'ഓർഡർ റദ്ദാക്കി';
 
   @override
-  String get splashDeviceNotSupported => 'Device not supported';
+  String get splashDeviceNotSupported => 'ഉപകരണം പിന്തുണയ്ക്കുന്നില്ല';
 
   @override
   String get splashDeviceNotSupportedBody =>
-      'For your safety, VH Health cannot run on this device. Reason:';
+      'നിങ്ങളുടെ സുരക്ഷയ്ക്കായി, VH Health ഈ ഉപകരണത്തിൽ പ്രവർത്തിക്കാൻ കഴിയില്ല. കാരണം:';
 
   @override
   String get splashAppName => 'VH Health';
 
   @override
-  String get splashTapAnywhere => 'Tap anywhere to continue';
+  String get splashTapAnywhere => 'തുടരാൻ എവിടെയും ടാപ്പ് ചെയ്യുക';
 
   @override
-  String get gamificationRewardClaimed => 'Reward Claimed!';
+  String get gamificationRewardClaimed => 'റിവാർഡ് ക്ലെയിം ചെയ്തു!';
 
   @override
-  String get gamificationVoucherCode => 'Your voucher code:';
+  String get gamificationVoucherCode => 'നിങ്ങളുടെ വൗച്ചർ കോഡ്:';
 
   @override
-  String get gamificationVoucherCopied => 'Voucher code copied!';
+  String get gamificationVoucherCopied => 'വൗച്ചർ കോഡ് പകർത്തി!';
 
   @override
-  String get gamificationCouldNotShare => 'Could not share right now';
+  String get gamificationCouldNotShare => 'ഇപ്പോൾ പങ്കിടാൻ കഴിഞ്ഞില്ല';
 
   @override
   String get gamificationShareSubtitle =>
-      'Share your progress with family and friends';
+      'നിങ്ങളുടെ പുരോഗതി കുടുംബാംഗങ്ങളുമായും സുഹൃത്തുക്കളുമായും പങ്കിടുക';
 
   @override
-  String get gamificationLoadFailed => 'Could not load your points summary';
+  String get gamificationLoadFailed =>
+      'നിങ്ങളുടെ പോയിൻ്റുകളുടെ സംഗ്രഹം ലോഡ് ചെയ്യാനായില്ല';
 
   @override
-  String get gamificationHowToEarn => 'How to earn points';
+  String get gamificationHowToEarn => 'പോയിൻ്റുകൾ എങ്ങനെ നേടാം';
 
   @override
   String get gamificationCompleteMilestones =>
-      'Complete milestones to earn rewards!';
+      'റിവാർഡുകൾ നേടാൻ നാഴികക്കല്ലുകൾ പൂർത്തിയാക്കുക!';
 
   @override
-  String get gamificationNoPointHistory => 'No point history yet';
+  String get gamificationNoPointHistory => 'ഇതുവരെ പോയിൻ്റ് ചരിത്രമില്ല';
 
   @override
-  String get gamificationNoMilestones => 'No milestones available yet';
+  String get gamificationNoMilestones => 'ഇതുവരെ നാഴികക്കല്ലുകളൊന്നും ലഭ്യമല്ല';
 
   @override
-  String get stepsShareCardTitle => 'VH Health Step Challenge';
+  String get stepsShareCardTitle => 'VH Health സ്റ്റെപ്പ് ചലഞ്ച്';
 
   @override
-  String get stepsShareCardSubtitle => 'Venkataeswara Hospitals, Chennai';
+  String get stepsShareCardSubtitle => 'Venkataeswara Hospitals, ചെന്നൈ';
 
   @override
-  String get stepsShareCardFooter => 'VH Health App';
+  String get stepsShareCardFooter => 'VH Health ആപ്പ്';
 
   @override
-  String get documentOpening => 'Opening document...';
+  String get documentOpening => 'പ്രമാണം തുറക്കുന്നു...';
 
   @override
-  String get documentCouldNotOpen => 'Could not open document';
+  String get documentCouldNotOpen => 'പ്രമാണം തുറക്കാനായില്ല';
 
   @override
-  String get permissionsNotNow => 'Not Now';
+  String get permissionsNotNow => 'ഇപ്പോൾ അല്ല';
 
   @override
-  String get permissionsOpenSettings => 'Open Settings';
+  String get permissionsOpenSettings => 'ക്രമീകരണങ്ങൾ തുറക്കുക';
 
   @override
-  String get feedbackRateExperience => 'Rate your experience';
+  String get feedbackRateExperience => 'നിങ്ങളുടെ അനുഭവം വിലയിരുത്തുക';
 
   @override
-  String get feedbackSubmitButton => 'Submit Feedback';
+  String get feedbackSubmitButton => 'ഫീഡ്ബാക്ക് സമർപ്പിക്കുക';
 
   @override
-  String get feedbackHistoryTitle => 'My Feedback';
+  String get feedbackHistoryTitle => 'എൻ്റെ ഫീഡ്ബാക്ക്';
 
   @override
-  String get logoutConfirmTitle => 'Confirm Logout';
+  String get logoutConfirmTitle => 'ലോഗ്ഔട്ട് സ്ഥിരീകരിക്കുക';
 
   @override
-  String get logoutConfirmBody => 'Are you sure you want to logout?';
+  String get logoutConfirmBody => 'ലോഗ്ഔട്ട് ചെയ്യണമെന്ന് തീർച്ചയാണോ?';
 
   @override
   String get aboutHospitalName => 'Venkataeswara Hospitals';
 
   @override
-  String get aboutOpenInMaps => 'Tap to open in Google Maps →';
+  String get aboutOpenInMaps => 'Google മാപ്‌സിൽ തുറക്കാൻ ടാപ്പ് ചെയ്യുക →';
 
   @override
-  String get departmentsConsultationFee => 'Consultation Fee';
+  String get departmentsConsultationFee => 'കൺസൾട്ടേഷൻ ഫീസ്';
 
   @override
-  String get departmentsNoDoctors => 'No doctors available in this department';
+  String get departmentsNoDoctors => 'ഈ വിഭാഗത്തിൽ ഡോക്ടർമാരില്ല';
 
   @override
-  String get circularDialNoFeatures => 'No features available';
+  String get circularDialNoFeatures => 'ഫീച്ചറുകളൊന്നും ലഭ്യമല്ല';
 
   @override
-  String get deliveryYourLocation => 'Your Location';
+  String get deliveryYourLocation => 'നിങ്ങളുടെ സ്ഥാനം';
 
   @override
-  String get authDevLoginSkipOtp => 'Dev login (skip OTP)';
+  String get authDevLoginSkipOtp => 'ഡെവലപ്പ് ലോഗിൻ (OTP ഒഴിവാക്കുക)';
 
   @override
-  String get permissionGateSettingUp => 'Setting up...';
+  String get permissionGateSettingUp => 'സജ്ജീകരിക്കുന്നു...';
 
   @override
-  String get yourHealthUploadRecord => 'Upload Record';
+  String get yourHealthUploadRecord => 'റെക്കോർഡ് അപ്‌ലോഡ് ചെയ്യുക';
 }

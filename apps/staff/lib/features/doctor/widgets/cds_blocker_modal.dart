@@ -78,10 +78,7 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              s.cdsBlockerBody,
-              style: theme.textTheme.bodySmall,
-            ),
+            Text(s.cdsBlockerBody, style: theme.textTheme.bodySmall),
             const SizedBox(height: 12),
             ...widget.blockers.map((b) => _issueTile(b, isBlocker: true)),
             if (widget.warnings.isNotEmpty) ...[

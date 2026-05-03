@@ -184,7 +184,9 @@ class _LeaveScreenState extends State<LeaveScreen>
             tabs: [
               Tab(text: s.leaveTabApply),
               Tab(text: '${s.leaveTabMyLeaves} (${_myLeaves.length})'),
-              Tab(text: '${s.leaveTabRequests} (${_replacementRequests.length})'),
+              Tab(
+                text: '${s.leaveTabRequests} (${_replacementRequests.length})',
+              ),
             ],
           ),
           Expanded(
@@ -336,10 +338,7 @@ class _LeaveScreenState extends State<LeaveScreen>
             decoration: const InputDecoration(border: OutlineInputBorder()),
             items: leaveTypes
                 .map(
-                  (t) => DropdownMenuItem(
-                    value: t.code,
-                    child: Text(t.label),
-                  ),
+                  (t) => DropdownMenuItem(value: t.code, child: Text(t.label)),
                 )
                 .toList(),
             onChanged: (v) => setState(() => _leaveType = v!),
@@ -375,9 +374,7 @@ class _LeaveScreenState extends State<LeaveScreen>
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text(
-                s.leaveDayCount(
-                  _endDate!.difference(_startDate!).inDays + 1,
-                ),
+                s.leaveDayCount(_endDate!.difference(_startDate!).inDays + 1),
                 style: const TextStyle(
                   color: AppTheme.primaryBlue,
                   fontSize: 12,

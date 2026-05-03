@@ -185,8 +185,9 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                         children: [
                           Text(
                             event['title'] as String? ??
-                                AppStrings.of(context).timelineEventTitle(
-                                    type ?? 'event'),
+                                AppStrings.of(
+                                  context,
+                                ).timelineEventTitle(type ?? 'event'),
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.w600,
@@ -214,11 +215,15 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                   const SizedBox(height: 12),
                 ],
                 if (event['author'] != null)
-                  _detailRow(AppStrings.of(context).timelineByPrefix,
-                      event['author'] as String),
+                  _detailRow(
+                    AppStrings.of(context).timelineByPrefix,
+                    event['author'] as String,
+                  ),
                 if (event['department'] != null)
-                  _detailRow(AppStrings.of(context).timelineDepartment,
-                      event['department'] as String),
+                  _detailRow(
+                    AppStrings.of(context).timelineDepartment,
+                    event['department'] as String,
+                  ),
                 if (event['details'] is Map) ...[
                   const SizedBox(height: 12),
                   Text(
@@ -256,10 +261,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
             width: 120,
             child: Text(
               label,
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
             ),
           ),
           Expanded(

@@ -424,9 +424,7 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
     final dosage = _dosageCtrl.text.trim();
     if (name.isEmpty || dosage.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l.medicationReminderRequiredFields),
-        ),
+        SnackBar(content: Text(l.medicationReminderRequiredFields)),
       );
       return;
     }
@@ -461,9 +459,9 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
     } catch (e) {
       if (kDebugMode) debugPrint('Error saving reminder: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.medicationReminderSaveFailed)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.medicationReminderSaveFailed)));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -483,7 +481,10 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(l.medicationReminderAddSheetTitle, style: theme.textTheme.titleLarge),
+            Text(
+              l.medicationReminderAddSheetTitle,
+              style: theme.textTheme.titleLarge,
+            ),
             const SizedBox(height: 20),
 
             // Medication name

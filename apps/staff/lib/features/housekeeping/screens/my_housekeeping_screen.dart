@@ -326,8 +326,13 @@ class _RequestsTabState extends State<_RequestsTab>
             unselectedLabelColor: Colors.grey,
             indicatorColor: const Color(0xFF007A64),
             tabs: [
-              Tab(text: '${s.housekeepingMyTabRaised} (${widget.raised.length})'),
-              Tab(text: '${s.housekeepingMyTabAssigned} (${widget.assigned.length})'),
+              Tab(
+                text: '${s.housekeepingMyTabRaised} (${widget.raised.length})',
+              ),
+              Tab(
+                text:
+                    '${s.housekeepingMyTabAssigned} (${widget.assigned.length})',
+              ),
             ],
           ),
         ),
@@ -673,7 +678,10 @@ class _RequestCard extends StatelessWidget {
                         strokeWidth: 2,
                       ),
                     )
-                  : Text(s.actionSubmit, style: const TextStyle(color: Colors.white)),
+                  : Text(
+                      s.actionSubmit,
+                      style: const TextStyle(color: Colors.white),
+                    ),
             ),
           ],
         ),

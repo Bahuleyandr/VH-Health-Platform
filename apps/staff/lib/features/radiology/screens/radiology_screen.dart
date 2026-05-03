@@ -141,7 +141,9 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
               items: _statusOptions.map((s) {
                 return DropdownMenuItem(
                   value: s,
-                  child: Text(s == 'all' ? str.radiologyStatusAll : _statusLabel(s)),
+                  child: Text(
+                    s == 'all' ? str.radiologyStatusAll : _statusLabel(s),
+                  ),
                 );
               }).toList(),
               onChanged: (v) {
@@ -233,7 +235,10 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                       const SizedBox(height: 12),
                       Text(
                         AppStrings.of(context).radiologyNoOrders,
-                        style: const TextStyle(color: Colors.grey, fontSize: 16),
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 16,
+                        ),
                       ),
                     ],
                   ),
@@ -314,11 +319,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
               SizedBox(height: 8),
               Row(
                 children: [
-                  Icon(
-                    Icons.person,
-                    size: 14,
-                    color: AppTheme.textSecondary,
-                  ),
+                  Icon(Icons.person, size: 14, color: AppTheme.textSecondary),
                   SizedBox(width: 4),
                   Text(
                     displayUid,
@@ -426,10 +427,22 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                     str.theatreLabelPatientUid,
                     o['patient_uid']?.toString() ?? '-',
                   ),
-                  _detailRow(str.radiologyLabelStudyType, o['study_type']?.toString() ?? '-'),
-                  _detailRow(str.radiologyLabelModality, o['modality']?.toString() ?? '-'),
-                  _detailRow(str.radiologyLabelBodyPart, o['body_part']?.toString() ?? '-'),
-                  _detailRow(str.radiologyLabelPriority, o['priority']?.toString() ?? '-'),
+                  _detailRow(
+                    str.radiologyLabelStudyType,
+                    o['study_type']?.toString() ?? '-',
+                  ),
+                  _detailRow(
+                    str.radiologyLabelModality,
+                    o['modality']?.toString() ?? '-',
+                  ),
+                  _detailRow(
+                    str.radiologyLabelBodyPart,
+                    o['body_part']?.toString() ?? '-',
+                  ),
+                  _detailRow(
+                    str.radiologyLabelPriority,
+                    o['priority']?.toString() ?? '-',
+                  ),
                   _detailRow(str.theatreLabelStatus, _statusLabel(status)),
                   _detailRow(
                     str.radiologyLabelClinicalIndication,
@@ -438,11 +451,20 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                   if (o['notes'] != null)
                     _detailRow(str.radiologyLabelNotes, o['notes'].toString()),
                   if (o['report'] != null)
-                    _detailRow(str.radiologyLabelReport, o['report'].toString()),
+                    _detailRow(
+                      str.radiologyLabelReport,
+                      o['report'].toString(),
+                    ),
                   if (o['findings'] != null)
-                    _detailRow(str.radiologyLabelFindings, o['findings'].toString()),
+                    _detailRow(
+                      str.radiologyLabelFindings,
+                      o['findings'].toString(),
+                    ),
                   if (o['impression'] != null)
-                    _detailRow(str.radiologyLabelImpression, o['impression'].toString()),
+                    _detailRow(
+                      str.radiologyLabelImpression,
+                      o['impression'].toString(),
+                    ),
                   const SizedBox(height: 24),
                   if (id != null) ...[
                     if (status == 'pending' || status == 'in_progress')
@@ -492,10 +514,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
             width: 140,
             child: Text(
               label,
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
             ),
           ),
           Expanded(
@@ -672,7 +691,9 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                 children: _statusOptions.map((s) {
                   final selected = _statusFilter == s;
                   return ChoiceChip(
-                    label: Text(s == 'all' ? str.radiologyStatusAll : _statusLabel(s)),
+                    label: Text(
+                      s == 'all' ? str.radiologyStatusAll : _statusLabel(s),
+                    ),
                     selected: selected,
                     onSelected: (_) {
                       setState(() => _statusFilter = s);

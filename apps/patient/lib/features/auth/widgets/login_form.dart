@@ -438,7 +438,9 @@ class _LoginFormState extends State<LoginForm> {
                                       size: 20,
                                     ),
                                     label: Text(
-                                      AppLocalizations.of(context)!.authDevLoginSkipOtp,
+                                      AppLocalizations.of(
+                                        context,
+                                      )!.authDevLoginSkipOtp,
                                       style: const TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.w500,

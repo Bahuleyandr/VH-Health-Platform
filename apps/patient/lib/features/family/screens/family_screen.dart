@@ -42,7 +42,9 @@ class _FamilyScreenState extends State<FamilyScreen> {
       } else {
         if (!mounted) return;
         setState(() {
-          _error = response.message ?? AppLocalizations.of(context)!.familyLoadFailed;
+          _error =
+              response.message ??
+              AppLocalizations.of(context)!.familyLoadFailed;
           _loading = false;
         });
       }
@@ -112,25 +114,21 @@ class _FamilyScreenState extends State<FamilyScreen> {
       final response = await ApiClient.delete('/users/family-members/$id');
       if (!mounted) return;
       if (response.isSuccess) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.familyRemoved(name))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.familyRemoved(name))));
         _fetchMembers();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response.message ?? l.familyRemoveFailed),
-          ),
+          SnackBar(content: Text(response.message ?? l.familyRemoveFailed)),
         );
       }
     } catch (e) {
       if (kDebugMode) debugPrint('FamilyScreen: remove error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l.familyRemoveFailedRetry),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.familyRemoveFailedRetry)));
       }
     }
   }
@@ -429,27 +427,23 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
       if (!mounted) return;
 
       if (response.isSuccess) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.familyAddedSuccess)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.familyAddedSuccess)));
         Navigator.pop(context, true);
       } else {
         setState(() => _submitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response.message ?? l.familyAddFailed),
-          ),
+          SnackBar(content: Text(response.message ?? l.familyAddFailed)),
         );
       }
     } catch (e) {
       if (kDebugMode) debugPrint('AddFamilyMemberSheet: submit error: $e');
       if (mounted) {
         setState(() => _submitting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l.familyAddFailedRetry),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.familyAddFailedRetry)));
       }
     }
   }
@@ -561,7 +555,9 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.person_add),
-              label: Text(_submitting ? l.familyAdding : l.familyAddMemberShort),
+              label: Text(
+                _submitting ? l.familyAdding : l.familyAddMemberShort,
+              ),
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFFCE93D8),
                 padding: const EdgeInsets.symmetric(vertical: 14),

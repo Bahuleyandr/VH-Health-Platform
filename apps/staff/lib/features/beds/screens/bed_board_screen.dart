@@ -54,12 +54,13 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         final num = (b['bedNumber'] ?? b['bed_number'] ?? b['number'] ?? '')
             .toString()
             .toLowerCase();
-        final patient = (b['patient_full_name'] ??
-                b['patientName'] ??
-                b['patient_name'] ??
-                '')
-            .toString()
-            .toLowerCase();
+        final patient =
+            (b['patient_full_name'] ??
+                    b['patientName'] ??
+                    b['patient_name'] ??
+                    '')
+                .toString()
+                .toLowerCase();
         return num.contains(q) || patient.contains(q);
       });
     }
@@ -252,10 +253,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          width: 320,
-          child: _buildWardList(),
-        ),
+        SizedBox(width: 320, child: _buildWardList()),
         const VerticalDivider(width: 1),
         Expanded(
           child: _selectedWardId == null
@@ -290,9 +288,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
   }
 
   Future<void> _printCurrentWard() async {
-    Telemetry.event('bed_board.print', {
-      'bed_count': _beds.length.toString(),
-    });
+    Telemetry.event('bed_board.print', {'bed_count': _beds.length.toString()});
     try {
       await BedBoardPrintService.print(
         wardName: _selectedWardName ?? '',
@@ -303,9 +299,9 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       if (!mounted) return;
       ErrorToast.show(
         context,
-        AppStrings.of(context).bedBoardPrintFailed(
-          e.toString().replaceFirst('Exception: ', ''),
-        ),
+        AppStrings.of(
+          context,
+        ).bedBoardPrintFailed(e.toString().replaceFirst('Exception: ', '')),
       );
     }
   }
@@ -360,16 +356,16 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         Expanded(
           child: _filteredWards.isEmpty
               ? (_searchQuery.isNotEmpty
-                  ? Center(
-                      child: Text(
-                        s.noMatchesFor(_searchQuery),
-                        style: TextStyle(color: AppTheme.textSecondary),
-                      ),
-                    )
-                  : EmptyState(
-                      icon: Icons.local_hospital_outlined,
-                      title: s.bedBoardNoWardsYet,
-                    ))
+                    ? Center(
+                        child: Text(
+                          s.noMatchesFor(_searchQuery),
+                          style: TextStyle(color: AppTheme.textSecondary),
+                        ),
+                      )
+                    : EmptyState(
+                        icon: Icons.local_hospital_outlined,
+                        title: s.bedBoardNoWardsYet,
+                      ))
               : RefreshIndicator(
                   onRefresh: _fetchWards,
                   child: ListView.builder(
@@ -418,8 +414,11 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                             padding: const EdgeInsets.only(top: 8),
                             child: Row(
                               children: [
-                                _miniStat(s.bedBoardWardStatTotal,
-                                    '$totalBeds', Colors.grey),
+                                _miniStat(
+                                  s.bedBoardWardStatTotal,
+                                  '$totalBeds',
+                                  Colors.grey,
+                                ),
                                 const SizedBox(width: 12),
                                 _miniStat(
                                   s.bedBoardWardStatFree,
@@ -544,8 +543,12 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
             children: [
-              _statusPill('all', s.bedBoardFilterAll, _beds.length,
-                  Colors.grey.shade700),
+              _statusPill(
+                'all',
+                s.bedBoardFilterAll,
+                _beds.length,
+                Colors.grey.shade700,
+              ),
               const SizedBox(width: 8),
               _statusPill(
                 'available',
@@ -616,13 +619,20 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
 
   Widget _buildBedCard(Map<String, dynamic> bed) {
     final status = (bed['status'] ?? 'available').toString();
-    final bedNumber = bed['bedNumber'] ?? bed['bed_number'] ?? bed['number'] ?? bed['name'] ?? '';
-    final patientName = bed['patient_full_name'] ??
+    final bedNumber =
+        bed['bedNumber'] ??
+        bed['bed_number'] ??
+        bed['number'] ??
+        bed['name'] ??
+        '';
+    final patientName =
+        bed['patient_full_name'] ??
         bed['patientName'] ??
         bed['patient_name'] ??
         bed['patient']?['name'] ??
         '';
-    final doctorName = bed['attending_doctor_name'] ??
+    final doctorName =
+        bed['attending_doctor_name'] ??
         bed['doctorName'] ??
         bed['doctor']?['name'] ??
         '';
@@ -665,7 +675,11 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
               // already have notes recorded — saves opening every sheet
               // to find the one with the handover note.
               if (hasNotes)
-                Icon(Icons.sticky_note_2, size: 14, color: AppTheme.textSecondary),
+                Icon(
+                  Icons.sticky_note_2,
+                  size: 14,
+                  color: AppTheme.textSecondary,
+                ),
             ],
           ),
           const Spacer(),
@@ -698,10 +712,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
             if (doctorName.toString().isNotEmpty)
               Text(
                 'Dr. $doctorName',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: AppTheme.textSecondary,
-                ),
+                style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -855,10 +866,8 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (sheetCtx) => _BedDetailSheet(
-        bed: bed,
-        wardName: _selectedWardName ?? '',
-      ),
+      builder: (sheetCtx) =>
+          _BedDetailSheet(bed: bed, wardName: _selectedWardName ?? ''),
     );
     if (saved == true && _selectedWardId != null) {
       await _fetchBeds(_selectedWardId!);
@@ -1041,17 +1050,22 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
     final bed = widget.bed;
     final status = (bed['status'] ?? 'available').toString();
     final bedNumber =
-        bed['bedNumber'] ?? bed['bed_number'] ?? bed['number'] ?? bed['name'] ?? '';
+        bed['bedNumber'] ??
+        bed['bed_number'] ??
+        bed['number'] ??
+        bed['name'] ??
+        '';
     final bedType = (bed['bed_type'] ?? bed['bedType'] ?? '').toString();
     final color = _statusColor(status);
     final isOccupied = status.toLowerCase() == 'occupied';
 
-    final patientName = (bed['patient_full_name'] ??
-            bed['patientName'] ??
-            bed['patient_name'] ??
-            bed['patient']?['name'] ??
-            '')
-        .toString();
+    final patientName =
+        (bed['patient_full_name'] ??
+                bed['patientName'] ??
+                bed['patient_name'] ??
+                bed['patient']?['name'] ??
+                '')
+            .toString();
     final patientUid = (bed['patient_uid'] ?? '').toString();
     final patientAge = bed['patient_age'];
     final patientGender = (bed['patient_gender'] ?? '').toString();
@@ -1062,8 +1076,8 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
     final priority = (bed['admission_priority'] ?? '').toString();
     final attendingDoctor =
         (bed['attending_doctor_name'] ?? bed['doctorName'] ?? '').toString();
-    final admittedAt = (bed['admission_admitted_at'] ?? bed['admitted_at'] ?? '')
-        .toString();
+    final admittedAt =
+        (bed['admission_admitted_at'] ?? bed['admitted_at'] ?? '').toString();
 
     final viewInsets = MediaQuery.of(context).viewInsets.bottom;
 
@@ -1107,7 +1121,9 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          AppStrings.of(context).bedNumber(bedNumber.toString()),
+                          AppStrings.of(
+                            context,
+                          ).bedNumber(bedNumber.toString()),
                           style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -1183,7 +1199,9 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
 
               // Patient block (only when occupied)
               if (isOccupied && patientName.isNotEmpty) ...[
-                _SectionHeader(label: AppStrings.of(context).bedSheetSectionPatient),
+                _SectionHeader(
+                  label: AppStrings.of(context).bedSheetSectionPatient,
+                ),
                 _DetailRow(
                   label: AppStrings.of(context).bedSheetFieldName,
                   value: patientName,
@@ -1203,7 +1221,8 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                 if (patientAge != null && patientAge.toString().isNotEmpty)
                   _DetailRow(
                     label: AppStrings.of(context).bedSheetFieldAge,
-                    value: '${patientAge.toString()} ${AppStrings.of(context).bedSheetYearSuffix}'
+                    value:
+                        '${patientAge.toString()} ${AppStrings.of(context).bedSheetYearSuffix}'
                         '${patientGender.isNotEmpty ? ' · ${_capitalize(patientGender)}' : ''}',
                     icon: Icons.cake_outlined,
                   )
@@ -1226,7 +1245,9 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                     admittingDx.isNotEmpty ||
                     attendingDoctor.isNotEmpty ||
                     admissionType.isNotEmpty) ...[
-                  _SectionHeader(label: AppStrings.of(context).bedSheetSectionAdmission),
+                  _SectionHeader(
+                    label: AppStrings.of(context).bedSheetSectionAdmission,
+                  ),
                   if (chiefComplaint.isNotEmpty)
                     _DetailRow(
                       label: AppStrings.of(context).bedSheetFieldChiefComplaint,
@@ -1245,7 +1266,8 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                     _DetailRow(
                       label: AppStrings.of(context).bedSheetFieldType,
                       value: [
-                        if (admissionType.isNotEmpty) _capitalize(admissionType),
+                        if (admissionType.isNotEmpty)
+                          _capitalize(admissionType),
                         if (priority.isNotEmpty) _capitalize(priority),
                       ].join(' · '),
                       icon: Icons.label_outline,
@@ -1253,7 +1275,8 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                   if (attendingDoctor.isNotEmpty)
                     _DetailRow(
                       label: AppStrings.of(context).bedSheetFieldAttending,
-                      value: '${AppStrings.of(context).bedSheetDoctorPrefix} $attendingDoctor',
+                      value:
+                          '${AppStrings.of(context).bedSheetDoctorPrefix} $attendingDoctor',
                       icon: Icons.medical_services_outlined,
                     ),
                   if (admittedAt.isNotEmpty)
@@ -1265,7 +1288,9 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                   const SizedBox(height: 16),
                 ],
               ] else ...[
-                _SectionHeader(label: AppStrings.of(context).bedSheetSectionPatient),
+                _SectionHeader(
+                  label: AppStrings.of(context).bedSheetSectionPatient,
+                ),
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -1279,8 +1304,12 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                       Expanded(
                         child: Text(
                           isOccupied
-                              ? AppStrings.of(context).bedSheetPatientDetailsUnavailable
-                              : AppStrings.of(context).bedSheetNoPatientAssigned,
+                              ? AppStrings.of(
+                                  context,
+                                ).bedSheetPatientDetailsUnavailable
+                              : AppStrings.of(
+                                  context,
+                                ).bedSheetNoPatientAssigned,
                           style: TextStyle(color: AppTheme.textSecondary),
                         ),
                       ),
@@ -1293,7 +1322,11 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
               // Notes block
               Row(
                 children: [
-                  Expanded(child: _SectionHeader(label: AppStrings.of(context).bedSheetSectionNotes)),
+                  Expanded(
+                    child: _SectionHeader(
+                      label: AppStrings.of(context).bedSheetSectionNotes,
+                    ),
+                  ),
                   // Voice-dictation button — records via mic and appends
                   // the transcript to the notes textarea. Threads patient
                   // context through to the backend so the saved voice
@@ -1302,8 +1335,8 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                     controller: _notesCtrl,
                     patientUid:
                         (widget.bed['patient_uid'] ?? '').toString().isNotEmpty
-                            ? widget.bed['patient_uid'].toString()
-                            : null,
+                        ? widget.bed['patient_uid'].toString()
+                        : null,
                   ),
                 ],
               ),
@@ -1437,10 +1470,7 @@ class _DetailRow extends StatelessWidget {
           width: 110,
           child: Text(
             label,
-            style: TextStyle(
-              fontSize: 12,
-              color: AppTheme.textSecondary,
-            ),
+            style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
           ),
         ),
         Expanded(child: valueText),
@@ -1509,8 +1539,7 @@ class _BedQuickActions extends StatelessWidget {
         icon: Icons.timeline,
         label: s.bedSheetActionOpenEmr,
         color: AppTheme.primaryBlue,
-        route:
-            '/emr/timeline/$patientUid?name=$nameQ',
+        route: '/emr/timeline/$patientUid?name=$nameQ',
       ),
       _QuickAction(
         icon: Icons.monitor_heart_outlined,
@@ -1530,8 +1559,7 @@ class _BedQuickActions extends StatelessWidget {
         icon: Icons.swap_horiz,
         label: s.bedSheetActionHandover,
         color: const Color(0xFF6A1B9A),
-        route:
-            '/handover?patient_ref=$patientRef&phone=$phoneQ',
+        route: '/handover?patient_ref=$patientRef&phone=$phoneQ',
       ),
     ];
 
@@ -1633,8 +1661,12 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
   String _status() =>
       (widget.bed['status'] ?? 'available').toString().toLowerCase();
 
-  Future<bool> _confirm(String title, String body, String confirmLabel,
-      {Color? confirmColor}) async {
+  Future<bool> _confirm(
+    String title,
+    String body,
+    String confirmLabel, {
+    Color? confirmColor,
+  }) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1696,10 +1728,11 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
     final id = _bedId();
     if (id.isEmpty) return;
     final s = AppStrings.of(context);
-    final patientName = (widget.bed['patient_full_name'] ??
-            widget.bed['patient_name'] ??
-            s.bedSheetThisPatient)
-        .toString();
+    final patientName =
+        (widget.bed['patient_full_name'] ??
+                widget.bed['patient_name'] ??
+                s.bedSheetThisPatient)
+            .toString();
     final ok = await _confirm(
       s.dischargeConfirmTitle(patientName),
       s.dischargeConfirmBody,
@@ -1709,13 +1742,13 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
     if (!ok) return;
     setState(() => _busy = true);
     try {
-      final response = await ApiClient.post(
-        '/beds/$id/discharge',
-        body: {},
-      );
+      final response = await ApiClient.post('/beds/$id/discharge', body: {});
       if (!mounted) return;
       if (response.isSuccess) {
-        SuccessToast.show(context, AppStrings.of(context).bedSheetPatientDischarged);
+        SuccessToast.show(
+          context,
+          AppStrings.of(context).bedSheetPatientDischarged,
+        );
         widget.onChanged();
       } else {
         ErrorToast.show(context, response.message ?? 'Discharge failed');
@@ -1833,11 +1866,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
 
     if (actions.isEmpty) return const SizedBox.shrink();
 
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: actions,
-    );
+    return Wrap(spacing: 8, runSpacing: 8, children: actions);
   }
 }
 
@@ -1864,9 +1893,7 @@ class _AdmitPatientPickerState extends State<_AdmitPatientPicker> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _focus.requestFocus(),
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
   }
 
   @override
@@ -1964,7 +1991,9 @@ class _AdmitPatientPickerState extends State<_AdmitPatientPicker> {
                   focusNode: _focus,
                   decoration: InputDecoration(
                     hintText: AppStrings.of(context).bedBoardAdmitSearchHint,
-                    prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
+                    prefixIcon: const ExcludeSemantics(
+                      child: Icon(Icons.search),
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -1997,10 +2026,7 @@ class _AdmitPatientPickerState extends State<_AdmitPatientPicker> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(
-            _error!,
-            style: TextStyle(color: AppTheme.errorRed),
-          ),
+          child: Text(_error!, style: TextStyle(color: AppTheme.errorRed)),
         ),
       );
     }
@@ -2031,15 +2057,13 @@ class _AdmitPatientPickerState extends State<_AdmitPatientPicker> {
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (ctx, i) {
         final p = _rows[i];
-        final name =
-            (p['name'] ?? AppStrings.of(ctx).bedBoardPatientUnnamed)
-                .toString();
+        final name = (p['name'] ?? AppStrings.of(ctx).bedBoardPatientUnnamed)
+            .toString();
         final age = p['age'];
         final gender = (p['gender'] ?? '').toString();
         final phone = (p['phone'] ?? '').toString();
         final subtitleParts = <String>[
-          if (age != null && age.toString().isNotEmpty)
-            '${age.toString()} yr',
+          if (age != null && age.toString().isNotEmpty) '${age.toString()} yr',
           if (gender.isNotEmpty)
             gender[0].toUpperCase() + gender.substring(1).toLowerCase(),
           if (phone.isNotEmpty) phone,

@@ -203,10 +203,13 @@ class _UploadTabState extends State<_UploadTab> {
               decoration: InputDecoration(
                 labelText: s.investigationsPhoneLabel,
                 hintText: s.investigationsPhoneHint,
-                prefixIcon: const ExcludeSemantics(child: Icon(Icons.phone_outlined)),
+                prefixIcon: const ExcludeSemantics(
+                  child: Icon(Icons.phone_outlined),
+                ),
               ),
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return s.investigationsPhoneRequired;
+                if (v == null || v.trim().isEmpty)
+                  return s.investigationsPhoneRequired;
                 if (v.trim().length < 10) return s.investigationsPhoneInvalid;
                 return null;
               },
@@ -216,13 +219,16 @@ class _UploadTabState extends State<_UploadTab> {
               initialValue: _testType,
               decoration: InputDecoration(
                 labelText: s.investigationsTestTypeLabel,
-                prefixIcon: const ExcludeSemantics(child: Icon(Icons.biotech_outlined)),
+                prefixIcon: const ExcludeSemantics(
+                  child: Icon(Icons.biotech_outlined),
+                ),
               ),
               items: _testTypes
                   .map((t) => DropdownMenuItem(value: t, child: Text(t)))
                   .toList(),
               onChanged: (v) => setState(() => _testType = v),
-              validator: (v) => v == null ? s.investigationsTestTypeRequired : null,
+              validator: (v) =>
+                  v == null ? s.investigationsTestTypeRequired : null,
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -230,7 +236,9 @@ class _UploadTabState extends State<_UploadTab> {
               decoration: InputDecoration(
                 labelText: s.investigationsResultLabel,
                 hintText: s.investigationsResultHint,
-                prefixIcon: const ExcludeSemantics(child: Icon(Icons.assignment_outlined)),
+                prefixIcon: const ExcludeSemantics(
+                  child: Icon(Icons.assignment_outlined),
+                ),
                 alignLabelWithHint: true,
               ),
               maxLines: 3,
@@ -241,7 +249,9 @@ class _UploadTabState extends State<_UploadTab> {
               decoration: InputDecoration(
                 labelText: s.investigationsClinicalNotesLabel,
                 hintText: s.investigationsClinicalNotesHint,
-                prefixIcon: const ExcludeSemantics(child: Icon(Icons.notes_outlined)),
+                prefixIcon: const ExcludeSemantics(
+                  child: Icon(Icons.notes_outlined),
+                ),
                 alignLabelWithHint: true,
               ),
               maxLines: 2,
@@ -272,9 +282,7 @@ class _UploadTabState extends State<_UploadTab> {
                               // ignore: use_build_context_synchronously
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text(
-                                    s.investigationsFileTooLarge,
-                                  ),
+                                  content: Text(s.investigationsFileTooLarge),
                                   backgroundColor: AppTheme.errorRed,
                                 ),
                               );
@@ -370,7 +378,9 @@ class _UploadTabState extends State<_UploadTab> {
                     )
                   : const Icon(Icons.upload, color: Colors.white),
               label: Text(
-                _submitting ? s.investigationsUploading : s.investigationsUploadButton,
+                _submitting
+                    ? s.investigationsUploading
+                    : s.investigationsUploadButton,
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.accentCyan,
@@ -470,10 +480,7 @@ class _PendingTabState extends State<_PendingTab> {
           children: [
             Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
             const SizedBox(height: 8),
-            Text(
-              _error!,
-              style: TextStyle(color: AppTheme.textSecondary),
-            ),
+            Text(_error!, style: TextStyle(color: AppTheme.textSecondary)),
             TextButton(onPressed: _load, child: Text(s.actionRetry)),
           ],
         ),
@@ -681,10 +688,7 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
           children: [
             Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
             const SizedBox(height: 8),
-            Text(
-              _error!,
-              style: TextStyle(color: AppTheme.textSecondary),
-            ),
+            Text(_error!, style: TextStyle(color: AppTheme.textSecondary)),
             TextButton(onPressed: _load, child: Text(s.actionRetry)),
           ],
         ),

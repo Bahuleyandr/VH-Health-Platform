@@ -245,7 +245,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-              AppStrings.of(context).prescriptionsErrorSelectPatientDoctor),
+            AppStrings.of(context).prescriptionsErrorSelectPatientDoctor,
+          ),
           backgroundColor: AppTheme.errorRed,
         ),
       );
@@ -255,7 +256,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-              AppStrings.of(context).prescriptionsErrorFillMedicationNames),
+            AppStrings.of(context).prescriptionsErrorFillMedicationNames,
+          ),
           backgroundColor: AppTheme.errorRed,
         ),
       );
@@ -319,7 +321,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
 
       if (mounted) {
         SuccessToast.show(
-            context, AppStrings.of(context).prescriptionsCreated('$rxNum'));
+          context,
+          AppStrings.of(context).prescriptionsCreated('$rxNum'),
+        );
         // Reset form
         _formKey.currentState!.reset();
         setState(() {
@@ -398,11 +402,17 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
           children: [
             // ─── Patient & Doctor Info ─────────────────────────────────
             if (_patientName != null)
-              _infoCard(s.prescriptionsPatientLabel, _patientName!,
-                  Icons.person),
+              _infoCard(
+                s.prescriptionsPatientLabel,
+                _patientName!,
+                Icons.person,
+              ),
             if (_doctorName != null)
-              _infoCard(s.prescriptionsDoctorLabel, _doctorName!,
-                  Icons.medical_services),
+              _infoCard(
+                s.prescriptionsDoctorLabel,
+                _doctorName!,
+                Icons.medical_services,
+              ),
             if (_patientId == null) ...[
               _PatientSearchField(
                 onSelected: (id, name) {
@@ -454,12 +464,18 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                 children: [
                   Expanded(
                     child: _miniField(
-                        _bpSysCtrl, s.prescriptionsBpSystolic, 'mmHg'),
+                      _bpSysCtrl,
+                      s.prescriptionsBpSystolic,
+                      'mmHg',
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: _miniField(
-                        _bpDiaCtrl, s.prescriptionsBpDiastolic, 'mmHg'),
+                      _bpDiaCtrl,
+                      s.prescriptionsBpDiastolic,
+                      'mmHg',
+                    ),
                   ),
                 ],
               ),
@@ -467,26 +483,32 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
               Row(
                 children: [
                   Expanded(
-                      child: _miniField(
-                          _pulseCtrl, s.prescriptionsPulse, 'bpm')),
+                    child: _miniField(_pulseCtrl, s.prescriptionsPulse, 'bpm'),
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
-                      child: _miniField(_tempCtrl, s.prescriptionsTemp, '°F')),
+                    child: _miniField(_tempCtrl, s.prescriptionsTemp, '°F'),
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
               Row(
                 children: [
                   Expanded(
-                      child: _miniField(_spo2Ctrl, s.prescriptionsSpo2, '%')),
+                    child: _miniField(_spo2Ctrl, s.prescriptionsSpo2, '%'),
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
-                      child: _miniField(
-                          _weightCtrl, s.prescriptionsWeight, 'kg')),
+                    child: _miniField(_weightCtrl, s.prescriptionsWeight, 'kg'),
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
-                      child: _miniField(
-                          _bsCtrl, s.prescriptionsBloodSugar, 'mg/dL')),
+                    child: _miniField(
+                      _bsCtrl,
+                      s.prescriptionsBloodSugar,
+                      'mg/dL',
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -498,7 +520,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
               decoration: InputDecoration(
                 labelText: s.prescriptionsDiagnosisLabel,
                 prefixIcon: const ExcludeSemantics(
-                    child: Icon(Icons.local_hospital_outlined)),
+                  child: Icon(Icons.local_hospital_outlined),
+                ),
                 alignLabelWithHint: true,
               ),
               maxLines: 2,
@@ -568,7 +591,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                     label: Text(
                       _followUpDate != null
                           ? s.prescriptionsFollowUpPrefix(
-                              DateFormat('dd MMM yyyy').format(_followUpDate!))
+                              DateFormat('dd MMM yyyy').format(_followUpDate!),
+                            )
                           : s.prescriptionsSetFollowUp,
                     ),
                   ),
@@ -601,7 +625,8 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                 labelText: s.prescriptionsClinicalNotes,
                 hintText: s.prescriptionsClinicalNotesHint,
                 prefixIcon: const ExcludeSemantics(
-                    child: Icon(Icons.notes_outlined)),
+                  child: Icon(Icons.notes_outlined),
+                ),
                 alignLabelWithHint: true,
               ),
               maxLines: 3,
@@ -750,8 +775,7 @@ class _PatientSearchFieldState extends State<_PatientSearchField> {
           controller: _ctrl,
           decoration: InputDecoration(
             labelText: AppStrings.of(context).prescriptionsSearchPatient,
-            prefixIcon:
-                const ExcludeSemantics(child: Icon(Icons.search)),
+            prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
             isDense: true,
           ),
           onChanged: _search,
@@ -831,7 +855,8 @@ class _DoctorSearchFieldState extends State<_DoctorSearchField> {
           decoration: InputDecoration(
             labelText: AppStrings.of(context).prescriptionsSearchDoctor,
             prefixIcon: const ExcludeSemantics(
-                child: Icon(Icons.medical_services)),
+              child: Icon(Icons.medical_services),
+            ),
             isDense: true,
           ),
           onChanged: _search,
@@ -981,7 +1006,8 @@ class _MedicationCardState extends State<_MedicationCard> {
               hintText: s.prescriptionsMedicineNameHint,
               isDense: true,
               prefixIcon: const ExcludeSemantics(
-                  child: Icon(Icons.medication, size: 18)),
+                child: Icon(Icons.medication, size: 18),
+              ),
             ),
             onChanged: (v) {
               med.name = v;
@@ -1270,8 +1296,9 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
               trailing: p['pharmacy_opted'] == true
                   ? Chip(
                       label: Text(
-                          AppStrings.of(context).prescriptionsOrderedChip,
-                          style: const TextStyle(fontSize: 10)),
+                        AppStrings.of(context).prescriptionsOrderedChip,
+                        style: const TextStyle(fontSize: 10),
+                      ),
                       backgroundColor: const Color(0xFFE8F5E9),
                     )
                   : null,

@@ -103,7 +103,11 @@ class _PayslipScreenState extends State<PayslipScreen> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.summarize_outlined, color: Colors.white, size: 20),
+                  const Icon(
+                    Icons.summarize_outlined,
+                    color: Colors.white,
+                    size: 20,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -115,7 +119,11 @@ class _PayslipScreenState extends State<PayslipScreen> {
                       ),
                     ),
                   ),
-                  const Icon(Icons.chevron_right, color: Colors.white70, size: 20),
+                  const Icon(
+                    Icons.chevron_right,
+                    color: Colors.white70,
+                    size: 20,
+                  ),
                 ],
               ),
             ),

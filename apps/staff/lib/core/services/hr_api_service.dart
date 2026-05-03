@@ -49,7 +49,8 @@ class HrApiService {
   /// so it returned `Cannot GET /api/v1/staff` (404). The actual
   /// listing endpoint is `/staff/list`.
   static Future<List<dynamic>> getStaffList({String? department}) async {
-    final url = '/staff/list${department != null ? '?department=$department' : ''}';
+    final url =
+        '/staff/list${department != null ? '?department=$department' : ''}';
     try {
       final result = await _get(url);
       return result['data'] as List? ??

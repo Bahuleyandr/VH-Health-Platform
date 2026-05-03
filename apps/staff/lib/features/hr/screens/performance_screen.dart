@@ -155,7 +155,9 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                   decoration: InputDecoration(
                     labelText: s.performanceEmployeeIdLabel,
                     hintText: s.performanceEmployeeIdHint,
-                    prefixIcon: const ExcludeSemantics(child: Icon(Icons.badge_outlined)),
+                    prefixIcon: const ExcludeSemantics(
+                      child: Icon(Icons.badge_outlined),
+                    ),
                   ),
                   validator: (v) => (v == null || v.trim().isEmpty)
                       ? s.performanceEmployeeIdRequired
@@ -168,7 +170,9 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                   initialValue: _reviewPeriod,
                   decoration: InputDecoration(
                     labelText: s.performanceReviewPeriodLabel,
-                    prefixIcon: const ExcludeSemantics(child: Icon(Icons.date_range_outlined)),
+                    prefixIcon: const ExcludeSemantics(
+                      child: Icon(Icons.date_range_outlined),
+                    ),
                   ),
                   items: _periods
                       .map((p) => DropdownMenuItem(value: p, child: Text(p)))
@@ -238,7 +242,9 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                   decoration: InputDecoration(
                     labelText: s.performanceCommentsLabel,
                     hintText: s.performanceCommentsHint,
-                    prefixIcon: const ExcludeSemantics(child: Icon(Icons.comment_outlined)),
+                    prefixIcon: const ExcludeSemantics(
+                      child: Icon(Icons.comment_outlined),
+                    ),
                     alignLabelWithHint: true,
                   ),
                   maxLines: 4,
@@ -254,7 +260,9 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                   decoration: InputDecoration(
                     labelText: s.performanceGoalsLabel,
                     hintText: s.performanceGoalsHint,
-                    prefixIcon: const ExcludeSemantics(child: Icon(Icons.flag_outlined)),
+                    prefixIcon: const ExcludeSemantics(
+                      child: Icon(Icons.flag_outlined),
+                    ),
                     alignLabelWithHint: true,
                   ),
                   maxLines: 3,
@@ -273,7 +281,11 @@ class _AddReviewTabState extends State<_AddReviewTab> {
                           ),
                         )
                       : const Icon(Icons.save, color: Colors.white),
-                  label: Text(_submitting ? s.performanceSavingButton : s.performanceSaveReview),
+                  label: Text(
+                    _submitting
+                        ? s.performanceSavingButton
+                        : s.performanceSaveReview,
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFF57F17),
                   ),
@@ -363,10 +375,7 @@ class _ReviewListTabState extends State<_ReviewListTab> {
           children: [
             Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
             const SizedBox(height: 8),
-            Text(
-              _error!,
-              style: TextStyle(color: AppTheme.textSecondary),
-            ),
+            Text(_error!, style: TextStyle(color: AppTheme.textSecondary)),
             TextButton(onPressed: _load, child: Text(s.actionRetry)),
           ],
         ),

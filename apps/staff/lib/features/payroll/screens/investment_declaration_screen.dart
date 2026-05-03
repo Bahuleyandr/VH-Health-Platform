@@ -436,14 +436,21 @@ class _InvestmentDeclarationScreenState
               _field(s.payrollDeclarationFieldElss, _elss),
               _field(s.payrollDeclarationFieldLic, _lic),
               _field(s.payrollDeclarationFieldNsc, _nsc),
-              _field(s.payrollDeclarationFieldHomeLoanPrincipal, _homeLoanPrincipal),
+              _field(
+                s.payrollDeclarationFieldHomeLoanPrincipal,
+                _homeLoanPrincipal,
+              ),
               _field(s.payrollDeclarationFieldTuition, _tuition),
               _field(s.payrollDeclarationFieldOther80c, _other80c),
             ]),
 
             _section(s.payrollDeclarationSection80d, [
               _field(s.payrollDeclarationFieldHiSelf, _hiSelf, max: 25000),
-              _field(s.payrollDeclarationFieldHiParents, _hiParents, max: 25000),
+              _field(
+                s.payrollDeclarationFieldHiParents,
+                _hiParents,
+                max: 25000,
+              ),
             ]),
 
             _section(s.payrollDeclarationSectionOther, [
@@ -505,7 +512,10 @@ class _InvestmentDeclarationScreenState
             if (_declarations.isNotEmpty) ...[
               Text(
                 s.payrollDeclarationPastTitle,
-                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                ),
               ),
               const SizedBox(height: 8),
               ..._declarations.map((d) => _DeclarationCard(d: d)),

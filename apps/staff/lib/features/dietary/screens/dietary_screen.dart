@@ -133,17 +133,22 @@ class _DietaryScreenState extends State<DietaryScreen> {
                       controller: patientUidCtrl,
                       decoration: InputDecoration(
                         labelText: ds.dietaryPatientUidLabel,
-                        prefixIcon: const ExcludeSemantics(child: Icon(Icons.person_outline)),
+                        prefixIcon: const ExcludeSemantics(
+                          child: Icon(Icons.person_outline),
+                        ),
                       ),
-                      validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? ds.dietaryPatientUidRequired : null,
+                      validator: (v) => (v == null || v.trim().isEmpty)
+                          ? ds.dietaryPatientUidRequired
+                          : null,
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       initialValue: dietType,
                       decoration: InputDecoration(
                         labelText: ds.dietaryDietTypeLabel,
-                        prefixIcon: const ExcludeSemantics(child: Icon(Icons.restaurant_menu)),
+                        prefixIcon: const ExcludeSemantics(
+                          child: Icon(Icons.restaurant_menu),
+                        ),
                       ),
                       items: dietTypes.entries
                           .map(
@@ -154,14 +159,17 @@ class _DietaryScreenState extends State<DietaryScreen> {
                           )
                           .toList(),
                       onChanged: (v) => dietType = v,
-                      validator: (v) => v == null ? ds.dietaryDietTypeRequired : null,
+                      validator: (v) =>
+                          v == null ? ds.dietaryDietTypeRequired : null,
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       initialValue: mealTime,
                       decoration: InputDecoration(
                         labelText: ds.dietaryMealTimeLabel,
-                        prefixIcon: const ExcludeSemantics(child: Icon(Icons.access_time)),
+                        prefixIcon: const ExcludeSemantics(
+                          child: Icon(Icons.access_time),
+                        ),
                       ),
                       items: mealTimes
                           .map(
@@ -169,14 +177,17 @@ class _DietaryScreenState extends State<DietaryScreen> {
                           )
                           .toList(),
                       onChanged: (v) => mealTime = v,
-                      validator: (v) => v == null ? ds.dietaryMealTimeRequired : null,
+                      validator: (v) =>
+                          v == null ? ds.dietaryMealTimeRequired : null,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: restrictionsCtrl,
                       decoration: InputDecoration(
                         labelText: ds.dietaryRestrictionsLabel,
-                        prefixIcon: const ExcludeSemantics(child: Icon(Icons.warning_amber_outlined)),
+                        prefixIcon: const ExcludeSemantics(
+                          child: Icon(Icons.warning_amber_outlined),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -185,7 +196,9 @@ class _DietaryScreenState extends State<DietaryScreen> {
                       maxLines: 2,
                       decoration: InputDecoration(
                         labelText: ds.dietaryNotesLabel,
-                        prefixIcon: const ExcludeSemantics(child: Icon(Icons.notes)),
+                        prefixIcon: const ExcludeSemantics(
+                          child: Icon(Icons.notes),
+                        ),
                       ),
                     ),
                   ],
@@ -224,7 +237,8 @@ class _DietaryScreenState extends State<DietaryScreen> {
                             ScaffoldMessenger.of(ctx).showSnackBar(
                               SnackBar(
                                 content: Text(
-                                  response.message ?? ds.errorSomethingWentWrong,
+                                  response.message ??
+                                      ds.errorSomethingWentWrong,
                                 ),
                                 backgroundColor: AppTheme.errorRed,
                               ),
@@ -557,10 +571,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
               SizedBox(height: 6),
               Text(
                 notes,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppTheme.textSecondary,
-                ),
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
