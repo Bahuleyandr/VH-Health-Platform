@@ -1,228 +1,287 @@
-# Session handoff — 2026-04-26 evening + night
+# VH Health Platform — Session Handoff
 
-_Use this to bootstrap a fresh Claude session and pick up where we left off without re-reading the entire transcript._
+_Last updated: 2026-05-02. Picks up from `main` at commit `24e3c974`._
 
-## TL;DR
+This doc is a single-page bootstrap for resuming work in another
+session / environment. Read top-to-bottom, then jump to whichever
+punch-list item you want to work on.
 
-You were doing a sweeping polish + bug-fix pass on the **patient Flutter app + the backend it talks to**. Everything in the original [`AUDIT.md`](AUDIT.md) is now green on the backend side, including the investigation booking lifecycle GETs (queue/sla/detail) which were finished off in the night-session continuation. The audit doc is the canonical reference. The only remaining items are deferred (see **"What's deferred"** below).
+---
 
-You explicitly asked to **leave ABDM alone** for now (it needs gov-API credentials).
+## Where we are
 
-## Where the project is right now
+The platform is mid-rollout. The clinical surface is being driven
+through real test deployments on the home tailnet (`dalekdefender`)
+while the team irons out cross-role bugs, accessibility, and
+internationalisation. **Hindi reached 100% structural coverage on
+both Flutter apps in this run; Tamil/Telugu (and Malayalam on
+patient) are queued for the dedicated translator pass.**
 
-### Patient app
-- All 14 feature-grid tiles now use **hand-drawn SVG illustrations** (not Lucide icons). Icon circle uses a **saturated derived tint** in light mode so the white glyphs have real contrast against the otherwise-pastel backgrounds.
-- Brightness-aware gradients across `FeatureGrid`, `StatsStrip`, `DashboardSection`, `QuickActionButton` — light mode is no longer washed-out.
-- **Pull-to-refresh** on the dashboard (`RefreshIndicator` wrapping the scroll view; calls `_fetchAndStoreDashboard` + `_fetchSmartWidgetData` + `_pollAppointments` in parallel).
-- **Streak card hides** in the `StatsStrip` when `streakDays` is null/0 (instead of rendering a confusing "0 days").
-- **Daily Check-In modal** only pops once per app session (in-memory `_checkInPromptedThisSession` gate in `daily_checkin_sheet.dart`); no longer re-pops on every dashboard re-mount.
-- Splash auto-dev-login takes `--dart-define=VH_DEV_PHONE=...` + `VH_DEV_NAME=...` so the same APK can target either Dev Patient (`+919999999999`) or Fresh Test User (`+919999999997`).
+### Repo state on `main` (commit `24e3c974`)
 
-### Backend
-- All 39 patient-app endpoints return 200.
-- New-user signup flow works end-to-end (validator + dates + query-shim + login_form route + splash extra-passing all fixed across this session).
-- HIPAA audit log writes succeed (migration 101).
-- Investigation booking lifecycle works POST-side (confirm → dispatch → collected → processing all 200 against a real created booking). GET-side `getBookingQueue` had two issues — fixed in this session: missing `sla_confirm_target` column (migration 105) + Phase-0.5 anti-pattern `params` not spread (line 190 in `bookingController.js`).
-- BigInt JSON serialization polyfill at app boot — every BIGSERIAL id encoded safely.
+| App | Stack | i18n | Notes |
+|---|---|---|---|
+| `apps/backend` | Node 22 + Express 5 + PG 17 + Prisma | English-only | Deployed live on dalekdefender k3s; admin portal at :8445 |
+| `apps/admin` | Next.js 15 + React 19 | English-only | Untouched in this session |
+| `apps/patient` | Flutter 3.41 + Firebase OTP | en/hi 100%, ta/te/ml 50.8% | ARB-based codegen, 5 locales supported |
+| `apps/staff` | Flutter 3.41 + JWT + role config | en/hi 100%, ta/te 61% | Manual map (`lib/l10n/app_strings.dart`) |
+| `packages/vhhealth_core` | Dart shared package | n/a | API client, theme tokens, crash-reporter abstraction |
 
-## What's deferred
+### Live test deployment
 
-### Investigation booking lifecycle — backend AND staff UI both verified
-Backend fully green and the staff Flutter `lab_bookings_screen` was visually re-verified at the end of the night session against a real PROCESSING booking. Final state:
+- URL: `https://dalekdefender.hippocampus-monitor.ts.net:8444` (Tailnet only)
+- Admin portal: `https://dalekdefender.hippocampus-monitor.ts.net:8445`
+- API key (from `/tmp/dalek-secrets.env` on Windows host): `phone-83c3575b4dedd4f7f54a90745d3fe308`
+- Staff test users: `EMP-1001` … `EMP-1008` / password `test1234`. Roles cover NURSING_STAFF, PHARMACY_STAFF, LAB_STAFF, DOCTOR, HR_STAFF, ADMIN, SUPER_ADMIN, GENERAL_STAFF.
+- Admin login: `admin` / `DalekAdmin!2026` (SUPER_ADMIN, MFA off).
+- Redeploy recipe lives in `~/.claude/projects/.../memory/project_vh_health_dalekdefender.md`.
 
-| Endpoint | Method | Status |
-|---|---|---|
-| `/investigations/bookings/queue` | GET | ✅ 200 + ✅ rendered correctly in staff app (Active tab shows the row, mins_since_booked formatted as "2.0h ago"). Backend bug found during visual verify: numeric `mins_since_booked` was serialized as a JSON string by Prisma's Decimal handling — fixed with `::float8` cast. |
-| `/investigations/bookings/sla` | GET | ✅ 200 (`::date` casts on 4 BETWEEN clauses). No screen consumer — orphan API method exposed for future admin dashboard. |
-| `/investigations/bookings/:id` | GET | ✅ 200 (history sub-query columns fixed: `from_status, to_status, changed_by_role`). No screen consumer — the `lab_bookings_screen` shows a card view with action buttons; there is no detail-page navigation by design. |
-| `/investigations/bookings/:id/confirm` | POST | ✅ 200 backend; not visually walked through every state transition |
-| `/investigations/bookings/:id/dispatch` | POST | ✅ 200 |
-| `/investigations/bookings/:id/collected` | POST | ✅ 200 |
-| `/investigations/bookings/:id/processing` | POST | ✅ 200 |
-| `/investigations/bookings/:id/result` | POST (multipart) | Untested — needs a real file upload to verify R2 not blocking |
+### Most recent staff `.exe`
 
-**Staff seed user used:** `EMP-1001` / `test1234` (Nurse Arya, NURSING_STAFF → maps to `StaffRole.nurse` which sees the Lab Bookings tile). Password was bcrypt-hashed and set directly via `UPDATE users SET encrypted_password = ...` because the existing seed scripts only set up patient + doctor data, not staff passwords.
+`apps/staff/build/windows/x64/runner/Release/vhhealth_staff.exe` —
+built 2026-05-02 at the end of this session with:
 
-**Truly remaining for the booking lifecycle:** nothing blocking — file persistence now works in dev via the local-disk fallback (see "Local-disk R2 fallback" below). For prod, set `CF_R2_*` env vars and the same code path uses real Cloudflare R2.
+```
+flutter build windows --release \
+  --dart-define=VH_BASE_URL=https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1 \
+  --dart-define=VH_API_KEY=phone-83c3575b4dedd4f7f54a90745d3fe308
+```
 
-**State-transition walkthrough (DONE 2026-04-26 night):** created booking #2 as the patient, then drove it through the entire lifecycle from the staff app: BOOKED → tap Confirm → CONFIRMED → tap Dispatch Collector → DISPATCHED → tap Mark Collected → COLLECTED → tap Start Processing → PROCESSING. All 4 POSTs (confirm/dispatch/collected/processing) returned 200 with `Role: NURSING_STAFF`. The screen re-fetched after each transition and re-bucketed the row into the appropriate tab.
+Contains every change shipped in this session.
 
-### Dev-environment .NET fix (separate from app)
-- User had a recurring "`Microsoft.NETCore.App` 8.0.0 not installed" dialog from `AacAmbientLighting.exe` (ASUS Aura).
-- Root cause: user-level `DOTNET_ROOT` env var pointed to `D:\Dev\Tools\dotnet` (.NET 9 only). The `.exe` apphost looked there first and never fell through to `C:\Program Files\dotnet\` (which has 8.0.26).
-- **Fix applied at registry:** `[Environment]::SetEnvironmentVariable('DOTNET_ROOT', $null, 'User')`.
-- **Caveat:** the `LightingService` Windows service (which auto-spawns `AacAmbientLighting.exe`) inherited the stale env from boot-time SCM. **A reboot is needed to flush this through.** User was advised but may not have rebooted yet.
+---
 
-### Items intentionally deferred
-- **ABDM** — needs gov-API credentials. User said leave it alone.
-- **Per-feature empty-state illustrations** elsewhere in the app (lists in Notifications, Records, etc.) — would benefit from the same SVG treatment. Not yet attempted.
-- **`/notifications/:phone` deprecation** — backend logs a `DEPRECATED` warn per call from the patient app's `NotificationProvider`. Migration to `/notifications/my` would silence it.
+## What landed in this session
 
-## Key files added/touched this session
+Long arc — 11 merged feature branches over the run, plus this
+handoff doc. In priority order:
 
-### Migrations (all applied to dev DB)
-| File | Purpose |
+### 1. Cross-role backend bug sweep — 10 bugs surfaced by every staff role
+
+Probe matrix of 8 roles × 28 endpoints surfaced:
+- `/auth/staff/profile` 500 (controller called missing method)
+- `/staff/hr/leave-balance/:id` UUID→NaN crash
+- `/staff/hr/replacement/*` UUID-against-INT-FK crash + missing
+  `replacement_requests` table (orphan schema, fixed in
+  migration 142)
+- `identityValidator` role-name drift (HR_STAFF / GENERAL_STAFF
+  blocked from HR endpoints)
+- `/appointments/list?date=today` 500 (Express 5 made `req.query`
+  immutable, validator's customSanitizer couldn't write back; fixed
+  at the service layer)
+- `/staff/list` 500 (raw-Prisma param array passed as 1 arg)
+- `/notifications/my` 400 (staff JWTs lack phone claim; added
+  uid→phone fallback)
+- SUPER_ADMIN profile lookup 404 (STAFF_ROLES enum missing)
+- 2 Flutter path bugs (clinical-AI double-prefix, `/staff` →
+  `/staff/list`)
+
+### 2. UX upgrade run — 21 prioritised improvements
+
+Logout button on every screen (29 screens swept), bed-sheet patient
+quick-actions (Open EMR / Record Vitals / Add Note / Handover) with
+context prefill on Vitals/Nursing Notes/Handover, search on
+Appointments/Due Meds/Notifications/Leave, bed-board status filter
++ bed# search, long-press inline notes, persistent SuccessToast,
+shared empty/error/loading state widgets, global patient picker
+(Cmd+K), workload dashboard cards, realtime on Due Meds /
+Appointments / Handover, skeleton loaders, bed admit/discharge/
+transfer actions, recent-patients tile, two-pane desktop layouts,
+voice-to-text on notes textareas, keyboard shortcut layer (Cmd+K /
+Esc / Ctrl+/), first-run coach marks, print bed-board, telemetry
+abstraction with 5 example sends, accessibility audit doc.
+
+### 3. Accessibility — 10 audit-doc gaps closed + screen-reader test plan
+
+Bed-card semantic labels, AppBar tooltips on 15 icon-only buttons,
+toast `liveRegion: true`, quick-action chip semantics with
+`ExcludeSemantics`, 48dp hit-target on PatientContextChip close,
+voice dictation `SemanticsService.announce` + haptic, 71 form
+prefix-icons wrapped in `ExcludeSemantics`, skeletons honour
+`MediaQuery.disableAnimations`, status pills inherit theme text
+scale, recent-patients list semantics. Plus `apps/staff/docs/
+SCREEN_READER_TEST_PLAN.md` with 12 NVDA / TalkBack scenarios.
+
+### 4. Colour contrast audit — 13 issues triaged, 3 palette fixes
+
+`warningAmber` darkened (#F57F17 → #E65100, was 2.65:1, now 5.83:1
+both ways). `_lightHint` darkened (was 2.59:1, now 4.32:1). New
+adaptive `successOnSurface` / `errorOnSurface` / `warningOnSurface`
+getters with dark-mode-safe variants. Reproducible via
+`apps/staff/docs/_contrast_calc.mjs`.
+
+### 5. i18n — full migration + Hindi at 100% on both apps
+
+Staff app:
+- ~947 keys × 4 locales (manual map at `apps/staff/lib/l10n/app_strings.dart`)
+- 1576 English keys, **Hindi 100%**, Tamil/Telugu 61.3%
+- 216 `// REVIEW:` flags on clinical-action / security / financial
+  strings for translator validation
+
+Patient app:
+- ARB-based with `flutter gen-l10n` (5 locales: en/hi/ta/te/ml)
+- 528 English keys, **Hindi 100%**, Tamil/Telugu/Malayalam 50.8%
+- 210 hardcoded English strings migrated → 6 remaining (all
+  intentional brand strings: "VH Health", "Venkataeswara Hospitals")
+
+Tooling:
+- `apps/staff/scripts/i18n-verify.mjs` — manual-map verifier
+- `apps/patient/scripts/i18n-verify.mjs` — ARB verifier
+- `melos run i18n-health` — runs both
+- `melos run i18n-health-staff` / `i18n-health-patient` — individually
+
+Documentation:
+- `apps/staff/docs/ACCESSIBILITY_AUDIT.md`
+- `apps/staff/docs/SCREEN_READER_TEST_PLAN.md`
+- `apps/staff/docs/COLOR_CONTRAST_AUDIT.md`
+- `apps/staff/docs/LANGUAGE_HEALTH.md`
+
+### 6. Bed-board feature — patient details + notes flow
+
+Backend: `GET /api/v1/beds/ward/:id` augmented with patient/admission
+JOINs (patient_full_name / age / gender / phone / chief_complaint /
+admitting_diagnosis / attending_doctor_name etc.). New `PATCH
+/api/v1/beds/:id/notes` endpoint that doesn't null patient_id when
+only notes are sent. Flutter: bed cards tappable, modal bottom
+sheet with quick-action chips, notes textarea with PATCH save.
+
+---
+
+## Punch list — what's still queued
+
+In priority order. Each item links to where to start.
+
+### High-value, well-scoped
+
+1. **Tamil + Telugu translator pass** on both apps. ~610 keys staff
+   each, ~260 keys patient each. Verifiers list every missing key
+   by name. Drop output into Lokalise / Crowdin / Google Translation
+   Toolkit. Resume command: `melos run i18n-health` from repo root.
+
+2. **Patient Malayalam translator pass.** Same gap as Tamil/Telugu.
+   Verifier output is the worklist.
+
+3. **Pilot-clinician validation of the 216 staff Hindi REVIEW
+   flags** + ~250 patient Hindi REVIEW items. Hindi works at 100%
+   structurally, but the high-stakes clinical / security / financial
+   wording needs human validation before production rollout.
+
+4. **Backend notification template localisation.** SMS / email /
+   push templates in `apps/backend/src/services/notifications/` are
+   still English-only. When a Hindi nurse gets a leave-approval SMS
+   in English, the language work feels half-done.
+
+5. **Run the screen-reader test plan** (`apps/staff/docs/
+   SCREEN_READER_TEST_PLAN.md`) — 12 NVDA / TalkBack scenarios,
+   ~90 minutes. Tells us whether the a11y fixes work in practice.
+
+6. **Cut a real release.** `staff-v1.2.0` and `patient-v1.2.0` tags.
+   The signed-release workflows haven't been exercised against the
+   real `VH_API_KEY` / signing secrets in months.
+
+### Medium-value, defined scope
+
+7. **Admin portal i18n.** Next.js — needs `next-intl` or similar.
+   ~50 screens. Lower priority since most admin users are bilingual.
+8. **Crash reporter wiring validation.** `FirebaseCrashReporter` is
+   registered but Crashlytics events haven't been validated to
+   actually arrive — controlled test crash + dashboard verification.
+9. **Sentry on backend.** DSN env var exists but I haven't confirmed
+   events flow.
+10. **Fill remaining a11y gaps** — high-contrast theme variant,
+    legacy `primaryBlue`-on-darkCard sweep, focus-order audit on
+    long forms.
+
+### Smaller / housekeeping
+
+11. **Per-app CLAUDE.md cleanup** — historical paths reference old
+    separate-repo layouts (the root CLAUDE.md flags this as known).
+12. **Stale doc deletion** — `docs/ROADMAP.md` and
+    `FINISH_BUILDING.md` are superseded by AUDIT.md.
+13. **Prune the 135 unused getters** in staff `app_strings.dart`
+    (~9% of declared accessors; speculatively-added during batch 4).
+
+---
+
+## How to resume in another session
+
+### Cold-start commands
+
+```bash
+# Repo
+git clone https://github.com/Bahuleyandr/VH-Health-Platform.git
+cd VH-Health-Platform
+
+# Tooling (per-machine, once)
+dart pub global activate melos 7.5.1
+lefthook install
+
+# Per-stack installs
+cd apps/backend && npm install && cp .env.example .env  # fill secrets
+cd ../admin    && npm install && cp .env.local.example .env.local
+cd ../..
+dart pub get && melos bootstrap
+
+# Verify i18n state
+melos run i18n-health
+
+# Lint
+melos run analyze
+```
+
+### To continue any specific punch-list item
+
+1. Read this doc + the relevant `apps/<app>/docs/` audit doc.
+2. Run the verifier (`melos run i18n-health` / lint / test).
+3. Pick a coherent batch (one screen / one feature / one locale).
+4. Branch off `main`: `git checkout -b feat/<slug>`.
+5. Ship + lint + commit + PR-merge into `main`.
+
+### Where the live deployment is
+
+- `dalekdefender.hippocampus-monitor.ts.net` (home tailnet, k3s).
+- Backend on :8444, admin on :8445, Khata sibling on :8443.
+- SSH access: `ssh dalekdefender` (Tailscale).
+- Redeploy recipe in user-memory `project_vh_health_dalekdefender.md`.
+
+### Key files for orientation
+
+| Topic | Path |
 |---|---|
-| `apps/backend/src/migrations/097_prescriptions_wellness_columns.sql` | Adds `duration_days` + `issued_at` to `prescriptions` (gamification needed them) |
-| `apps/backend/src/migrations/098_investigation_booking_schema.sql` | `investigation_test_catalog` + `investigation_bookings` (43 cols, with auto-gen `INV-yyyymmdd-NNNNN` booking number trigger) + `investigation_booking_history` |
-| `apps/backend/src/migrations/099_records_and_documents.sql` | `appointment_documents` + `patient_records` |
-| `apps/backend/src/migrations/100_family_members.sql` | `family_members` (uuid FK to `users.uid`) |
-| `apps/backend/src/migrations/101_audit_canary_alerts.sql` | `hipaa_access_log` (varchar patient_id), `canary_checks`, `clinical_alerts.acknowledged_at` |
-| `apps/backend/src/migrations/102_seed_investigation_test_catalog.sql` | Seed: 36 tests across 8 categories |
-| `apps/backend/src/migrations/103_users_profile_completed_at.sql` | Adds the column the complete-profile endpoint was writing to |
-| `apps/backend/src/migrations/104_scheduled_notifications.sql` | The cron-job table that didn't exist |
-| `apps/backend/src/migrations/105_investigation_bookings_sla_confirm.sql` | `sla_confirm_target` column + trigger to default it |
-| `apps/backend/src/migrations/106_appointment_status_history.sql` | `appointment_status_history` table — was referenced by 6 raw SQL queries in 2 controllers (confirm/cancel/no-show/complete/walk-in/getHistory) but had no migration; staff appointment workflow 500'd as a result. Mirrors `investigation_booking_history` shape. |
+| Cross-stack overview | `CLAUDE.md` (root) |
+| Backend conventions | `apps/backend/CLAUDE.md` |
+| Staff app structure | `apps/staff/CLAUDE.md` |
+| Patient app structure | `apps/patient/CLAUDE.md` |
+| i18n state | `apps/staff/docs/LANGUAGE_HEALTH.md` |
+| A11y audit | `apps/staff/docs/ACCESSIBILITY_AUDIT.md` |
+| SR test plan | `apps/staff/docs/SCREEN_READER_TEST_PLAN.md` |
+| Contrast audit | `apps/staff/docs/COLOR_CONTRAST_AUDIT.md` |
+| Test users + creds | `~/.claude/projects/.../memory/project_vh_health_dalekdefender.md` |
 
-### Backend code touched
-- `bin/www.js` — BigInt.prototype.toJSON polyfill at boot
-- `middleware/identityValidator.js` — accepts E.164 + bare 10-digit phones, normalises into req.params/query
-- `services/user/userService.js` — `getUserById` 3-way: numeric id, E.164 phone, OR uuid
-- `services/auth/firebaseAuthService.js` — `query()` shim returns rows array (not `{rows,rowCount}`); 5 `.rows[0]` callers switched to `[0]`; complete-profile UPDATE uses `::date` casts
-- `validators/auth/authValidator.js` — accepts E.164 phones; null/empty optional fields skip validation
-- `controllers/auth/firebaseAuthController.js` — (no direct changes)
-- `controllers/appointment/appointmentLegacyController.js` — `::uuid` cast + 200-on-empty
-- `controllers/appointment/appointmentDocumentController.js` — per-query 42P01 graceful fallback
-- `controllers/appointment/appointmentWorkflowController.js` — `parseInt(doctor_id, 10)` upfront
-- `controllers/health/patientHealthController.js` — IDOR check accepts both id + uid; resolves int → uid before vitals query
-- `controllers/investigation/bookingController.js` — `parseInt(req.params.id, 10)` at every lifecycle entry point; spread `...params` for queue; `$1::date`/`$2::date` casts on the 4 SLA-dashboard BETWEEN clauses; history sub-query in `getBookingDetail` now selects `from_status, to_status, changed_by_role` (was selecting non-existent `status`); queue `mins_since_booked` cast to `::float8` so JSON serializes it as a number — Prisma was returning Postgres `numeric` as a JSON string, which crashed the staff app's `as num?` cast
-- `controllers/appointment/appointmentWorkflowController.js` — `getAppointmentHistory` now `parseInt(req.params.id, 10)` (was binding string against integer `appointment_id`) and the silent `catch (_err)` is now `logger.error(...)` so future errors surface
-- **NEW** `controllers/upload/uploadController.js` + `routes/upload/uploadRoutes.js` — implements `GET /api/v1/upload/by-key/*splat` (file lookup by R2 key, returns `{quarantined, storage_url, ...}` matching the patient app's `your_health_screen.dart:200` consumer) and `POST /api/v1/upload` (multipart, returns `{storageKey, storage_url}` matching `investigations_screen.dart:172`). Mounted in app.js at line ~420 with `patientRateLimiter`. Uses path-to-regexp v8 named-wildcard syntax (`*splat` not `*`). Authorization: file owner OR staff role.
-- `services/auth/staffAuthService.js` — `logActivity` SQL now binds `$1::uuid` for `admin_uid` and `$4::jsonb` for `details`; without these casts every staff login was logging "Failed to log activity: column \"admin_uid\" is of type uuid but expression is of type text" and silently dropping the audit row. Also added two missing static methods: `getTodayAttendance(staffUid)` (was being called from `staffAuthController.js:285` but never defined — `/auth/staff/attendance/today` 500'd on every staff dashboard load) and `getAttendanceHistory(staffUid, opts)` (called from `staffAuthController.js:298`, same root cause — without it the staff app would log in successfully, hit `/auth/staff/attendance/history` on dashboard load, get a 500, retry twice, and the Flutter exception would background/kill the app — looked exactly like "the Sign In button isn't working" because the user never saw a stable dashboard).
-- `apps/staff/lib/features/auth/screens/login_screen.dart` — login UX + session-timeout fix:
-  - **EMP- prefix**: `EMP-` is now a non-editable Material `prefixText` on the Employee ID field; users only type the digits (e.g. `1001`) and the submit handler reassembles `EMP-1001` before sending. `keyboardType: TextInputType.number` + `FilteringTextInputFormatter.digitsOnly` + `LengthLimitingTextInputFormatter(6)` enforce digit-only input. `_loadSavedCredentials` strips the `EMP-` prefix when restoring "Remember Employee ID" so the field doesn't display `EMP-EMP-1001`. Constant lives at file scope as `_empIdPrefix`.
-  - **Session-timeout re-login fix**: `_submit()` now calls `context.read<SessionTimeoutProvider>().resetSession()` immediately before `context.go('/dashboard')`. Without this, when a previous session timed out (`_expired = true` + `ApiConfig.clearAll()` wipes the JWT), the next login would save a fresh JWT but the router's redirect guard would still see `isSessionExpired == true` and bounce the user right back to `/login` — looked like "Sign In button isn't working" but was actually a navigate→bounce→navigate→bounce cycle that GoRouter eventually gave up on. Resetting the session synchronously before the navigation makes the very first redirect see a fresh session.
-  - Build needs `--dart-define=VH_BASE_URL=http://10.0.2.2:5000/api/v1 --dart-define=VH_API_KEY=...` for emulator dev (otherwise hits `api.vhhealth.app`).
-- `utils/notifications/InvestigationNotificationJob.js` — INSERT into `notifications` now sets `updated_at = NOW()` and `user_id = row.user_id || null`. The previous INSERT omitted `updated_at` (a NOT NULL column with no default) so every cron tick failed silently with "null value in column updated_at violates not-null constraint" and the in-app notification row was never written, even though the SMS/push fired.
+---
 
-### Local-disk R2 fallback (2026-04-27)
+## Branch state (as of 2026-05-02)
 
-`utils/r2Storage.js` now has two backends sharing the same public surface (`uploadFileToR2`, `getFileFromR2`, `deleteObject`, `listObjectsV2`, `copyObject`, `getSignedFileUrl`):
+- **Local: `main` only.** All session branches merged + pruned.
+- **Remote: 14 unrelated branches still exist** (telemedicine,
+  tasks-workflow, payer-tpa, totp-api-clients, facility-location,
+  care-plans, pharmacy-supply-chain, abdm-hip-hiu,
+  encounter-cds-hooks, smart-on-fhir-scopes, ed-operational,
+  surgical-ai-modules, surgical-schema, error-scan-2026-05-01).
+  These aren't from this session and were not pruned. Triage them
+  separately when resuming.
 
-- **Cloudflare R2** when `CF_ACCOUNT_ID + CF_R2_BUCKET + CF_R2_URL + CF_R2_ACCESS_KEY_ID + CF_R2_SECRET_ACCESS_KEY` are all set (production)
-- **Local disk** otherwise — files land under `apps/backend/storage/local-r2/<key>` (override with `STORAGE_LOCAL_DIR`)
+## Recent commits on `main`
 
-`getSignedFileUrl` in local mode returns a backend URL with an HMAC-signed token — semantics match R2 signed URLs (short-lived, downloadable without JWT, can't be forged). The token is `base64url(HMAC_SHA256(JWT_SECRET, key|expiryMs)).<expiryMs>` and is verified by `routes/storage/storageRoutes.js` (mounted at `/api/v1/storage` BEFORE both `validateApiKey` and `jwtAuth` so plain-HTTP downloads work). Public base URL defaults to `http://10.0.2.2:5000` for the Android emulator; override with `STORAGE_PUBLIC_BASE_URL`.
-
-End-to-end verified: POST `/upload` writes the file to disk + persists `file_metadata` row → GET `/upload/by-key/<key>` returns a signed URL → plain `curl <url>` (no auth headers) returns 200 + bytes byte-identical to the original PDF. Tampered + missing tokens both return 403.
-
-The `bookingController` and `appointmentDocumentController` signed-URL calls also go through this path now — the patient app's slip-photo and result-file downloads work in dev without R2 credentials. Production behaviour is unchanged: same code path, R2 backend dispatches to Cloudflare directly.
-
-Also fixed: `controllers/upload/uploadController.js` `INSERT INTO file_metadata` was missing `updated_at` (NOT NULL column without default) — added `updated_at = NOW()`. Same pattern as the InvestigationNotificationJob fix earlier.
-
-### `clinical_ai_corpus` is intentional (not a bug)
-
-The audit flagged `clinical_ai_corpus` as missing from the dev DB. It IS missing, but [migration 015](apps/backend/src/migrations/015_rag_corpus.sql) is gracefully designed: it only creates the table when the `pgvector` Postgres extension is available, and the runtime detects the missing table and returns empty retrievals + a `RAG_UNAVAILABLE` safety flag. To enable RAG locally, install pgvector (`brew install pgvector` / Docker `pgvector/pgvector:pg17`) then re-run migration 015. No code change needed.
-
-### Dev-data fix (2026-04-27, surfaced during multi-role verification)
-
-The seed staff users had role strings that don't match the canonical names the rest of the codebase uses:
-
-| Staff | Was | Now (renamed in DB) |
-|---|---|---|
-| EMP-1002 (Pharmacist Bala) | `PHARMACIST` | `PHARMACY_STAFF` |
-| EMP-1003 (LabTech Chitra)  | `LAB_TECH`   | `LAB_STAFF`     |
-
-Why it mattered: the staff Flutter app's `StaffRole.fromString` matches DB role strings against the enum values (`pharmacy('PHARMACY_STAFF')`, `lab('LAB_STAFF')`) and falls back to `general` on no match. So a Pharmacist would log in and see the **general** feature set (Housekeeping, My Tasks, Appt Queue) instead of the **pharmacy** set (Pharmacy Orders); same for Lab Tech. Backend `requireRole(...)` chains across `app.js` also expect `PHARMACY_STAFF` / `LAB_STAFF` — explaining why my earlier Upload Result POST as `LAB_TECH` got 403 (it hit `requireRole('...', 'LAB_STAFF', ...)` and didn't match). Also renamed the employee IDs to the hyphenated form (`EMP1002` → `EMP-1002`, `EMP1003` → `EMP-1003`) because the staff app's login validator regex requires the hyphen format that `EMP-1001` already used.
-
-End-to-end verified after the rename: Pharmacist login → sees "Pharmacy" badge + Orders bottom tab + Pharmacy tile; Lab Tech login → sees "Lab" badge (Investigations tab) + Lab Bookings/Lab Results/Upload Results tiles + can fetch the booking queue (200 from `Dart/3.11` with `Role: LAB_STAFF`).
-- `controllers/investigation/investigationController.js` — `::uuid` cast; JOIN-resolved patient_name/doctor_name; catalog graceful fallback
-- `services/record/recordService.js` — `${uid}::uuid` cast in template SQL
-- `routes/user/familyRoutes.js` — `::uuid` casts, `id::int AS id`, `42P01` graceful fallback
-- `utils/notifications/appointmentReminderJob.js` — template literal in error log so winston shows the message
-- `utils/hipaaAudit.js` — `patient_id` no longer cast as uuid (column is varchar now)
-
-### Patient Flutter touched
-- New: `dashboard_header.dart`, `feature_grid.dart` (with brightness-aware tints + saturated derived tint), `hero_snapshot_row.dart`, `stats_strip.dart` (streak card hidden when 0), `dashboard_section.dart`, `stagger_entry.dart`
-- New: `assets/images/features/*.svg` × 14 (your-health, appointments, records, pharmacy, investigations, ask-a-doubt, trivia, departments, about-us, step-challenge, vitals, refills, family, health-points)
-- Modified: `splash_screen.dart` (VH_DEV_PHONE/VH_DEV_NAME defines, fades, auto-advance, profile-setup phone passing), `app_router.dart` (fade transitions), `dashboard_screen.dart` (RefreshIndicator wrap, _refreshAll, all _features now have svgAsset), `your_health_screen.dart` (regular Scaffold for tabbed body), `notifications_screen.dart` (FeatureScreenScaffold scrollable: false), `feature_screen_scaffold.dart` (scrollable: false default), `quick_action_button.dart` (brightness-aware), `daily_checkin_sheet.dart` (one-per-session gate), `logout_button.dart` (public confirmAndLogout), `connectivity_service.dart` (probe host fix), `main.dart` (unawaited _syncReminders), `login_form.dart` (route name + extra phone)
-- `apps/patient/pubspec.yaml` — added `flutter_svg: ^2.0.10+1` + `assets/images/features/` to assets
-
-### Other artefacts
-- `apps/backend/scripts/seed-fresh-test-user.sql` — populates Fresh Test User (id 1734, +919999999997) with appointments, prescriptions, e_prescriptions, pharmacy_orders, investigations, vitals, allergies, family, reminders, notifications, gamification ledger
-- `apps/backend/scripts/seed-test-staff-accounts.mjs` — idempotent seed for one staff account per `StaffRole` enum value (8 roles). All passwords are `test1234`. Re-run any time to reset.
-- `AUDIT.md` — kept current, has a "2026-04-26 evening" section for the diff
-- `SESSION_HANDOFF.md` — this file
-
-### Test accounts (after running `node --import dotenv/config scripts/seed-test-staff-accounts.mjs`)
-
-All staff log in via `POST /api/v1/auth/staff/login` with `{ employeeId, password: "<seed-password>" }`. The staff app's login form now shows `EMP-` as a non-editable prefix on the Employee ID field — users type only the digits (e.g. `1001`), the submit handler reassembles `EMP-1001` before sending. The full ID is still `EMP-NNNN` everywhere on the wire.
-
-| Employee ID | Role           | StaffRole enum     | Notes |
-|-------------|---------------|---------------------|-------|
-| EMP-1001    | NURSING_STAFF | `nurse`             | Sees Lab Bookings, Patient Records, Vitals, etc. — most-clinical view |
-| EMP-1002    | PHARMACY_STAFF| `pharmacy`          | Pharmacy Orders tile, Orders bottom tab |
-| EMP-1003    | LAB_STAFF     | `lab`               | Lab Bookings + Lab Results + Upload Results, Investigations bottom tab |
-| EMP-1004    | DOCTOR        | `doctor`            | Doctor-scoped feature set |
-| EMP-1005    | HR_STAFF      | `hr`                | HR dashboard, Staff Management |
-| EMP-1006    | ADMIN         | `admin`             | Broad feature set incl. clinical + admin |
-| EMP-1007    | SUPER_ADMIN   | `superAdmin`        | Same as admin |
-| EMP-1008    | GENERAL_STAFF | `general`           | Fallback / minimum-role view (Housekeeping, My Tasks, Appt Queue) |
-
-Patient testing:
-- `POST /api/v1/auth/dev/patient-login` with `{ phone: "+919999999997" }` → Fresh Test User (seeded with appointments/prescriptions/etc. via `seed-fresh-test-user.sql`)
-
-## How to resume
-
-### Infra restart (if needed in fresh session)
-```bash
-# Postgres
-"C:/Program Files/PostgreSQL/17/bin/pg_ctl" -D "D:/Dev/Tools/pgdata-vhhealth" -l "D:/Dev/Tools/pgdata-vhhealth/logfile" -o "-p 5433" start
-
-# Backend (run in background)
-cd "D:/Dev/Projects/VH Health/VH-Health-Platform/apps/backend"
-ENABLE_DEV_AUTH=true node --import dotenv/config src/bin/www.js
-
-# Emulator
-"C:/Users/subas/AppData/Local/Android/Sdk/emulator/emulator.exe" -avd vh-pixel -no-boot-anim
+```
+24e3c974 Merge feat/hindi-100pct-patient-i18n: staff Hindi 100% + patient app i18n parity
+a297ed37 Merge feat/i18n-health-verify: i18n verification script + report + final hardcoded sweep
+223d2dc2 Merge feat/i18n-migration-finish: full staff-app i18n coverage
+5b384f27 Merge feat/i18n-migration-contrast: contrast audit + Hindi review + 23-screen i18n migration
+ef5d94e7 Merge feat/a11y-i18n-sr-plan: 10 a11y fixes + i18n expansion + SR test plan
+6b22f8ae Merge feat/voice-print-i18n-telemetry: voice dictation + PDF print + telemetry + i18n + a11y audit
+2aa291f4 Merge feat/role-sweep-2026-05-02: 10 cross-role bug fixes
+022b7a85 Merge feat/logout-everywhere-bed-notes: universal logout button + bed-board patient details + notes flow
 ```
 
-### Building + running the patient app
-```bash
-cd "D:/Dev/Projects/VH Health/VH-Health-Platform/apps/patient"
-
-flutter build apk --debug \
-  --dart-define=VH_BASE_URL=http://10.0.2.2:5000/api/v1 \
-  --dart-define=VH_API_KEY="<local-api-key>" \
-  --dart-define=VH_AUTO_DEV_LOGIN=true \
-  --dart-define=VH_DEV_PHONE=+919999999997 \
-  --dart-define=VH_DEV_NAME="Fresh Test User"
-
-adb -s emulator-5554 install -r build/app/outputs/flutter-apk/app-debug.apk
-adb -s emulator-5554 shell am force-stop com.vh.vhhealth
-adb -s emulator-5554 shell am start -n com.vh.vhhealth/com.vh.vhhealth.MainActivity
-```
-
-### Re-seed Fresh Test User data any time
-```bash
-"C:/Program Files/PostgreSQL/17/bin/psql" -h localhost -p 5433 -U vhhealth -d vhhealth \
-  -f "D:/Dev/Projects/VH Health/VH-Health-Platform/apps/backend/scripts/seed-fresh-test-user.sql"
-```
-(Idempotent — deletes prior demo rows for this user before re-inserting.)
-
-### Patient JWT for endpoint testing
-```bash
-curl -s -X POST http://localhost:5000/api/v1/auth/dev/patient-login \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: <local-api-key>" \
-  -d '{"phone":"+919999999997"}' \
-  | python -c "import sys,json;print(json.load(sys.stdin)['data']['accessToken'])"
-```
-
-## Picking up the booking lifecycle work — DONE 2026-04-26 night
-
-All 3 GETs that were open at the end of the evening session are now 200. The patient endpoint sweep is complete; backend-side, the booking lifecycle is fully wired (queue + sla + detail GETs return real data including the 5-row history audit trail for booking #1).
-
-**Next concrete step (separate task):** visual verification of the staff Flutter app lab-bookings flow against these endpoints. Will need a staff seed user — see `apps/staff/CLAUDE.md` for credentials approach.
-
-## Final state at session end
-
-The backend process (task `bv85cexm4`) was reported "failed exit 1" right at session close — this was the task wrapper exiting, **not** a backend crash. Last log lines show normal traffic + a healthy `kpi.snapshot` tick at 22:03:30 with 200s on every probed endpoint. **Just restart it cleanly** with the command in the "Infra restart" section above; nothing to debug there.
-
-The `bookingController.js` was also auto-formatted by a linter at session close — the changes are intentional, don't revert.
-
-## What NOT to touch
-- ABDM (gated behind unset env vars; user said leave it).
-- The 40 clinical-AI services under `apps/backend/src/services/ai/` — explicit carve-out from the original Phase-0.5 conventions.
-- Migration 075 (RLS policies) — deliberately permissive when GUC unset.
-- `apps/backend/migrations/` legacy tree — only `src/migrations/` is authoritative.
+Pick any task, branch off `main`, and continue.
