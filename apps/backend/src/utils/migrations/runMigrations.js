@@ -8,6 +8,34 @@ import { splitStatements } from './splitStatements.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_MIGRATIONS_DIR = path.resolve(__dirname, '../../migrations');
+const OPTIONAL_PGVECTOR_MIGRATION = '113_knowledge_base_foundation.sql';
+
+function canSkipOptionalPgvectorMigration() {
+  return process.env.NODE_ENV !== 'production' && process.env.REQUIRE_PGVECTOR !== 'true';
+}
+
+function isOptionalPgvectorUnavailable(file, err) {
+  if (file !== OPTIONAL_PGVECTOR_MIGRATION) return false;
+  if (!canSkipOptionalPgvectorMigration()) return false;
+  return /extension "vector" is not available|type "vector" does not exist|pgvector/i.test(
+    String(err?.message || ''),
+  );
+}
+
+async function isPgvectorAvailable() {
+  const rows = await prisma.$queryRawUnsafe(
+    "SELECT 1 FROM pg_available_extensions WHERE name = 'vector' LIMIT 1",
+  );
+  return (Array.isArray(rows) ? rows : rows?.rows ?? []).length > 0;
+}
+
+async function rollbackBestEffort() {
+  try {
+    await prisma.$executeRawUnsafe('ROLLBACK');
+  } catch {
+    // The failed statement may not have left an open transaction on this connection.
+  }
+}
 
 /**
  * Apply pending `.sql` migrations from `src/migrations/` in filename order.
@@ -61,8 +89,19 @@ export async function runMigrations({ migrationsDir = DEFAULT_MIGRATIONS_DIR } =
     .sort();
 
   let ran = 0;
+  let skippedOptional = 0;
   for (const file of files) {
     if (executedNames.has(file)) continue;
+
+    if (
+      file === OPTIONAL_PGVECTOR_MIGRATION &&
+      canSkipOptionalPgvectorMigration() &&
+      !(await isPgvectorAvailable())
+    ) {
+      skippedOptional += 1;
+      logger.warn(`Skipping ${file}: pgvector is unavailable in this non-production database.`);
+      continue;
+    }
 
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
     const statements = splitStatements(sql);
@@ -83,6 +122,17 @@ export async function runMigrations({ migrationsDir = DEFAULT_MIGRATIONS_DIR } =
       ran += 1;
       logger.info(`✅ Migration completed: ${file}`);
     } catch (err) {
+      if (isOptionalPgvectorUnavailable(file, err)) {
+        await rollbackBestEffort();
+        await prisma.$disconnect();
+        skippedOptional += 1;
+        logger.warn(`Skipping ${file}: pgvector is unavailable in this non-production database.`, {
+          error: err?.message,
+          code: err?.code,
+        });
+        continue;
+      }
+
       logger.error(`❌ Migration ${file} failed`, {
         error: err?.message,
         code: err?.code,
@@ -94,10 +144,13 @@ export async function runMigrations({ migrationsDir = DEFAULT_MIGRATIONS_DIR } =
     }
   }
 
-  if (ran === 0) {
+  if (ran === 0 && skippedOptional === 0) {
     logger.info('No pending migrations.');
+  } else if (ran === 0) {
+    logger.info(`No pending migrations applied; skipped ${skippedOptional} optional migration(s).`);
   } else {
-    logger.info(`✅ Ran ${ran} migration(s).`);
+    const skippedSuffix = skippedOptional > 0 ? `; skipped ${skippedOptional} optional migration(s)` : '';
+    logger.info(`✅ Ran ${ran} migration(s)${skippedSuffix}.`);
   }
 }
 

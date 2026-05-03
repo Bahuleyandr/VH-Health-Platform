@@ -18,10 +18,10 @@ param(
   [string]$JwtSecret = "vhhealth-local-admin-smoke-secret-123456789",
   [string]$ApiKey = "vhhealth-local-api-key",
   [string]$PgHost = "127.0.0.1",
-  [int]$PgPort = 5433,
-  [string]$PgUser = "vhhealth",
-  [string]$PgDatabase = "vhhealth",
-  [string]$PgPassword = "test",
+  [int]$PgPort = 55432,
+  [string]$PgUser = "postgres",
+  [string]$PgDatabase = "vhhealth_test",
+  [string]$PgPassword = "",
   [string]$PsqlPath = "psql"
 )
 
@@ -262,8 +262,16 @@ function Add-ContractResult {
 Assert-Command "node"
 Assert-Command $PsqlPath
 
-$migrationPath = Join-Path $BackendDir "migrations\033_clinical_safety_runtime_alignment.sql"
-Invoke-PsqlFile $migrationPath
+$migrationCandidates = @(
+  (Join-Path $BackendDir "src\migrations\033_clinical_safety_runtime_alignment.sql"),
+  (Join-Path $BackendDir "migrations\033_clinical_safety_runtime_alignment.sql")
+)
+$migrationPath = $migrationCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($migrationPath) {
+  Invoke-PsqlFile $migrationPath
+} else {
+  Write-Verbose "Clinical-safety runtime alignment migration not found; assuming canonical migrations already provisioned the schema."
+}
 
 $stamp = Get-Date -Format "yyyyMMddHHmmss"
 
@@ -287,8 +295,8 @@ ON CONFLICT (uid) DO UPDATE SET
   status = 'active',
   updated_at = NOW();
 
-INSERT INTO allergies (patient_uid, allergen, name, allergy_type, severity, reaction, status)
-VALUES ('$PatientUid'::uuid, 'amoxicillin', 'Amoxicillin', 'medication', 'severe', 'anaphylaxis', 'active');
+INSERT INTO allergies (patient_uid, allergen, name, severity, reaction, status)
+VALUES ('$PatientUid'::uuid, 'amoxicillin', 'Amoxicillin', 'severe', 'anaphylaxis', 'active');
 
 INSERT INTO patient_allergies (patient_id, patient_uid, allergy_name, severity, reaction, is_active)
 SELECT id, uid, 'penicillin', 'severe', 'rash', true

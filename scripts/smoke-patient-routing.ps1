@@ -19,10 +19,10 @@ param(
   [string]$JwtSecret = "vhhealth-local-admin-smoke-secret-123456789",
   [string]$ApiKey = "vhhealth-local-api-key",
   [string]$PgHost = "127.0.0.1",
-  [int]$PgPort = 5433,
-  [string]$PgUser = "vhhealth",
-  [string]$PgDatabase = "vhhealth",
-  [string]$PgPassword = "test",
+  [int]$PgPort = 55432,
+  [string]$PgUser = "postgres",
+  [string]$PgDatabase = "vhhealth_test",
+  [string]$PgPassword = "",
   [string]$PsqlPath = "psql"
 )
 

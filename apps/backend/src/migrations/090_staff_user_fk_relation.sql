@@ -14,10 +14,20 @@
 
 BEGIN;
 
-ALTER TABLE staff
-  ADD CONSTRAINT staff_user_id_fkey
-  FOREIGN KEY (user_id) REFERENCES users(uid)
-  ON DELETE SET NULL ON UPDATE NO ACTION;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'staff_user_id_fkey'
+      AND conrelid = 'staff'::regclass
+  ) THEN
+    ALTER TABLE staff
+      ADD CONSTRAINT staff_user_id_fkey
+      FOREIGN KEY (user_id) REFERENCES users(uid)
+      ON DELETE SET NULL ON UPDATE NO ACTION;
+  END IF;
+END $$;
 
 -- Matches the pattern the Prisma-generated schema uses for other
 -- users-keyed tables (doctors, payslips, medical_records, etc.).

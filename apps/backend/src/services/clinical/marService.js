@@ -35,7 +35,7 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO medication_administrations
          (patient_uid, prescription_id, medication_name, dose, route, scheduled_time, notes, status)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6::timestamptz AT TIME ZONE 'UTC', $7, 'scheduled')
+       VALUES ($1::uuid, $2, $3, $4, $5, $6::timestamptz, $7, 'scheduled')
        RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, created_at`,
       
         patientUid,

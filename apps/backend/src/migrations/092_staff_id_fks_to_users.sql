@@ -20,35 +20,74 @@
 
 BEGIN;
 
-ALTER TABLE staff_attendance
-  ADD CONSTRAINT staff_attendance_staff_id_fkey
-  FOREIGN KEY (staff_id) REFERENCES users(id)
-  ON DELETE CASCADE ON UPDATE NO ACTION;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'staff_attendance_staff_id_fkey'
+      AND conrelid = 'staff_attendance'::regclass
+  ) THEN
+    ALTER TABLE staff_attendance
+      ADD CONSTRAINT staff_attendance_staff_id_fkey
+      FOREIGN KEY (staff_id) REFERENCES users(id)
+      ON DELETE CASCADE ON UPDATE NO ACTION;
+  END IF;
 
-ALTER TABLE attendance_logs
-  ADD CONSTRAINT attendance_logs_staff_id_fkey
-  FOREIGN KEY (staff_id) REFERENCES users(id)
-  ON DELETE SET NULL ON UPDATE NO ACTION;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'attendance_logs_staff_id_fkey'
+      AND conrelid = 'attendance_logs'::regclass
+  ) THEN
+    ALTER TABLE attendance_logs
+      ADD CONSTRAINT attendance_logs_staff_id_fkey
+      FOREIGN KEY (staff_id) REFERENCES users(id)
+      ON DELETE SET NULL ON UPDATE NO ACTION;
+  END IF;
 
-ALTER TABLE leave_applications
-  ADD CONSTRAINT leave_applications_staff_id_fkey
-  FOREIGN KEY (staff_id) REFERENCES users(id)
-  ON DELETE SET NULL ON UPDATE NO ACTION;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'leave_applications_staff_id_fkey'
+      AND conrelid = 'leave_applications'::regclass
+  ) THEN
+    ALTER TABLE leave_applications
+      ADD CONSTRAINT leave_applications_staff_id_fkey
+      FOREIGN KEY (staff_id) REFERENCES users(id)
+      ON DELETE SET NULL ON UPDATE NO ACTION;
+  END IF;
 
-ALTER TABLE staff_performance_reviews
-  ADD CONSTRAINT staff_performance_reviews_staff_id_fkey
-  FOREIGN KEY (staff_id) REFERENCES users(id)
-  ON DELETE SET NULL ON UPDATE NO ACTION;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'staff_performance_reviews_staff_id_fkey'
+      AND conrelid = 'staff_performance_reviews'::regclass
+  ) THEN
+    ALTER TABLE staff_performance_reviews
+      ADD CONSTRAINT staff_performance_reviews_staff_id_fkey
+      FOREIGN KEY (staff_id) REFERENCES users(id)
+      ON DELETE SET NULL ON UPDATE NO ACTION;
+  END IF;
 
-ALTER TABLE staff_onboarding_tasks
-  ADD CONSTRAINT staff_onboarding_tasks_staff_id_fkey
-  FOREIGN KEY (staff_id) REFERENCES users(id)
-  ON DELETE SET NULL ON UPDATE NO ACTION;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'staff_onboarding_tasks_staff_id_fkey'
+      AND conrelid = 'staff_onboarding_tasks'::regclass
+  ) THEN
+    ALTER TABLE staff_onboarding_tasks
+      ADD CONSTRAINT staff_onboarding_tasks_staff_id_fkey
+      FOREIGN KEY (staff_id) REFERENCES users(id)
+      ON DELETE SET NULL ON UPDATE NO ACTION;
+  END IF;
 
-ALTER TABLE hr_activity_logs
-  ADD CONSTRAINT hr_activity_logs_staff_id_fkey
-  FOREIGN KEY (staff_id) REFERENCES users(id)
-  ON DELETE SET NULL ON UPDATE NO ACTION;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'hr_activity_logs_staff_id_fkey'
+      AND conrelid = 'hr_activity_logs'::regclass
+  ) THEN
+    ALTER TABLE hr_activity_logs
+      ADD CONSTRAINT hr_activity_logs_staff_id_fkey
+      FOREIGN KEY (staff_id) REFERENCES users(id)
+      ON DELETE SET NULL ON UPDATE NO ACTION;
+  END IF;
+END $$;
 
 -- Match Prisma's auto-generated FK index pattern.
 CREATE INDEX IF NOT EXISTS idx_staff_attendance_staff_id_fk ON staff_attendance(staff_id);
