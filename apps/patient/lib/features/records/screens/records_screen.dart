@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:vhhealth/core/services/api_client.dart';
@@ -130,10 +131,11 @@ class _RecordsScreenState extends State<RecordsScreen>
   }
 
   Future<void> _openDocument(_RecordItem record) async {
+    final l = AppLocalizations.of(context)!;
     final url = record.fileUrl;
     if (url == null || url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Document URL not available')),
+        SnackBar(content: Text(l.recordsDocumentUrlMissing)),
       );
       return;
     }
@@ -145,15 +147,16 @@ class _RecordsScreenState extends State<RecordsScreen>
   }
 
   Future<void> _deleteRecord(_RecordItem record) async {
+    final l = AppLocalizations.of(context)!;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete Record?'),
-        content: Text('Delete "${record.title}"? This cannot be undone.'),
+        title: Text(l.recordsDeleteTitle),
+        content: Text('${l.recordsDeletePrefix}"${record.title}"? This cannot be undone.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l.commonCancelButton),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -175,8 +178,8 @@ class _RecordsScreenState extends State<RecordsScreen>
         if (mounted) {
           setState(() => _myUploads.removeWhere((r) => r.id == record.id));
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Record deleted'),
+            SnackBar(
+              content: Text(l.recordsDeleted),
               backgroundColor: Colors.red,
             ),
           );
@@ -228,10 +231,11 @@ class _RecordsScreenState extends State<RecordsScreen>
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheet) {
           Future<void> upload() async {
+            final lInner = AppLocalizations.of(ctx)!;
             if (pickedFilePath == null || titleCtrl.text.trim().isEmpty) {
               ScaffoldMessenger.of(ctx).showSnackBar(
-                const SnackBar(
-                  content: Text('Please pick a file and enter a title'),
+                SnackBar(
+                  content: Text(lInner.recordsPickFileFirst),
                 ),
               );
               return;
@@ -264,8 +268,8 @@ class _RecordsScreenState extends State<RecordsScreen>
                 if (ctx.mounted) Navigator.pop(ctx);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Record uploaded'),
+                    SnackBar(
+                      content: Text(lInner.recordsUploaded),
                       backgroundColor: Colors.green,
                     ),
                   );
@@ -301,7 +305,7 @@ class _RecordsScreenState extends State<RecordsScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Upload Record',
+                    AppLocalizations.of(ctx)!.recordsUploadButton,
                     style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -457,7 +461,7 @@ class _RecordsScreenState extends State<RecordsScreen>
               ),
               const SizedBox(height: 12),
               Text(
-                'Your prescriptions and reports from visits will appear here',
+                AppLocalizations.of(context)!.recordsHospitalEmpty,
                 style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),
@@ -495,7 +499,7 @@ class _RecordsScreenState extends State<RecordsScreen>
               ),
               const SizedBox(height: 12),
               Text(
-                'Upload your previous prescriptions and reports to keep them in one place',
+                AppLocalizations.of(context)!.recordsUploadEmptyHint,
                 style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),
@@ -503,7 +507,7 @@ class _RecordsScreenState extends State<RecordsScreen>
               ElevatedButton.icon(
                 onPressed: _showUploadSheet,
                 icon: const Icon(Icons.upload_file),
-                label: const Text('Upload a Record'),
+                label: Text(AppLocalizations.of(context)!.recordsUploadSheetTitle),
               ),
             ],
           ),

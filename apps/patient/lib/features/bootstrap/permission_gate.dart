@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:flutter/material.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class PermissionGate extends StatefulWidget {
   const PermissionGate({super.key});
@@ -42,7 +43,7 @@ class _PermissionGateState extends State<PermissionGate> {
             const SizedBox(height: 24),
             const CircularProgressIndicator(),
             const SizedBox(height: 16),
-            Text('Setting up...', style: Theme.of(context).textTheme.bodyLarge),
+            Text(AppLocalizations.of(context)!.permissionGateSettingUp, style: Theme.of(context).textTheme.bodyLarge),
           ],
         ),
       ),

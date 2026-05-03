@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 // Option 1: Card-based Appointment Widget
 class AppointmentCard extends StatelessWidget {
@@ -279,7 +280,7 @@ class AppointmentTimeline extends StatelessWidget {
                   Icon(LucideIcons.checkCircle2, color: Colors.green, size: 32),
                   const SizedBox(height: 8),
                   Text(
-                    'Last Visit',
+                    AppLocalizations.of(context)!.dashboardLastVisitTitle,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                     ),
@@ -324,7 +325,7 @@ class AppointmentTimeline extends StatelessWidget {
                   Icon(LucideIcons.calendarClock, color: Colors.blue, size: 32),
                   const SizedBox(height: 8),
                   Text(
-                    'Next Visit',
+                    AppLocalizations.of(context)!.dashboardNextVisitTitle,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                     ),
@@ -391,7 +392,7 @@ class AppointmentInfoBar extends StatelessWidget {
                   Row(
                     children: [
                       Text(
-                        'Last: ',
+                        '${AppLocalizations.of(context)!.dashboardLastVisitColon} ',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onPrimaryContainer
                               .withValues(alpha: 0.7),
@@ -410,7 +411,7 @@ class AppointmentInfoBar extends StatelessWidget {
                   Row(
                     children: [
                       Text(
-                        'Next: ',
+                        '${AppLocalizations.of(context)!.dashboardNextVisitColon} ',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onPrimaryContainer
                               .withValues(alpha: 0.7),

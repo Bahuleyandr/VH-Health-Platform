@@ -123,7 +123,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
           if (mounted) {
             messenger.showSnackBar(
               SnackBar(
-                content: const Text('File too large. Maximum size is 10 MB.'),
+                content: Text(AppLocalizations.of(context)!.investigationsFileTooLarge),
                 backgroundColor: theme.colorScheme.error,
                 behavior: SnackBarBehavior.floating,
               ),
@@ -513,7 +513,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                       setState(() => _expandedIds.add(id));
                     },
                     icon: const Icon(Icons.download_outlined),
-                    label: const Text('View / Download Report'),
+                    label: Text(AppLocalizations.of(context)!.investigationsViewDownloadReport),
                   ),
                 ),
               ],
@@ -616,7 +616,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                 );
               },
               icon: const Icon(Icons.add),
-              label: const Text('Book Investigation'),
+              label: Text(AppLocalizations.of(context)!.investigationsBookButton),
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
@@ -924,7 +924,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                       Padding(
                         padding: const EdgeInsets.all(12),
                         child: Text(
-                          'No files available',
+                          l10n.investigationsNoFiles,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: cs.onSurfaceVariant,
                           ),

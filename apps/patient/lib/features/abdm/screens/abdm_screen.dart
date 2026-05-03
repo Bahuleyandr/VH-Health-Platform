@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'package:vhhealth/core/providers/user_provider.dart';
@@ -32,8 +33,9 @@ class _AbdmScreenState extends State<AbdmScreen>
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return FeatureScreenScaffold(
-      title: 'Health ID (ABHA)',
+      title: l.settingsHealthIdLabel,
       icon: Icons.health_and_safety,
       color: const Color(0xFF26A69A),
       child: Column(
@@ -218,6 +220,7 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
   }
 
   Widget _buildInfoCard(ThemeData theme) {
+    final l = AppLocalizations.of(context)!;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -229,7 +232,7 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
           ),
           const SizedBox(height: 16),
           Text(
-            'Ayushman Bharat Health Account',
+            l.abdmHeading,
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
             ),
@@ -237,16 +240,13 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
           ),
           const SizedBox(height: 12),
           Text(
-            'ABHA (Ayushman Bharat Health Account) is a unique health ID '
-            'that allows you to share your health records digitally with '
-            'healthcare providers across India. It enables seamless, '
-            'consent-based access to your medical history.',
+            l.abdmDescription,
             style: theme.textTheme.bodyMedium,
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
           Text(
-            'Your data stays secure and is shared only with your consent.',
+            l.abdmDataSecurityNote,
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
@@ -256,7 +256,7 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
           FilledButton.icon(
             onPressed: () => setState(() => _showRegistration = true),
             icon: const Icon(Icons.app_registration),
-            label: const Text('Register ABHA'),
+            label: Text(l.abdmRegister),
           ),
         ],
       ),
@@ -264,13 +264,14 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
   }
 
   Widget _buildAbhaCard(ThemeData theme) {
+    final l = AppLocalizations.of(context)!;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
           Icon(Icons.verified, size: 64, color: theme.colorScheme.primary),
           const SizedBox(height: 16),
-          Text('Your ABHA Number', style: theme.textTheme.titleMedium),
+          Text(l.abdmYourNumber, style: theme.textTheme.titleMedium),
           const SizedBox(height: 12),
           Card(
             child: Padding(
@@ -306,6 +307,7 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
   }
 
   Widget _buildRegistrationForm(ThemeData theme) {
+    final l = AppLocalizations.of(context)!;
     final phone = context.read<UserProvider>().phone;
 
     return SingleChildScrollView(
@@ -316,7 +318,7 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Register ABHA',
+              l.abdmRegister,
               style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
@@ -414,6 +416,7 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
   }
 
   Widget _buildOtpVerification(ThemeData theme) {
+    final l = AppLocalizations.of(context)!;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -421,14 +424,14 @@ class _MyAbhaTabState extends State<_MyAbhaTab> {
           Icon(Icons.sms, size: 48, color: theme.colorScheme.primary),
           const SizedBox(height: 16),
           Text(
-            'Verify Your ABHA',
+            l.abdmVerifyHeading,
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            'Enter the OTP sent to your mobile number',
+            l.abdmEnterOtp,
             style: theme.textTheme.bodyMedium,
             textAlign: TextAlign.center,
           ),
@@ -597,7 +600,7 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
             ),
             const SizedBox(height: 12),
             Text(
-              'No consent requests',
+              AppLocalizations.of(context)!.abdmNoConsents,
               style: theme.textTheme.bodyLarge?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),

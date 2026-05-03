@@ -12,6 +12,7 @@ import 'package:vhhealth/features/gamification/widgets/history_tab.dart';
 import 'package:vhhealth/features/gamification/widgets/milestones_tab.dart';
 import 'package:vhhealth/features/gamification/widgets/overview_tab.dart';
 import 'package:vhhealth/features/gamification/widgets/rewards_tab.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class HealthPointsScreen extends StatefulWidget {
   const HealthPointsScreen({super.key});
@@ -242,6 +243,7 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
 
   void _showVoucherDialog(String voucherCode, String description) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -250,7 +252,7 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
           children: [
             Icon(Icons.celebration, color: theme.colorScheme.primary, size: 28),
             const SizedBox(width: 8),
-            const Text('Reward Claimed!'),
+            Text(l.gamificationRewardClaimed),
           ],
         ),
         content: Column(
@@ -263,7 +265,7 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
             ),
             const SizedBox(height: 16),
             if (voucherCode.isNotEmpty) ...[
-              Text('Your voucher code:', style: theme.textTheme.bodySmall),
+              Text(l.gamificationVoucherCode, style: theme.textTheme.bodySmall),
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.symmetric(
@@ -290,10 +292,10 @@ class _HealthPointsScreenState extends State<HealthPointsScreen>
                       onPressed: () {
                         Clipboard.setData(ClipboardData(text: voucherCode));
                         ScaffoldMessenger.of(ctx).showSnackBar(
-                          const SnackBar(
-                            content: Text('Voucher code copied!'),
+                          SnackBar(
+                            content: Text(l.gamificationVoucherCopied),
                             behavior: SnackBarBehavior.floating,
-                            duration: Duration(seconds: 2),
+                            duration: const Duration(seconds: 2),
                           ),
                         );
                       },

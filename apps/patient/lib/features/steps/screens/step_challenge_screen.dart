@@ -3,6 +3,7 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:pedometer/pedometer.dart';
@@ -648,15 +649,16 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
     }
 
     // Setup form
+    final l = AppLocalizations.of(context)!;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Set up your profile',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            Text(
+              l.stepsSetupProfileTitle,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -668,9 +670,9 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
               ),
             ),
             const SizedBox(height: 12),
-            const Text(
-              'Pick a color:',
-              style: TextStyle(fontWeight: FontWeight.w600),
+            Text(
+              l.stepsPickColor,
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             Wrap(
@@ -708,7 +710,7 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Save Profile'),
+                    : Text(l.stepsSaveProfile),
               ),
             ),
           ],
@@ -806,15 +808,16 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
   // ─── Walk control ─────────────────────────────────────────────────────────
 
   Widget _buildWalkControl() {
+    final l = AppLocalizations.of(context)!;
     if (!_isWalking) {
       return SizedBox(
         width: double.infinity,
         height: 64,
         child: ElevatedButton.icon(
           icon: const Icon(Icons.directions_walk, size: 28),
-          label: const Text(
-            'START WALK',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          label: Text(
+            l.stepsStartWalkUpper,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.green[600],
@@ -835,9 +838,9 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            const Text(
-              'Walk in progress…',
-              style: TextStyle(
+            Text(
+              l.stepsWalkInProgress,
+              style: const TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
                 color: Colors.green,
@@ -866,9 +869,9 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
               height: 52,
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.stop_circle_outlined, size: 24),
-                label: const Text(
-                  'STOP WALK',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                label: Text(
+                  l.stepsStopWalkUpper,
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.red[600],
@@ -942,8 +945,11 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
 
   Widget _buildDailyList() {
     if (_daily.isEmpty) {
-      return const Center(
-        child: Text('No daily data yet', style: TextStyle(color: Colors.grey)),
+      return Center(
+        child: Text(
+          AppLocalizations.of(context)!.stepsNoDailyData,
+          style: const TextStyle(color: Colors.grey),
+        ),
       );
     }
     return ListView.builder(
@@ -963,8 +969,11 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
 
   Widget _buildWeeklyList() {
     if (_weekly.isEmpty) {
-      return const Center(
-        child: Text('No weekly data yet', style: TextStyle(color: Colors.grey)),
+      return Center(
+        child: Text(
+          AppLocalizations.of(context)!.stepsNoWeeklyData,
+          style: const TextStyle(color: Colors.grey),
+        ),
       );
     }
     return ListView.builder(
@@ -984,10 +993,10 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
 
   Widget _buildMonthlyList() {
     if (_monthly.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
-          'No monthly data yet',
-          style: TextStyle(color: Colors.grey),
+          AppLocalizations.of(context)!.stepsNoMonthlyData,
+          style: const TextStyle(color: Colors.grey),
         ),
       );
     }
@@ -1065,19 +1074,20 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
   // ─── Leaderboard section ──────────────────────────────────────────────────
 
   Widget _buildLeaderboardSection() {
+    final l = AppLocalizations.of(context)!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            const Text(
-              'Leaderboard',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            Text(
+              l.stepsLeaderboard,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const Spacer(),
-            const Text(
-              'This month',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+            Text(
+              l.stepsThisMonth,
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],
         ),
@@ -1113,12 +1123,12 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
                 ),
               )
             : _leaderboard.isEmpty
-            ? const Center(
+            ? Center(
                 child: Padding(
-                  padding: EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(16),
                   child: Text(
-                    'No leaderboard data yet',
-                    style: TextStyle(color: Colors.grey),
+                    l.stepsNoLeaderboardData,
+                    style: const TextStyle(color: Colors.grey),
                   ),
                 ),
               )
@@ -1224,12 +1234,13 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
     }
     if (_rewards.isEmpty) return const SizedBox.shrink();
 
+    final l = AppLocalizations.of(context)!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Your Rewards 🏆',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        Text(
+          '${l.stepsYourRewards} 🏆',
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
         ),
         const SizedBox(height: 8),
         ...(_rewards.map(

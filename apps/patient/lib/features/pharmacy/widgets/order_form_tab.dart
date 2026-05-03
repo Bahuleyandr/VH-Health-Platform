@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 
@@ -78,6 +79,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
   }
 
   void _showImageSourcePicker() {
+    final l = AppLocalizations.of(context)!;
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
@@ -85,7 +87,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
           children: [
             ListTile(
               leading: const Icon(Icons.camera_alt, color: Color(0xFF7E57C2)),
-              title: const Text('Take Photo'),
+              title: Text(l.pharmacyTakePhoto),
               onTap: () {
                 Navigator.pop(ctx);
                 _pickPrescription(ImageSource.camera);
@@ -96,7 +98,7 @@ class _OrderFormTabState extends State<OrderFormTab> {
                 Icons.photo_library,
                 color: Color(0xFF7E57C2),
               ),
-              title: const Text('Choose from Gallery'),
+              title: Text(l.pharmacyChooseFromGallery),
               onTap: () {
                 Navigator.pop(ctx);
                 _pickPrescription(ImageSource.gallery);
@@ -205,15 +207,16 @@ class _OrderFormTabState extends State<OrderFormTab> {
   }
 
   void _showOrderPlacedDialog(String orderNumber) {
+    final l = AppLocalizations.of(context)!;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.check_circle, color: Colors.green, size: 28),
-            SizedBox(width: 8),
-            Text('Order Placed!'),
+            const Icon(Icons.check_circle, color: Colors.green, size: 28),
+            const SizedBox(width: 8),
+            Text(l.pharmacyOrderPlacedTitle),
           ],
         ),
         content: Column(
@@ -229,10 +232,9 @@ class _OrderFormTabState extends State<OrderFormTab> {
                 ),
               ),
             const SizedBox(height: 12),
-            const Text(
-              'Our pharmacist will review your prescription and confirm your order shortly. '
-              'You\'ll receive a notification with the total cost.',
-              style: TextStyle(color: Colors.grey),
+            Text(
+              l.pharmacyOrderPlacedBody,
+              style: const TextStyle(color: Colors.grey),
             ),
           ],
         ),
@@ -262,15 +264,16 @@ class _OrderFormTabState extends State<OrderFormTab> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Prescription upload
-          const Text(
-            'Upload Prescription',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          Text(
+            l.pharmacyUploadHeading,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
 
@@ -324,22 +327,22 @@ class _OrderFormTabState extends State<OrderFormTab> {
                         ),
                       ],
                     )
-                  : const Column(
+                  : Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(
+                        const Icon(
                           Icons.camera_alt,
                           size: 36,
                           color: Color(0xFF7E57C2),
                         ),
-                        SizedBox(height: 8),
+                        const SizedBox(height: 8),
                         Text(
-                          'Tap to upload prescription',
-                          style: TextStyle(color: Colors.grey),
+                          l.pharmacyTapToUpload,
+                          style: const TextStyle(color: Colors.grey),
                         ),
                         Text(
-                          'Camera or Gallery',
-                          style: TextStyle(color: Colors.grey, fontSize: 12),
+                          l.pharmacyCameraOrGallery,
+                          style: const TextStyle(color: Colors.grey, fontSize: 12),
                         ),
                       ],
                     ),
@@ -349,9 +352,9 @@ class _OrderFormTabState extends State<OrderFormTab> {
           const SizedBox(height: 16),
 
           // OR describe order
-          const Text(
-            'Or Describe Your Order',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          Text(
+            l.pharmacyOrDescribe,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
           ),
           const SizedBox(height: 8),
           TextField(
@@ -372,9 +375,9 @@ class _OrderFormTabState extends State<OrderFormTab> {
           const SizedBox(height: 20),
 
           // Delivery preference
-          const Text(
-            'Delivery Preference',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          Text(
+            l.pharmacyDeliveryPreference,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           Row(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class RewardsTab extends StatelessWidget {
   final List<Map<String, dynamic>> rewards;
@@ -39,7 +40,7 @@ class RewardsTab extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'Complete milestones to earn rewards!',
+              AppLocalizations.of(context)!.gamificationCompleteMilestones,
               style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
@@ -151,10 +152,10 @@ class RewardsTab extends StatelessWidget {
                                 ClipboardData(text: voucherCode),
                               );
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Voucher code copied!'),
+                                SnackBar(
+                                  content: Text(AppLocalizations.of(context)!.gamificationVoucherCopied),
                                   behavior: SnackBarBehavior.floating,
-                                  duration: Duration(seconds: 2),
+                                  duration: const Duration(seconds: 2),
                                 ),
                               );
                             },

@@ -16,6 +16,7 @@ import 'package:share_plus/share_plus.dart';
 import 'dart:io' show File;
 
 import 'package:vhhealth/features/gamification/widgets/achievement_grid.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class AchievementShareCard extends StatefulWidget {
   final AchievementDef achievement;
@@ -62,7 +63,7 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
       if (kDebugMode) debugPrint('AchievementShareCard: share error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not share right now')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.gamificationCouldNotShare)),
         );
       }
     } finally {
@@ -185,7 +186,7 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Share your progress with family and friends',
+              AppLocalizations.of(context)!.gamificationShareSubtitle,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.hintColor,
               ),

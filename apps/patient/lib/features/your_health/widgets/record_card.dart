@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 IconData iconForDocType(String type) {
   switch (type) {
@@ -45,11 +46,12 @@ Future<void> openDocument(
   BuildContext context,
   Map<String, dynamic> record,
 ) async {
+  final l = AppLocalizations.of(context)!;
   final url = record['file_url']?.toString();
   if (url == null || url.isEmpty) {
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Document URL not available')));
+    ).showSnackBar(SnackBar(content: Text(l.recordsDocumentUrlMissing)));
     return;
   }
   final launched = await SafeUrlLauncher.launch(
@@ -59,7 +61,7 @@ Future<void> openDocument(
   if (!launched && context.mounted) {
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Could not open document')));
+    ).showSnackBar(SnackBar(content: Text(l.documentCouldNotOpen)));
   }
 }
 

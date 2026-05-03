@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:vhhealth/core/services/feedback_api_service.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 /// Shows the user's submitted feedback history and stats.
 class FeedbackHistoryScreen extends StatefulWidget {
@@ -45,7 +46,7 @@ class _FeedbackHistoryScreenState extends State<FeedbackHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('My Feedback')),
+      appBar: AppBar(title: Text(AppLocalizations.of(context)!.feedbackHistoryTitle)),
       body: DataStateBuilder<dynamic>(
         isLoading: _loading,
         error: _error,

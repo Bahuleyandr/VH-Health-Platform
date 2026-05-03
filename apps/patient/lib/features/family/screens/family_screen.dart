@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:intl/intl.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
@@ -39,8 +40,9 @@ class _FamilyScreenState extends State<FamilyScreen> {
           _loading = false;
         });
       } else {
+        if (!mounted) return;
         setState(() {
-          _error = response.message ?? 'Failed to load family members';
+          _error = response.message ?? AppLocalizations.of(context)!.familyLoadFailed;
           _loading = false;
         });
       }
@@ -48,7 +50,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
       if (kDebugMode) debugPrint('FamilyScreen: fetch error: $e');
       if (mounted) {
         setState(() {
-          _error = 'Failed to load family members';
+          _error = AppLocalizations.of(context)!.familyLoadFailed;
           _loading = false;
         });
       }
@@ -73,31 +75,32 @@ class _FamilyScreenState extends State<FamilyScreen> {
   }
 
   Future<void> _removeMember(Map<String, dynamic> member) async {
+    final l = AppLocalizations.of(context)!;
     final id = (member['_id'] as String?) ?? (member['id']?.toString());
     if (id == null || id.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('Member ID not found')));
+        ).showSnackBar(SnackBar(content: Text(l.familyMemberIdNotFound)));
       }
       return;
     }
-    final name = member['name'] as String? ?? 'this family member';
+    final name = member['name'] as String? ?? l.familyUnknown;
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove Family Member'),
-        content: Text('Are you sure you want to remove $name?'),
+        title: Text(l.familyRemoveTitle),
+        content: Text(l.familyRemoveConfirm(name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l.commonCancelButton),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Remove'),
+            child: Text(l.familyRemoveButton),
           ),
         ],
       ),
@@ -110,13 +113,13 @@ class _FamilyScreenState extends State<FamilyScreen> {
       if (!mounted) return;
       if (response.isSuccess) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$name removed from family members')),
+          SnackBar(content: Text(l.familyRemoved(name))),
         );
         _fetchMembers();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(response.message ?? 'Failed to remove member'),
+            content: Text(response.message ?? l.familyRemoveFailed),
           ),
         );
       }
@@ -124,8 +127,8 @@ class _FamilyScreenState extends State<FamilyScreen> {
       if (kDebugMode) debugPrint('FamilyScreen: remove error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to remove member. Please try again.'),
+          SnackBar(
+            content: Text(l.familyRemoveFailedRetry),
           ),
         );
       }
@@ -134,8 +137,9 @@ class _FamilyScreenState extends State<FamilyScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return FeatureScreenScaffold(
-      title: 'Family Members',
+      title: l.familyTitle,
       icon: Icons.family_restroom,
       color: const Color(0xFFCE93D8),
       floatingActionButton: FloatingActionButton(
@@ -149,6 +153,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
 
   Widget _buildBody() {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
 
     if (_loading) {
       return const SizedBox(
@@ -175,7 +180,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
               OutlinedButton.icon(
                 onPressed: _fetchMembers,
                 icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
+                label: Text(l.familyRetryButton),
               ),
             ],
           ),
@@ -196,10 +201,10 @@ class _FamilyScreenState extends State<FamilyScreen> {
                 color: Colors.grey.shade400,
               ),
               const SizedBox(height: 12),
-              Text('No family members yet', style: theme.textTheme.bodyMedium),
+              Text(l.familyNoMembers, style: theme.textTheme.bodyMedium),
               const SizedBox(height: 8),
               Text(
-                'Add family members to manage shared care.',
+                l.familyNoMembersHint,
                 style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
@@ -207,7 +212,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
               OutlinedButton.icon(
                 onPressed: _addMember,
                 icon: const Icon(Icons.person_add),
-                label: const Text('Add Family Member'),
+                label: Text(l.familyAddMember),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: const Color(0xFFCE93D8),
                   side: const BorderSide(color: Color(0xFFCE93D8)),
@@ -223,14 +228,14 @@ class _FamilyScreenState extends State<FamilyScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Your Family',
+          l.familyYourFamily,
           style: theme.textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.bold,
           ),
         ),
         const SizedBox(height: 4),
         Text(
-          'Manage family members linked to your account.',
+          l.familyManageHint,
           style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
         ),
         const SizedBox(height: 16),
@@ -262,7 +267,8 @@ class _FamilyMemberCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final name = member['name'] as String? ?? 'Unknown';
+    final l = AppLocalizations.of(context)!;
+    final name = member['name'] as String? ?? l.familyUnknown;
     final relationship = member['relationship'] as String? ?? '';
     final phone = member['phone'] as String? ?? '';
     final dobRaw = member['dateOfBirth'] as String? ?? '';
@@ -329,7 +335,7 @@ class _FamilyMemberCard extends StatelessWidget {
                   if (dob.isNotEmpty) ...[
                     const SizedBox(height: 2),
                     Text(
-                      'DOB: $dob',
+                      '${l.familyDobPrefix} $dob',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: Colors.grey.shade600,
                       ),
@@ -341,7 +347,7 @@ class _FamilyMemberCard extends StatelessWidget {
             IconButton(
               onPressed: onRemove,
               icon: const Icon(Icons.delete_outline, color: Colors.red),
-              tooltip: 'Remove member',
+              tooltip: l.familyRemoveTooltip,
             ),
           ],
         ),
@@ -403,6 +409,7 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    final l = AppLocalizations.of(context)!;
 
     setState(() => _submitting = true);
     try {
@@ -423,14 +430,14 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
 
       if (response.isSuccess) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Family member added successfully')),
+          SnackBar(content: Text(l.familyAddedSuccess)),
         );
         Navigator.pop(context, true);
       } else {
         setState(() => _submitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(response.message ?? 'Failed to add family member'),
+            content: Text(response.message ?? l.familyAddFailed),
           ),
         );
       }
@@ -439,8 +446,8 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
       if (mounted) {
         setState(() => _submitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to add family member. Please try again.'),
+          SnackBar(
+            content: Text(l.familyAddFailedRetry),
           ),
         );
       }
@@ -450,6 +457,7 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
       child: Form(
@@ -470,7 +478,7 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
             ),
             const SizedBox(height: 16),
             Text(
-              'Add Family Member',
+              l.familyAddMember,
               style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
@@ -481,13 +489,13 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
             TextFormField(
               controller: _nameCtrl,
               textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                labelText: 'Full Name',
-                prefixIcon: Icon(Icons.person_outline),
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l.familyFullName,
+                prefixIcon: const Icon(Icons.person_outline),
+                border: const OutlineInputBorder(),
               ),
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Name is required';
+                if (v == null || v.trim().isEmpty) return l.familyNameRequired;
                 return null;
               },
             ),
@@ -497,15 +505,15 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
             TextFormField(
               controller: _phoneCtrl,
               keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: 'Phone Number',
-                prefixIcon: Icon(Icons.phone_outlined),
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l.familyPhone,
+                prefixIcon: const Icon(Icons.phone_outlined),
+                border: const OutlineInputBorder(),
               ),
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Phone is required';
+                if (v == null || v.trim().isEmpty) return l.familyPhoneRequired;
                 if (!RegExp(r'^[+]?[0-9]{10,15}$').hasMatch(v.trim())) {
-                  return 'Enter a valid phone number';
+                  return l.familyPhoneInvalid;
                 }
                 return null;
               },
@@ -515,10 +523,10 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
             // Relationship
             DropdownButtonFormField<String>(
               initialValue: _relationship,
-              decoration: const InputDecoration(
-                labelText: 'Relationship',
-                prefixIcon: Icon(Icons.people_outline),
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l.familyRelationship,
+                prefixIcon: const Icon(Icons.people_outline),
+                border: const OutlineInputBorder(),
               ),
               items: _relationships
                   .map((r) => DropdownMenuItem(value: r, child: Text(r)))
@@ -534,11 +542,11 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
               controller: _dobCtrl,
               readOnly: true,
               onTap: _pickDate,
-              decoration: const InputDecoration(
-                labelText: 'Date of Birth (optional)',
-                prefixIcon: Icon(Icons.cake_outlined),
-                border: OutlineInputBorder(),
-                hintText: 'Tap to select',
+              decoration: InputDecoration(
+                labelText: l.familyDateOfBirth,
+                prefixIcon: const Icon(Icons.cake_outlined),
+                border: const OutlineInputBorder(),
+                hintText: l.familyTapToSelect,
               ),
             ),
             const SizedBox(height: 24),
@@ -553,7 +561,7 @@ class _AddFamilyMemberSheetState extends State<_AddFamilyMemberSheet> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.person_add),
-              label: Text(_submitting ? 'Adding...' : 'Add Member'),
+              label: Text(_submitting ? l.familyAdding : l.familyAddMemberShort),
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFFCE93D8),
                 padding: const EdgeInsets.symmetric(vertical: 14),

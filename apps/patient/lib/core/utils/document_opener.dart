@@ -8,6 +8,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class DocumentOpener {
   DocumentOpener._();
@@ -27,18 +28,18 @@ class DocumentOpener {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const PopScope(
+      builder: (ctx) => PopScope(
         canPop: false,
         child: Center(
           child: Card(
             child: Padding(
-              padding: EdgeInsets.all(24),
+              padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Opening document...'),
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 16),
+                  Text(AppLocalizations.of(ctx)!.documentOpening),
                 ],
               ),
             ),
@@ -98,7 +99,7 @@ class DocumentOpener {
         );
         if (!launched && context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Could not open document')),
+            SnackBar(content: Text(AppLocalizations.of(context)!.documentCouldNotOpen)),
           );
         }
       }

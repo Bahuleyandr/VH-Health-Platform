@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth/core/services/api_client.dart';
@@ -34,8 +35,9 @@ class _VitalsScreenState extends State<VitalsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return FeatureScreenScaffold(
-      title: 'Vitals',
+      title: l.vitalsTitle,
       icon: Icons.monitor_heart,
       color: const Color(0xFFEF9A9A),
       child: Column(
@@ -45,9 +47,9 @@ class _VitalsScreenState extends State<VitalsScreen>
             labelColor: const Color(0xFFE57373),
             unselectedLabelColor: Colors.grey,
             indicatorColor: const Color(0xFFE57373),
-            tabs: const [
-              Tab(icon: Icon(Icons.edit_note), text: 'Log Vitals'),
-              Tab(icon: Icon(Icons.history), text: 'History'),
+            tabs: [
+              Tab(icon: const Icon(Icons.edit_note), text: l.vitalsLogTab),
+              Tab(icon: const Icon(Icons.history), text: l.vitalsHistoryTab),
             ],
           ),
           Expanded(
@@ -104,6 +106,7 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    final l = AppLocalizations.of(context)!;
 
     setState(() => _submitting = true);
     try {
@@ -133,8 +136,8 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
       if (body.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Please enter at least one vital sign'),
+            SnackBar(
+              content: Text(l.vitalsAtLeastOne),
             ),
           );
         }
@@ -167,7 +170,7 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
         );
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Vitals recorded successfully')),
+          SnackBar(content: Text(l.vitalsRecordedSuccess)),
         );
         _formKey.currentState!.reset();
         _systolicCtrl.clear();
@@ -181,7 +184,7 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(response.message ?? 'Failed to record vitals'),
+            content: Text(response.message ?? l.vitalsRecordFailed),
           ),
         );
       }
@@ -189,8 +192,8 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
       if (kDebugMode) debugPrint('VitalsFormTab: submit error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to record vitals. Please try again.'),
+          SnackBar(
+            content: Text(l.vitalsRecordFailedRetry),
           ),
         );
       }
@@ -202,6 +205,7 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Form(
@@ -210,20 +214,20 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Log Your Daily Vitals',
+              l.vitalsLogHeading,
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
             ),
             const SizedBox(height: 4),
             Text(
-              'Fill in any vitals you want to record today.',
+              l.vitalsLogSubheading,
               style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 16),
 
             // Blood Pressure
-            Text('Blood Pressure', style: theme.textTheme.labelLarge),
+            Text(l.vitalsBloodPressure, style: theme.textTheme.labelLarge),
             const SizedBox(height: 8),
             Row(
               children: [
@@ -493,10 +497,10 @@ class _VitalsHistoryTabState extends State<_VitalsHistoryTab> {
               color: Colors.grey.shade400,
             ),
             const SizedBox(height: 12),
-            Text('No vitals recorded yet', style: theme.textTheme.bodyMedium),
+            Text(AppLocalizations.of(context)!.vitalsNoHistory, style: theme.textTheme.bodyMedium),
             const SizedBox(height: 8),
             Text(
-              'Log your vitals using the Log Vitals tab.',
+              AppLocalizations.of(context)!.vitalsNoHistoryHint,
               style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
             ),
           ],
@@ -594,7 +598,7 @@ class _VitalsTrendSummary extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'Trends vs Last Reading',
+                  AppLocalizations.of(context)!.vitalsTrendsHeading,
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),

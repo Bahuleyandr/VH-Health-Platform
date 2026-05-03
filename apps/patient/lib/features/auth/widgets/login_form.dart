@@ -437,9 +437,9 @@ class _LoginFormState extends State<LoginForm> {
                                       Icons.developer_mode,
                                       size: 20,
                                     ),
-                                    label: const Text(
-                                      'Dev login (skip OTP)',
-                                      style: TextStyle(
+                                    label: Text(
+                                      AppLocalizations.of(context)!.authDevLoginSkipOtp,
+                                      style: const TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.w500,
                                       ),

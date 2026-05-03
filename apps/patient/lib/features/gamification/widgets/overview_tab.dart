@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:vhhealth/features/dashboard/widgets/next_visit_progress_widget.dart';
 import 'package:vhhealth/features/gamification/utils/tier_utils.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class OverviewTab extends StatelessWidget {
   final Map<String, dynamic>? summary;
@@ -41,7 +42,7 @@ class OverviewTab extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'Could not load your points summary',
+              AppLocalizations.of(context)!.gamificationLoadFailed,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 8),
@@ -161,7 +162,7 @@ class OverviewTab extends StatelessWidget {
                         Icon(LucideIcons.zap, color: cs.primary, size: 18),
                         const SizedBox(width: 8),
                         Text(
-                          'How to earn points',
+                          AppLocalizations.of(context)!.gamificationHowToEarn,
                           style: theme.textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),

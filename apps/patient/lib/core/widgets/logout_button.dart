@@ -6,6 +6,7 @@ import 'package:vhhealth/core/navigation/app_router.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/firebase_session_service.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 enum LogoutButtonStyle {
   iconOnly, // for AppBar
@@ -37,12 +38,12 @@ class LogoutButton extends StatelessWidget {
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Confirm Logout'),
-        content: const Text('Are you sure you want to logout?'),
+        title: Text(AppLocalizations.of(dialogContext)!.logoutConfirmTitle),
+        content: Text(AppLocalizations.of(dialogContext)!.logoutConfirmBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
+            child: Text(AppLocalizations.of(dialogContext)!.commonCancelButton),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(

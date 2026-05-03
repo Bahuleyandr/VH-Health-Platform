@@ -1,6 +1,7 @@
 // lib/features/dashboard/widgets/next_visit_progress_widget.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 /// Compact card showing progress between last visit and next visit dates,
 /// with a days countdown and doctor name.
@@ -35,6 +36,7 @@ class NextVisitProgressWidget extends StatelessWidget {
     ThemeData theme,
     ColorScheme cs,
   ) {
+    final l = AppLocalizations.of(context)!;
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -60,7 +62,7 @@ class NextVisitProgressWidget extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Schedule your next visit',
+                      l.dashboardScheduleNextVisit,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                         color: cs.onSurface,
@@ -68,7 +70,7 @@ class NextVisitProgressWidget extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Stay on top of your health',
+                      l.dashboardStayOnTop,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: cs.onSurface.withValues(alpha: 0.6),
                       ),
@@ -84,7 +86,7 @@ class NextVisitProgressWidget extends StatelessWidget {
                     vertical: 8,
                   ),
                 ),
-                child: const Text('Book Now'),
+                child: Text(l.dashboardBookNow),
               ),
             ],
           ),
@@ -208,14 +210,14 @@ class NextVisitProgressWidget extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Last visit',
+                    AppLocalizations.of(context)!.dashboardLastVisit,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: cs.onSurface.withValues(alpha: 0.5),
                       fontSize: 11,
                     ),
                   ),
                   Text(
-                    'Next visit',
+                    AppLocalizations.of(context)!.dashboardNextVisit,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: cs.onSurface.withValues(alpha: 0.5),
                       fontSize: 11,

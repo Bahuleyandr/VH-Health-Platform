@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class SmartPrescriptionCard extends StatelessWidget {
   final Map<String, dynamic> prescription;
@@ -76,7 +77,7 @@ class SmartPrescriptionCard extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                           textStyle: const TextStyle(fontSize: 11),
                         ),
-                        child: const Text('Order Medicines'),
+                        child: Text(AppLocalizations.of(context)!.yourHealthOrderMedicines),
                       ),
                     ),
                     const SizedBox(width: 8),

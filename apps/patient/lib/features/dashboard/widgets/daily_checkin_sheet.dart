@@ -13,6 +13,7 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 
@@ -164,8 +165,8 @@ class _DailyCheckInSheetState extends State<DailyCheckInSheet> {
       if (mounted) {
         setState(() => _submitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not save check-in. Please try again.'),
+          SnackBar(
+            content: Text(AppLocalizations.of(context)!.checkinSaveFailed),
           ),
         );
       }
@@ -175,6 +176,7 @@ class _DailyCheckInSheetState extends State<DailyCheckInSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
     final insets = MediaQuery.of(context).viewInsets;
 
     return Padding(
@@ -200,14 +202,14 @@ class _DailyCheckInSheetState extends State<DailyCheckInSheet> {
               _celebration(theme)
             else ...[
               Text(
-                'Daily Check-In',
+                l.checkinTitle,
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
-                'How are you feeling today?',
+                l.checkinHowFeeling,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.hintColor,
                 ),
@@ -219,7 +221,7 @@ class _DailyCheckInSheetState extends State<DailyCheckInSheet> {
               ),
               const SizedBox(height: 20),
               Text(
-                'Quick vitals (optional)',
+                l.checkinQuickVitals,
                 style: theme.textTheme.labelLarge?.copyWith(
                   fontWeight: FontWeight.w600,
                 ),
@@ -252,7 +254,7 @@ class _DailyCheckInSheetState extends State<DailyCheckInSheet> {
                             color: Colors.white,
                           ),
                         )
-                      : const Text('Save check-in  ·  +10 points'),
+                      : Text(l.checkinSaveButton),
                 ),
               ),
             ],
@@ -332,7 +334,7 @@ class _DailyCheckInSheetState extends State<DailyCheckInSheet> {
         ),
         const SizedBox(height: 8),
         Text(
-          '+10 health points added. See you tomorrow!',
+          AppLocalizations.of(context)!.checkinSavedToast,
           textAlign: TextAlign.center,
           style: theme.textTheme.bodyMedium?.copyWith(color: theme.hintColor),
         ),

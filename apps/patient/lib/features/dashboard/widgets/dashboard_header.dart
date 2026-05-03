@@ -4,6 +4,7 @@ import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/widgets/logout_button.dart';
 import 'package:vhhealth/features/dashboard/widgets/hero_snapshot_row.dart';
 import 'package:vhhealth/features/dashboard/widgets/language_menu_button.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 /// Greeting header that replaces the default AppBar on the dashboard.
 ///
@@ -160,25 +161,25 @@ class _DashboardOverflowMenu extends StatelessWidget {
             break;
         }
       },
-      itemBuilder: (_) => const [
+      itemBuilder: (ctx) => [
         PopupMenuItem<String>(
           value: 'theme',
           child: ListTile(
             dense: true,
-            leading: Icon(Icons.brightness_6),
-            title: Text('Toggle theme'),
+            leading: const Icon(Icons.brightness_6),
+            title: Text(AppLocalizations.of(ctx)!.dashboardToggleTheme),
           ),
         ),
         PopupMenuItem<String>(
           value: 'a11y',
           child: ListTile(
             dense: true,
-            leading: Icon(Icons.accessibility),
-            title: Text('Toggle font size'),
+            leading: const Icon(Icons.accessibility),
+            title: Text(AppLocalizations.of(ctx)!.dashboardToggleFontSize),
           ),
         ),
-        PopupMenuDivider(),
-        PopupMenuItem<String>(
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
           value: 'logout',
           child: ListTile(
             dense: true,

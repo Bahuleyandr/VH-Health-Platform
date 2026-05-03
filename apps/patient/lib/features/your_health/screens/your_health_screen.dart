@@ -279,7 +279,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
           ? FloatingActionButton.extended(
               onPressed: () => _myUploadsKey.currentState?.showUploadSheet(),
               icon: const Icon(Icons.upload_file),
-              label: const Text('Upload Record'),
+              label: Text(AppLocalizations.of(context)!.yourHealthUploadRecord),
             )
           : null,
       body: SafeArea(

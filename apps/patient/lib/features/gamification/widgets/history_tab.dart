@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth/features/gamification/utils/tier_utils.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class HistoryTab extends StatelessWidget {
   final List<Map<String, dynamic>> history;
@@ -45,7 +46,7 @@ class HistoryTab extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'No point history yet',
+              AppLocalizations.of(context)!.gamificationNoPointHistory,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 8),

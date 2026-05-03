@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class FeedbackPrompt extends StatefulWidget {
   final String phone;
@@ -133,7 +134,7 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
           ),
 
           Text(
-            'Rate your experience',
+            AppLocalizations.of(context)!.feedbackRateExperience,
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
             ),
@@ -193,7 +194,7 @@ class _FeedbackPromptState extends State<FeedbackPrompt> {
                       height: 24,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Submit Feedback'),
+                  : Text(AppLocalizations.of(context)!.feedbackSubmitButton),
             ),
           ),
         ],
