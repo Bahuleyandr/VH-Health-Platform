@@ -42,6 +42,10 @@ model users {
   allergies                                                            String?
   medical_history                                                      String?
   profile_completed_at                                                 DateTime?                    @db.Timestamptz(6)
+  name_encrypted                                                       String?
+  phone_encrypted                                                      String?
+  phone_search_hash                                                    String?                      @db.Char(64)
+  address_encrypted                                                    String?
   abdm_consents                                                        abdm_consents[]
   abdm_data_requests                                                   abdm_data_requests[]
   annual_review_reminders                                              annual_review_reminders[]
@@ -430,6 +434,7 @@ model appointments {
   appointment_status_history           appointment_status_history[]
   users_appointments_doctor_idTousers  users?                       @relation("appointments_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction)
   users_appointments_patient_idTousers users?                       @relation("appointments_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
+  teleconsultations                    teleconsultations[]
 
   @@index([phone])
   @@index([uid])
@@ -482,6 +487,9 @@ model medical_records {
   is_active                               Boolean   @default(true)
   deleted_at                              DateTime? @db.Timestamptz(6)
   deleted_by                              String?   @db.Uuid
+  description_encrypted                   String?
+  diagnosis_encrypted                     String?
+  treatment_encrypted                     String?
   users_medical_records_created_byTousers users?    @relation("medical_records_created_byTousers", fields: [created_by], references: [uid], onUpdate: NoAction)
   users_medical_records_deleted_byTousers users?    @relation("medical_records_deleted_byTousers", fields: [deleted_by], references: [uid], onUpdate: NoAction)
   users                                   users?    @relation(fields: [doctor_id], references: [id], onUpdate: NoAction)
@@ -2156,6 +2164,7 @@ model clinical_ai_break_glass_sessions {
   @@index([tenant_id, status], map: "idx_clinical_ai_break_glass_tenant")
 }
 
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model clinical_ai_canary_cases {
   id                     Int      @id @default(autoincrement())
   tenant_id              String   @db.Uuid
@@ -2166,6 +2175,7 @@ model clinical_ai_canary_cases {
   expected_citations_min Int      @default(1)
   active                 Boolean  @default(true)
   created_at             DateTime @default(now()) @db.Timestamptz(6)
+  slice_attributes       Json     @default("{}")
   tenants                tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([tenant_id, module_key, label])
@@ -2183,6 +2193,8 @@ model clinical_ai_canary_runs {
   drift_detected Boolean   @default(false)
   findings       Json      @default("[]")
   metadata       Json      @default("{}")
+  slice_metrics  Json      @default("[]")
+  bias_signals   Json      @default("[]")
   tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([tenant_id, started_at(sort: Desc)], map: "idx_clinical_ai_canary_runs_tenant_time")
@@ -2316,7 +2328,7 @@ model clinical_ai_decision_memory {
 
   @@index([tenant_id, module_key, patient_uid, created_at(sort: Desc)], map: "idx_clinical_ai_decision_memory_tenant_module_patient")
   @@index([tenant_id, module_key, created_at(sort: Desc)], map: "idx_clinical_ai_decision_memory_tenant_module_xpatient")
-  @@index([context_signature(ops: JsonbOps)], map: "idx_clinical_ai_decision_memory_signature_gin", type: Gin)
+  @@index([context_signature], map: "idx_clinical_ai_decision_memory_signature_gin", type: Gin)
   @@index([review_id], map: "idx_clinical_ai_decision_memory_review")
 }
 
@@ -2980,6 +2992,8 @@ model clinical_ai_model_eval_runs {
   created_at                 DateTime                    @default(now()) @db.Timestamptz(6)
   updated_at                 DateTime                    @default(now()) @db.Timestamptz(6)
   retention_until            DateTime                    @default(dbgenerated("(CURRENT_DATE + '1825 days'::interval)")) @db.Date
+  slice_metrics              Json                        @default("[]")
+  bias_signals               Json                        @default("[]")
   clinical_ai_generations    clinical_ai_generations?    @relation(fields: [generation_id], references: [id], onUpdate: NoAction)
   clinical_ai_model_registry clinical_ai_model_registry? @relation(fields: [model_registry_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   tenants                    tenants                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -4928,27 +4942,34 @@ model nurse_handovers {
 }
 
 model ot_schedules {
-  id                 Int       @id @default(autoincrement())
-  patient_uid        String    @db.Uuid
-  encounter_id       Int?
-  surgeon            String    @db.Uuid
-  anesthetist        String?   @db.Uuid
-  procedure_name     String
-  procedure_code     String?   @db.VarChar(50)
-  ot_room            String?   @db.VarChar(100)
-  scheduled_date     DateTime  @db.Date
-  scheduled_time     DateTime? @db.Time(6)
-  estimated_duration Int?
-  actual_duration    Int?
-  status             String?   @default("scheduled") @db.VarChar(50)
-  pre_op_checklist   Json?
-  equipment_needed   String[]
-  blood_arranged     Boolean?  @default(false)
-  consent_obtained   Boolean?  @default(false)
-  post_op_notes      String?
-  complications      String?
-  created_at         DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime? @default(now()) @db.Timestamptz(6)
+  id                         Int                          @id @default(autoincrement())
+  patient_uid                String                       @db.Uuid
+  encounter_id               Int?
+  surgeon                    String                       @db.Uuid
+  anesthetist                String?                      @db.Uuid
+  procedure_name             String
+  procedure_code             String?                      @db.VarChar(50)
+  ot_room                    String?                      @db.VarChar(100)
+  scheduled_date             DateTime                     @db.Date
+  scheduled_time             DateTime?                    @db.Time(6)
+  estimated_duration         Int?
+  actual_duration            Int?
+  status                     String?                      @default("scheduled") @db.VarChar(50)
+  pre_op_checklist           Json?
+  equipment_needed           String[]
+  blood_arranged             Boolean?                     @default(false)
+  consent_obtained           Boolean?                     @default(false)
+  post_op_notes              String?
+  complications              String?
+  created_at                 DateTime?                    @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime?                    @default(now()) @db.Timestamptz(6)
+  anesthesia_records         anesthesia_records[]
+  intraop_notes              intraop_notes[]
+  postop_complication_alerts postop_complication_alerts[]
+  postop_notes               postop_notes[]
+  preop_checklists           preop_checklists[]
+  surgical_implants          surgical_implants[]
+  surgical_safety_checklists surgical_safety_checklists[]
 }
 
 model patient_allergies {
@@ -5478,6 +5499,26 @@ model tenants {
   settings                                   Json                                         @default("{}")
   created_at                                 DateTime                                     @default(now()) @db.Timestamptz(6)
   updated_at                                 DateTime                                     @default(now()) @db.Timestamptz(6)
+  abdm_care_contexts                         abdm_care_contexts[]
+  abdm_consent_artifacts                     abdm_consent_artifacts[]
+  abdm_consent_requests                      abdm_consent_requests[]
+  abdm_data_transfers                        abdm_data_transfers[]
+  abdm_facility_mappings                     abdm_facility_mappings[]
+  abdm_practitioner_mappings                 abdm_practitioner_mappings[]
+  abdm_webhook_events                        abdm_webhook_events[]
+  abha_profiles                              abha_profiles[]
+  ambulance_requests                         ambulance_requests[]
+  anesthesia_records                         anesthesia_records[]
+  api_clients                                api_clients[]
+  api_keys                                   api_keys[]
+  approvals                                  approvals[]
+  automation_rules                           automation_rules[]
+  care_plan_activities                       care_plan_activities[]
+  care_plan_goals                            care_plan_goals[]
+  care_plan_review_log                       care_plan_review_log[]
+  care_plans                                 care_plans[]
+  chat_session_messages                      chat_session_messages[]
+  chat_sessions                              chat_sessions[]
   clinical_ai_acuity_staffing_forecasts      clinical_ai_acuity_staffing_forecasts[]
   clinical_ai_agent_health_reports           clinical_ai_agent_health_reports[]
   clinical_ai_agent_registry                 clinical_ai_agent_registry[]
@@ -5565,14 +5606,79 @@ model tenants {
   clinical_trial_match_results               clinical_trial_match_results[]
   clinical_trials_catalog                    clinical_trials_catalog[]
   clinical_voice_notes                       clinical_voice_notes[]
+  data_processing_activities                 data_processing_activities[]
+  data_retention_policies                    data_retention_policies[]
+  emergency_visits                           emergency_visits[]
+  encryption_keys                            encryption_keys[]
+  escalation_rules                           escalation_rules[]
+  external_system_mappings                   external_system_mappings[]
+  facilities                                 facilities[]
+  facility_locations                         facility_locations[]
+  facility_rooms                             facility_rooms[]
+  fall_risk_assessments                      fall_risk_assessments[]
+  follow_up_plans                            follow_up_plans[]
+  growth_charts                              growth_charts[]
+  idempotency_keys                           idempotency_keys[]
+  integration_credentials                    integration_credentials[]
+  integration_logs                           integration_logs[]
+  integrations                               integrations[]
+  intraop_notes                              intraop_notes[]
+  mfa_backup_codes                           mfa_backup_codes[]
+  mfa_challenges                             mfa_challenges[]
+  mfa_devices                                mfa_devices[]
+  mlc_records                                mlc_records[]
+  numbering_series                           numbering_series[]
+  package_items                              package_items[]
+  packages                                   packages[]
+  pain_assessments                           pain_assessments[]
   patient_chat_conversations                 patient_chat_conversations[]
   patient_chat_messages                      patient_chat_messages[]
+  patient_duplicate_candidates               patient_duplicate_candidates[]
+  patient_identifiers                        patient_identifiers[]
+  patient_merge_requests                     patient_merge_requests[]
+  payer_tariff_links                         payer_tariff_links[]
+  payers                                     payers[]
+  pharmacy_expiry_alerts                     pharmacy_expiry_alerts[]
+  pharmacy_goods_receipt_items               pharmacy_goods_receipt_items[]
+  pharmacy_goods_receipts                    pharmacy_goods_receipts[]
+  pharmacy_inventory_batches                 pharmacy_inventory_batches[]
+  pharmacy_inventory_items                   pharmacy_inventory_items[]
+  pharmacy_purchase_order_items              pharmacy_purchase_order_items[]
+  pharmacy_purchase_orders                   pharmacy_purchase_orders[]
+  pharmacy_stock_movements                   pharmacy_stock_movements[]
+  pharmacy_substitutes                       pharmacy_substitutes[]
+  pharmacy_suppliers                         pharmacy_suppliers[]
+  postop_complication_alerts                 postop_complication_alerts[]
+  postop_notes                               postop_notes[]
+  preop_checklists                           preop_checklists[]
+  remote_prescriptions                       remote_prescriptions[]
+  service_catalog                            service_catalog[]
+  sla_definitions                            sla_definitions[]
+  smart_access_tokens                        smart_access_tokens[]
+  smart_apps                                 smart_apps[]
+  smart_authz_codes                          smart_authz_codes[]
   staff_roster_preferences                   staff_roster_preferences[]
   staff_roster_runs                          staff_roster_runs[]
+  surgical_implants                          surgical_implants[]
+  surgical_safety_checklists                 surgical_safety_checklists[]
+  tariff_items                               tariff_items[]
+  tariff_plans                               tariff_plans[]
+  task_comments                              task_comments[]
+  tasks                                      tasks[]
+  teleconsult_provider_configs               teleconsult_provider_configs[]
+  teleconsultations                          teleconsultations[]
+  tpas                                       tpas[]
+  triage_assessments                         triage_assessments[]
   users                                      users[]
+  video_sessions                             video_sessions[]
   virtual_ward_check_ins                     virtual_ward_check_ins[]
   virtual_ward_enrollments                   virtual_ward_enrollments[]
   virtual_ward_escalations                   virtual_ward_escalations[]
+  webhook_deliveries                         webhook_deliveries[]
+  webhook_subscriptions                      webhook_subscriptions[]
+  workflow_definitions                       workflow_definitions[]
+  workflow_runs                              workflow_runs[]
+  workflow_steps                             workflow_steps[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -5682,7 +5788,7 @@ model wards {
 
 model clinical_protocols {
   id                 Int      @id @default(autoincrement())
-  name               String   @db.VarChar(255)
+  name               String   @unique(map: "uq_clinical_protocols_name") @db.VarChar(255)
   category           String   @db.VarChar(100)
   trigger_conditions Json     @default("{}")
   recommendations    Json     @default("{}")
@@ -5697,7 +5803,7 @@ model clinical_protocols {
 
 model data_breaches {
   id                              Int       @id @default(autoincrement())
-  breach_id                       String?   @unique @db.VarChar(30)
+  breach_id                       String?   @unique @default(dbgenerated("((('BRH-'::text || to_char(now(), 'YYYYMM'::text)) || '-'::text) || lpad((nextval((pg_get_serial_sequence('data_breaches'::text, 'id'::text))::regclass))::text, 4, '0'::text))")) @db.VarChar(30)
   severity                        String    @db.VarChar(20)
   description                     String
   affected_records                Int?      @default(0)
@@ -5711,8 +5817,6 @@ model data_breaches {
   resolved_at                     DateTime? @db.Timestamp(6)
   created_at                      DateTime? @default(now()) @db.Timestamp(6)
   updated_at                      DateTime? @default(now()) @db.Timestamp(6)
-  // Migration 127 (data_processing_activities) extends this table with
-  // GDPR Art. 33/34 notification tracking columns:
   regulator_notified_at           DateTime? @db.Timestamptz(6)
   regulator_reference             String?   @db.VarChar(255)
   regulator_jurisdiction          String?   @db.VarChar(80)
@@ -6022,4 +6126,2410 @@ model scheduled_notifications {
   users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "scheduled_notifications_user_fk")
 
   @@index([user_id, status], map: "idx_scheduled_notifications_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model abdm_care_contexts {
+  id                     Int                     @id @default(autoincrement())
+  tenant_id              String                  @db.Uuid
+  abha_profile_id        Int?
+  patient_uid            String                  @db.Uuid
+  facility_mapping_id    Int?
+  reference_id           String                  @db.VarChar(120)
+  display                String?                 @db.VarChar(255)
+  hi_type                String                  @db.VarChar(60)
+  source_resource_type   String?                 @db.VarChar(60)
+  source_resource_id     String?                 @db.VarChar(120)
+  status                 String                  @default("linked") @db.VarChar(20)
+  linked_at              DateTime?               @db.Timestamptz(6)
+  unlinked_at            DateTime?               @db.Timestamptz(6)
+  metadata               Json                    @default("{}")
+  created_at             DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                @default(now()) @db.Timestamptz(6)
+  abha_profiles          abha_profiles?          @relation(fields: [abha_profile_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  abdm_facility_mappings abdm_facility_mappings? @relation(fields: [facility_mapping_id], references: [id], onUpdate: NoAction)
+  tenants                tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, reference_id])
+  @@index([tenant_id, hi_type, status], map: "idx_care_contexts_hi_type")
+  @@index([tenant_id, patient_uid, status], map: "idx_care_contexts_tenant_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model abdm_consent_artifacts {
+  id                    Int                    @id @default(autoincrement())
+  tenant_id             String                 @db.Uuid
+  consent_request_id    Int?
+  artifact_id           String                 @db.VarChar(120)
+  abha_id               String?                @db.VarChar(40)
+  patient_uid           String?                @db.Uuid
+  hi_types              String[]               @default([])
+  permission_kind       String                 @db.VarChar(40)
+  data_from             DateTime?              @db.Timestamptz(6)
+  data_to               DateTime?              @db.Timestamptz(6)
+  expiry_at             DateTime?              @db.Timestamptz(6)
+  status                String                 @default("active") @db.VarChar(20)
+  signed_payload        Json                   @default("{}")
+  signature_kid         String?                @db.VarChar(120)
+  signature_algorithm   String?                @db.VarChar(40)
+  granted_at            DateTime               @default(now()) @db.Timestamptz(6)
+  revoked_at            DateTime?              @db.Timestamptz(6)
+  expired_at            DateTime?              @db.Timestamptz(6)
+  environment           String                 @default("sandbox") @db.VarChar(20)
+  metadata              Json                   @default("{}")
+  created_at            DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime               @default(now()) @db.Timestamptz(6)
+  abdm_consent_requests abdm_consent_requests? @relation(fields: [consent_request_id], references: [id], onUpdate: NoAction)
+  tenants               tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  abdm_data_transfers   abdm_data_transfers[]
+  abdm_webhook_events   abdm_webhook_events[]
+
+  @@unique([tenant_id, artifact_id, environment])
+  @@index([tenant_id, status, granted_at(sort: Desc)], map: "idx_consent_artifacts_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model abdm_consent_requests {
+  id                     Int                      @id @default(autoincrement())
+  tenant_id              String                   @db.Uuid
+  request_id             String                   @db.VarChar(120)
+  flow_kind              String                   @default("hiu") @db.VarChar(20)
+  abha_id                String?                  @db.VarChar(40)
+  abha_profile_id        Int?
+  patient_uid            String?                  @db.Uuid
+  requester_uid          String?                  @db.Uuid
+  hi_types               String[]                 @default([])
+  permission_kind        String                   @default("view") @db.VarChar(40)
+  data_from              DateTime?                @db.Timestamptz(6)
+  data_to                DateTime?                @db.Timestamptz(6)
+  expiry_at              DateTime?                @db.Timestamptz(6)
+  purpose_code           String                   @default("CAREMGT") @db.VarChar(20)
+  status                 String                   @default("requested") @db.VarChar(20)
+  requested_at           DateTime                 @default(now()) @db.Timestamptz(6)
+  decided_at             DateTime?                @db.Timestamptz(6)
+  notification_failure   String?
+  environment            String                   @default("sandbox") @db.VarChar(20)
+  metadata               Json                     @default("{}")
+  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  abdm_consent_artifacts abdm_consent_artifacts[]
+  abha_profiles          abha_profiles?           @relation(fields: [abha_profile_id], references: [id], onUpdate: NoAction)
+  tenants                tenants                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  abdm_webhook_events    abdm_webhook_events[]
+
+  @@unique([tenant_id, request_id, environment])
+  @@index([tenant_id, status, requested_at(sort: Desc)], map: "idx_consent_requests_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model abdm_data_transfers {
+  id                     Int                     @id @default(autoincrement())
+  tenant_id              String                  @db.Uuid
+  consent_artifact_id    Int?
+  transaction_id         String                  @db.VarChar(120)
+  patient_uid            String?                 @db.Uuid
+  abha_id                String?                 @db.VarChar(40)
+  direction              String                  @default("out") @db.VarChar(8)
+  bundle_kind            String?                 @db.VarChar(60)
+  payload_size_bytes     BigInt?
+  encryption_kind        String?                 @db.VarChar(40)
+  destination_url        String?
+  status                 String                  @default("pending") @db.VarChar(20)
+  attempt_count          Int                     @default(0)
+  started_at             DateTime?               @db.Timestamptz(6)
+  completed_at           DateTime?               @db.Timestamptz(6)
+  failure_reason         String?
+  hi_types               String[]                @default([])
+  environment            String                  @default("sandbox") @db.VarChar(20)
+  metadata               Json                    @default("{}")
+  created_at             DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                @default(now()) @db.Timestamptz(6)
+  abdm_consent_artifacts abdm_consent_artifacts? @relation(fields: [consent_artifact_id], references: [id], onUpdate: NoAction)
+  tenants                tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  abdm_webhook_events    abdm_webhook_events[]
+
+  @@unique([tenant_id, transaction_id, environment])
+  @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_data_transfers_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model abdm_facility_mappings {
+  id                  Int                  @id @default(autoincrement())
+  tenant_id           String               @db.Uuid
+  facility_id         Int?
+  hfr_id              String               @db.VarChar(120)
+  facility_name       String               @db.VarChar(255)
+  ownership_kind      String?              @db.VarChar(40)
+  facility_kind       String?              @db.VarChar(40)
+  registration_status String               @default("unverified") @db.VarChar(20)
+  state_code          String?              @db.VarChar(20)
+  district_code       String?              @db.VarChar(20)
+  pincode             String?              @db.VarChar(20)
+  metadata            Json                 @default("{}")
+  created_by          String?              @db.Uuid
+  created_at          DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime             @default(now()) @db.Timestamptz(6)
+  abdm_care_contexts  abdm_care_contexts[]
+  tenants             tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, hfr_id])
+  @@index([tenant_id, registration_status], map: "idx_abdm_facility_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model abdm_practitioner_mappings {
+  id                  Int      @id @default(autoincrement())
+  tenant_id           String   @db.Uuid
+  staff_uid           String?  @db.Uuid
+  hpr_id              String   @db.VarChar(120)
+  full_name           String   @db.VarChar(255)
+  specialty           String?  @db.VarChar(120)
+  council_name        String?  @db.VarChar(120)
+  registration_number String?  @db.VarChar(120)
+  registration_year   Int?
+  qualification       String?  @db.VarChar(255)
+  status              String   @default("unverified") @db.VarChar(20)
+  metadata            Json     @default("{}")
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime @default(now()) @db.Timestamptz(6)
+  tenants             tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, hpr_id])
+  @@index([tenant_id, status], map: "idx_abdm_practitioner_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model abdm_webhook_events {
+  id                     Int                     @id @default(autoincrement())
+  tenant_id              String                  @db.Uuid
+  external_event_id      String                  @db.VarChar(160)
+  event_type             String                  @db.VarChar(120)
+  source                 String?                 @db.VarChar(80)
+  signature_verified     Boolean                 @default(false)
+  signature_kid          String?                 @db.VarChar(120)
+  payload                Json                    @default("{}")
+  received_at            DateTime                @default(now()) @db.Timestamptz(6)
+  status                 String                  @default("pending") @db.VarChar(20)
+  processed_at           DateTime?               @db.Timestamptz(6)
+  failure_reason         String?
+  related_request_id     Int?
+  related_artifact_id    Int?
+  related_transfer_id    Int?
+  environment            String                  @default("sandbox") @db.VarChar(20)
+  metadata               Json                    @default("{}")
+  created_at             DateTime                @default(now()) @db.Timestamptz(6)
+  abdm_consent_artifacts abdm_consent_artifacts? @relation(fields: [related_artifact_id], references: [id], onUpdate: NoAction)
+  abdm_consent_requests  abdm_consent_requests?  @relation(fields: [related_request_id], references: [id], onUpdate: NoAction)
+  abdm_data_transfers    abdm_data_transfers?    @relation(fields: [related_transfer_id], references: [id], onUpdate: NoAction)
+  tenants                tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, external_event_id, environment])
+  @@index([tenant_id, event_type, received_at(sort: Desc)], map: "idx_abdm_webhooks_event_type")
+  @@index([tenant_id, status, received_at(sort: Desc)], map: "idx_abdm_webhooks_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model abha_profiles {
+  id                    Int                     @id @default(autoincrement())
+  tenant_id             String                  @db.Uuid
+  patient_uid           String                  @db.Uuid
+  abha_id               String                  @db.VarChar(40)
+  abha_address          String?                 @db.VarChar(120)
+  full_name             String?                 @db.VarChar(255)
+  date_of_birth         DateTime?               @db.Date
+  gender                String?                 @db.VarChar(20)
+  state_code            String?                 @db.VarChar(20)
+  district_code         String?                 @db.VarChar(20)
+  pincode               String?                 @db.VarChar(20)
+  kyc_verified          Boolean                 @default(false)
+  kyc_method            String?                 @db.VarChar(40)
+  status                String                  @default("active") @db.VarChar(20)
+  linked_at             DateTime?               @db.Timestamptz(6)
+  metadata              Json                    @default("{}")
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  abdm_care_contexts    abdm_care_contexts[]
+  abdm_consent_requests abdm_consent_requests[]
+  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, abha_id])
+  @@unique([tenant_id, patient_uid])
+  @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_abha_profiles_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model ambulance_requests {
+  id                      Int       @id @default(autoincrement())
+  tenant_id               String    @db.Uuid
+  facility_id             Int?
+  request_number          String    @db.VarChar(80)
+  request_kind            String    @default("pickup") @db.VarChar(40)
+  priority                String    @default("medium") @db.VarChar(20)
+  caller_name             String?   @db.VarChar(255)
+  caller_phone            String?   @db.VarChar(40)
+  patient_uid             String?   @db.Uuid
+  patient_name            String?   @db.VarChar(255)
+  pickup_address          String?
+  pickup_geo_lat          Decimal?  @db.Decimal(10, 6)
+  pickup_geo_lng          Decimal?  @db.Decimal(10, 6)
+  destination             String?   @db.VarChar(255)
+  destination_facility_id Int?
+  ambulance_unit_id       String?   @db.VarChar(80)
+  driver_name             String?   @db.VarChar(255)
+  attendant_name          String?   @db.VarChar(255)
+  status                  String    @default("requested") @db.VarChar(20)
+  requested_at            DateTime  @default(now()) @db.Timestamptz(6)
+  dispatched_at           DateTime? @db.Timestamptz(6)
+  on_scene_at             DateTime? @db.Timestamptz(6)
+  arrived_at              DateTime? @db.Timestamptz(6)
+  cancelled_reason        String?
+  presenting_complaint    String?
+  metadata                Json      @default("{}")
+  created_by              String?   @db.Uuid
+  created_at              DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime  @default(now()) @db.Timestamptz(6)
+  tenants                 tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, request_number])
+  @@index([tenant_id, status, requested_at(sort: Desc)], map: "idx_ambulance_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model anesthesia_records {
+  id                        Int          @id @default(autoincrement())
+  tenant_id                 String       @db.Uuid
+  ot_schedule_id            Int
+  patient_uid               String?      @db.Uuid
+  anesthetist               String?      @db.Uuid
+  assistant                 String?      @db.Uuid
+  preop_assessment_complete Boolean      @default(false)
+  asa_grade                 String?      @db.VarChar(8)
+  airway_assessment         Json         @default("{}")
+  preop_meds_held           Json         @default("[]")
+  technique                 String?      @db.VarChar(80)
+  airway_managed            String?      @db.VarChar(40)
+  intubation_grade          String?      @db.VarChar(8)
+  agents_used               Json         @default("[]")
+  fluids_in_ml              Int?
+  blood_products_in         Json         @default("[]")
+  urine_output_ml           Int?
+  blood_loss_ml             Int?
+  events                    Json         @default("[]")
+  complications             String?
+  recovery_destination      String?      @db.VarChar(40)
+  pain_plan                 String?
+  ponv_prophylaxis          String?
+  status                    String       @default("draft") @db.VarChar(20)
+  finalized_by              String?      @db.Uuid
+  finalized_at              DateTime?    @db.Timestamptz(6)
+  ai_precheck_generation_id Int?
+  metadata                  Json         @default("{}")
+  created_at                DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime     @default(now()) @db.Timestamptz(6)
+  ot_schedules              ot_schedules @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                   tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, ot_schedule_id])
+  @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_anesthesia_records_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model api_clients {
+  id                 Int        @id @default(autoincrement())
+  tenant_id          String     @db.Uuid
+  client_code        String     @db.VarChar(120)
+  display_name       String     @db.VarChar(255)
+  description        String?
+  client_kind        String     @default("integration") @db.VarChar(40)
+  status             String     @default("active") @db.VarChar(20)
+  scopes             String[]   @default([])
+  allowed_ips        String[]   @default([])
+  rate_limit_profile String?    @db.VarChar(40)
+  contact_email      String?    @db.VarChar(255)
+  contact_phone      String?    @db.VarChar(40)
+  metadata           Json       @default("{}")
+  created_by         String?    @db.Uuid
+  created_at         DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime   @default(now()) @db.Timestamptz(6)
+  tenants            tenants    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  api_keys           api_keys[]
+
+  @@unique([tenant_id, client_code])
+  @@index([tenant_id, client_kind, status], map: "idx_api_clients_kind")
+  @@index([tenant_id, status, display_name], map: "idx_api_clients_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model api_keys {
+  id             Int         @id @default(autoincrement())
+  tenant_id      String      @db.Uuid
+  api_client_id  Int
+  key_hash       String      @unique @db.VarChar(128)
+  key_prefix     String      @db.VarChar(16)
+  display_name   String?     @db.VarChar(255)
+  status         String      @default("active") @db.VarChar(20)
+  expires_at     DateTime?   @db.Timestamptz(6)
+  last_used_at   DateTime?   @db.Timestamptz(6)
+  last_used_ip   String?     @db.VarChar(64)
+  revoked_at     DateTime?   @db.Timestamptz(6)
+  revoked_reason String?
+  created_by     String?     @db.Uuid
+  created_at     DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime    @default(now()) @db.Timestamptz(6)
+  api_clients    api_clients @relation(fields: [api_client_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants        tenants     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([api_client_id, status], map: "idx_api_keys_client_status")
+  @@index([tenant_id, key_prefix], map: "idx_api_keys_prefix")
+  @@index([tenant_id, status], map: "idx_api_keys_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model approvals {
+  id                    Int            @id @default(autoincrement())
+  tenant_id             String         @db.Uuid
+  workflow_run_id       Int?
+  task_id               Int?
+  approval_kind         String         @db.VarChar(80)
+  subject_resource_type String?        @db.VarChar(60)
+  subject_resource_id   String?        @db.VarChar(120)
+  required_approvers    Int            @default(1)
+  required_role         String?        @db.VarChar(80)
+  status                String         @default("pending") @db.VarChar(20)
+  approved_by           Json           @default("[]")
+  rejection_reason      String?
+  expires_at            DateTime?      @db.Timestamptz(6)
+  decided_at            DateTime?      @db.Timestamptz(6)
+  metadata              Json           @default("{}")
+  created_at            DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime       @default(now()) @db.Timestamptz(6)
+  tasks                 tasks?         @relation(fields: [task_id], references: [id], onUpdate: NoAction)
+  tenants               tenants        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  workflow_runs         workflow_runs? @relation(fields: [workflow_run_id], references: [id], onUpdate: NoAction)
+
+  @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_approvals_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model automation_rules {
+  id             Int       @id @default(autoincrement())
+  tenant_id      String    @db.Uuid
+  display_name   String    @db.VarChar(255)
+  description    String?
+  event_type     String    @db.VarChar(120)
+  match_filter   Json      @default("{}")
+  action_kind    String    @db.VarChar(40)
+  action_payload Json      @default("{}")
+  is_active      Boolean   @default(true)
+  last_fired_at  DateTime? @db.Timestamptz(6)
+  fire_count     Int       @default(0)
+  created_by     String?   @db.Uuid
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @default(now()) @db.Timestamptz(6)
+  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, event_type, is_active], map: "idx_automation_rules_tenant_event")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model care_plan_activities {
+  id                Int              @id @default(autoincrement())
+  tenant_id         String           @db.Uuid
+  care_plan_id      Int
+  related_goal_id   Int?
+  patient_uid       String?          @db.Uuid
+  activity_kind     String           @default("task") @db.VarChar(40)
+  title             String           @db.VarChar(255)
+  description       String?
+  schedule_kind     String           @default("one_time") @db.VarChar(20)
+  schedule_payload  Json             @default("{}")
+  scheduled_start   DateTime?        @db.Timestamptz(6)
+  scheduled_end     DateTime?        @db.Timestamptz(6)
+  next_due_at       DateTime?        @db.Timestamptz(6)
+  assigned_to_uid   String?          @db.Uuid
+  assigned_to_role  String?          @db.VarChar(80)
+  status            String           @default("planned") @db.VarChar(20)
+  completion_count  Int              @default(0)
+  expected_count    Int?
+  is_patient_facing Boolean          @default(true)
+  task_id           Int?
+  metadata          Json             @default("{}")
+  created_at        DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime         @default(now()) @db.Timestamptz(6)
+  care_plans        care_plans       @relation(fields: [care_plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  care_plan_goals   care_plan_goals? @relation(fields: [related_goal_id], references: [id], onUpdate: NoAction)
+  tenants           tenants          @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([care_plan_id, status], map: "idx_care_plan_activities_plan")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model care_plan_goals {
+  id                   Int                    @id @default(autoincrement())
+  tenant_id            String                 @db.Uuid
+  care_plan_id         Int
+  patient_uid          String?                @db.Uuid
+  goal_kind            String                 @default("clinical_target") @db.VarChar(40)
+  description          String
+  measurement_label    String?                @db.VarChar(120)
+  measurement_unit     String?                @db.VarChar(40)
+  baseline_value       String?                @db.VarChar(120)
+  target_value         String?                @db.VarChar(120)
+  current_value        String?                @db.VarChar(120)
+  target_due_date      DateTime?              @db.Date
+  achieved_at          DateTime?              @db.Timestamptz(6)
+  priority             String                 @default("normal") @db.VarChar(20)
+  status               String                 @default("planned") @db.VarChar(20)
+  metadata             Json                   @default("{}")
+  created_at           DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime               @default(now()) @db.Timestamptz(6)
+  care_plan_activities care_plan_activities[]
+  care_plans           care_plans             @relation(fields: [care_plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants              tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([care_plan_id, status], map: "idx_care_plan_goals_plan")
+  @@index([tenant_id, status, target_due_date], map: "idx_care_plan_goals_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model care_plan_review_log {
+  id            Int        @id @default(autoincrement())
+  tenant_id     String     @db.Uuid
+  care_plan_id  Int
+  reviewer_uid  String?    @db.Uuid
+  reviewer_role String?    @db.VarChar(80)
+  event_kind    String     @db.VarChar(40)
+  notes         String?
+  payload       Json       @default("{}")
+  created_at    DateTime   @default(now()) @db.Timestamptz(6)
+  care_plans    care_plans @relation(fields: [care_plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants       tenants    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([care_plan_id, created_at(sort: Desc)], map: "idx_care_plan_review_log_plan")
+  @@index([tenant_id, created_at(sort: Desc)], map: "idx_care_plan_review_log_tenant")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model care_plans {
+  id                      Int                    @id @default(autoincrement())
+  tenant_id               String                 @db.Uuid
+  patient_uid             String                 @db.Uuid
+  plan_kind               String                 @default("general") @db.VarChar(40)
+  primary_condition       String?                @db.VarChar(255)
+  primary_condition_icd10 String?                @db.VarChar(20)
+  display_name            String                 @db.VarChar(255)
+  description             String?
+  status                  String                 @default("draft") @db.VarChar(20)
+  start_date              DateTime?              @db.Date
+  target_end_date         DateTime?              @db.Date
+  actual_end_date         DateTime?              @db.Date
+  primary_doctor_uid      String?                @db.Uuid
+  care_team_role          String?                @db.VarChar(80)
+  encounter_id            Int?
+  facility_id             Int?
+  is_patient_visible      Boolean                @default(false)
+  metadata                Json                   @default("{}")
+  created_by              String?                @db.Uuid
+  superseded_by_id        Int?
+  created_at              DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime               @default(now()) @db.Timestamptz(6)
+  care_plan_activities    care_plan_activities[]
+  care_plan_goals         care_plan_goals[]
+  care_plan_review_log    care_plan_review_log[]
+  care_plans              care_plans?            @relation("care_plansTocare_plans", fields: [superseded_by_id], references: [id], onUpdate: NoAction)
+  other_care_plans        care_plans[]           @relation("care_plansTocare_plans")
+  tenants                 tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  follow_up_plans         follow_up_plans[]
+
+  @@index([tenant_id, plan_kind, status], map: "idx_care_plans_kind")
+  @@index([tenant_id, patient_uid, status], map: "idx_care_plans_patient_status")
+  @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_care_plans_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model chat_session_messages {
+  id                   Int           @id @default(autoincrement())
+  tenant_id            String        @db.Uuid
+  chat_session_id      Int
+  authored_by_uid      String?       @db.Uuid
+  authored_role        String        @db.VarChar(40)
+  body                 String
+  body_kind            String        @default("text") @db.VarChar(20)
+  attachments          Json          @default("[]")
+  read_by_recipient_at DateTime?     @db.Timestamptz(6)
+  redacted             Boolean       @default(false)
+  redacted_reason      String?       @db.VarChar(255)
+  metadata             Json          @default("{}")
+  created_at           DateTime      @default(now()) @db.Timestamptz(6)
+  chat_sessions        chat_sessions @relation(fields: [chat_session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants              tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([chat_session_id, created_at], map: "idx_chat_messages_session_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains an index with non-default null sort order and requires additional setup for migrations. Visit https://pris.ly/d/default-index-null-ordering for more info.
+model chat_sessions {
+  id                    Int                     @id @default(autoincrement())
+  tenant_id             String                  @db.Uuid
+  teleconsultation_id   Int?
+  patient_uid           String?                 @db.Uuid
+  doctor_uid            String?                 @db.Uuid
+  topic                 String?                 @db.VarChar(255)
+  status                String                  @default("active") @db.VarChar(20)
+  started_at            DateTime                @default(now()) @db.Timestamptz(6)
+  closed_at             DateTime?               @db.Timestamptz(6)
+  last_message_at       DateTime?               @db.Timestamptz(6)
+  unread_count_patient  Int                     @default(0)
+  unread_count_doctor   Int                     @default(0)
+  metadata              Json                    @default("{}")
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  chat_session_messages chat_session_messages[]
+  teleconsultations     teleconsultations?      @relation(fields: [teleconsultation_id], references: [id], onUpdate: NoAction)
+  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, status, last_message_at(sort: Desc)], map: "idx_chat_sessions_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model data_processing_activities {
+  id                              Int                       @id @default(autoincrement())
+  tenant_id                       String                    @db.Uuid
+  activity_code                   String                    @db.VarChar(80)
+  display_name                    String                    @db.VarChar(255)
+  description                     String?
+  purposes                        String
+  data_subject_categories         String[]                  @default([])
+  personal_data_categories        String[]                  @default([])
+  special_category_data           String[]                  @default([])
+  recipient_categories            String[]                  @default([])
+  cross_border_transfers          Boolean                   @default(false)
+  cross_border_destinations       String[]                  @default([])
+  cross_border_safeguards         String?
+  retention_period_days           Int?
+  retention_basis                 String?
+  security_measures               String?
+  lawful_basis                    String                    @db.VarChar(40)
+  legitimate_interests_assessment String?
+  dpia_required                   Boolean                   @default(false)
+  dpia_completed_at               DateTime?                 @db.Timestamptz(6)
+  dpia_reference                  String?                   @db.VarChar(255)
+  status                          String                    @default("active") @db.VarChar(20)
+  metadata                        Json                      @default("{}")
+  created_by                      String?                   @db.Uuid
+  created_at                      DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at                      DateTime                  @default(now()) @db.Timestamptz(6)
+  tenants                         tenants                   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  data_retention_policies         data_retention_policies[]
+
+  @@unique([tenant_id, activity_code])
+  @@index([tenant_id, lawful_basis], map: "idx_dpa_lawful_basis")
+  @@index([tenant_id, status, display_name], map: "idx_dpa_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model data_retention_policies {
+  id                          Int                         @id @default(autoincrement())
+  tenant_id                   String                      @db.Uuid
+  policy_code                 String                      @db.VarChar(80)
+  applies_to_table            String                      @db.VarChar(120)
+  display_name                String                      @db.VarChar(255)
+  description                 String?
+  retention_days              Int
+  action                      String                      @default("erase") @db.VarChar(20)
+  basis                       String
+  legal_hold_aware            Boolean                     @default(true)
+  data_processing_activity_id Int?
+  status                      String                      @default("active") @db.VarChar(20)
+  metadata                    Json                        @default("{}")
+  created_by                  String?                     @db.Uuid
+  created_at                  DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                    @default(now()) @db.Timestamptz(6)
+  data_processing_activities  data_processing_activities? @relation(fields: [data_processing_activity_id], references: [id], onUpdate: NoAction)
+  tenants                     tenants                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, applies_to_table])
+  @@unique([tenant_id, policy_code])
+  @@index([tenant_id, status, applies_to_table], map: "idx_drp_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model emergency_visits {
+  id                   Int                  @id @default(autoincrement())
+  tenant_id            String               @db.Uuid
+  facility_id          Int?
+  visit_number         String               @db.VarChar(80)
+  patient_uid          String?              @db.Uuid
+  arrival_at           DateTime             @default(now()) @db.Timestamptz(6)
+  arrival_mode         String               @default("walk_in") @db.VarChar(40)
+  ambulance_request_id Int?
+  chief_complaint      String?
+  attending_doctor_uid String?              @db.Uuid
+  triage_priority      String?              @db.VarChar(20)
+  status               String               @default("arriving") @db.VarChar(20)
+  bed_assigned_id      Int?
+  disposition          String?              @db.VarChar(60)
+  triage_started_at    DateTime?            @db.Timestamptz(6)
+  treatment_started_at DateTime?            @db.Timestamptz(6)
+  disposition_at       DateTime?            @db.Timestamptz(6)
+  departure_at         DateTime?            @db.Timestamptz(6)
+  is_mlc               Boolean              @default(false)
+  metadata             Json                 @default("{}")
+  created_by           String?              @db.Uuid
+  created_at           DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime             @default(now()) @db.Timestamptz(6)
+  tenants              tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  mlc_records          mlc_records[]
+  triage_assessments   triage_assessments[]
+
+  @@unique([tenant_id, visit_number])
+  @@index([tenant_id, status, arrival_at(sort: Desc)], map: "idx_ed_visits_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model encryption_keys {
+  id                    Int               @id @default(autoincrement())
+  tenant_id             String?           @db.Uuid
+  key_id                String            @db.VarChar(64)
+  provider              String            @default("env") @db.VarChar(40)
+  provider_reference    String?           @db.VarChar(512)
+  algorithm             String            @default("aes-256-gcm") @db.VarChar(40)
+  status                String            @default("active") @db.VarChar(20)
+  rotated_from          Int?
+  activated_at          DateTime          @default(now()) @db.Timestamptz(6)
+  retiring_at           DateTime?         @db.Timestamptz(6)
+  retired_at            DateTime?         @db.Timestamptz(6)
+  metadata              Json              @default("{}")
+  created_by            String?           @db.Uuid
+  created_at            DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime          @default(now()) @db.Timestamptz(6)
+  encryption_keys       encryption_keys?  @relation("encryption_keysToencryption_keys", fields: [rotated_from], references: [id], onUpdate: NoAction)
+  other_encryption_keys encryption_keys[] @relation("encryption_keysToencryption_keys")
+  tenants               tenants?          @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, key_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model escalation_rules {
+  id                     Int      @id @default(autoincrement())
+  tenant_id              String   @db.Uuid
+  display_name           String   @db.VarChar(255)
+  description            String?
+  scope                  String   @default("task") @db.VarChar(40)
+  match_filter           Json     @default("{}")
+  trigger_condition      String   @db.VarChar(40)
+  trigger_window_minutes Int?
+  action_kind            String   @db.VarChar(40)
+  action_payload         Json     @default("{}")
+  is_active              Boolean  @default(true)
+  created_by             String?  @db.Uuid
+  created_at             DateTime @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime @default(now()) @db.Timestamptz(6)
+  tenants                tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, is_active, scope], map: "idx_escalation_rules_tenant_active")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model external_system_mappings {
+  id                     Int          @id @default(autoincrement())
+  tenant_id              String       @db.Uuid
+  integration_id         Int
+  internal_resource_type String       @db.VarChar(60)
+  internal_id            String       @db.VarChar(120)
+  external_system_id     String       @db.VarChar(255)
+  status                 String       @default("active") @db.VarChar(20)
+  last_synced_at         DateTime?    @db.Timestamptz(6)
+  metadata               Json         @default("{}")
+  created_at             DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime     @default(now()) @db.Timestamptz(6)
+  integrations           integrations @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, integration_id, internal_resource_type, internal_id])
+  @@index([tenant_id, integration_id, external_system_id], map: "idx_external_mappings_external")
+  @@index([tenant_id, internal_resource_type, internal_id], map: "idx_external_mappings_internal")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model facilities {
+  id                  Int                  @id @default(autoincrement())
+  tenant_id           String               @db.Uuid
+  facility_code       String               @db.VarChar(80)
+  display_name        String               @db.VarChar(255)
+  facility_kind       String               @default("hospital") @db.VarChar(40)
+  legal_entity_name   String?              @db.VarChar(255)
+  registration_number String?              @db.VarChar(120)
+  address_line1       String?              @db.VarChar(255)
+  address_line2       String?              @db.VarChar(255)
+  city                String?              @db.VarChar(120)
+  state               String?              @db.VarChar(120)
+  country             String               @default("IN") @db.VarChar(80)
+  postal_code         String?              @db.VarChar(20)
+  timezone            String               @default("Asia/Kolkata") @db.VarChar(60)
+  phone               String?              @db.VarChar(40)
+  email               String?              @db.VarChar(255)
+  status              String               @default("active") @db.VarChar(20)
+  is_default          Boolean              @default(false)
+  geo_lat             Decimal?             @db.Decimal(10, 6)
+  geo_lng             Decimal?             @db.Decimal(10, 6)
+  metadata            Json                 @default("{}")
+  created_by          String?              @db.Uuid
+  created_at          DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime             @default(now()) @db.Timestamptz(6)
+  tenants             tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  facility_locations  facility_locations[]
+  facility_rooms      facility_rooms[]
+  service_catalog     service_catalog[]
+
+  @@unique([tenant_id, facility_code])
+  @@index([tenant_id, facility_kind, status], map: "idx_facilities_tenant_kind")
+  @@index([tenant_id, status, display_name], map: "idx_facilities_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model facility_locations {
+  id                       Int                  @id @default(autoincrement())
+  tenant_id                String               @db.Uuid
+  facility_id              Int
+  parent_id                Int?
+  location_code            String               @db.VarChar(120)
+  display_name             String               @db.VarChar(255)
+  location_kind            String               @default("general") @db.VarChar(40)
+  floor                    String?              @db.VarChar(40)
+  building                 String?              @db.VarChar(120)
+  status                   String               @default("active") @db.VarChar(20)
+  capacity_hint            Int?
+  metadata                 Json                 @default("{}")
+  created_by               String?              @db.Uuid
+  created_at               DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime             @default(now()) @db.Timestamptz(6)
+  facilities               facilities           @relation(fields: [facility_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  facility_locations       facility_locations?  @relation("facility_locationsTofacility_locations", fields: [parent_id], references: [id], onUpdate: NoAction)
+  other_facility_locations facility_locations[] @relation("facility_locationsTofacility_locations")
+  tenants                  tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  facility_rooms           facility_rooms[]
+
+  @@unique([facility_id, location_code])
+  @@index([tenant_id, location_kind, status], map: "idx_facility_locations_kind")
+  @@index([tenant_id, facility_id, status], map: "idx_facility_locations_tenant_facility")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model facility_rooms {
+  id                 Int                @id @default(autoincrement())
+  tenant_id          String             @db.Uuid
+  facility_id        Int
+  location_id        Int
+  room_code          String             @db.VarChar(120)
+  display_name       String             @db.VarChar(255)
+  room_kind          String             @default("general") @db.VarChar(40)
+  bed_capacity       Int?
+  floor              String?            @db.VarChar(40)
+  status             String             @default("active") @db.VarChar(20)
+  metadata           Json               @default("{}")
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime           @default(now()) @db.Timestamptz(6)
+  facilities         facilities         @relation(fields: [facility_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  facility_locations facility_locations @relation(fields: [location_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants            tenants            @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([facility_id, room_code])
+  @@index([tenant_id, room_kind, status], map: "idx_facility_rooms_kind")
+  @@index([location_id, status], map: "idx_facility_rooms_location")
+  @@index([tenant_id, facility_id, status], map: "idx_facility_rooms_tenant_facility")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model fall_risk_assessments {
+  id            Int      @id @default(autoincrement())
+  tenant_id     String?  @db.Uuid
+  patient_uid   String   @db.Uuid
+  encounter_id  Int?
+  scale         String   @db.VarChar(40)
+  score         Int
+  risk_level    String   @db.VarChar(20)
+  factors       Json     @default("{}")
+  interventions Json     @default("[]")
+  notes         String?
+  recorded_by   String?  @db.Uuid
+  recorded_at   DateTime @default(now()) @db.Timestamptz(6)
+  metadata      Json     @default("{}")
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @default(now()) @db.Timestamptz(6)
+  tenants       tenants? @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([patient_uid, recorded_at(sort: Desc)], map: "idx_fall_patient_recorded")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model follow_up_plans {
+  id                       Int         @id @default(autoincrement())
+  tenant_id                String      @db.Uuid
+  patient_uid              String      @db.Uuid
+  origin_kind              String      @db.VarChar(40)
+  origin_resource_type     String?     @db.VarChar(60)
+  origin_resource_id       String?     @db.VarChar(120)
+  encounter_id             Int?
+  doctor_uid               String?     @db.Uuid
+  facility_id              Int?
+  care_plan_id             Int?
+  due_at                   DateTime?   @db.Timestamptz(6)
+  appointment_id           Int?
+  appointment_status       String      @default("pending") @db.VarChar(20)
+  reason                   String?
+  reminder_offsets_minutes Int[]
+  reminder_last_sent_at    DateTime?   @db.Timestamptz(6)
+  status                   String      @default("open") @db.VarChar(20)
+  closed_at                DateTime?   @db.Timestamptz(6)
+  closure_outcome          String?     @db.VarChar(60)
+  metadata                 Json        @default("{}")
+  created_by               String?     @db.Uuid
+  created_at               DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime    @default(now()) @db.Timestamptz(6)
+  care_plans               care_plans? @relation(fields: [care_plan_id], references: [id], onUpdate: NoAction)
+  tenants                  tenants     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, patient_uid, status], map: "idx_follow_up_patient")
+  @@index([tenant_id, status, due_at], map: "idx_follow_up_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model growth_charts {
+  id                             Int      @id @default(autoincrement())
+  tenant_id                      String?  @db.Uuid
+  patient_uid                    String   @db.Uuid
+  encounter_id                   Int?
+  reference_dataset              String   @db.VarChar(40)
+  age_in_days                    Int
+  height_cm                      Decimal? @db.Decimal(6, 2)
+  weight_kg                      Decimal? @db.Decimal(6, 3)
+  head_circumference_cm          Decimal? @db.Decimal(5, 2)
+  mid_upper_arm_circumference_cm Decimal? @db.Decimal(5, 2)
+  bmi                            Decimal? @db.Decimal(5, 2)
+  percentiles                    Json     @default("{}")
+  z_scores                       Json     @default("{}")
+  classification                 String?  @db.VarChar(60)
+  notes                          String?
+  recorded_by                    String?  @db.Uuid
+  recorded_at                    DateTime @default(now()) @db.Timestamptz(6)
+  metadata                       Json     @default("{}")
+  created_at                     DateTime @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime @default(now()) @db.Timestamptz(6)
+  tenants                        tenants? @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([patient_uid, recorded_at(sort: Desc)], map: "idx_growth_patient_recorded")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model idempotency_keys {
+  id                Int      @id @default(autoincrement())
+  tenant_id         String?  @db.Uuid
+  request_key       String   @db.VarChar(200)
+  user_uid          String?  @db.Uuid
+  request_method    String   @db.VarChar(10)
+  request_path      String   @db.VarChar(255)
+  request_body_hash String?  @db.Char(64)
+  status            String   @default("in_flight") @db.VarChar(20)
+  response_status   Int?
+  response_body     Json?
+  expires_at        DateTime @default(dbgenerated("(now() + '24:00:00'::interval)")) @db.Timestamptz(6)
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime @default(now()) @db.Timestamptz(6)
+  tenants           tenants? @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, user_uid, request_key, request_path])
+  @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_idem_status_created")
+}
+
+model integration_credentials {
+  id                    Int                     @id @default(autoincrement())
+  integration_id        Int
+  tenant_id             String                  @db.Uuid
+  credential_key        String                  @db.VarChar(80)
+  ciphertext            String?
+  ciphertext_hash       String?                 @db.VarChar(64)
+  kms_key_id            String?                 @db.VarChar(160)
+  expires_at            DateTime?               @db.Timestamptz(6)
+  metadata              Json                    @default("{}")
+  created_by            String?                 @db.Uuid
+  rotated_at            DateTime?               @db.Timestamptz(6)
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  integrations          integrations            @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants               tenants                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  webhook_subscriptions webhook_subscriptions[]
+
+  @@unique([integration_id, credential_key])
+  @@index([tenant_id, integration_id], map: "idx_integration_credentials_tenant")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model integration_logs {
+  id             Int           @id @default(autoincrement())
+  tenant_id      String        @db.Uuid
+  integration_id Int?
+  log_type       String        @db.VarChar(40)
+  severity       String        @default("info") @db.VarChar(20)
+  message        String?
+  payload        Json          @default("{}")
+  created_at     DateTime      @default(now()) @db.Timestamptz(6)
+  integrations   integrations? @relation(fields: [integration_id], references: [id], onUpdate: NoAction)
+  tenants        tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([integration_id, created_at(sort: Desc)], map: "idx_integration_logs_integration_time")
+  @@index([tenant_id, created_at(sort: Desc)], map: "idx_integration_logs_tenant_time")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model integrations {
+  id                       Int                        @id @default(autoincrement())
+  tenant_id                String                     @db.Uuid
+  name                     String                     @db.VarChar(160)
+  description              String?
+  integration_type         String                     @db.VarChar(80)
+  status                   String                     @default("active") @db.VarChar(20)
+  config                   Json                       @default("{}")
+  created_by               String?                    @db.Uuid
+  metadata                 Json                       @default("{}")
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  external_system_mappings external_system_mappings[]
+  integration_credentials  integration_credentials[]
+  integration_logs         integration_logs[]
+  tenants                  tenants                    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  webhook_subscriptions    webhook_subscriptions[]
+
+  @@unique([tenant_id, name])
+  @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_integrations_tenant_status")
+  @@index([tenant_id, integration_type], map: "idx_integrations_tenant_type")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model intraop_notes {
+  id                       Int          @id @default(autoincrement())
+  tenant_id                String       @db.Uuid
+  ot_schedule_id           Int
+  patient_uid              String?      @db.Uuid
+  surgeon                  String?      @db.Uuid
+  primary_assistant        String?      @db.Uuid
+  scrub_nurse              String?      @db.Uuid
+  circulator               String?      @db.Uuid
+  procedure_performed      String?      @db.VarChar(500)
+  procedure_codes          String[]
+  incision_type            String?      @db.VarChar(160)
+  position                 String?      @db.VarChar(120)
+  findings                 String?
+  technique                String?
+  specimens                Json         @default("[]")
+  estimated_blood_loss_ml  Int?
+  fluids_input             Json         @default("{}")
+  fluids_output            Json         @default("{}")
+  complications            String?
+  sponge_count_correct     Boolean?
+  sharp_count_correct      Boolean?
+  instrument_count_correct Boolean?
+  count_discrepancy_notes  String?
+  drains_placed            Json         @default("[]")
+  closure_method           String?      @db.VarChar(255)
+  start_time               DateTime?    @db.Timestamptz(6)
+  end_time                 DateTime?    @db.Timestamptz(6)
+  status                   String       @default("draft") @db.VarChar(20)
+  finalized_by             String?      @db.Uuid
+  finalized_at             DateTime?    @db.Timestamptz(6)
+  ai_assist_generation_id  Int?
+  metadata                 Json         @default("{}")
+  created_at               DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime     @default(now()) @db.Timestamptz(6)
+  ot_schedules             ot_schedules @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                  tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_intraop_notes_status")
+  @@index([tenant_id, ot_schedule_id, created_at(sort: Desc)], map: "idx_intraop_notes_tenant_schedule")
+}
+
+model mfa_backup_codes {
+  id            Int         @id @default(autoincrement())
+  tenant_id     String      @db.Uuid
+  mfa_device_id Int
+  user_uid      String      @db.Uuid
+  code_hash     String      @db.VarChar(128)
+  code_salt     String      @db.VarChar(64)
+  used_at       DateTime?   @db.Timestamptz(6)
+  used_from_ip  String?     @db.VarChar(64)
+  metadata      Json        @default("{}")
+  created_at    DateTime    @default(now()) @db.Timestamptz(6)
+  mfa_devices   mfa_devices @relation(fields: [mfa_device_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants       tenants     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([mfa_device_id, used_at], map: "idx_mfa_backup_codes_device")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model mfa_challenges {
+  id             Int          @id @default(autoincrement())
+  tenant_id      String       @db.Uuid
+  user_uid       String       @db.Uuid
+  mfa_device_id  Int?
+  challenge_kind String       @default("totp") @db.VarChar(20)
+  step           BigInt?
+  status         String       @default("pending") @db.VarChar(20)
+  attempts       Int          @default(0)
+  ip_address     String?      @db.VarChar(64)
+  user_agent     String?      @db.VarChar(255)
+  expires_at     DateTime     @db.Timestamptz(6)
+  resolved_at    DateTime?    @db.Timestamptz(6)
+  metadata       Json         @default("{}")
+  created_at     DateTime     @default(now()) @db.Timestamptz(6)
+  mfa_devices    mfa_devices? @relation(fields: [mfa_device_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants        tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, user_uid, status, expires_at], map: "idx_mfa_challenges_user_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model mfa_devices {
+  id                     Int                @id @default(autoincrement())
+  tenant_id              String             @db.Uuid
+  user_uid               String             @db.Uuid
+  device_kind            String             @default("totp") @db.VarChar(20)
+  display_name           String?            @db.VarChar(160)
+  secret_ciphertext      String?
+  secret_ciphertext_hash String?            @db.VarChar(64)
+  algorithm              String             @default("sha1") @db.VarChar(16)
+  digits                 Int                @default(6)
+  period_seconds         Int                @default(30)
+  status                 String             @default("pending") @db.VarChar(20)
+  verified_at            DateTime?          @db.Timestamptz(6)
+  revoked_at             DateTime?          @db.Timestamptz(6)
+  last_used_at           DateTime?          @db.Timestamptz(6)
+  last_step              BigInt?
+  metadata               Json               @default("{}")
+  created_at             DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime           @default(now()) @db.Timestamptz(6)
+  mfa_backup_codes       mfa_backup_codes[]
+  mfa_challenges         mfa_challenges[]
+  tenants                tenants            @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, user_uid, status], map: "idx_mfa_devices_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model mlc_records {
+  id                      Int               @id @default(autoincrement())
+  tenant_id               String            @db.Uuid
+  emergency_visit_id      Int?
+  patient_uid             String?           @db.Uuid
+  mlc_number              String            @db.VarChar(80)
+  mlc_kind                String            @db.VarChar(40)
+  reported_to_police_at   DateTime?         @db.Timestamptz(6)
+  police_station          String?           @db.VarChar(255)
+  police_report_number    String?           @db.VarChar(120)
+  ipc_sections            String[]          @default([])
+  brought_by_relation     String?           @db.VarChar(80)
+  brought_by_name         String?           @db.VarChar(255)
+  brought_by_phone        String?           @db.VarChar(40)
+  incident_at             DateTime?         @db.Timestamptz(6)
+  incident_address        String?
+  history_summary         String?
+  examination_summary     String?
+  injuries                Json              @default("[]")
+  consent_for_examination Boolean           @default(false)
+  consent_for_disclosure  Boolean           @default(false)
+  certified_by_uid        String?           @db.Uuid
+  certified_at            DateTime?         @db.Timestamptz(6)
+  status                  String            @default("open") @db.VarChar(20)
+  metadata                Json              @default("{}")
+  created_by              String?           @db.Uuid
+  created_at              DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime          @default(now()) @db.Timestamptz(6)
+  emergency_visits        emergency_visits? @relation(fields: [emergency_visit_id], references: [id], onUpdate: NoAction)
+  tenants                 tenants           @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, mlc_number])
+  @@index([tenant_id, mlc_kind, created_at(sort: Desc)], map: "idx_mlc_kind")
+  @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_mlc_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model numbering_series {
+  id              Int       @id @default(autoincrement())
+  tenant_id       String    @db.Uuid
+  code            String    @db.VarChar(80)
+  display_name    String    @db.VarChar(255)
+  format_template String    @db.VarChar(120)
+  current_value   BigInt    @default(0)
+  starting_value  BigInt    @default(0)
+  padding         Int       @default(0)
+  reset_cadence   String    @default("never") @db.VarChar(20)
+  last_reset_at   DateTime? @db.Timestamptz(6)
+  status          String    @default("active") @db.VarChar(20)
+  metadata        Json      @default("{}")
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @default(now()) @db.Timestamptz(6)
+  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, code])
+  @@index([tenant_id, status, code], map: "idx_numbering_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model package_items {
+  id               Int      @id @default(autoincrement())
+  tenant_id        String   @db.Uuid
+  package_id       Int
+  service_code     String   @db.VarChar(120)
+  service_kind     String   @default("service") @db.VarChar(40)
+  display_name     String   @db.VarChar(255)
+  quantity         Decimal  @default(1) @db.Decimal(10, 2)
+  unit_price_minor BigInt?
+  is_included      Boolean  @default(true)
+  notes            String?
+  metadata         Json     @default("{}")
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime @default(now()) @db.Timestamptz(6)
+  packages         packages @relation(fields: [package_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants          tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, service_code], map: "idx_package_items_service_code")
+  @@index([tenant_id, package_id], map: "idx_package_items_tenant_package")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model packages {
+  id                  Int             @id @default(autoincrement())
+  tenant_id           String          @db.Uuid
+  package_code        String          @db.VarChar(120)
+  display_name        String          @db.VarChar(255)
+  description         String?
+  base_specialty      String?         @db.VarChar(120)
+  base_procedure_code String?         @db.VarChar(120)
+  duration_days       Int?
+  fixed_price_minor   BigInt?
+  currency            String          @default("INR") @db.VarChar(8)
+  status              String          @default("active") @db.VarChar(20)
+  exclusion_notes     String?
+  inclusion_notes     String?
+  metadata            Json            @default("{}")
+  created_by          String?         @db.Uuid
+  created_at          DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime        @default(now()) @db.Timestamptz(6)
+  package_items       package_items[]
+  tenants             tenants         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, package_code])
+  @@index([tenant_id, status, display_name], map: "idx_packages_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model pain_assessments {
+  id            Int      @id @default(autoincrement())
+  tenant_id     String?  @db.Uuid
+  patient_uid   String   @db.Uuid
+  encounter_id  Int?
+  scale         String   @db.VarChar(40)
+  score         Decimal  @db.Decimal(4, 1)
+  location      String?  @db.VarChar(120)
+  character     String?  @db.VarChar(80)
+  context       String?  @db.VarChar(40)
+  interventions Json     @default("[]")
+  notes         String?
+  recorded_by   String?  @db.Uuid
+  recorded_at   DateTime @default(now()) @db.Timestamptz(6)
+  metadata      Json     @default("{}")
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @default(now()) @db.Timestamptz(6)
+  tenants       tenants? @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([patient_uid, recorded_at(sort: Desc)], map: "idx_pain_patient_recorded")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model patient_duplicate_candidates {
+  id                     Int                      @id @default(autoincrement())
+  tenant_id              String                   @db.Uuid
+  primary_uid            String                   @db.Uuid
+  secondary_uid          String                   @db.Uuid
+  confidence_score       Decimal                  @default(0) @db.Decimal(5, 2)
+  match_signals          Json                     @default("{}")
+  detected_by            String                   @default("rule_engine") @db.VarChar(40)
+  detection_run_id       String?                  @db.Uuid
+  status                 String                   @default("open") @db.VarChar(30)
+  decided_by             String?                  @db.Uuid
+  decided_at             DateTime?                @db.Timestamptz(6)
+  decision_note          String?
+  metadata               Json                     @default("{}")
+  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  tenants                tenants                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  patient_merge_requests patient_merge_requests[]
+
+  @@unique([tenant_id, primary_uid, secondary_uid], map: "uq_patient_dup_pair")
+  @@index([detection_run_id], map: "idx_patient_dup_run")
+  @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_patient_dup_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model patient_identifiers {
+  id                    Int       @id @default(autoincrement())
+  tenant_id             String    @db.Uuid
+  patient_uid           String    @db.Uuid
+  identifier_type       String    @db.VarChar(40)
+  identifier_value      String    @db.VarChar(255)
+  identifier_value_hash String?   @db.VarChar(64)
+  issuer                String?   @db.VarChar(255)
+  assigned_at           DateTime? @db.Timestamptz(6)
+  expires_at            DateTime? @db.Timestamptz(6)
+  is_primary            Boolean   @default(false)
+  status                String    @default("active") @db.VarChar(20)
+  merged_into_uid       String?   @db.Uuid
+  metadata              Json      @default("{}")
+  created_by            String?   @db.Uuid
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime  @default(now()) @db.Timestamptz(6)
+  tenants               tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, patient_uid, status], map: "idx_patient_identifiers_tenant_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model patient_merge_requests {
+  id                           Int                           @id @default(autoincrement())
+  tenant_id                    String                        @db.Uuid
+  candidate_id                 Int?
+  primary_uid                  String                        @db.Uuid
+  secondary_uid                String                        @db.Uuid
+  status                       String                        @default("requested") @db.VarChar(20)
+  requested_by                 String?                       @db.Uuid
+  requested_at                 DateTime                      @default(now()) @db.Timestamptz(6)
+  requester_note               String?
+  approver_uid                 String?                       @db.Uuid
+  approved_at                  DateTime?                     @db.Timestamptz(6)
+  approver_note                String?
+  executor_uid                 String?                       @db.Uuid
+  executed_at                  DateTime?                     @db.Timestamptz(6)
+  execution_summary            Json?
+  rejection_reason             String?
+  metadata                     Json                          @default("{}")
+  created_at                   DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime                      @default(now()) @db.Timestamptz(6)
+  patient_duplicate_candidates patient_duplicate_candidates? @relation(fields: [candidate_id], references: [id], onUpdate: NoAction)
+  tenants                      tenants                       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, primary_uid], map: "idx_patient_merge_primary")
+  @@index([tenant_id, secondary_uid], map: "idx_patient_merge_secondary")
+  @@index([tenant_id, status, created_at(sort: Desc)], map: "idx_patient_merge_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model payer_tariff_links {
+  id             Int          @id @default(autoincrement())
+  tenant_id      String       @db.Uuid
+  payer_id       Int?
+  tpa_id         Int?
+  tariff_plan_id Int
+  is_primary     Boolean      @default(false)
+  effective_from DateTime?    @db.Date
+  effective_to   DateTime?    @db.Date
+  status         String       @default("active") @db.VarChar(20)
+  metadata       Json         @default("{}")
+  created_by     String?      @db.Uuid
+  created_at     DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime     @default(now()) @db.Timestamptz(6)
+  payers         payers?      @relation(fields: [payer_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tariff_plans   tariff_plans @relation(fields: [tariff_plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants        tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tpas           tpas?        @relation(fields: [tpa_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tariff_plan_id], map: "idx_payer_tariff_links_plan")
+  @@index([tenant_id, status], map: "idx_payer_tariff_links_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model payers {
+  id                  Int                  @id @default(autoincrement())
+  tenant_id           String               @db.Uuid
+  payer_code          String               @db.VarChar(80)
+  display_name        String               @db.VarChar(255)
+  payer_kind          String               @default("private_insurance") @db.VarChar(40)
+  registration_number String?              @db.VarChar(120)
+  contact_email       String?              @db.VarChar(255)
+  contact_phone       String?              @db.VarChar(40)
+  address             String?
+  status              String               @default("active") @db.VarChar(20)
+  ehr_external_id     String?              @db.VarChar(120)
+  metadata            Json                 @default("{}")
+  created_by          String?              @db.Uuid
+  created_at          DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime             @default(now()) @db.Timestamptz(6)
+  payer_tariff_links  payer_tariff_links[]
+  tenants             tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tpas                tpas[]
+
+  @@unique([tenant_id, payer_code])
+  @@index([tenant_id, payer_kind, status], map: "idx_payers_tenant_kind")
+  @@index([tenant_id, status, display_name], map: "idx_payers_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model pharmacy_expiry_alerts {
+  id                         Int                        @id @default(autoincrement())
+  tenant_id                  String                     @db.Uuid
+  inventory_batch_id         Int
+  inventory_item_id          Int
+  expiry_date                DateTime                   @db.Date
+  days_remaining             Int
+  severity                   String                     @default("medium") @db.VarChar(20)
+  status                     String                     @default("open") @db.VarChar(20)
+  acknowledged_by            String?                    @db.Uuid
+  acknowledged_at            DateTime?                  @db.Timestamptz(6)
+  resolution                 String?                    @db.VarChar(40)
+  resolved_at                DateTime?                  @db.Timestamptz(6)
+  metadata                   Json                       @default("{}")
+  created_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                   @default(now()) @db.Timestamptz(6)
+  pharmacy_inventory_batches pharmacy_inventory_batches @relation(fields: [inventory_batch_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_inventory_items   pharmacy_inventory_items   @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                    tenants                    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([inventory_batch_id], map: "idx_expiry_alerts_batch")
+  @@index([tenant_id, status, expiry_date], map: "idx_expiry_alerts_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model pharmacy_goods_receipt_items {
+  id                            Int                            @id @default(autoincrement())
+  tenant_id                     String                         @db.Uuid
+  goods_receipt_id              Int
+  inventory_item_id             Int
+  inventory_batch_id            Int?
+  purchase_order_item_id        Int?
+  received_quantity             Decimal                        @db.Decimal(14, 4)
+  unit_cost_minor               BigInt?
+  qc_status                     String?                        @db.VarChar(20)
+  qc_notes                      String?
+  metadata                      Json                           @default("{}")
+  created_at                    DateTime                       @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime                       @default(now()) @db.Timestamptz(6)
+  pharmacy_goods_receipts       pharmacy_goods_receipts        @relation(fields: [goods_receipt_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_inventory_batches    pharmacy_inventory_batches?    @relation(fields: [inventory_batch_id], references: [id], onUpdate: NoAction)
+  pharmacy_inventory_items      pharmacy_inventory_items       @relation(fields: [inventory_item_id], references: [id], onUpdate: NoAction)
+  pharmacy_purchase_order_items pharmacy_purchase_order_items? @relation(fields: [purchase_order_item_id], references: [id], onUpdate: NoAction)
+  tenants                       tenants                        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([goods_receipt_id], map: "idx_pharmacy_grn_items_grn")
+  @@index([inventory_item_id], map: "idx_pharmacy_grn_items_item")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model pharmacy_goods_receipts {
+  id                           Int                            @id @default(autoincrement())
+  tenant_id                    String                         @db.Uuid
+  facility_id                  Int?
+  grn_number                   String                         @db.VarChar(80)
+  purchase_order_id            Int?
+  supplier_id                  Int?
+  invoice_number               String?                        @db.VarChar(120)
+  invoice_date                 DateTime?                      @db.Date
+  received_at                  DateTime                       @default(now()) @db.Timestamptz(6)
+  status                       String                         @default("received") @db.VarChar(20)
+  total_amount_minor           BigInt?
+  notes                        String?
+  received_by                  String?                        @db.Uuid
+  metadata                     Json                           @default("{}")
+  created_at                   DateTime                       @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime                       @default(now()) @db.Timestamptz(6)
+  pharmacy_goods_receipt_items pharmacy_goods_receipt_items[]
+  pharmacy_purchase_orders     pharmacy_purchase_orders?      @relation(fields: [purchase_order_id], references: [id], onUpdate: NoAction)
+  pharmacy_suppliers           pharmacy_suppliers?            @relation(fields: [supplier_id], references: [id], onUpdate: NoAction)
+  tenants                      tenants                        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, grn_number])
+  @@index([tenant_id, status, received_at(sort: Desc)], map: "idx_pharmacy_grn_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model pharmacy_inventory_batches {
+  id                           Int                            @id @default(autoincrement())
+  tenant_id                    String                         @db.Uuid
+  inventory_item_id            Int
+  facility_id                  Int?
+  batch_number                 String                         @db.VarChar(120)
+  lot_number                   String?                        @db.VarChar(120)
+  manufacture_date             DateTime?                      @db.Date
+  expiry_date                  DateTime                       @db.Date
+  received_quantity            Decimal                        @db.Decimal(14, 4)
+  remaining_quantity           Decimal                        @db.Decimal(14, 4)
+  unit_cost_minor              BigInt?
+  mrp_minor                    BigInt?
+  supplier_id                  Int?
+  goods_receipt_id             Int?
+  storage_location_id          Int?
+  status                       String                         @default("in_stock") @db.VarChar(20)
+  recall_reference             String?                        @db.VarChar(255)
+  metadata                     Json                           @default("{}")
+  created_at                   DateTime                       @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime                       @default(now()) @db.Timestamptz(6)
+  pharmacy_expiry_alerts       pharmacy_expiry_alerts[]
+  pharmacy_goods_receipt_items pharmacy_goods_receipt_items[]
+  pharmacy_inventory_items     pharmacy_inventory_items       @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_suppliers           pharmacy_suppliers?            @relation(fields: [supplier_id], references: [id], onUpdate: NoAction)
+  tenants                      tenants                        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_stock_movements     pharmacy_stock_movements[]
+
+  @@unique([inventory_item_id, batch_number])
+  @@index([inventory_item_id, status, expiry_date], map: "idx_pharmacy_batches_item_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model pharmacy_inventory_items {
+  id                                                                                     Int                             @id @default(autoincrement())
+  tenant_id                                                                              String                          @db.Uuid
+  facility_id                                                                            Int?
+  sku_code                                                                               String                          @db.VarChar(120)
+  display_name                                                                           String                          @db.VarChar(255)
+  generic_name                                                                           String?                         @db.VarChar(255)
+  brand_name                                                                             String?                         @db.VarChar(255)
+  manufacturer                                                                           String?                         @db.VarChar(255)
+  form                                                                                   String?                         @db.VarChar(80)
+  strength                                                                               String?                         @db.VarChar(80)
+  unit_label                                                                             String                          @default("each") @db.VarChar(40)
+  pack_size                                                                              Int?
+  hsn_code                                                                               String?                         @db.VarChar(40)
+  schedule_class                                                                         String?                         @db.VarChar(20)
+  is_narcotic                                                                            Boolean                         @default(false)
+  is_cold_chain                                                                          Boolean                         @default(false)
+  reorder_level                                                                          Int?
+  reorder_quantity                                                                       Int?
+  default_supplier_id                                                                    Int?
+  status                                                                                 String                          @default("active") @db.VarChar(20)
+  metadata                                                                               Json                            @default("{}")
+  created_at                                                                             DateTime                        @default(now()) @db.Timestamptz(6)
+  updated_at                                                                             DateTime                        @default(now()) @db.Timestamptz(6)
+  pharmacy_expiry_alerts                                                                 pharmacy_expiry_alerts[]
+  pharmacy_goods_receipt_items                                                           pharmacy_goods_receipt_items[]
+  pharmacy_inventory_batches                                                             pharmacy_inventory_batches[]
+  pharmacy_suppliers                                                                     pharmacy_suppliers?             @relation(fields: [default_supplier_id], references: [id], onUpdate: NoAction)
+  tenants                                                                                tenants                         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_purchase_order_items                                                          pharmacy_purchase_order_items[]
+  pharmacy_stock_movements                                                               pharmacy_stock_movements[]
+  pharmacy_substitutes_pharmacy_substitutes_primary_item_idTopharmacy_inventory_items    pharmacy_substitutes[]          @relation("pharmacy_substitutes_primary_item_idTopharmacy_inventory_items")
+  pharmacy_substitutes_pharmacy_substitutes_substitute_item_idTopharmacy_inventory_items pharmacy_substitutes[]          @relation("pharmacy_substitutes_substitute_item_idTopharmacy_inventory_items")
+
+  @@unique([tenant_id, sku_code])
+  @@index([tenant_id, status, display_name], map: "idx_pharmacy_items_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model pharmacy_purchase_order_items {
+  id                           Int                            @id @default(autoincrement())
+  tenant_id                    String                         @db.Uuid
+  purchase_order_id            Int
+  inventory_item_id            Int
+  ordered_quantity             Decimal                        @db.Decimal(14, 4)
+  received_quantity            Decimal                        @default(0) @db.Decimal(14, 4)
+  unit_price_minor             BigInt?
+  tax_rate_pct                 Decimal?                       @db.Decimal(5, 2)
+  notes                        String?
+  metadata                     Json                           @default("{}")
+  created_at                   DateTime                       @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime                       @default(now()) @db.Timestamptz(6)
+  pharmacy_goods_receipt_items pharmacy_goods_receipt_items[]
+  pharmacy_inventory_items     pharmacy_inventory_items       @relation(fields: [inventory_item_id], references: [id], onUpdate: NoAction)
+  pharmacy_purchase_orders     pharmacy_purchase_orders       @relation(fields: [purchase_order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                      tenants                        @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([purchase_order_id, inventory_item_id])
+  @@index([inventory_item_id], map: "idx_pharmacy_po_items_item")
+  @@index([purchase_order_id], map: "idx_pharmacy_po_items_po")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model pharmacy_purchase_orders {
+  id                            Int                             @id @default(autoincrement())
+  tenant_id                     String                          @db.Uuid
+  facility_id                   Int?
+  po_number                     String                          @db.VarChar(80)
+  supplier_id                   Int
+  status                        String                          @default("draft") @db.VarChar(20)
+  ordered_at                    DateTime?                       @db.Timestamptz(6)
+  expected_at                   DateTime?                       @db.Timestamptz(6)
+  received_at                   DateTime?                       @db.Timestamptz(6)
+  total_amount_minor            BigInt?
+  currency                      String                          @default("INR") @db.VarChar(8)
+  notes                         String?
+  approved_by                   String?                         @db.Uuid
+  approved_at                   DateTime?                       @db.Timestamptz(6)
+  cancellation_reason           String?
+  metadata                      Json                            @default("{}")
+  created_by                    String?                         @db.Uuid
+  created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  pharmacy_goods_receipts       pharmacy_goods_receipts[]
+  pharmacy_purchase_order_items pharmacy_purchase_order_items[]
+  pharmacy_suppliers            pharmacy_suppliers              @relation(fields: [supplier_id], references: [id], onUpdate: NoAction)
+  tenants                       tenants                         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, po_number])
+  @@index([supplier_id, status, ordered_at(sort: Desc)], map: "idx_pharmacy_po_supplier")
+  @@index([tenant_id, status, ordered_at(sort: Desc)], map: "idx_pharmacy_po_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model pharmacy_stock_movements {
+  id                         Int                         @id @default(autoincrement())
+  tenant_id                  String                      @db.Uuid
+  inventory_item_id          Int
+  inventory_batch_id         Int?
+  movement_kind              String                      @db.VarChar(40)
+  quantity_delta             Decimal                     @db.Decimal(14, 4)
+  reference_type             String?                     @db.VarChar(60)
+  reference_id               String?                     @db.VarChar(120)
+  performed_by               String?                     @db.Uuid
+  notes                      String?
+  metadata                   Json                        @default("{}")
+  created_at                 DateTime                    @default(now()) @db.Timestamptz(6)
+  pharmacy_inventory_batches pharmacy_inventory_batches? @relation(fields: [inventory_batch_id], references: [id], onUpdate: NoAction)
+  pharmacy_inventory_items   pharmacy_inventory_items    @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                    tenants                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([inventory_item_id, created_at(sort: Desc)], map: "idx_pharmacy_mvmt_item_time")
+  @@index([tenant_id, movement_kind, created_at(sort: Desc)], map: "idx_pharmacy_mvmt_tenant_kind")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model pharmacy_substitutes {
+  id                                                                                         Int                      @id @default(autoincrement())
+  tenant_id                                                                                  String                   @db.Uuid
+  primary_item_id                                                                            Int
+  substitute_item_id                                                                         Int
+  substitution_kind                                                                          String                   @default("generic_equivalent") @db.VarChar(40)
+  is_bidirectional                                                                           Boolean                  @default(true)
+  notes                                                                                      String?
+  created_by                                                                                 String?                  @db.Uuid
+  status                                                                                     String                   @default("active") @db.VarChar(20)
+  metadata                                                                                   Json                     @default("{}")
+  created_at                                                                                 DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                 DateTime                 @default(now()) @db.Timestamptz(6)
+  pharmacy_inventory_items_pharmacy_substitutes_primary_item_idTopharmacy_inventory_items    pharmacy_inventory_items @relation("pharmacy_substitutes_primary_item_idTopharmacy_inventory_items", fields: [primary_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_inventory_items_pharmacy_substitutes_substitute_item_idTopharmacy_inventory_items pharmacy_inventory_items @relation("pharmacy_substitutes_substitute_item_idTopharmacy_inventory_items", fields: [substitute_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                                                                                    tenants                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, primary_item_id, substitute_item_id])
+  @@index([primary_item_id, status], map: "idx_pharmacy_substitutes_primary")
+  @@index([substitute_item_id, status], map: "idx_pharmacy_substitutes_substitute")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model pharmacy_suppliers {
+  id                         Int                          @id @default(autoincrement())
+  tenant_id                  String                       @db.Uuid
+  supplier_code              String                       @db.VarChar(80)
+  display_name               String                       @db.VarChar(255)
+  legal_name                 String?                      @db.VarChar(255)
+  gstin                      String?                      @db.VarChar(40)
+  drug_license_number        String?                      @db.VarChar(120)
+  pan                        String?                      @db.VarChar(20)
+  contact_email              String?                      @db.VarChar(255)
+  contact_phone              String?                      @db.VarChar(40)
+  address                    String?
+  payment_terms              String?                      @db.VarChar(60)
+  bank_details               Json                         @default("{}")
+  status                     String                       @default("active") @db.VarChar(20)
+  rating                     Decimal?                     @db.Decimal(3, 2)
+  metadata                   Json                         @default("{}")
+  created_by                 String?                      @db.Uuid
+  created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  pharmacy_goods_receipts    pharmacy_goods_receipts[]
+  pharmacy_inventory_batches pharmacy_inventory_batches[]
+  pharmacy_inventory_items   pharmacy_inventory_items[]
+  pharmacy_purchase_orders   pharmacy_purchase_orders[]
+  tenants                    tenants                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, supplier_code])
+  @@index([tenant_id, status, display_name], map: "idx_pharmacy_suppliers_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model postop_complication_alerts {
+  id                     Int          @id @default(autoincrement())
+  tenant_id              String       @db.Uuid
+  ot_schedule_id         Int
+  patient_uid            String?      @db.Uuid
+  complication_type      String       @db.VarChar(80)
+  severity               String       @default("medium") @db.VarChar(20)
+  detected_at            DateTime     @default(now()) @db.Timestamptz(6)
+  detected_by            String?      @db.Uuid
+  detection_source       String?      @db.VarChar(40)
+  description            String?
+  clavien_dindo_grade    String?      @db.VarChar(8)
+  intervention           String?
+  intervention_at        DateTime?    @db.Timestamptz(6)
+  outcome                String?      @db.VarChar(40)
+  ai_alert_generation_id Int?
+  acknowledged_by        String?      @db.Uuid
+  acknowledged_at        DateTime?    @db.Timestamptz(6)
+  status                 String       @default("open") @db.VarChar(20)
+  metadata               Json         @default("{}")
+  created_at             DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime     @default(now()) @db.Timestamptz(6)
+  ot_schedules           ot_schedules @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([ot_schedule_id, detected_at(sort: Desc)], map: "idx_postop_complications_schedule")
+  @@index([tenant_id, status, severity, detected_at(sort: Desc)], map: "idx_postop_complications_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model postop_notes {
+  id                      Int          @id @default(autoincrement())
+  tenant_id               String       @db.Uuid
+  ot_schedule_id          Int
+  patient_uid             String?      @db.Uuid
+  authored_by             String?      @db.Uuid
+  pod_number              Int?
+  recovery_phase          String?      @db.VarChar(40)
+  vitals                  Json         @default("{}")
+  pain_score              Int?
+  pain_management_plan    String?
+  drain_status            Json         @default("[]")
+  wound_status            String?      @db.VarChar(160)
+  diet_advanced_to        String?      @db.VarChar(120)
+  ambulation              String?      @db.VarChar(120)
+  bowel_function          String?      @db.VarChar(120)
+  urine_output_ml         Int?
+  complications_noted     String?
+  pending_orders          Json         @default("[]")
+  follow_up_actions       Json         @default("[]")
+  disposition             String?      @db.VarChar(160)
+  status                  String       @default("draft") @db.VarChar(20)
+  finalized_by            String?      @db.Uuid
+  finalized_at            DateTime?    @db.Timestamptz(6)
+  ai_assist_generation_id Int?
+  metadata                Json         @default("{}")
+  created_at              DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime     @default(now()) @db.Timestamptz(6)
+  ot_schedules            ot_schedules @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                 tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, ot_schedule_id, created_at(sort: Desc)], map: "idx_postop_notes_tenant_schedule")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model preop_checklists {
+  id                        Int          @id @default(autoincrement())
+  tenant_id                 String       @db.Uuid
+  ot_schedule_id            Int
+  patient_uid               String?      @db.Uuid
+  consent_signed            Boolean      @default(false)
+  consent_signed_at         DateTime?    @db.Timestamptz(6)
+  consent_witness           String?      @db.VarChar(255)
+  npo_status_confirmed      Boolean      @default(false)
+  npo_since                 DateTime?    @db.Timestamptz(6)
+  site_marked               Boolean      @default(false)
+  site_marked_by            String?      @db.Uuid
+  allergies_reviewed        Boolean      @default(false)
+  allergies_summary         String?
+  blood_arranged            Boolean      @default(false)
+  blood_units               Int?
+  imaging_available         Boolean      @default(false)
+  required_imaging          String?
+  preop_labs_reviewed       Boolean      @default(false)
+  preop_labs_summary        String?
+  antibiotic_prophylaxis    String?      @db.VarChar(255)
+  antibiotic_given_at       DateTime?    @db.Timestamptz(6)
+  patient_identity_verified Boolean      @default(false)
+  procedure_verified        Boolean      @default(false)
+  anesthesia_consent        Boolean      @default(false)
+  special_equipment         String?
+  pending_items             Json         @default("[]")
+  ai_review_summary         String?
+  status                    String       @default("in_progress") @db.VarChar(20)
+  completed_by              String?      @db.Uuid
+  completed_at              DateTime?    @db.Timestamptz(6)
+  override_reason           String?
+  metadata                  Json         @default("{}")
+  created_at                DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime     @default(now()) @db.Timestamptz(6)
+  ot_schedules              ot_schedules @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                   tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, ot_schedule_id])
+  @@index([ot_schedule_id], map: "idx_preop_checklists_schedule")
+  @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_preop_checklists_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model remote_prescriptions {
+  id                        Int               @id @default(autoincrement())
+  tenant_id                 String            @db.Uuid
+  teleconsultation_id       Int
+  prescription_id           Int?
+  patient_uid               String?           @db.Uuid
+  doctor_uid                String?           @db.Uuid
+  issued_at                 DateTime          @default(now()) @db.Timestamptz(6)
+  status                    String            @default("draft") @db.VarChar(20)
+  digital_signature_kind    String?           @db.VarChar(40)
+  digital_signature_payload Json              @default("{}")
+  pdf_url                   String?
+  cancellation_reason       String?
+  metadata                  Json              @default("{}")
+  created_at                DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime          @default(now()) @db.Timestamptz(6)
+  teleconsultations         teleconsultations @relation(fields: [teleconsultation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                   tenants           @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([teleconsultation_id, issued_at(sort: Desc)], map: "idx_remote_rx_consult")
+  @@index([tenant_id, status, issued_at(sort: Desc)], map: "idx_remote_rx_tenant_status")
+}
+
+model replacement_requests {
+  id                   Int       @id @default(autoincrement())
+  leave_request_id     Int?
+  requester_id         Int?
+  replacement_staff_id Int?
+  dates                String
+  status               String?   @default("pending") @db.VarChar(20)
+  requester_message    String?
+  responder_message    String?
+  requested_at         DateTime? @default(now()) @db.Timestamp(6)
+  responded_at         DateTime? @db.Timestamp(6)
+  hr_approved_at       DateTime? @db.Timestamp(6)
+  hr_approved_by       Int?
+
+  @@index([status, requested_at(sort: Desc)], map: "idx_replacement_requests_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model service_catalog {
+  id                       Int         @id @default(autoincrement())
+  tenant_id                String      @db.Uuid
+  facility_id              Int?
+  service_code             String      @db.VarChar(120)
+  display_name             String      @db.VarChar(255)
+  description              String?
+  service_kind             String      @default("service") @db.VarChar(40)
+  specialty                String?     @db.VarChar(120)
+  department_id            Int?
+  default_duration_minutes Int?
+  requires_appointment     Boolean     @default(false)
+  is_telehealth_eligible   Boolean     @default(false)
+  default_tariff_item_code String?     @db.VarChar(120)
+  status                   String      @default("active") @db.VarChar(20)
+  metadata                 Json        @default("{}")
+  created_by               String?     @db.Uuid
+  created_at               DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime    @default(now()) @db.Timestamptz(6)
+  facilities               facilities? @relation(fields: [facility_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                  tenants     @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, service_code])
+  @@index([tenant_id, status, service_kind], map: "idx_service_catalog_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model sla_definitions {
+  id                  Int      @id @default(autoincrement())
+  tenant_id           String   @db.Uuid
+  sla_key             String   @db.VarChar(120)
+  display_name        String?  @db.VarChar(255)
+  description         String?
+  target_minutes      Int
+  warn_at_pct         Int      @default(75)
+  business_hours_only Boolean  @default(false)
+  metadata            Json     @default("{}")
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime @default(now()) @db.Timestamptz(6)
+  tenants             tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, sla_key])
+  @@index([tenant_id, sla_key], map: "idx_sla_definitions_tenant")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model smart_access_tokens {
+  id                        Int                   @id @default(autoincrement())
+  tenant_id                 String                @db.Uuid
+  smart_app_id              Int
+  authz_code_id             Int?
+  access_token_hash         String                @unique @db.VarChar(128)
+  refresh_token_hash        String?               @db.VarChar(128)
+  granted_scopes            String[]              @default([])
+  patient_uid               String?               @db.Uuid
+  encounter_id              Int?
+  user_uid                  String?               @db.Uuid
+  user_role                 String?               @db.VarChar(80)
+  parent_token_id           Int?
+  status                    String                @default("active") @db.VarChar(20)
+  issued_at                 DateTime              @default(now()) @db.Timestamptz(6)
+  access_expires_at         DateTime              @db.Timestamptz(6)
+  refresh_expires_at        DateTime?             @db.Timestamptz(6)
+  revoked_at                DateTime?             @db.Timestamptz(6)
+  revoked_reason            String?
+  last_used_at              DateTime?             @db.Timestamptz(6)
+  last_used_ip              String?               @db.VarChar(64)
+  environment               String                @default("sandbox") @db.VarChar(20)
+  metadata                  Json                  @default("{}")
+  created_at                DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime              @default(now()) @db.Timestamptz(6)
+  smart_authz_codes         smart_authz_codes?    @relation(fields: [authz_code_id], references: [id], onUpdate: NoAction)
+  smart_access_tokens       smart_access_tokens?  @relation("smart_access_tokensTosmart_access_tokens", fields: [parent_token_id], references: [id], onUpdate: NoAction)
+  other_smart_access_tokens smart_access_tokens[] @relation("smart_access_tokensTosmart_access_tokens")
+  smart_apps                smart_apps            @relation(fields: [smart_app_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                   tenants               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([smart_app_id, status, access_expires_at], map: "idx_smart_tokens_app_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model smart_apps {
+  id                       Int                   @id @default(autoincrement())
+  tenant_id                String                @db.Uuid
+  client_id                String                @db.VarChar(120)
+  display_name             String                @db.VarChar(255)
+  description              String?
+  app_kind                 String                @default("public") @db.VarChar(20)
+  redirect_uris            String[]              @default([])
+  allowed_scopes           String[]              @default([])
+  launch_uri               String?
+  jwks_url                 String?
+  client_secret_ciphertext String?
+  client_secret_hash       String?               @db.VarChar(128)
+  fhir_version             String                @default("R4") @db.VarChar(20)
+  status                   String                @default("active") @db.VarChar(20)
+  environment              String                @default("sandbox") @db.VarChar(20)
+  metadata                 Json                  @default("{}")
+  created_by               String?               @db.Uuid
+  created_at               DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime              @default(now()) @db.Timestamptz(6)
+  smart_access_tokens      smart_access_tokens[]
+  tenants                  tenants               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  smart_authz_codes        smart_authz_codes[]
+
+  @@unique([tenant_id, client_id, environment])
+  @@index([tenant_id, app_kind], map: "idx_smart_apps_kind")
+  @@index([tenant_id, status, environment], map: "idx_smart_apps_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model smart_authz_codes {
+  id                  Int                   @id @default(autoincrement())
+  tenant_id           String                @db.Uuid
+  smart_app_id        Int
+  code_hash           String                @unique @db.VarChar(128)
+  redirect_uri        String
+  requested_scopes    String[]              @default([])
+  granted_scopes      String[]              @default([])
+  patient_uid         String?               @db.Uuid
+  encounter_id        Int?
+  user_uid            String?               @db.Uuid
+  user_role           String?               @db.VarChar(80)
+  pkce_code_challenge String?               @db.VarChar(255)
+  pkce_method         String?               @db.VarChar(20)
+  state               String?               @db.VarChar(255)
+  status              String                @default("pending") @db.VarChar(20)
+  expires_at          DateTime              @db.Timestamptz(6)
+  consumed_at         DateTime?             @db.Timestamptz(6)
+  environment         String                @default("sandbox") @db.VarChar(20)
+  metadata            Json                  @default("{}")
+  created_at          DateTime              @default(now()) @db.Timestamptz(6)
+  smart_access_tokens smart_access_tokens[]
+  smart_apps          smart_apps            @relation(fields: [smart_app_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants             tenants               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([smart_app_id, status, expires_at], map: "idx_smart_authz_app_status")
+}
+
+model staff_messages {
+  id            Int       @id @default(autoincrement())
+  sender_uid    String    @db.Uuid
+  recipient_uid String    @db.Uuid
+  patient_uid   String?   @db.Uuid
+  subject       String?   @db.VarChar(255)
+  body          String
+  priority      String?   @default("normal") @db.VarChar(20)
+  is_read       Boolean?  @default(false)
+  read_at       DateTime? @db.Timestamp(6)
+  created_at    DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([recipient_uid, created_at(sort: Desc)], map: "idx_staff_messages_recipient")
+  @@index([sender_uid, created_at(sort: Desc)], map: "idx_staff_messages_sender")
+}
+
+model staff_shift_assignments {
+  id             Int       @id @default(autoincrement())
+  staff_id       Int?
+  shift_id       Int?
+  effective_from DateTime? @default(dbgenerated("CURRENT_DATE")) @db.Date
+  effective_to   DateTime? @db.Date
+  created_at     DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([staff_id, effective_from, effective_to], map: "idx_staff_shift_assignments_active")
+}
+
+model staff_shifts {
+  id                       Int       @id @default(autoincrement())
+  name                     String    @db.VarChar(100)
+  start_time               DateTime  @db.Time(6)
+  end_time                 DateTime  @db.Time(6)
+  grace_period_minutes     Int?      @default(15)
+  late_threshold_minutes   Int?      @default(30)
+  absent_threshold_minutes Int?      @default(60)
+  department               String?   @db.VarChar(100)
+  is_active                Boolean?  @default(true)
+  is_preset                Boolean?  @default(false)
+  grace_minutes            Int?      @default(15)
+  created_at               DateTime? @default(now()) @db.Timestamp(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model surgical_implants {
+  id                Int          @id @default(autoincrement())
+  tenant_id         String       @db.Uuid
+  ot_schedule_id    Int
+  patient_uid       String?      @db.Uuid
+  implant_type      String       @db.VarChar(160)
+  manufacturer      String?      @db.VarChar(255)
+  brand_name        String?      @db.VarChar(255)
+  product_name      String?      @db.VarChar(255)
+  reference_number  String?      @db.VarChar(120)
+  lot_number        String?      @db.VarChar(120)
+  serial_number     String?      @db.VarChar(160)
+  udi               String?      @db.VarChar(255)
+  gudid_di          String?      @db.VarChar(120)
+  size              String?      @db.VarChar(80)
+  side              String?      @db.VarChar(20)
+  expiry_date       DateTime?    @db.Date
+  sterilization_lot String?      @db.VarChar(120)
+  implanted_by      String?      @db.Uuid
+  implanted_at      DateTime?    @db.Timestamptz(6)
+  removal_date      DateTime?    @db.Timestamptz(6)
+  removal_reason    String?
+  status            String       @default("in_situ") @db.VarChar(20)
+  recall_reference  String?      @db.VarChar(255)
+  notes             String?
+  metadata          Json         @default("{}")
+  created_at        DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime     @default(now()) @db.Timestamptz(6)
+  ot_schedules      ot_schedules @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants           tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([ot_schedule_id], map: "idx_surgical_implants_schedule")
+  @@index([tenant_id, patient_uid, status], map: "idx_surgical_implants_tenant_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model surgical_safety_checklists {
+  id                     Int          @id @default(autoincrement())
+  tenant_id              String       @db.Uuid
+  ot_schedule_id         Int
+  patient_uid            String?      @db.Uuid
+  phase                  String       @db.VarChar(20)
+  performed_by           String?      @db.Uuid
+  performed_at           DateTime?    @db.Timestamptz(6)
+  items                  Json         @default("[]")
+  all_items_confirmed    Boolean      @default(false)
+  outstanding_items      Json         @default("[]")
+  status                 String       @default("in_progress") @db.VarChar(20)
+  override_reason        String?
+  override_authorized_by String?      @db.Uuid
+  notes                  String?
+  metadata               Json         @default("{}")
+  created_at             DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime     @default(now()) @db.Timestamptz(6)
+  ot_schedules           ot_schedules @relation(fields: [ot_schedule_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants                tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, ot_schedule_id, phase])
+  @@index([ot_schedule_id, phase], map: "idx_safety_checklists_schedule")
+  @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_safety_checklists_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model tariff_items {
+  id               Int          @id @default(autoincrement())
+  tenant_id        String       @db.Uuid
+  tariff_plan_id   Int
+  service_code     String       @db.VarChar(120)
+  service_kind     String       @default("service") @db.VarChar(40)
+  display_name     String       @db.VarChar(255)
+  unit_price_minor BigInt
+  unit_label       String       @default("each") @db.VarChar(40)
+  taxable          Boolean      @default(false)
+  tax_rate_pct     Decimal?     @db.Decimal(5, 2)
+  effective_from   DateTime?    @db.Date
+  effective_to     DateTime?    @db.Date
+  metadata         Json         @default("{}")
+  created_at       DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime     @default(now()) @db.Timestamptz(6)
+  tariff_plans     tariff_plans @relation(fields: [tariff_plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants          tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tariff_plan_id, service_code])
+  @@index([tenant_id, service_code], map: "idx_tariff_items_service_code")
+  @@index([tenant_id, tariff_plan_id, service_kind], map: "idx_tariff_items_tenant_plan")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model tariff_plans {
+  id                 Int                  @id @default(autoincrement())
+  tenant_id          String               @db.Uuid
+  plan_code          String               @db.VarChar(80)
+  display_name       String               @db.VarChar(255)
+  description        String?
+  is_default         Boolean              @default(false)
+  currency           String               @default("INR") @db.VarChar(8)
+  effective_from     DateTime?            @db.Date
+  effective_to       DateTime?            @db.Date
+  status             String               @default("active") @db.VarChar(20)
+  metadata           Json                 @default("{}")
+  created_by         String?              @db.Uuid
+  created_at         DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime             @default(now()) @db.Timestamptz(6)
+  payer_tariff_links payer_tariff_links[]
+  tariff_items       tariff_items[]
+  tenants            tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, plan_code])
+  @@index([tenant_id, status, effective_from(sort: Desc)], map: "idx_tariff_plans_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model task_comments {
+  id         Int      @id @default(autoincrement())
+  tenant_id  String   @db.Uuid
+  task_id    Int
+  author_uid String?  @db.Uuid
+  body       String
+  body_kind  String   @default("comment") @db.VarChar(20)
+  metadata   Json     @default("{}")
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  tasks      tasks    @relation(fields: [task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants    tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([task_id, created_at], map: "idx_task_comments_task")
+  @@index([tenant_id, created_at(sort: Desc)], map: "idx_task_comments_tenant")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model tasks {
+  id                    Int             @id @default(autoincrement())
+  tenant_id             String          @db.Uuid
+  workflow_run_id       Int?
+  workflow_step_id      Int?
+  parent_task_id        Int?
+  task_kind             String          @default("general") @db.VarChar(60)
+  title                 String          @db.VarChar(500)
+  description           String?
+  patient_uid           String?         @db.Uuid
+  encounter_id          Int?
+  related_resource_type String?         @db.VarChar(60)
+  related_resource_id   String?         @db.VarChar(120)
+  priority              String          @default("normal") @db.VarChar(20)
+  status                String          @default("open") @db.VarChar(20)
+  assigned_to_uid       String?         @db.Uuid
+  assigned_to_role      String?         @db.VarChar(80)
+  created_by            String?         @db.Uuid
+  due_at                DateTime?       @db.Timestamptz(6)
+  completed_at          DateTime?       @db.Timestamptz(6)
+  cancelled_at          DateTime?       @db.Timestamptz(6)
+  cancellation_reason   String?
+  sla_definition_id     Int?
+  sla_breached_at       DateTime?       @db.Timestamptz(6)
+  metadata              Json            @default("{}")
+  created_at            DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime        @default(now()) @db.Timestamptz(6)
+  approvals             approvals[]
+  task_comments         task_comments[]
+  tasks                 tasks?          @relation("tasksTotasks", fields: [parent_task_id], references: [id], onUpdate: NoAction)
+  other_tasks           tasks[]         @relation("tasksTotasks")
+  tenants               tenants         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  workflow_runs         workflow_runs?  @relation(fields: [workflow_run_id], references: [id], onUpdate: NoAction)
+  workflow_steps        workflow_steps? @relation(fields: [workflow_step_id], references: [id], onUpdate: NoAction)
+
+  @@index([tenant_id, status, priority, due_at], map: "idx_tasks_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model teleconsult_provider_configs {
+  id                        Int       @id @default(autoincrement())
+  tenant_id                 String    @db.Uuid
+  provider                  String    @db.VarChar(40)
+  is_default                Boolean   @default(false)
+  display_name              String?   @db.VarChar(160)
+  api_key_ciphertext        String?
+  api_secret_ciphertext     String?
+  webhook_secret_ciphertext String?
+  endpoint_base             String?
+  config                    Json      @default("{}")
+  status                    String    @default("active") @db.VarChar(20)
+  last_health_check_at      DateTime? @db.Timestamptz(6)
+  last_health_status        String?   @db.VarChar(20)
+  metadata                  Json      @default("{}")
+  created_by                String?   @db.Uuid
+  created_at                DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime  @default(now()) @db.Timestamptz(6)
+  tenants                   tenants   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, provider])
+  @@index([tenant_id, status], map: "idx_provider_configs_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model teleconsultations {
+  id                       Int                    @id @default(autoincrement())
+  tenant_id                String                 @db.Uuid
+  appointment_id           Int?
+  patient_uid              String?                @db.Uuid
+  doctor_uid               String?                @db.Uuid
+  consult_type             String                 @default("video") @db.VarChar(20)
+  status                   String                 @default("scheduled") @db.VarChar(20)
+  scheduled_start          DateTime?              @db.Timestamptz(6)
+  scheduled_end            DateTime?              @db.Timestamptz(6)
+  actual_start             DateTime?              @db.Timestamptz(6)
+  actual_end               DateTime?              @db.Timestamptz(6)
+  chief_complaint          String?
+  pre_consult_form         Json                   @default("{}")
+  remote_consent_id        String?                @db.VarChar(120)
+  remote_consent_signed_at DateTime?              @db.Timestamptz(6)
+  ai_note_generation_id    Int?
+  ai_pre_visit_summary_id  Int?
+  recording_url            String?
+  recording_consent        Boolean                @default(false)
+  cancellation_reason      String?
+  metadata                 Json                   @default("{}")
+  created_by               String?                @db.Uuid
+  created_at               DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime               @default(now()) @db.Timestamptz(6)
+  chat_sessions            chat_sessions[]
+  remote_prescriptions     remote_prescriptions[]
+  appointments             appointments?          @relation(fields: [appointment_id], references: [id], onUpdate: NoAction)
+  tenants                  tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  video_sessions           video_sessions[]
+
+  @@index([tenant_id, status, scheduled_start(sort: Desc)], map: "idx_teleconsultations_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model tpas {
+  id                  Int                  @id @default(autoincrement())
+  tenant_id           String               @db.Uuid
+  tpa_code            String               @db.VarChar(80)
+  display_name        String               @db.VarChar(255)
+  parent_payer_id     Int?
+  irda_license_number String?              @db.VarChar(120)
+  contact_email       String?              @db.VarChar(255)
+  contact_phone       String?              @db.VarChar(40)
+  address             String?
+  status              String               @default("active") @db.VarChar(20)
+  ehr_external_id     String?              @db.VarChar(120)
+  metadata            Json                 @default("{}")
+  created_by          String?              @db.Uuid
+  created_at          DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime             @default(now()) @db.Timestamptz(6)
+  payer_tariff_links  payer_tariff_links[]
+  payers              payers?              @relation(fields: [parent_payer_id], references: [id], onUpdate: NoAction)
+  tenants             tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenant_id, tpa_code])
+  @@index([tenant_id, status, display_name], map: "idx_tpas_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model triage_assessments {
+  id                   Int               @id @default(autoincrement())
+  tenant_id            String            @db.Uuid
+  emergency_visit_id   Int?
+  patient_uid          String?           @db.Uuid
+  assessment_kind      String            @default("esi") @db.VarChar(20)
+  assessed_at          DateTime          @default(now()) @db.Timestamptz(6)
+  assessed_by_uid      String?           @db.Uuid
+  level                String            @db.VarChar(40)
+  presenting_complaint String?
+  vitals               Json              @default("{}")
+  pain_score           Int?
+  airway_concern       Boolean           @default(false)
+  breathing_concern    Boolean           @default(false)
+  circulation_concern  Boolean           @default(false)
+  red_flags            String[]          @default([])
+  ai_predicted_level   String?           @db.VarChar(40)
+  ai_prediction_id     Int?
+  reassessment_due_at  DateTime?         @db.Timestamptz(6)
+  metadata             Json              @default("{}")
+  created_at           DateTime          @default(now()) @db.Timestamptz(6)
+  emergency_visits     emergency_visits? @relation(fields: [emergency_visit_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants              tenants           @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, level, assessed_at(sort: Desc)], map: "idx_triage_level")
+  @@index([tenant_id, assessment_kind, assessed_at(sort: Desc)], map: "idx_triage_tenant_kind")
+  @@index([emergency_visit_id, assessed_at(sort: Desc)], map: "idx_triage_visit")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model video_sessions {
+  id                  Int               @id @default(autoincrement())
+  tenant_id           String            @db.Uuid
+  teleconsultation_id Int
+  provider            String            @db.VarChar(40)
+  external_session_id String?           @db.VarChar(255)
+  patient_join_url    String?
+  doctor_join_url     String?
+  host_token          String?
+  started_at          DateTime?         @db.Timestamptz(6)
+  ended_at            DateTime?         @db.Timestamptz(6)
+  duration_seconds    Int?
+  participant_count   Int?
+  bandwidth_kbps_avg  Int?
+  packet_loss_pct     Decimal?          @db.Decimal(5, 2)
+  recording_id        String?           @db.VarChar(255)
+  recording_status    String?           @db.VarChar(20)
+  status              String            @default("created") @db.VarChar(20)
+  metadata            Json              @default("{}")
+  created_at          DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime          @default(now()) @db.Timestamptz(6)
+  teleconsultations   teleconsultations @relation(fields: [teleconsultation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants             tenants           @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([teleconsultation_id, started_at(sort: Desc)], map: "idx_video_sessions_consult")
+  @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_video_sessions_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model webhook_deliveries {
+  id                    Int                    @id @default(autoincrement())
+  subscription_id       Int?
+  tenant_id             String                 @db.Uuid
+  event_outbox_id       Int?
+  event_type            String                 @db.VarChar(120)
+  payload               Json
+  attempt_number        Int                    @default(0)
+  status                String                 @default("pending") @db.VarChar(20)
+  http_status           Int?
+  response_excerpt      String?
+  error_message         String?
+  signature             String?                @db.VarChar(255)
+  request_id            String?                @db.VarChar(64)
+  started_at            DateTime?              @db.Timestamptz(6)
+  completed_at          DateTime?              @db.Timestamptz(6)
+  next_retry_at         DateTime?              @db.Timestamptz(6)
+  metadata              Json                   @default("{}")
+  created_at            DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime               @default(now()) @db.Timestamptz(6)
+  webhook_subscriptions webhook_subscriptions? @relation(fields: [subscription_id], references: [id], onUpdate: NoAction)
+  tenants               tenants                @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([subscription_id, created_at(sort: Desc)], map: "idx_webhook_deliveries_subscription_time")
+  @@index([tenant_id, status, next_retry_at], map: "idx_webhook_deliveries_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model webhook_subscriptions {
+  id                       Int                      @id @default(autoincrement())
+  integration_id           Int
+  tenant_id                String                   @db.Uuid
+  event_type               String                   @db.VarChar(120)
+  event_filter             Json                     @default("{}")
+  endpoint_url             String
+  signing_credential_id    Int?
+  signing_algorithm        String                   @default("hmac-sha256") @db.VarChar(40)
+  is_active                Boolean                  @default(true)
+  last_delivered_at        DateTime?                @db.Timestamptz(6)
+  last_failure_at          DateTime?                @db.Timestamptz(6)
+  consecutive_failures     Int                      @default(0)
+  max_consecutive_failures Int                      @default(10)
+  metadata                 Json                     @default("{}")
+  created_by               String?                  @db.Uuid
+  created_at               DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                 @default(now()) @db.Timestamptz(6)
+  webhook_deliveries       webhook_deliveries[]
+  integrations             integrations             @relation(fields: [integration_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  integration_credentials  integration_credentials? @relation(fields: [signing_credential_id], references: [id], onUpdate: NoAction)
+  tenants                  tenants                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([integration_id, event_type, endpoint_url])
+  @@index([integration_id, is_active], map: "idx_webhook_subs_integration")
+}
+
+model workflow_definitions {
+  id            Int             @id @default(autoincrement())
+  tenant_id     String          @db.Uuid
+  workflow_key  String          @db.VarChar(120)
+  version       Int             @default(1)
+  display_name  String?         @db.VarChar(255)
+  description   String?
+  category      String?         @db.VarChar(80)
+  steps         Json            @default("[]")
+  triggers      Json            @default("[]")
+  defaults      Json            @default("{}")
+  is_active     Boolean         @default(true)
+  created_by    String?         @db.Uuid
+  created_at    DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime        @default(now()) @db.Timestamptz(6)
+  tenants       tenants         @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  workflow_runs workflow_runs[]
+
+  @@unique([tenant_id, workflow_key, version])
+  @@index([tenant_id, is_active, workflow_key], map: "idx_workflow_defs_tenant_active")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model workflow_runs {
+  id                     Int                   @id @default(autoincrement())
+  tenant_id              String                @db.Uuid
+  workflow_definition_id Int?
+  workflow_key           String                @db.VarChar(120)
+  workflow_version       Int                   @default(1)
+  trigger_kind           String                @default("manual") @db.VarChar(40)
+  trigger_payload        Json                  @default("{}")
+  status                 String                @default("started") @db.VarChar(20)
+  current_step_key       String?               @db.VarChar(120)
+  context                Json                  @default("{}")
+  started_at             DateTime              @default(now()) @db.Timestamptz(6)
+  ended_at               DateTime?             @db.Timestamptz(6)
+  due_at                 DateTime?             @db.Timestamptz(6)
+  initiated_by           String?               @db.Uuid
+  failure_reason         String?
+  metadata               Json                  @default("{}")
+  created_at             DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime              @default(now()) @db.Timestamptz(6)
+  approvals              approvals[]
+  tasks                  tasks[]
+  tenants                tenants               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  workflow_definitions   workflow_definitions? @relation(fields: [workflow_definition_id], references: [id], onUpdate: NoAction)
+  workflow_steps         workflow_steps[]
+
+  @@index([tenant_id, workflow_key, workflow_version, started_at(sort: Desc)], map: "idx_workflow_runs_key_version")
+  @@index([tenant_id, status, started_at(sort: Desc)], map: "idx_workflow_runs_tenant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model workflow_steps {
+  id              Int           @id @default(autoincrement())
+  tenant_id       String        @db.Uuid
+  workflow_run_id Int
+  step_key        String        @db.VarChar(120)
+  display_name    String?       @db.VarChar(255)
+  step_kind       String        @db.VarChar(40)
+  status          String        @default("pending") @db.VarChar(20)
+  ordering        Int           @default(0)
+  assigned_to     String?       @db.Uuid
+  assigned_role   String?       @db.VarChar(80)
+  due_at          DateTime?     @db.Timestamptz(6)
+  started_at      DateTime?     @db.Timestamptz(6)
+  completed_at    DateTime?     @db.Timestamptz(6)
+  outcome         String?       @db.VarChar(40)
+  outcome_payload Json          @default("{}")
+  metadata        Json          @default("{}")
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime      @default(now()) @db.Timestamptz(6)
+  tasks           tasks[]
+  tenants         tenants       @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  workflow_runs   workflow_runs @relation(fields: [workflow_run_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([workflow_run_id, step_key])
+  @@index([workflow_run_id, ordering, step_key], map: "idx_workflow_steps_run_order")
+  @@index([tenant_id, status, due_at], map: "idx_workflow_steps_tenant_status")
 }

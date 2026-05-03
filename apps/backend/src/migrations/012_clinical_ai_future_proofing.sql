@@ -165,33 +165,83 @@ DO UPDATE SET
   settings = clinical_ai_modules.settings || EXCLUDED.settings,
   updated_at = NOW();
 
-INSERT INTO clinical_ai_prompts
-  (module_key, version, title, system_prompt, user_prompt_template, output_schema, status, active, activated_at)
-SELECT module_key, 'v1', display_name || ' v1',
-       'You are a hospital clinical AI drafting assistant. Use only the supplied chart context. Return JSON only. Include source_citations for every meaningful claim. Treat all output as draft-only and require human review.',
-       'Use the supplied chart packet to draft the module output. Do not invent facts. If evidence is missing, add a safety flag.',
-       settings->'outputSchema',
-       'active',
-       true,
-       NOW()
-FROM clinical_ai_modules
-WHERE module_key IN (
-  'discharge_summary',
-  'handover_summary',
-  'patient_record_summary',
-  'daily_ward_round_brief',
-  'patient_aftercare_instructions',
-  'medication_reconciliation',
-  'discharge_readiness',
-  'abnormal_result_triage',
-  'referral_letter',
-  'clinical_coding_assist',
-  'ai_safety_reviewer',
-  'denial_risk_assist',
-  'bed_discharge_forecast',
-  'pharmacy_stockout_predictor',
-  'quality_case_review',
-  'admin_policy_copilot',
-  'self_healing_bug_hunt'
-)
-ON CONFLICT (module_key, version) DO NOTHING;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_name = 'clinical_ai_prompts'
+      AND column_name = 'tenant_id'
+  ) THEN
+    INSERT INTO tenants (id, slug, name, region, compliance_profile)
+    VALUES ('00000000-0000-4000-8000-000000000001', 'default', 'Default Tenant', 'IN', 'DPDP')
+    ON CONFLICT (id) DO NOTHING;
+
+    INSERT INTO clinical_ai_prompts
+      (tenant_id, module_key, version, title, system_prompt, user_prompt_template, output_schema, status, active, activated_at)
+    SELECT '00000000-0000-4000-8000-000000000001'::uuid,
+           module_key,
+           'v1',
+           display_name || ' v1',
+           'You are a hospital clinical AI drafting assistant. Use only the supplied chart context. Return JSON only. Include source_citations for every meaningful claim. Treat all output as draft-only and require human review.',
+           'Use the supplied chart packet to draft the module output. Do not invent facts. If evidence is missing, add a safety flag.',
+           settings->'outputSchema',
+           'active',
+           true,
+           NOW()
+    FROM clinical_ai_modules
+    WHERE module_key IN (
+      'discharge_summary',
+      'handover_summary',
+      'patient_record_summary',
+      'daily_ward_round_brief',
+      'patient_aftercare_instructions',
+      'medication_reconciliation',
+      'discharge_readiness',
+      'abnormal_result_triage',
+      'referral_letter',
+      'clinical_coding_assist',
+      'ai_safety_reviewer',
+      'denial_risk_assist',
+      'bed_discharge_forecast',
+      'pharmacy_stockout_predictor',
+      'quality_case_review',
+      'admin_policy_copilot',
+      'self_healing_bug_hunt'
+    )
+    ON CONFLICT (module_key, version) DO NOTHING;
+  ELSE
+    INSERT INTO clinical_ai_prompts
+      (module_key, version, title, system_prompt, user_prompt_template, output_schema, status, active, activated_at)
+    SELECT module_key,
+           'v1',
+           display_name || ' v1',
+           'You are a hospital clinical AI drafting assistant. Use only the supplied chart context. Return JSON only. Include source_citations for every meaningful claim. Treat all output as draft-only and require human review.',
+           'Use the supplied chart packet to draft the module output. Do not invent facts. If evidence is missing, add a safety flag.',
+           settings->'outputSchema',
+           'active',
+           true,
+           NOW()
+    FROM clinical_ai_modules
+    WHERE module_key IN (
+      'discharge_summary',
+      'handover_summary',
+      'patient_record_summary',
+      'daily_ward_round_brief',
+      'patient_aftercare_instructions',
+      'medication_reconciliation',
+      'discharge_readiness',
+      'abnormal_result_triage',
+      'referral_letter',
+      'clinical_coding_assist',
+      'ai_safety_reviewer',
+      'denial_risk_assist',
+      'bed_discharge_forecast',
+      'pharmacy_stockout_predictor',
+      'quality_case_review',
+      'admin_policy_copilot',
+      'self_healing_bug_hunt'
+    )
+    ON CONFLICT (module_key, version) DO NOTHING;
+  END IF;
+END $$;

@@ -550,6 +550,7 @@ function syncSchema() {
     DROP SCHEMA IF EXISTS public CASCADE;
     CREATE SCHEMA public;
     CREATE EXTENSION IF NOT EXISTS pgcrypto;
+    CREATE SEQUENCE IF NOT EXISTS _migrations_id_seq;
   `);
 
   // Drop RLS policies first — `prisma db push --accept-data-loss` wants to drop

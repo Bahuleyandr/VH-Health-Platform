@@ -50,6 +50,14 @@ const buildOriginMatchers = () => {
     ...parseCsv(process.env.CORS_REGEXES || ''),
   ];
 
+  if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
+    regexPatterns.push(
+      '^http:\\/\\/localhost:\\d+$',
+      '^http:\\/\\/127\\.0\\.0\\.1:\\d+$',
+      '^http:\\/\\/\\[::1\\]:\\d+$',
+    );
+  }
+
   const regexes = regexPatterns
     .map((p) => {
       try { return new RegExp(p, 'i'); } catch { return null; }

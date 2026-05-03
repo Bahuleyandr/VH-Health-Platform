@@ -8,7 +8,10 @@ becoming a full regression suite.
 ## Prerequisites
 
 - Local backend is running.
-- Local Postgres smoke database is reachable.
+- Local Postgres smoke database is reachable. By default the scripts target
+  the same disposable database created by
+  `apps/backend/scripts/ensure-test-db.mjs`:
+  `127.0.0.1:55432/vhhealth_test` as user `postgres`.
 - Admin smoke requires the admin portal proxy to be running.
 - The scripts use disposable records and the local test API key/JWT secret
   passed as parameters or defaults.

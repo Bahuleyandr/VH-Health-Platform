@@ -14,10 +14,10 @@ param(
   [string]$AdminUid = "f974d551-2d5b-413f-b287-718374374739",
   [string]$JwtSecret = "vhhealth-local-admin-smoke-secret-123456789",
   [string]$PgHost = "127.0.0.1",
-  [int]$PgPort = 5433,
-  [string]$PgUser = "vhhealth",
-  [string]$PgDatabase = "vhhealth",
-  [string]$PgPassword = "test",
+  [int]$PgPort = 55432,
+  [string]$PgUser = "postgres",
+  [string]$PgDatabase = "vhhealth_test",
+  [string]$PgPassword = "",
   [string]$PsqlPath = "psql"
 )
 

@@ -146,11 +146,13 @@ describe('splitStatements', () => {
 
 const executeRawUnsafeMock = jest.fn();
 const queryRawUnsafeMock = jest.fn();
+const disconnectMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
     $executeRawUnsafe: executeRawUnsafeMock,
     $queryRawUnsafe: queryRawUnsafeMock,
+    $disconnect: disconnectMock,
   },
 }));
 
@@ -169,6 +171,7 @@ let tmpDir;
 beforeEach(() => {
   executeRawUnsafeMock.mockReset();
   queryRawUnsafeMock.mockReset();
+  disconnectMock.mockReset();
   // Default: tracker is empty (no migrations applied yet).
   queryRawUnsafeMock.mockResolvedValue([]);
   // Default: every executeRawUnsafe call resolves successfully.
@@ -304,5 +307,41 @@ COMMIT;`;
       (s) => !s.includes('CREATE TABLE IF NOT EXISTS _migrations') && !s.includes('INSERT INTO _migrations'),
     );
     expect(stmtCalls).toHaveLength(5);
+  });
+
+  it('skips the optional pgvector migration in non-production when pgvector is unavailable', async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousRequirePgvector = process.env.REQUIRE_PGVECTOR;
+    process.env.NODE_ENV = 'development';
+    delete process.env.REQUIRE_PGVECTOR;
+
+    const file = '113_knowledge_base_foundation.sql';
+    fs.writeFileSync(
+      path.join(tmpDir, file),
+      'CREATE EXTENSION IF NOT EXISTS vector;\nCREATE TABLE _test_vector (embedding vector(1536));',
+    );
+
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    try {
+      await runMigrations({ migrationsDir: tmpDir });
+    } finally {
+      process.env.NODE_ENV = previousNodeEnv;
+      if (previousRequirePgvector === undefined) {
+        delete process.env.REQUIRE_PGVECTOR;
+      } else {
+        process.env.REQUIRE_PGVECTOR = previousRequirePgvector;
+      }
+    }
+
+    const calls = executeRawUnsafeMock.mock.calls.map((c) => c[0]);
+    expect(calls).toContainEqual(expect.stringContaining('CREATE TABLE IF NOT EXISTS _migrations'));
+    expect(calls).not.toContain('CREATE EXTENSION IF NOT EXISTS vector');
+    expect(calls).not.toContain('CREATE TABLE _test_vector (embedding vector(1536))');
+    expect(
+      calls.some((sql) => typeof sql === 'string' && sql.includes('INSERT INTO _migrations')),
+    ).toBe(false);
   });
 });
