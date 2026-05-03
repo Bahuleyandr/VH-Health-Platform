@@ -407,21 +407,22 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
   // ── Cancel appointment ─────────────────────────────────────────────────────
 
   Future<void> _cancelAppointment(_AppointmentInfo appt) async {
+    final l = AppLocalizations.of(context)!;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Cancel Appointment'),
+        title: Text(l.appointmentsCancel),
         content: Text(
           'Cancel appointment with ${appt.doctorName} on ${appt.date} at ${appt.time}?',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('No'),
+            child: Text(l.no),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Yes, Cancel'),
+            child: Text(l.appointmentsConfirmCancel),
           ),
         ],
       ),
@@ -810,7 +811,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
             Padding(
               padding: const EdgeInsets.only(top: 4, bottom: 8),
               child: Text(
-                'Select Time Slot',
+                l10n.appointmentsSelectTimeSlot,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   fontWeight: FontWeight.w600,
                 ),
@@ -926,16 +927,17 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
 
   Widget _buildAppointmentsTab() {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
     if (_loadingAppointments) {
       return const Center(child: CircularProgressIndicator());
     }
 
     if (_patientId == null) {
-      return const Center(
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(32),
+          padding: const EdgeInsets.all(32),
           child: Text(
-            'Please log out and log back in to view your appointments.',
+            l10n.appointmentsLogOutAndBack,
             textAlign: TextAlign.center,
           ),
         ),
@@ -954,7 +956,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
             ),
             const SizedBox(height: 16),
             Text(
-              'No appointments yet',
+              l10n.appointmentsEmpty,
               style: TextStyle(
                 fontSize: 16,
                 color: theme.colorScheme.onSurfaceVariant,
@@ -964,7 +966,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
             TextButton.icon(
               onPressed: () => _tabController.animateTo(0),
               icon: const Icon(Icons.add),
-              label: const Text('Book one now'),
+              label: Text(l10n.appointmentsBookOneNow),
             ),
           ],
         ),
@@ -1122,7 +1124,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
                 child: TextButton.icon(
                   onPressed: () => _viewPrescription(appt),
                   icon: const Icon(Icons.description_outlined, size: 18),
-                  label: const Text('View Prescription'),
+                  label: Text(AppLocalizations.of(context)!.appointmentsViewPrescription),
                   style: TextButton.styleFrom(
                     foregroundColor: const Color(0xFF00796B),
                   ),

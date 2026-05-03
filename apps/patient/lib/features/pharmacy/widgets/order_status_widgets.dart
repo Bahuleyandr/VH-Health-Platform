@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Shared pharmacy status / display widgets
@@ -198,7 +199,7 @@ class PharmacyMiniStatusTracker extends StatelessWidget {
           Icon(Icons.cancel, color: Colors.red.shade400, size: 16),
           const SizedBox(width: 4),
           Text(
-            'Order Cancelled',
+            AppLocalizations.of(context)!.pharmacyOrderCancelled,
             style: TextStyle(color: Colors.red.shade400, fontSize: 12),
           ),
         ],
@@ -267,9 +268,9 @@ class PharmacyStatusTracker extends StatelessWidget {
           children: [
             Icon(Icons.cancel, color: Colors.red.shade400, size: 32),
             const SizedBox(width: 12),
-            const Text(
-              'Order Cancelled',
-              style: TextStyle(
+            Text(
+              AppLocalizations.of(context)!.pharmacyOrderCancelled,
+              style: const TextStyle(
                 color: Colors.red,
                 fontWeight: FontWeight.bold,
                 fontSize: 16,

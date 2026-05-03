@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/features/your_health/widgets/record_card.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class MyUploadsTab extends StatefulWidget {
   /// Called when the upload sheet visibility changes, so the parent can
@@ -64,20 +65,21 @@ class MyUploadsTabState extends State<MyUploadsTab> {
   }
 
   Future<void> _deleteUploadedRecord(Map<String, dynamic> record) async {
+    final l = AppLocalizations.of(context)!;
     final id = record['id'];
     if (id == null) return;
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete Record?'),
+        title: Text(l.recordsDeleteTitle),
         content: Text(
-          'Delete "${record['title'] ?? 'this record'}"? This cannot be undone.',
+          '${l.recordsDeletePrefix}"${record['title'] ?? 'this record'}"? This cannot be undone.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l.commonCancelButton),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -100,8 +102,8 @@ class MyUploadsTabState extends State<MyUploadsTab> {
         if (mounted) {
           setState(() => _myUploads.removeWhere((r) => r['id'] == id));
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Record deleted'),
+            SnackBar(
+              content: Text(l.recordsDeleted),
               backgroundColor: Colors.red,
             ),
           );
@@ -154,10 +156,11 @@ class MyUploadsTabState extends State<MyUploadsTab> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheet) {
           Future<void> upload() async {
+            final lInner = AppLocalizations.of(ctx)!;
             if (pickedFilePath == null || titleCtrl.text.trim().isEmpty) {
               ScaffoldMessenger.of(ctx).showSnackBar(
-                const SnackBar(
-                  content: Text('Please pick a file and enter a title'),
+                SnackBar(
+                  content: Text(lInner.recordsPickFileFirst),
                 ),
               );
               return;
@@ -190,8 +193,8 @@ class MyUploadsTabState extends State<MyUploadsTab> {
                 if (ctx.mounted) Navigator.pop(ctx);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Record uploaded'),
+                    SnackBar(
+                      content: Text(lInner.recordsUploaded),
                       backgroundColor: Colors.green,
                     ),
                   );
@@ -227,7 +230,7 @@ class MyUploadsTabState extends State<MyUploadsTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Upload Record',
+                    AppLocalizations.of(ctx)!.recordsUploadButton,
                     style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -365,16 +368,16 @@ class MyUploadsTabState extends State<MyUploadsTab> {
             children: [
               const Icon(Icons.folder_open, size: 64, color: Colors.grey),
               const SizedBox(height: 12),
-              const Text(
-                'Upload your previous prescriptions and reports to keep them in one place',
-                style: TextStyle(color: Colors.grey),
+              Text(
+                AppLocalizations.of(context)!.recordsUploadEmptyHint,
+                style: const TextStyle(color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 20),
               ElevatedButton.icon(
                 onPressed: showUploadSheet,
                 icon: const Icon(Icons.upload_file),
-                label: const Text('Upload a Record'),
+                label: Text(AppLocalizations.of(context)!.recordsUploadSheetTitle),
               ),
             ],
           ),

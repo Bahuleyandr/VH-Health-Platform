@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vhhealth/features/gamification/utils/tier_utils.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class MilestonesTab extends StatelessWidget {
   final List<Map<String, dynamic>> milestones;
@@ -42,7 +43,7 @@ class MilestonesTab extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'No milestones available yet',
+              AppLocalizations.of(context)!.gamificationNoMilestones,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 8),

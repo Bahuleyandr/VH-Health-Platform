@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/features/your_health/widgets/record_card.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class HospitalDocumentsTab extends StatefulWidget {
   const HospitalDocumentsTab({super.key});
@@ -90,17 +91,17 @@ class _HospitalDocumentsTabState extends State<HospitalDocumentsTab> {
     }
 
     if (_hospitalRecords.isEmpty) {
-      return const Center(
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(32),
+          padding: const EdgeInsets.all(32),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.local_hospital_outlined, size: 64, color: Colors.grey),
-              SizedBox(height: 12),
+              const Icon(Icons.local_hospital_outlined, size: 64, color: Colors.grey),
+              const SizedBox(height: 12),
               Text(
-                'Your prescriptions and reports from visits will appear here',
-                style: TextStyle(color: Colors.grey),
+                AppLocalizations.of(context)!.recordsHospitalEmpty,
+                style: const TextStyle(color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
             ],

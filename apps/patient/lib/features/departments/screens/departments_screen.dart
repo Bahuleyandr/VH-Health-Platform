@@ -366,7 +366,7 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Consultation Fee',
+                        AppLocalizations.of(context)!.departmentsConsultationFee,
                         style: _theme.textTheme.bodyMedium,
                       ),
                       Text(
@@ -631,7 +631,7 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
                                         Padding(
                                           padding: const EdgeInsets.all(16),
                                           child: Text(
-                                            'No doctors available in this department',
+                                            AppLocalizations.of(context)!.departmentsNoDoctors,
                                             style: _theme.textTheme.bodySmall
                                                 ?.copyWith(
                                                   color: cs.onSurfaceVariant,

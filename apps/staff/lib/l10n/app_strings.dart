@@ -3761,6 +3761,7 @@ class AppStrings {
     // contexts; a handful are flagged `// REVIEW:` where local
     // hospital convention may differ (e.g. discharge wording, urgency).
     'hi': {
+      // Common actions
       'action.cancel': 'रद्द करें',
       'action.close': 'बंद करें',
       'action.confirm': 'पुष्टि करें',
@@ -3770,37 +3771,31 @@ class AppStrings {
       'action.refresh': 'ताज़ा करें',
       'action.retry': 'पुनः प्रयास करें',
       'action.save': 'सहेजें',
-      // 'action.search' was 'खोजें' (verb); 'खोज' is also common as a
-      // noun-as-button label. Verb form fits the action-button pattern.
       'action.search': 'खोजें',
       'action.submit': 'जमा करें',
+      // Common labels
       'label.loading': 'लोड हो रहा है…',
       'label.no_data': 'कोई डेटा नहीं',
       'label.no_matches_for': 'कोई मेल नहीं मिला:',
       'label.optional': 'वैकल्पिक',
       'label.required': 'आवश्यक',
+      // Greetings
       'dashboard.greeting.morning': 'सुप्रभात',
-      // 'दोपहर' (afternoon) is more accurate than 'नमस्ते'
-      // (which means "hello" generically and isn't time-specific).
       'dashboard.greeting.afternoon': 'शुभ दोपहर',
       'dashboard.greeting.evening': 'शुभ संध्या',
+      // Dashboard
       'dashboard.checked_in': 'चेक इन हो गया',
       'dashboard.checked_out': 'चेक आउट हो गया',
       'dashboard.not_checked_in': 'चेक इन नहीं हुआ',
       'dashboard.quick_actions_header': 'त्वरित क्रियाएँ',
       'dashboard.recent_patients_header': 'हाल ही के मरीज़',
       'dashboard.stat.alerts': 'अलर्ट',
-      // Slightly more natural than the literal 'आज की मुलाक़ातें';
-      // hospitals colloquially use the loanword 'अपॉइंटमेंट' or the
-      // formal 'भेंट'. Going with the loanword which staff already use.
       'dashboard.stat.appointments': 'आज के अपॉइंटमेंट',
       'dashboard.stat.due_meds': 'देय दवाएँ',
       'dashboard.stat.inpatients': 'भर्ती मरीज़',
-      // 'AI समीक्षा' was direct-translated; clinically the queue is
-      // for AI-generated drafts that need clinician sign-off, so
-      // 'AI ड्राफ्ट समीक्षा' is more accurate.
       'dashboard.stat.review_queue': 'AI ड्राफ्ट',
       'dashboard.upcoming_appointments': 'आगामी अपॉइंटमेंट',
+      // Login
       'login.employee_id_label': 'कर्मचारी आईडी',
       'login.password_label': 'पासवर्ड',
       'login.pin_label': 'पिन',
@@ -3857,13 +3852,12 @@ class AppStrings {
       'dashboard.action.handover': 'हैंडओवर',
       'dashboard.action.pharmacy': 'फ़ार्मेसी',
       'dashboard.action.upload_results': 'परिणाम अपलोड करें',
+      // Bed
       'bed.label': 'बेड',
       'bed.status.available': 'उपलब्ध',
-      // 'व्यस्त' (busy) is technically correct but colloquial; in
-      // hospital context 'अधिकृत' (occupied) reads more clinical.
-      // Keeping 'व्यस्त' since it's what nursing staff actually say.
       'bed.status.occupied': 'व्यस्त',
       'bed.status.maintenance': 'रखरखाव',
+      // Bed Board
       'bed_board.title': 'बेड बोर्ड',
       'bed_board.search_wards_hint': 'वार्ड खोजें…',
       'bed_board.search_beds_hint': 'बेड नंबर या मरीज़ का नाम खोजें…',
@@ -3871,6 +3865,7 @@ class AppStrings {
       'bed_board.empty_title': 'इस वार्ड में कोई बेड नहीं',
       'bed_board.empty_body': 'एडमिन पोर्टल से बेड जोड़ें।',
       'bed_board.filter.all': 'सभी',
+      // Bed sheet
       'bed_sheet.action.open_emr': 'EMR खोलें',
       'bed_sheet.action.record_vitals': 'वाइटल्स दर्ज करें',
       'bed_sheet.action.add_note': 'नोट जोड़ें',
@@ -3883,15 +3878,13 @@ class AppStrings {
       'bed_sheet.save_notes': 'नोट्स सहेजें',
       'bed_sheet.notes_saved': 'बेड नोट्स सहेज लिए गए',
       'bed_sheet.admit_patient': 'मरीज़ भर्ती करें',
-      // 'डिस्चार्ज' is the universally-used loanword; 'अस्पताल से
-      // छुट्टी' is grammatically correct but reads informal. Keeping
-      // the loanword which matches what discharge papers say.
       'bed_sheet.discharge': 'डिस्चार्ज',
       'bed_sheet.mark_maintenance': 'रखरखाव में डालें',
       'bed_sheet.mark_available': 'उपलब्ध करें',
       'bed_sheet.discharge_confirm_prefix': 'डिस्चार्ज करें',
       'bed_sheet.discharge_confirm_body':
           'इससे बेड खाली हो जाएगा और सक्रिय भर्ती समाप्त हो जाएगी। मरीज़ के EMR रिकॉर्ड बने रहेंगे।',
+      // Attendance
       'attendance.title': 'उपस्थिति',
       'attendance.check_in': 'चेक इन',
       'attendance.check_out': 'चेक आउट',
@@ -3996,6 +3989,7 @@ class AppStrings {
       'profile.saving_button': 'सहेज रहा है...',
       'profile.save_changes': 'परिवर्तन सहेजें',
       'profile.updated_success': '✅ प्रोफ़ाइल सफलतापूर्वक अपडेट की गई',
+      // Leave
       'leave.title': 'अवकाश',
       'leave.tab.apply': 'आवेदन करें',
       'leave.tab.my_leaves': 'मेरे अवकाश',
@@ -4003,6 +3997,7 @@ class AppStrings {
       'leave.balance_header': 'अवकाश शेष',
       'leave.submit_button': 'आवेदन जमा करें',
       'leave.submitted': 'अवकाश आवेदन जमा हो गया',
+      // Notifications / Messaging
       'notifications.title': 'सूचनाएँ',
       'notifications.empty': 'अभी कोई सूचना नहीं',
       'notifications.search_hint': 'सूचनाएँ खोजें…',
@@ -4232,10 +4227,12 @@ class AppStrings {
       'handover.recent_empty_body':
           'पिछले 24 घंटों के नोट्स यहाँ दिखाई देंगे',
       'handover.note_fallback_title': 'हैंडओवर नोट',
+      // Patient picker
       'patient_picker.title': 'मरीज़ खोजें',
       'patient_picker.hint': 'नाम, फ़ोन या ABHA से मरीज़ खोजें…',
       'patient_picker.empty':
           'अभी कोई मेल नहीं मिला — टाइप करना जारी रखें।',
+      // Voice dictation
       'voice_dictate.tooltip': 'बोलकर लिखें',
       'voice_dictate.recording': 'रिकॉर्ड हो रहा है…',
       'voice_dictate.stop': 'रोकें और लिखें',
@@ -4684,7 +4681,7 @@ class AppStrings {
           'नोट सफलतापूर्वक बनाया गया',
       'clinical_notes.create_failed_prefix':
           'नोट बनाने में विफल:',
-      // Payroll
+      // ── Payroll ───────────────────────────────────────────────────
       'payroll.payslip.title': 'मेरी वेतन-पर्चियाँ',
       'payroll.payslip.banner_tax': 'वार्षिक कर सारांश (फॉर्म 16)',
       'payroll.payslip.banner_declaration': 'कर घोषणा (80C/80D)',
@@ -4697,15 +4694,58 @@ class AppStrings {
       'payroll.payslip.deductions': 'कटौतियाँ',
       'payroll.detail.title_prefix': 'वेतन-पर्ची',
       'payroll.detail.download_pdf': 'PDF डाउनलोड करें',
+      'payroll.detail.pdf_not_available': 'PDF अभी उपलब्ध नहीं — बाद में फिर देखें',
+      // REVIEW: error message
+      'payroll.detail.pdf_failed_prefix': 'PDF खोलने में विफल:',
+      'payroll.detail.pdf_being_generated': 'PDF वेतन-पर्ची तैयार हो रही है। यह जल्द ही यहाँ दिखेगी।',
+      'payroll.detail.pdf_download_button': 'PDF वेतन-पर्ची डाउनलोड करें',
+      'payroll.detail.opening': 'खोल रहा है…',
+      'payroll.detail.not_found': 'वेतन-पर्ची नहीं मिली',
       'payroll.detail.attendance_header': '📅 उपस्थिति',
       'payroll.detail.earnings_header': '💰 आय',
       'payroll.detail.deductions_header': '📉 कटौतियाँ',
+      'payroll.detail.working_days': 'कार्य दिवस',
+      'payroll.detail.days_present': 'उपस्थित दिन',
+      'payroll.detail.days_absent': 'अनुपस्थित दिन',
+      'payroll.detail.lop_days': 'बिना वेतन के दिन (LOP)',
+      'payroll.detail.leave_days': 'अवकाश दिन',
+      'payroll.detail.overtime_hours': 'ओवरटाइम घंटे',
+      'payroll.detail.basic': 'मूल वेतन',
+      'payroll.detail.hra': 'HRA',
+      'payroll.detail.da': 'DA',
+      'payroll.detail.special_allowance': 'विशेष भत्ता',
+      'payroll.detail.transport_allowance': 'परिवहन भत्ता',
+      'payroll.detail.medical_allowance': 'चिकित्सा भत्ता',
+      'payroll.detail.overtime_pay': 'ओवरटाइम वेतन',
+      'payroll.detail.bonus': 'बोनस',
+      'payroll.detail.arrears': 'भुगतान किए गए बकाया',
       'payroll.detail.gross_salary': 'सकल वेतन',
+      'payroll.detail.lop_deduction': 'बिना वेतन की कटौती',
+      // REVIEW: financial — verify deduction wording
+      'payroll.detail.pf_employee': 'PF (कर्मचारी 12%)',
+      // REVIEW: financial — verify deduction wording
+      'payroll.detail.esi': 'ESI (0.75%)',
+      // REVIEW: financial — verify deduction wording
+      'payroll.detail.professional_tax': 'पेशेवर कर',
+      // REVIEW: financial — verify deduction wording
+      'payroll.detail.tds': 'TDS',
+      // REVIEW: financial — verify deduction wording
+      'payroll.detail.advance_deduction': 'वेतन अग्रिम कटौती',
       'payroll.detail.total_deductions': 'कुल कटौतियाँ',
       'payroll.query.title': 'वेतन-पर्ची प्रश्न',
       'payroll.query.tab_my': 'मेरे प्रश्न',
       'payroll.query.tab_raise': 'प्रश्न उठाएँ',
       'payroll.query.empty': 'अभी तक कोई प्रश्न नहीं उठाया गया',
+      'payroll.query.replies_header': 'उत्तर',
+      'payroll.query.raise_header': 'वेतन-पर्ची प्रश्न उठाएँ',
+      'payroll.query.select_payslip': 'वेतन-पर्ची चुनें *',
+      'payroll.query.choose_payslip_hint': 'वेतन-पर्ची चुनें',
+      'payroll.query.category_label': 'श्रेणी *',
+      'payroll.query.subject_label': 'विषय *',
+      'payroll.query.subject_required': 'विषय आवश्यक है',
+      'payroll.query.description_label': 'विवरण *',
+      'payroll.query.description_required': 'विवरण आवश्यक है',
+      'payroll.query.pick_payslip': 'कृपया एक वेतन-पर्ची चुनें',
       'payroll.query.submit_button': 'प्रश्न सबमिट करें',
       // REVIEW: financial confirmation
       'payroll.query.submitted_success': 'प्रश्न सफलतापूर्वक उठाया गया!',
@@ -4715,12 +4755,46 @@ class AppStrings {
       'payroll.tax_summary.total_net': 'कुल शुद्ध',
       'payroll.tax_summary.taxable_income': 'कर योग्य आय',
       'payroll.tax_summary.tax_payable': 'देय कर',
+      'payroll.tax_summary.earnings_breakdown': '💰 आय विवरण',
+      'payroll.tax_summary.deductions_breakdown': '📉 कटौतियाँ विवरण',
+      // REVIEW: financial — verify tax-regime wording
+      'payroll.tax_summary.tax_computation': '🧾 कर गणना (नई व्यवस्था)',
+      // REVIEW: financial — verify deduction wording
+      'payroll.tax_summary.standard_deduction': 'घटाएँ: मानक कटौती',
+      // REVIEW: financial disclaimer — verify legal wording
+      'payroll.tax_summary.disclaimer':
+          'यह केवल सांकेतिक है, नई कर व्यवस्था के तहत गणना की गई है। वास्तविक फॉर्म 16 आपके नियोक्ता द्वारा वित्तीय वर्ष के अंत में जारी किया जाएगा।',
+      'payroll.tax_summary.download_pdf': 'PDF डाउनलोड करें',
+      // REVIEW: financial — verify Form 16 wording
+      'payroll.tax_summary.download_form16': 'फॉर्म 16 PDF डाउनलोड करें',
       'payroll.declaration.title': 'कर घोषणा (80C/80D)',
+      // REVIEW: financial — verify deduction wording
+      'payroll.declaration.estimated_deductions': 'अनुमानित कर कटौतियाँ',
+      'payroll.declaration.total_deductions': 'कुल कटौतियाँ',
       'payroll.declaration.section_80c': '80C निवेश (अधिकतम ₹1,50,000)',
       'payroll.declaration.section_80d': '80D स्वास्थ्य बीमा',
+      'payroll.declaration.section_other': 'अन्य कटौतियाँ',
+      'payroll.declaration.section_rent': 'HRA / किराया',
+      'payroll.declaration.field_ppf': 'PPF',
+      'payroll.declaration.field_epf': 'EPF स्वैच्छिक',
+      'payroll.declaration.field_elss': 'ELSS (म्यूचुअल फंड)',
+      'payroll.declaration.field_lic': 'LIC प्रीमियम',
+      'payroll.declaration.field_nsc': 'NSC',
+      'payroll.declaration.field_home_loan_principal': 'गृह ऋण मूलधन',
+      'payroll.declaration.field_tuition': 'ट्यूशन शुल्क (बच्चों का)',
+      'payroll.declaration.field_other_80c': 'अन्य 80C',
+      'payroll.declaration.field_hi_self': 'स्वास्थ्य बीमा — स्वयं',
+      'payroll.declaration.field_hi_parents': 'स्वास्थ्य बीमा — माता-पिता',
+      'payroll.declaration.field_nps': 'NPS योगदान (80CCD)',
+      'payroll.declaration.field_home_loan_interest': 'गृह ऋण ब्याज (24b)',
+      'payroll.declaration.field_edu_loan': 'शिक्षा ऋण ब्याज (80E)',
+      'payroll.declaration.field_rent_monthly': 'मासिक किराया भुगतान',
+      'payroll.declaration.rent_receipts': 'किराए की रसीदें प्रदान कीं',
       'payroll.declaration.submit_button': 'घोषणा सबमिट करें',
       // REVIEW: financial confirmation
       'payroll.declaration.submitted_success': 'घोषणा सफलतापूर्वक सबमिट की गई!',
+      'payroll.declaration.past_title': 'पिछली घोषणाएँ',
+      'payroll.declaration.fy_submitted': 'सबमिट किया गया',
       // HR
       'hr.dashboard.title': 'HR डैशबोर्ड',
       'hr.timeframe.this_month': 'इस महीने',
@@ -4734,171 +4808,761 @@ class AppStrings {
       'hr.stat.present_today': 'आज उपस्थित',
       'hr.stat.on_leave': 'अवकाश पर',
       'hr.stat.pending_leaves': 'लंबित अवकाश',
+      'hr.avg_attendance_rate': 'औसत उपस्थिति दर',
+      'hr.late_arrivals': 'देरी से आगमन',
+      'hr.absentees': 'अनुपस्थित',
+      'hr.total_applications': 'कुल आवेदन',
       'hr.approved': 'स्वीकृत',
       'hr.rejected': 'अस्वीकृत',
+      'hr.pending_approval': 'मंज़ूरी लंबित',
       'hr.action.staff_management': 'कर्मचारी प्रबंधन',
+      'hr.action.staff_management.subtitle': 'कर्मचारी देखें, जोड़ें और संपादित करें',
       'hr.action.performance': 'प्रदर्शन समीक्षा',
+      'hr.action.performance.subtitle': 'प्रदर्शन रिकॉर्ड प्रबंधित करें',
       'hr.action.staff_directory': 'कर्मचारी निर्देशिका',
+      'hr.action.staff_directory.subtitle': 'सभी कर्मचारी देखें',
       'hr.action.reports': 'रिपोर्ट और शिकायतें',
+      'hr.action.reports.subtitle': 'घटना रिपोर्ट, कर्मचारी शिकायतें',
       'hr.action.payslips': 'मेरी वेतन-पर्चियाँ',
+      'hr.action.payslips.subtitle': 'पिछले 3 महीने देखें और डाउनलोड करें',
       'staff_mgmt.title': 'कर्मचारी प्रबंधन',
+      'staff_mgmt.search_hint': 'नाम, विभाग, भूमिका से खोजें…',
       'staff_mgmt.add_staff': 'कर्मचारी जोड़ें',
       'staff_mgmt.edit_staff': 'कर्मचारी संपादित करें',
       'staff_mgmt.full_name': 'पूरा नाम',
+      'staff_mgmt.name_required': 'नाम आवश्यक है',
       'staff_mgmt.department': 'विभाग',
+      'staff_mgmt.clear_filter': 'फ़िल्टर हटाएँ',
       'staff_mgmt.active': 'सक्रिय',
       'staff_mgmt.inactive': 'निष्क्रिय',
       'staff_mgmt.no_staff_found': 'कोई कर्मचारी नहीं मिला',
       'staff_mgmt.no_staff_members': 'कोई कर्मचारी नहीं',
+      'staff_mgmt.search_empty': 'भिन्न खोज शब्द आज़माएँ',
+      'staff_mgmt.api_pending': 'API कनेक्ट होने पर कर्मचारी डेटा यहाँ दिखेगा',
       // REVIEW: HR confirmation
       'staff_mgmt.updated_success': '✅ कर्मचारी सफलतापूर्वक अपडेट किया गया',
+      // REVIEW: HR confirmation
+      'staff_mgmt.added_pending': '✅ कर्मचारी जोड़ा गया (बैकएंड API लंबित)',
+      'staff_mgmt.list_api_unavailable':
+          'स्टाफ सूची API अभी उपलब्ध नहीं हो सकता है।',
       'performance.title': 'प्रदर्शन समीक्षा',
       'performance.tab.add': 'समीक्षा जोड़ें',
       'performance.tab.reviews': 'समीक्षाएँ',
       'performance.employee_id_label': 'कर्मचारी ID',
+      'performance.employee_id_hint': 'जैसे EMP-001',
+      'performance.employee_id_required': 'कर्मचारी ID आवश्यक है',
       'performance.review_period_label': 'समीक्षा अवधि',
       'performance.overall_rating': 'समग्र रेटिंग',
+      'performance.comments_label': 'प्रदर्शन टिप्पणियाँ',
+      'performance.comments_hint': 'प्रदर्शन, उपलब्धियाँ, सुधार के क्षेत्रों का वर्णन करें…',
+      'performance.comments_required': 'टिप्पणियाँ आवश्यक हैं',
+      'performance.goals_label': 'अगली अवधि के लक्ष्य (वैकल्पिक)',
+      'performance.goals_hint': 'लक्ष्य और अपेक्षाएँ निर्धारित करें…',
+      'performance.saving_button': 'सहेज रहा है…',
       'performance.save_review': 'समीक्षा सहेजें',
       // REVIEW: HR confirmation
       'performance.saved_success': '✅ प्रदर्शन समीक्षा सहेजी गई',
+      // REVIEW: HR rating — verify scale
+      'performance.rating.exceptional': 'असाधारण',
+      // REVIEW: HR rating — verify scale
+      'performance.rating.exceeds': 'अपेक्षाओं से अधिक',
+      // REVIEW: HR rating — verify scale
+      'performance.rating.meets': 'अपेक्षाओं के अनुरूप',
+      // REVIEW: HR rating — verify scale
+      'performance.rating.needs_improvement': 'सुधार की आवश्यकता',
+      // REVIEW: HR rating — verify scale
+      'performance.rating.unsatisfactory': 'असंतोषजनक',
       'performance.no_reviews': 'अभी तक कोई समीक्षा नहीं',
       'directory.title': 'कर्मचारी निर्देशिका',
+      'directory.search_hint': 'नाम, विभाग, भूमिका से खोजें…',
       'directory.empty': 'निर्देशिका खाली है',
-      // Reports
+      'directory.search_empty': 'भिन्न खोज शब्द आज़माएँ',
+      'directory.api_pending': 'API कनेक्ट होने पर कर्मचारी यहाँ दिखेंगे',
+      'directory.api_unavailable':
+          'स्टाफ निर्देशिका API अभी उपलब्ध नहीं हो सकता है।',
+      'directory.staff_empty_body': 'कोई कर्मचारी नहीं मिला',
+      // Reports & Grievances
       'reports.hub.title': 'रिपोर्ट और शिकायतें',
+      // REVIEW: security/HR — verify policy wording
+      'reports.hub.confidentiality_note':
+          'सभी रिपोर्टें गोपनीय रूप से संभाली जाती हैं। रिपोर्ट करने वालों के विरुद्ध प्रतिशोध सख्त वर्जित है।',
       'reports.hub.prompt': 'आप क्या रिपोर्ट करना चाहेंगे?',
       'reports.hub.incident_title': 'घटना रिपोर्ट',
+      'reports.hub.incident_subtitle': 'मरीज़ का गिरना, दवा त्रुटि, near-miss, उपकरण विफलता या कोई प्रतिकूल घटना',
+      // REVIEW: clinical-safety — verify escalation wording
+      'reports.hub.incident_note': 'सेंटिनल/गंभीर घटनाएँ तुरंत एस्केलेट की जाती हैं',
       'reports.hub.grievance_title': 'कर्मचारी शिकायत',
+      'reports.hub.grievance_subtitle': 'उत्पीड़न, अनुचित व्यवहार, असुरक्षित कार्य परिस्थितियाँ या नीति उल्लंघन',
+      // REVIEW: HR/security — verify confidentiality wording
+      'reports.hub.grievance_note': 'अनाम रूप से सबमिट कर सकते हैं। केवल HR तक पहुँच।',
       'reports.hub.my_reports': 'मेरी रिपोर्ट और स्थिति',
       'my_reports.title': 'मेरी रिपोर्ट',
       'my_reports.tab.incidents': 'घटनाएँ',
       'my_reports.tab.grievances': 'शिकायतें',
       'my_reports.empty_incidents': 'कोई घटना रिपोर्ट नहीं',
       'my_reports.empty_grievances': 'कोई शिकायत दर्ज नहीं',
+      'my_reports.label.status': 'स्थिति',
+      'my_reports.label.severity': 'गंभीरता',
+      'my_reports.label.type': 'प्रकार',
+      'my_reports.label.location': 'स्थान',
+      'my_reports.label.description': 'विवरण',
       'incident_report.title': 'घटना रिपोर्ट',
+      // REVIEW: clinical-safety wording
+      'incident_report.severity_label': 'गंभीरता *',
       // REVIEW: clinical / safety severity wording
       'incident_report.severity.low': 'कम',
+      // REVIEW: clinical-safety wording
+      'incident_report.severity.low_desc': 'मामूली, कोई नुकसान नहीं',
       'incident_report.severity.moderate': 'मध्यम',
+      // REVIEW: clinical-safety wording
+      'incident_report.severity.moderate_desc': 'कुछ प्रभाव, स्थानीय रूप से प्रबंधित',
       'incident_report.severity.severe': 'गंभीर',
+      // REVIEW: clinical-safety wording
+      'incident_report.severity.severe_desc': 'महत्वपूर्ण नुकसान, जाँच आवश्यक',
       'incident_report.severity.sentinel': 'सेंटिनल',
+      // REVIEW: clinical-safety — sentinel event wording
+      'incident_report.severity.sentinel_desc': 'अप्रत्याशित मृत्यु या गंभीर हानि',
+      'incident_report.type_label': 'घटना प्रकार *',
+      // REVIEW: clinical-safety — staff commonly say "Near Miss"; Hindi gloss provided
+      'incident_report.type.near_miss': 'निकट-चूक (Near Miss)',
+      // REVIEW: clinical-safety wording
+      'incident_report.type.patient_fall': 'मरीज़ का गिरना',
+      // REVIEW: clinical-safety wording
+      'incident_report.type.medication_error': 'दवा त्रुटि',
+      // REVIEW: clinical-safety wording
+      'incident_report.type.needle_stick': 'सुई चुभन / नुकीली चोट',
+      'incident_report.type.equipment_failure': 'उपकरण विफलता',
+      // REVIEW: clinical-safety wording
+      'incident_report.type.infection': 'संक्रमण / एक्सपोज़र',
+      'incident_report.type.fire_safety': 'अग्नि / सुरक्षा खतरा',
+      // REVIEW: clinical-safety wording
+      'incident_report.type.patient_aggression': 'मरीज़ की आक्रामकता',
+      // REVIEW: security wording
+      'incident_report.type.security_breach': 'सुरक्षा उल्लंघन',
+      'incident_report.type.other': 'अन्य',
+      'incident_report.title_label': 'संक्षिप्त शीर्षक *',
+      'incident_report.title_hint': 'जैसे बेड 12B के पास मरीज़ गिरा',
+      'incident_report.title_required': 'शीर्षक आवश्यक है',
+      'incident_report.what_happened': 'क्या हुआ? *',
+      'incident_report.what_happened_hint':
+          'घटना का विस्तार से वर्णन करें — क्या हुआ, कौन शामिल था, परिस्थितियाँ क्या थीं…',
+      'incident_report.description_required': 'विवरण आवश्यक है',
+      'incident_report.date_label': 'तारीख़ *',
+      'incident_report.time_label': 'समय *',
+      'incident_report.location_label': 'स्थान (वैकल्पिक)',
+      'incident_report.location_hint': 'वार्ड, कमरा या क्षेत्र',
+      'incident_report.patient_involved': 'मरीज़ शामिल',
+      'incident_report.patient_name_label': 'मरीज़ का नाम / ID (वैकल्पिक)',
+      'incident_report.witnesses_label': 'गवाह (वैकल्पिक)',
+      'incident_report.witnesses_hint': 'घटना देखने वालों के नाम',
+      // REVIEW: clinical-safety wording
+      'incident_report.immediate_action': 'तत्काल की गई कार्रवाई (वैकल्पिक)',
+      'incident_report.immediate_action_hint': 'घटना के तुरंत बाद क्या किया गया?',
+      // REVIEW: security — verify anonymity wording
+      'incident_report.anonymous': 'अनाम रूप से सबमिट करें',
+      // REVIEW: security — verify anonymity wording
+      'incident_report.anonymous_note': 'इस रिपोर्ट के साथ आपका नाम नहीं जोड़ा जाएगा',
       'incident_report.submit_button': 'घटना रिपोर्ट सबमिट करें',
       // REVIEW: clinical / safety confirmation
       'incident_report.submitted_title': 'रिपोर्ट सबमिट की गई',
+      // REVIEW: clinical-safety — verify escalation wording
+      'incident_report.escalation_note':
+          'इसे HIGH PRIORITY के रूप में एस्केलेट किया गया है। प्रबंधन को सूचित किया जा चुका है।',
+      // REVIEW: clinical-safety wording
+      'incident_report.routine_note': 'आपकी रिपोर्ट प्राप्त हो गई है और 24 घंटे में समीक्षा की जाएगी।',
       'incident_report.done_button': 'पूरा',
       'grievance.title': 'कर्मचारी शिकायत',
+      // REVIEW: HR/security — verify confidentiality
+      'grievance.privacy_note':
+          'यह फ़ॉर्म केवल HR और वरिष्ठ प्रबंधन को दिखता है। आप अनाम रूप से सबमिट कर सकते हैं।',
+      'grievance.type_label': 'शिकायत प्रकार *',
+      // REVIEW: HR wording
+      'grievance.type.harassment': 'उत्पीड़न',
+      // REVIEW: HR wording
+      'grievance.type.discrimination': 'भेदभाव',
+      // REVIEW: HR wording
+      'grievance.type.unfair_treatment': 'अनुचित व्यवहार',
+      // REVIEW: HR/safety wording
+      'grievance.type.unsafe_conditions': 'असुरक्षित कार्य परिस्थितियाँ',
+      'grievance.type.workload': 'अत्यधिक कार्यभार',
+      // REVIEW: HR/financial wording
+      'grievance.type.pay_dispute': 'वेतन / मुआवज़ा विवाद',
+      'grievance.type.schedule_conflict': 'शेड्यूल / रोस्टर विवाद',
+      // REVIEW: HR wording
+      'grievance.type.policy_violation': 'नीति उल्लंघन',
+      'grievance.type.other': 'अन्य',
+      'grievance.subject_label': 'विषय *',
+      'grievance.subject_hint': 'अपनी चिंता का संक्षिप्त सारांश',
+      'grievance.subject_required': 'विषय आवश्यक है',
+      'grievance.describe_label': 'अपनी शिकायत का विवरण दें *',
+      'grievance.describe_hint': 'जितनी जानकारी साझा करना सहज लगे उतनी दें…',
+      'grievance.description_required': 'विवरण आवश्यक है',
+      'grievance.against_whom_label': 'किसके विरुद्ध (वैकल्पिक)',
+      'grievance.against_whom_hint': 'नाम या भूमिका, यदि लागू हो',
+      'grievance.dept_label': 'विभाग (वैकल्पिक)',
+      'grievance.date_optional': 'यह कब हुआ? (वैकल्पिक)',
+      'grievance.date_prefix': 'यह कब हुआ:',
+      // REVIEW: security — verify anonymity wording
+      'grievance.anonymous': 'अनाम रूप से सबमिट करें',
+      // REVIEW: security — verify anonymity wording
+      'grievance.anonymous_note': 'आपकी पहचान प्रकट नहीं की जाएगी',
       'grievance.submit_button': 'शिकायत सबमिट करें',
       // REVIEW: HR confirmation
       'grievance.submitted_title': 'शिकायत सबमिट की गई',
+      // REVIEW: HR confirmation
+      'grievance.acknowledgement_note': 'आपकी शिकायत प्राप्त हो गई है। HR 2 कार्य दिवस के भीतर पुष्टि करेगा।',
+      // REVIEW: HR/security confirmation
+      'grievance.acknowledgement_anonymous': 'अनाम रूप से सबमिट किया गया। HR 2 कार्य दिवस के भीतर पुष्टि करेगा।',
       // Housekeeping
       'housekeeping.hub.title': 'हाउसकीपिंग',
       'housekeeping.hub.log_title': 'सफाई दर्ज करें',
+      'housekeeping.hub.log_subtitle': 'फ़ोटो प्रमाण के साथ पूरी की गई सफाई दर्ज करें',
       'housekeeping.hub.raise_title': 'अनुरोध उठाएँ',
+      'housekeeping.hub.raise_subtitle': 'गंदे क्षेत्र की रिपोर्ट करें या सफाई का अनुरोध करें',
       'housekeeping.hub.my_title': 'मेरी गतिविधि',
+      'housekeeping.hub.my_subtitle': 'अपने लॉग, सौंपे गए कार्य और अनुरोध देखें',
       'housekeeping.log.title': 'सफाई दर्ज करें',
+      'housekeeping.log.type_label': 'सफाई प्रकार *',
       'housekeeping.type.routine': 'नियमित सफाई',
       'housekeeping.type.deep': 'गहरी सफाई',
       'housekeeping.type.disinfection': 'कीटाणुशोधन',
+      'housekeeping.type.spillage': 'फैलाव सफाई',
+      // REVIEW: clinical wording
+      'housekeeping.type.post_procedure': 'प्रक्रिया के बाद',
+      'housekeeping.zone_location_label': 'ज़ोन / स्थान *',
+      'housekeeping.select_zone_label': 'ज़ोन चुनें (वैकल्पिक)',
+      'housekeeping.select_zone_or_type': '-- चुनें या नीचे टाइप करें --',
+      'housekeeping.describe_location': 'या सटीक स्थान बताएँ',
+      'housekeeping.location_hint': 'जैसे कमरा 204, लिफ्ट के पास का गलियारा',
+      'housekeeping.photo_evidence': 'फ़ोटो प्रमाण',
+      'housekeeping.take_photo': 'फ़ोटो लेने के लिए टैप करें',
+      'housekeeping.notes_label': 'नोट्स (वैकल्पिक)',
       'housekeeping.submit_log': 'सफाई लॉग सबमिट करें',
+      'housekeeping.submitting_log': 'सबमिट हो रहा है…',
+      'housekeeping.select_zone_error': 'ज़ोन चुनें या स्थान दर्ज करें',
       // REVIEW: confirmation
       'housekeeping.logged_title': 'सफाई दर्ज की गई',
+      'housekeeping.logged_body': 'आपका सफाई रिकॉर्ड हस्ताक्षरित होकर सबमिट हो गया है।',
+      'housekeeping.done_button': 'पूर्ण',
+      'housekeeping.raise.title': 'अनुरोध उठाएँ',
+      'housekeeping.raise.type_label': 'अनुरोध प्रकार *',
+      'housekeeping.raise.urgency_label': 'अत्यावश्यकता *',
+      'housekeeping.request_type.cleaning': 'सामान्य सफाई',
+      'housekeeping.request_type.spillage': 'फैलाव',
+      'housekeeping.request_type.waste': 'अपशिष्ट निपटान',
+      'housekeeping.request_type.linen': 'लिनेन / बिस्तर',
+      'housekeeping.request_type.disinfection': 'कीटाणुशोधन',
+      'housekeeping.request_type.other': 'अन्य',
+      'housekeeping.description_label': 'विवरण (वैकल्पिक)',
+      'housekeeping.description_hint': 'किस पर ध्यान चाहिए?',
+      'housekeeping.problem_photo': 'समस्या की फ़ोटो (वैकल्पिक)',
+      'housekeeping.photograph_problem': 'समस्या की फ़ोटो लेने के लिए टैप करें',
       'housekeeping.raise_request_button': 'अनुरोध उठाएँ',
+      'housekeeping.raising_button': 'उठा रहा है…',
       // REVIEW: confirmation
       'housekeeping.raised_title': 'अनुरोध उठाया गया',
+      'housekeeping.notified_note': 'हाउसकीपिंग स्टाफ को सूचित किया जाएगा।',
+      'housekeeping.my.title': 'मेरी गतिविधि',
+      'housekeeping.my.tab_logs': 'मेरे लॉग',
+      'housekeeping.my.tab_requests': 'अनुरोध',
+      'housekeeping.my.tab_raised': 'मेरे द्वारा उठाए गए',
+      'housekeeping.my.tab_assigned': 'मुझे सौंपे गए',
       'housekeeping.no_logs': 'अभी तक कोई सफाई लॉग नहीं',
       'housekeeping.no_requests': 'यहाँ कोई अनुरोध नहीं',
+      'housekeeping.unknown_location': 'अज्ञात स्थान',
       'housekeeping.mark_complete': 'पूर्ण के रूप में चिह्नित करें',
+      'housekeeping.complete_dialog_title': 'पूर्ण के रूप में चिह्नित करें',
+      'housekeeping.completion_notes': 'पूर्णता नोट्स (वैकल्पिक)',
+      'housekeeping.add_completion_photo': 'पूर्णता फ़ोटो जोड़ें',
+      'housekeeping.marked_complete': '✅ अनुरोध पूर्ण के रूप में चिह्नित किया गया',
+      'housekeeping.status.verified': 'सत्यापित',
+      'housekeeping.status.flagged': 'फ़्लैग किया गया',
+      'housekeeping.status.submitted': 'सबमिट किया गया',
       // Hospital departments
       'blood_bank.title': 'ब्लड बैंक',
       'blood_bank.tab.inventory': 'इन्वेंटरी',
       'blood_bank.tab.requests': 'अनुरोध',
       'blood_bank.tab.donations': 'दान',
+      'blood_bank.refresh_tooltip': 'इन्वेंटरी ताज़ा करें',
+      'blood_bank.legend.adequate': '>= 10 यूनिट',
+      'blood_bank.legend.low': '5-9 यूनिट',
+      'blood_bank.legend.critical': '< 5 यूनिट',
       'blood_bank.units_suffix': 'यूनिट',
+      // REVIEW: clinical — blood stock criticality
+      'blood_bank.stock.critical_low': 'गंभीर रूप से कम',
+      // REVIEW: clinical — blood stock criticality
+      'blood_bank.stock.low': 'कम स्टॉक',
+      'blood_bank.stock.adequate': 'पर्याप्त',
       'blood_bank.request_header': 'रक्त अनुरोध',
+      'blood_bank.patient_name_label': 'मरीज़ का नाम',
+      'blood_bank.patient_name_required': 'मरीज़ का नाम आवश्यक है',
+      // REVIEW: clinical — blood typing
+      'blood_bank.blood_type_label': 'रक्त समूह',
+      // REVIEW: clinical — blood typing
+      'blood_bank.blood_type_required': 'रक्त समूह चुनें',
+      'blood_bank.units_label': 'आवश्यक यूनिट',
+      'blood_bank.units_required': 'यूनिट आवश्यक',
+      'blood_bank.units_invalid': 'मान्य संख्या दर्ज करें',
+      // REVIEW: clinical — verify request wording
+      'blood_bank.reason_label': 'कारण / नोट्स',
       'blood_bank.submit_request': 'अनुरोध सबमिट करें',
+      'blood_bank.submitting_button': 'सबमिट हो रहा है…',
       // REVIEW: clinical confirmation
       'blood_bank.request_success': 'रक्त अनुरोध सफलतापूर्वक सबमिट किया गया',
+      'blood_bank.donations.title': 'दान रिकॉर्ड',
+      'blood_bank.donations.body':
+          'रक्त दान रिकॉर्ड देखें और प्रबंधित करें।\n'
+          'यह अनुभाग दान का इतिहास और आगामी दान शिविर दिखाएगा।',
       'dietary.title': 'आहार प्रबंधन',
+      'dietary.refresh_tooltip': 'वर्कलिस्ट ताज़ा करें',
       'dietary.new_order_button': 'नया आदेश',
+      // REVIEW: clinical-action — diet order
+      'dietary.new_order_dialog': 'नया आहार आदेश',
+      'dietary.patient_uid_label': 'मरीज़ UID',
+      'dietary.patient_uid_required': 'आवश्यक',
+      'dietary.diet_type_label': 'आहार प्रकार',
+      'dietary.diet_type_required': 'आहार प्रकार चुनें',
+      'dietary.meal_time_label': 'भोजन समय',
+      'dietary.meal_time_required': 'भोजन समय चुनें',
+      // REVIEW: clinical-safety — allergy wording
+      'dietary.restrictions_label': 'प्रतिबंध / एलर्जी',
+      'dietary.notes_label': 'नोट्स',
       'dietary.create_button': 'बनाएँ',
       // REVIEW: clinical confirmation
       'dietary.created_success': 'आहार आदेश बनाया गया',
+      // REVIEW: clinical-action confirmation
+      'dietary.discontinued_success': 'आहार आदेश बंद किया गया',
+      // REVIEW: clinical-action wording
+      'dietary.discontinue': 'बंद करें',
+      'dietary.diet.regular': 'सामान्य',
+      // REVIEW: clinical — diabetic diet
+      'dietary.diet.diabetic': 'मधुमेह आहार',
+      // REVIEW: clinical — cardiac diet
+      'dietary.diet.cardiac': 'हृदय आहार',
+      // REVIEW: clinical — renal diet
+      'dietary.diet.renal': 'गुर्दा आहार',
+      'dietary.diet.soft': 'नर्म आहार',
+      'dietary.diet.liquid': 'तरल आहार',
+      // REVIEW: clinical-safety — NPO wording
+      'dietary.diet.npo': 'NPO (कुछ भी मुँह से नहीं)',
+      // REVIEW: clinical — enteral feeding
+      'dietary.diet.enteral': 'एंटरल फीडिंग',
+      'dietary.meal.breakfast': 'नाश्ता',
+      'dietary.meal.lunch': 'दोपहर का भोजन',
+      'dietary.meal.dinner': 'रात का भोजन',
+      'dietary.meal.snack': 'नाश्ता (स्नैक)',
+      'dietary.empty_title': 'कोई आहार आदेश नहीं',
+      'dietary.empty_body': 'नया आदेश बनाने के लिए नीचे दिए बटन पर टैप करें',
       'theatre.title': 'ऑपरेटिंग थिएटर',
+      'theatre.pick_date': 'तारीख़ चुनें',
       'theatre.tab.schedule': 'अनुसूची',
       'theatre.tab.availability': 'उपलब्धता',
       'theatre.no_surgeries': 'कोई सर्जरी निर्धारित नहीं',
+      'theatre.no_room_data': 'कोई कमरा डेटा उपलब्ध नहीं',
+      'theatre.status.scheduled': 'निर्धारित',
+      // REVIEW: clinical-action status — surgery
+      'theatre.status.in_progress': 'चल रहा है',
+      // REVIEW: clinical-action status — surgery
+      'theatre.status.completed': 'पूर्ण',
+      // REVIEW: clinical-action status — surgery
+      'theatre.status.cancelled': 'रद्द',
+      'theatre.surgeon_prefix': 'सर्जन:',
+      'theatre.label.patient_uid': 'मरीज़ UID',
+      'theatre.label.procedure_code': 'प्रक्रिया कोड',
+      'theatre.label.ot_room': 'OT कमरा',
+      'theatre.label.date': 'तारीख़',
+      'theatre.label.time': 'समय',
+      'theatre.label.duration': 'अवधि',
+      'theatre.label.surgeon': 'सर्जन',
+      // REVIEW: clinical role wording
+      'theatre.label.anesthetist': 'एनेस्थेटिस्ट',
+      'theatre.label.status': 'स्थिति',
+      // REVIEW: clinical-safety — blood arranged
+      'theatre.label.blood_arranged': 'रक्त की व्यवस्था',
+      // REVIEW: clinical-safety — consent wording
+      'theatre.label.consent': 'सहमति',
+      'theatre.label.equipment': 'उपकरण',
       // REVIEW: clinical-action — surgery
       'theatre.start_surgery': 'सर्जरी प्रारंभ करें',
       'theatre.mark_complete': 'पूर्ण के रूप में चिह्नित करें',
+      // REVIEW: clinical-action — surgery cancel
+      'theatre.cancel_button': 'रद्द करें',
       'theatre.preop_checklist': 'प्री-ऑप चेकलिस्ट',
+      // REVIEW: clinical-safety — consent checklist
+      'theatre.checklist.consent': 'सहमति प्राप्त',
+      // REVIEW: clinical-safety checklist
+      'theatre.checklist.blood': 'रक्त की व्यवस्था',
+      // REVIEW: clinical-safety checklist
+      'theatre.checklist.equipment': 'उपकरण जाँचा गया',
+      // REVIEW: clinical-safety — patient ID
+      'theatre.checklist.patient_id': 'मरीज़ की पहचान की पुष्टि',
+      // REVIEW: clinical-action — pre-op submit
+      'theatre.submit_checklist': 'चेकलिस्ट सबमिट करें',
+      // REVIEW: clinical-action confirmation
+      'theatre.checklist_updated': 'चेकलिस्ट अपडेट की गई',
+      // REVIEW: clinical-action confirmation
+      'theatre.status_updated_to': 'स्थिति अपडेट की गई:',
+      'theatre.yes': 'हाँ',
+      'theatre.no': 'नहीं',
+      'theatre.available': 'उपलब्ध',
+      'theatre.occupied': 'व्यस्त',
       'radiology.title': 'रेडियोलॉजी',
+      'radiology.filters_tooltip': 'फ़िल्टर',
+      'radiology.filters_header': 'फ़िल्टर',
+      'radiology.status_label': 'स्थिति',
+      'radiology.modality_label': 'मोडैलिटी',
+      'radiology.status.all': 'सभी',
+      'radiology.status.pending': 'लंबित',
+      'radiology.status.in_progress': 'चल रहा है',
+      'radiology.status.completed': 'पूर्ण',
+      'radiology.status.cancelled': 'रद्द',
       'radiology.no_orders': 'कोई रेडियोलॉजी आदेश नहीं',
+      'radiology.label.study_type': 'अध्ययन प्रकार',
+      'radiology.label.modality': 'मोडैलिटी',
+      'radiology.label.body_part': 'शरीर का अंग',
+      'radiology.label.priority': 'प्राथमिकता',
+      // REVIEW: clinical wording
+      'radiology.label.clinical_indication': 'क्लिनिकल संकेत',
+      'radiology.label.notes': 'नोट्स',
+      'radiology.label.report': 'रिपोर्ट',
+      // REVIEW: clinical wording
+      'radiology.label.findings': 'निष्कर्ष',
+      // REVIEW: clinical — radiology impression
+      'radiology.label.impression': 'इम्प्रेशन',
       'radiology.submit_report': 'रिपोर्ट सबमिट करें',
+      // REVIEW: clinical-action — order cancel
+      'radiology.cancel_order': 'आदेश रद्द करें',
+      // REVIEW: clinical wording
+      'radiology.findings_required': 'निष्कर्ष आवश्यक हैं',
+      // REVIEW: clinical-action confirmation
+      'radiology.report_submitted': 'रिपोर्ट सबमिट की गई',
+      // REVIEW: clinical-action confirmation
+      'radiology.order_cancelled': 'आदेश रद्द किया गया',
       'schedule.title': 'पाली अनुसूची',
+      'schedule.prev_week': 'पिछला सप्ताह',
+      'schedule.next_week': 'अगला सप्ताह',
       'schedule.week_this': 'इस सप्ताह',
+      'schedule.week_next': 'अगला सप्ताह',
+      'schedule.week_last': 'पिछला सप्ताह',
+      'schedule.total_label': 'कुल',
+      'schedule.days_logged': 'दिन दर्ज',
+      'schedule.hours_worked_suffix': 'घं काम',
+      'schedule.upcoming': 'आगामी',
+      'schedule.no_record': 'कोई रिकॉर्ड नहीं',
+      // REVIEW: error message
+      'schedule.load_failed_prefix': 'शेड्यूल लोड नहीं हो सका:',
       // Lab / Pharmacy / Investigations
       'investigations.title': 'जाँचें',
       'investigations.tab.upload': 'परिणाम अपलोड करें',
       'investigations.tab.pending': 'लंबित',
       'investigations.tab.recent': 'हाल का',
+      'investigations.upload_intro': 'फ़ोन नंबर से मरीज़ खोजें और उनकी जाँच के परिणाम अपलोड करें।',
+      'investigations.phone_label': 'मरीज़ का फ़ोन नंबर',
+      'investigations.phone_hint': '+91 XXXXX XXXXX',
+      'investigations.phone_required': 'फ़ोन आवश्यक है',
+      'investigations.phone_invalid': 'मान्य फ़ोन नंबर दर्ज करें',
+      'investigations.test_type_label': 'टेस्ट प्रकार',
+      'investigations.test_type_required': 'टेस्ट प्रकार चुनें',
+      // REVIEW: clinical wording
+      'investigations.result_label': 'परिणाम / सारांश',
+      'investigations.result_hint': 'टेस्ट परिणाम या सारांश दर्ज करें…',
+      // REVIEW: clinical wording
+      'investigations.clinical_notes_label': 'क्लिनिकल नोट्स (वैकल्पिक)',
+      'investigations.clinical_notes_hint': 'अतिरिक्त अवलोकन…',
+      'investigations.attach_report': 'रिपोर्ट फ़ाइल संलग्न करें (वैकल्पिक)',
+      'investigations.clear_file': 'साफ़ करें',
+      'investigations.file_too_large': 'फ़ाइल बहुत बड़ी है। अधिकतम साइज़ 10 MB।',
+      // REVIEW: error message
+      'investigations.file_pick_failed': 'फ़ाइल चुनने में विफल',
+      'investigations.uploading': 'अपलोड हो रहा है…',
       'investigations.upload_button': 'जाँच अपलोड करें',
       // REVIEW: clinical confirmation
       'investigations.upload_success': '✅ जाँच परिणाम सफलतापूर्वक अपलोड किया गया',
+      'investigations.pending_empty': 'कोई लंबित जाँच नहीं',
+      'investigations.pending_empty_body': 'सब निपट गया!',
+      'investigations.recent_empty': 'कोई हाल की जाँच नहीं',
+      'investigations.recent_empty_body': 'आपकी जाँच अपलोड यहाँ दिखेंगी',
+      'investigations.start_button': 'शुरू',
+      'investigations.complete_button': 'पूर्ण',
+      // REVIEW: clinical-action confirmation
+      'investigations.marked_as_prefix': '✅ जाँच चिह्नित की गई:',
       'lab_bookings.title': 'लैब बुकिंग',
+      'lab_bookings.tab.new': 'नई',
+      'lab_bookings.tab.active': 'सक्रिय',
+      'lab_bookings.tab.done': 'पूर्ण',
+      'lab_bookings.empty_prefix': 'कोई बुकिंग नहीं',
+      'lab_bookings.view_slip': 'प्रिस्क्रिप्शन स्लिप देखें',
+      'lab_bookings.home_collection': 'घर',
+      'lab_bookings.walk_in': 'वॉक-इन',
+      'lab_bookings.confirm_dialog': 'बुकिंग की पुष्टि करें',
+      // REVIEW: clinical-safety — test verification
+      'lab_bookings.actual_tests_label': 'वास्तविक टेस्ट (यदि भिन्न हों)',
+      'lab_bookings.actual_tests_hint': 'टेस्ट नाम सत्यापित करें/जोड़ें',
+      // REVIEW: financial wording
+      'lab_bookings.final_cost_label': 'अंतिम लागत (₹)',
+      // REVIEW: clinical-action confirmation
+      'lab_bookings.confirm_button': 'पुष्टि करें',
+      // REVIEW: confirmation
+      'lab_bookings.confirmed_toast': 'बुकिंग पुष्टि हुई',
+      'lab_bookings.dispatch_dialog': 'कलेक्टर भेजें',
+      'lab_bookings.collector_phone': 'कलेक्टर का फ़ोन',
+      'lab_bookings.dispatch_button': 'भेजें',
+      'lab_bookings.dispatched_toast': 'कलेक्टर भेजा गया',
+      'lab_bookings.sharing_location': '📍 स्थान साझा हो रहा है…',
+      // REVIEW: clinical-action — sample collection
+      'lab_bookings.mark_collected': 'एकत्रित चिह्नित करें',
+      // REVIEW: clinical-action confirmation
+      'lab_bookings.samples_collected_toast': 'सैंपल एकत्रित किए गए',
+      // REVIEW: clinical-action — sample processing
+      'lab_bookings.start_processing': 'प्रोसेसिंग शुरू करें',
+      // REVIEW: clinical-action confirmation
+      'lab_bookings.processing_started_toast': 'प्रोसेसिंग शुरू हुई',
+      // REVIEW: clinical-action wording
+      'lab_bookings.upload_result': 'परिणाम अपलोड करें',
+      'lab_bookings.select_file': 'फ़ाइल चुनें',
+      // REVIEW: clinical-action confirmation
+      'lab_bookings.result_uploaded_toast': 'परिणाम अपलोड किया गया',
+      'lab_bookings.view_result': 'परिणाम देखें',
       'pharmacy.title': 'फार्मेसी आदेश',
       'pharmacy.queue_title': 'फार्मेसी कतार',
+      'pharmacy.queue_subtitle': 'आदेश कतार में',
+      'pharmacy.tab.new': 'नए',
+      'pharmacy.tab.active': 'सक्रिय',
+      'pharmacy.tab.done': 'पूर्ण',
+      'pharmacy.empty.new': 'कोई नया आदेश नहीं',
+      'pharmacy.empty.active': 'कोई सक्रिय आदेश नहीं',
+      'pharmacy.empty.done': 'कोई पूर्ण आदेश नहीं',
+      // REVIEW: clinical-action — pharmacy order
+      'pharmacy.confirm_dialog': 'आदेश की पुष्टि करें',
+      'pharmacy.patient_note_prefix': 'मरीज़ का नोट:',
+      'pharmacy.items_label': 'आइटम (एक प्रति पंक्ति: नाम, मात्रा, मूल्य)',
+      // intentionally English — Indian drug brand-name examples for hint
+      'pharmacy.items_hint':
+          'Dolo 650, 2, 60\n'
+          'Pan 40, 1, 95',
+      // REVIEW: financial wording
+      'pharmacy.total_cost_label': 'कुल लागत (₹)',
       'pharmacy.confirm_order': 'आदेश की पुष्टि करें',
+      // REVIEW: clinical-action — verify before dispatch
+      'pharmacy.view_confirm': 'देखें और पुष्टि करें',
       'pharmacy.start_preparing': 'तैयारी शुरू करें',
       'pharmacy.dispatch': 'भेजें',
       'pharmacy.mark_delivered': 'पहुँचा हुआ चिह्नित करें',
+      // REVIEW: clinical-action — pharmacy dispatch
+      'pharmacy.dispatch_dialog': 'आदेश भेजें',
+      'pharmacy.delivery_person_name': 'डिलीवरी व्यक्ति का नाम',
+      'pharmacy.delivery_person_phone': 'डिलीवरी व्यक्ति का फ़ोन',
+      // REVIEW: clinical-action — pharmacy delivery
+      'pharmacy.mark_delivered_dialog': 'डिलीवर्ड चिह्नित करें?',
+      // REVIEW: clinical-action confirmation
+      'pharmacy.mark_delivered_yes': 'हाँ, डिलीवर हुआ',
+      // REVIEW: clinical-action — pharmacy cancel
+      'pharmacy.cancel_dialog': 'आदेश रद्द करें?',
+      'pharmacy.cancellation_reason': 'रद्द करने का कारण',
+      'pharmacy.delivery_type.pickup': 'पिकअप',
+      'pharmacy.delivery_type.delivery': 'डिलीवरी',
+      // REVIEW: clinical-action confirmation
+      'pharmacy.order_confirmed_toast': 'आदेश की पुष्टि हुई',
+      // REVIEW: clinical-action confirmation
+      'pharmacy.mark_preparing_toast': 'तैयारी के रूप में चिह्नित',
+      // REVIEW: clinical-action confirmation
+      'pharmacy.order_dispatched_toast': 'आदेश भेजा गया',
+      // REVIEW: clinical-action confirmation
+      'pharmacy.order_delivered_toast': 'डिलीवर्ड चिह्नित किया गया',
+      // REVIEW: clinical-action confirmation
+      'pharmacy.order_cancelled_toast': 'आदेश रद्द किया गया',
+      'pharmacy.status.placed': 'दर्ज',
+      'pharmacy.status.confirmed': 'पुष्टि',
+      'pharmacy.status.preparing': 'तैयार हो रहा',
+      'pharmacy.status.dispatched': 'भेजा गया',
+      'pharmacy.status.delivered': 'डिलीवर्ड',
+      'pharmacy.status.cancelled': 'रद्द',
       // Nursing
       'due_meds.title': 'देय दवाएँ',
+      'due_meds.search_hint': 'मरीज़ या दवा से खोजें…',
       'due_meds.empty_title': 'कोई दवा देय नहीं',
+      'due_meds.empty_body': 'वाइटल्स दर्ज करने के लिए बेड बोर्ड पर बेड पर टैप करें।',
+      // REVIEW: clinical-action — medication hold
+      'due_meds.held_badge': 'रोका गया',
+      'due_meds.unknown_patient': 'अज्ञात मरीज़',
+      // REVIEW: clinical-safety — unnamed med
+      'due_meds.unnamed_medication': '(बेनाम दवा)',
       'mar_scan.title': 'दवा प्रशासित करें',
+      // REVIEW: clinical-safety — 5 rights
+      'mar_scan.step1_prompt': 'चरण 1 / 3 — मरीज़ का रिस्टबैंड स्कैन करें',
+      'mar_scan.step1_subtitle': 'मरीज़ के रिस्टबैंड पर QR कोड पर कैमरा लगाएँ।',
+      // REVIEW: clinical-safety — 5 rights
+      'mar_scan.step2_prompt': 'चरण 2 / 3 — दवा का बारकोड स्कैन करें',
+      'mar_scan.step2_subtitle': 'अब दवा के लेबल पर बारकोड स्कैन करें।',
+      // REVIEW: clinical-safety — 5 rights
+      'mar_scan.step3_header': 'चरण 3 / 3 — 5-rights जाँच',
       // REVIEW: clinical-action / safety wording for medication 5-rights
       'mar_scan.right_patient': 'सही रोगी',
       'mar_scan.right_drug': 'सही दवा',
       'mar_scan.right_dose': 'सही खुराक',
       'mar_scan.right_route': 'सही मार्ग',
       'mar_scan.right_time': 'सही समय',
+      'mar_scan.recording': 'रिकॉर्ड हो रहा है…',
       'mar_scan.administer': 'प्रशासित करें',
+      // REVIEW: clinical-safety — 5 rights failure
+      'mar_scan.check_failed': '5-rights जाँच विफल',
+      // REVIEW: clinical-safety — override audit
+      'mar_scan.override_hint': 'इस प्रशासन को रिकॉर्ड करने के लिए कारण दर्ज करें। यह प्रविष्टि ऑडिट होती है।',
+      // REVIEW: clinical-safety — override reason
+      'mar_scan.override_reason_label': 'ओवरराइड कारण (आवश्यक, न्यूनतम 5 अक्षर)',
+      // REVIEW: clinical-safety — override+administer
+      'mar_scan.override_button': 'ओवरराइड करें और प्रशासित करें',
       'mar_scan.recorded': 'प्रशासन रिकॉर्ड किया गया',
+      'mar_scan.scan_next': 'अगली खुराक स्कैन करें',
+      'mar_scan.scan_again': 'फिर स्कैन करें',
+      'mar_scan.try_again': 'फिर कोशिश करें',
+      // REVIEW: clinical-safety — unknown med
+      'mar_scan.unknown_medication': '(अज्ञात दवा)',
       // Discharge Summary
+      'discharge.title_prefix': 'डिस्चार्ज —',
       'discharge.save_draft': 'ड्राफ्ट सहेजें',
       'discharge.draft_saved': 'ड्राफ्ट सहेजा गया',
       // REVIEW: clinical-action confirmation — discharge wording
       'discharge.sign_summary': 'सारांश पर हस्ताक्षर करें',
+      // REVIEW: clinical-action — discharge sign
+      'discharge.sign_dialog_title': 'डिस्चार्ज सारांश पर हस्ताक्षर करें',
+      // REVIEW: clinical-action — discharge sign immutable
+      'discharge.sign_dialog_body':
+          'हस्ताक्षर के बाद यह डिस्चार्ज सारांश आधिकारिक रिकॉर्ड बन जाता है और इसे संशोधित नहीं किया जा सकता (केवल addenda की अनुमति है)।\n'
+          '\n'
+          'क्या आप वाकई हस्ताक्षर करना चाहते हैं?',
       'discharge.sign_button': 'हस्ताक्षर करें',
       // REVIEW: clinical-action confirmation
       'discharge.signed_success': 'डिस्चार्ज सारांश हस्ताक्षरित — अब आधिकारिक',
+      // REVIEW: clinical-action confirmation
+      'discharge.signed_badge': 'हस्ताक्षरित — यह सारांश अब आधिकारिक और अपरिवर्तनीय है',
+      // REVIEW: clinical-action — discharge confirm
+      'discharge.proceed_title': 'डिस्चार्ज की पुष्टि करें',
+      'discharge.proceed_body_prefix': 'डिस्चार्ज करें',
       'discharge.proceed_button': 'डिस्चार्ज',
+      // REVIEW: clinical-action — sign-first guard
+      'discharge.must_sign_first': 'डिस्चार्ज सारांश पर पहले डॉक्टर का हस्ताक्षर आवश्यक है',
       'discharge.patient_discharged': 'रोगी सफलतापूर्वक डिस्चार्ज किया गया',
       'discharge.patient_button': 'रोगी डिस्चार्ज करें',
+      // REVIEW: clinical-action — generate summary
+      'discharge.generate_title': 'डिस्चार्ज सारांश तैयार करें',
+      // REVIEW: clinical-action — auto generate
+      'discharge.generate_body':
+          'इस भर्ती के सभी वार्ड नोट्स, वाइटल्स, जाँचें, दवाएँ और निदान स्वतः एकत्र होकर एक संरचित डिस्चार्ज सारांश में तैयार हो जाएँगे।',
       'discharge.generate_button': 'सारांश तैयार करें',
+      'discharge.generating': 'तैयार हो रहा है…',
+      // REVIEW: clinical-action — regenerate summary
+      'discharge.regenerate': 'सारांश पुनः तैयार करें',
+      // REVIEW: clinical wording
+      'discharge.section.hospital_course': 'अस्पताल कोर्स',
+      // REVIEW: clinical wording
+      'discharge.section.diagnosis': 'डिस्चार्ज निदान',
+      // REVIEW: clinical wording
+      'discharge.section.condition': 'डिस्चार्ज स्थिति',
+      // REVIEW: clinical wording
+      'discharge.section.follow_up': 'फॉलो-अप निर्देश',
+      // REVIEW: clinical wording
+      'discharge.section.activity': 'गतिविधि प्रतिबंध',
+      // REVIEW: clinical wording
+      'discharge.section.diet': 'आहार निर्देश',
+      // REVIEW: clinical-safety — warning signs
+      'discharge.section.warning_signs': 'चेतावनी संकेत',
+      // REVIEW: clinical-safety — discharge meds
+      'discharge.section.medications': 'डिस्चार्ज पर दवाएँ',
+      'discharge.section.investigations': 'जाँचें',
+      // REVIEW: clinical wording
+      'discharge.section.procedures': 'की गई प्रक्रियाएँ',
       // Attendance dispute / overtime
       'dispute.title': 'उपस्थिति विवाद',
       'dispute.tab.submit': 'सबमिट करें',
+      'dispute.tab.my': 'मेरे विवाद',
+      'dispute.intro':
+          'इसका उपयोग उपस्थिति रिकॉर्डिंग समस्याओं की रिपोर्ट करने के लिए करें। HR समीक्षा करेगा और आपका रिकॉर्ड सही करेगा।',
+      'dispute.date_label': 'तारीख़',
+      'dispute.select_date': 'समस्या की तारीख़ चुनें',
+      'dispute.issue_type_label': 'समस्या प्रकार',
+      'dispute.type.missed_checkin': 'चेक-इन छूटा',
+      'dispute.type.missed_checkout': 'चेक-आउट छूटा',
+      'dispute.type.wrong_time': 'गलत समय रिकॉर्ड हुआ',
+      'dispute.type.app_failure': 'ऐप / नेटवर्क विफलता',
+      'dispute.type.other': 'अन्य',
+      'dispute.description_label': 'विवरण',
+      'dispute.description_hint': 'समझाएँ कि क्या हुआ…',
+      'dispute.correct_times': 'सही समय (वैकल्पिक)',
+      'dispute.correct_times_hint': 'यदि सही समय पता हो तो यहाँ दर्ज करें।',
+      'dispute.check_in': 'चेक-इन',
+      'dispute.check_out': 'चेक-आउट',
+      'dispute.required_error': 'तारीख़ और विवरण आवश्यक हैं',
       'dispute.submit_button': 'विवाद सबमिट करें',
       // REVIEW: HR confirmation
       'dispute.submitted_success': '✅ विवाद सबमिट किया गया। HR 24 घंटे के भीतर समीक्षा करेगा।',
+      'dispute.empty': 'कोई विवाद दर्ज नहीं',
+      'dispute.hr_comment_prefix': 'HR:',
       'overtime.title': 'ओवरटाइम अनुरोध',
+      'overtime.tab.request': 'अनुरोध',
+      'overtime.tab.my': 'मेरे अनुरोध',
+      // REVIEW: HR/financial wording
+      'overtime.extra_hours_label': 'अतिरिक्त घंटे',
+      'overtime.hours_suffix': 'घं',
+      'overtime.type_label': 'प्रकार',
+      // REVIEW: HR — comp time wording
+      'overtime.type.comp_time': 'मुआवज़ा अवकाश',
+      // REVIEW: HR/financial wording
+      'overtime.type.payment': 'ओवरटाइम भुगतान',
+      'overtime.reason_label': 'कारण',
+      'overtime.reason_hint': 'आपने ओवरटाइम क्यों किया?',
+      'overtime.required_error': 'तारीख़ और कारण आवश्यक हैं',
       'overtime.submit_button': 'ओवरटाइम अनुरोध सबमिट करें',
       // REVIEW: HR confirmation
       'overtime.submitted_success': '✅ ओवरटाइम अनुरोध सबमिट किया गया',
+      'overtime.empty': 'कोई ओवरटाइम अनुरोध नहीं',
+      // REVIEW: HR rejection wording
+      'overtime.rejected_prefix': 'अस्वीकृत:',
       // Telemedicine
+      'telemedicine.title_prefix': 'वीडियो कॉल —',
+      'telemedicine.sdk_missing_title': 'वीडियो SDK अभी एकीकृत नहीं',
+      'telemedicine.sdk_missing_body': 'सक्षम करने के लिए agora_rtc_engine या flutter_webrtc जोड़ें।',
       'telemedicine.mute': 'म्यूट',
       'telemedicine.unmute': 'अनम्यूट',
+      'telemedicine.camera_off': 'कैमरा बंद',
+      'telemedicine.camera_on': 'कैमरा चालू',
       'telemedicine.end_call': 'कॉल समाप्त',
       // Clinical AI
       'clinical_ai.queue.title': 'AI समीक्षा कतार',
+      // REVIEW: clinical-AI — verify with reviewing clinician
+      'clinical_ai.queue.compose_button': 'Compose रन',
+      // REVIEW: clinical-AI wording
+      'clinical_ai.queue.voice_notes_button': 'वॉइस नोट्स',
       'clinical_ai.queue.filter.pending': 'लंबित',
       'clinical_ai.queue.filter.accepted': 'स्वीकृत',
       'clinical_ai.queue.filter.edited': 'संपादित',
       'clinical_ai.queue.filter.rejected': 'अस्वीकृत',
       'clinical_ai.queue.filter.all': 'सभी',
+      'clinical_ai.queue.empty_title': 'इस फ़िल्टर में कोई मसौदा नहीं',
+      // REVIEW: clinical-AI wording
+      'clinical_ai.queue.empty_body':
+          'जब आप जिस भर्ती के समीक्षक हैं उसके लिए क्लिनिकल AI मसौदा बनेगा, वह यहाँ दिखेगा।',
+      // REVIEW: error message
+      'clinical_ai.queue.load_failed': 'समीक्षाएँ लोड करने में विफल',
+      'clinical_ai.queue.patient_fallback': 'मरीज़',
+      // REVIEW: clinical-AI — verify reject wording
+      'clinical_ai.draft.reject_title': 'मसौदा अस्वीकार करें',
+      'clinical_ai.draft.reject_reason_label': 'कारण',
+      // REVIEW: clinical-AI — reject reason
+      'clinical_ai.draft.reject_reason_hint': 'यह मसौदा अनुपयुक्त क्यों है?',
+      'clinical_ai.draft.reject_button': 'अस्वीकार करें',
+      'clinical_ai.draft.review_not_found': 'समीक्षा नहीं मिली।',
+      // REVIEW: clinical-AI — JSON edit guard
+      'clinical_ai.draft.invalid_json': 'संपादित मसौदा मान्य JSON नहीं है।',
       // REVIEW: clinical-action wording
       'clinical_ai.draft.accept': 'स्वीकार करें',
-      'clinical_ai.draft.reject_button': 'अस्वीकार करें',
+      // REVIEW: clinical-AI — accept edits
+      'clinical_ai.draft.accept_edits': 'संपादन स्वीकार करें',
       'clinical_ai.draft.needs_revision': 'संशोधन आवश्यक',
+      // REVIEW: clinical-AI confirmation
+      'clinical_ai.draft.decision_recorded': 'मसौदा निर्णय रिकॉर्ड किया गया',
+      // REVIEW: clinical-safety wording
+      'clinical_ai.draft.no_safety_flags': 'कोई सुरक्षा फ्लैग नहीं उठाया गया।',
       // REVIEW: clinical/security wording — confirm with reviewing clinician
       'clinical_ai.draft.screen_title': 'AI मसौदा समीक्षा',
       'clinical_ai.draft.critical_title': 'गंभीर सुरक्षा फ्लैग',
@@ -4912,7 +5576,57 @@ class AppStrings {
       'clinical_ai.draft.admission_prefix': 'भर्ती:',
       'clinical_ai.draft.status_prefix': 'स्थिति:',
       'clinical_ai.draft.provider_prefix': 'प्रदाता:',
-      // AI Assist
+      'clinical_ai.draft.decided_prefix': 'मसौदा',
+      // REVIEW: error message
+      'clinical_ai.draft.decision_failed_prefix': 'निर्णय रिकॉर्ड करने में विफल:',
+      'clinical_ai.compose_runs.title': 'Compose रन',
+      'clinical_ai.compose_runs.empty': 'इस दृश्य में कोई compose रन नहीं।',
+      'clinical_ai.compose_runs.filter.active': 'सक्रिय',
+      'clinical_ai.compose_runs.filter.paused': 'रुका हुआ',
+      'clinical_ai.compose_runs.filter.completed': 'पूर्ण',
+      'clinical_ai.compose_runs.filter.failed': 'विफल',
+      'clinical_ai.compose_runs.filter.all': 'सभी',
+      'clinical_ai.compose_runs.review_prefix': 'समीक्षा:',
+      'clinical_ai.compose_runs.started_prefix': 'शुरू हुआ',
+      'clinical_ai.compose_runs.run_prefix': 'रन',
+      'clinical_ai.compose_runs.admission_word': 'भर्ती',
+      'clinical_ai.compose_run.not_found': 'रन नहीं मिला।',
+      // REVIEW: clinical-AI confirmation
+      'clinical_ai.compose_run.resumed': 'Compose फिर से शुरू किया गया।',
+      'clinical_ai.compose_run.open_in_queue': 'समीक्षा कतार में खोलें',
+      'clinical_ai.compose_run.detail_title_prefix': 'Compose रन',
+      'clinical_ai.compose_run.admission_header_prefix': 'भर्ती',
+      'clinical_ai.compose_run.subgraphs': 'सबग्राफ़',
+      'clinical_ai.compose_run.no_subgraphs': 'कोई सबग्राफ़ रन नहीं।',
+      'clinical_ai.compose_run.paused_prefix': 'रुका हुआ:',
+      'clinical_ai.compose_run.review_status_key': 'समीक्षा स्थिति',
+      'clinical_ai.compose_run.started_key': 'शुरू हुआ',
+      'clinical_ai.compose_run.finished_key': 'समाप्त हुआ',
+      // REVIEW: clinical-AI — resume action
+      'clinical_ai.compose_run.resume_button': 'Compose फिर से शुरू करें',
+      'clinical_ai.compose_run.resuming_button': 'फिर से शुरू कर रहा है…',
+      // REVIEW: error message
+      'clinical_ai.compose_run.resume_failed_prefix': 'फिर से शुरू करने में विफल:',
+      // REVIEW: clinical-safety — severity
+      'clinical_ai.compose_run.critical_word': 'गंभीर',
+      // REVIEW: clinical-safety — severity
+      'clinical_ai.compose_run.high_word': 'उच्च',
+      'clinical_ai.voice_notes.empty': 'अभी तक कोई वॉइस नोट नहीं।',
+      // REVIEW: clinical-AI confirmation
+      'clinical_ai.voice_notes.soap_generated': 'SOAP मसौदा तैयार; समीक्षा कतार खोल रहा है।',
+      'clinical_ai.voice_notes.title': 'वॉइस नोट्स',
+      'clinical_ai.voice_notes.empty_subtitle':
+          'डेस्कटॉप क्लाइंट से वॉइस नोट रिकॉर्ड करें; SOAP मसौदा बनाने के लिए वह यहाँ दिखेगा।',
+      'clinical_ai.voice_notes.note_prefix': 'वॉइस नोट',
+      'clinical_ai.voice_notes.patient_prefix': 'मरीज़:',
+      // REVIEW: clinical-AI wording
+      'clinical_ai.voice_notes.draft_exists': 'SOAP मसौदा पहले से तैयार है',
+      // REVIEW: clinical-AI — generate SOAP
+      'clinical_ai.voice_notes.generate_soap': 'SOAP मसौदा तैयार करें',
+      'clinical_ai.voice_notes.drafting': 'मसौदा बना रहा है…',
+      // REVIEW: error message
+      'clinical_ai.voice_notes.generation_failed_prefix': 'SOAP तैयार करने में विफल:',
+      // AI Assist (clinical-notes patient explainer)
       'ai_assist.title': 'AI सहायक',
       'ai_assist.generate_blurb':
           'इस नोट का सरल भाषा में रोगी के लिए विवरण तैयार करें। सबमिट करने से पहले समीक्षा कतार में आएगा।',
@@ -4944,7 +5658,7 @@ class AppStrings {
       'ai_assist.empty': '(खाली)',
       'ai_assist.decision_prefix': 'रोगी विवरण',
       'ai_assist.sign_failed_prefix': 'साइन-ऑफ विफल:',
-      // CDS blocker — REVIEW: clinical-safety — confirm with attending
+      // CDS blocker modal — clinical-safety hard block
       'cds.blocker_title': 'नुस्खा अवरुद्ध',
       'cds.blocker_body':
           'क्लिनिकल निर्णय समर्थन ने निम्नलिखित समस्याओं का संकेत दिया है। '
@@ -4956,14 +5670,14 @@ class AppStrings {
           'ओवरराइड कारण (आवश्यक, न्यूनतम 5 अक्षर)',
       'cds.override_button': 'ओवरराइड',
       'cds.override_save': 'ओवरराइड और सेव करें',
-      // Code Blue — REVIEW: clinical-safety — confirm with attending
+      // Code Blue — emergency overlay
       'code_blue.title': 'कोड ब्लू',
       'code_blue.respond': 'तुरंत प्रतिक्रिया दें।',
       'code_blue.ward_prefix': 'वार्ड:',
       'code_blue.bed_prefix': 'बेड:',
       'code_blue.patient_prefix': 'रोगी ID:',
       'code_blue.acknowledge': 'स्वीकार किया',
-      // First-run welcome
+      // First-run welcome card
       'first_run.welcome_title': 'जानने योग्य कुछ शॉर्टकट',
       'first_run.welcome_dismiss': 'खारिज करें',
       'first_run.welcome_got_it': 'समझ गया',
@@ -4977,14 +5691,14 @@ class AppStrings {
           '+K — किसी भी रोगी के चार्ट पर जाने के लिए।',
       'first_run.tip_dashboard':
           'ऊपर के कार्ड आपको कार्य स्थानों पर ले जाते हैं — "देय दवाएँ", "भर्ती मरीज़", आदि पर टैप करें।',
-      // Splash
+      // Splash / device integrity
       'splash.app_title': 'VHHealth स्टाफ',
       'splash.device_unsupported_title': 'डिवाइस समर्थित नहीं',
       'splash.device_unsupported_body':
           'रोगी डेटा सुरक्षा के लिए, VHHealth स्टाफ इस डिवाइस पर नहीं चल सकता। कारण:',
       'splash.device_unsupported_use_hospital_device':
           'कृपया अस्पताल द्वारा जारी, अनसंशोधित डिवाइस का उपयोग करें।',
-      // Housekeeping
+      // Housekeeping tasks (placeholder)
       'housekeeping.tasks_title': 'मेरे कार्य',
       'housekeeping.sample_notice':
           'नमूना कार्य दिखाए जा रहे हैं। बैकएंड API जल्द आ रहा है।',
@@ -5001,17 +5715,13 @@ class AppStrings {
       'logout.dialog_body':
           'आपको अपनी कर्मचारी ID और पासवर्ड के साथ फिर से साइन इन करना होगा।',
       'logout.tooltip': 'लॉगआउट',
-      // Misc
+      // Misc shared
       'shift_card.no_shift': 'कोई शिफ्ट निर्दिष्ट नहीं',
       'pharmacy.no_preview': 'कोई पूर्वावलोकन नहीं',
       'print.generated_by': 'VHHealth स्टाफ ऐप द्वारा जनरेट किया गया',
       'error.something_went_wrong': 'कुछ गलत हुआ',
       'error.restart_or_contact':
           'कृपया ऐप को पुनरारंभ करें या समर्थन से संपर्क करें।',
-      'directory.api_unavailable':
-          'स्टाफ निर्देशिका API अभी उपलब्ध नहीं हो सकता है।',
-      'staff_mgmt.list_api_unavailable':
-          'स्टाफ सूची API अभी उपलब्ध नहीं हो सकता है।',
       'appointments.no_today': 'आज कोई अपॉइंटमेंट नहीं',
     },
     // ── தமிழ் (Tamil) ─────────────────────────────────────────────────

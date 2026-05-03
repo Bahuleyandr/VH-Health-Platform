@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 
@@ -199,9 +200,10 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Medication Reminders')),
+      appBar: AppBar(title: Text(l.medicationRemindersTitle)),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddReminderSheet,
         child: const Icon(Icons.add),
@@ -217,7 +219,7 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
                   const SizedBox(height: 12),
                   FilledButton.tonal(
                     onPressed: _loadReminders,
-                    child: const Text('Retry'),
+                    child: Text(l.familyRetryButton),
                   ),
                 ],
               ),
@@ -234,12 +236,12 @@ class _MedicationRemindersScreenState extends State<MedicationRemindersScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'No medication reminders yet',
+                    l.medicationRemindersEmpty,
                     style: theme.textTheme.bodyLarge,
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Tap + to add one',
+                    l.medicationRemindersEmptyHint,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -417,12 +419,13 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
   }
 
   Future<void> _save() async {
+    final l = AppLocalizations.of(context)!;
     final name = _nameCtrl.text.trim();
     final dosage = _dosageCtrl.text.trim();
     if (name.isEmpty || dosage.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Medication name and dosage are required'),
+        SnackBar(
+          content: Text(l.medicationReminderRequiredFields),
         ),
       );
       return;
@@ -459,7 +462,7 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
       if (kDebugMode) debugPrint('Error saving reminder: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Unable to save reminder')),
+          SnackBar(content: Text(l.medicationReminderSaveFailed)),
         );
       }
     } finally {
@@ -470,6 +473,7 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
     return Padding(
@@ -479,15 +483,15 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Add Medication Reminder', style: theme.textTheme.titleLarge),
+            Text(l.medicationReminderAddSheetTitle, style: theme.textTheme.titleLarge),
             const SizedBox(height: 20),
 
             // Medication name
             TextField(
               controller: _nameCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Medication Name',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l.medicationReminderName,
+                border: const OutlineInputBorder(),
               ),
               textCapitalization: TextCapitalization.words,
             ),
@@ -496,9 +500,9 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
             // Dosage
             TextField(
               controller: _dosageCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Dosage (e.g. 500mg)',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l.medicationReminderDosage,
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 12),
@@ -506,9 +510,9 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
             // Frequency
             DropdownButtonFormField<String>(
               initialValue: _frequency,
-              decoration: const InputDecoration(
-                labelText: 'Frequency',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l.medicationReminderFrequency,
+                border: const OutlineInputBorder(),
               ),
               items: _frequencyValues
                   .map(
@@ -525,7 +529,7 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
             const SizedBox(height: 12),
 
             // Reminder times
-            Text('Reminder Times', style: theme.textTheme.titleSmall),
+            Text(l.medicationReminderTimes, style: theme.textTheme.titleSmall),
             const SizedBox(height: 8),
             ..._times.asMap().entries.map((entry) {
               final idx = entry.key;
@@ -555,7 +559,7 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                 () => _times.add(const TimeOfDay(hour: 12, minute: 0)),
               ),
               icon: const Icon(Icons.add, size: 18),
-              label: const Text('Add time'),
+              label: Text(l.medicationReminderAddTime),
             ),
             const SizedBox(height: 12),
 
@@ -603,7 +607,7 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                       width: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Save Reminder'),
+                  : Text(l.medicationReminderSave),
             ),
           ],
         ),

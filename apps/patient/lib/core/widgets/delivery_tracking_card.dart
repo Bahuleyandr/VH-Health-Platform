@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 /// Reusable delivery tracking card for pharmacy orders and investigation bookings.
 /// Shows ETA, distance, delivery person info, and a progress indicator.
@@ -281,7 +282,7 @@ class _DeliveryTrackingCardState extends State<DeliveryTrackingCard> {
                     ),
                   ),
                   Text(
-                    'Your Location',
+                    AppLocalizations.of(context)!.deliveryYourLocation,
                     style: TextStyle(
                       fontSize: 11,
                       color: theme.colorScheme.onSurfaceVariant,

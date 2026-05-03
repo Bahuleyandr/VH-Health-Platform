@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/delivery_tracking_card.dart';
 import 'package:vhhealth/features/pharmacy/widgets/order_status_widgets.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class OrderListTab extends StatefulWidget {
   const OrderListTab({super.key});
@@ -157,9 +158,9 @@ class OrderListTabState extends State<OrderListTab> {
               // Order note
               if (order['order_note'] != null &&
                   order['order_note'].toString().isNotEmpty) ...[
-                const Text(
-                  'Order Note',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                Text(
+                  AppLocalizations.of(context)!.pharmacyOrderNote,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 4),
                 Text(order['order_note']),
@@ -220,9 +221,9 @@ class OrderListTabState extends State<OrderListTab> {
               // Delivery info
               if (order['delivery_type'] == 'delivery') ...[
                 const Divider(),
-                const Text(
-                  'Delivery Info',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                Text(
+                  AppLocalizations.of(context)!.pharmacyDeliveryInfo,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 if (order['delivery_address'] != null)
@@ -278,7 +279,7 @@ class OrderListTabState extends State<OrderListTab> {
             Icon(Icons.receipt_long, size: 64, color: Colors.grey.shade300),
             const SizedBox(height: 16),
             Text(
-              'No orders yet',
+              AppLocalizations.of(context)!.pharmacyOrdersEmpty,
               style: TextStyle(
                 fontSize: 16,
                 color: Colors.grey.shade500,
@@ -287,7 +288,7 @@ class OrderListTabState extends State<OrderListTab> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Place your first order from the Order tab',
+              AppLocalizations.of(context)!.pharmacyOrdersEmptyHint,
               style: TextStyle(fontSize: 13, color: Colors.grey.shade400),
             ),
           ],

@@ -5,6 +5,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/delivery_tracking_card.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class MyBookingsScreen extends StatefulWidget {
   const MyBookingsScreen({super.key});
@@ -201,7 +202,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                   const Icon(Icons.photo, size: 14),
                   const SizedBox(width: 4),
                   Text(
-                    'Prescription slip attached',
+                    AppLocalizations.of(context)!.myBookingsSlipAttached,
                     style: theme.textTheme.bodySmall,
                   ),
                 ],
@@ -263,7 +264,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                     );
                   },
                   icon: const Icon(Icons.download),
-                  label: const Text('Download Result'),
+                  label: Text(AppLocalizations.of(context)!.myBookingsDownloadResult),
                 ),
               ),
           ],

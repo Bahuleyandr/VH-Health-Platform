@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vhhealth/core/widgets/heartbeat_logo.dart';
 import 'package:vhhealth/core/theme/theme_colors.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 // Feature Icon Data
 class FeatureIconData {
@@ -152,7 +153,7 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
   @override
   Widget build(BuildContext context) {
     if (_reorderedFeatures.isEmpty) {
-      return const Center(child: Text('No features available'));
+      return Center(child: Text(AppLocalizations.of(context)!.circularDialNoFeatures));
     }
 
     final theme = Theme.of(context);

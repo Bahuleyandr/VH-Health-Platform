@@ -1130,4 +1130,565 @@ class AppLocalizationsTa extends AppLocalizations {
 
   @override
   String get updateLater => 'பின்னர்';
+
+  @override
+  String get bookInvestigationTitle => 'Book Investigation';
+
+  @override
+  String get bookInvestigationStepChoose => 'Choose Tests';
+
+  @override
+  String get bookInvestigationStepCollection => 'Collection Preference';
+
+  @override
+  String get bookInvestigationStepReview => 'Review & Book';
+
+  @override
+  String get bookInvestigationOrType => 'Or type test names:';
+
+  @override
+  String get bookInvestigationOrUploadSlip => 'Or upload prescription slip:';
+
+  @override
+  String get bookInvestigationEstimatedCost => 'Estimated Cost';
+
+  @override
+  String get bookInvestigationHomeCollection => 'Home Collection';
+
+  @override
+  String get bookInvestigationVisitLab => 'Visit Lab';
+
+  @override
+  String get bookInvestigationTapToSelect => 'Tap to select';
+
+  @override
+  String get bookInvestigationPreferredTimeSlot => 'Preferred Time Slot';
+
+  @override
+  String get bookInvestigationReviewBooking => 'Review Your Booking';
+
+  @override
+  String get bookInvestigationSelectedTests => 'Selected Tests:';
+
+  @override
+  String get bookInvestigationCustomTests => 'Custom Tests:';
+
+  @override
+  String get bookInvestigationSlipAttached => 'Prescription slip attached';
+
+  @override
+  String get bookInvestigationBooked => 'Investigation Booked!';
+
+  @override
+  String get bookInvestigationConfirmationNote =>
+      'You will receive a confirmation call shortly.\nWe\'ll keep you updated on your booking status.';
+
+  @override
+  String get bookInvestigationBackButton => 'Back to Investigations';
+
+  @override
+  String get stepsSetupProfileTitle => 'Set up your profile';
+
+  @override
+  String get stepsPickColor => 'Pick a color:';
+
+  @override
+  String get stepsSaveProfile => 'Save Profile';
+
+  @override
+  String get stepsStartWalkUpper => 'START WALK';
+
+  @override
+  String get stepsWalkInProgress => 'Walk in progress…';
+
+  @override
+  String get stepsStopWalkUpper => 'STOP WALK';
+
+  @override
+  String get stepsNoDailyData => 'No daily data yet';
+
+  @override
+  String get stepsNoWeeklyData => 'No weekly data yet';
+
+  @override
+  String get stepsNoMonthlyData => 'No monthly data yet';
+
+  @override
+  String get stepsThisMonth => 'This month';
+
+  @override
+  String get stepsNoLeaderboardData => 'No leaderboard data yet';
+
+  @override
+  String get stepsYourRewards => 'Your Rewards';
+
+  @override
+  String get familyMemberIdNotFound => 'Member ID not found';
+
+  @override
+  String get familyRemoveFailedRetry =>
+      'Failed to remove member. Please try again.';
+
+  @override
+  String get familyAddFailedRetry =>
+      'Failed to add family member. Please try again.';
+
+  @override
+  String get familyRemoveButton => 'Remove';
+
+  @override
+  String get familyRemoveTooltip => 'Remove member';
+
+  @override
+  String get familyRetryButton => 'Retry';
+
+  @override
+  String get familyAddMemberShort => 'Add Member';
+
+  @override
+  String get familyTapToSelect => 'Tap to select';
+
+  @override
+  String get familyDobPrefix => 'DOB:';
+
+  @override
+  String get familyNameRequired => 'Name is required';
+
+  @override
+  String get familyPhoneRequired => 'Phone is required';
+
+  @override
+  String get familyPhoneInvalid => 'Enter a valid phone number';
+
+  @override
+  String get familyLoadFailed => 'Failed to load family members';
+
+  @override
+  String get familyUnknown => 'Unknown';
+
+  @override
+  String get recordsDocumentUrlMissing => 'Document URL not available';
+
+  @override
+  String get recordsDeleteTitle => 'Delete Record?';
+
+  @override
+  String get recordsDeletePrefix => 'Delete ';
+
+  @override
+  String get recordsDeleted => 'Record deleted';
+
+  @override
+  String get recordsPickFileFirst => 'Please pick a file and enter a title';
+
+  @override
+  String get recordsUploaded => 'Record uploaded';
+
+  @override
+  String get recordsUploadButton => 'Upload Record';
+
+  @override
+  String get recordsHospitalEmpty =>
+      'Your prescriptions and reports from visits will appear here';
+
+  @override
+  String get recordsUploadEmptyHint =>
+      'Upload your previous prescriptions and reports to keep them in one place';
+
+  @override
+  String get recordsUploadSheetTitle => 'Upload a Record';
+
+  @override
+  String get abdmHeading => 'Ayushman Bharat Health Account';
+
+  @override
+  String get abdmDescription =>
+      'ABHA (Ayushman Bharat Health Account) is a unique health ID that lets you store and share your health records digitally.';
+
+  @override
+  String get abdmDataSecurityNote =>
+      'Your data stays secure and is shared only with your consent.';
+
+  @override
+  String get abdmYourNumber => 'Your ABHA Number';
+
+  @override
+  String get abdmVerifyHeading => 'Verify Your ABHA';
+
+  @override
+  String get abdmEnterOtp => 'Enter the OTP sent to your mobile number';
+
+  @override
+  String get medicationRemindersEmpty => 'No medication reminders yet';
+
+  @override
+  String get medicationRemindersEmptyHint => 'Tap + to add one';
+
+  @override
+  String get medicationReminderRequiredFields =>
+      'Medication name and dosage are required';
+
+  @override
+  String get medicationReminderSaveFailed => 'Unable to save reminder';
+
+  @override
+  String get medicationReminderAddSheetTitle => 'Add Medication Reminder';
+
+  @override
+  String get medicationReminderTimes => 'Reminder Times';
+
+  @override
+  String get medicationReminderAddTime => 'Add time';
+
+  @override
+  String get medicationReminderSave => 'Save Reminder';
+
+  @override
+  String get pharmacyTakePhoto => 'Take Photo';
+
+  @override
+  String get pharmacyChooseFromGallery => 'Choose from Gallery';
+
+  @override
+  String get pharmacyOrderPlacedTitle => 'Order Placed!';
+
+  @override
+  String get pharmacyOrderPlacedBody =>
+      'Our pharmacist will review your prescription and confirm your order shortly.';
+
+  @override
+  String get pharmacyUploadHeading => 'Upload Prescription';
+
+  @override
+  String get pharmacyTapToUpload => 'Tap to upload prescription';
+
+  @override
+  String get pharmacyCameraOrGallery => 'Camera or Gallery';
+
+  @override
+  String get pharmacyOrDescribe => 'Or Describe Your Order';
+
+  @override
+  String get pharmacyDeliveryPreference => 'Delivery Preference';
+
+  @override
+  String get refillPrescriptionIdMissing => 'Prescription ID not found';
+
+  @override
+  String get refillRequestRetry =>
+      'Failed to request refill. Please try again.';
+
+  @override
+  String get refillTapPrefix => 'Tap ';
+
+  @override
+  String get refillRequestedHeading => 'Refill Requested';
+
+  @override
+  String get vitalsTrendsHeading => 'Trends vs Last Reading';
+
+  @override
+  String get vitalsRecordFailedRetry =>
+      'Failed to record vitals. Please try again.';
+
+  @override
+  String get yourHealthPrescriptionsEmpty => 'No prescriptions yet';
+
+  @override
+  String get yourHealthPrescriptionsEmptyHint =>
+      'Your doctor prescriptions will appear here';
+
+  @override
+  String get yourHealthClinicalNotes => 'Clinical Notes';
+
+  @override
+  String get yourHealthDownloadPdf => 'Download PDF';
+
+  @override
+  String get yourHealthOrderMedicines => 'Order Medicines';
+
+  @override
+  String get yourHealthPlaceOrder => 'Place Order';
+
+  @override
+  String get yourHealthSafetyNotes => 'Safety notes';
+
+  @override
+  String get yourHealthClinicianOverride => 'Clinician override on file:';
+
+  @override
+  String get appointmentsCancel => 'Cancel Appointment';
+
+  @override
+  String get appointmentsConfirmCancel => 'Yes, Cancel';
+
+  @override
+  String get appointmentsSelectTimeSlot => 'Select Time Slot';
+
+  @override
+  String get appointmentsLogOutAndBack =>
+      'Please log out and log back in to view your appointments.';
+
+  @override
+  String get appointmentsEmpty => 'No appointments yet';
+
+  @override
+  String get appointmentsBookOneNow => 'Book one now';
+
+  @override
+  String get appointmentsViewPrescription => 'View Prescription';
+
+  @override
+  String get symptomCheckerTitle => 'Symptom checker';
+
+  @override
+  String get symptomCheckerDescribePrompt => 'Describe what you\'re feeling';
+
+  @override
+  String get symptomCheckerRedFlags => 'Red flags';
+
+  @override
+  String get symptomCheckerPossibleCauses => 'Possible causes';
+
+  @override
+  String get symptomCheckerBookAppointment => 'Book an appointment';
+
+  @override
+  String get symptomCheckerDisclaimer =>
+      'Triage output is AI-assisted and not a medical diagnosis. Always consult a qualified clinician.';
+
+  @override
+  String get checkinSaveFailed => 'Could not save check-in. Please try again.';
+
+  @override
+  String get checkinTitle => 'Daily Check-In';
+
+  @override
+  String get checkinHowFeeling => 'How are you feeling today?';
+
+  @override
+  String get checkinQuickVitals => 'Quick vitals (optional)';
+
+  @override
+  String get checkinSaveButton => 'Save check-in  ·  +10 points';
+
+  @override
+  String get checkinSavedToast => '+10 health points added. See you tomorrow!';
+
+  @override
+  String get settingsHealthIdLabel => 'Health ID (ABHA)';
+
+  @override
+  String get settingsHealthIdSubtitle => 'Ayushman Bharat Health Account';
+
+  @override
+  String get settingsConnectWearables => 'Connect wearables';
+
+  @override
+  String get settingsConnectWearablesSubtitle =>
+      'Sync steps, heart rate, SpO₂ from Apple Health / Google Health Connect';
+
+  @override
+  String get settingsHealthPermissionsDenied =>
+      'Health permissions were not granted';
+
+  @override
+  String get settingsSyncingHealth => 'Syncing health data…';
+
+  @override
+  String get otpVerifyPhoneHeading => 'Verify Your Phone Number';
+
+  @override
+  String get otpEnterDigits => 'Enter the 6-digit OTP sent to';
+
+  @override
+  String get otpVerifyButtonText => 'Verify OTP';
+
+  @override
+  String get otpResendingOtp => 'Resending OTP...';
+
+  @override
+  String get otpSentSuccess => 'OTP has been sent to your phone number';
+
+  @override
+  String get dashboardScheduleNextVisit => 'Schedule your next visit';
+
+  @override
+  String get dashboardStayOnTop => 'Stay on top of your health';
+
+  @override
+  String get dashboardBookNow => 'Book Now';
+
+  @override
+  String get dashboardLastVisit => 'Last visit';
+
+  @override
+  String get dashboardNextVisit => 'Next visit';
+
+  @override
+  String get dashboardLastVisitColon => 'Last:';
+
+  @override
+  String get dashboardNextVisitColon => 'Next:';
+
+  @override
+  String get dashboardToggleTheme => 'Toggle theme';
+
+  @override
+  String get dashboardToggleFontSize => 'Toggle font size';
+
+  @override
+  String get dashboardHealthPoints => 'Health Points';
+
+  @override
+  String get dashboardWellnessScore => 'Wellness Score';
+
+  @override
+  String get dashboardLastVisitTitle => 'Last Visit';
+
+  @override
+  String get dashboardNextVisitTitle => 'Next Visit';
+
+  @override
+  String get investigationsFileTooLarge =>
+      'File too large. Maximum size is 10 MB.';
+
+  @override
+  String get investigationsViewDownloadReport => 'View / Download Report';
+
+  @override
+  String get investigationsBookButton => 'Book Investigation';
+
+  @override
+  String get investigationsNoFiles => 'No files available';
+
+  @override
+  String get myBookingsSlipAttached => 'Prescription slip attached';
+
+  @override
+  String get myBookingsDownloadResult => 'Download Result';
+
+  @override
+  String get pharmacyOrderNote => 'Order Note';
+
+  @override
+  String get pharmacyDeliveryInfo => 'Delivery Info';
+
+  @override
+  String get pharmacyOrdersEmpty => 'No orders yet';
+
+  @override
+  String get pharmacyOrdersEmptyHint =>
+      'Place your first order from the Order tab';
+
+  @override
+  String get pharmacyOrderCancelled => 'Order Cancelled';
+
+  @override
+  String get splashDeviceNotSupported => 'Device not supported';
+
+  @override
+  String get splashDeviceNotSupportedBody =>
+      'For your safety, VH Health cannot run on this device. Reason:';
+
+  @override
+  String get splashAppName => 'VH Health';
+
+  @override
+  String get splashTapAnywhere => 'Tap anywhere to continue';
+
+  @override
+  String get gamificationRewardClaimed => 'Reward Claimed!';
+
+  @override
+  String get gamificationVoucherCode => 'Your voucher code:';
+
+  @override
+  String get gamificationVoucherCopied => 'Voucher code copied!';
+
+  @override
+  String get gamificationCouldNotShare => 'Could not share right now';
+
+  @override
+  String get gamificationShareSubtitle =>
+      'Share your progress with family and friends';
+
+  @override
+  String get gamificationLoadFailed => 'Could not load your points summary';
+
+  @override
+  String get gamificationHowToEarn => 'How to earn points';
+
+  @override
+  String get gamificationCompleteMilestones =>
+      'Complete milestones to earn rewards!';
+
+  @override
+  String get gamificationNoPointHistory => 'No point history yet';
+
+  @override
+  String get gamificationNoMilestones => 'No milestones available yet';
+
+  @override
+  String get stepsShareCardTitle => 'VH Health Step Challenge';
+
+  @override
+  String get stepsShareCardSubtitle => 'Venkataeswara Hospitals, Chennai';
+
+  @override
+  String get stepsShareCardFooter => 'VH Health App';
+
+  @override
+  String get documentOpening => 'Opening document...';
+
+  @override
+  String get documentCouldNotOpen => 'Could not open document';
+
+  @override
+  String get permissionsNotNow => 'Not Now';
+
+  @override
+  String get permissionsOpenSettings => 'Open Settings';
+
+  @override
+  String get feedbackRateExperience => 'Rate your experience';
+
+  @override
+  String get feedbackSubmitButton => 'Submit Feedback';
+
+  @override
+  String get feedbackHistoryTitle => 'My Feedback';
+
+  @override
+  String get logoutConfirmTitle => 'Confirm Logout';
+
+  @override
+  String get logoutConfirmBody => 'Are you sure you want to logout?';
+
+  @override
+  String get aboutHospitalName => 'Venkataeswara Hospitals';
+
+  @override
+  String get aboutOpenInMaps => 'Tap to open in Google Maps →';
+
+  @override
+  String get departmentsConsultationFee => 'Consultation Fee';
+
+  @override
+  String get departmentsNoDoctors => 'No doctors available in this department';
+
+  @override
+  String get circularDialNoFeatures => 'No features available';
+
+  @override
+  String get deliveryYourLocation => 'Your Location';
+
+  @override
+  String get authDevLoginSkipOtp => 'Dev login (skip OTP)';
+
+  @override
+  String get permissionGateSettingUp => 'Setting up...';
+
+  @override
+  String get yourHealthUploadRecord => 'Upload Record';
 }

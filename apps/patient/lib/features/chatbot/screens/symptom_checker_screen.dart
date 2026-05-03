@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 /// AI-backed symptom checker. User types a free-text complaint, app POSTs to
 /// `/chatbot/triage`, and the response is rendered as a triage decision, a
@@ -77,17 +78,17 @@ class _SymptomCheckerScreenState extends State<SymptomCheckerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return Scaffold(
-      appBar: AppBar(title: const Text('Symptom checker')),
+      appBar: AppBar(title: Text(l.symptomCheckerTitle)),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Describe what you\'re feeling. This is guidance only — call emergency '
-              'services if you feel you\'re in immediate danger.',
-              style: TextStyle(fontSize: 13, color: Colors.black54),
+            Text(
+              l.symptomCheckerDescribePrompt,
+              style: const TextStyle(fontSize: 13, color: Colors.black54),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -122,6 +123,7 @@ class _SymptomCheckerScreenState extends State<SymptomCheckerScreen> {
   }
 
   List<Widget> _renderResult(Map<String, dynamic> result) {
+    final l = AppLocalizations.of(context)!;
     final triageKey = result['triage']?.toString() ?? 'see_doctor_now';
     final visual = _triageVisual(triageKey);
     final summary = result['summary']?.toString() ?? '';
@@ -159,7 +161,7 @@ class _SymptomCheckerScreenState extends State<SymptomCheckerScreen> {
       ],
       if (redFlags.isNotEmpty) ...[
         const SizedBox(height: 12),
-        const Text('Red flags', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text(l.symptomCheckerRedFlags, style: const TextStyle(fontWeight: FontWeight.bold)),
         for (final f in redFlags)
           Padding(
             padding: const EdgeInsets.only(top: 2),
@@ -171,9 +173,9 @@ class _SymptomCheckerScreenState extends State<SymptomCheckerScreen> {
       ],
       if (differential.isNotEmpty) ...[
         const SizedBox(height: 16),
-        const Text(
-          'Possible causes',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        Text(
+          l.symptomCheckerPossibleCauses,
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         for (final d in differential)
           ListTile(
@@ -191,15 +193,14 @@ class _SymptomCheckerScreenState extends State<SymptomCheckerScreen> {
             extra: {'reason': _symptomsCtrl.text.trim()},
           ),
           icon: const Icon(Icons.event_available),
-          label: const Text('Book an appointment'),
+          label: Text(l.symptomCheckerBookAppointment),
         ),
       ],
-      const Padding(
-        padding: EdgeInsets.only(top: 20),
+      Padding(
+        padding: const EdgeInsets.only(top: 20),
         child: Text(
-          'Triage output is AI-assisted and not a medical diagnosis. Always '
-          'consult a clinician for final advice.',
-          style: TextStyle(fontSize: 11, color: Colors.black54),
+          l.symptomCheckerDisclaimer,
+          style: const TextStyle(fontSize: 11, color: Colors.black54),
         ),
       ),
     ];

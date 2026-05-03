@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/health_charts.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class WellnessScoreWidget extends StatefulWidget {
   const WellnessScoreWidget({super.key});
@@ -157,7 +158,7 @@ class _WellnessScoreWidgetState extends State<WellnessScoreWidget>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Wellness Score',
+                        AppLocalizations.of(context)!.dashboardWellnessScore,
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),

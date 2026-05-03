@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth_core/services/device_integrity_service.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -172,13 +173,14 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _showIntegrityBlocker(DeviceIntegrityResult integrity) async {
     if (!mounted) return;
+    final l = AppLocalizations.of(context)!;
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: const Text('Device not supported'),
+        title: Text(l.splashDeviceNotSupported),
         content: Text(
-          'For your safety, VH Health cannot run on this device. Reason: '
+          '${l.splashDeviceNotSupportedBody} '
           '${integrity.reasons.join(', ')}. '
           'Please use a standard, unmodified phone.',
         ),
@@ -328,9 +330,9 @@ class _SplashScreenState extends State<SplashScreen>
                 const SizedBox(height: 10),
                 FadeTransition(
                   opacity: _hintFade,
-                  child: const Text(
-                    'Tap anywhere to continue',
-                    style: TextStyle(color: Colors.white70, fontSize: 14),
+                  child: Text(
+                    AppLocalizations.of(context)!.splashTapAnywhere,
+                    style: const TextStyle(color: Colors.white70, fontSize: 14),
                   ),
                 ),
               ],

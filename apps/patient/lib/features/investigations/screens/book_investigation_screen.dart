@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -250,9 +251,10 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Book Investigation'), elevation: 0),
+      appBar: AppBar(title: Text(l.bookInvestigationTitle), elevation: 0),
       body: _bookingResult != null
           ? _buildSuccessView(theme)
           : Stepper(
@@ -314,7 +316,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
               },
               steps: [
                 Step(
-                  title: const Text('Choose Tests'),
+                  title: Text(l.bookInvestigationStepChoose),
                   subtitle: _selectedTestIds.isNotEmpty
                       ? Text('${_selectedTestIds.length} selected')
                       : null,
@@ -325,9 +327,11 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
                   content: _buildStep1(theme),
                 ),
                 Step(
-                  title: const Text('Collection Preference'),
+                  title: Text(l.bookInvestigationStepCollection),
                   subtitle: Text(
-                    _collectionType == 'home' ? 'Home Collection' : 'Visit Lab',
+                    _collectionType == 'home'
+                        ? l.bookInvestigationHomeCollection
+                        : l.bookInvestigationVisitLab,
                   ),
                   isActive: _currentStep >= 1,
                   state: _currentStep > 1
@@ -336,7 +340,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
                   content: _buildStep2(theme),
                 ),
                 Step(
-                  title: const Text('Review & Book'),
+                  title: Text(l.bookInvestigationStepReview),
                   isActive: _currentStep >= 2,
                   state: StepState.indexed,
                   content: _buildStep3(theme),
@@ -349,6 +353,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   // ─── Step 1: Choose Tests ───────────────────────────────────────────
 
   Widget _buildStep1(ThemeData theme) {
+    final l = AppLocalizations.of(context)!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -422,7 +427,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         const Divider(height: 24),
 
         // Custom test names
-        Text('Or type test names:', style: theme.textTheme.titleSmall),
+        Text(l.bookInvestigationOrType, style: theme.textTheme.titleSmall),
         const SizedBox(height: 8),
         TextField(
           controller: _customTestController,
@@ -438,7 +443,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         const Divider(height: 24),
 
         // Upload prescription slip
-        Text('Or upload prescription slip:', style: theme.textTheme.titleSmall),
+        Text(l.bookInvestigationOrUploadSlip, style: theme.textTheme.titleSmall),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -491,7 +496,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Estimated Cost', style: theme.textTheme.titleSmall),
+                Text(l.bookInvestigationEstimatedCost, style: theme.textTheme.titleSmall),
                 Text(
                   '₹${_estimatedCost.toStringAsFixed(0)}',
                   style: theme.textTheme.titleMedium?.copyWith(
@@ -510,21 +515,22 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   // ─── Step 2: Collection Preference ──────────────────────────────────
 
   Widget _buildStep2(ThemeData theme) {
+    final l = AppLocalizations.of(context)!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Collection type
         SegmentedButton<String>(
-          segments: const [
+          segments: [
             ButtonSegment(
               value: 'home',
-              label: Text('Home Collection'),
-              icon: Icon(Icons.home),
+              label: Text(l.bookInvestigationHomeCollection),
+              icon: const Icon(Icons.home),
             ),
             ButtonSegment(
               value: 'walk_in',
-              label: Text('Visit Lab'),
-              icon: Icon(Icons.local_hospital),
+              label: Text(l.bookInvestigationVisitLab),
+              icon: const Icon(Icons.local_hospital),
             ),
           ],
           selected: {_collectionType},
@@ -570,7 +576,9 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
                 ? DateFormat('EEEE, d MMM yyyy').format(_preferredDate!)
                 : 'Preferred Date',
           ),
-          subtitle: _preferredDate == null ? const Text('Tap to select') : null,
+          subtitle: _preferredDate == null
+              ? Text(l.bookInvestigationTapToSelect)
+              : null,
           onTap: () async {
             final picked = await showDatePicker(
               context: context,
@@ -584,7 +592,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
 
         // Time slot
         const SizedBox(height: 8),
-        Text('Preferred Time Slot', style: theme.textTheme.titleSmall),
+        Text(l.bookInvestigationPreferredTimeSlot, style: theme.textTheme.titleSmall),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
@@ -618,6 +626,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   // ─── Step 3: Review & Book ──────────────────────────────────────────
 
   Widget _buildStep3(ThemeData theme) {
+    final l = AppLocalizations.of(context)!;
     final selectedTests = _catalog
         .where((t) => _selectedTestIds.contains(t['id']))
         .toList();
@@ -625,11 +634,11 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Review Your Booking', style: theme.textTheme.titleMedium),
+        Text(l.bookInvestigationReviewBooking, style: theme.textTheme.titleMedium),
         const SizedBox(height: 12),
 
         if (selectedTests.isNotEmpty) ...[
-          Text('Selected Tests:', style: theme.textTheme.titleSmall),
+          Text(l.bookInvestigationSelectedTests, style: theme.textTheme.titleSmall),
           ...selectedTests.map(
             (t) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
@@ -647,7 +656,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         ],
 
         if (_customTestController.text.trim().isNotEmpty) ...[
-          Text('Custom Tests:', style: theme.textTheme.titleSmall),
+          Text(l.bookInvestigationCustomTests, style: theme.textTheme.titleSmall),
           Text(_customTestController.text.trim()),
           const Divider(height: 16),
         ],
@@ -658,7 +667,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
               const Icon(Icons.photo, size: 16),
               const SizedBox(width: 8),
               Text(
-                'Prescription slip attached',
+                l.bookInvestigationSlipAttached,
                 style: theme.textTheme.bodyMedium,
               ),
             ],
@@ -676,8 +685,8 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
             const SizedBox(width: 8),
             Text(
               _collectionType == 'home'
-                  ? 'Home Collection'
-                  : 'Walk-in (Visit Lab)',
+                  ? l.bookInvestigationHomeCollection
+                  : l.bookInvestigationVisitLab,
               style: theme.textTheme.titleSmall,
             ),
           ],
@@ -709,7 +718,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Estimated Cost', style: theme.textTheme.titleSmall),
+                Text(l.bookInvestigationEstimatedCost, style: theme.textTheme.titleSmall),
                 Text(
                   '₹${_estimatedCost.toStringAsFixed(0)}',
                   style: theme.textTheme.titleMedium?.copyWith(
@@ -728,6 +737,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
   // ─── Success View ───────────────────────────────────────────────────
 
   Widget _buildSuccessView(ThemeData theme) {
+    final l = AppLocalizations.of(context)!;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -741,7 +751,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
             ),
             const SizedBox(height: 16),
             Text(
-              'Investigation Booked!',
+              l.bookInvestigationBooked,
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
@@ -757,12 +767,12 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
             const SizedBox(height: 8),
             if (_bookingResult?['estimated_cost'] != null)
               Text(
-                'Estimated Cost: ₹${_bookingResult!['estimated_cost']}',
+                '${l.bookInvestigationEstimatedCost}: ₹${_bookingResult!['estimated_cost']}',
                 style: theme.textTheme.bodyLarge,
               ),
             const SizedBox(height: 16),
             Text(
-              'You will receive a confirmation call shortly.\nWe\'ll keep you updated on your booking status.',
+              l.bookInvestigationConfirmationNote,
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
@@ -771,7 +781,7 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
             const SizedBox(height: 32),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Back to Investigations'),
+              child: Text(l.bookInvestigationBackButton),
             ),
           ],
         ),

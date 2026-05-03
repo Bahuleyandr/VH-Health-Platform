@@ -221,7 +221,7 @@ class AboutUsScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Tap to open in Google Maps →',
+                            AppLocalizations.of(context)!.aboutOpenInMaps,
                             style: TextStyle(
                               fontSize: 11,
                               color: cs.primary,

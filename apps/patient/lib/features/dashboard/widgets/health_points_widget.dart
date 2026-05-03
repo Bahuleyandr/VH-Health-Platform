@@ -1,5 +1,6 @@
 // lib/features/dashboard/widgets/health_points_widget.dart
 import 'package:flutter/material.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 /// Compact dashboard card showing current health points, tier, progress
 /// to next tier, and unclaimed reward count.
@@ -106,7 +107,7 @@ class HealthPointsWidget extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'Health Points',
+                          AppLocalizations.of(context)!.dashboardHealthPoints,
                           style: theme.textTheme.bodyMedium?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),

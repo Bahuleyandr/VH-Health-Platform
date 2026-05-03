@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth/core/utils/document_opener.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/offline_banner.dart';
@@ -96,12 +97,12 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
             ),
             const SizedBox(height: 16),
             Text(
-              'No prescriptions yet',
+              AppLocalizations.of(context)!.yourHealthPrescriptionsEmpty,
               style: theme.textTheme.titleMedium?.copyWith(color: cs.onSurface),
             ),
             const SizedBox(height: 8),
             Text(
-              'Your doctor prescriptions will appear here',
+              AppLocalizations.of(context)!.yourHealthPrescriptionsEmptyHint,
               style: TextStyle(color: cs.onSurfaceVariant),
             ),
           ],
@@ -403,9 +404,9 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
             if (rx['clinical_notes'] != null &&
                 rx['clinical_notes'].toString().isNotEmpty) ...[
               const SizedBox(height: 16),
-              const Text(
-                'Clinical Notes',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              Text(
+                AppLocalizations.of(ctx)!.yourHealthClinicalNotes,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
               const SizedBox(height: 4),
               Text(rx['clinical_notes']),
@@ -421,7 +422,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                   filename: 'prescription.pdf',
                 ),
                 icon: const Icon(Icons.picture_as_pdf, size: 18),
-                label: const Text('Download PDF'),
+                label: Text(AppLocalizations.of(ctx)!.yourHealthDownloadPdf),
               ),
 
             const SizedBox(height: 10),
@@ -438,7 +439,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                   color: Colors.white,
                   size: 18,
                 ),
-                label: const Text('Order Medicines'),
+                label: Text(AppLocalizations.of(ctx)!.yourHealthOrderMedicines),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF00838F),
                   padding: const EdgeInsets.symmetric(vertical: 12),
@@ -504,9 +505,9 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Order Medicines',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  Text(
+                    AppLocalizations.of(ctx)!.yourHealthOrderMedicines,
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -669,9 +670,9 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                                 strokeWidth: 2,
                               ),
                             )
-                          : const Text(
-                              'Place Order',
-                              style: TextStyle(color: Colors.white),
+                          : Text(
+                              AppLocalizations.of(ctx)!.yourHealthPlaceOrder,
+                              style: const TextStyle(color: Colors.white),
                             ),
                     ),
                   ),
@@ -754,7 +755,7 @@ class _SafetyContextBannerState extends State<_SafetyContextBanner> {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    'Safety notes',
+                    AppLocalizations.of(ctx)!.yourHealthSafetyNotes,
                     style: theme.textTheme.labelLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -773,7 +774,7 @@ class _SafetyContextBannerState extends State<_SafetyContextBanner> {
               if (overrides.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(
-                  'Clinician override on file:',
+                  AppLocalizations.of(ctx)!.yourHealthClinicianOverride,
                   style: theme.textTheme.labelMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),

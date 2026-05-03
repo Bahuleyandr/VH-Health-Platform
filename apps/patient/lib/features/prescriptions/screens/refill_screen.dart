@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:intl/intl.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
@@ -60,12 +61,13 @@ class _RefillScreenState extends State<RefillScreen> {
   }
 
   Future<void> _requestRefill(Map<String, dynamic> prescription) async {
+    final l = AppLocalizations.of(context)!;
     final id =
         (prescription['_id'] as String?) ?? (prescription['id']?.toString());
     if (id == null || id.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Prescription ID not found')),
+          SnackBar(content: Text(l.refillPrescriptionIdMissing)),
         );
       }
       return;
@@ -78,16 +80,16 @@ class _RefillScreenState extends State<RefillScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Request Refill'),
-        content: Text('Request a refill for $medName?'),
+        title: Text(l.refillConfirmTitle),
+        content: Text(l.refillConfirmBody(medName)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(l.commonCancelButton),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Request Refill'),
+            child: Text(l.refillRequestButton),
           ),
         ],
       ),
@@ -104,13 +106,13 @@ class _RefillScreenState extends State<RefillScreen> {
       if (response.isSuccess) {
         setState(() => _refillStatus[id] = 'submitted');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Refill requested for $medName')),
+          SnackBar(content: Text(l.refillRequested(medName))),
         );
       } else {
         setState(() => _refillStatus[id] = 'error');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(response.message ?? 'Failed to request refill'),
+            content: Text(response.message ?? l.refillRequestFailed),
           ),
         );
       }
@@ -119,8 +121,8 @@ class _RefillScreenState extends State<RefillScreen> {
       if (mounted) {
         setState(() => _refillStatus[id] = 'error');
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to request refill. Please try again.'),
+          SnackBar(
+            content: Text(l.refillRequestRetry),
           ),
         );
       }
@@ -129,8 +131,9 @@ class _RefillScreenState extends State<RefillScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return FeatureScreenScaffold(
-      title: 'Prescription Refills',
+      title: l.refillTitle,
       icon: Icons.medication,
       color: const Color(0xFF81D4FA),
       child: _buildBody(),
@@ -139,6 +142,7 @@ class _RefillScreenState extends State<RefillScreen> {
 
   Widget _buildBody() {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
 
     if (_loading) {
       return const SizedBox(
@@ -165,7 +169,7 @@ class _RefillScreenState extends State<RefillScreen> {
               OutlinedButton.icon(
                 onPressed: _fetchPrescriptions,
                 icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
+                label: Text(l.familyRetryButton),
               ),
             ],
           ),
@@ -187,12 +191,12 @@ class _RefillScreenState extends State<RefillScreen> {
               ),
               const SizedBox(height: 12),
               Text(
-                'No active prescriptions',
+                l.refillNoActive,
                 style: theme.textTheme.bodyMedium,
               ),
               const SizedBox(height: 8),
               Text(
-                'Your prescriptions from consultations will appear here.',
+                l.refillNoActiveHint,
                 style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
@@ -206,14 +210,14 @@ class _RefillScreenState extends State<RefillScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Active Prescriptions',
+          l.refillActivePrescriptions,
           style: theme.textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.bold,
           ),
         ),
         const SizedBox(height: 4),
         Text(
-          'Tap "Request Refill" to ask your doctor for a renewal.',
+          l.refillHint,
           style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
         ),
         const SizedBox(height: 16),
@@ -252,6 +256,7 @@ class _PrescriptionRefillCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context)!;
     final medName =
         prescription['medicationName'] as String? ??
         prescription['name'] as String? ??
@@ -330,7 +335,7 @@ class _PrescriptionRefillCard extends StatelessWidget {
                   color: Colors.green,
                   size: 18,
                 ),
-                label: const Text('Refill Requested'),
+                label: Text(l.refillRequestedHeading),
                 backgroundColor: Colors.green.shade50,
               )
             else
@@ -347,10 +352,10 @@ class _PrescriptionRefillCard extends StatelessWidget {
                       : Icon(hasError ? Icons.refresh : Icons.replay, size: 18),
                   label: Text(
                     isSubmitting
-                        ? 'Requesting...'
+                        ? l.refillRequesting
                         : hasError
-                        ? 'Retry Refill Request'
-                        : 'Request Refill',
+                        ? l.refillRetry
+                        : l.refillRequestButton,
                   ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF42A5F5),

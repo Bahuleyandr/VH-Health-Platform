@@ -1,6 +1,7 @@
 // otp_ui_components.dart - All UI components
 import 'package:flutter/material.dart';
 import 'package:pin_code_fields/pin_code_fields.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class OtpForm extends StatelessWidget {
   final String phoneNumber;
@@ -65,10 +66,11 @@ class OtpHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return Column(
       children: [
         Text(
-          "Verify Your Phone Number",
+          l.otpVerifyPhoneHeading,
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
             fontWeight: FontWeight.bold,
@@ -77,7 +79,7 @@ class OtpHeader extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          "Enter the 6-digit OTP sent to",
+          l.otpEnterDigits,
           textAlign: TextAlign.center,
           style: Theme.of(
             context,
@@ -183,6 +185,7 @@ class OtpVerifyButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
     return SizedBox(
       height: 50,
       child: ElevatedButton(
@@ -211,9 +214,9 @@ class OtpVerifyButton extends StatelessWidget {
                   Text('Verifying...'),
                 ],
               )
-            : const Text(
-                'Verify OTP',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            : Text(
+                l.otpVerifyButtonText,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
       ),
     );
@@ -241,16 +244,16 @@ class OtpResendButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 12),
       ),
       child: isResending
-          ? const Row(
+          ? Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                SizedBox(
+                const SizedBox(
                   width: 16,
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
-                SizedBox(width: 8),
-                Text("Resending OTP..."),
+                const SizedBox(width: 8),
+                Text(AppLocalizations.of(context)!.otpResendingOtp),
               ],
             )
           : const Text(
@@ -273,14 +276,14 @@ class OtpStatusIndicator extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(Icons.check_circle, color: Colors.green, size: 20),
-          SizedBox(width: 8),
+          const Icon(Icons.check_circle, color: Colors.green, size: 20),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
-              "OTP has been sent to your phone number",
-              style: TextStyle(
+              AppLocalizations.of(context)!.otpSentSuccess,
+              style: const TextStyle(
                 color: Colors.green,
                 fontSize: 12,
                 fontWeight: FontWeight.w500,

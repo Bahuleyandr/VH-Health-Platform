@@ -2191,6 +2191,1086 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Later'**
   String get updateLater;
+
+  /// AppBar title for the investigation booking screen
+  ///
+  /// In en, this message translates to:
+  /// **'Book Investigation'**
+  String get bookInvestigationTitle;
+
+  /// Stepper label for choosing tests
+  ///
+  /// In en, this message translates to:
+  /// **'Choose Tests'**
+  String get bookInvestigationStepChoose;
+
+  /// Stepper label for collection preference
+  ///
+  /// In en, this message translates to:
+  /// **'Collection Preference'**
+  String get bookInvestigationStepCollection;
+
+  /// Stepper label for review and book
+  ///
+  /// In en, this message translates to:
+  /// **'Review & Book'**
+  String get bookInvestigationStepReview;
+
+  /// Heading above the custom test input
+  ///
+  /// In en, this message translates to:
+  /// **'Or type test names:'**
+  String get bookInvestigationOrType;
+
+  /// Heading above the slip upload buttons
+  ///
+  /// In en, this message translates to:
+  /// **'Or upload prescription slip:'**
+  String get bookInvestigationOrUploadSlip;
+
+  /// Label for the estimated cost summary
+  ///
+  /// In en, this message translates to:
+  /// **'Estimated Cost'**
+  String get bookInvestigationEstimatedCost;
+
+  /// Segmented button label for home collection
+  ///
+  /// In en, this message translates to:
+  /// **'Home Collection'**
+  String get bookInvestigationHomeCollection;
+
+  /// Segmented button label for visiting the lab
+  ///
+  /// In en, this message translates to:
+  /// **'Visit Lab'**
+  String get bookInvestigationVisitLab;
+
+  /// Subtitle for date tile when no date picked
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to select'**
+  String get bookInvestigationTapToSelect;
+
+  /// Heading above time-slot chips
+  ///
+  /// In en, this message translates to:
+  /// **'Preferred Time Slot'**
+  String get bookInvestigationPreferredTimeSlot;
+
+  /// Title above review summary
+  ///
+  /// In en, this message translates to:
+  /// **'Review Your Booking'**
+  String get bookInvestigationReviewBooking;
+
+  /// Heading above selected tests list
+  ///
+  /// In en, this message translates to:
+  /// **'Selected Tests:'**
+  String get bookInvestigationSelectedTests;
+
+  /// Heading above custom tests text
+  ///
+  /// In en, this message translates to:
+  /// **'Custom Tests:'**
+  String get bookInvestigationCustomTests;
+
+  /// Indicator that prescription slip was attached
+  ///
+  /// In en, this message translates to:
+  /// **'Prescription slip attached'**
+  String get bookInvestigationSlipAttached;
+
+  /// Success heading after booking
+  ///
+  /// In en, this message translates to:
+  /// **'Investigation Booked!'**
+  String get bookInvestigationBooked;
+
+  /// Success body text after booking
+  ///
+  /// In en, this message translates to:
+  /// **'You will receive a confirmation call shortly.\nWe\'ll keep you updated on your booking status.'**
+  String get bookInvestigationConfirmationNote;
+
+  /// Button to return to investigations from success screen
+  ///
+  /// In en, this message translates to:
+  /// **'Back to Investigations'**
+  String get bookInvestigationBackButton;
+
+  /// Heading on step challenge profile setup card
+  ///
+  /// In en, this message translates to:
+  /// **'Set up your profile'**
+  String get stepsSetupProfileTitle;
+
+  /// Label above color picker on profile setup
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a color:'**
+  String get stepsPickColor;
+
+  /// Button label to save step challenge profile
+  ///
+  /// In en, this message translates to:
+  /// **'Save Profile'**
+  String get stepsSaveProfile;
+
+  /// Button label to begin a walk session (uppercase)
+  ///
+  /// In en, this message translates to:
+  /// **'START WALK'**
+  String get stepsStartWalkUpper;
+
+  /// Indicator during active walk
+  ///
+  /// In en, this message translates to:
+  /// **'Walk in progress…'**
+  String get stepsWalkInProgress;
+
+  /// Button label to stop a walk session (uppercase)
+  ///
+  /// In en, this message translates to:
+  /// **'STOP WALK'**
+  String get stepsStopWalkUpper;
+
+  /// Empty state for daily steps chart
+  ///
+  /// In en, this message translates to:
+  /// **'No daily data yet'**
+  String get stepsNoDailyData;
+
+  /// Empty state for weekly steps chart
+  ///
+  /// In en, this message translates to:
+  /// **'No weekly data yet'**
+  String get stepsNoWeeklyData;
+
+  /// Empty state for monthly steps chart
+  ///
+  /// In en, this message translates to:
+  /// **'No monthly data yet'**
+  String get stepsNoMonthlyData;
+
+  /// Label for current month section
+  ///
+  /// In en, this message translates to:
+  /// **'This month'**
+  String get stepsThisMonth;
+
+  /// Empty state for leaderboard
+  ///
+  /// In en, this message translates to:
+  /// **'No leaderboard data yet'**
+  String get stepsNoLeaderboardData;
+
+  /// Section heading for user rewards
+  ///
+  /// In en, this message translates to:
+  /// **'Your Rewards'**
+  String get stepsYourRewards;
+
+  /// Snackbar when member id missing during remove
+  ///
+  /// In en, this message translates to:
+  /// **'Member ID not found'**
+  String get familyMemberIdNotFound;
+
+  /// Snackbar when remove member request fails (retryable)
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to remove member. Please try again.'**
+  String get familyRemoveFailedRetry;
+
+  /// Snackbar when add family member request fails (retryable)
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to add family member. Please try again.'**
+  String get familyAddFailedRetry;
+
+  /// Dialog action label to confirm removing a member
+  ///
+  /// In en, this message translates to:
+  /// **'Remove'**
+  String get familyRemoveButton;
+
+  /// Tooltip for the remove member icon
+  ///
+  /// In en, this message translates to:
+  /// **'Remove member'**
+  String get familyRemoveTooltip;
+
+  /// Button label to retry loading family members
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get familyRetryButton;
+
+  /// Submit button on add family member sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Add Member'**
+  String get familyAddMemberShort;
+
+  /// Hint inside the date of birth field
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to select'**
+  String get familyTapToSelect;
+
+  /// Prefix before formatted date of birth on member card
+  ///
+  /// In en, this message translates to:
+  /// **'DOB:'**
+  String get familyDobPrefix;
+
+  /// Validation when family member name empty
+  ///
+  /// In en, this message translates to:
+  /// **'Name is required'**
+  String get familyNameRequired;
+
+  /// Validation when family member phone empty
+  ///
+  /// In en, this message translates to:
+  /// **'Phone is required'**
+  String get familyPhoneRequired;
+
+  /// Validation when family member phone invalid
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a valid phone number'**
+  String get familyPhoneInvalid;
+
+  /// Error state when family members fetch fails
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to load family members'**
+  String get familyLoadFailed;
+
+  /// Fallback name when family member name missing
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown'**
+  String get familyUnknown;
+
+  /// Snackbar when document URL is missing
+  ///
+  /// In en, this message translates to:
+  /// **'Document URL not available'**
+  String get recordsDocumentUrlMissing;
+
+  /// Dialog title to confirm record deletion
+  ///
+  /// In en, this message translates to:
+  /// **'Delete Record?'**
+  String get recordsDeleteTitle;
+
+  /// Prefix before record title in delete confirmation
+  ///
+  /// In en, this message translates to:
+  /// **'Delete '**
+  String get recordsDeletePrefix;
+
+  /// Snackbar after record deleted
+  ///
+  /// In en, this message translates to:
+  /// **'Record deleted'**
+  String get recordsDeleted;
+
+  /// Validation when file or title missing on upload
+  ///
+  /// In en, this message translates to:
+  /// **'Please pick a file and enter a title'**
+  String get recordsPickFileFirst;
+
+  /// Snackbar after record uploaded
+  ///
+  /// In en, this message translates to:
+  /// **'Record uploaded'**
+  String get recordsUploaded;
+
+  /// Button label to open upload record sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Upload Record'**
+  String get recordsUploadButton;
+
+  /// Empty-state body for hospital documents tab
+  ///
+  /// In en, this message translates to:
+  /// **'Your prescriptions and reports from visits will appear here'**
+  String get recordsHospitalEmpty;
+
+  /// Empty-state hint for my uploads tab
+  ///
+  /// In en, this message translates to:
+  /// **'Upload your previous prescriptions and reports to keep them in one place'**
+  String get recordsUploadEmptyHint;
+
+  /// Title of the upload record bottom sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Upload a Record'**
+  String get recordsUploadSheetTitle;
+
+  /// Heading on ABDM screen
+  ///
+  /// In en, this message translates to:
+  /// **'Ayushman Bharat Health Account'**
+  String get abdmHeading;
+
+  /// Description paragraph on ABDM screen
+  ///
+  /// In en, this message translates to:
+  /// **'ABHA (Ayushman Bharat Health Account) is a unique health ID that lets you store and share your health records digitally.'**
+  String get abdmDescription;
+
+  /// Reassurance about data privacy
+  ///
+  /// In en, this message translates to:
+  /// **'Your data stays secure and is shared only with your consent.'**
+  String get abdmDataSecurityNote;
+
+  /// Label above the user's ABHA number
+  ///
+  /// In en, this message translates to:
+  /// **'Your ABHA Number'**
+  String get abdmYourNumber;
+
+  /// Heading on verify ABHA screen
+  ///
+  /// In en, this message translates to:
+  /// **'Verify Your ABHA'**
+  String get abdmVerifyHeading;
+
+  /// Instruction above OTP input on verify ABHA screen
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the OTP sent to your mobile number'**
+  String get abdmEnterOtp;
+
+  /// Empty state for medication reminders
+  ///
+  /// In en, this message translates to:
+  /// **'No medication reminders yet'**
+  String get medicationRemindersEmpty;
+
+  /// Hint below empty state
+  ///
+  /// In en, this message translates to:
+  /// **'Tap + to add one'**
+  String get medicationRemindersEmptyHint;
+
+  /// Validation when name/dosage empty
+  ///
+  /// In en, this message translates to:
+  /// **'Medication name and dosage are required'**
+  String get medicationReminderRequiredFields;
+
+  /// Snackbar when reminder save fails
+  ///
+  /// In en, this message translates to:
+  /// **'Unable to save reminder'**
+  String get medicationReminderSaveFailed;
+
+  /// Title of the add reminder bottom sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Add Medication Reminder'**
+  String get medicationReminderAddSheetTitle;
+
+  /// Heading for list of reminder times
+  ///
+  /// In en, this message translates to:
+  /// **'Reminder Times'**
+  String get medicationReminderTimes;
+
+  /// Button to add another reminder time
+  ///
+  /// In en, this message translates to:
+  /// **'Add time'**
+  String get medicationReminderAddTime;
+
+  /// Button to save reminder
+  ///
+  /// In en, this message translates to:
+  /// **'Save Reminder'**
+  String get medicationReminderSave;
+
+  /// Action label to take a photo from camera
+  ///
+  /// In en, this message translates to:
+  /// **'Take Photo'**
+  String get pharmacyTakePhoto;
+
+  /// Action label to pick from gallery
+  ///
+  /// In en, this message translates to:
+  /// **'Choose from Gallery'**
+  String get pharmacyChooseFromGallery;
+
+  /// Success heading after pharmacy order
+  ///
+  /// In en, this message translates to:
+  /// **'Order Placed!'**
+  String get pharmacyOrderPlacedTitle;
+
+  /// Success body after pharmacy order
+  ///
+  /// In en, this message translates to:
+  /// **'Our pharmacist will review your prescription and confirm your order shortly.'**
+  String get pharmacyOrderPlacedBody;
+
+  /// Heading above pharmacy upload area
+  ///
+  /// In en, this message translates to:
+  /// **'Upload Prescription'**
+  String get pharmacyUploadHeading;
+
+  /// Empty-state text inside upload card
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to upload prescription'**
+  String get pharmacyTapToUpload;
+
+  /// Subtitle below tap to upload
+  ///
+  /// In en, this message translates to:
+  /// **'Camera or Gallery'**
+  String get pharmacyCameraOrGallery;
+
+  /// Heading above the description input
+  ///
+  /// In en, this message translates to:
+  /// **'Or Describe Your Order'**
+  String get pharmacyOrDescribe;
+
+  /// Heading for delivery option chooser
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery Preference'**
+  String get pharmacyDeliveryPreference;
+
+  /// Snackbar when prescription id missing during refill
+  ///
+  /// In en, this message translates to:
+  /// **'Prescription ID not found'**
+  String get refillPrescriptionIdMissing;
+
+  /// Snackbar when refill request fails (retryable)
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to request refill. Please try again.'**
+  String get refillRequestRetry;
+
+  /// Hint prefix before button name
+  ///
+  /// In en, this message translates to:
+  /// **'Tap '**
+  String get refillTapPrefix;
+
+  /// Heading shown when a refill request is in flight
+  ///
+  /// In en, this message translates to:
+  /// **'Refill Requested'**
+  String get refillRequestedHeading;
+
+  /// Heading above vitals trends chart
+  ///
+  /// In en, this message translates to:
+  /// **'Trends vs Last Reading'**
+  String get vitalsTrendsHeading;
+
+  /// Snackbar when vitals record fails (retryable)
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to record vitals. Please try again.'**
+  String get vitalsRecordFailedRetry;
+
+  /// Empty state for prescriptions tab
+  ///
+  /// In en, this message translates to:
+  /// **'No prescriptions yet'**
+  String get yourHealthPrescriptionsEmpty;
+
+  /// Empty state hint for prescriptions tab
+  ///
+  /// In en, this message translates to:
+  /// **'Your doctor prescriptions will appear here'**
+  String get yourHealthPrescriptionsEmptyHint;
+
+  /// Heading for clinical notes section
+  ///
+  /// In en, this message translates to:
+  /// **'Clinical Notes'**
+  String get yourHealthClinicalNotes;
+
+  /// Button to download a prescription PDF
+  ///
+  /// In en, this message translates to:
+  /// **'Download PDF'**
+  String get yourHealthDownloadPdf;
+
+  /// Button to start a pharmacy order from a prescription
+  ///
+  /// In en, this message translates to:
+  /// **'Order Medicines'**
+  String get yourHealthOrderMedicines;
+
+  /// Button to confirm a pharmacy order
+  ///
+  /// In en, this message translates to:
+  /// **'Place Order'**
+  String get yourHealthPlaceOrder;
+
+  /// Heading for safety notes section
+  ///
+  /// In en, this message translates to:
+  /// **'Safety notes'**
+  String get yourHealthSafetyNotes;
+
+  /// Label before clinician override note
+  ///
+  /// In en, this message translates to:
+  /// **'Clinician override on file:'**
+  String get yourHealthClinicianOverride;
+
+  /// Dialog title to cancel an appointment
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel Appointment'**
+  String get appointmentsCancel;
+
+  /// Confirm button to cancel an appointment
+  ///
+  /// In en, this message translates to:
+  /// **'Yes, Cancel'**
+  String get appointmentsConfirmCancel;
+
+  /// Sheet title for time slot picker
+  ///
+  /// In en, this message translates to:
+  /// **'Select Time Slot'**
+  String get appointmentsSelectTimeSlot;
+
+  /// Message asking user to re-login when patient id missing
+  ///
+  /// In en, this message translates to:
+  /// **'Please log out and log back in to view your appointments.'**
+  String get appointmentsLogOutAndBack;
+
+  /// Empty state for appointments list
+  ///
+  /// In en, this message translates to:
+  /// **'No appointments yet'**
+  String get appointmentsEmpty;
+
+  /// Button label to book first appointment
+  ///
+  /// In en, this message translates to:
+  /// **'Book one now'**
+  String get appointmentsBookOneNow;
+
+  /// Button to view prescription from appointment
+  ///
+  /// In en, this message translates to:
+  /// **'View Prescription'**
+  String get appointmentsViewPrescription;
+
+  /// AppBar title for symptom checker
+  ///
+  /// In en, this message translates to:
+  /// **'Symptom checker'**
+  String get symptomCheckerTitle;
+
+  /// Heading above symptom input
+  ///
+  /// In en, this message translates to:
+  /// **'Describe what you\'re feeling'**
+  String get symptomCheckerDescribePrompt;
+
+  /// Section heading for red-flag symptoms
+  ///
+  /// In en, this message translates to:
+  /// **'Red flags'**
+  String get symptomCheckerRedFlags;
+
+  /// Section heading for possible causes
+  ///
+  /// In en, this message translates to:
+  /// **'Possible causes'**
+  String get symptomCheckerPossibleCauses;
+
+  /// Button to book an appointment from symptom checker
+  ///
+  /// In en, this message translates to:
+  /// **'Book an appointment'**
+  String get symptomCheckerBookAppointment;
+
+  /// Footer disclaimer about AI triage
+  ///
+  /// In en, this message translates to:
+  /// **'Triage output is AI-assisted and not a medical diagnosis. Always consult a qualified clinician.'**
+  String get symptomCheckerDisclaimer;
+
+  /// Snackbar when daily check-in save fails
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save check-in. Please try again.'**
+  String get checkinSaveFailed;
+
+  /// Sheet title for daily check-in
+  ///
+  /// In en, this message translates to:
+  /// **'Daily Check-In'**
+  String get checkinTitle;
+
+  /// Mood prompt in check-in sheet
+  ///
+  /// In en, this message translates to:
+  /// **'How are you feeling today?'**
+  String get checkinHowFeeling;
+
+  /// Heading for optional quick vitals
+  ///
+  /// In en, this message translates to:
+  /// **'Quick vitals (optional)'**
+  String get checkinQuickVitals;
+
+  /// Submit button on check-in sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Save check-in  ·  +10 points'**
+  String get checkinSaveButton;
+
+  /// Snackbar after successful check-in
+  ///
+  /// In en, this message translates to:
+  /// **'+10 health points added. See you tomorrow!'**
+  String get checkinSavedToast;
+
+  /// Section title for ABHA in settings
+  ///
+  /// In en, this message translates to:
+  /// **'Health ID (ABHA)'**
+  String get settingsHealthIdLabel;
+
+  /// Subtitle under Health ID section
+  ///
+  /// In en, this message translates to:
+  /// **'Ayushman Bharat Health Account'**
+  String get settingsHealthIdSubtitle;
+
+  /// Section title for wearables connection
+  ///
+  /// In en, this message translates to:
+  /// **'Connect wearables'**
+  String get settingsConnectWearables;
+
+  /// Subtitle under wearables section
+  ///
+  /// In en, this message translates to:
+  /// **'Sync steps, heart rate, SpO₂ from Apple Health / Google Health Connect'**
+  String get settingsConnectWearablesSubtitle;
+
+  /// Snackbar when health permissions denied
+  ///
+  /// In en, this message translates to:
+  /// **'Health permissions were not granted'**
+  String get settingsHealthPermissionsDenied;
+
+  /// Snackbar while syncing health data
+  ///
+  /// In en, this message translates to:
+  /// **'Syncing health data…'**
+  String get settingsSyncingHealth;
+
+  /// Heading on the OTP verification screen
+  ///
+  /// In en, this message translates to:
+  /// **'Verify Your Phone Number'**
+  String get otpVerifyPhoneHeading;
+
+  /// Subheading prefix above phone number on OTP screen
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the 6-digit OTP sent to'**
+  String get otpEnterDigits;
+
+  /// Button label to verify OTP
+  ///
+  /// In en, this message translates to:
+  /// **'Verify OTP'**
+  String get otpVerifyButtonText;
+
+  /// Status while OTP resend is in progress
+  ///
+  /// In en, this message translates to:
+  /// **'Resending OTP...'**
+  String get otpResendingOtp;
+
+  /// Snackbar after OTP resend succeeds
+  ///
+  /// In en, this message translates to:
+  /// **'OTP has been sent to your phone number'**
+  String get otpSentSuccess;
+
+  /// Dashboard widget title when no upcoming visit
+  ///
+  /// In en, this message translates to:
+  /// **'Schedule your next visit'**
+  String get dashboardScheduleNextVisit;
+
+  /// Dashboard widget body when no upcoming visit
+  ///
+  /// In en, this message translates to:
+  /// **'Stay on top of your health'**
+  String get dashboardStayOnTop;
+
+  /// Dashboard CTA to book an appointment
+  ///
+  /// In en, this message translates to:
+  /// **'Book Now'**
+  String get dashboardBookNow;
+
+  /// Label for last visit date
+  ///
+  /// In en, this message translates to:
+  /// **'Last visit'**
+  String get dashboardLastVisit;
+
+  /// Label for next visit date
+  ///
+  /// In en, this message translates to:
+  /// **'Next visit'**
+  String get dashboardNextVisit;
+
+  /// Compact label for last visit
+  ///
+  /// In en, this message translates to:
+  /// **'Last:'**
+  String get dashboardLastVisitColon;
+
+  /// Compact label for next visit
+  ///
+  /// In en, this message translates to:
+  /// **'Next:'**
+  String get dashboardNextVisitColon;
+
+  /// Tooltip on theme toggle
+  ///
+  /// In en, this message translates to:
+  /// **'Toggle theme'**
+  String get dashboardToggleTheme;
+
+  /// Tooltip on font size toggle
+  ///
+  /// In en, this message translates to:
+  /// **'Toggle font size'**
+  String get dashboardToggleFontSize;
+
+  /// Dashboard widget title for health points
+  ///
+  /// In en, this message translates to:
+  /// **'Health Points'**
+  String get dashboardHealthPoints;
+
+  /// Dashboard widget title for wellness score
+  ///
+  /// In en, this message translates to:
+  /// **'Wellness Score'**
+  String get dashboardWellnessScore;
+
+  /// Title for last visit card
+  ///
+  /// In en, this message translates to:
+  /// **'Last Visit'**
+  String get dashboardLastVisitTitle;
+
+  /// Title for next visit card
+  ///
+  /// In en, this message translates to:
+  /// **'Next Visit'**
+  String get dashboardNextVisitTitle;
+
+  /// Snackbar when uploaded file exceeds size limit
+  ///
+  /// In en, this message translates to:
+  /// **'File too large. Maximum size is 10 MB.'**
+  String get investigationsFileTooLarge;
+
+  /// Button label to view or download a report
+  ///
+  /// In en, this message translates to:
+  /// **'View / Download Report'**
+  String get investigationsViewDownloadReport;
+
+  /// Button to navigate to book investigation
+  ///
+  /// In en, this message translates to:
+  /// **'Book Investigation'**
+  String get investigationsBookButton;
+
+  /// Empty state for investigation files list
+  ///
+  /// In en, this message translates to:
+  /// **'No files available'**
+  String get investigationsNoFiles;
+
+  /// Indicator on bookings list
+  ///
+  /// In en, this message translates to:
+  /// **'Prescription slip attached'**
+  String get myBookingsSlipAttached;
+
+  /// Button to download investigation result
+  ///
+  /// In en, this message translates to:
+  /// **'Download Result'**
+  String get myBookingsDownloadResult;
+
+  /// Label for order note section
+  ///
+  /// In en, this message translates to:
+  /// **'Order Note'**
+  String get pharmacyOrderNote;
+
+  /// Label for delivery info section
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery Info'**
+  String get pharmacyDeliveryInfo;
+
+  /// Empty state for orders list
+  ///
+  /// In en, this message translates to:
+  /// **'No orders yet'**
+  String get pharmacyOrdersEmpty;
+
+  /// Empty-state hint for orders list
+  ///
+  /// In en, this message translates to:
+  /// **'Place your first order from the Order tab'**
+  String get pharmacyOrdersEmptyHint;
+
+  /// Status label when order cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'Order Cancelled'**
+  String get pharmacyOrderCancelled;
+
+  /// Heading shown when device fails attestation
+  ///
+  /// In en, this message translates to:
+  /// **'Device not supported'**
+  String get splashDeviceNotSupported;
+
+  /// Body shown when device fails attestation
+  ///
+  /// In en, this message translates to:
+  /// **'For your safety, VH Health cannot run on this device. Reason:'**
+  String get splashDeviceNotSupportedBody;
+
+  /// App name shown on splash screen
+  ///
+  /// In en, this message translates to:
+  /// **'VH Health'**
+  String get splashAppName;
+
+  /// Splash hint to tap to continue
+  ///
+  /// In en, this message translates to:
+  /// **'Tap anywhere to continue'**
+  String get splashTapAnywhere;
+
+  /// Dialog title after redeeming a reward
+  ///
+  /// In en, this message translates to:
+  /// **'Reward Claimed!'**
+  String get gamificationRewardClaimed;
+
+  /// Label above voucher code
+  ///
+  /// In en, this message translates to:
+  /// **'Your voucher code:'**
+  String get gamificationVoucherCode;
+
+  /// Snackbar after copying voucher code
+  ///
+  /// In en, this message translates to:
+  /// **'Voucher code copied!'**
+  String get gamificationVoucherCopied;
+
+  /// Snackbar when share fails
+  ///
+  /// In en, this message translates to:
+  /// **'Could not share right now'**
+  String get gamificationCouldNotShare;
+
+  /// Subtitle on share card
+  ///
+  /// In en, this message translates to:
+  /// **'Share your progress with family and friends'**
+  String get gamificationShareSubtitle;
+
+  /// Error state for points summary
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load your points summary'**
+  String get gamificationLoadFailed;
+
+  /// Heading above earning rules
+  ///
+  /// In en, this message translates to:
+  /// **'How to earn points'**
+  String get gamificationHowToEarn;
+
+  /// Empty state for rewards tab
+  ///
+  /// In en, this message translates to:
+  /// **'Complete milestones to earn rewards!'**
+  String get gamificationCompleteMilestones;
+
+  /// Empty state for points history
+  ///
+  /// In en, this message translates to:
+  /// **'No point history yet'**
+  String get gamificationNoPointHistory;
+
+  /// Empty state for milestones
+  ///
+  /// In en, this message translates to:
+  /// **'No milestones available yet'**
+  String get gamificationNoMilestones;
+
+  /// Title on the step share card image
+  ///
+  /// In en, this message translates to:
+  /// **'VH Health Step Challenge'**
+  String get stepsShareCardTitle;
+
+  /// Subtitle on the step share card image
+  ///
+  /// In en, this message translates to:
+  /// **'Venkataeswara Hospitals, Chennai'**
+  String get stepsShareCardSubtitle;
+
+  /// Footer on the step share card image
+  ///
+  /// In en, this message translates to:
+  /// **'VH Health App'**
+  String get stepsShareCardFooter;
+
+  /// Snackbar while opening a document
+  ///
+  /// In en, this message translates to:
+  /// **'Opening document...'**
+  String get documentOpening;
+
+  /// Snackbar when document fails to open
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open document'**
+  String get documentCouldNotOpen;
+
+  /// Permission prompt: dismiss button
+  ///
+  /// In en, this message translates to:
+  /// **'Not Now'**
+  String get permissionsNotNow;
+
+  /// Permission prompt: open settings button
+  ///
+  /// In en, this message translates to:
+  /// **'Open Settings'**
+  String get permissionsOpenSettings;
+
+  /// Heading on feedback prompt
+  ///
+  /// In en, this message translates to:
+  /// **'Rate your experience'**
+  String get feedbackRateExperience;
+
+  /// Button to submit feedback
+  ///
+  /// In en, this message translates to:
+  /// **'Submit Feedback'**
+  String get feedbackSubmitButton;
+
+  /// AppBar title for feedback history
+  ///
+  /// In en, this message translates to:
+  /// **'My Feedback'**
+  String get feedbackHistoryTitle;
+
+  /// Dialog title to confirm logout
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm Logout'**
+  String get logoutConfirmTitle;
+
+  /// Dialog body to confirm logout
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure you want to logout?'**
+  String get logoutConfirmBody;
+
+  /// Hospital name heading on About Us
+  ///
+  /// In en, this message translates to:
+  /// **'Venkataeswara Hospitals'**
+  String get aboutHospitalName;
+
+  /// Link to open hospital location in Google Maps
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to open in Google Maps →'**
+  String get aboutOpenInMaps;
+
+  /// Label for doctor consultation fee
+  ///
+  /// In en, this message translates to:
+  /// **'Consultation Fee'**
+  String get departmentsConsultationFee;
+
+  /// Empty state for doctors in a department
+  ///
+  /// In en, this message translates to:
+  /// **'No doctors available in this department'**
+  String get departmentsNoDoctors;
+
+  /// Empty state for circular feature dial
+  ///
+  /// In en, this message translates to:
+  /// **'No features available'**
+  String get circularDialNoFeatures;
+
+  /// Label for user location on delivery map
+  ///
+  /// In en, this message translates to:
+  /// **'Your Location'**
+  String get deliveryYourLocation;
+
+  /// Dev-only button to skip OTP
+  ///
+  /// In en, this message translates to:
+  /// **'Dev login (skip OTP)'**
+  String get authDevLoginSkipOtp;
+
+  /// Status text while permission gate runs
+  ///
+  /// In en, this message translates to:
+  /// **'Setting up...'**
+  String get permissionGateSettingUp;
+
+  /// Action button on Your Health screen to open upload sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Upload Record'**
+  String get yourHealthUploadRecord;
 }
 
 class _AppLocalizationsDelegate

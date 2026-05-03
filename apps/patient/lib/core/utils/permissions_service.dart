@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:vhhealth/generated/app_localizations.dart';
 
 class PermissionsService {
   // ────────────────────────────────────────────────
@@ -190,7 +191,7 @@ class PermissionsService {
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(dialogCtx).pop(false),
-                child: const Text('Not Now'),
+                child: Text(AppLocalizations.of(dialogCtx)!.permissionsNotNow),
               ),
               ElevatedButton(
                 onPressed: () => Navigator.of(dialogCtx).pop(true),
@@ -224,7 +225,7 @@ class PermissionsService {
               ),
               ElevatedButton(
                 onPressed: () => Navigator.of(dialogCtx).pop(true),
-                child: const Text('Open Settings'),
+                child: Text(AppLocalizations.of(dialogCtx)!.permissionsOpenSettings),
               ),
             ],
           ),

@@ -46,9 +46,9 @@ List<Widget> buildSettingsSections(SettingsController c) {
                 color: Color(0xFF26A69A),
               ),
             ),
-            title: Text('Health ID (ABHA)', style: txt.titleMedium),
+            title: Text(c.loc.settingsHealthIdLabel, style: txt.titleMedium),
             subtitle: Text(
-              'Ayushman Bharat Health Account',
+              c.loc.settingsHealthIdSubtitle,
               style: txt.bodySmall,
             ),
             trailing: Icon(
@@ -64,9 +64,9 @@ List<Widget> buildSettingsSections(SettingsController c) {
               backgroundColor: const Color(0xFFFF7043).withAlpha(30),
               child: const Icon(Icons.watch, color: Color(0xFFFF7043)),
             ),
-            title: Text('Connect wearables', style: txt.titleMedium),
+            title: Text(c.loc.settingsConnectWearables, style: txt.titleMedium),
             subtitle: Text(
-              'Sync steps, heart rate, SpO₂ from Apple Health / Google Health Connect',
+              c.loc.settingsConnectWearablesSubtitle,
               style: txt.bodySmall,
             ),
             trailing: const Icon(Icons.sync, size: 18),
@@ -76,14 +76,14 @@ List<Widget> buildSettingsSections(SettingsController c) {
                   .requestPermissions();
               if (!granted) {
                 messenger.showSnackBar(
-                  const SnackBar(
-                    content: Text('Health permissions were not granted'),
+                  SnackBar(
+                    content: Text(c.loc.settingsHealthPermissionsDenied),
                   ),
                 );
                 return;
               }
               messenger.showSnackBar(
-                const SnackBar(content: Text('Syncing health data…')),
+                SnackBar(content: Text(c.loc.settingsSyncingHealth)),
               );
               final synced = await HealthSyncService.instance.syncNow();
               await HealthSyncService.instance.startForegroundSync();
