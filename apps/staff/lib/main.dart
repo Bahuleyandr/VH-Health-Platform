@@ -89,26 +89,35 @@ void main() async {
       child: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.red),
-              const SizedBox(height: 12),
-              const Text(
-                'Something went wrong',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                kDebugMode
-                    ? details.exceptionAsString()
-                    : 'Please restart the app or contact support.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+          child: Builder(
+            builder: (context) {
+              // We use a Builder so the AppStrings lookup happens inside a
+              // localised subtree. If the error is so early that
+              // localisations aren't yet attached, AppStrings falls back to
+              // English values defined in code.
+              final s = AppStrings.of(context);
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                  const SizedBox(height: 12),
+                  Text(
+                    s.errorSomethingWentWrong,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    kDebugMode
+                        ? details.exceptionAsString()
+                        : s.errorRestartOrContact,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),

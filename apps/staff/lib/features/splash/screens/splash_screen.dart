@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/device_integrity_service.dart';
 import '../../../core/config/api_config.dart';
+import '../../../l10n/app_strings.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -21,23 +22,25 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _showIntegrityBlocker(DeviceIntegrityResult integrity) async {
     if (!mounted) return;
+    final s = AppStrings.of(context);
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Device not supported'),
-        content: Text(
-          'For patient data safety, VHHealth Staff cannot run on this device. '
-          'Reason: ${integrity.reasons.join(', ')}. '
-          'Please use a hospital-issued, unmodified device.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Close'),
+      builder: (ctx) {
+        final ds = AppStrings.of(ctx);
+        return AlertDialog(
+          title: Text(ds.splashDeviceUnsupportedTitle),
+          content: Text(
+            s.splashDeviceUnsupportedBody(integrity.reasons.join(', ')),
           ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text(ds.actionClose),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -66,6 +69,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return Scaffold(
       backgroundColor: Colors.white,
       body: Center(
@@ -78,9 +82,9 @@ class _SplashScreenState extends State<SplashScreen> {
               color: Color(0xFF1565C0),
             ),
             const SizedBox(height: 16),
-            const Text(
-              'VHHealth Staff',
-              style: TextStyle(
+            Text(
+              s.splashAppTitle,
+              style: const TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF1565C0),

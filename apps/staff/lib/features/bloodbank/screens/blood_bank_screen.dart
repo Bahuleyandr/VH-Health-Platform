@@ -84,6 +84,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
 
   Future<void> _submitRequest() async {
     if (!_requestFormKey.currentState!.validate()) return;
+    final s = AppStrings.of(context);
     setState(() => _submittingRequest = true);
     try {
       final response = await ApiClient.post(
@@ -98,8 +99,8 @@ class _BloodBankScreenState extends State<BloodBankScreen>
       if (mounted) {
         if (response.isSuccess) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Blood request submitted successfully'),
+            SnackBar(
+              content: Text(s.bloodBankRequestSuccess),
               backgroundColor: AppTheme.successGreen,
             ),
           );
@@ -112,7 +113,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(response.message ?? 'Request failed'),
+              content: Text(response.message ?? s.errorSomethingWentWrong),
               backgroundColor: AppTheme.errorRed,
             ),
           );
@@ -121,8 +122,8 @@ class _BloodBankScreenState extends State<BloodBankScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not submit request'),
+          SnackBar(
+            content: Text(s.errorSomethingWentWrong),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -197,13 +198,14 @@ class _BloodBankScreenState extends State<BloodBankScreen>
             ElevatedButton.icon(
               onPressed: _fetchInventory,
               icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
+              label: Text(AppStrings.of(context).actionRetry),
             ),
           ],
         ),
       );
     }
 
+    final s = AppStrings.of(context);
     // If API returned data, use it; otherwise show placeholder cards for all types
     final displayItems = _inventory.isNotEmpty
         ? _inventory
@@ -219,11 +221,11 @@ class _BloodBankScreenState extends State<BloodBankScreen>
           // Stock level legend
           Row(
             children: [
-              _legendDot(AppTheme.successGreen, '>= 10 units'),
+              _legendDot(AppTheme.successGreen, s.bloodBankLegendAdequate),
               const SizedBox(width: 12),
-              _legendDot(const Color(0xFFF9A825), '5-9 units'),
+              _legendDot(const Color(0xFFF9A825), s.bloodBankLegendLow),
               const SizedBox(width: 12),
-              _legendDot(AppTheme.errorRed, '< 5 units'),
+              _legendDot(AppTheme.errorRed, s.bloodBankLegendCritical),
             ],
           ),
           const SizedBox(height: 16),
@@ -282,7 +284,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '$intUnits units',
+                      '$intUnits ${s.bloodBankUnitsSuffix}',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -292,10 +294,10 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                     const SizedBox(height: 2),
                     Text(
                       intUnits < 5
-                          ? 'Critical low'
+                          ? s.bloodBankStockCriticalLow
                           : intUnits < 10
-                          ? 'Low stock'
-                          : 'Adequate',
+                          ? s.bloodBankStockLow
+                          : s.bloodBankStockAdequate,
                       style: TextStyle(fontSize: 11, color: color),
                     ),
                   ],
@@ -309,6 +311,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
   }
 
   Widget _buildRequestsTab() {
+    final s = AppStrings.of(context);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Form(
@@ -317,7 +320,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Request Blood',
+              s.bloodBankRequestHeader,
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
@@ -330,7 +333,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
             TextFormField(
               controller: _patientNameController,
               decoration: InputDecoration(
-                labelText: 'Patient Name',
+                labelText: s.bloodBankPatientNameLabel,
                 prefixIcon: const ExcludeSemantics(child: Icon(Icons.person_outline)),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -339,7 +342,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                 fillColor: Colors.white,
               ),
               validator: (v) => (v == null || v.trim().isEmpty)
-                  ? 'Patient name is required'
+                  ? s.bloodBankPatientNameRequired
                   : null,
             ),
             const SizedBox(height: 14),
@@ -348,7 +351,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
             DropdownButtonFormField<String>(
               initialValue: _requestBloodType,
               decoration: InputDecoration(
-                labelText: 'Blood Type',
+                labelText: s.bloodBankBloodTypeLabel,
                 prefixIcon: const ExcludeSemantics(child: Icon(Icons.bloodtype_outlined)),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -360,7 +363,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                   .map((t) => DropdownMenuItem(value: t, child: Text(t)))
                   .toList(),
               onChanged: (v) => setState(() => _requestBloodType = v),
-              validator: (v) => v == null ? 'Select blood type' : null,
+              validator: (v) => v == null ? s.bloodBankBloodTypeRequired : null,
             ),
             const SizedBox(height: 14),
 
@@ -369,7 +372,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
               controller: _unitsController,
               keyboardType: TextInputType.number,
               decoration: InputDecoration(
-                labelText: 'Units Required',
+                labelText: s.bloodBankUnitsLabel,
                 prefixIcon: const ExcludeSemantics(child: Icon(Icons.numbers)),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -378,9 +381,9 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                 fillColor: Colors.white,
               ),
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Units required';
+                if (v == null || v.trim().isEmpty) return s.bloodBankUnitsRequired;
                 final n = int.tryParse(v.trim());
-                if (n == null || n < 1) return 'Enter a valid number';
+                if (n == null || n < 1) return s.bloodBankUnitsInvalid;
                 return null;
               },
             ),
@@ -391,7 +394,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
               controller: _reasonController,
               maxLines: 3,
               decoration: InputDecoration(
-                labelText: 'Reason / Notes',
+                labelText: s.bloodBankReasonLabel,
                 prefixIcon: const Padding(
                   padding: EdgeInsets.only(bottom: 40),
                   child: Icon(Icons.notes),
@@ -421,7 +424,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                       )
                     : const Icon(Icons.send),
                 label: Text(
-                  _submittingRequest ? 'Submitting...' : 'Submit Request',
+                  _submittingRequest ? s.bloodBankSubmittingButton : s.bloodBankSubmitRequest,
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.errorRed,
@@ -439,25 +442,26 @@ class _BloodBankScreenState extends State<BloodBankScreen>
   }
 
   Widget _buildDonationsTab() {
+    final s = AppStrings.of(context);
     return Center(
       child: Padding(
         padding: EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.volunteer_activism, size: 64, color: AppTheme.errorRed),
-            SizedBox(height: 16),
+            const Icon(Icons.volunteer_activism, size: 64, color: AppTheme.errorRed),
+            const SizedBox(height: 16),
             Text(
-              'Donation Records',
+              s.bloodBankDonationsTitle,
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
                 color: AppTheme.textPrimary,
               ),
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             Text(
-              'View and manage blood donation records.\nThis section will display donation history and upcoming donation drives.',
+              s.bloodBankDonationsBody,
               textAlign: TextAlign.center,
               style: TextStyle(color: AppTheme.textSecondary),
             ),

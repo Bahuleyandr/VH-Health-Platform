@@ -46,3 +46,7 @@ melos:
     gen-l10n:
       description: "generate l10n in packages that declare flutter_localizations"
       run: melos exec --depends-on="flutter_localizations" -- "flutter gen-l10n"
+
+    i18n-health:
+      description: "Static health check for staff-app i18n (missing keys, copy-paste, length outliers, orphan calls, hardcoded English). Non-blocking; informational."
+      run: node apps/staff/scripts/i18n-verify.mjs

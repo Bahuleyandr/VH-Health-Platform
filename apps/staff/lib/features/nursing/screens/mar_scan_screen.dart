@@ -359,23 +359,22 @@ class _OverrideSectionState extends State<_OverrideSection> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '5-rights check failed',
-            style: TextStyle(fontWeight: FontWeight.bold),
+          Text(
+            AppStrings.of(context).marScanCheckFailed,
+            style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
-          const Text(
-            'To record this administration, document the reason. This entry '
-            'is audited.',
-            style: TextStyle(fontSize: 12),
+          Text(
+            AppStrings.of(context).marScanOverrideHint,
+            style: const TextStyle(fontSize: 12),
           ),
           const SizedBox(height: 8),
           TextField(
             controller: _reason,
             maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Override reason (required, min 5 chars)',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: AppStrings.of(context).marScanOverrideReasonLabel,
+              border: const OutlineInputBorder(),
             ),
             onChanged: (_) => setState(() {}),
           ),
@@ -390,7 +389,11 @@ class _OverrideSectionState extends State<_OverrideSection> {
               onPressed: (!valid || widget.busy)
                   ? null
                   : () => widget.onOverride(_reason.text.trim()),
-              child: Text(widget.busy ? 'Recording…' : 'Override & administer'),
+              child: Text(
+                widget.busy
+                    ? AppStrings.of(context).marScanRecording
+                    : AppStrings.of(context).marScanOverrideButton,
+              ),
             ),
           ),
         ],

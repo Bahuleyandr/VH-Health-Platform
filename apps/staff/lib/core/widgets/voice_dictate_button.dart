@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/app_strings.dart';
 import '../services/telemetry_service.dart';
 import '../services/voice_dictation_service.dart';
 import '../theme/app_theme.dart';
@@ -52,7 +53,7 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
       // SemanticsService.announce reads the message via TalkBack/NVDA;
       // HapticFeedback gives a vibration on devices that support it.
       SemanticsService.announce(
-        'Recording started',
+        AppStrings.of(context).voiceDictateRecordingStarted,
         Directionality.of(context),
       );
       HapticFeedback.lightImpact();
@@ -101,7 +102,7 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
       // upload settles.
       if (mounted) {
         SemanticsService.announce(
-          'Recording stopped, transcribing',
+          AppStrings.of(context).voiceDictateRecordingStopped,
           Directionality.of(context),
         );
         HapticFeedback.selectionClick();
@@ -117,7 +118,7 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
         'has_patient': widget.patientUid != null ? 'true' : 'false',
         'transcript_chars': transcript.length.toString(),
       });
-      SuccessToast.show(context, 'Dictation added to notes');
+      SuccessToast.show(context, AppStrings.of(context).voiceDictateAddedToast);
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
@@ -199,8 +200,9 @@ class _RecordingDialogState extends State<_RecordingDialog>
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return AlertDialog(
-      title: const Text('Dictating…'),
+      title: Text(s.voiceDictateRecording),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -229,7 +231,7 @@ class _RecordingDialogState extends State<_RecordingDialog>
           ),
           const SizedBox(height: 4),
           Text(
-            'Speak naturally. Tap Stop when done.',
+            s.voiceDictateHint,
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
           ),
         ],
@@ -237,12 +239,12 @@ class _RecordingDialogState extends State<_RecordingDialog>
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
+          child: Text(s.actionCancel),
         ),
         FilledButton.icon(
           onPressed: () => Navigator.of(context).pop(true),
           icon: const Icon(Icons.stop),
-          label: const Text('Stop & Transcribe'),
+          label: Text(s.voiceDictateStop),
         ),
       ],
     );
@@ -256,14 +258,14 @@ class _TranscribingDialog extends StatelessWidget {
     return AlertDialog(
       content: Row(
         mainAxisSize: MainAxisSize.min,
-        children: const [
-          SizedBox(
+        children: [
+          const SizedBox(
             width: 20,
             height: 20,
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
-          SizedBox(width: 16),
-          Text('Transcribing…'),
+          const SizedBox(width: 16),
+          Text(AppStrings.of(context).voiceDictateTranscribing),
         ],
       ),
     );

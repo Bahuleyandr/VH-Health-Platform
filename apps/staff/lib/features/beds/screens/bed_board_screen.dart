@@ -297,6 +297,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       await BedBoardPrintService.print(
         wardName: _selectedWardName ?? '',
         beds: _beds,
+        generatedBy: AppStrings.of(context).printGeneratedBy,
       );
     } catch (e) {
       if (!mounted) return;

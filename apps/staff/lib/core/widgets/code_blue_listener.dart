@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
+import '../../l10n/app_strings.dart';
 
 /// Invisible overlay widget that listens to `staff:code-blue` events and shows
 /// a blocking full-screen modal the moment a Code Blue fires. Mount once —
@@ -43,6 +44,7 @@ class _CodeBlueListenerState extends State<CodeBlueListener> {
       barrierDismissible: false,
       useRootNavigator: true,
       builder: (ctx) {
+        final s = AppStrings.of(ctx);
         return AlertDialog(
           backgroundColor: Colors.red.shade900,
           titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
@@ -52,7 +54,7 @@ class _CodeBlueListenerState extends State<CodeBlueListener> {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'CODE BLUE',
+                  s.codeBlueTitle,
                   style: Theme.of(ctx).textTheme.headlineSmall?.copyWith(
                     color: Colors.white,
                     fontWeight: FontWeight.w900,
@@ -69,10 +71,12 @@ class _CodeBlueListenerState extends State<CodeBlueListener> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (event.data['ward'] != null)
-                  Text('Ward: ${event.data['ward']}'),
+                  Text('${s.codeBlueWardPrefix} ${event.data['ward']}'),
                 if (event.data['bedNumber'] != null)
-                  Text('Bed: ${event.data['bedNumber']}'),
-                Text('Patient ID: ${event.data['patientId'] ?? 'Unknown'}'),
+                  Text('${s.codeBlueBedPrefix} ${event.data['bedNumber']}'),
+                Text(
+                  '${s.codeBluePatientPrefix} ${event.data['patientId'] ?? '—'}',
+                ),
                 if (event.data['reason'] != null) ...[
                   const SizedBox(height: 8),
                   Text(
@@ -81,9 +85,9 @@ class _CodeBlueListenerState extends State<CodeBlueListener> {
                   ),
                 ],
                 const SizedBox(height: 12),
-                const Text(
-                  'Respond immediately.',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                Text(
+                  s.codeBlueRespond,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
               ],
             ),
@@ -99,9 +103,9 @@ class _CodeBlueListenerState extends State<CodeBlueListener> {
                 ),
               ),
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text(
-                'ACKNOWLEDGED',
-                style: TextStyle(fontWeight: FontWeight.bold),
+              child: Text(
+                s.codeBlueAcknowledge,
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
           ],

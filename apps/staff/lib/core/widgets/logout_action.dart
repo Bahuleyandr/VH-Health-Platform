@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../l10n/app_strings.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 
@@ -22,23 +23,24 @@ class LogoutAction extends StatelessWidget {
   Future<void> _logout(BuildContext context) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Logout?'),
-        content: const Text(
-          'You will need to sign in again with your employee ID and password.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: AppTheme.errorRed),
-            child: const Text('Logout'),
-          ),
-        ],
-      ),
+      builder: (ctx) {
+        final s = AppStrings.of(ctx);
+        return AlertDialog(
+          title: Text(s.logoutDialogTitle),
+          content: Text(s.logoutDialogBody),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(s.actionCancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              style: FilledButton.styleFrom(backgroundColor: AppTheme.errorRed),
+              child: Text(s.actionLogout),
+            ),
+          ],
+        );
+      },
     );
     if (confirmed != true) return;
     await AuthService.logout();
@@ -48,9 +50,10 @@ class LogoutAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return IconButton(
       icon: const Icon(Icons.logout),
-      tooltip: 'Logout',
+      tooltip: s.logoutTooltip,
       onPressed: () => _logout(context),
     );
   }

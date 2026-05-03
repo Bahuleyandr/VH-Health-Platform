@@ -333,7 +333,7 @@ class _ErrorState extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
           Text(
-            'Staff directory API may not be available yet.',
+            AppStrings.of(context).directoryApiUnavailable,
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
           ),
           TextButton(onPressed: onRetry, child: Text(AppStrings.of(context).actionRetry)),
