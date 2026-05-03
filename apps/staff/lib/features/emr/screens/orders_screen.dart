@@ -152,7 +152,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                AppStrings.of(context).ordersVerifyFailed(e.toString())),
+              AppStrings.of(context).ordersVerifyFailed(e.toString()),
+            ),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -177,7 +178,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                AppStrings.of(context).ordersCompleteFailed(e.toString())),
+              AppStrings.of(context).ordersCompleteFailed(e.toString()),
+            ),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -295,8 +297,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
           controller: medication,
           decoration: InputDecoration(
             labelText: s.ordersMedicationName,
-            prefixIcon:
-                const ExcludeSemantics(child: Icon(Icons.medication)),
+            prefixIcon: const ExcludeSemantics(child: Icon(Icons.medication)),
             border: const OutlineInputBorder(),
           ),
           validator: (v) =>
@@ -432,11 +433,14 @@ class _OrdersScreenState extends State<OrdersScreen> {
           ),
           items: [
             DropdownMenuItem(
-                value: 'routine', child: Text(s.ordersPriorityRoutine)),
+              value: 'routine',
+              child: Text(s.ordersPriorityRoutine),
+            ),
             DropdownMenuItem(
-                value: 'urgent', child: Text(s.ordersPriorityUrgent)),
-            DropdownMenuItem(
-                value: 'stat', child: Text(s.ordersPriorityStat)),
+              value: 'urgent',
+              child: Text(s.ordersPriorityUrgent),
+            ),
+            DropdownMenuItem(value: 'stat', child: Text(s.ordersPriorityStat)),
           ],
           onChanged: (v) => setSheetState(() => priority = v ?? priority),
         ),
@@ -478,7 +482,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
           decoration: InputDecoration(
             labelText: s.ordersDescription,
             prefixIcon: const ExcludeSemantics(
-                child: Icon(Icons.medical_services)),
+              child: Icon(Icons.medical_services),
+            ),
             hintText: s.ordersDescriptionHint,
             border: const OutlineInputBorder(),
           ),
@@ -621,7 +626,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                AppStrings.of(context).ordersPlaceFailed(e.toString())),
+              AppStrings.of(context).ordersPlaceFailed(e.toString()),
+            ),
             backgroundColor: AppTheme.errorRed,
           ),
         );

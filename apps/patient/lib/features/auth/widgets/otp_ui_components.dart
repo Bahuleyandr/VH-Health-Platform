@@ -216,7 +216,10 @@ class OtpVerifyButton extends StatelessWidget {
               )
             : Text(
                 l.otpVerifyButtonText,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
       ),
     );

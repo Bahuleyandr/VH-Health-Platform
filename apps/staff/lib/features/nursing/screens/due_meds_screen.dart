@@ -32,11 +32,12 @@ class _DueMedsScreenState extends State<DueMedsScreen> {
     if (q.isEmpty) return _rows;
     return _rows.where((r) {
       final patient = (r['patient_name']?.toString() ?? '').toLowerCase();
-      final med = (r['medication_name']?.toString() ??
-              r['medication']?.toString() ??
-              r['drug_name']?.toString() ??
-              '')
-          .toLowerCase();
+      final med =
+          (r['medication_name']?.toString() ??
+                  r['medication']?.toString() ??
+                  r['drug_name']?.toString() ??
+                  '')
+              .toLowerCase();
       return patient.contains(q) || med.contains(q);
     }).toList();
   }

@@ -63,7 +63,11 @@ class _AchievementShareCardState extends State<AchievementShareCard> {
       if (kDebugMode) debugPrint('AchievementShareCard: share error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.gamificationCouldNotShare)),
+          SnackBar(
+            content: Text(
+              AppLocalizations.of(context)!.gamificationCouldNotShare,
+            ),
+          ),
         );
       }
     } finally {

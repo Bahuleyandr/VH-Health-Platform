@@ -871,7 +871,10 @@ class _StepChallengeScreenState extends State<StepChallengeScreen>
                 icon: const Icon(Icons.stop_circle_outlined, size: 24),
                 label: Text(
                   l.stepsStopWalkUpper,
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.red[600],

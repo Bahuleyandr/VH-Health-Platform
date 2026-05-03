@@ -334,7 +334,9 @@ class _BloodBankScreenState extends State<BloodBankScreen>
               controller: _patientNameController,
               decoration: InputDecoration(
                 labelText: s.bloodBankPatientNameLabel,
-                prefixIcon: const ExcludeSemantics(child: Icon(Icons.person_outline)),
+                prefixIcon: const ExcludeSemantics(
+                  child: Icon(Icons.person_outline),
+                ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -352,7 +354,9 @@ class _BloodBankScreenState extends State<BloodBankScreen>
               initialValue: _requestBloodType,
               decoration: InputDecoration(
                 labelText: s.bloodBankBloodTypeLabel,
-                prefixIcon: const ExcludeSemantics(child: Icon(Icons.bloodtype_outlined)),
+                prefixIcon: const ExcludeSemantics(
+                  child: Icon(Icons.bloodtype_outlined),
+                ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -381,7 +385,8 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                 fillColor: Colors.white,
               ),
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return s.bloodBankUnitsRequired;
+                if (v == null || v.trim().isEmpty)
+                  return s.bloodBankUnitsRequired;
                 final n = int.tryParse(v.trim());
                 if (n == null || n < 1) return s.bloodBankUnitsInvalid;
                 return null;
@@ -424,7 +429,9 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                       )
                     : const Icon(Icons.send),
                 label: Text(
-                  _submittingRequest ? s.bloodBankSubmittingButton : s.bloodBankSubmitRequest,
+                  _submittingRequest
+                      ? s.bloodBankSubmittingButton
+                      : s.bloodBankSubmitRequest,
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.errorRed,
@@ -449,7 +456,11 @@ class _BloodBankScreenState extends State<BloodBankScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.volunteer_activism, size: 64, color: AppTheme.errorRed),
+            const Icon(
+              Icons.volunteer_activism,
+              size: 64,
+              color: AppTheme.errorRed,
+            ),
             const SizedBox(height: 16),
             Text(
               s.bloodBankDonationsTitle,

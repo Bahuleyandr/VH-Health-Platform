@@ -28,10 +28,12 @@ class ClinicalAiComposeRunDetailScreen extends StatefulWidget {
   final Map<String, dynamic>? initialRun;
 
   @override
-  State<ClinicalAiComposeRunDetailScreen> createState() => _ClinicalAiComposeRunDetailScreenState();
+  State<ClinicalAiComposeRunDetailScreen> createState() =>
+      _ClinicalAiComposeRunDetailScreenState();
 }
 
-class _ClinicalAiComposeRunDetailScreenState extends State<ClinicalAiComposeRunDetailScreen> {
+class _ClinicalAiComposeRunDetailScreenState
+    extends State<ClinicalAiComposeRunDetailScreen> {
   Map<String, dynamic>? _run;
   bool _loading = true;
   String? _error;
@@ -50,7 +52,9 @@ class _ClinicalAiComposeRunDetailScreenState extends State<ClinicalAiComposeRunD
       _error = null;
     });
     try {
-      final result = await ClinicalAiApiService.getDischargeComposeRun(widget.runId);
+      final result = await ClinicalAiApiService.getDischargeComposeRun(
+        widget.runId,
+      );
       if (!mounted) return;
       setState(() {
         _run = result;
@@ -71,15 +75,17 @@ class _ClinicalAiComposeRunDetailScreenState extends State<ClinicalAiComposeRunD
       await ClinicalAiApiService.resumeDischargeCompose(widget.runId);
       if (!mounted) return;
       final s = AppStrings.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(s.clinicalAiComposeRunResumed)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(s.clinicalAiComposeRunResumed)));
       await _load();
     } catch (err) {
       if (!mounted) return;
       final s = AppStrings.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(s.clinicalAiComposeResumeFailed(err.toString()))),
+        SnackBar(
+          content: Text(s.clinicalAiComposeResumeFailed(err.toString())),
+        ),
       );
     } finally {
       if (mounted) setState(() => _resuming = false);
@@ -100,29 +106,25 @@ class _ClinicalAiComposeRunDetailScreenState extends State<ClinicalAiComposeRunD
       body: _loading && run == null
           ? const Center(child: CircularProgressIndicator())
           : _error != null && run == null
-              ? _ErrorState(message: _error!, onRetry: _load)
-              : run == null
-                  ? Center(child: Text(s.clinicalAiComposeRunDetailNotFound))
-                  : RefreshIndicator(
-                      onRefresh: _load,
-                      child: ListView(
-                        padding: const EdgeInsets.all(12),
-                        children: [
-                          _ParentCard(
-                            run: run,
-                            resuming: _resuming,
-                            onResume: _resume,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            s.clinicalAiComposeSubgraphsHeader,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 8),
-                          ..._buildChildren(run),
-                        ],
-                      ),
-                    ),
+          ? _ErrorState(message: _error!, onRetry: _load)
+          : run == null
+          ? Center(child: Text(s.clinicalAiComposeRunDetailNotFound))
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+                padding: const EdgeInsets.all(12),
+                children: [
+                  _ParentCard(run: run, resuming: _resuming, onResume: _resume),
+                  const SizedBox(height: 12),
+                  Text(
+                    s.clinicalAiComposeSubgraphsHeader,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  ..._buildChildren(run),
+                ],
+              ),
+            ),
     );
   }
 
@@ -134,23 +136,32 @@ class _ClinicalAiComposeRunDetailScreenState extends State<ClinicalAiComposeRunD
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 24),
           child: Center(
-            child: Text(s.clinicalAiComposeNoSubgraphs, style: const TextStyle(color: Colors.grey)),
+            child: Text(
+              s.clinicalAiComposeNoSubgraphs,
+              style: const TextStyle(color: Colors.grey),
+            ),
           ),
         ),
       ];
     }
     return children
         .whereType<Map<String, dynamic>>()
-        .map((child) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _ChildCard(child: child, onOpenReview: _openReview),
-            ))
+        .map(
+          (child) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _ChildCard(child: child, onOpenReview: _openReview),
+          ),
+        )
         .toList();
   }
 }
 
 class _ParentCard extends StatelessWidget {
-  const _ParentCard({required this.run, required this.resuming, required this.onResume});
+  const _ParentCard({
+    required this.run,
+    required this.resuming,
+    required this.onResume,
+  });
   final Map<String, dynamic> run;
   final bool resuming;
   final VoidCallback onResume;
@@ -189,7 +200,10 @@ class _ParentCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.orange.shade50,
                     borderRadius: BorderRadius.circular(4),
@@ -198,12 +212,19 @@ class _ParentCard extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.pause_circle_outline, size: 16, color: Colors.orange),
+                      const Icon(
+                        Icons.pause_circle_outline,
+                        size: 16,
+                        color: Colors.orange,
+                      ),
                       const SizedBox(width: 4),
                       Flexible(
                         child: Text(
                           s.clinicalAiComposePausedPrefix(pauseReason),
-                          style: TextStyle(color: Colors.orange.shade900, fontSize: 12),
+                          style: TextStyle(
+                            color: Colors.orange.shade900,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
                     ],
@@ -212,8 +233,10 @@ class _ParentCard extends StatelessWidget {
               ),
             if (reviewStatus != null && reviewStatus != 'null')
               _kv(s.clinicalAiComposeReviewStatusKey, reviewStatus, context),
-            if (startedAt != null) _kv(s.clinicalAiComposeStartedKey, startedAt, context),
-            if (finishedAt != null && finishedAt != 'null') _kv(s.clinicalAiComposeFinishedKey, finishedAt, context),
+            if (startedAt != null)
+              _kv(s.clinicalAiComposeStartedKey, startedAt, context),
+            if (finishedAt != null && finishedAt != 'null')
+              _kv(s.clinicalAiComposeFinishedKey, finishedAt, context),
             if (canResume) ...[
               const SizedBox(height: 12),
               FilledButton.icon(
@@ -225,7 +248,11 @@ class _ParentCard extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.play_arrow),
-                label: Text(resuming ? s.clinicalAiComposeResumingButton : s.clinicalAiComposeResumeButton),
+                label: Text(
+                  resuming
+                      ? s.clinicalAiComposeResumingButton
+                      : s.clinicalAiComposeResumeButton,
+                ),
               ),
             ],
           ],
@@ -270,12 +297,22 @@ class _ChildCard extends StatelessWidget {
     final reviewStatus = child['review_status']?.toString();
     final flagsRaw = (child['safety_flags'] as List?) ?? const [];
     final critical = flagsRaw
-        .where((f) => f is Map && (f['severity']?.toString().toLowerCase() ?? '') == 'critical')
+        .where(
+          (f) =>
+              f is Map &&
+              (f['severity']?.toString().toLowerCase() ?? '') == 'critical',
+        )
         .length;
     final high = flagsRaw
-        .where((f) => f is Map && (f['severity']?.toString().toLowerCase() ?? '') == 'high')
+        .where(
+          (f) =>
+              f is Map &&
+              (f['severity']?.toString().toLowerCase() ?? '') == 'high',
+        )
         .length;
-    final reviewIdInt = reviewId is int ? reviewId : int.tryParse(reviewId?.toString() ?? '');
+    final reviewIdInt = reviewId is int
+        ? reviewId
+        : int.tryParse(reviewId?.toString() ?? '');
 
     return Card(
       margin: EdgeInsets.zero,
@@ -305,11 +342,24 @@ class _ChildCard extends StatelessWidget {
                   spacing: 6,
                   runSpacing: 4,
                   children: [
-                    _SmallChip(label: '${AppStrings.of(context).clinicalAiComposeReviewPrefix} $reviewStatus'),
+                    _SmallChip(
+                      label:
+                          '${AppStrings.of(context).clinicalAiComposeReviewPrefix} $reviewStatus',
+                    ),
                     if (critical > 0)
-                      _SmallChip(label: AppStrings.of(context).clinicalAiComposeCriticalCount(critical), color: Colors.red),
+                      _SmallChip(
+                        label: AppStrings.of(
+                          context,
+                        ).clinicalAiComposeCriticalCount(critical),
+                        color: Colors.red,
+                      ),
                     if (high > 0)
-                      _SmallChip(label: AppStrings.of(context).clinicalAiComposeHighCount(high), color: Colors.orange),
+                      _SmallChip(
+                        label: AppStrings.of(
+                          context,
+                        ).clinicalAiComposeHighCount(high),
+                        color: Colors.orange,
+                      ),
                   ],
                 ),
               ),
@@ -318,7 +368,9 @@ class _ChildCard extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: () => onOpenReview(reviewIdInt),
                 icon: const Icon(Icons.open_in_new, size: 16),
-                label: Text(AppStrings.of(context).clinicalAiComposeOpenInQueue),
+                label: Text(
+                  AppStrings.of(context).clinicalAiComposeOpenInQueue,
+                ),
               ),
             ],
           ],
@@ -335,11 +387,20 @@ class _StatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     Color color;
     switch (label.toLowerCase()) {
-      case 'running': color = Colors.blue.shade700; break;
-      case 'paused': color = Colors.orange.shade700; break;
-      case 'completed': color = Colors.green.shade700; break;
-      case 'failed': color = Theme.of(context).colorScheme.error; break;
-      default: color = Theme.of(context).colorScheme.onSurfaceVariant;
+      case 'running':
+        color = Colors.blue.shade700;
+        break;
+      case 'paused':
+        color = Colors.orange.shade700;
+        break;
+      case 'completed':
+        color = Colors.green.shade700;
+        break;
+      case 'failed':
+        color = Theme.of(context).colorScheme.error;
+        break;
+      default:
+        color = Theme.of(context).colorScheme.onSurfaceVariant;
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),

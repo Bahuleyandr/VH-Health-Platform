@@ -22,10 +22,12 @@ class ClinicalAiVoiceNotesScreen extends StatefulWidget {
   const ClinicalAiVoiceNotesScreen({super.key});
 
   @override
-  State<ClinicalAiVoiceNotesScreen> createState() => _ClinicalAiVoiceNotesScreenState();
+  State<ClinicalAiVoiceNotesScreen> createState() =>
+      _ClinicalAiVoiceNotesScreenState();
 }
 
-class _ClinicalAiVoiceNotesScreenState extends State<ClinicalAiVoiceNotesScreen> {
+class _ClinicalAiVoiceNotesScreenState
+    extends State<ClinicalAiVoiceNotesScreen> {
   List<Map<String, dynamic>> _notes = const [];
   bool _loading = true;
   String? _error;
@@ -64,12 +66,14 @@ class _ClinicalAiVoiceNotesScreenState extends State<ClinicalAiVoiceNotesScreen>
     if (intId == null) return;
     setState(() => _generatingId = intId);
     try {
-      final result = await ClinicalAiApiService.generateSoapFromVoiceNote(intId);
+      final result = await ClinicalAiApiService.generateSoapFromVoiceNote(
+        intId,
+      );
       if (!mounted) return;
       final s = AppStrings.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(s.clinicalAiVoiceSoapGenerated)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(s.clinicalAiVoiceSoapGenerated)));
       final reviewId = result['review_id'] ?? result['draft']?['review_id'];
       if (reviewId is int) {
         context.push('/clinical-ai/review/$reviewId', extra: result);
@@ -82,7 +86,9 @@ class _ClinicalAiVoiceNotesScreenState extends State<ClinicalAiVoiceNotesScreen>
       if (!mounted) return;
       final s = AppStrings.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(s.clinicalAiVoiceGenerationFailed(err.toString()))),
+        SnackBar(
+          content: Text(s.clinicalAiVoiceGenerationFailed(err.toString())),
+        ),
       );
     } finally {
       if (mounted) setState(() => _generatingId = null);
@@ -125,7 +131,11 @@ class _ClinicalAiVoiceNotesScreenState extends State<ClinicalAiVoiceNotesScreen>
 }
 
 class _VoiceNoteTile extends StatelessWidget {
-  const _VoiceNoteTile({required this.note, required this.generating, required this.onGenerate});
+  const _VoiceNoteTile({
+    required this.note,
+    required this.generating,
+    required this.onGenerate,
+  });
   final Map<String, dynamic> note;
   final bool generating;
   final VoidCallback onGenerate;
@@ -134,14 +144,20 @@ class _VoiceNoteTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
     final id = note['id']?.toString() ?? '—';
-    final status = note['status']?.toString() ?? note['transcription_status']?.toString() ?? '—';
-    final transcript = note['transcript']?.toString() ?? note['final_transcript']?.toString();
+    final status =
+        note['status']?.toString() ??
+        note['transcription_status']?.toString() ??
+        '—';
+    final transcript =
+        note['transcript']?.toString() ?? note['final_transcript']?.toString();
     final patientUid = note['patient_uid']?.toString();
-    final createdAt = note['created_at']?.toString() ?? note['recorded_at']?.toString();
+    final createdAt =
+        note['created_at']?.toString() ?? note['recorded_at']?.toString();
     final draftId = note['soap_draft_id'] ?? note['draft_id'];
     final hasDraft = draftId != null && draftId.toString() != 'null';
 
-    final canGenerate = status.toLowerCase() == 'completed' &&
+    final canGenerate =
+        status.toLowerCase() == 'completed' &&
         !hasDraft &&
         (transcript != null && transcript.isNotEmpty);
 
@@ -158,7 +174,10 @@ class _VoiceNoteTile extends StatelessWidget {
                 children: [
                   const Icon(Icons.mic, size: 18),
                   const SizedBox(width: 6),
-                  Text(s.clinicalAiVoiceNoteHeader(id), style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text(
+                    s.clinicalAiVoiceNoteHeader(id),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                   const Spacer(),
                   _StatusChip(label: status),
                 ],
@@ -168,7 +187,10 @@ class _VoiceNoteTile extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
                     s.clinicalAiVoicePatientPrefix(patientUid),
-                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 11),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 11,
+                    ),
                   ),
                 ),
               if (createdAt != null)
@@ -176,23 +198,30 @@ class _VoiceNoteTile extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 2),
                   child: Text(
                     createdAt,
-                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 11),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 11,
+                    ),
                   ),
                 ),
-              if (transcript != null && transcript.isNotEmpty) Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  transcript,
-                  maxLines: 4,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13),
+              if (transcript != null && transcript.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    transcript,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 13),
+                  ),
                 ),
-              ),
               if (hasDraft)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.green.shade50,
                       borderRadius: BorderRadius.circular(4),
@@ -201,11 +230,18 @@ class _VoiceNoteTile extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.check_circle_outline, size: 14, color: Colors.green),
+                        const Icon(
+                          Icons.check_circle_outline,
+                          size: 14,
+                          color: Colors.green,
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           s.clinicalAiVoiceDraftAlreadyGenerated,
-                          style: TextStyle(color: Colors.green.shade800, fontSize: 11),
+                          style: TextStyle(
+                            color: Colors.green.shade800,
+                            fontSize: 11,
+                          ),
                         ),
                       ],
                     ),
@@ -223,7 +259,11 @@ class _VoiceNoteTile extends StatelessWidget {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.auto_awesome, size: 16),
-                    label: Text(generating ? s.clinicalAiVoiceDraftingButton : s.clinicalAiVoiceGenerateSoap),
+                    label: Text(
+                      generating
+                          ? s.clinicalAiVoiceDraftingButton
+                          : s.clinicalAiVoiceGenerateSoap,
+                    ),
                   ),
                 ),
             ],
@@ -241,10 +281,18 @@ class _StatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     Color color;
     switch (label.toLowerCase()) {
-      case 'completed': color = Colors.green.shade700; break;
-      case 'transcribing': case 'pending': color = Colors.blue.shade700; break;
-      case 'failed': color = Theme.of(context).colorScheme.error; break;
-      default: color = Theme.of(context).colorScheme.onSurfaceVariant;
+      case 'completed':
+        color = Colors.green.shade700;
+        break;
+      case 'transcribing':
+      case 'pending':
+        color = Colors.blue.shade700;
+        break;
+      case 'failed':
+        color = Theme.of(context).colorScheme.error;
+        break;
+      default:
+        color = Theme.of(context).colorScheme.onSurfaceVariant;
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),

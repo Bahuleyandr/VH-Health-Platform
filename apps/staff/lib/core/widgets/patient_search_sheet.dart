@@ -75,7 +75,10 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
       });
       return;
     }
-    _debounce = Timer(const Duration(milliseconds: 300), () => _runSearch(trimmed));
+    _debounce = Timer(
+      const Duration(milliseconds: 300),
+      () => _runSearch(trimmed),
+    );
   }
 
   Future<void> _runSearch(String query) async {
@@ -106,9 +109,7 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
     if (uid.isEmpty) return;
     final name = (patient['name'] ?? 'Patient').toString();
     Navigator.of(context).pop();
-    context.go(
-      '/emr/timeline/$uid?name=${Uri.encodeQueryComponent(name)}',
-    );
+    context.go('/emr/timeline/$uid?name=${Uri.encodeQueryComponent(name)}');
   }
 
   @override
@@ -141,7 +142,9 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
                   focusNode: _focusNode,
                   decoration: InputDecoration(
                     hintText: 'Find a patient by name, phone, or ABHA…',
-                    prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
+                    prefixIcon: const ExcludeSemantics(
+                      child: Icon(Icons.search),
+                    ),
                     suffixIcon: _controller.text.isNotEmpty
                         ? IconButton(
                             icon: const Icon(Icons.close),
@@ -207,8 +210,7 @@ class _PatientSearchSheetState extends State<PatientSearchSheet> {
         final phone = (p['phone'] ?? '').toString();
         final abha = (p['abha_address'] ?? '').toString();
         final subtitleParts = <String>[
-          if (age != null && age.toString().isNotEmpty)
-            '${age.toString()} yr',
+          if (age != null && age.toString().isNotEmpty) '${age.toString()} yr',
           if (gender.isNotEmpty)
             gender[0].toUpperCase() + gender.substring(1).toLowerCase(),
           if (phone.isNotEmpty) phone,

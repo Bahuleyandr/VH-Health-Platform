@@ -134,10 +134,10 @@ class VoiceDictationService {
     String? language,
   }) async {
     final headers = await core.ApiConfig.authenticatedAuthHeaders();
-    final uri =
-        Uri.parse('${core.ApiConfig.baseUrl}/clinical/voice-note/transcribe');
-    final request = http.MultipartRequest('POST', uri)
-      ..headers.addAll(headers);
+    final uri = Uri.parse(
+      '${core.ApiConfig.baseUrl}/clinical/voice-note/transcribe',
+    );
+    final request = http.MultipartRequest('POST', uri)..headers.addAll(headers);
     if (patientUid != null && patientUid.isNotEmpty) {
       request.fields['patient_uid'] = patientUid;
     }

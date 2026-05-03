@@ -22,10 +22,12 @@ class ClinicalAiReviewQueueScreen extends StatefulWidget {
   const ClinicalAiReviewQueueScreen({super.key});
 
   @override
-  State<ClinicalAiReviewQueueScreen> createState() => _ClinicalAiReviewQueueScreenState();
+  State<ClinicalAiReviewQueueScreen> createState() =>
+      _ClinicalAiReviewQueueScreenState();
 }
 
-class _ClinicalAiReviewQueueScreenState extends State<ClinicalAiReviewQueueScreen> {
+class _ClinicalAiReviewQueueScreenState
+    extends State<ClinicalAiReviewQueueScreen> {
   String? _statusFilter = 'pending';
   List<Map<String, dynamic>> _reviews = const [];
   bool _loading = true;
@@ -161,7 +163,11 @@ class _QuickAccessRow extends StatelessWidget {
 }
 
 class _FilterBar extends StatelessWidget {
-  const _FilterBar({required this.filters, required this.value, required this.onChanged});
+  const _FilterBar({
+    required this.filters,
+    required this.value,
+    required this.onChanged,
+  });
   final List<_StatusFilter> filters;
   final String? value;
   final ValueChanged<String?> onChanged;
@@ -200,13 +206,19 @@ class _ReviewListTile extends StatelessWidget {
     final s = AppStrings.of(context);
     final moduleKey = review['module_key']?.toString() ?? '—';
     final decision = review['decision']?.toString() ?? 'pending';
-    final patientName = review['patient_name']?.toString() ?? s.clinicalAiQueuePatientFallback;
+    final patientName =
+        review['patient_name']?.toString() ?? s.clinicalAiQueuePatientFallback;
     final flags = (review['safety_flags'] as List?) ?? const [];
     final criticalCount = flags
-        .where((f) => f is Map && f['severity']?.toString().toLowerCase() == 'critical')
+        .where(
+          (f) =>
+              f is Map && f['severity']?.toString().toLowerCase() == 'critical',
+        )
         .length;
     final highCount = flags
-        .where((f) => f is Map && f['severity']?.toString().toLowerCase() == 'high')
+        .where(
+          (f) => f is Map && f['severity']?.toString().toLowerCase() == 'high',
+        )
         .length;
 
     return ListTile(
@@ -217,15 +229,12 @@ class _ReviewListTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      subtitle: Text(
-        patientName,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
+      subtitle: Text(patientName, maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (criticalCount > 0) _SeverityBadge(label: '$criticalCount', severity: 'critical'),
+          if (criticalCount > 0)
+            _SeverityBadge(label: '$criticalCount', severity: 'critical'),
           if (highCount > 0)
             Padding(
               padding: const EdgeInsets.only(left: 4),
@@ -276,7 +285,11 @@ class _SeverityBadge extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold),
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }
@@ -294,7 +307,12 @@ class _EmptyState extends StatelessWidget {
         const SizedBox(height: 80),
         const Icon(Icons.inbox, size: 64, color: Colors.grey),
         const SizedBox(height: 12),
-        Center(child: Text(s.clinicalAiQueueEmptyTitle, style: const TextStyle(fontSize: 16))),
+        Center(
+          child: Text(
+            s.clinicalAiQueueEmptyTitle,
+            style: const TextStyle(fontSize: 16),
+          ),
+        ),
         const SizedBox(height: 6),
         Center(
           child: Padding(
@@ -327,12 +345,17 @@ class _ErrorState extends StatelessWidget {
           children: [
             const Icon(Icons.error_outline, size: 48, color: Colors.red),
             const SizedBox(height: 12),
-            Text(s.clinicalAiQueueLoadFailed, style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              s.clinicalAiQueueLoadFailed,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 6),
             Text(
               message,
               textAlign: TextAlign.center,
-              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 16),
             FilledButton.icon(

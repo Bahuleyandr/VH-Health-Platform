@@ -103,7 +103,10 @@ void main() async {
                   const SizedBox(height: 12),
                   Text(
                     s.errorSomethingWentWrong,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -240,22 +243,24 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
               },
               child: Actions(
                 actions: <Type, Action<Intent>>{
-                  _OpenPatientPickerIntent: CallbackAction<_OpenPatientPickerIntent>(
-                    onInvoke: (_) {
-                      final ctx = rootNavigatorKey.currentContext;
-                      if (ctx != null) {
-                        PatientSearchSheet.show(ctx);
-                      }
-                      return null;
-                    },
-                  ),
-                  _DismissTopRouteIntent: CallbackAction<_DismissTopRouteIntent>(
-                    onInvoke: (_) {
-                      final nav = rootNavigatorKey.currentState;
-                      if (nav != null && nav.canPop()) nav.pop();
-                      return null;
-                    },
-                  ),
+                  _OpenPatientPickerIntent:
+                      CallbackAction<_OpenPatientPickerIntent>(
+                        onInvoke: (_) {
+                          final ctx = rootNavigatorKey.currentContext;
+                          if (ctx != null) {
+                            PatientSearchSheet.show(ctx);
+                          }
+                          return null;
+                        },
+                      ),
+                  _DismissTopRouteIntent:
+                      CallbackAction<_DismissTopRouteIntent>(
+                        onInvoke: (_) {
+                          final nav = rootNavigatorKey.currentState;
+                          if (nav != null && nav.canPop()) nav.pop();
+                          return null;
+                        },
+                      ),
                 },
                 child: MaterialApp.router(
                   title: 'VHHealth Staff',

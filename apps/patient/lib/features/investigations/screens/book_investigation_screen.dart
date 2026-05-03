@@ -443,7 +443,10 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         const Divider(height: 24),
 
         // Upload prescription slip
-        Text(l.bookInvestigationOrUploadSlip, style: theme.textTheme.titleSmall),
+        Text(
+          l.bookInvestigationOrUploadSlip,
+          style: theme.textTheme.titleSmall,
+        ),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -496,7 +499,10 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(l.bookInvestigationEstimatedCost, style: theme.textTheme.titleSmall),
+                Text(
+                  l.bookInvestigationEstimatedCost,
+                  style: theme.textTheme.titleSmall,
+                ),
                 Text(
                   '₹${_estimatedCost.toStringAsFixed(0)}',
                   style: theme.textTheme.titleMedium?.copyWith(
@@ -592,7 +598,10 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
 
         // Time slot
         const SizedBox(height: 8),
-        Text(l.bookInvestigationPreferredTimeSlot, style: theme.textTheme.titleSmall),
+        Text(
+          l.bookInvestigationPreferredTimeSlot,
+          style: theme.textTheme.titleSmall,
+        ),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
@@ -634,11 +643,17 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(l.bookInvestigationReviewBooking, style: theme.textTheme.titleMedium),
+        Text(
+          l.bookInvestigationReviewBooking,
+          style: theme.textTheme.titleMedium,
+        ),
         const SizedBox(height: 12),
 
         if (selectedTests.isNotEmpty) ...[
-          Text(l.bookInvestigationSelectedTests, style: theme.textTheme.titleSmall),
+          Text(
+            l.bookInvestigationSelectedTests,
+            style: theme.textTheme.titleSmall,
+          ),
           ...selectedTests.map(
             (t) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
@@ -656,7 +671,10 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
         ],
 
         if (_customTestController.text.trim().isNotEmpty) ...[
-          Text(l.bookInvestigationCustomTests, style: theme.textTheme.titleSmall),
+          Text(
+            l.bookInvestigationCustomTests,
+            style: theme.textTheme.titleSmall,
+          ),
           Text(_customTestController.text.trim()),
           const Divider(height: 16),
         ],
@@ -718,7 +736,10 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(l.bookInvestigationEstimatedCost, style: theme.textTheme.titleSmall),
+                Text(
+                  l.bookInvestigationEstimatedCost,
+                  style: theme.textTheme.titleSmall,
+                ),
                 Text(
                   '₹${_estimatedCost.toStringAsFixed(0)}',
                   style: theme.textTheme.titleMedium?.copyWith(

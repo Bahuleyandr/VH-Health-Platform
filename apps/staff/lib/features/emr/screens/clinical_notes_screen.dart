@@ -151,11 +151,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.note_alt_outlined,
-              size: 64,
-              color: AppTheme.divider,
-            ),
+            Icon(Icons.note_alt_outlined, size: 64, color: AppTheme.divider),
             const SizedBox(height: 12),
             Text(
               AppStrings.of(context).clinicalNotesNoFound(type),
@@ -255,8 +251,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                             Icons.check_circle_outline,
                             size: 18,
                           ),
-                          label: Text(
-                              AppStrings.of(ctx).clinicalNotesSignNote),
+                          label: Text(AppStrings.of(ctx).clinicalNotesSignNote),
                           style: TextButton.styleFrom(
                             foregroundColor: AppTheme.successGreen,
                           ),
@@ -291,8 +286,9 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(AppStrings.of(context)
-                .clinicalNotesSignFailed(e.toString())),
+            content: Text(
+              AppStrings.of(context).clinicalNotesSignFailed(e.toString()),
+            ),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -350,40 +346,51 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
               SizedBox(height: 4),
               Text(
                 '${note['author_name'] ?? AppStrings.of(ctx).clinicalNotesUnknownAuthor} - ${_formatTimestamp(note['created_at'] as String?)}',
-                style: TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 13,
-                ),
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
               ),
               const Divider(height: 24),
               // SOAP fields
               if (note['subjective'] != null)
-                _noteSection(AppStrings.of(ctx).clinicalNotesSubjective,
-                    note['subjective'] as String),
+                _noteSection(
+                  AppStrings.of(ctx).clinicalNotesSubjective,
+                  note['subjective'] as String,
+                ),
               if (note['objective'] != null)
-                _noteSection(AppStrings.of(ctx).clinicalNotesObjective,
-                    note['objective'] as String),
+                _noteSection(
+                  AppStrings.of(ctx).clinicalNotesObjective,
+                  note['objective'] as String,
+                ),
               if (note['assessment'] != null)
-                _noteSection(AppStrings.of(ctx).clinicalNotesAssessment,
-                    note['assessment'] as String),
+                _noteSection(
+                  AppStrings.of(ctx).clinicalNotesAssessment,
+                  note['assessment'] as String,
+                ),
               if (note['plan'] != null)
-                _noteSection(AppStrings.of(ctx).clinicalNotesPlan,
-                    note['plan'] as String),
+                _noteSection(
+                  AppStrings.of(ctx).clinicalNotesPlan,
+                  note['plan'] as String,
+                ),
               // Generic content
               if (note['content'] != null)
-                _noteSection(AppStrings.of(ctx).clinicalNotesContent,
-                    note['content'] as String),
+                _noteSection(
+                  AppStrings.of(ctx).clinicalNotesContent,
+                  note['content'] as String,
+                ),
               if (note['findings'] != null)
-                _noteSection(AppStrings.of(ctx).clinicalNotesFindings,
-                    note['findings'] as String),
+                _noteSection(
+                  AppStrings.of(ctx).clinicalNotesFindings,
+                  note['findings'] as String,
+                ),
               if (note['procedure_details'] != null)
                 _noteSection(
                   AppStrings.of(ctx).clinicalNotesProcedureDetails,
                   note['procedure_details'] as String,
                 ),
               if (note['complications'] != null)
-                _noteSection(AppStrings.of(ctx).clinicalNotesComplications,
-                    note['complications'] as String),
+                _noteSection(
+                  AppStrings.of(ctx).clinicalNotesComplications,
+                  note['complications'] as String,
+                ),
               const SizedBox(height: 16),
               // ── AI Assist — generate patient-friendly explainer ──
               // The button is enabled regardless of signed status so a doctor
@@ -393,7 +400,9 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  border: Border.all(color: AppTheme.primaryBlue.withValues(alpha: 0.25)),
+                  border: Border.all(
+                    color: AppTheme.primaryBlue.withValues(alpha: 0.25),
+                  ),
                   borderRadius: BorderRadius.circular(12),
                   color: AppTheme.primaryBlue.withValues(alpha: 0.04),
                 ),
@@ -402,8 +411,11 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.auto_awesome,
-                            size: 20, color: AppTheme.primaryBlue),
+                        const Icon(
+                          Icons.auto_awesome,
+                          size: 20,
+                          color: AppTheme.primaryBlue,
+                        ),
                         const SizedBox(width: 8),
                         Text(
                           AppStrings.of(context).aiAssistTitle,
@@ -418,7 +430,10 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                     const SizedBox(height: 4),
                     Text(
                       AppStrings.of(context).aiAssistGenerateBlurb,
-                      style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textSecondary,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     SizedBox(
@@ -429,7 +444,9 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                           _generateAiExplainer(note);
                         },
                         icon: const Icon(Icons.auto_awesome, size: 18),
-                        label: Text(AppStrings.of(context).aiAssistGenerateButton),
+                        label: Text(
+                          AppStrings.of(context).aiAssistGenerateButton,
+                        ),
                         style: FilledButton.styleFrom(
                           backgroundColor: AppTheme.primaryBlue,
                         ),
@@ -457,6 +474,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       final v = (value ?? '').trim();
       if (v.isNotEmpty) parts.add('$label: $v');
     }
+
     add('Subjective', note['subjective'] as String?);
     add('Objective', note['objective'] as String?);
     add('Assessment', note['assessment'] as String?);
@@ -472,11 +490,16 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     final t = (note['note_type'] as String?)?.toLowerCase() ?? 'consultation';
     // Map staff-app note_types to backend report_type allowed values.
     switch (t) {
-      case 'soap': return 'consultation';
-      case 'progress': return 'consultation';
-      case 'procedure': return 'procedure';
-      case 'discharge': return 'discharge';
-      default: return 'consultation';
+      case 'soap':
+        return 'consultation';
+      case 'progress':
+        return 'consultation';
+      case 'procedure':
+        return 'procedure';
+      case 'discharge':
+        return 'discharge';
+      default:
+        return 'consultation';
     }
   }
 
@@ -705,8 +728,11 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           s.clinicalNotesProcedureDetails,
           s.clinicalNotesProcedureDetailsHint,
         ),
-        _buildTextArea(findings, s.clinicalNotesFindings,
-            s.clinicalNotesFindingsHint),
+        _buildTextArea(
+          findings,
+          s.clinicalNotesFindings,
+          s.clinicalNotesFindingsHint,
+        ),
         _buildTextArea(
           complications,
           s.clinicalNotesComplications,
@@ -835,8 +861,9 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(AppStrings.of(context)
-                .clinicalNotesCreateFailed(e.toString())),
+            content: Text(
+              AppStrings.of(context).clinicalNotesCreateFailed(e.toString()),
+            ),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -923,7 +950,10 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
   List<Map<String, dynamic>> _list(String key) {
     final raw = _draft[key] ?? widget.result[key];
     if (raw is List) {
-      return raw.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+      return raw
+          .whereType<Map>()
+          .map((m) => m.cast<String, dynamic>())
+          .toList();
     }
     return const [];
   }
@@ -1008,7 +1038,10 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text(ds.actionCancel)),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text(ds.actionCancel),
+            ),
             FilledButton(
               onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
               style: FilledButton.styleFrom(backgroundColor: AppTheme.errorRed),
@@ -1021,9 +1054,9 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
     if (reason == null) return;
     if (reason.length < 5) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(s.aiAssistRejectMinChars)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(s.aiAssistRejectMinChars)));
       return;
     }
     await _decide('rejected', rejectionReason: reason);
@@ -1036,9 +1069,16 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
     final nextSteps = _stringList('next_steps');
     final whenToSeekHelp = _stringList('when_to_seek_help');
     final safetyFlagsRaw = (widget.result['safety_flags'] as List?) ?? const [];
-    final safetyFlags = safetyFlagsRaw.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
-    final critical = safetyFlags.where((f) => (f['severity'] as String?)?.toLowerCase() == 'critical').toList();
-    final high = safetyFlags.where((f) => (f['severity'] as String?)?.toLowerCase() == 'high').toList();
+    final safetyFlags = safetyFlagsRaw
+        .whereType<Map>()
+        .map((m) => m.cast<String, dynamic>())
+        .toList();
+    final critical = safetyFlags
+        .where((f) => (f['severity'] as String?)?.toLowerCase() == 'critical')
+        .toList();
+    final high = safetyFlags
+        .where((f) => (f['severity'] as String?)?.toLowerCase() == 'high')
+        .toList();
     final usedAi = widget.result['used_ai'] == true;
     final provider = (widget.result['provider'] as String?) ?? 'unknown';
     final fallback = _draft['fallback_used'] == true;
@@ -1089,13 +1129,21 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                 spacing: 6,
                 runSpacing: 4,
                 children: [
-                  const _Chip(label: 'review: pending', color: AppTheme.warningAmber),
+                  const _Chip(
+                    label: 'review: pending',
+                    color: AppTheme.warningAmber,
+                  ),
                   _Chip(
                     label: usedAi ? provider : 'fallback',
-                    color: usedAi ? AppTheme.successGreen : AppTheme.warningAmber,
+                    color: usedAi
+                        ? AppTheme.successGreen
+                        : AppTheme.warningAmber,
                   ),
                   if (widget.result['generation_id'] != null)
-                    _Chip(label: 'gen #${widget.result['generation_id']}', color: AppTheme.textSecondary),
+                    _Chip(
+                      label: 'gen #${widget.result['generation_id']}',
+                      color: AppTheme.textSecondary,
+                    ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -1113,16 +1161,23 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                     children: [
                       Text(
                         '${critical.length} critical · ${high.length} high — review carefully',
-                        style: const TextStyle(color: AppTheme.errorRed, fontWeight: FontWeight.w600),
+                        style: const TextStyle(
+                          color: AppTheme.errorRed,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       const SizedBox(height: 4),
-                      ...[...critical, ...high].take(4).map((f) => Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: Text(
-                              '• ${(f['code'] as String?) ?? 'FLAG'} — ${(f['message'] as String?) ?? ''}',
-                              style: const TextStyle(fontSize: 12),
+                      ...[...critical, ...high]
+                          .take(4)
+                          .map(
+                            (f) => Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text(
+                                '• ${(f['code'] as String?) ?? 'FLAG'} — ${(f['message'] as String?) ?? ''}',
+                                style: const TextStyle(fontSize: 12),
+                              ),
                             ),
-                          )),
+                          ),
                     ],
                   ),
                 ),
@@ -1142,46 +1197,72 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                   ),
                 ),
               const SizedBox(height: 16),
-              Text(AppStrings.of(context).aiAssistSummary,
-                  style: const TextStyle(fontWeight: FontWeight.w600, color: AppTheme.primaryBlue)),
+              Text(
+                AppStrings.of(context).aiAssistSummary,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.primaryBlue,
+                ),
+              ),
               const SizedBox(height: 4),
-              Text(summary.isEmpty ? AppStrings.of(context).aiAssistEmpty : summary,
-                  style: const TextStyle(height: 1.5)),
+              Text(
+                summary.isEmpty
+                    ? AppStrings.of(context).aiAssistEmpty
+                    : summary,
+                style: const TextStyle(height: 1.5),
+              ),
               const SizedBox(height: 16),
               if (keyPoints.isNotEmpty) ...[
-                Text(AppStrings.of(context).aiAssistKeyPoints,
-                    style: const TextStyle(fontWeight: FontWeight.w600, color: AppTheme.primaryBlue)),
+                Text(
+                  AppStrings.of(context).aiAssistKeyPoints,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.primaryBlue,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                ...keyPoints.map((kp) => Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${kp['label'] ?? ''}: ${kp['value'] ?? ''}',
-                            style: TextStyle(fontWeight: FontWeight.w500),
-                          ),
-                          if (kp['what_it_means'] != null)
-                            Padding(
-                              padding: const EdgeInsets.only(left: 4, top: 2),
-                              child: Text(
-                                kp['what_it_means'] as String,
-                                style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                ...keyPoints.map(
+                  (kp) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${kp['label'] ?? ''}: ${kp['value'] ?? ''}',
+                          style: TextStyle(fontWeight: FontWeight.w500),
+                        ),
+                        if (kp['what_it_means'] != null)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 4, top: 2),
+                            child: Text(
+                              kp['what_it_means'] as String,
+                              style: TextStyle(
+                                color: AppTheme.textSecondary,
+                                fontSize: 13,
                               ),
                             ),
-                        ],
-                      ),
-                    )),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 12),
               ],
               if (nextSteps.isNotEmpty) ...[
-                Text(AppStrings.of(context).aiAssistNextSteps,
-                    style: const TextStyle(fontWeight: FontWeight.w600, color: AppTheme.primaryBlue)),
+                Text(
+                  AppStrings.of(context).aiAssistNextSteps,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.primaryBlue,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                ...nextSteps.map((s) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Text('• $s'),
-                    )),
+                ...nextSteps.map(
+                  (s) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Text('• $s'),
+                  ),
+                ),
                 const SizedBox(height: 12),
               ],
               if (whenToSeekHelp.isNotEmpty) ...[
@@ -1196,13 +1277,17 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(AppStrings.of(context).aiAssistWhenToSeekHelp,
-                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                      Text(
+                        AppStrings.of(context).aiAssistWhenToSeekHelp,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
                       const SizedBox(height: 4),
-                      ...whenToSeekHelp.map((s) => Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 2),
-                            child: Text('• $s'),
-                          )),
+                      ...whenToSeekHelp.map(
+                        (s) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Text('• $s'),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1216,10 +1301,14 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                     child: OutlinedButton.icon(
                       onPressed: _busy ? null : _confirmReject,
                       icon: const Icon(Icons.close),
-                      label: Text(AppStrings.of(context).clinicalAiDraftRejectButton),
+                      label: Text(
+                        AppStrings.of(context).clinicalAiDraftRejectButton,
+                      ),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppTheme.errorRed,
-                        side: BorderSide(color: AppTheme.errorRed.withValues(alpha: 0.5)),
+                        side: BorderSide(
+                          color: AppTheme.errorRed.withValues(alpha: 0.5),
+                        ),
                       ),
                     ),
                   ),
@@ -1240,11 +1329,16 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                           ? const SizedBox(
                               width: 16,
                               height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
                             )
                           : const Icon(Icons.check_circle),
                       label: Text(AppStrings.of(context).aiAssistAcceptSign),
-                      style: FilledButton.styleFrom(backgroundColor: AppTheme.successGreen),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.successGreen,
+                      ),
                     ),
                   ),
                 ],

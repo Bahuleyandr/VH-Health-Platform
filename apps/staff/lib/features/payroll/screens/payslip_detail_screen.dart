@@ -246,8 +246,15 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
           _Section(
             title: s.payrollDetailAttendanceHeader,
             rows: [
-              _Row(s.payrollDetailWorkingDays, '${p['total_working_days'] ?? 0}'),
-              _Row(s.payrollDetailDaysPresent, '${p['days_present'] ?? 0}', isGood: true),
+              _Row(
+                s.payrollDetailWorkingDays,
+                '${p['total_working_days'] ?? 0}',
+              ),
+              _Row(
+                s.payrollDetailDaysPresent,
+                '${p['days_present'] ?? 0}',
+                isGood: true,
+              ),
               _Row(
                 s.payrollDetailDaysAbsent,
                 '${p['days_absent'] ?? 0}',
@@ -290,9 +297,15 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
                   '₹${fmt.format(p['medical_allowance_earned'])}',
                 ),
               if ((p['overtime_pay'] as num? ?? 0) > 0)
-                _Row(s.payrollDetailOvertimePay, '₹${fmt.format(p['overtime_pay'])}'),
+                _Row(
+                  s.payrollDetailOvertimePay,
+                  '₹${fmt.format(p['overtime_pay'])}',
+                ),
               if ((p['bonus_this_month'] as num? ?? 0) > 0)
-                _Row(s.payrollDetailBonus, '₹${fmt.format(p['bonus_this_month'])}'),
+                _Row(
+                  s.payrollDetailBonus,
+                  '₹${fmt.format(p['bonus_this_month'])}',
+                ),
               // FEATURE 4: Arrears
               if ((p['arrears_amount'] as num? ?? 0) > 0)
                 _Row(
@@ -321,7 +334,10 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
                   isBad: true,
                 ),
               if ((p['pf_employee'] as num? ?? 0) > 0)
-                _Row(s.payrollDetailPfEmployee, '₹${fmt.format(p['pf_employee'])}'),
+                _Row(
+                  s.payrollDetailPfEmployee,
+                  '₹${fmt.format(p['pf_employee'])}',
+                ),
               if ((p['esi_employee'] as num? ?? 0) > 0)
                 _Row(s.payrollDetailEsi, '₹${fmt.format(p['esi_employee'])}'),
               if ((p['professional_tax'] as num? ?? 0) > 0)
@@ -372,7 +388,9 @@ class _PayslipDetailScreenState extends State<PayslipDetailScreen> {
                       )
                     : const Icon(Icons.download_outlined, color: Colors.white),
                 label: Text(
-                  _downloadingPdf ? s.payrollDetailOpening : s.payrollDetailPdfDownloadButton,
+                  _downloadingPdf
+                      ? s.payrollDetailOpening
+                      : s.payrollDetailPdfDownloadButton,
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,

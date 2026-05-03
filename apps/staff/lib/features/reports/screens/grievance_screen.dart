@@ -114,7 +114,10 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                 const SizedBox(height: 20),
                 Text(
                   s.grievanceSubmittedTitle,
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 if (_grievanceNumber != null) ...[
                   const SizedBox(height: 8),
@@ -184,12 +187,19 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.lock_outline, color: Colors.purple, size: 18),
+                    const Icon(
+                      Icons.lock_outline,
+                      color: Colors.purple,
+                      size: 18,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         s.grievancePrivacyNote,
-                        style: const TextStyle(fontSize: 12, color: Colors.purple),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.purple,
+                        ),
                       ),
                     ),
                   ],
@@ -226,8 +236,9 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                   hintText: s.grievanceSubjectHint,
                   border: const OutlineInputBorder(),
                 ),
-                validator: (v) =>
-                    (v?.trim().isEmpty ?? true) ? s.grievanceSubjectRequired : null,
+                validator: (v) => (v?.trim().isEmpty ?? true)
+                    ? s.grievanceSubjectRequired
+                    : null,
                 maxLength: 200,
               ),
 
@@ -256,7 +267,9 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                   labelText: s.grievanceAgainstWhomLabel,
                   hintText: s.grievanceAgainstWhomHint,
                   border: const OutlineInputBorder(),
-                  prefixIcon: const ExcludeSemantics(child: Icon(Icons.person_outline)),
+                  prefixIcon: const ExcludeSemantics(
+                    child: Icon(Icons.person_outline),
+                  ),
                 ),
               ),
 
@@ -266,7 +279,9 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
                 decoration: InputDecoration(
                   labelText: s.grievanceDeptLabel,
                   border: const OutlineInputBorder(),
-                  prefixIcon: const ExcludeSemantics(child: Icon(Icons.business_outlined)),
+                  prefixIcon: const ExcludeSemantics(
+                    child: Icon(Icons.business_outlined),
+                  ),
                 ),
               ),
 

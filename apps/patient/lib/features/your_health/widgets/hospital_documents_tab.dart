@@ -97,7 +97,11 @@ class _HospitalDocumentsTabState extends State<HospitalDocumentsTab> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.local_hospital_outlined, size: 64, color: Colors.grey),
+              const Icon(
+                Icons.local_hospital_outlined,
+                size: 64,
+                color: Colors.grey,
+              ),
               const SizedBox(height: 12),
               Text(
                 AppLocalizations.of(context)!.recordsHospitalEmpty,

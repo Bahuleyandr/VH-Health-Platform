@@ -105,7 +105,9 @@ class _TelemedicineScreenState extends State<TelemedicineScreen> {
                 ),
                 _ControlButton(
                   icon: _cameraOn ? Icons.videocam : Icons.videocam_off,
-                  label: _cameraOn ? s.telemedicineCameraOff : s.telemedicineCameraOn,
+                  label: _cameraOn
+                      ? s.telemedicineCameraOff
+                      : s.telemedicineCameraOn,
                   onTap: () => setState(() => _cameraOn = !_cameraOn),
                 ),
                 _ControlButton(

@@ -159,9 +159,7 @@ class MyUploadsTabState extends State<MyUploadsTab> {
             final lInner = AppLocalizations.of(ctx)!;
             if (pickedFilePath == null || titleCtrl.text.trim().isEmpty) {
               ScaffoldMessenger.of(ctx).showSnackBar(
-                SnackBar(
-                  content: Text(lInner.recordsPickFileFirst),
-                ),
+                SnackBar(content: Text(lInner.recordsPickFileFirst)),
               );
               return;
             }
@@ -377,7 +375,9 @@ class MyUploadsTabState extends State<MyUploadsTab> {
               ElevatedButton.icon(
                 onPressed: showUploadSheet,
                 icon: const Icon(Icons.upload_file),
-                label: Text(AppLocalizations.of(context)!.recordsUploadSheetTitle),
+                label: Text(
+                  AppLocalizations.of(context)!.recordsUploadSheetTitle,
+                ),
               ),
             ],
           ),

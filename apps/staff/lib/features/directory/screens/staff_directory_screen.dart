@@ -212,10 +212,7 @@ class _StaffTile extends StatelessWidget {
             if (empId.isNotEmpty)
               Text(
                 'ID: $empId',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: AppTheme.textSecondary,
-                ),
+                style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
               ),
           ],
         ),
@@ -303,10 +300,7 @@ class _DialogRow extends StatelessWidget {
           Icon(icon, size: 16, color: AppTheme.textSecondary),
           SizedBox(width: 8),
           Expanded(
-            child: Text(
-              text,
-              style: TextStyle(color: AppTheme.textPrimary),
-            ),
+            child: Text(text, style: TextStyle(color: AppTheme.textPrimary)),
           ),
         ],
       ),
@@ -336,7 +330,10 @@ class _ErrorState extends StatelessWidget {
             AppStrings.of(context).directoryApiUnavailable,
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
           ),
-          TextButton(onPressed: onRetry, child: Text(AppStrings.of(context).actionRetry)),
+          TextButton(
+            onPressed: onRetry,
+            child: Text(AppStrings.of(context).actionRetry),
+          ),
         ],
       ),
     );
@@ -354,11 +351,7 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.people_outline,
-            size: 56,
-            color: AppTheme.textSecondary,
-          ),
+          Icon(Icons.people_outline, size: 56, color: AppTheme.textSecondary),
           SizedBox(height: 16),
           Text(
             hasSearch ? s.directoryStaffEmptyBody : s.directoryEmpty,

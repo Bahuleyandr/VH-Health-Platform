@@ -33,10 +33,12 @@ class ClinicalAiDraftDetailScreen extends StatefulWidget {
   final Map<String, dynamic>? initialReview;
 
   @override
-  State<ClinicalAiDraftDetailScreen> createState() => _ClinicalAiDraftDetailScreenState();
+  State<ClinicalAiDraftDetailScreen> createState() =>
+      _ClinicalAiDraftDetailScreenState();
 }
 
-class _ClinicalAiDraftDetailScreenState extends State<ClinicalAiDraftDetailScreen> {
+class _ClinicalAiDraftDetailScreenState
+    extends State<ClinicalAiDraftDetailScreen> {
   Map<String, dynamic>? _review;
   bool _loading = true;
   bool _submitting = false;
@@ -123,7 +125,9 @@ class _ClinicalAiDraftDetailScreenState extends State<ClinicalAiDraftDetailScree
       if (!mounted) return;
       final s = AppStrings.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(s.clinicalAiDraftDecisionFailed(err.toString()))),
+        SnackBar(
+          content: Text(s.clinicalAiDraftDecisionFailed(err.toString())),
+        ),
       );
       setState(() => _submitting = false);
     }
@@ -172,7 +176,9 @@ class _ClinicalAiDraftDetailScreenState extends State<ClinicalAiDraftDetailScree
           _CriticalFlagBanner(
             flags: flags
                 .whereType<Map>()
-                .where((f) => f['severity']?.toString().toLowerCase() == 'critical')
+                .where(
+                  (f) => f['severity']?.toString().toLowerCase() == 'critical',
+                )
                 .toList(),
           ),
         _ReviewHeader(review: review),
@@ -204,7 +210,10 @@ class _ClinicalAiDraftDetailScreenState extends State<ClinicalAiDraftDetailScree
           onReject: () async {
             final reason = await _askRejectionReason();
             if (reason == null) return;
-            await _submitDecision(decision: 'rejected', rejectionReason: reason);
+            await _submitDecision(
+              decision: 'rejected',
+              rejectionReason: reason,
+            );
           },
           onNeedsRevision: () => _submitDecision(decision: 'needs_revision'),
         ),
@@ -282,11 +291,15 @@ class _CriticalFlagBanner extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          ...flags.map((f) => Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text('• ${f['code'] ?? ''}: ${f['message'] ?? ''}',
-                    style: TextStyle(color: Colors.red.shade900)),
-              )),
+          ...flags.map(
+            (f) => Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '• ${f['code'] ?? ''}: ${f['message'] ?? ''}',
+                style: TextStyle(color: Colors.red.shade900),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -311,11 +324,20 @@ class _ReviewHeader extends StatelessWidget {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 4),
-            Text('${s.clinicalAiDraftPatientPrefix} ${review['patient_name'] ?? '—'}'),
-            if (review['admission_id'] != null) Text('${s.clinicalAiDraftAdmissionPrefix} #${review['admission_id']}'),
-            Text('${s.clinicalAiDraftStatusPrefix} ${review['decision'] ?? 'pending'}'),
+            Text(
+              '${s.clinicalAiDraftPatientPrefix} ${review['patient_name'] ?? '—'}',
+            ),
+            if (review['admission_id'] != null)
+              Text(
+                '${s.clinicalAiDraftAdmissionPrefix} #${review['admission_id']}',
+              ),
+            Text(
+              '${s.clinicalAiDraftStatusPrefix} ${review['decision'] ?? 'pending'}',
+            ),
             if (review['provider'] != null)
-              Text('${s.clinicalAiDraftProviderPrefix} ${review['provider']} · ${review['model'] ?? '—'}'),
+              Text(
+                '${s.clinicalAiDraftProviderPrefix} ${review['provider']} · ${review['model'] ?? '—'}',
+              ),
           ],
         ),
       ),
@@ -350,7 +372,10 @@ class _SafetyFlagsList extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(s.clinicalAiDraftSafetyHeader, style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              s.clinicalAiDraftSafetyHeader,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
             ...flags.whereType<Map>().map((f) {
               final severity = f['severity']?.toString().toLowerCase() ?? 'low';
@@ -359,7 +384,11 @@ class _SafetyFlagsList extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(_iconFor(severity), color: _colorFor(severity), size: 18),
+                    Icon(
+                      _iconFor(severity),
+                      color: _colorFor(severity),
+                      size: 18,
+                    ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
@@ -417,7 +446,9 @@ class _DraftBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
     final draft = review['draft'] ?? review['edited_draft'];
-    final pretty = draft is Map ? const JsonEncoder.withIndent('  ').convert(draft) : '—';
+    final pretty = draft is Map
+        ? const JsonEncoder.withIndent('  ').convert(draft)
+        : '—';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -425,7 +456,9 @@ class _DraftBody extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              editMode ? s.clinicalAiDraftEditHeader : s.clinicalAiDraftBodyHeader,
+              editMode
+                  ? s.clinicalAiDraftEditHeader
+                  : s.clinicalAiDraftBodyHeader,
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
@@ -491,7 +524,11 @@ class _DecisionButtons extends StatelessWidget {
         OutlinedButton.icon(
           onPressed: submitting ? null : onToggleEdit,
           icon: const Icon(Icons.edit),
-          label: Text(editMode ? s.clinicalAiDraftCancelEditButton : s.clinicalAiDraftEditButton),
+          label: Text(
+            editMode
+                ? s.clinicalAiDraftCancelEditButton
+                : s.clinicalAiDraftEditButton,
+          ),
         ),
         OutlinedButton.icon(
           onPressed: submitting ? null : onNeedsRevision,
@@ -525,7 +562,10 @@ class _ErrorState extends StatelessWidget {
           children: [
             const Icon(Icons.error_outline, size: 48, color: Colors.red),
             const SizedBox(height: 12),
-            Text(s.clinicalAiDraftFailedLoad, style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              s.clinicalAiDraftFailedLoad,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 6),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 16),

@@ -59,10 +59,7 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
       HapticFeedback.lightImpact();
     } catch (e) {
       if (mounted) {
-        ErrorToast.show(
-          context,
-          e.toString().replaceFirst('Exception: ', ''),
-        );
+        ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
       }
       if (mounted) setState(() => _busy = false);
       return;
@@ -122,10 +119,7 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
-      ErrorToast.show(
-        context,
-        e.toString().replaceFirst('Exception: ', ''),
-      );
+      ErrorToast.show(context, e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

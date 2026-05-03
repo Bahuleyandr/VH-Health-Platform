@@ -135,7 +135,10 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
                 const SizedBox(height: 20),
                 Text(
                   s.housekeepingLoggedTitle,
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 if (_logNumber != null) ...[
                   const SizedBox(height: 8),
@@ -364,7 +367,9 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
                         color: Colors.white,
                       ),
                 label: Text(
-                  _submitting ? s.housekeepingSubmittingLog : s.housekeepingSubmitLog,
+                  _submitting
+                      ? s.housekeepingSubmittingLog
+                      : s.housekeepingSubmitLog,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,

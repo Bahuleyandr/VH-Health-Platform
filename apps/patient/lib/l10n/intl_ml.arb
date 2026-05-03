@@ -1,7 +1,6 @@
 {
   "@@locale": "ml",
   "@@last_modified": "2025-06-13T14:45:30.000Z",
-
   "authLoginTitle": "നിങ്ങളുടെ അക്കൗണ്ടിലേക്ക് ലോഗിൻ ചെയ്യുക",
   "@authLoginTitle": {
     "description": "ലോഗിൻ സ്ക്രീനിലെ തലക്കെട്ട്"
@@ -30,18 +29,18 @@
   "@authSendingOtp": {
     "description": "OTP അഭ്യർത്ഥന പുരോഗമിക്കുമ്പോൾ കാണിക്കുന്ന സ്റ്റാറ്റസ് ലേബൽ"
   },
-"authMagicLinkSent": "മാജിക് ലിങ്ക് വിജയകരമായി അയച്ചു",
-"@authMagicLinkSent": {
-  "description": "മാജിക് ലിങ്ക് ഇമെയിൽ അയച്ചതിന് ശേഷം കാണിക്കുന്ന വിജയ സന്ദേശം."
-},
-"authMagicLinkFailed": "മാജിക് ലിങ്ക് അയക്കുന്നതിൽ പരാജയപ്പെട്ടു",
-"@authMagicLinkFailed": {
-  "description": "സെർവർ മാജിക് ലിങ്ക് അയക്കുന്നതിൽ പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന പിശക് സന്ദേശം."
-},
-"authMagicLinkError": "മാജിക് ലിങ്ക് അയയ്ക്കുമ്പോൾ എന്തോ പിശക് സംഭവിച്ചു",
-"@authMagicLinkError": {
-  "description": "മാജിക് ലിങ്ക് പ്രക്രിയയ്ക്കിടെ അപ്രതീക്ഷിതമായ പ്രശ്നങ്ങൾക്കുള്ള പൊതുവായ പിശക് സന്ദേശം."
-},
+  "authMagicLinkSent": "മാജിക് ലിങ്ക് വിജയകരമായി അയച്ചു",
+  "@authMagicLinkSent": {
+    "description": "മാജിക് ലിങ്ക് ഇമെയിൽ അയച്ചതിന് ശേഷം കാണിക്കുന്ന വിജയ സന്ദേശം."
+  },
+  "authMagicLinkFailed": "മാജിക് ലിങ്ക് അയക്കുന്നതിൽ പരാജയപ്പെട്ടു",
+  "@authMagicLinkFailed": {
+    "description": "സെർവർ മാജിക് ലിങ്ക് അയക്കുന്നതിൽ പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന പിശക് സന്ദേശം."
+  },
+  "authMagicLinkError": "മാജിക് ലിങ്ക് അയയ്ക്കുമ്പോൾ എന്തോ പിശക് സംഭവിച്ചു",
+  "@authMagicLinkError": {
+    "description": "മാജിക് ലിങ്ക് പ്രക്രിയയ്ക്കിടെ അപ്രതീക്ഷിതമായ പ്രശ്നങ്ങൾക്കുള്ള പൊതുവായ പിശക് സന്ദേശം."
+  },
   "authContinueAsGuest": "അതിഥിയായി തുടരുക",
   "@authContinueAsGuest": {
     "description": "അതിഥി ലോഗിൻ ഫ്ലോയ്ക്കുള്ള ബട്ടൺ ടെക്സ്റ്റ്"
@@ -79,221 +78,432 @@
     "description": "സൈൻ ഇൻ ചെയ്യാത്ത ഫോണിൽ നിന്ന് SOS പ്രവർത്തനക്ഷമമാക്കുമ്പോൾ ഉപയോഗിക്കുന്ന ഐഡന്റിഫയർ"
   },
   "otpVerifyOtpTitle": "OTP സ്ഥിരീകരിക്കുക",
-  "@otpVerifyOtpTitle": { "description": "OTP സ്ഥിരീകരണ സ്ക്രീനിന്റെ ആപ്പ് ബാറിലെ തലക്കെട്ട്" },
+  "@otpVerifyOtpTitle": {
+    "description": "OTP സ്ഥിരീകരണ സ്ക്രീനിന്റെ ആപ്പ് ബാറിലെ തലക്കെട്ട്"
+  },
   "otpOtpSentTo": "OTP അയച്ചു",
-  "@otpOtpSentTo": { "description": "ഉപയോക്താവിന്റെ ഫോൺ നമ്പറിന് മുമ്പുള്ള പ്രിഫിക്സ്" },
+  "@otpOtpSentTo": {
+    "description": "ഉപയോക്താവിന്റെ ഫോൺ നമ്പറിന് മുമ്പുള്ള പ്രിഫിക്സ്"
+  },
   "otpEnterOtp": "OTP നൽകുക",
-  "@otpEnterOtp": { "description": "ആറക്ക OTP ഇൻപുട്ടിന് മുകളിലുള്ള ലേബൽ" },
+  "@otpEnterOtp": {
+    "description": "ആറക്ക OTP ഇൻപുട്ടിന് മുകളിലുള്ള ലേബൽ"
+  },
   "otpPleaseEnterOtp": "ദയവായി OTP നൽകുക",
-  "@otpPleaseEnterOtp": { "description": "OTP ഫീൽഡ് ശൂന്യമായിരിക്കുമ്പോൾ കാണിക്കുന്ന സ്ഥിരീകരണ സന്ദേശം" },
+  "@otpPleaseEnterOtp": {
+    "description": "OTP ഫീൽഡ് ശൂന്യമായിരിക്കുമ്പോൾ കാണിക്കുന്ന സ്ഥിരീകരണ സന്ദേശം"
+  },
   "otpOtpMustBe6Digits": "OTP 6 അക്കങ്ങളായിരിക്കണം",
-  "@otpOtpMustBe6Digits": { "description": "OTP യുടെ ദൈർഘ്യം ആറ് അക്കങ്ങളല്ലാത്തപ്പോൾ കാണിക്കുന്ന സ്ഥിരീകരണ സന്ദേശം" },
+  "@otpOtpMustBe6Digits": {
+    "description": "OTP യുടെ ദൈർഘ്യം ആറ് അക്കങ്ങളല്ലാത്തപ്പോൾ കാണിക്കുന്ന സ്ഥിരീകരണ സന്ദേശം"
+  },
   "otpVerify": "സ്ഥിരീകരിക്കുക",
-  "@otpVerify": { "description": "OTP സ്ഥിരീകരിക്കുന്നതിനുള്ള പ്രധാന ബട്ടൺ ടെക്സ്റ്റ്" },
+  "@otpVerify": {
+    "description": "OTP സ്ഥിരീകരിക്കുന്നതിനുള്ള പ്രധാന ബട്ടൺ ടെക്സ്റ്റ്"
+  },
   "otpResendOtpIn": "OTP വീണ്ടും അയയ്ക്കുക",
-  "@otpResendOtpIn": { "description": "കൂൾഡൗൺ സെക്കൻഡുകൾക്ക് മുമ്പുള്ള പ്രിഫിക്స్, ഉദാ. 'OTP വീണ്ടും അയയ്ക്കുക 25 സെക്കൻഡിൽ'" },
+  "@otpResendOtpIn": {
+    "description": "കൂൾഡൗൺ സെക്കൻഡുകൾക്ക് മുമ്പുള്ള പ്രിഫിക്స్, ഉദാ. 'OTP വീണ്ടും അയയ്ക്കുക 25 സെക്കൻഡിൽ'"
+  },
   "otpResendOtp": "OTP വീണ്ടും അയയ്ക്കുക",
-  "@otpResendOtp": { "description": "കൂൾഡൗൺ കഴിയുമ്പോൾ OTP വീണ്ടും അയയ്ക്കുന്നതിനുള്ള ക്ലിക്ക് ചെയ്യാവുന്ന ടെക്സ്റ്റ്" },
+  "@otpResendOtp": {
+    "description": "കൂൾഡൗൺ കഴിയുമ്പോൾ OTP വീണ്ടും അയയ്ക്കുന്നതിനുള്ള ക്ലിക്ക് ചെയ്യാവുന്ന ടെക്സ്റ്റ്"
+  },
   "otpErrorOccurred": "ഒരു പിശക് സംഭവിച്ചു",
-  "@otpErrorOccurred": { "description": "സ്നാക്ക്-ബാറുകളിലെ പൊതുവായ പിശക് പ്രിഫിക്സ്" },
+  "@otpErrorOccurred": {
+    "description": "സ്നാക്ക്-ബാറുകളിലെ പൊതുവായ പിശക് പ്രിഫിക്സ്"
+  },
   "otpLoginSuccessful": "ലോഗിൻ വിജയകരം",
-  "@otpLoginSuccessful": { "description": "വിജയകരമായ ലോഗിന് ശേഷം കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@otpLoginSuccessful": {
+    "description": "വിജയകരമായ ലോഗിന് ശേഷം കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "otpLoginFailed": "ലോഗിൻ പരാജയപ്പെട്ടു",
-  "@otpLoginFailed": { "description": "ബാക്കെൻഡ് ലോഗിൻ പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@otpLoginFailed": {
+    "description": "ബാക്കെൻഡ് ലോഗിൻ പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "otpFailed": "OTP സ്ഥിരീകരിക്കുന്നതിൽ പരാജയപ്പെട്ടു",
-  "@otpFailed": { "description": "പൊതുവായ OTP സ്ഥിരീകരണ പരാജയ സന്ദേശം" },
+  "@otpFailed": {
+    "description": "പൊതുവായ OTP സ്ഥിരീകരണ പരാജയ സന്ദേശം"
+  },
   "otpInvalidOtp": "അസാധുവായ OTP",
-  "@otpInvalidOtp": { "description": "FirebaseAuthException: invalid-verification-code" },
+  "@otpInvalidOtp": {
+    "description": "FirebaseAuthException: invalid-verification-code"
+  },
   "otpOtpSessionExpired": "OTP സെഷൻ കാലഹരണപ്പെട്ടു",
-  "@otpOtpSessionExpired": { "description": "FirebaseAuthException: session-expired" },
+  "@otpOtpSessionExpired": {
+    "description": "FirebaseAuthException: session-expired"
+  },
   "otpOtpResendFailed": "OTP വീണ്ടും അയയ്ക്കുന്നതിൽ പരാജയപ്പെട്ടു",
-  "@otpOtpResendFailed": { "description": "വീണ്ടും അയയ്ക്കാനുള്ള ശ്രമം പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@otpOtpResendFailed": {
+    "description": "വീണ്ടും അയയ്ക്കാനുള്ള ശ്രമം പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "otpOtpResentSuccessfully": "OTP വിജയകരമായി വീണ്ടും അയച്ചു",
-  "@otpOtpResentSuccessfully": { "description": "വീണ്ടും അയയ്ക്കാനുള്ള ശ്രമം വിജയിക്കുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@otpOtpResentSuccessfully": {
+    "description": "വീണ്ടും അയയ്ക്കാനുള്ള ശ്രമം വിജയിക്കുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "otpInvalidFirebaseToken": "അസാധുവായ Firebase ടോക്കൺ",
-  "@otpInvalidFirebaseToken": { "description": "Firebase ഒരു ശൂന്യമായ ID ടോക്കൺ നൽകുമ്പോൾ ഉണ്ടാകുന്ന എഡ്ജ്-കേസ് പിശക്" },
+  "@otpInvalidFirebaseToken": {
+    "description": "Firebase ഒരു ശൂന്യമായ ID ടോക്കൺ നൽകുമ്പോൾ ഉണ്ടാകുന്ന എഡ്ജ്-കേസ് പിശക്"
+  },
   "autoSignInSuccess": "നിങ്ങൾ സ്വയമേവ സൈൻ ഇൻ ചെയ്തിരിക്കുന്നു!",
-"@autoSignInSuccess": {
-  "description": "Firebase ഫോൺ പ്രാമാണീകരണത്തിന്റെ യാന്ത്രിക-പരിശോധന വിജയിച്ചതിന് ശേഷമുള്ള സ്നാക്ക്ബാർ"},
+  "@autoSignInSuccess": {
+    "description": "Firebase ഫോൺ പ്രാമാണീകരണത്തിന്റെ യാന്ത്രിക-പരിശോധന വിജയിച്ചതിന് ശേഷമുള്ള സ്നാക്ക്ബാർ"
+  },
   "commonTermsConditionsDisclaimerTitle": "നിബന്ധനകൾ, വ്യവസ്ഥകൾ & സ്വകാര്യത",
-  "@commonTermsConditionsDisclaimerTitle": { "description": "നിബന്ധനകൾ / വ്യവസ്ഥകൾ / സ്വകാര്യത സ്ക്രീനിനായുള്ള ആപ്പ്-ബാർ തലക്കെട്ട്" },
+  "@commonTermsConditionsDisclaimerTitle": {
+    "description": "നിബന്ധനകൾ / വ്യവസ്ഥകൾ / സ്വകാര്യത സ്ക്രീനിനായുള്ള ആപ്പ്-ബാർ തലക്കെട്ട്"
+  },
   "commonTermsOfUse": "ഉപയോഗ നിബന്ധനകൾ",
-  "@commonTermsOfUse": { "description": "ഉപയോഗ നിബന്ധനകൾക്കായുള്ള വിഭാഗം തലക്കെട്ട്" },
+  "@commonTermsOfUse": {
+    "description": "ഉപയോഗ നിബന്ധനകൾക്കായുള്ള വിഭാഗം തലക്കെട്ട്"
+  },
   "commonConditions": "വ്യവസ്ഥകൾ",
-  "@commonConditions": { "description": "വ്യവസ്ഥകൾ / നിരാകരണങ്ങൾക്കായുള്ള വിഭാഗം തലക്കെട്ട്" },
+  "@commonConditions": {
+    "description": "വ്യവസ്ഥകൾ / നിരാകരണങ്ങൾക്കായുള്ള വിഭാഗം തലക്കെട്ട്"
+  },
   "commonPrivacyPolicy": "സ്വകാര്യതാ നയം",
-  "@commonPrivacyPolicy": { "description": "സ്വകാര്യതാ നയത്തിനായുള്ള വിഭാഗം തലക്കെട്ട്" },
+  "@commonPrivacyPolicy": {
+    "description": "സ്വകാര്യതാ നയത്തിനായുള്ള വിഭാഗം തലക്കെട്ട്"
+  },
   "commonBackToLogin": "ലോഗിനിലേക്ക് മടങ്ങുക",
-  "@commonBackToLogin": { "description": "ലോഗിൻ സ്ക്രീനിലേക്ക് മടങ്ങുന്നതിനുള്ള ബട്ടൺ ടെക്സ്റ്റ്" },
-"backToDashboard": "ഡാഷ്‌ബോർഡിലേക്ക് മടങ്ങുക",
-"@backToDashboard": { "description": "പ്രധാന ഡാഷ്‌ബോർഡ് സ്ക്രീനിലേക്ക് തിരികെ പോകുന്നതിനുള്ള ബട്ടൺ ടെക്സ്റ്റ്" },
+  "@commonBackToLogin": {
+    "description": "ലോഗിൻ സ്ക്രീനിലേക്ക് മടങ്ങുന്നതിനുള്ള ബട്ടൺ ടെക്സ്റ്റ്"
+  },
+  "backToDashboard": "ഡാഷ്‌ബോർഡിലേക്ക് മടങ്ങുക",
+  "@backToDashboard": {
+    "description": "പ്രധാന ഡാഷ്‌ബോർഡ് സ്ക്രീനിലേക്ക് തിരികെ പോകുന്നതിനുള്ള ബട്ടൺ ടെക്സ്റ്റ്"
+  },
   "termsBody": "VH Health-ലേക്ക് സ്വാഗതം. ഈ മൊബൈൽ ആപ്ലിക്കേഷൻ ഉപയോഗിക്കുന്നതിലൂടെ, നിങ്ങൾ ഈ ഉപയോഗ നിബന്ധനകൾ അംഗീകരിക്കുന്നു.\n\n1. ലക്ഷ്യം: VH Health എന്നത് രോഗികൾക്ക് അവരുടെ ആരോഗ്യ രേഖകൾ, അപ്പോയിന്റ്മെന്റുകൾ, കുറിപ്പടികൾ, അന്വേഷണങ്ങൾ, ആശുപത്രിയുമായുള്ള ആശയവിനിമയം എന്നിവ നിയന്ത്രിക്കാൻ സഹായിക്കുന്ന ഒരു മൊബൈൽ ആപ്ലിക്കേഷനാണ്.\n2. യോഗ്യത: ഈ ആപ്പ് സ്വതന്ത്രമായി ഉപയോഗിക്കുന്നതിന് നിങ്ങൾക്ക് കുറഞ്ഞത് 18 വയസ്സ് പ്രായമുണ്ടായിരിക്കണം. പ്രായപൂർത്തിയാകാത്തവരുടെ ഉപയോഗം ഒരു രക്ഷിതാവിന്റെ മേൽനോട്ടത്തിലായിരിക്കണം.\n3. സേവനങ്ങളുടെ ഉപയോഗം:\n   • നിങ്ങൾ കൃത്യവും പൂർണ്ണവുമായ വിവരങ്ങൾ നൽകുമെന്ന് സമ്മതിക്കുന്നു.\n   • ആപ്പിന്റെ പ്രവർത്തനത്തെ ദുരുപയോഗം ചെയ്യുകയോ തടസ്സപ്പെടുത്തുകയോ ചെയ്യില്ലെന്ന് നിങ്ങൾ സമ്മതിക്കുന്നു.\n   • നിയമവിരുദ്ധമോ നിരോധിതമോ ആയ ഏതൊരു ഉപയോഗവും കർശനമായി വിലക്കിയിരിക്കുന്നു.\n4. ബൗദ്ധിക സ്വത്ത്: ലോഗോകൾ, ടെക്സ്റ്റ്, ചിത്രങ്ങൾ, ഡാറ്റ എന്നിവയുൾപ്പെടെ ആപ്പിലെ എല്ലാ ഉള്ളടക്കവും VH Health-ന്റെയോ അതിന്റെ ലൈസൻസർമാരുടെയോ സ്വത്താണ്, അവ ബാധകമായ പകർപ്പവകാശ, വ്യാപാരമുദ്ര നിയമങ്ങളാൽ സംരക്ഷിക്കപ്പെട്ടിരിക്കുന്നു.\n5. മാറ്റങ്ങൾ: ഏത് സമയത്തും, അറിയിപ്പോടുകൂടിയോ അല്ലാതെയോ, ഏതെങ്കിലും ഫീച്ചറോ പ്രവർത്തനമോ പരിഷ്കരിക്കാനോ നിർത്തലാക്കാനോ ഞങ്ങൾക്ക് അവകാശമുണ്ട്.\n6. അവസാനിപ്പിക്കൽ: നിബന്ധനകൾ ലംഘിക്കുകയോ ദുരുപയോഗം ചെയ്യുകയോ ചെയ്യുന്ന ഏതൊരു ഉപയോക്താവിന്റെയും ആക്സസ് VH Health-ന് താൽക്കാലികമായി നിർത്തുകയോ അവസാനിപ്പിക്കുകയോ ചെയ്യാം.",
-  "@termsBody": { "description": "നിബന്ധനകൾ ഡിസ്ക്ലെയിമർ സ്ക്രീനിൽ പ്രദർശിപ്പിക്കുന്ന മുഴുവൻ ഉപയോഗ നിബന്ധനകളുടെ ഉള്ളടക്കം" },
+  "@termsBody": {
+    "description": "നിബന്ധനകൾ ഡിസ്ക്ലെയിമർ സ്ക്രീനിൽ പ്രദർശിപ്പിക്കുന്ന മുഴുവൻ ഉപയോഗ നിബന്ധനകളുടെ ഉള്ളടക്കം"
+  },
   "conditionsBody": "1. **മെഡിക്കൽ ഉപദേശ നിരാകരണം:**\n   • ഈ ആപ്പ് പൊതുവായ വിവരങ്ങൾക്കും സൗകര്യത്തിനും വേണ്ടിയുള്ളതാണ്.\n   • ഇത് യോഗ്യതയുള്ള ആരോഗ്യ വിദഗ്ദ്ധരുമായുള്ള നേരിട്ടുള്ള കൺസൾട്ടേഷന് പകരമാവില്ല.\n   • രോഗനിർണയത്തിനും ചികിത്സയ്ക്കും എല്ലായ്പ്പോഴും നിങ്ങളുടെ ഡോക്ടറെയോ ആശുപത്രി ജീവനക്കാരെയോ സമീപിക്കുക.\n\n2. അടിയന്തര ഉപയോഗം:\n   • ഈ ആപ്പ് അടിയന്തര വൈദ്യസഹായത്തിനായി ഉദ്ദേശിച്ചുള്ളതല്ല.\n   • അടിയന്തര സാഹചര്യങ്ങളിൽ, ദയവായി നിങ്ങളുടെ പ്രാദേശിക എമർജൻസി നമ്പറിൽ വിളിക്കുകയോ അടുത്തുള്ള ആശുപത്രിയിൽ പോകുകയോ ചെയ്യുക.\n\n3. സേവന ലഭ്യത:\n   • ഞങ്ങൾ സ്ഥിരമായ ലഭ്യതയ്ക്കായി പരിശ്രമിക്കുന്നു, പക്ഷേ തടസ്സമില്ലാത്ത ആക്സസ് ഉറപ്പുനൽകുന്നില്ല.\n   • സാങ്കേതിക പ്രശ്നങ്ങൾ, അപ്‌ഡേറ്റുകൾ, അല്ലെങ്കിൽ നെറ്റ്‌വർക്ക് തകരാറുകൾ എന്നിവ ഇടയ്ക്കിടെ ആക്സസ്സിനെ ബാധിച്ചേക്കാം.\n\n4. ഡാറ്റയുടെ കൃത്യത:\n   • അപ്പോയിന്റ്മെന്റ് ഷെഡ്യൂളുകളും റിപ്പോർട്ടുകളും പോലുള്ള വിവരങ്ങൾ ആശുപത്രി സിസ്റ്റങ്ങളിൽ നിന്ന് വീണ്ടെടുക്കുന്നതിനാൽ അവ മാനുവൽ എൻട്രിക്ക് വിധേയമായിരിക്കാം.\n   • തെറ്റായ ഡാറ്റാ എൻട്രി അല്ലെങ്കിൽ മൂന്നാം കക്ഷി സിസ്റ്റം പ്രശ്നങ്ങൾ മൂലമുണ്ടാകുന്ന പിശകുകൾക്ക് VH Health ഉത്തരവാദിയല്ല.",
-  "@conditionsBody": { "description": "മുഴുവൻ വ്യവസ്ഥകൾ / മെഡിക്കൽ നിരാകരണ ടെക്സ്റ്റ്" },
+  "@conditionsBody": {
+    "description": "മുഴുവൻ വ്യവസ്ഥകൾ / മെഡിക്കൽ നിരാകരണ ടെക്സ്റ്റ്"
+  },
   "privacyBody": "1. **വിവര ശേഖരണം:**\n   • നിങ്ങളുടെ പേര്, ഫോൺ നമ്പർ, UID, മെഡിക്കൽ റെക്കോർഡുകൾ, അപ്പോയിന്റ്മെന്റ് ഡാറ്റ, അപ്‌ലോഡുകൾ എന്നിവ ഞങ്ങൾ ശേഖരിക്കുന്നു.\n   • ആപ്പിന്റെ പ്രകടനം മെച്ചപ്പെടുത്തുന്നതിനായി ഞങ്ങൾ ഉപകരണ ഐഡന്റിഫയറുകളും ഉപയോഗ വിശകലനങ്ങളും ശേഖരിച്ചേക്കാം.\n\n2. വിവരങ്ങളുടെ ഉപയോഗം:\n   • നിങ്ങളുടെ വിവരങ്ങൾ ആപ്പിനുള്ളിൽ സേവനങ്ങൾ നൽകുന്നതിന് മാത്രമായി ഉപയോഗിക്കുന്നു.\n   • ഞങ്ങൾ നിങ്ങളുടെ ഡാറ്റ വിൽക്കുകയോ പരസ്യ ആവശ്യങ്ങൾക്കായി ഉപയോഗിക്കുകയോ ചെയ്യുന്നില്ല.\n\n3. ഡാറ്റ പങ്കുവെക്കൽ:\n   • നിങ്ങളുടെ പരിചരണത്തിൽ ഏർപ്പെട്ടിരിക്കുന്ന അംഗീകൃത ആശുപത്രി ജീവനക്കാരുമായും മെഡിക്കൽ പ്രൊഫഷണലുകളുമായും നിങ്ങളുടെ ഡാറ്റ പങ്കിട്ടേക്കാം.\n   • നിയമപ്രകാരം ആവശ്യപ്പെടുകയാണെങ്കിൽ അല്ലെങ്കിൽ നിയമപരമായ ബാധ്യതകളുടെ കാര്യത്തിൽ ഞങ്ങൾ ഡാറ്റ വെളിപ്പെടുത്തിയേക്കാം.\n\n4. ഡാറ്റ സുരക്ഷ:\n   • നിങ്ങളുടെ ഡാറ്റ പരിരക്ഷിക്കുന്നതിന് ഞങ്ങൾ വ്യവസായ-നിലവാരത്തിലുള്ള സുരക്ഷാ രീതികൾ ഉപയോഗിക്കുന്നു.\n   • എന്നിരുന്നാലും, ഒരു സിസ്റ്റവും 100% സുരക്ഷിതമല്ല; ആപ്പിന്റെ ഉപയോഗം നിങ്ങളുടെ സ്വന്തം ഉത്തരവാദിത്തത്തിലാണ്.\n\n5. നിങ്ങളുടെ അവകാശങ്ങൾ:\n   • നിങ്ങളുടെ സംഭരിച്ച വിവരങ്ങളിലേക്ക് പ്രവേശനം അഭ്യർത്ഥിക്കുകയോ തിരുത്തലുകൾ ആവശ്യപ്പെടുകയോ ചെയ്യാം.\n   • ആശുപത്രി ഭരണകൂടവുമായി ബന്ധപ്പെട്ട് നിങ്ങളുടെ അക്കൗണ്ട് ഇല്ലാതാക്കാൻ നിങ്ങൾക്ക് അഭ്യർത്ഥിക്കാം.\n\n6. ഡാറ്റ നിലനിർത്തൽ:\n   • ആരോഗ്യ സംരക്ഷണത്തിനോ നിയമപരമായ ആവശ്യങ്ങൾക്കോ ആവശ്യമുള്ളിടത്തോളം കാലം നിങ്ങളുടെ ഡാറ്റ നിലനിർത്തും.",
-  "@privacyBody": { "description": "മുഴുവൻ സ്വകാര്യതാ നയ ടെക്സ്റ്റ്" },
+  "@privacyBody": {
+    "description": "മുഴുവൻ സ്വകാര്യതാ നയ ടെക്സ്റ്റ്"
+  },
   "profileEditScreenTitle": "പ്രൊഫൈൽ എഡിറ്റ് ചെയ്യുക",
-  "@profileEditScreenTitle": { "description": "പ്രൊഫൈൽ എഡിറ്റ് സ്ക്രീനിന്റെ തലക്കെട്ട്" },
+  "@profileEditScreenTitle": {
+    "description": "പ്രൊഫൈൽ എഡിറ്റ് സ്ക്രീനിന്റെ തലക്കെട്ട്"
+  },
   "profileNameLabel": "മുഴുവൻ പേര്",
-  "@profileNameLabel": { "description": "പേര് ഇൻപുട്ടിനായുള്ള ലേബൽ" },
+  "@profileNameLabel": {
+    "description": "പേര് ഇൻപുട്ടിനായുള്ള ലേബൽ"
+  },
   "profileNameHint": "നിങ്ങളുടെ മുഴുവൻ പേര് നൽകുക",
-  "@profileNameHint": { "description": "പേര് ഇൻപുട്ടിനായുള്ള സൂചന" },
+  "@profileNameHint": {
+    "description": "പേര് ഇൻപുട്ടിനായുള്ള സൂചന"
+  },
   "profileNameValidationRequired": "പേര് ആവശ്യമാണ്",
-  "@profileNameValidationRequired": { "description": "പേര് ശൂന്യമായിരിക്കുമ്പോൾ കാണിക്കുന്ന സ്ഥിരീകരണ സന്ദേശം" },
+  "@profileNameValidationRequired": {
+    "description": "പേര് ശൂന്യമായിരിക്കുമ്പോൾ കാണിക്കുന്ന സ്ഥിരീകരണ സന്ദേശം"
+  },
   "profileEmailLabel": "ഇമെയിൽ വിലാസം",
-  "@profileEmailLabel": { "description": "ഇമെയിൽ ഇൻപുട്ടിനായുള്ള ലേബൽ" },
+  "@profileEmailLabel": {
+    "description": "ഇമെയിൽ ഇൻപുട്ടിനായുള്ള ലേബൽ"
+  },
   "profileEmailHint": "example@domain.com",
-  "@profileEmailHint": { "description": "ഇമെയിൽ ഇൻപുട്ടിനായുള്ള സൂചന" },
+  "@profileEmailHint": {
+    "description": "ഇമെയിൽ ഇൻപുട്ടിനായുള്ള സൂചന"
+  },
   "profileEmailValidationInvalid": "സാധുവായ ഒരു ഇമെയിൽ വിലാസം നൽകുക",
-  "@profileEmailValidationInvalid": { "description": "അസാധുവായ ഇമെയിലിനുള്ള സ്ഥിരീകരണ സന്ദേശം" },
+  "@profileEmailValidationInvalid": {
+    "description": "അസാധുവായ ഇമെയിലിനുള്ള സ്ഥിരീകരണ സന്ദേശം"
+  },
   "profileBirthdayLabel": "ജന്മദിനം",
-  "@profileBirthdayLabel": { "description": "ജന്മദിന ഫീൽഡിനായുള്ള ലേബൽ" },
+  "@profileBirthdayLabel": {
+    "description": "ജന്മദിന ഫീൽഡിനായുള്ള ലേബൽ"
+  },
   "profileBirthdayHint": "നിങ്ങളുടെ ജനനത്തീയതി തിരഞ്ഞെടുക്കുക",
-  "@profileBirthdayHint": { "description": "ജന്മദിന ഫീൽഡിനായുള്ള സൂചന" },
+  "@profileBirthdayHint": {
+    "description": "ജന്മദിന ഫീൽഡിനായുള്ള സൂചന"
+  },
   "profileSaveChangesButton": "മാറ്റങ്ങൾ സേവ് ചെയ്യുക",
-  "@profileSaveChangesButton": { "description": "പ്രൊഫൈൽ എഡിറ്റുകൾ സേവ് ചെയ്യുന്നതിനുള്ള ബട്ടൺ ടെക്സ്റ്റ്" },
+  "@profileSaveChangesButton": {
+    "description": "പ്രൊഫൈൽ എഡിറ്റുകൾ സേവ് ചെയ്യുന്നതിനുള്ള ബട്ടൺ ടെക്സ്റ്റ്"
+  },
   "profileUpdatedSuccessfully": "പ്രൊഫൈൽ വിജയകരമായി അപ്ഡേറ്റ് ചെയ്തു",
-  "@profileUpdatedSuccessfully": { "description": "വിജയകരമായ പ്രൊഫൈൽ അപ്ഡേറ്റിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ ടെക്സ്റ്റ്" },
+  "@profileUpdatedSuccessfully": {
+    "description": "വിജയകരമായ പ്രൊഫൈൽ അപ്ഡേറ്റിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ ടെക്സ്റ്റ്"
+  },
   "networkError": "നെറ്റ്‌വർക്ക് പിശക്. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
-  "@networkError": { "description": "ഒരു പൊതുവായ നെറ്റ്‌വർക്ക് പിശക് സംഭവിക്കുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ ടെക്സ്റ്റ്" },
+  "@networkError": {
+    "description": "ഒരു പൊതുവായ നെറ്റ്‌വർക്ക് പിശക് സംഭവിക്കുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ ടെക്സ്റ്റ്"
+  },
   "profileSetupTitle": "നിങ്ങളുടെ പ്രൊഫൈൽ സജ്ജമാക്കുക",
-  "@profileSetupTitle": { "description": "പ്രൊഫൈൽ സജ്ജീകരണ സ്ക്രീനിന്റെ ആപ്പ്-ബാർ തലക്കെട്ട്" },
+  "@profileSetupTitle": {
+    "description": "പ്രൊഫൈൽ സജ്ജീകരണ സ്ക്രീനിന്റെ ആപ്പ്-ബാർ തലക്കെട്ട്"
+  },
   "profileUploadProfilePic": "ഫോട്ടോ ചേർക്കുക",
-  "@profileUploadProfilePic": { "description": "ഒഴിഞ്ഞ അവതാറിനുള്ളിലെ നിർദ്ദേശം" },
+  "@profileUploadProfilePic": {
+    "description": "ഒഴിഞ്ഞ അവതാറിനുള്ളിലെ നിർദ്ദേശം"
+  },
   "profileSetupSaved": "പ്രൊഫൈൽ വിജയകരമായി സേവ് ചെയ്തു",
-  "@profileSetupSaved": { "description": "പ്രൊഫൈൽ സേവ് ചെയ്തതിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ" },
+  "@profileSetupSaved": {
+    "description": "പ്രൊഫൈൽ സേവ് ചെയ്തതിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ"
+  },
   "profileSetupSaveFailed": "പ്രൊഫൈൽ സേവ് ചെയ്യാൻ കഴിഞ്ഞില്ല",
-  "@profileSetupSaveFailed": { "description": "സേവ് പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@profileSetupSaveFailed": {
+    "description": "സേവ് പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "profileGenderLabel": "ലിംഗം",
-  "@profileGenderLabel": { "description": "ലിംഗം ഡ്രോപ്പ്ഡൗണിനായുള്ള ലേബൽ" },
+  "@profileGenderLabel": {
+    "description": "ലിംഗം ഡ്രോപ്പ്ഡൗണിനായുള്ള ലേബൽ"
+  },
   "profileGenderMale": "പുരുഷൻ",
-  "@profileGenderMale": { "description": "ലിംഗം ഓപ്ഷൻ: പുരുഷൻ" },
+  "@profileGenderMale": {
+    "description": "ലിംഗം ഓപ്ഷൻ: പുരുഷൻ"
+  },
   "profileGenderFemale": "സ്ത്രീ",
-  "@profileGenderFemale": { "description": "ലിംഗം ഓപ്ഷൻ: സ്ത്രീ" },
+  "@profileGenderFemale": {
+    "description": "ലിംഗം ഓപ്ഷൻ: സ്ത്രീ"
+  },
   "profileGenderOther": "മറ്റുള്ളവ",
-  "@profileGenderOther": { "description": "ലിംഗം ഓപ്ഷൻ: മറ്റുള്ളവ" },
+  "@profileGenderOther": {
+    "description": "ലിംഗം ഓപ്ഷൻ: മറ്റുള്ളവ"
+  },
   "profileGenderValidationRequired": "ദയവായി ഒരു ലിംഗം തിരഞ്ഞെടുക്കുക",
-  "@profileGenderValidationRequired": { "description": "ലിംഗം തിരഞ്ഞെടുക്കാത്തപ്പോൾ കാണിക്കുന്ന സ്ഥിരീകരണം" },
+  "@profileGenderValidationRequired": {
+    "description": "ലിംഗം തിരഞ്ഞെടുക്കാത്തപ്പോൾ കാണിക്കുന്ന സ്ഥിരീകരണം"
+  },
   "profileEmailHintOptional": "ഓപ്ഷണൽ",
-  "@profileEmailHintOptional": { "description": "ഇമെയിൽ ഫീൽഡ് ഓപ്ഷണൽ ആണെന്ന് കാണിക്കുന്ന സൂചന ടെക്സ്റ്റ്" },
+  "@profileEmailHintOptional": {
+    "description": "ഇമെയിൽ ഫീൽഡ് ഓപ്ഷണൽ ആണെന്ന് കാണിക്കുന്ന സൂചന ടെക്സ്റ്റ്"
+  },
   "profileBirthdaySelectLabel": "ജന്മദിനം തിരഞ്ഞെടുക്കുക",
-  "@profileBirthdaySelectLabel": { "description": "ജന്മദിനം തിരഞ്ഞെടുക്കാത്തപ്പോൾ കാണിക്കുന്ന ലേബൽ" },
+  "@profileBirthdaySelectLabel": {
+    "description": "ജന്മദിനം തിരഞ്ഞെടുക്കാത്തപ്പോൾ കാണിക്കുന്ന ലേബൽ"
+  },
   "profileBirthdayLabelShort": "ജന്മദിനം",
-  "@profileBirthdayLabelShort": { "description": "ഫോർമാറ്റ് ചെയ്ത തീയതിക്ക് മുമ്പ് ഉപയോഗിക്കുന്ന ചെറിയ ലേബൽ" },
+  "@profileBirthdayLabelShort": {
+    "description": "ഫോർമാറ്റ് ചെയ്ത തീയതിക്ക് മുമ്പ് ഉപയോഗിക്കുന്ന ചെറിയ ലേബൽ"
+  },
   "profileAnniversarySelectLabel": "വിവാഹ വാർഷികം തിരഞ്ഞെടുക്കുക",
-  "@profileAnniversarySelectLabel": { "description": "വിവാഹ വാർഷികം തിരഞ്ഞെടുക്കാത്തപ്പോൾ കാണിക്കുന്ന ലേബൽ" },
+  "@profileAnniversarySelectLabel": {
+    "description": "വിവാഹ വാർഷികം തിരഞ്ഞെടുക്കാത്തപ്പോൾ കാണിക്കുന്ന ലേബൽ"
+  },
   "profileAnniversaryLabelShort": "വിവാഹ വാർഷികം",
-  "@profileAnniversaryLabelShort": { "description": "ഫോർമാറ്റ് ചെയ്ത തീയതിക്ക് മുമ്പ് ഉപയോഗിക്കുന്ന ചെറിയ ലേബൽ" },
-"commonSkipButton": "ഒഴിവാക്കുക",
-"@commonSkipButton": { "description": "ഒരു ഓപ്ഷണൽ ഘട്ടം ഒഴിവാക്കാൻ ഉപയോക്താവിനെ അനുവദിക്കുന്ന ദ്വിതീയ ബട്ടൺ"},
-"commonSubmitButton": "സമർപ്പിക്കുക",
-"@commonSubmitButton": { "description": "ഒരു പ്രവർത്തനം സ്ഥിരീകരിക്കാനോ പൂർത്തിയാക്കാനോ ഉപയോഗിക്കുന്ന പ്രാഥമിക ബട്ടൺ"},
-"commonCancelButton": "റദ്ദാക്കുക",
-"@commonCancelButton": { "description": "ഒരു ഡയലോഗ് അല്ലെങ്കിൽ പ്രവർത്തനം റദ്ദാക്കുന്നതിനുള്ള പൊതുവായ ബട്ടൺ ലേബൽ" },
+  "@profileAnniversaryLabelShort": {
+    "description": "ഫോർമാറ്റ് ചെയ്ത തീയതിക്ക് മുമ്പ് ഉപയോഗിക്കുന്ന ചെറിയ ലേബൽ"
+  },
+  "commonSkipButton": "ഒഴിവാക്കുക",
+  "@commonSkipButton": {
+    "description": "ഒരു ഓപ്ഷണൽ ഘട്ടം ഒഴിവാക്കാൻ ഉപയോക്താവിനെ അനുവദിക്കുന്ന ദ്വിതീയ ബട്ടൺ"
+  },
+  "commonSubmitButton": "സമർപ്പിക്കുക",
+  "@commonSubmitButton": {
+    "description": "ഒരു പ്രവർത്തനം സ്ഥിരീകരിക്കാനോ പൂർത്തിയാക്കാനോ ഉപയോഗിക്കുന്ന പ്രാഥമിക ബട്ടൺ"
+  },
+  "commonCancelButton": "റദ്ദാക്കുക",
+  "@commonCancelButton": {
+    "description": "ഒരു ഡയലോഗ് അല്ലെങ്കിൽ പ്രവർത്തനം റദ്ദാക്കുന്നതിനുള്ള പൊതുവായ ബട്ടൺ ലേബൽ"
+  },
   "filesPickerError": "ഫയൽ തിരഞ്ഞെടുക്കാൻ കഴിഞ്ഞില്ല. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
-  "@filesPickerError": { "description": "ഇമേജ് പിക്കർ പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@filesPickerError": {
+    "description": "ഇമേജ് പിക്കർ പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "hello": "നമസ്കാരം",
-  "@hello": { "description": "ഡാഷ്ബോർഡ് ആപ്പ്-ബാറിൽ ഉപയോഗിക്കുന്ന അഭിവാദ്യം" },
+  "@hello": {
+    "description": "ഡാഷ്ബോർഡ് ആപ്പ്-ബാറിൽ ഉപയോഗിക്കുന്ന അഭിവാദ്യം"
+  },
   "changeLanguage": "ഭാഷ മാറ്റുക",
-  "@changeLanguage": { "description": "ഭാഷാ സ്വിച്ചറിനായുള്ള ടൂൾടിപ്പ്" },
+  "@changeLanguage": {
+    "description": "ഭാഷാ സ്വിച്ചറിനായുള്ള ടൂൾടിപ്പ്"
+  },
   "lastAppointment": "അവസാന അപ്പോയിന്റ്മെന്റ്",
-  "@lastAppointment": { "description": "അവസാന അപ്പോയിന്റ്മെന്റിന്റെ തീയതിക്ക് മുമ്പുള്ള ലേബൽ" },
+  "@lastAppointment": {
+    "description": "അവസാന അപ്പോയിന്റ്മെന്റിന്റെ തീയതിക്ക് മുമ്പുള്ള ലേബൽ"
+  },
   "upcomingAppointment": "വരാനിരിക്കുന്ന അപ്പോയിന്റ്മെന്റ്",
-  "@upcomingAppointment": { "description": "അടുത്ത അപ്പോയിന്റ്മെന്റിന്റെ തീയതിക്ക് മുമ്പുള്ള ലേബൽ" },
+  "@upcomingAppointment": {
+    "description": "അടുത്ത അപ്പോയിന്റ്മെന്റിന്റെ തീയതിക്ക് മുമ്പുള്ള ലേബൽ"
+  },
   "notAvailable": "ലഭ്യമല്ല",
-  "@notAvailable": { "description": "ഒരു മൂല്യം ലഭ്യമല്ലാത്തപ്പോൾ കാണിക്കുന്നത്" },
+  "@notAvailable": {
+    "description": "ഒരു മൂല്യം ലഭ്യമല്ലാത്തപ്പോൾ കാണിക്കുന്നത്"
+  },
   "yourHealth": "നിങ്ങളുടെ ആരോഗ്യം",
-  "@yourHealth": { "description": "ഡാഷ്ബോർഡ് ടൈൽ: നിങ്ങളുടെ ആരോഗ്യം" },
+  "@yourHealth": {
+    "description": "ഡാഷ്ബോർഡ് ടൈൽ: നിങ്ങളുടെ ആരോഗ്യം"
+  },
   "appointments": "അപ്പോയിന്റ്മെന്റുകൾ",
-  "@appointments": { "description": "ഡാഷ്ബോർഡ് ടൈൽ: അപ്പോയിന്റ്മെന്റുകൾ" },
+  "@appointments": {
+    "description": "ഡാഷ്ബോർഡ് ടൈൽ: അപ്പോയിന്റ്മെന്റുകൾ"
+  },
   "pharmacy": "ഫാർമസി",
-  "@pharmacy": { "description": "ഡാഷ്ബോർഡ് ടൈൽ: ഫാർമസി" },
+  "@pharmacy": {
+    "description": "ഡാഷ്ബോർഡ് ടൈൽ: ഫാർമസി"
+  },
   "investigations": "പരിശോധനകൾ",
-  "@investigations": { "description": "ഡാഷ്ബോർഡ് ടൈൽ: പരിശോധനകൾ" },
+  "@investigations": {
+    "description": "ഡാഷ്ബോർഡ് ടൈൽ: പരിശോധനകൾ"
+  },
   "askDoubt": "സംശയം ചോദിക്കുക",
-  "@askDoubt": { "description": "ഡാഷ്ബോർഡ് ടൈൽ: സംശയം ചോദിക്കുക" },
+  "@askDoubt": {
+    "description": "ഡാഷ്ബോർഡ് ടൈൽ: സംശയം ചോദിക്കുക"
+  },
   "triviaLabel": "അറിവുകൾ",
-  "@triviaLabel": { "description": "ഡാഷ്ബോർഡ് ടൈൽ: അറിവുകൾ" },
+  "@triviaLabel": {
+    "description": "ഡാഷ്ബോർഡ് ടൈൽ: അറിവുകൾ"
+  },
   "departments": "വകുപ്പുകൾ",
-  "@departments": { "description": "ഡാഷ്ബോർഡ് ടൈൽ: വകുപ്പുകൾ" },
+  "@departments": {
+    "description": "ഡാഷ്ബോർഡ് ടൈൽ: വകുപ്പുകൾ"
+  },
   "aboutUsLabel": "ഞങ്ങളെക്കുറിച്ച്",
-  "@aboutUsLabel": { "description": "ഡാഷ്ബോർഡ് ടൈൽ: ഞങ്ങളെക്കുറിച്ച്" },
+  "@aboutUsLabel": {
+    "description": "ഡാഷ്ബോർഡ് ടൈൽ: ഞങ്ങളെക്കുറിച്ച്"
+  },
   "yourHealthTitle": "നിങ്ങളുടെ ആരോഗ്യം",
-  "@yourHealthTitle": { "description": "നിങ്ങളുടെ ആരോഗ്യം സ്ക്രീനിന്റെ ആപ്പ്-ബാർ തലക്കെട്ട്" },
+  "@yourHealthTitle": {
+    "description": "നിങ്ങളുടെ ആരോഗ്യം സ്ക്രീനിന്റെ ആപ്പ്-ബാർ തലക്കെട്ട്"
+  },
   "yourHealthSortNewest": "ക്രമീകരിക്കുക: പുതിയത് ആദ്യം",
-  "@yourHealthSortNewest": { "description": "ലിസ്റ്റ് ഏറ്റവും പഴയത്→പുതിയത് എന്ന ക്രമത്തിലായിരിക്കുമ്പോൾ ടൂൾടിപ്പ്; ടാപ്പുചെയ്യുമ്പോൾ പുതിയത് ആദ്യം എന്നതിലേക്ക് മാറും" },
+  "@yourHealthSortNewest": {
+    "description": "ലിസ്റ്റ് ഏറ്റവും പഴയത്→പുതിയത് എന്ന ക്രമത്തിലായിരിക്കുമ്പോൾ ടൂൾടിപ്പ്; ടാപ്പുചെയ്യുമ്പോൾ പുതിയത് ആദ്യം എന്നതിലേക്ക് മാറും"
+  },
   "yourHealthSortOldest": "ക്രമീകരിക്കുക: പഴയത് ആദ്യം",
-  "@yourHealthSortOldest": { "description": "ലിസ്റ്റ് ഏറ്റവും പുതിയത്→പഴയത് എന്ന ക്രമത്തിലായിരിക്കുമ്പോൾ ടൂൾടിപ്പ്; ടാപ്പുചെയ്യുമ്പോൾ പഴയത് ആദ്യം എന്നതിലേക്ക് മാറും" },
+  "@yourHealthSortOldest": {
+    "description": "ലിസ്റ്റ് ഏറ്റവും പുതിയത്→പഴയത് എന്ന ക്രമത്തിലായിരിക്കുമ്പോൾ ടൂൾടിപ്പ്; ടാപ്പുചെയ്യുമ്പോൾ പഴയത് ആദ്യം എന്നതിലേക്ക് മാറും"
+  },
   "yourHealthFilterByType": "തരം അനുസരിച്ച് ഫിൽട്ടർ ചെയ്യുക",
-  "@yourHealthFilterByType": { "description": "രേഖയുടെ തരം ഫിൽട്ടറിനായുള്ള ഡ്രോപ്പ്ഡൗൺ ലേബൽ" },
+  "@yourHealthFilterByType": {
+    "description": "രേഖയുടെ തരം ഫിൽട്ടറിനായുള്ള ഡ്രോപ്പ്ഡൗൺ ലേബൽ"
+  },
   "yourHealthNoRecords": "രേഖകൾ ഒന്നും കണ്ടെത്തിയില്ല",
-  "@yourHealthNoRecords": { "description": "രേഖകളുടെ ലിസ്റ്റ് ശൂന്യമായിരിക്കുമ്പോൾ കാണിക്കുന്നത്" },
+  "@yourHealthNoRecords": {
+    "description": "രേഖകളുടെ ലിസ്റ്റ് ശൂന്യമായിരിക്കുമ്പോൾ കാണിക്കുന്നത്"
+  },
   "yourHealthUploaded": "അപ്‌ലോഡ് ചെയ്തത്",
-  "@yourHealthUploaded": { "description": "അപ്‌ലോഡ് തീയതിക്ക് മുമ്പുള്ള പ്രിഫിക്സ്" },
+  "@yourHealthUploaded": {
+    "description": "അപ്‌ലോഡ് തീയതിക്ക് മുമ്പുള്ള പ്രിഫിക്സ്"
+  },
   "yourHealthLoginToView": "നിങ്ങളുടെ മെഡിക്കൽ രേഖകൾ കാണുന്നതിന് ലോഗിൻ ചെയ്യുക",
-  "@yourHealthLoginToView": { "description": "അതിഥി ഉപയോക്താക്കൾക്ക് കാണിക്കുന്ന സന്ദേശം" },
+  "@yourHealthLoginToView": {
+    "description": "അതിഥി ഉപയോക്താക്കൾക്ക് കാണിക്കുന്ന സന്ദേശം"
+  },
   "recordsLoadFailed": "രേഖകൾ ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല",
-  "@recordsLoadFailed": { "description": "API ലഭ്യമാക്കുന്നതിൽ പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ ടെക്സ്റ്റ്" },
+  "@recordsLoadFailed": {
+    "description": "API ലഭ്യമാക്കുന്നതിൽ പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ ടെക്സ്റ്റ്"
+  },
   "recordsShowingOffline": "ഓഫ്‌ലൈൻ ഡാറ്റ കാണിക്കുന്നു",
-  "@recordsShowingOffline": { "description": "കാഷെ ചെയ്ത ഡാറ്റ പ്രദർശിപ്പിക്കുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@recordsShowingOffline": {
+    "description": "കാഷെ ചെയ്ത ഡാറ്റ പ്രദർശിപ്പിക്കുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "fileQuarantined": "ഫയൽ ക്വാറന്റൈനിലാണ്, ഡൗൺലോഡ് ചെയ്യാൻ കഴിയില്ല",
-  "@fileQuarantined": { "description": "ബാക്കെൻഡ് ഫയൽ ക്വാറന്റൈൻ സൂചിപ്പിക്കുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@fileQuarantined": {
+    "description": "ബാക്കെൻഡ് ഫയൽ ക്വാറന്റൈൻ സൂചിപ്പിക്കുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "fileCouldNotOpen": "ഫയൽ തുറക്കാൻ കഴിഞ്ഞില്ല",
-  "@fileCouldNotOpen": { "description": "ഫയൽ ഡൗൺലോഡ് ചെയ്യാനോ തുറക്കാനോ കഴിയാത്തപ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@fileCouldNotOpen": {
+    "description": "ഫയൽ ഡൗൺലോഡ് ചെയ്യാനോ തുറക്കാനോ കഴിയാത്തപ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "recordTypeAll": "എല്ലാം",
-  "@recordTypeAll": { "description": "രേഖയുടെ തരം ഓപ്ഷൻ: എല്ലാം" },
+  "@recordTypeAll": {
+    "description": "രേഖയുടെ തരം ഓപ്ഷൻ: എല്ലാം"
+  },
   "recordTypeConsultation": "കൺസൾട്ടേഷൻ",
-  "@recordTypeConsultation": { "description": "രേഖയുടെ തരം ഓപ്ഷൻ: കൺസൾട്ടേഷൻ" },
+  "@recordTypeConsultation": {
+    "description": "രേഖയുടെ തരം ഓപ്ഷൻ: കൺസൾട്ടേഷൻ"
+  },
   "recordTypeInvestigation": "പരിശോധന",
-  "@recordTypeInvestigation": { "description": "രേഖയുടെ തരം ഓപ്ഷൻ: പരിശോധന" },
+  "@recordTypeInvestigation": {
+    "description": "രേഖയുടെ തരം ഓപ്ഷൻ: പരിശോധന"
+  },
   "recordTypeReport": "റിപ്പോർട്ട്",
-  "@recordTypeReport": { "description": "രേഖയുടെ തരം ഓപ്ഷൻ: റിപ്പോർട്ട്" },
+  "@recordTypeReport": {
+    "description": "രേഖയുടെ തരം ഓപ്ഷൻ: റിപ്പോർട്ട്"
+  },
   "login": "ലോഗിൻ",
-  "@login": { "description": "പൊതുവായ ലോഗിൻ ബട്ടൺ ലേബൽ" },
+  "@login": {
+    "description": "പൊതുവായ ലോഗിൻ ബട്ടൺ ലേബൽ"
+  },
   "requestAppointment": "അപ്പോയിന്റ്മെന്റിനായി അഭ്യർത്ഥിക്കുക",
-  "@requestAppointment": { "description": "ആപ്പ്-ബാർ തലക്കെട്ട്" },
+  "@requestAppointment": {
+    "description": "ആപ്പ്-ബാർ തലക്കെട്ട്"
+  },
   "enterYourPhone": "നിങ്ങളുടെ ഫോൺ നമ്പർ നൽകുക",
-  "@enterYourPhone": { "description": "അതിഥിയായിരിക്കുമ്പോൾ ഫോൺ ഇൻപുട്ടിനായുള്ള തലക്കെട്ട്" },
+  "@enterYourPhone": {
+    "description": "അതിഥിയായിരിക്കുമ്പോൾ ഫോൺ ഇൻപുട്ടിനായുള്ള തലക്കെട്ട്"
+  },
   "enterValidPhone": "ദയവായി 10 അക്കങ്ങളുള്ള ശരിയായ ഫോൺ നമ്പർ നൽകുക",
-  "@enterValidPhone": { "description": "ഫോൺ ഫീൽഡിനായുള്ള സ്ഥിരീകരണം" },
+  "@enterValidPhone": {
+    "description": "ഫോൺ ഫീൽഡിനായുള്ള സ്ഥിരീകരണം"
+  },
   "chooseDepartmentOrDoctor": "വകുപ്പ് തിരഞ്ഞെടുക്കുക",
-  "@chooseDepartmentOrDoctor": { "description": "വകുപ്പ് തിരഞ്ഞെടുക്കുന്നതിനുള്ള ഡ്രോപ്പ്ഡൗൺ ലേബൽ" },
+  "@chooseDepartmentOrDoctor": {
+    "description": "വകുപ്പ് തിരഞ്ഞെടുക്കുന്നതിനുള്ള ഡ്രോപ്പ്ഡൗൺ ലേബൽ"
+  },
   "selectDoctorPlaceholder": "ഡോക്ടറെ തിരഞ്ഞെടുക്കുക (ഓപ്ഷണൽ)",
-  "@selectDoctorPlaceholder": { "description": "ഡോക്ടർ ഡ്രോപ്പ്ഡൗണിനായുള്ള ലേബൽ" },
+  "@selectDoctorPlaceholder": {
+    "description": "ഡോക്ടർ ഡ്രോപ്പ്ഡൗണിനായുള്ള ലേബൽ"
+  },
   "selectDoctorAndDate": "ദയവായി ഒരു വകുപ്പ് തിരഞ്ഞെടുക്കുക",
-  "@selectDoctorAndDate": { "description": "വകുപ്പ് തിരഞ്ഞെടുക്കാത്തപ്പോൾ കാണിക്കുന്ന സ്ഥിരീകരണം" },
+  "@selectDoctorAndDate": {
+    "description": "വകുപ്പ് തിരഞ്ഞെടുക്കാത്തപ്പോൾ കാണിക്കുന്ന സ്ഥിരീകരണം"
+  },
   "submitRequest": "അഭ്യർത്ഥന സമർപ്പിക്കുക",
-  "@submitRequest": { "description": "അപ്പോയിന്റ്മെന്റ് അഭ്യർത്ഥന സമർപ്പിക്കുന്നതിനുള്ള ബട്ടൺ ടെക്സ്റ്റ്" },
+  "@submitRequest": {
+    "description": "അപ്പോയിന്റ്മെന്റ് അഭ്യർത്ഥന സമർപ്പിക്കുന്നതിനുള്ള ബട്ടൺ ടെക്സ്റ്റ്"
+  },
   "appointmentConfirmationNote": "അപ്പോയിന്റ്മെന്റ് അഭ്യർത്ഥന ലഭിച്ചു! ഞങ്ങൾ ഉടൻ സ്ഥിരീകരിക്കും.",
-  "@appointmentConfirmationNote": { "description": "വിജയകരമായ സമർപ്പണത്തിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ" },
+  "@appointmentConfirmationNote": {
+    "description": "വിജയകരമായ സമർപ്പണത്തിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ"
+  },
   "appointmentFailed": "അപ്പോയിന്റ്മെന്റ് ബുക്ക് ചെയ്യുന്നതിൽ പരാജയപ്പെട്ടു",
-  "@appointmentFailed": { "description": "പൊതുവായ API പരാജയ സന്ദേശം" },
+  "@appointmentFailed": {
+    "description": "പൊതുവായ API പരാജയ സന്ദേശം"
+  },
   "genericError": "എന്തോ പിശക് സംഭവിച്ചു. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
-  "@genericError": { "description": "പൊതുവായ നെറ്റ്‌വർക്ക്/പിശക് സ്നാക്ക്-ബാർ" },
+  "@genericError": {
+    "description": "പൊതുവായ നെറ്റ്‌വർക്ക്/പിശക് സ്നാക്ക്-ബാർ"
+  },
   "calendarSyncTitle": "കലണ്ടറിലേക്ക് ചേർക്കണോ?",
-  "@calendarSyncTitle": { "description": "കലണ്ടർ സിങ്കിനായുള്ള ഡയലോഗ് തലക്കെട്ട്" },
+  "@calendarSyncTitle": {
+    "description": "കലണ്ടർ സിങ്കിനായുള്ള ഡയലോഗ് തലക്കെട്ട്"
+  },
   "calendarSyncPrompt": "ഈ അപ്പോയിന്റ്മെന്റ് നിങ്ങളുടെ കലണ്ടറിലേക്ക് ചേർക്കാൻ നിങ്ങൾ ആഗ്രഹിക്കുന്നുണ്ടോ?",
-  "@calendarSyncPrompt": { "description": "കലണ്ടർ സിങ്കിനായുള്ള ഡയലോഗ് ബോഡി" },
+  "@calendarSyncPrompt": {
+    "description": "കലണ്ടർ സിങ്കിനായുള്ള ഡയലോഗ് ബോഡി"
+  },
   "yesAlways": "അതെ, എപ്പോഴും",
-  "@yesAlways": { "description": "ഡയലോഗ് ബട്ടൺ: എപ്പോഴും കലണ്ടറിലേക്ക് ചേർക്കുക" },
+  "@yesAlways": {
+    "description": "ഡയലോഗ് ബട്ടൺ: എപ്പോഴും കലണ്ടറിലേക്ക് ചേർക്കുക"
+  },
   "no": "ഇല്ല",
-  "@no": { "description": "ഡയലോഗ് ബട്ടൺ: കലണ്ടറിലേക്ക് ചേർക്കുന്നത് നിരസിക്കുക" },
+  "@no": {
+    "description": "ഡയലോഗ് ബട്ടൺ: കലണ്ടറിലേക്ക് ചേർക്കുന്നത് നിരസിക്കുക"
+  },
   "calendarEventTitle": "VH Health അപ്പോയിന്റ്മെന്റ്",
-  "@calendarEventTitle": { "description": "കലണ്ടർ ഇവന്റിനായുള്ള തലക്കെട്ട്" },
+  "@calendarEventTitle": {
+    "description": "കലണ്ടർ ഇവന്റിനായുള്ള തലക്കെട്ട്"
+  },
   "calendarEventDescription": "{doctor}-മായി അപ്പോയിന്റ്മെന്റ്",
   "@calendarEventDescription": {
     "description": "കലണ്ടർ ഇവന്റിനായുള്ള വിവരണം",
-    "placeholders": { "doctor": {} }
+    "placeholders": {
+      "doctor": {}
+    }
   },
   "calendarEventLocation": "VH Health ഹോസ്പിറ്റൽ",
-  "@calendarEventLocation": { "description": "കലണ്ടർ ഇവന്റിനായുള്ള ലൊക്കേഷൻ സ്ട്രിംഗ്" },
+  "@calendarEventLocation": {
+    "description": "കലണ്ടർ ഇവന്റിനായുള്ള ലൊക്കേഷൻ സ്ട്രിംഗ്"
+  },
   "generalDoctor": "ഡോക്ടർ",
-  "@generalDoctor": { "description": "കലണ്ടർ വിവരണത്തിലെ ഫാൾബാക്ക് ഡോക്ടറുടെ പേര്" },
+  "@generalDoctor": {
+    "description": "കലണ്ടർ വിവരണത്തിലെ ഫാൾബാക്ക് ഡോക്ടറുടെ പേര്"
+  },
   "sosSent": "SOS അലേർട്ട് അയച്ചു!",
-  "@sosSent": { "description": "SOS ബട്ടൺ ടാപ്പുചെയ്തതിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ" },
+  "@sosSent": {
+    "description": "SOS ബട്ടൺ ടാപ്പുചെയ്തതിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ"
+  },
   "requestAppointmentPhoneNumber": "ഫോൺ നമ്പർ",
-  "@requestAppointmentPhoneNumber": { "description": "ഫോൺ ടെക്സ്റ്റ് ഫീൽഡിനായുള്ള ലേബൽ" },
+  "@requestAppointmentPhoneNumber": {
+    "description": "ഫോൺ ടെക്സ്റ്റ് ഫീൽഡിനായുള്ള ലേബൽ"
+  },
   "cardiology": "കാർഡിയോളജി",
   "neurology": "ന്യൂറോളജി",
   "orthopedics": "ഓർത്തോപീഡിക്സ്",
@@ -301,175 +511,341 @@
   "pediatrics": "പീഡിയാട്രിക്സ്",
   "general_medicine": "ജനറൽ മെഡിസിൻ",
   "pharmacyTitle": "മരുന്നുകൾ ഓർഡർ ചെയ്യുക",
-  "@pharmacyTitle": { "description": "ഫാർമസി സ്ക്രീനിന്റെ ആപ്പ്-ബാർ തലക്കെട്ട്" },
+  "@pharmacyTitle": {
+    "description": "ഫാർമസി സ്ക്രീനിന്റെ ആപ്പ്-ബാർ തലക്കെട്ട്"
+  },
   "pharmacyPermissionsRequired": "ഫയലുകൾ തിരഞ്ഞെടുക്കാൻ സ്റ്റോറേജ് അനുമതി ആവശ്യമാണ്.",
-  "@pharmacyPermissionsRequired": { "description": "ഉപയോക്താവ് ഫയൽ-പിക്കർ അനുമതികൾ നിരസിക്കുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@pharmacyPermissionsRequired": {
+    "description": "ഉപയോക്താവ് ഫയൽ-പിക്കർ അനുമതികൾ നിരസിക്കുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "pharmacyFilePickerError": "ഫയൽ തിരഞ്ഞെടുക്കാൻ കഴിഞ്ഞില്ല. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
-  "@pharmacyFilePickerError": { "description": "ഫയൽ-പിക്കർ പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@pharmacyFilePickerError": {
+    "description": "ഫയൽ-പിക്കർ പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "pharmacyFormAndFileRequired": "ദയവായി ഫോം പൂരിപ്പിച്ച് ഒരു കുറിപ്പടി ഫയൽ അറ്റാച്ചുചെയ്യുക.",
-  "@pharmacyFormAndFileRequired": { "description": "ഫോം/ഫയൽ ഇല്ലാതെ സമർപ്പിക്കുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@pharmacyFormAndFileRequired": {
+    "description": "ഫോം/ഫയൽ ഇല്ലാതെ സമർപ്പിക്കുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "pharmacyUploadFailed": "അപ്‌ലോഡ് പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
-  "@pharmacyUploadFailed": { "description": "കുറിപ്പടി അപ്‌ലോഡ് പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@pharmacyUploadFailed": {
+    "description": "കുറിപ്പടി അപ്‌ലോഡ് പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "pharmacySubmissionFailed": "ഓർഡർ സമർപ്പണം പരാജയപ്പെട്ടു.",
-  "@pharmacySubmissionFailed": { "description": "ബാക്കെൻഡ് പിശകിൽ നിന്നുള്ള പൊതുവായ ഫാൾബാക്ക് സന്ദേശം" },
+  "@pharmacySubmissionFailed": {
+    "description": "ബാക്കെൻഡ് പിശകിൽ നിന്നുള്ള പൊതുവായ ഫാൾബാക്ക് സന്ദേശം"
+  },
   "pharmacyConfirmationNote": "ഓർഡർ നൽകി! ഞങ്ങളുടെ ഫാർമസി സ്ഥിരീകരിക്കാൻ വിളിക്കും.",
-  "@pharmacyConfirmationNote": { "description": "വിജയകരമായ ഓർഡറിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ" },
+  "@pharmacyConfirmationNote": {
+    "description": "വിജയകരമായ ഓർഡറിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ"
+  },
   "pharmacyInfoBanner": "നിങ്ങളുടെ ഡോക്ടറുടെ കുറിപ്പടി (PDF അല്ലെങ്കിൽ ചിത്രം), ഡെലിവറി വിലാസം എന്നിവ അപ്‌ലോഡ് ചെയ്യുക.",
-  "@pharmacyInfoBanner": { "description": "നിർദ്ദേശങ്ങളോടുകൂടിയ മുകളിലെ ബാനർ" },
+  "@pharmacyInfoBanner": {
+    "description": "നിർദ്ദേശങ്ങളോടുകൂടിയ മുകളിലെ ബാനർ"
+  },
   "pharmacyUploadPrescriptionButton": "കുറിപ്പടി അപ്‌ലോഡ് ചെയ്യുക",
-  "@pharmacyUploadPrescriptionButton": { "description": "ഒരു ഫയൽ തിരഞ്ഞെടുക്കുന്നതിനുള്ള ബട്ടൺ ടെക്സ്റ്റ്" },
+  "@pharmacyUploadPrescriptionButton": {
+    "description": "ഒരു ഫയൽ തിരഞ്ഞെടുക്കുന്നതിനുള്ള ബട്ടൺ ടെക്സ്റ്റ്"
+  },
   "fileSelected": "തിരഞ്ഞെടുത്തു",
-  "@fileSelected": { "description": "തിരഞ്ഞെടുത്ത ഫയൽനാമത്തിന് മുമ്പുള്ള പ്രിഫിക്സ്" },
+  "@fileSelected": {
+    "description": "തിരഞ്ഞെടുത്ത ഫയൽനാമത്തിന് മുമ്പുള്ള പ്രിഫിക്സ്"
+  },
   "fileClearSelection": "മായ്ക്കുക",
-  "@fileClearSelection": { "description": "തിരഞ്ഞെടുത്ത ഫയൽ നീക്കംചെയ്യാനുള്ള ലിങ്ക്" },
+  "@fileClearSelection": {
+    "description": "തിരഞ്ഞെടുത്ത ഫയൽ നീക്കംചെയ്യാനുള്ള ലിങ്ക്"
+  },
   "pharmacyDeliveryAddressLabel": "ഡെലിവറി വിലാസം",
-  "@pharmacyDeliveryAddressLabel": { "description": "വിലാസം ടെക്സ്റ്റ്ഏരിയയ്ക്കുള്ള ലേബൽ" },
+  "@pharmacyDeliveryAddressLabel": {
+    "description": "വിലാസം ടെക്സ്റ്റ്ഏരിയയ്ക്കുള്ള ലേബൽ"
+  },
   "pharmacyDeliveryAddressHint": "വീട് / ഫ്ലാറ്റ് നമ്പർ, തെരുവ്, പ്രദേശം, പിൻ കോഡ്...",
-  "@pharmacyDeliveryAddressHint": { "description": "വിലാസം ടെക്സ്റ്റ്ഏരിയയ്ക്കുള്ളിലെ സൂചന" },
+  "@pharmacyDeliveryAddressHint": {
+    "description": "വിലാസം ടെക്സ്റ്റ്ഏരിയയ്ക്കുള്ളിലെ സൂചന"
+  },
   "pharmacyDeliveryAddressValidationRequired": "വിലാസം ആവശ്യമാണ്",
-  "@pharmacyDeliveryAddressValidationRequired": { "description": "വിലാസം ശൂന്യമായിരിക്കുമ്പോൾ കാണിക്കുന്ന സ്ഥിരീകരണം" },
+  "@pharmacyDeliveryAddressValidationRequired": {
+    "description": "വിലാസം ശൂന്യമായിരിക്കുമ്പോൾ കാണിക്കുന്ന സ്ഥിരീകരണം"
+  },
   "pharmacySubmitOrderButton": "ഓർഡർ സമർപ്പിക്കുക",
-  "@pharmacySubmitOrderButton": { "description": "ഫാർമസി ഓർഡർ സമർപ്പിക്കുന്നതിനുള്ള പ്രധാന ബട്ടൺ" },
+  "@pharmacySubmitOrderButton": {
+    "description": "ഫാർമസി ഓർഡർ സമർപ്പിക്കുന്നതിനുള്ള പ്രധാന ബട്ടൺ"
+  },
   "pharmacyCallButton": "ഫാർമസിയിലേക്ക് വിളിക്കുക",
-  "@pharmacyCallButton": { "description": "ഫാർമസിയിലേക്ക് ഫോൺ കോൾ ചെയ്യുന്നതിനുള്ള ബട്ടൺ" },
+  "@pharmacyCallButton": {
+    "description": "ഫാർമസിയിലേക്ക് ഫോൺ കോൾ ചെയ്യുന്നതിനുള്ള ബട്ടൺ"
+  },
   "pharmacyCallFailed": "ഡയലർ ലോഞ്ച് ചെയ്യാൻ കഴിഞ്ഞില്ല.",
-  "@pharmacyCallFailed": { "description": "tel: ലോഞ്ച് പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@pharmacyCallFailed": {
+    "description": "tel: ലോഞ്ച് പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "pharmacyPhoneNumberLabel": "ഫോൺ നമ്പർ",
-  "@pharmacyPhoneNumberLabel": { "description": "ഫോൺ ഫീൽഡിനായുള്ള ലേബൽ (അതിഥി മോഡ്)" },
+  "@pharmacyPhoneNumberLabel": {
+    "description": "ഫോൺ ഫീൽഡിനായുള്ള ലേബൽ (അതിഥി മോഡ്)"
+  },
   "pharmacyPhoneNumberHint": "10 അക്ക മൊബൈൽ നമ്പർ",
-  "@pharmacyPhoneNumberHint": { "description": "ഫോൺ ഫീൽഡിനായുള്ള സൂചന" },
+  "@pharmacyPhoneNumberHint": {
+    "description": "ഫോൺ ഫീൽഡിനായുള്ള സൂചന"
+  },
   "pharmacyPhoneNumberValidationInvalid": "സാധുവായ 10 അക്ക മൊബൈൽ നമ്പർ നൽകുക",
-  "@pharmacyPhoneNumberValidationInvalid": { "description": "ഫോൺ ഇൻപുട്ടിനായുള്ള സ്ഥിരീകരണ പിശക്" },
+  "@pharmacyPhoneNumberValidationInvalid": {
+    "description": "ഫോൺ ഇൻപുട്ടിനായുള്ള സ്ഥിരീകരണ പിശക്"
+  },
   "investigationsTitle": "പരിശോധനയ്ക്കായി അഭ്യർത്ഥിക്കുക",
-  "@investigationsTitle": { "description": "ആപ്പ്-ബാർ തലക്കെട്ട്" },
+  "@investigationsTitle": {
+    "description": "ആപ്പ്-ബാർ തലക്കെട്ട്"
+  },
   "investigationsTestNameLabel": "പരിശോധനയുടെ പേര്",
-  "@investigationsTestNameLabel": { "description": "പരിശോധനയുടെ പേരിനായുള്ള ലേബൽ" },
+  "@investigationsTestNameLabel": {
+    "description": "പരിശോധനയുടെ പേരിനായുള്ള ലേബൽ"
+  },
   "investigationsTestNameHint": "ഉദാ. കംപ്ലീറ്റ് ബ്ലഡ് കൗണ്ട്",
-  "@investigationsTestNameHint": { "description": "പരിശോധനയുടെ പേര് ഫീൽഡിലെ സൂചന" },
+  "@investigationsTestNameHint": {
+    "description": "പരിശോധനയുടെ പേര് ഫീൽഡിലെ സൂചന"
+  },
   "investigationsTestNameValidationRequired": "പരിശോധനയുടെ പേര് ആവശ്യമാണ്",
-  "@investigationsTestNameValidationRequired": { "description": "പരിശോധനയുടെ പേര് ശൂന്യമായിരിക്കുമ്പോൾ കാണിക്കുന്ന സ്ഥിരീകരണം" },
+  "@investigationsTestNameValidationRequired": {
+    "description": "പരിശോധനയുടെ പേര് ശൂന്യമായിരിക്കുമ്പോൾ കാണിക്കുന്ന സ്ഥിരീകരണം"
+  },
   "investigationsUploadFileButtonLabel": "ഡോക്ടറുടെ നിർദ്ദേശം അപ്‌ലോഡ് ചെയ്യുക",
-  "@investigationsUploadFileButtonLabel": { "description": "ഫയൽ തിരഞ്ഞെടുക്കുന്നതിനുള്ള ബട്ടൺ ടെക്സ്റ്റ്" },
+  "@investigationsUploadFileButtonLabel": {
+    "description": "ഫയൽ തിരഞ്ഞെടുക്കുന്നതിനുള്ള ബട്ടൺ ടെക്സ്റ്റ്"
+  },
   "investigationsSubmitRequestButton": "അഭ്യർത്ഥന സമർപ്പിക്കുക",
-  "@investigationsSubmitRequestButton": { "description": "പ്രധാന ബട്ടൺ ടെക്സ്റ്റ്" },
+  "@investigationsSubmitRequestButton": {
+    "description": "പ്രധാന ബട്ടൺ ടെക്സ്റ്റ്"
+  },
   "investigationsViewReportsButton": "പരിശോധനാ റിപ്പോർട്ടുകൾ കാണുക",
-  "@investigationsViewReportsButton": { "description": "നിങ്ങളുടെ ആരോഗ്യം പരിശോധനാ ഫിൽട്ടറിലേക്കുള്ള ലിങ്ക്" },
+  "@investigationsViewReportsButton": {
+    "description": "നിങ്ങളുടെ ആരോഗ്യം പരിശോധനാ ഫിൽട്ടറിലേക്കുള്ള ലിങ്ക്"
+  },
   "investigationsFormAndFileRequired": "ദയവായി ഫോം പൂരിപ്പിച്ച് ഒരു ഫയൽ അറ്റാച്ചുചെയ്യുക.",
-  "@investigationsFormAndFileRequired": { "description": "ഫോം/ഫയൽ ലഭ്യമല്ലാത്തപ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@investigationsFormAndFileRequired": {
+    "description": "ഫോം/ഫയൽ ലഭ്യമല്ലാത്തപ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "investigationsConfirmationNote": "അഭ്യർത്ഥന അയച്ചു! ഷെഡ്യൂൾ ചെയ്യാൻ ഞങ്ങൾ നിങ്ങളെ ബന്ധപ്പെടും.",
-  "@investigationsConfirmationNote": { "description": "വിജയകരമായ സമർപ്പണത്തിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ" },
+  "@investigationsConfirmationNote": {
+    "description": "വിജയകരമായ സമർപ്പണത്തിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ"
+  },
   "investigationsFailed": "അഭ്യർത്ഥന സമർപ്പിക്കുന്നതിൽ പരാജയപ്പെട്ടു.",
-  "@investigationsFailed": { "description": "പൊതുവായ ബാക്കെൻഡ് പരാജയം" },
+  "@investigationsFailed": {
+    "description": "പൊതുവായ ബാക്കെൻഡ് പരാജയം"
+  },
   "investigationsUploadFailed": "ഫയൽ അപ്‌ലോഡ് പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
-  "@investigationsUploadFailed": { "description": "അപ്‌ലോഡ് പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@investigationsUploadFailed": {
+    "description": "അപ്‌ലോഡ് പരാജയപ്പെടുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "investigationsPermissionsRequired": "സ്റ്റോറേജ് അനുമതി ആവശ്യമാണ്.",
-  "@investigationsPermissionsRequired": { "description": "ഉപയോക്താവ് അനുമതികൾ നിരസിക്കുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ" },
+  "@investigationsPermissionsRequired": {
+    "description": "ഉപയോക്താവ് അനുമതികൾ നിരസിക്കുമ്പോൾ കാണിക്കുന്ന സ്നാക്ക്-ബാർ"
+  },
   "investigationsFilePickerError": "ഒരു ഫയൽ തിരഞ്ഞെടുക്കാൻ കഴിഞ്ഞില്ല. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
-  "@investigationsFilePickerError": { "description": "ഫയൽ-പിക്കർ പിശക് കാണിക്കുമ്പോൾ സ്നാക്ക്-ബാർ" },
+  "@investigationsFilePickerError": {
+    "description": "ഫയൽ-പിക്കർ പിശക് കാണിക്കുമ്പോൾ സ്നാക്ക്-ബാർ"
+  },
   "triviaTitle": "ആരോഗ്യ അറിവുകൾ",
-  "@triviaTitle": { "description": "അറിവുകൾ സ്ക്രീനിന്റെ ആപ്പ്-ബാർ തലക്കെട്ട്" },
+  "@triviaTitle": {
+    "description": "അറിവുകൾ സ്ക്രീനിന്റെ ആപ്പ്-ബാർ തലക്കെട്ട്"
+  },
   "triviaDidYouKnow": "നിങ്ങൾക്കറിയാമോ?",
-  "@triviaDidYouKnow": { "description": "അറിവ് എന്നതിന് മുകളിലുള്ള തലക്കെട്ട്" },
+  "@triviaDidYouKnow": {
+    "description": "അറിവ് എന്നതിന് മുകളിലുള്ള തലക്കെട്ട്"
+  },
   "triviaNewTriviaButton": "മറ്റൊരു വസ്തുത കാണിക്കുക",
-  "@triviaNewTriviaButton": { "description": "പുതിയൊരു യാദൃശ്ചികമായ അറിവ് ലോഡ് ചെയ്യുന്നതിനുള്ള ബട്ടൺ" },
+  "@triviaNewTriviaButton": {
+    "description": "പുതിയൊരു യാദൃശ്ചികമായ അറിവ് ലോഡ് ചെയ്യുന്നതിനുള്ള ബട്ടൺ"
+  },
   "triviaFact1": "മനുഷ്യന്റെ ഹൃദയം ഒരു ദിവസം ഏകദേശം 100,000 തവണ മിടിക്കുന്നു.",
-  "@triviaFact1": { "description": "യാദൃശ്ചികമായ അറിവ് #1" },
+  "@triviaFact1": {
+    "description": "യാദൃശ്ചികമായ അറിവ് #1"
+  },
   "triviaFact2": "100 തവണ ചിരിക്കുന്നത് ഏകദേശം 15 മിനിറ്റ് സ്റ്റേഷനറി ബൈക്കിൽ വ്യായാമം ചെയ്യുന്നതിന് തുല്യമാണ്.",
-  "@triviaFact2": { "description": "യാദൃശ്ചികമായ അറിവ് #2" },
+  "@triviaFact2": {
+    "description": "യാദൃശ്ചികമായ അറിവ് #2"
+  },
   "triviaFact3": "നിങ്ങളുടെ മൂക്കിന് 50,000 വ്യത്യസ്ത ഗന്ധങ്ങൾ ഓർമ്മിക്കാൻ കഴിയും.",
-  "@triviaFact3": { "description": "യാദൃശ്ചികമായ അറിവ് #3" },
+  "@triviaFact3": {
+    "description": "യാദൃശ്ചികമായ അറിവ് #3"
+  },
   "triviaFact4": "ഒരേ ഭാരമുള്ള ഉരുക്കിനേക്കാൾ അഞ്ചിരട്ടി കരുത്തുണ്ട് എല്ലുകൾക്ക്.",
-  "@triviaFact4": { "description": "യാദൃശ്ചികമായ അറിവ് #4" },
+  "@triviaFact4": {
+    "description": "യാദൃശ്ചികമായ അറിവ് #4"
+  },
   "triviaFact5": "പ്രായപൂർത്തിയായ ഒരാളുടെ ചർമ്മം ശരാശരി 2 ചതുരശ്ര മീറ്റർ വിസ്തീർണ്ണം ഉൾക്കൊള്ളുന്നു.",
-  "@triviaFact5": { "description": "യാദൃശ്ചികമായ അറിവ് #5" },
+  "@triviaFact5": {
+    "description": "യാദൃശ്ചികമായ അറിവ് #5"
+  },
   "triviaFact6": "നിങ്ങളുടെ വയറിലെ ആവരണം സ്വയം ദഹിക്കാതിരിക്കാൻ ഏതാനും ദിവസങ്ങൾ കൂടുമ്പോൾ സ്വയം മാറുന്നു.",
-  "@triviaFact6": { "description": "യാദൃശ്ചികമായ അറിവ് #6" },
+  "@triviaFact6": {
+    "description": "യാദൃശ്ചികമായ അറിവ് #6"
+  },
   "triviaFact7": "ശരീരത്തിലെ ഏറ്റവും ശക്തമായ പേശി (ഭാരമനുസരിച്ച്) താടിയെല്ലിലെ മസ്സെറ്റർ പേശിയാണ്.",
-  "@triviaFact7": { "description": "യാദൃശ്ചികമായ അറിവ് #7" },
+  "@triviaFact7": {
+    "description": "യാദൃശ്ചികമായ അറിവ് #7"
+  },
   "triviaFact8": "രാത്രിയേക്കാൾ രാവിലെ ആളുകൾക്ക് ഏകദേശം 1 സെന്റിമീറ്റർ ഉയരം കൂടുതലായിരിക്കും.",
-  "@triviaFact8": { "description": "യാദൃശ്ചികമായ അറിവ് #8" },
+  "@triviaFact8": {
+    "description": "യാദൃശ്ചികമായ അറിവ് #8"
+  },
   "triviaFact9": "വിയർപ്പിന് ഗന്ധമില്ല; ചർമ്മത്തിലെ ബാക്ടീരിയകളാണ് ശരീര ദുർഗന്ധം ഉണ്ടാക്കുന്നത്.",
-  "@triviaFact9": { "description": "യാദൃശ്ചികമായ അറിവ് #9" },
+  "@triviaFact9": {
+    "description": "യാദൃശ്ചികമായ അറിവ് #9"
+  },
   "triviaFact10": "മനുഷ്യർ അവരുടെ ഡിഎൻഎയുടെ 50% വാഴപ്പഴവുമായി പങ്കിടുന്നു.",
-  "@triviaFact10": { "description": "യാദൃശ്ചികമായ അറിവ് #10" },
+  "@triviaFact10": {
+    "description": "യാദൃശ്ചികമായ അറിവ് #10"
+  },
   "departmentsTitle": "ആശുപത്രി വകുപ്പുകൾ",
-  "@departmentsTitle": { "description": "വകുപ്പുകൾ സ്ക്രീനിന്റെ ആപ്പ്-ബാർ തലക്കെട്ട്" },
+  "@departmentsTitle": {
+    "description": "വകുപ്പുകൾ സ്ക്രീനിന്റെ ആപ്പ്-ബാർ തലക്കെട്ട്"
+  },
   "departmentsLoadFailed": "വകുപ്പുകൾ ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കാൻ താഴേക്ക് വലിക്കുക.",
-  "@departmentsLoadFailed": { "description": "ലഭ്യമാക്കുന്നതിൽ പരാജയപ്പെടുമ്പോൾ സ്നാക്ക്-ബാർ" },
+  "@departmentsLoadFailed": {
+    "description": "ലഭ്യമാക്കുന്നതിൽ പരാജയപ്പെടുമ്പോൾ സ്നാക്ക്-ബാർ"
+  },
   "departmentsNoneFound": "വകുപ്പുകളൊന്നും കണ്ടെത്തിയില്ല.",
-  "@departmentsNoneFound": { "description": "API ശൂന്യമായ ലിസ്റ്റ് നൽകുമ്പോൾ കാണിക്കുന്നത്" },
+  "@departmentsNoneFound": {
+    "description": "API ശൂന്യമായ ലിസ്റ്റ് നൽകുമ്പോൾ കാണിക്കുന്നത്"
+  },
   "departmentsUnknown": "അജ്ഞാതമായ വകുപ്പ്",
-  "@departmentsUnknown": { "description": "വകുപ്പ് ഫീൽഡ് ലഭ്യമല്ലാത്തപ്പോൾ ഫാൾബാക്ക് പേര്" },
+  "@departmentsUnknown": {
+    "description": "വകുപ്പ് ഫീൽഡ് ലഭ്യമല്ലാത്തപ്പോൾ ഫാൾബാക്ക് പേര്"
+  },
   "departmentsDoctor": "ഡോക്ടർ",
-  "@departmentsDoctor": { "description": "ഫാൾബാക്ക് ഡോക്ടറുടെ പേര്" },
+  "@departmentsDoctor": {
+    "description": "ഫാൾബാക്ക് ഡോക്ടറുടെ പേര്"
+  },
   "departmentsBook": "ബുക്ക് ചെയ്യുക",
-  "@departmentsBook": { "description": "ഒരു ഡോക്ടറുമായി അപ്പോയിന്റ്മെന്റ് ബുക്ക് ചെയ്യുന്നതിനുള്ള ബട്ടൺ ടെക്സ്റ്റ്" },
+  "@departmentsBook": {
+    "description": "ഒരു ഡോക്ടറുമായി അപ്പോയിന്റ്മെന്റ് ബുക്ക് ചെയ്യുന്നതിനുള്ള ബട്ടൺ ടെക്സ്റ്റ്"
+  },
   "guestUser": "അതിഥി",
-  "@guestUser": { "description": "അതിഥി ഉപയോക്താക്കൾക്കുള്ള പ്രദർശന നാമം" },
+  "@guestUser": {
+    "description": "അതിഥി ഉപയോക്താക്കൾക്കുള്ള പ്രദർശന നാമം"
+  },
   "aboutUsContent": "2003-ൽ ഞങ്ങളുടെ തുടക്കം മുതൽ, വെങ്കിടേശ്വര ഹോസ്പിറ്റൽസ് ചെന്നൈയുടെ ഹൃദയഭാഗത്ത് പ്രത്യാശയുടെയും രോഗശാന്തിയുടെയും ഒരു ദീപസ്തംഭമായി നിലകൊള്ളുന്നു. ദീർഘവീക്ഷണമുള്ള കാർഡിയോളജിസ്റ്റ് ഡോ. തില്ലൈ വള്ളലിനാൽ സ്ഥാപിതമായ ഞങ്ങൾ, ഒരു പ്രത്യേക കാർഡിയാക് കെയർ സെന്ററിൽ നിന്ന് ചെന്നൈയിലെ ഏറ്റവും വിശ്വസനീയമായ മൾട്ടിസ്പെഷ്യാലിറ്റി ആരോഗ്യ സംരക്ഷണ സ്ഥാപനങ്ങളിലൊന്നായി രൂപാന്തരപ്പെട്ടു, ഞങ്ങളുടെ കാരുണ്യപരമായ പരിചരണത്തോടുള്ള പ്രതിബദ്ധതയോടെ ഒരു ദശലക്ഷത്തിലധികം ജീവിതങ്ങളെ സ്പർശിച്ചു.\n\n## ഞങ്ങളുടെ ദൗത്യം: പ്രതിരോധമാണ് ഞങ്ങളുടെ അഭിനിവേശം\nവെങ്കിടേശ്വര ഹോസ്പിറ്റൽസിൽ, ഏറ്റവും മികച്ച ചികിത്സ പ്രതിരോധമാണെന്ന് ഞങ്ങൾ വിശ്വസിക്കുന്നു. ഞങ്ങളുടെ പ്രാഥമിക ദൗത്യം രോഗശാന്തിക്കപ്പുറത്തേക്ക് വ്യാപിക്കുന്നു—സമഗ്രമായ സ്ക്രീനിംഗ്, വിദ്യാഭ്യാസം, വ്യക്തിഗത വെൽനസ് പ്രോഗ്രാമുകൾ എന്നിവയിലൂടെ ജീവിതശൈലീ രോഗങ്ങൾ വരുന്നത് തടയാൻ ഞങ്ങൾ പ്രതിജ്ഞാബദ്ധരാണ്. ഈ മുൻകരുതൽ സമീപനം ആയിരക്കണക്കിന് രോഗികളെ ഹൃദയാഘാതം, പക്ഷാഘാതം, മറ്റ് തടയാൻ കഴിയുന്ന അവസ്ഥകൾ എന്നിവ ഒഴിവാക്കാൻ സഹായിച്ചിട്ടുണ്ട്.\n\n## ലോകോത്തര സൗകര്യങ്ങൾ, നാടിന്റെ കരുതൽ\nനന്ദനം, ചാമേഴ്സ് റോഡിലുള്ള ഞങ്ങളുടെ 150 കിടക്കകളുള്ള സൗകര്യം അത്യാധുനിക സാങ്കേതികവിദ്യയെ വ്യക്തിഗത പരിചരണത്തിന്റെ ഊഷ്മളതയുമായി സംയോജിപ്പിക്കുന്നു. ഒന്നിലധികം സ്പെഷ്യാലിറ്റികളിലായി 100-ലധികം വിശിഷ്ട ഡോക്ടർമാരും അത്യാധുനിക ഇൻഫ്രാസ്ട്രക്ചറും ഉപയോഗിച്ച് ഞങ്ങൾ വാഗ്ദാനം ചെയ്യുന്നു:\n\n- **അഡ്വാൻസ്ഡ് കാർഡിയാക് കെയർ**: 100,000-ത്തിലധികം വിജയകരമായ കാർഡിയാക് നടപടിക്രമങ്ങൾ പൂർത്തിയാക്കി\n- **24/7 എമർജൻസി സേവനങ്ങൾ**: മുഴുവൻ സമയ ട്രോമയും ക്രിട്ടിക്കൽ കെയറും\n- **സമഗ്രമായ സ്പെഷ്യാലിറ്റികൾ**: കാർഡിയോളജി മുതൽ കോസ്മെറ്റോളജി വരെ, ന്യൂറോളജി മുതൽ നെഫ്രോളജി വരെ\n- **ആധുനിക ഐസിയു**: 1:1 നഴ്സ്-രോഗി അനുപാതവും നൂതന നിരീക്ഷണ സംവിധാനങ്ങളുമുള്ള 25 കിടക്കകളുള്ള ക്ലോസ്ഡ് ഐസിയു\n- **അത്യാധുനിക ഡയഗ്നോസ്റ്റിക്സ്**: എംആർഐ, സിടി സ്കാൻ, നൂതന പാത്തോളജി ലാബ്, ഇമേജിംഗ് സൗകര്യങ്ങൾ\n\n## മെഡിക്കൽ മികവിൽ മുന്നോട്ട്\n### ഏറ്റവും പുതിയ നടപടിക്രമങ്ങളും സാങ്കേതികവിദ്യകളും\n\n**മിനിമലി ഇൻവേസീവ് കാർഡിയാക് ഇടപെടലുകൾ**\n- ഡ്രഗ്-എലൂട്ടിംഗ് സ്റ്റെന്റുകളുള്ള നൂതന ആൻജിയോപ്ലാസ്റ്റി ടെക്നിക്കുകൾ\n- ട്രാൻസ്കാഥെറ്റർ അയോർട്ടിക് വാൽവ് റീപ്ലേസ്മെന്റ് (TAVR)\n- ലീഡ്ലെസ് പേസ്മേക്കർ ഇംപ്ലാന്റേഷൻ\n- സങ്കീർണ്ണമായ അരിത്മിയ അബ്ലേഷനുകൾക്കായി 3D മാപ്പിംഗ്\n- ഇൻട്രാവാസ്കുലർ അൾട്രാസൗണ്ട് (IVUS) ഗൈഡഡ് നടപടിക്രമങ്ങൾ\n\n**റോബോട്ടിക് & ലാപ്രോസ്കോപ്പിക് സർജറി**\n- കൃത്യമായ ട്യൂമർ നീക്കം ചെയ്യുന്നതിനുള്ള റോബോട്ട്-അസിസ്റ്റഡ് സർജറികൾ\n- സിംഗിൾ-ഇൻസിഷൻ ലാപ്രോസ്കോപ്പിക് നടപടിക്രമങ്ങൾ\n- വേഗത്തിലുള്ള വീണ്ടെടുക്കലിനായി എൻഡോസ്കോപ്പിക് സ്പൈൻ സർജറികൾ\n- കുറഞ്ഞ പാടുകൾക്കായി ലേസർ-അസിസ്റ്റഡ് സർജറികൾ\n\n**നൂതന കാൻസർ പരിചരണം**\n- ടാർഗെറ്റഡ് തെറാപ്പിയും ഇമ്മ്യൂണോതെറാപ്പി പ്രോട്ടോക്കോളുകളും\n- ഇമേജ്-ഗൈഡഡ് റേഡിയേഷൻ തെറാപ്പി (IGRT)\n- ട്യൂമർ ചികിത്സയ്ക്കായി സൈബർനൈഫ് റേഡിയോസർജറി\n- വ്യക്തിഗത കാൻസർ ജീനോമിക്സ് ടെസ്റ്റിംഗ്\n- വേദനയില്ലാത്ത കീമോതെറാപ്പി ഡെലിവറി സിസ്റ്റങ്ങൾ\n\n**അത്യാധുനിക ഡയഗ്നോസ്റ്റിക്സ്**\n- അൾട്രാ-ഹൈ റെസല്യൂഷൻ ഇമേജിംഗിനായി 3 ടെസ്ല എംആർഐ\n- കാർഡിയാക്, ഫുൾ-ബോഡി സ്കാനുകൾക്കായി 256-സ്ലൈസ് സിടി സ്കാനർ\n- നേരത്തെയുള്ള കാൻസർ കണ്ടെത്തലിനായി പിഇടി-സിടി\n- നൂതന 4D അൾട്രാസൗണ്ട് ടെക്നോളജി\n- AI- പവർഡ് ഡയഗ്നോസ്റ്റിക് ഇന്റർപ്രെട്ടേഷൻ സിസ്റ്റങ്ങൾ\n\n**നൂതന ചികിത്സാ സമീപനങ്ങൾ**\n- ഹൃദയ പുനരുജ്ജീവനത്തിനായി സ്റ്റെം സെൽ തെറാപ്പി\n- പ്ലേറ്റ്ലെറ്റ്-റിച്ച് പ്ലാസ്മ (PRP) തെറാപ്പി\n- നോൺ-സർജിക്കൽ ബോഡി കോണ്ടറിംഗും സൗന്ദര്യവർദ്ധക നടപടിക്രമങ്ങളും\n- ഹൈപ്പർബാറിക് ഓക്സിജൻ തെറാപ്പി ഉപയോഗിച്ച് നൂതന മുറിവ് ഉണക്കൽ\n- സിദ്ധയും ആധുനിക വൈദ്യശാസ്ത്രവും സംയോജിപ്പിച്ച് സംയോജിത ഹോളിസ്റ്റിക് രോഗശാന്തി\n\n## അംഗീകാരവും മികവും\n- **റേഡിയോ സിറ്റി ഐക്കൺ അവാർഡ് 2022** ഹൃദയ സംരക്ഷണത്തിലെ മികവിന്\n- **NABH അംഗീകാരം** രോഗി പരിചരണത്തിന്റെയും സുരക്ഷയുടെയും ഉയർന്ന നിലവാരം ഉറപ്പാക്കുന്നു\n- **4.7/5 രോഗി സംതൃപ്തി റേറ്റിംഗ്** ആയിരക്കണക്കിന് അവലോകനങ്ങളെ അടിസ്ഥാനമാക്കി\n- ഒന്നിലധികം സ്പെഷ്യാലിറ്റികളിൽ **സെന്റർ ഓഫ് എക്സലൻസ്** പദവി\n\n## ഹെൽത്ത് കെയർ വിദ്യാഭ്യാസത്തിലെ നൂതനാശയം\nരോഗി പരിചരണത്തിനപ്പുറം, ഞങ്ങളുടെ അലൈഡ് ഹെൽത്ത് സയൻസസ് പ്രോഗ്രാമുകളിലൂടെ ഞങ്ങൾ അടുത്ത തലമുറയിലെ ആരോഗ്യ സംരക്ഷണ പ്രൊഫഷണലുകളെ പരിപോഷിപ്പിക്കുന്നു. തമിഴ്‌നാട് ഡോ. എം.ജി.ആർ. മെഡിക്കൽ യൂണിവേഴ്സിറ്റിയുമായി അഫിലിയേറ്റ് ചെയ്തിട്ടുള്ള ഞങ്ങൾ കാർഡിയാക് ടെക്നോളജി, ക്രിട്ടിക്കൽ കെയർ, ഹെൽത്ത് കെയർ മാനേജ്മെന്റ് എന്നിവയിൽ പ്രത്യേക കോഴ്സുകൾ വാഗ്ദാനം ചെയ്യുന്നു.\n\n## ഞങ്ങളുടെ മൂല്യങ്ങൾ, നിങ്ങളുടെ വിശ്വാസം\n**ദയ** – ഓരോ രോഗിയും കുടുംബമാണ്\n**മികവ്** – ഉയർന്ന മെഡിക്കൽ നിലവാരത്തിനായുള്ള പരിശ്രമം\n**നൂതനാശയം** – നൂതന ചികിത്സകളും സാങ്കേതികവിദ്യകളും സ്വീകരിക്കുന്നു\n**സമഗ്രത** – സുതാര്യവും ധാർമ്മികവുമായ ആരോഗ്യ സംരക്ഷണ വിതരണം\n\n## പ്രചോദനം നൽകുന്ന നേതൃത്വം\nകാർഡിയോളജിക്കൽ സൊസൈറ്റി ഓഫ് ഇന്ത്യ, യൂറോപ്യൻ സൊസൈറ്റി ഓഫ് കാർഡിയോളജി, ഇന്ത്യൻ മെഡിക്കൽ അസോസിയേഷൻ എന്നിവയിലെ സജീവ അംഗമായ ഡോ. തില്ലൈ വള്ളലിന്റെ നേതൃത്വത്തിൽ, ഞങ്ങളുടെ ആശുപത്രി ആധുനിക വൈദ്യശാസ്ത്രത്തെ ഹോളിസ്റ്റിക് വെൽനസുമായി സംയോജിപ്പിച്ച് സംയോജിത ആരോഗ്യ സംരക്ഷണ സമീപനങ്ങളിൽ മുൻപന്തിയിൽ തുടരുന്നു.\n\n## നിങ്ങളുടെ ആരോഗ്യം, ഞങ്ങളുടെ പ്രതിബദ്ധത\nസാധാരണ പരിശോധനകൾ മുതൽ സങ്കീർണ്ണമായ ശസ്ത്രക്രിയകൾ വരെ, പ്രതിരോധ പരിചരണം മുതൽ അടിയന്തര ഇടപെടലുകൾ വരെ, വെങ്കിടേശ്വര ഹോസ്പിറ്റൽസ് നിങ്ങളെ 24/7 സേവിക്കാൻ തയ്യാറാണ്. ക്യാഷ്‌ലെസ് ഇൻഷുറൻസ് സൗകര്യങ്ങൾ, താങ്ങാനാവുന്ന ചികിത്സാ ഓപ്ഷനുകൾ, രോഗി-ആദ്യ സമീപനം എന്നിവ ഉപയോഗിച്ച്, ഗുണനിലവാരമുള്ള ആരോഗ്യ സംരക്ഷണം എല്ലാവർക്കും ലഭ്യമാണെന്ന് ഞങ്ങൾ ഉറപ്പാക്കുന്നു.\n\n**ഞങ്ങളെ സന്ദർശിക്കുക:**\n36-A, ചാമേഴ്സ് റോഡ്, നന്ദനം\nചെന്നൈ – 600035\n(ദേവർ പ്രതിമയ്ക്ക് സമീപം)\n\n*രോഗശാന്തി ഹൃദയത്തെ കണ്ടുമുട്ടുന്നിടത്ത്, സാങ്കേതികവിദ്യ കാരുണ്യത്തെ കണ്ടുമുട്ടുന്നിടത്ത്—വെങ്കിടേശ്വര ഹോസ്പിറ്റൽസിലേക്ക് സ്വാഗതം, നിങ്ങളുടെ ആജീവനാന്ത ആരോഗ്യ പങ്കാളി.*",
   "@aboutUsContent": {
     "description": "ഞങ്ങളെക്കുറിച്ച് സ്ക്രീനിനായുള്ള മുഴുവൻ മാർക്ക്ഡൗൺ ഉള്ളടക്കം"
   },
   "settingsTitle": "ക്രമീകരണങ്ങൾ",
-  "@settingsTitle": { "description": "ആപ്പ്-ബാർ തലക്കെട്ട്" },
+  "@settingsTitle": {
+    "description": "ആപ്പ്-ബാർ തലക്കെട്ട്"
+  },
   "settingsEditProfile": "പ്രൊഫൈൽ എഡിറ്റ് ചെയ്യുക",
-  "@settingsEditProfile": { "description": "പ്രൊഫൈൽ എഡിറ്റ് ചെയ്യുന്നതിനുള്ള ലിസ്റ്റ്-ടൈൽ ലേബൽ" },
+  "@settingsEditProfile": {
+    "description": "പ്രൊഫൈൽ എഡിറ്റ് ചെയ്യുന്നതിനുള്ള ലിസ്റ്റ്-ടൈൽ ലേബൽ"
+  },
   "settingsLanguage": "ഭാഷ",
-  "@settingsLanguage": { "description": "ഭാഷയ്ക്കുള്ള വിഭാഗം തലക്കെട്ട്" },
+  "@settingsLanguage": {
+    "description": "ഭാഷയ്ക്കുള്ള വിഭാഗം തലക്കെട്ട്"
+  },
   "settingsAccessibility": "പ്രവേശനക്ഷമത",
-  "@settingsAccessibility": { "description": "ഫോണ്ട് വലുപ്പ സ്ലൈഡറിനായുള്ള വിഭാഗം തലക്കെട്ട്" },
+  "@settingsAccessibility": {
+    "description": "ഫോണ്ട് വലുപ്പ സ്ലൈഡറിനായുള്ള വിഭാഗം തലക്കെട്ട്"
+  },
   "settingsFontSize": "ഫോണ്ട് വലുപ്പം",
-  "@settingsFontSize": { "description": "ഫോണ്ട് വലുപ്പ ഓപ്ഷനായുള്ള ലേബൽ" },
+  "@settingsFontSize": {
+    "description": "ഫോണ്ട് വലുപ്പ ഓപ്ഷനായുള്ള ലേബൽ"
+  },
   "settingsFontSizeChanged": "ഫോണ്ട് വലുപ്പം സജ്ജീകരിച്ചു",
-  "@settingsFontSizeChanged": { "description": "ഫോണ്ട് വലുപ്പം മാറ്റിയതിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ പ്രിഫിക്സ്" },
+  "@settingsFontSizeChanged": {
+    "description": "ഫോണ്ട് വലുപ്പം മാറ്റിയതിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ പ്രിഫിക്സ്"
+  },
   "settingsTheme": "ഡാർക്ക് തീം",
-  "@settingsTheme": { "description": "തീം ടോഗിളിനായുള്ള ലേബൽ" },
+  "@settingsTheme": {
+    "description": "തീം ടോഗിളിനായുള്ള ലേബൽ"
+  },
   "settingsDarkTheme": "ഡാർക്ക് മോഡ് പ്രവർത്തനക്ഷമമാക്കി",
-  "@settingsDarkTheme": { "description": "ഡാർക്ക് മോഡ് ഓണായിരിക്കുമ്പോൾ ഉപശീർഷകം" },
+  "@settingsDarkTheme": {
+    "description": "ഡാർക്ക് മോഡ് ഓണായിരിക്കുമ്പോൾ ഉപശീർഷകം"
+  },
   "settingsLightTheme": "ലൈറ്റ് മോഡ് പ്രവർത്തനക്ഷമമാക്കി",
-  "@settingsLightTheme": { "description": "ഡാർക്ക് മോഡ് ഓഫായിരിക്കുമ്പോൾ ഉപശീർഷകം" },
+  "@settingsLightTheme": {
+    "description": "ഡാർക്ക് മോഡ് ഓഫായിരിക്കുമ്പോൾ ഉപശീർഷകം"
+  },
   "settingsSecurity": "സുരക്ഷ",
-  "@settingsSecurity": { "description": "ബയോമെട്രിക് ലോഗിനിനായുള്ള വിഭാഗം തലക്കെട്ട്" },
+  "@settingsSecurity": {
+    "description": "ബയോമെട്രിക് ലോഗിനിനായുള്ള വിഭാഗം തലക്കെട്ട്"
+  },
   "settingsBiometricLogin": "ബയോമെട്രിക് ലോഗിൻ ഉപയോഗിക്കുക",
-  "@settingsBiometricLogin": { "description": "ബയോമെട്രിക് ടോഗിളിനായുള്ള ലേബൽ" },
+  "@settingsBiometricLogin": {
+    "description": "ബയോമെട്രിക് ടോഗിളിനായുള്ള ലേബൽ"
+  },
   "settingsBiometricNotSupported": "ഈ ഉപകരണത്തിൽ ബയോമെട്രിക്സ് പിന്തുണയ്ക്കുന്നില്ല.",
-  "@settingsBiometricNotSupported": { "description": "ഉപകരണത്തിൽ ബയോമെട്രിക്സ് ഇല്ലാത്തപ്പോൾ സ്നാക്ക്-ബാർ" },
+  "@settingsBiometricNotSupported": {
+    "description": "ഉപകരണത്തിൽ ബയോമെട്രിക്സ് ഇല്ലാത്തപ്പോൾ സ്നാക്ക്-ബാർ"
+  },
   "settingsLogout": "ലോഗ് ഔട്ട് ചെയ്യുക",
-  "@settingsLogout": { "description": "ലോഗൗട്ട് ബട്ടണിലെ ലേബൽ" },
+  "@settingsLogout": {
+    "description": "ലോഗൗട്ട് ബട്ടണിലെ ലേബൽ"
+  },
   "settingsLogoutConfirmation": "ലോഗ് ഔട്ട് ചെയ്യുക",
-  "@settingsLogoutConfirmation": { "description": "ലോഗൗട്ട് സ്ഥിരീകരണത്തിനായി ആവശ്യപ്പെടുന്ന ഡയലോഗ് തലക്കെട്ട്" },
+  "@settingsLogoutConfirmation": {
+    "description": "ലോഗൗട്ട് സ്ഥിരീകരണത്തിനായി ആവശ്യപ്പെടുന്ന ഡയലോഗ് തലക്കെട്ട്"
+  },
   "settingsAreYouSureLogout": "നിങ്ങൾ തീർച്ചയായും ലോഗ് ഔട്ട് ചെയ്യാൻ ആഗ്രഹിക്കുന്നുണ്ടോ?",
-  "@settingsAreYouSureLogout": { "description": "ലോഗൗട്ട് സ്ഥിരീകരണത്തിനുള്ള ഡയലോഗ് ബോഡി" },
+  "@settingsAreYouSureLogout": {
+    "description": "ലോഗൗട്ട് സ്ഥിരീകരണത്തിനുള്ള ഡയലോഗ് ബോഡി"
+  },
   "settingsConfirmLogout": "അതെ, ലോഗ് ഔട്ട് ചെയ്യുക",
-  "@settingsConfirmLogout": { "description": "ഡയലോഗ് സ്ഥിരീകരണ ബട്ടൺ" },
+  "@settingsConfirmLogout": {
+    "description": "ഡയലോഗ് സ്ഥിരീകരണ ബട്ടൺ"
+  },
   "calendarFullAccess": "എന്റെ ആരോഗ്യ കലണ്ടർ",
-  "@calendarFullAccess": { "description": "ആപ്പ്-ബാർ തലക്കെട്ടും അനുമതി നിർദ്ദേശ തലക്കെട്ടും" },
+  "@calendarFullAccess": {
+    "description": "ആപ്പ്-ബാർ തലക്കെട്ടും അനുമതി നിർദ്ദേശ തലക്കെട്ടും"
+  },
   "calendarPermissionDenied": "കലണ്ടർ അനുമതി നിഷേധിച്ചു.",
-  "@calendarPermissionDenied": { "description": "ഉപയോക്താവ് കലണ്ടർ അനുമതി നിഷേധിക്കുമ്പോൾ സ്നാക്ക്-ബാർ ടെക്സ്റ്റ്" },
+  "@calendarPermissionDenied": {
+    "description": "ഉപയോക്താവ് കലണ്ടർ അനുമതി നിഷേധിക്കുമ്പോൾ സ്നാക്ക്-ബാർ ടെക്സ്റ്റ്"
+  },
   "calendarEnablePermissions": "നിങ്ങളുടെ ഇവന്റുകൾ കാണുന്നതിന് ക്രമീകരണങ്ങളിൽ കലണ്ടർ അനുമതി പ്രവർത്തനക്ഷമമാക്കുക.",
-  "@calendarEnablePermissions": { "description": "അനുമതി നൽകാത്തപ്പോൾ കാണിക്കുന്ന സന്ദേശം" },
+  "@calendarEnablePermissions": {
+    "description": "അനുമതി നൽകാത്തപ്പോൾ കാണിക്കുന്ന സന്ദേശം"
+  },
   "openSettings": "ക്രമീകരണങ്ങൾ തുറക്കുക",
-  "@openSettings": { "description": "സിസ്റ്റം ക്രമീകരണങ്ങൾ തുറക്കുന്നതിനുള്ള ബട്ടൺ ലേബൽ" },
-"settingsPermissionsTitle": "അനുമതികൾ",
-"@settingsPermissionsTitle": { "description": "കലണ്ടർ, ക്യാമറ തുടങ്ങിയ ആപ്പ് അനുമതികൾക്കുള്ള വിഭാഗത്തിന്റെ തലക്കെട്ട്" },
-"settingsPermissionCalendar": "കലണ്ടർ ആക്സസ്",
-"@settingsPermissionCalendar": { "description": "കലണ്ടർ അനുമതിക്കുള്ള ലേബൽ" },
-"settingsPermissionCalendarDesc": "അപ്പോയിന്റ്മെന്റുകളും പരിശോധനകളും കാണിക്കാൻ ഉപയോഗിക്കുന്നു",
-"@settingsPermissionCalendarDesc": { "description": "കലണ്ടർ അനുമതി ഉപയോഗത്തിന്റെ വിവരണം" },
-"settingsPermissionLocation": "ലൊക്കേഷൻ ആക്സസ്",
-"@settingsPermissionLocation": { "description": "ലൊക്കേഷൻ അനുമതിക്കുള്ള ലേബൽ" },
-"settingsPermissionLocationDesc": "SOS-നും അടുത്തുള്ള ആശുപത്രി കണ്ടെത്താനും ഉപയോഗിക്കുന്നു",
-"@settingsPermissionLocationDesc": { "description": "ലൊക്കേഷൻ അനുമതി ഉപയോഗത്തിന്റെ വിവരണം" },
-"settingsPermissionCamera": "ക്യാമറ ആക്സസ്",
-"@settingsPermissionCamera": { "description": "ക്യാമറ അനുമതിക്കുള്ള ലേബൽ" },
-"settingsPermissionCameraDesc": "കുറിപ്പടികൾ സ്കാൻ ചെയ്യാനും ചിത്രങ്ങൾ അപ്‌ലോഡ് ചെയ്യാനും ഉപയോഗിക്കുന്നു",
-"@settingsPermissionCameraDesc": { "description": "ക്യാമറ അനുമതി ഉപയോഗത്തിന്റെ വിവരണം"},
-"settingsPermissionManage": "നിയന്ത്രിക്കുക",
-"@settingsPermissionManage": { "description": "അനുമതി നിയന്ത്രണത്തിനായി സിസ്റ്റം ക്രമീകരണങ്ങൾ തുറക്കുന്ന ബട്ടണിനുള്ള ലേബൽ" },
-"settingsPermissionGranted": "അനുവദിച്ചു",
-"@settingsPermissionGranted": { "description": "അനുമതി നൽകിയിട്ടുണ്ടെന്ന് കാണിക്കുന്ന ലേബൽ" },
-"settingsPermissionDenied": "നിരസിച്ചു",
-"@settingsPermissionDenied": { "description": "അനുമതി നിഷേധിച്ചുവെന്ന് കാണിക്കുന്ന ലേബൽ" },
+  "@openSettings": {
+    "description": "സിസ്റ്റം ക്രമീകരണങ്ങൾ തുറക്കുന്നതിനുള്ള ബട്ടൺ ലേബൽ"
+  },
+  "settingsPermissionsTitle": "അനുമതികൾ",
+  "@settingsPermissionsTitle": {
+    "description": "കലണ്ടർ, ക്യാമറ തുടങ്ങിയ ആപ്പ് അനുമതികൾക്കുള്ള വിഭാഗത്തിന്റെ തലക്കെട്ട്"
+  },
+  "settingsPermissionCalendar": "കലണ്ടർ ആക്സസ്",
+  "@settingsPermissionCalendar": {
+    "description": "കലണ്ടർ അനുമതിക്കുള്ള ലേബൽ"
+  },
+  "settingsPermissionCalendarDesc": "അപ്പോയിന്റ്മെന്റുകളും പരിശോധനകളും കാണിക്കാൻ ഉപയോഗിക്കുന്നു",
+  "@settingsPermissionCalendarDesc": {
+    "description": "കലണ്ടർ അനുമതി ഉപയോഗത്തിന്റെ വിവരണം"
+  },
+  "settingsPermissionLocation": "ലൊക്കേഷൻ ആക്സസ്",
+  "@settingsPermissionLocation": {
+    "description": "ലൊക്കേഷൻ അനുമതിക്കുള്ള ലേബൽ"
+  },
+  "settingsPermissionLocationDesc": "SOS-നും അടുത്തുള്ള ആശുപത്രി കണ്ടെത്താനും ഉപയോഗിക്കുന്നു",
+  "@settingsPermissionLocationDesc": {
+    "description": "ലൊക്കേഷൻ അനുമതി ഉപയോഗത്തിന്റെ വിവരണം"
+  },
+  "settingsPermissionCamera": "ക്യാമറ ആക്സസ്",
+  "@settingsPermissionCamera": {
+    "description": "ക്യാമറ അനുമതിക്കുള്ള ലേബൽ"
+  },
+  "settingsPermissionCameraDesc": "കുറിപ്പടികൾ സ്കാൻ ചെയ്യാനും ചിത്രങ്ങൾ അപ്‌ലോഡ് ചെയ്യാനും ഉപയോഗിക്കുന്നു",
+  "@settingsPermissionCameraDesc": {
+    "description": "ക്യാമറ അനുമതി ഉപയോഗത്തിന്റെ വിവരണം"
+  },
+  "settingsPermissionManage": "നിയന്ത്രിക്കുക",
+  "@settingsPermissionManage": {
+    "description": "അനുമതി നിയന്ത്രണത്തിനായി സിസ്റ്റം ക്രമീകരണങ്ങൾ തുറക്കുന്ന ബട്ടണിനുള്ള ലേബൽ"
+  },
+  "settingsPermissionGranted": "അനുവദിച്ചു",
+  "@settingsPermissionGranted": {
+    "description": "അനുമതി നൽകിയിട്ടുണ്ടെന്ന് കാണിക്കുന്ന ലേബൽ"
+  },
+  "settingsPermissionDenied": "നിരസിച്ചു",
+  "@settingsPermissionDenied": {
+    "description": "അനുമതി നിഷേധിച്ചുവെന്ന് കാണിക്കുന്ന ലേബൽ"
+  },
   "settingsDynamicColors": "ഡൈനാമിക് തീം നിറങ്ങൾ",
   "@settingsDynamicColors": {
     "description": "Label for the dynamic theme colors option"
@@ -507,69 +883,941 @@
     "description": "Generic label for a reset button"
   },
   "refreshCalendar": "ഇവന്റുകൾ പുതുക്കുക",
-  "@refreshCalendar": { "description": "പുതുക്കുക ഐക്കണിലെ ടൂൾടിപ്പ്" },
+  "@refreshCalendar": {
+    "description": "പുതുക്കുക ഐക്കണിലെ ടൂൾടിപ്പ്"
+  },
   "calendarLoadFailed": "കലണ്ടർ ഇവന്റുകൾ ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല.",
-  "@calendarLoadFailed": { "description": "API ലഭ്യമാക്കുന്നതിൽ പരാജയപ്പെടുമ്പോൾ സ്നാക്ക്-ബാർ" },
+  "@calendarLoadFailed": {
+    "description": "API ലഭ്യമാക്കുന്നതിൽ പരാജയപ്പെടുമ്പോൾ സ്നാക്ക്-ബാർ"
+  },
   "selectDayPrompt": "ഇവന്റുകൾ കാണുന്നതിന് ഒരു ദിവസം തിരഞ്ഞെടുക്കുക",
-  "@selectDayPrompt": { "description": "തീയതി തിരഞ്ഞെടുക്കാത്തപ്പോൾ കാണിക്കുന്നത്" },
+  "@selectDayPrompt": {
+    "description": "തീയതി തിരഞ്ഞെടുക്കാത്തപ്പോൾ കാണിക്കുന്നത്"
+  },
   "noEventsForDay": "ഈ ദിവസത്തേക്ക് ഇവന്റുകളൊന്നുമില്ല",
-  "@noEventsForDay": { "description": "തിരഞ്ഞെടുത്ത ദിവസത്തിന് ഇവന്റുകളില്ലാത്തപ്പോൾ കാണിക്കുന്നത്" },
+  "@noEventsForDay": {
+    "description": "തിരഞ്ഞെടുത്ത ദിവസത്തിന് ഇവന്റുകളില്ലാത്തപ്പോൾ കാണിക്കുന്നത്"
+  },
   "unknownEvent": "അജ്ഞാതമായ ഇവന്റ്",
-  "@unknownEvent": { "description": "ഇവന്റിന്റെ തരം/തലക്കെട്ട് ലഭ്യമല്ലാത്തപ്പോൾ ഫാൾബാക്ക് തലക്കെട്ട്" },
+  "@unknownEvent": {
+    "description": "ഇവന്റിന്റെ തരം/തലക്കെട്ട് ലഭ്യമല്ലാത്തപ്പോൾ ഫാൾബാക്ക് തലക്കെട്ട്"
+  },
   "eventTypesAppointment": "അപ്പോയിന്റ്മെന്റ്",
-  "@eventTypesAppointment": { "description": "അപ്പോയിന്റ്മെന്റ് ഇവന്റുകൾക്കുള്ള വായിക്കാൻ കഴിയുന്ന പേര്" },
+  "@eventTypesAppointment": {
+    "description": "അപ്പോയിന്റ്മെന്റ് ഇവന്റുകൾക്കുള്ള വായിക്കാൻ കഴിയുന്ന പേര്"
+  },
   "eventTypesInvestigation": "പരിശോധന",
-  "@eventTypesInvestigation": { "description": "പരിശോധന ഇവന്റുകൾക്കുള്ള വായിക്കാൻ കഴിയുന്ന പേര്" },
+  "@eventTypesInvestigation": {
+    "description": "പരിശോധന ഇവന്റുകൾക്കുള്ള വായിക്കാൻ കഴിയുന്ന പേര്"
+  },
   "eventTypesPharmacyOrder": "ഫാർമസി ഓർഡർ",
-  "@eventTypesPharmacyOrder": { "description": "ഫാർമസി ഇവന്റുകൾക്കുള്ള വായിക്കാൻ കഴിയുന്ന പേര്" },
+  "@eventTypesPharmacyOrder": {
+    "description": "ഫാർമസി ഇവന്റുകൾക്കുള്ള വായിക്കാൻ കഴിയുന്ന പേര്"
+  },
   "feedbackPhoneNumber": "ഫോൺ നമ്പർ",
-  "@feedbackPhoneNumber": { "description": "അതിഥി ഉപയോക്താക്കൾ സംശയം ചോദിക്കുമ്പോൾ ഫോൺ ടെക്സ്റ്റ് ഫീൽഡിനായുള്ള ലേബൽ" },
+  "@feedbackPhoneNumber": {
+    "description": "അതിഥി ഉപയോക്താക്കൾ സംശയം ചോദിക്കുമ്പോൾ ഫോൺ ടെക്സ്റ്റ് ഫീൽഡിനായുള്ള ലേബൽ"
+  },
   "feedbackPlaceholder": "നിങ്ങളുടെ ചോദ്യം ഇവിടെ ടൈപ്പ് ചെയ്യുക",
-  "@feedbackPlaceholder": { "description": "ഒന്നിലധികം വരികളുള്ള ചോദ്യ ഫീൽഡിലെ ലേബൽ" },
+  "@feedbackPlaceholder": {
+    "description": "ഒന്നിലധികം വരികളുള്ള ചോദ്യ ഫീൽഡിലെ ലേബൽ"
+  },
   "feedbackHint": "ഉദാഹരണം: ശസ്ത്രക്രിയയ്ക്ക് ശേഷം ഞാൻ എന്റെ മരുന്ന് തുടരണോ?",
-  "@feedbackHint": { "description": "ചോദ്യം ഇൻപുട്ടിനുള്ളിലെ സൂചന ടെക്സ്റ്റ്" },
+  "@feedbackHint": {
+    "description": "ചോദ്യം ഇൻപുട്ടിനുള്ളിലെ സൂചന ടെക്സ്റ്റ്"
+  },
   "questionCannotBeEmpty": "ചോദ്യം ശൂന്യമായിരിക്കാൻ പാടില്ല.",
-  "@questionCannotBeEmpty": { "description": "ചോദ്യം ഫീൽഡ് ശൂന്യമായിരിക്കുമ്പോൾ കാണിക്കുന്ന സ്ഥിരീകരണ സന്ദേശം" },
+  "@questionCannotBeEmpty": {
+    "description": "ചോദ്യം ഫീൽഡ് ശൂന്യമായിരിക്കുമ്പോൾ കാണിക്കുന്ന സ്ഥിരീകരണ സന്ദേശം"
+  },
   "submit": "സമർപ്പിക്കുക",
-  "@submit": { "description": "പൊതുവായ സമർപ്പണ ബട്ടൺ ലേബൽ" },
+  "@submit": {
+    "description": "പൊതുവായ സമർപ്പണ ബട്ടൺ ലേബൽ"
+  },
   "feedbackSuccess": "നിങ്ങളുടെ ചോദ്യം അയച്ചു! ഞങ്ങളുടെ ടീം ഉടൻ മറുപടി നൽകും.",
-  "@feedbackSuccess": { "description": "വിജയകരമായ സമർപ്പണത്തിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ" },
+  "@feedbackSuccess": {
+    "description": "വിജയകരമായ സമർപ്പണത്തിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ"
+  },
   "feedbackFailed": "നിങ്ങളുടെ ചോദ്യം അയയ്ക്കാൻ കഴിഞ്ഞില്ല. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
-  "@feedbackFailed": { "description": "API കോൾ പരാജയപ്പെടുമ്പോൾ ഫാൾബാക്ക് പിശക് സന്ദേശം" },
+  "@feedbackFailed": {
+    "description": "API കോൾ പരാജയപ്പെടുമ്പോൾ ഫാൾബാക്ക് പിശക് സന്ദേശം"
+  },
   "notifications": "അറിയിപ്പുകൾ",
-  "@notifications": { "description": "ആപ്പ്-ബാർ തലക്കെട്ട്" },
+  "@notifications": {
+    "description": "ആപ്പ്-ബാർ തലക്കെട്ട്"
+  },
   "failedToFetchNotifications": "അറിയിപ്പുകൾ ലഭ്യമാക്കാൻ കഴിഞ്ഞില്ല. പുതുക്കാൻ താഴേക്ക് വലിക്കുക.",
-  "@failedToFetchNotifications": { "description": "ബാക്കെൻഡ് പിശക് സ്റ്റാറ്റസ് നൽകുമ്പോൾ സ്നാക്ക്-ബാർ" },
+  "@failedToFetchNotifications": {
+    "description": "ബാക്കെൻഡ് പിശക് സ്റ്റാറ്റസ് നൽകുമ്പോൾ സ്നാക്ക്-ബാർ"
+  },
   "errorFetchingNotifications": "അറിയിപ്പുകൾ ലഭ്യമാക്കുമ്പോൾ നെറ്റ്‌വർക്ക് പിശക്.",
-  "@errorFetchingNotifications": { "description": "അഭ്യർത്ഥന ഒരു അപവാദം നൽകുമ്പോൾ സ്നാക്ക്-ബാർ" },
+  "@errorFetchingNotifications": {
+    "description": "അഭ്യർത്ഥന ഒരു അപവാദം നൽകുമ്പോൾ സ്നാക്ക്-ബാർ"
+  },
   "noNotifications": "നിങ്ങൾക്ക് അറിയിപ്പുകളൊന്നുമില്ല.",
-  "@noNotifications": { "description": "അറിയിപ്പുകളുടെ ലിസ്റ്റ് ശൂന്യമായിരിക്കുമ്പോൾ കാണിക്കുന്നത്" },
+  "@noNotifications": {
+    "description": "അറിയിപ്പുകളുടെ ലിസ്റ്റ് ശൂന്യമായിരിക്കുമ്പോൾ കാണിക്കുന്നത്"
+  },
   "notificationMarkedAsRead": "അറിയിപ്പ് വായിച്ചതായി അടയാളപ്പെടുത്തി",
-  "@notificationMarkedAsRead": { "description": "ഉപയോക്താവ് വായിച്ചതായി അടയാളപ്പെടുത്താൻ സ്വൈപ്പ് ചെയ്തതിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ" },
+  "@notificationMarkedAsRead": {
+    "description": "ഉപയോക്താവ് വായിച്ചതായി അടയാളപ്പെടുത്താൻ സ്വൈപ്പ് ചെയ്തതിന് ശേഷമുള്ള സ്നാക്ക്-ബാർ"
+  },
   "notification": "അറിയിപ്പ്",
-  "@notification": { "description": "അറിയിപ്പിന്റെ തലക്കെട്ട് ലഭ്യമല്ലാത്തപ്പോൾ ഫാൾബാക്ക് തലക്കെട്ട്" },
-"downloadPermissionDenied": "ഫയലുകൾ ഡൗൺലോഡ് ചെയ്യാൻ സ്റ്റോറേജ് അനുമതി ആവശ്യമാണ്.",
-"@downloadPermissionDenied": { "description": "ഉപയോക്താവ് സ്റ്റോറേജ് അനുമതി നിരസിക്കുമ്പോൾ കാണിക്കുന്നത്" },
+  "@notification": {
+    "description": "അറിയിപ്പിന്റെ തലക്കെട്ട് ലഭ്യമല്ലാത്തപ്പോൾ ഫാൾബാക്ക് തലക്കെട്ട്"
+  },
+  "downloadPermissionDenied": "ഫയലുകൾ ഡൗൺലോഡ് ചെയ്യാൻ സ്റ്റോറേജ് അനുമതി ആവശ്യമാണ്.",
+  "@downloadPermissionDenied": {
+    "description": "ഉപയോക്താവ് സ്റ്റോറേജ് അനുമതി നിരസിക്കുമ്പോൾ കാണിക്കുന്നത്"
+  },
+  "yourHealthTabRecords": "റെക്കോർഡുകൾ",
+  "yourHealthTabConsultations": "കൂടിയാലോചനകൾ",
+  "yourHealthTabSummary": "സംഗ്രഹം",
+  "consultationDoctor": "ഡോക്ടർ",
+  "consultationDiagnosis": "രോഗനിർണയം",
+  "consultationNotes": "കുറിപ്പുകൾ",
+  "consultationDate": "തീയതി",
+  "consultationsEmpty": "കൂടിയാലോചനകളൊന്നും കണ്ടെത്തിയില്ല",
+  "summaryAllergies": "അലർജികൾ",
+  "summaryConditions": "വ്യവസ്ഥകൾ",
+  "summaryOverview": "ആരോഗ്യ അവലോകനം",
+  "summaryNoAllergies": "അറിയപ്പെടുന്ന അലർജികളൊന്നുമില്ല",
+  "summaryNoConditions": "അറിയപ്പെടുന്ന വ്യവസ്ഥകളൊന്നുമില്ല",
+  "summaryNoData": "ആരോഗ്യ സംഗ്രഹം ലഭ്യമല്ല",
+  "investigationsResultsTitle": "അന്വേഷണ ഫലങ്ങൾ",
+  "investigationsTabUpload": "അപ്‌ലോഡ് ചെയ്യുക",
+  "investigationsTabResults": "ഫലങ്ങൾ",
+  "investigationsStatusPending": "തീർപ്പാക്കാത്തത്",
+  "investigationsStatusCompleted": "പൂർത്തിയാക്കി",
+  "investigationsNoResults": "ഇതുവരെ അന്വേഷണ ഫലങ്ങളൊന്നുമില്ല",
+  "investigationsDownloadReport": "റിപ്പോർട്ട് ഡൗൺലോഡ് ചെയ്യുക",
+  "investigationsDownloadFailed": "റിപ്പോർട്ട് ഡൗൺലോഡ് ചെയ്യുന്നതിൽ പരാജയപ്പെട്ടു",
+  "investigationsFiles": "ഫയലുകൾ",
+  "profileIncomplete": "തുടരാൻ നിങ്ങളുടെ പ്രൊഫൈൽ പൂർത്തിയാക്കുക",
   "vitalsTitle": "ആരോഗ്യ സൂചകങ്ങൾ",
   "vitalsLogTab": "രേഖപ്പെടുത്തുക",
   "vitalsHistoryTab": "ചരിത്രം",
+  "vitalsLogHeading": "നിങ്ങളുടെ ദൈനംദിന ജീവകങ്ങൾ ലോഗ് ചെയ്യുക",
+  "vitalsLogSubheading": "ഇന്ന് നിങ്ങൾ റെക്കോർഡ് ചെയ്യാൻ ആഗ്രഹിക്കുന്ന എല്ലാ ജീവജാലങ്ങളും പൂരിപ്പിക്കുക.",
+  "vitalsBloodPressure": "രക്തസമ്മർദ്ദം",
+  "vitalsSystolic": "സിസ്റ്റോളിക്",
+  "vitalsDiastolic": "ഡയസ്റ്റോളിക്",
+  "vitalsHeartRate": "ഹൃദയമിടിപ്പ്",
+  "vitalsTemperature": "താപനില",
+  "vitalsBloodSugar": "രക്തത്തിലെ പഞ്ചസാര",
+  "vitalsWeight": "ഭാരം",
+  "vitalsSpO2": "SpO2",
   "vitalsRecordButton": "രേഖപ്പെടുത്തുക",
+  "vitalsSubmitting": "സമർപ്പിക്കുന്നു...",
   "vitalsRecordedSuccess": "ആരോഗ്യ സൂചകങ്ങൾ വിജയകരമായി രേഖപ്പെടുത്തി",
+  "vitalsRecordFailed": "സുപ്രധാന കാര്യങ്ങൾ രേഖപ്പെടുത്തുന്നതിൽ പരാജയപ്പെട്ടു",
+  "vitalsAtLeastOne": "ദയവായി ഒരു സുപ്രധാന ചിഹ്നമെങ്കിലും നൽകുക",
   "vitalsNoHistory": "ഇതുവരെ രേഖകളൊന്നുമില്ല",
+  "vitalsNoHistoryHint": "ലോഗ് വൈറ്റൽസ് ടാബ് ഉപയോഗിച്ച് നിങ്ങളുടെ വൈറ്റലുകൾ ലോഗ് ചെയ്യുക.",
+  "vitalsHistoryFailed": "വൈറ്റൽ ഹിസ്റ്ററി ലോഡ് ചെയ്യുന്നതിൽ പരാജയപ്പെട്ടു",
   "familyTitle": "കുടുംബ അംഗങ്ങൾ",
-  "familyAddMember": "കുടുംബ അംഗത്തെ ചേർക്കുക",
+  "familyYourFamily": "നിങ്ങളുടെ കുടുംബം",
+  "familyManageHint": "നിങ്ങളുടെ അക്കൗണ്ടിലേക്ക് ലിങ്ക് ചെയ്‌തിരിക്കുന്ന കുടുംബാംഗങ്ങളെ നിയന്ത്രിക്കുക.",
   "familyNoMembers": "ഇതുവരെ കുടുംബ അംഗങ്ങളില്ല",
+  "familyNoMembersHint": "പങ്കിട്ട പരിചരണം നിയന്ത്രിക്കാൻ കുടുംബാംഗങ്ങളെ ചേർക്കുക.",
+  "familyAddMember": "കുടുംബ അംഗത്തെ ചേർക്കുക",
   "familyFullName": "മുഴുവൻ പേര്",
   "familyPhone": "ഫോൺ നമ്പർ",
   "familyRelationship": "ബന്ധം",
+  "familyDateOfBirth": "ജനനത്തീയതി (ഓപ്ഷണൽ)",
+  "familyAdding": "ചേർക്കുന്നു...",
+  "familyAddedSuccess": "കുടുംബാംഗം വിജയകരമായി ചേർത്തു",
+  "familyAddFailed": "കുടുംബാംഗങ്ങളെ ചേർക്കുന്നതിൽ പരാജയപ്പെട്ടു",
+  "familyRemoveTitle": "കുടുംബാംഗത്തെ നീക്കം ചെയ്യുക",
+  "familyRemoveConfirm": "{name} നീക്കം ചെയ്യണമെന്ന് തീർച്ചയാണോ?",
+  "@familyRemoveConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "familyRemoved": "കുടുംബാംഗങ്ങളിൽ നിന്ന് {name} നീക്കം ചെയ്തു",
+  "@familyRemoved": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "familyRemoveFailed": "അംഗത്തെ നീക്കം ചെയ്യുന്നതിൽ പരാജയപ്പെട്ടു",
   "refillTitle": "കുറിപ്പടി റീഫിൽ",
-  "refillRequestButton": "റീഫിൽ അഭ്യർത്ഥിക്കുക",
+  "refillActivePrescriptions": "സജീവ കുറിപ്പടികൾ",
+  "refillHint": "ഒരു പുതുക്കലിനായി ഡോക്ടറോട് ആവശ്യപ്പെടാൻ \"റീഫിൽ അഭ്യർത്ഥിക്കുക\" ടാപ്പ് ചെയ്യുക.",
   "refillNoActive": "സജീവ കുറിപ്പടികളൊന്നുമില്ല",
+  "refillNoActiveHint": "കൺസൾട്ടേഷനുകളിൽ നിന്നുള്ള നിങ്ങളുടെ കുറിപ്പടികൾ ഇവിടെ ദൃശ്യമാകും.",
+  "refillRequestButton": "റീഫിൽ അഭ്യർത്ഥിക്കുക",
+  "refillRequesting": "അഭ്യർത്ഥിക്കുന്നു...",
+  "refillRetry": "റീഫിൽ അഭ്യർത്ഥന വീണ്ടും ശ്രമിക്കുക",
+  "refillConfirmTitle": "റീഫിൽ അഭ്യർത്ഥിക്കുക",
+  "refillConfirmBody": "{medication} എന്നതിനായി ഒരു റീഫിൽ അഭ്യർത്ഥിക്കണോ?",
+  "@refillConfirmBody": {
+    "placeholders": {
+      "medication": {
+        "type": "String"
+      }
+    }
+  },
+  "refillRequested": "{medication} എന്നതിനായി റീഫിൽ അഭ്യർത്ഥിച്ചു",
+  "@refillRequested": {
+    "placeholders": {
+      "medication": {
+        "type": "String"
+      }
+    }
+  },
+  "refillRequestFailed": "റീഫിൽ അഭ്യർത്ഥിക്കുന്നതിൽ പരാജയപ്പെട്ടു",
+  "refillStatusActive": "ACTIVE",
+  "refillStatusExpired": "കാലഹരണപ്പെട്ടു",
   "stepsTitle": "നടത്ത വെല്ലുവിളി",
+  "stepsProfile": "പ്രൊഫൈൽ",
+  "stepsHistory": "ചരിത്രം",
+  "stepsLeaderboard": "ലീഡർബോർഡ്",
+  "stepsRewards": "പ്രതിഫലം",
   "stepsStartWalk": "നടത്തം ആരംഭിക്കുക",
   "stepsStopWalk": "നടത്തം നിർത്തുക",
+  "stepsSessionStarted": "പദയാത്ര ആരംഭിച്ചു",
+  "stepsSessionStopped": "നടന്നു!",
+  "stepsNoHistory": "ഇതുവരെ നടത്ത സെഷനുകളൊന്നുമില്ല",
+  "stepsNoHistoryHint": "നിങ്ങളുടെ ചുവടുകൾ ട്രാക്ക് ചെയ്യാൻ ആരംഭിക്കാൻ ഒരു നടത്തം ആരംഭിക്കുക.",
+  "abdmTitle": "ABDM (ആയുഷ്മാൻ ഭാരത്)",
+  "abdmRegister": "രജിസ്റ്റർ ചെയ്യുക ABHA",
+  "abdmVerify": "ABHA പരിശോധിക്കുക",
+  "abdmConsents": "സമ്മതം",
+  "abdmNoConsents": "സമ്മത അഭ്യർത്ഥനകളൊന്നുമില്ല",
+  "medicationRemindersTitle": "മരുന്ന് ഓർമ്മപ്പെടുത്തലുകൾ",
+  "medicationReminderAdd": "ഓർമ്മപ്പെടുത്തൽ ചേർക്കുക",
+  "medicationReminderName": "മരുന്നിൻ്റെ പേര്",
+  "medicationReminderDosage": "അളവ്",
+  "medicationReminderFrequency": "ആവൃത്തി",
+  "medicationReminderNoReminders": "മരുന്ന് റിമൈൻഡറുകൾ സജ്ജീകരിച്ചിട്ടില്ല",
   "updateAvailableTitle": "അപ്‌ഡേറ്റ് ലഭ്യമാണ്",
   "updateAvailableBody": "VH Health-ന്റെ പുതിയ പതിപ്പ് ലഭ്യമാണ്. മികച്ച അനുഭവത്തിനായി ദയവായി അപ്‌ഡേറ്റ് ചെയ്യുക.",
   "updateNow": "ഇപ്പോൾ അപ്‌ഡേറ്റ് ചെയ്യുക",
-  "updateLater": "പിന്നീട്"
+  "updateLater": "പിന്നീട്",
+  "bookInvestigationTitle": "പുസ്തക അന്വേഷണം",
+  "@bookInvestigationTitle": {
+    "description": "AppBar title for the investigation booking screen"
+  },
+  "bookInvestigationStepChoose": "ടെസ്റ്റുകൾ തിരഞ്ഞെടുക്കുക",
+  "@bookInvestigationStepChoose": {
+    "description": "Stepper label for choosing tests"
+  },
+  "bookInvestigationStepCollection": "ശേഖരണ മുൻഗണന",
+  "@bookInvestigationStepCollection": {
+    "description": "Stepper label for collection preference"
+  },
+  "bookInvestigationStepReview": "അവലോകനം & ബുക്ക് ചെയ്യുക",
+  "@bookInvestigationStepReview": {
+    "description": "Stepper label for review and book"
+  },
+  "bookInvestigationOrType": "അല്ലെങ്കിൽ ടെസ്റ്റ് പേരുകൾ ടൈപ്പ് ചെയ്യുക:",
+  "@bookInvestigationOrType": {
+    "description": "Heading above the custom test input"
+  },
+  "bookInvestigationOrUploadSlip": "അല്ലെങ്കിൽ കുറിപ്പടി സ്ലിപ്പ് അപ്ലോഡ് ചെയ്യുക:",
+  "@bookInvestigationOrUploadSlip": {
+    "description": "Heading above the slip upload buttons"
+  },
+  "bookInvestigationEstimatedCost": "കണക്കാക്കിയ ചെലവ്",
+  "@bookInvestigationEstimatedCost": {
+    "description": "Label for the estimated cost summary"
+  },
+  "bookInvestigationHomeCollection": "ഹോം കളക്ഷൻ",
+  "@bookInvestigationHomeCollection": {
+    "description": "Segmented button label for home collection"
+  },
+  "bookInvestigationVisitLab": "ലാബ് സന്ദർശിക്കുക",
+  "@bookInvestigationVisitLab": {
+    "description": "Segmented button label for visiting the lab"
+  },
+  "bookInvestigationTapToSelect": "തിരഞ്ഞെടുക്കാൻ ടാപ്പ് ചെയ്യുക",
+  "@bookInvestigationTapToSelect": {
+    "description": "Subtitle for date tile when no date picked"
+  },
+  "bookInvestigationPreferredTimeSlot": "തിരഞ്ഞെടുത്ത ടൈം സ്ലോട്ട്",
+  "@bookInvestigationPreferredTimeSlot": {
+    "description": "Heading above time-slot chips"
+  },
+  "bookInvestigationReviewBooking": "നിങ്ങളുടെ ബുക്കിംഗ് അവലോകനം ചെയ്യുക",
+  "@bookInvestigationReviewBooking": {
+    "description": "Title above review summary"
+  },
+  "bookInvestigationSelectedTests": "തിരഞ്ഞെടുത്ത ടെസ്റ്റുകൾ:",
+  "@bookInvestigationSelectedTests": {
+    "description": "Heading above selected tests list"
+  },
+  "bookInvestigationCustomTests": "ഇഷ്‌ടാനുസൃത പരിശോധനകൾ:",
+  "@bookInvestigationCustomTests": {
+    "description": "Heading above custom tests text"
+  },
+  "bookInvestigationSlipAttached": "കുറിപ്പടി സ്ലിപ്പ് ഘടിപ്പിച്ചിരിക്കുന്നു",
+  "@bookInvestigationSlipAttached": {
+    "description": "Indicator that prescription slip was attached"
+  },
+  "bookInvestigationBooked": "അന്വേഷണം ബുക്ക് ചെയ്തു!",
+  "@bookInvestigationBooked": {
+    "description": "Success heading after booking"
+  },
+  "bookInvestigationConfirmationNote": "താമസിയാതെ നിങ്ങൾക്ക് ഒരു സ്ഥിരീകരണ കോൾ ലഭിക്കും.\nനിങ്ങളുടെ ബുക്കിംഗ് നിലയെക്കുറിച്ച് ഞങ്ങൾ നിങ്ങളെ അറിയിക്കും.",
+  "@bookInvestigationConfirmationNote": {
+    "description": "Success body text after booking"
+  },
+  "bookInvestigationBackButton": "അന്വേഷണങ്ങളിലേക്ക് മടങ്ങുക",
+  "@bookInvestigationBackButton": {
+    "description": "Button to return to investigations from success screen"
+  },
+  "stepsSetupProfileTitle": "നിങ്ങളുടെ പ്രൊഫൈൽ സജ്ജീകരിക്കുക",
+  "@stepsSetupProfileTitle": {
+    "description": "Heading on step challenge profile setup card"
+  },
+  "stepsPickColor": "ഒരു നിറം തിരഞ്ഞെടുക്കുക:",
+  "@stepsPickColor": {
+    "description": "Label above color picker on profile setup"
+  },
+  "stepsSaveProfile": "പ്രൊഫൈൽ സംരക്ഷിക്കുക",
+  "@stepsSaveProfile": {
+    "description": "Button label to save step challenge profile"
+  },
+  "stepsStartWalkUpper": "നടക്കാൻ തുടങ്ങുക",
+  "@stepsStartWalkUpper": {
+    "description": "Button label to begin a walk session (uppercase)"
+  },
+  "stepsWalkInProgress": "നടത്തം പുരോഗമിക്കുന്നു...",
+  "@stepsWalkInProgress": {
+    "description": "Indicator during active walk"
+  },
+  "stepsStopWalkUpper": "സ്റ്റോപ്പ് വാക്ക്",
+  "@stepsStopWalkUpper": {
+    "description": "Button label to stop a walk session (uppercase)"
+  },
+  "stepsNoDailyData": "ഇതുവരെ പ്രതിദിന ഡാറ്റയില്ല",
+  "@stepsNoDailyData": {
+    "description": "Empty state for daily steps chart"
+  },
+  "stepsNoWeeklyData": "ഇതുവരെ പ്രതിവാര ഡാറ്റയില്ല",
+  "@stepsNoWeeklyData": {
+    "description": "Empty state for weekly steps chart"
+  },
+  "stepsNoMonthlyData": "ഇതുവരെ പ്രതിമാസ ഡാറ്റയില്ല",
+  "@stepsNoMonthlyData": {
+    "description": "Empty state for monthly steps chart"
+  },
+  "stepsThisMonth": "ഈ മാസം",
+  "@stepsThisMonth": {
+    "description": "Label for current month section"
+  },
+  "stepsNoLeaderboardData": "ഇതുവരെ ലീഡർബോർഡ് ഡാറ്റയില്ല",
+  "@stepsNoLeaderboardData": {
+    "description": "Empty state for leaderboard"
+  },
+  "stepsYourRewards": "നിങ്ങളുടെ റിവാർഡുകൾ",
+  "@stepsYourRewards": {
+    "description": "Section heading for user rewards"
+  },
+  "familyMemberIdNotFound": "അംഗ ഐഡി കണ്ടെത്തിയില്ല",
+  "@familyMemberIdNotFound": {
+    "description": "Snackbar when member id missing during remove"
+  },
+  "familyRemoveFailedRetry": "അംഗത്തെ നീക്കം ചെയ്യുന്നതിൽ പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
+  "@familyRemoveFailedRetry": {
+    "description": "Snackbar when remove member request fails (retryable)"
+  },
+  "familyAddFailedRetry": "കുടുംബാംഗങ്ങളെ ചേർക്കുന്നതിൽ പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
+  "@familyAddFailedRetry": {
+    "description": "Snackbar when add family member request fails (retryable)"
+  },
+  "familyRemoveButton": "നീക്കം ചെയ്യുക",
+  "@familyRemoveButton": {
+    "description": "Dialog action label to confirm removing a member"
+  },
+  "familyRemoveTooltip": "അംഗത്തെ നീക്കം ചെയ്യുക",
+  "@familyRemoveTooltip": {
+    "description": "Tooltip for the remove member icon"
+  },
+  "familyRetryButton": "വീണ്ടും ശ്രമിക്കുക",
+  "@familyRetryButton": {
+    "description": "Button label to retry loading family members"
+  },
+  "familyAddMemberShort": "അംഗത്തെ ചേർക്കുക",
+  "@familyAddMemberShort": {
+    "description": "Submit button on add family member sheet"
+  },
+  "familyTapToSelect": "തിരഞ്ഞെടുക്കാൻ ടാപ്പ് ചെയ്യുക",
+  "@familyTapToSelect": {
+    "description": "Hint inside the date of birth field"
+  },
+  "familyDobPrefix": "DOB:",
+  "@familyDobPrefix": {
+    "description": "Prefix before formatted date of birth on member card"
+  },
+  "familyNameRequired": "പേര് ആവശ്യമാണ്",
+  "@familyNameRequired": {
+    "description": "Validation when family member name empty"
+  },
+  "familyPhoneRequired": "ഫോൺ ആവശ്യമാണ്",
+  "@familyPhoneRequired": {
+    "description": "Validation when family member phone empty"
+  },
+  "familyPhoneInvalid": "സാധുവായ ഒരു ഫോൺ നമ്പർ നൽകുക",
+  "@familyPhoneInvalid": {
+    "description": "Validation when family member phone invalid"
+  },
+  "familyLoadFailed": "കുടുംബാംഗങ്ങളെ ലോഡ് ചെയ്യുന്നതിൽ പരാജയപ്പെട്ടു",
+  "@familyLoadFailed": {
+    "description": "Error state when family members fetch fails"
+  },
+  "familyUnknown": "അജ്ഞാതം",
+  "@familyUnknown": {
+    "description": "Fallback name when family member name missing"
+  },
+  "recordsDocumentUrlMissing": "പ്രമാണം URL ലഭ്യമല്ല",
+  "@recordsDocumentUrlMissing": {
+    "description": "Snackbar when document URL is missing"
+  },
+  "recordsDeleteTitle": "റെക്കോർഡ് ഇല്ലാതാക്കണോ?",
+  "@recordsDeleteTitle": {
+    "description": "Dialog title to confirm record deletion"
+  },
+  "recordsDeletePrefix": "ഇല്ലാതാക്കുക",
+  "@recordsDeletePrefix": {
+    "description": "Prefix before record title in delete confirmation"
+  },
+  "recordsDeleted": "റെക്കോർഡ് ഇല്ലാതാക്കി",
+  "@recordsDeleted": {
+    "description": "Snackbar after record deleted"
+  },
+  "recordsPickFileFirst": "ദയവായി ഒരു ഫയൽ തിരഞ്ഞെടുത്ത് ഒരു ശീർഷകം നൽകുക",
+  "@recordsPickFileFirst": {
+    "description": "Validation when file or title missing on upload"
+  },
+  "recordsUploaded": "റെക്കോർഡ് അപ്ലോഡ് ചെയ്തു",
+  "@recordsUploaded": {
+    "description": "Snackbar after record uploaded"
+  },
+  "recordsUploadButton": "റെക്കോർഡ് അപ്‌ലോഡ് ചെയ്യുക",
+  "@recordsUploadButton": {
+    "description": "Button label to open upload record sheet"
+  },
+  "recordsHospitalEmpty": "നിങ്ങളുടെ കുറിപ്പുകളും സന്ദർശനങ്ങളിൽ നിന്നുള്ള റിപ്പോർട്ടുകളും ഇവിടെ ദൃശ്യമാകും",
+  "@recordsHospitalEmpty": {
+    "description": "Empty-state body for hospital documents tab"
+  },
+  "recordsUploadEmptyHint": "നിങ്ങളുടെ മുൻ കുറിപ്പുകളും റിപ്പോർട്ടുകളും ഒരിടത്ത് സൂക്ഷിക്കാൻ അപ്‌ലോഡ് ചെയ്യുക",
+  "@recordsUploadEmptyHint": {
+    "description": "Empty-state hint for my uploads tab"
+  },
+  "recordsUploadSheetTitle": "ഒരു റെക്കോർഡ് അപ്‌ലോഡ് ചെയ്യുക",
+  "@recordsUploadSheetTitle": {
+    "description": "Title of the upload record bottom sheet"
+  },
+  "abdmHeading": "ആയുഷ്മാൻ ഭാരത് ഹെൽത്ത് അക്കൗണ്ട്",
+  "@abdmHeading": {
+    "description": "Heading on ABDM screen"
+  },
+  "abdmDescription": "ABHA (ആയുഷ്മാൻ ഭാരത് ഹെൽത്ത് അക്കൗണ്ട്) നിങ്ങളുടെ ആരോഗ്യ രേഖകൾ ഡിജിറ്റലായി സംഭരിക്കാനും പങ്കിടാനും നിങ്ങളെ അനുവദിക്കുന്ന ഒരു അദ്വിതീയ ആരോഗ്യ ഐഡിയാണ്.",
+  "@abdmDescription": {
+    "description": "Description paragraph on ABDM screen"
+  },
+  "abdmDataSecurityNote": "നിങ്ങളുടെ ഡാറ്റ സുരക്ഷിതമായി തുടരുകയും നിങ്ങളുടെ സമ്മതത്തോടെ മാത്രം പങ്കിടുകയും ചെയ്യുന്നു.",
+  "@abdmDataSecurityNote": {
+    "description": "Reassurance about data privacy"
+  },
+  "abdmYourNumber": "നിങ്ങളുടെ ABHA നമ്പർ",
+  "@abdmYourNumber": {
+    "description": "Label above the user's ABHA number"
+  },
+  "abdmVerifyHeading": "നിങ്ങളുടെ ABHA പരിശോധിച്ചുറപ്പിക്കുക",
+  "@abdmVerifyHeading": {
+    "description": "Heading on verify ABHA screen"
+  },
+  "abdmEnterOtp": "നിങ്ങളുടെ മൊബൈൽ നമ്പറിലേക്ക് അയച്ച OTP നൽകുക",
+  "@abdmEnterOtp": {
+    "description": "Instruction above OTP input on verify ABHA screen"
+  },
+  "medicationRemindersEmpty": "ഇതുവരെ മരുന്ന് ഓർമ്മപ്പെടുത്തലുകളൊന്നുമില്ല",
+  "@medicationRemindersEmpty": {
+    "description": "Empty state for medication reminders"
+  },
+  "medicationRemindersEmptyHint": "ഒരെണ്ണം ചേർക്കാൻ + ടാപ്പ് ചെയ്യുക",
+  "@medicationRemindersEmptyHint": {
+    "description": "Hint below empty state"
+  },
+  "medicationReminderRequiredFields": "മരുന്നിൻ്റെ പേരും അളവും ആവശ്യമാണ്",
+  "@medicationReminderRequiredFields": {
+    "description": "Validation when name/dosage empty"
+  },
+  "medicationReminderSaveFailed": "റിമൈൻഡർ സംരക്ഷിക്കാനായില്ല",
+  "@medicationReminderSaveFailed": {
+    "description": "Snackbar when reminder save fails"
+  },
+  "medicationReminderAddSheetTitle": "മരുന്ന് ഓർമ്മപ്പെടുത്തൽ ചേർക്കുക",
+  "@medicationReminderAddSheetTitle": {
+    "description": "Title of the add reminder bottom sheet"
+  },
+  "medicationReminderTimes": "റിമൈൻഡർ ടൈംസ്",
+  "@medicationReminderTimes": {
+    "description": "Heading for list of reminder times"
+  },
+  "medicationReminderAddTime": "സമയം ചേർക്കുക",
+  "@medicationReminderAddTime": {
+    "description": "Button to add another reminder time"
+  },
+  "medicationReminderSave": "ഓർമ്മപ്പെടുത്തൽ സംരക്ഷിക്കുക",
+  "@medicationReminderSave": {
+    "description": "Button to save reminder"
+  },
+  "pharmacyTakePhoto": "ഫോട്ടോ എടുക്കുക",
+  "@pharmacyTakePhoto": {
+    "description": "Action label to take a photo from camera"
+  },
+  "pharmacyChooseFromGallery": "ഗാലറിയിൽ നിന്ന് തിരഞ്ഞെടുക്കുക",
+  "@pharmacyChooseFromGallery": {
+    "description": "Action label to pick from gallery"
+  },
+  "pharmacyOrderPlacedTitle": "ഓർഡർ ചെയ്തു!",
+  "@pharmacyOrderPlacedTitle": {
+    "description": "Success heading after pharmacy order"
+  },
+  "pharmacyOrderPlacedBody": "ഞങ്ങളുടെ ഫാർമസിസ്റ്റ് നിങ്ങളുടെ കുറിപ്പടി അവലോകനം ചെയ്യുകയും ഉടൻ തന്നെ നിങ്ങളുടെ ഓർഡർ സ്ഥിരീകരിക്കുകയും ചെയ്യും.",
+  "@pharmacyOrderPlacedBody": {
+    "description": "Success body after pharmacy order"
+  },
+  "pharmacyUploadHeading": "കുറിപ്പടി അപ്‌ലോഡ് ചെയ്യുക",
+  "@pharmacyUploadHeading": {
+    "description": "Heading above pharmacy upload area"
+  },
+  "pharmacyTapToUpload": "കുറിപ്പടി അപ്‌ലോഡ് ചെയ്യാൻ ടാപ്പ് ചെയ്യുക",
+  "@pharmacyTapToUpload": {
+    "description": "Empty-state text inside upload card"
+  },
+  "pharmacyCameraOrGallery": "ക്യാമറ അല്ലെങ്കിൽ ഗാലറി",
+  "@pharmacyCameraOrGallery": {
+    "description": "Subtitle below tap to upload"
+  },
+  "pharmacyOrDescribe": "അല്ലെങ്കിൽ നിങ്ങളുടെ ഓർഡർ വിവരിക്കുക",
+  "@pharmacyOrDescribe": {
+    "description": "Heading above the description input"
+  },
+  "pharmacyDeliveryPreference": "ഡെലിവറി മുൻഗണന",
+  "@pharmacyDeliveryPreference": {
+    "description": "Heading for delivery option chooser"
+  },
+  "refillPrescriptionIdMissing": "കുറിപ്പടി ഐഡി കണ്ടെത്തിയില്ല",
+  "@refillPrescriptionIdMissing": {
+    "description": "Snackbar when prescription id missing during refill"
+  },
+  "refillRequestRetry": "റീഫിൽ അഭ്യർത്ഥിക്കുന്നതിൽ പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
+  "@refillRequestRetry": {
+    "description": "Snackbar when refill request fails (retryable)"
+  },
+  "refillTapPrefix": "ടാപ്പ് ചെയ്യുക",
+  "@refillTapPrefix": {
+    "description": "Hint prefix before button name"
+  },
+  "refillRequestedHeading": "റീഫിൽ അഭ്യർത്ഥിച്ചു",
+  "@refillRequestedHeading": {
+    "description": "Heading shown when a refill request is in flight"
+  },
+  "vitalsTrendsHeading": "ട്രെൻഡുകൾ vs അവസാന വായന",
+  "@vitalsTrendsHeading": {
+    "description": "Heading above vitals trends chart"
+  },
+  "vitalsRecordFailedRetry": "സുപ്രധാന കാര്യങ്ങൾ രേഖപ്പെടുത്തുന്നതിൽ പരാജയപ്പെട്ടു. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
+  "@vitalsRecordFailedRetry": {
+    "description": "Snackbar when vitals record fails (retryable)"
+  },
+  "yourHealthPrescriptionsEmpty": "ഇതുവരെ കുറിപ്പടികളൊന്നുമില്ല",
+  "@yourHealthPrescriptionsEmpty": {
+    "description": "Empty state for prescriptions tab"
+  },
+  "yourHealthPrescriptionsEmptyHint": "നിങ്ങളുടെ ഡോക്ടറുടെ കുറിപ്പടി ഇവിടെ ദൃശ്യമാകും",
+  "@yourHealthPrescriptionsEmptyHint": {
+    "description": "Empty state hint for prescriptions tab"
+  },
+  "yourHealthClinicalNotes": "ക്ലിനിക്കൽ കുറിപ്പുകൾ",
+  "@yourHealthClinicalNotes": {
+    "description": "Heading for clinical notes section"
+  },
+  "yourHealthDownloadPdf": "PDF ഡൗൺലോഡ് ചെയ്യുക",
+  "@yourHealthDownloadPdf": {
+    "description": "Button to download a prescription PDF"
+  },
+  "yourHealthOrderMedicines": "മരുന്നുകൾ ഓർഡർ ചെയ്യുക",
+  "@yourHealthOrderMedicines": {
+    "description": "Button to start a pharmacy order from a prescription"
+  },
+  "yourHealthPlaceOrder": "ഓർഡർ നൽകുക",
+  "@yourHealthPlaceOrder": {
+    "description": "Button to confirm a pharmacy order"
+  },
+  "yourHealthSafetyNotes": "സുരക്ഷാ കുറിപ്പുകൾ",
+  "@yourHealthSafetyNotes": {
+    "description": "Heading for safety notes section"
+  },
+  "yourHealthClinicianOverride": "ഫയലിൽ ക്ലിനിഷ്യൻ അസാധുവാക്കുന്നു:",
+  "@yourHealthClinicianOverride": {
+    "description": "Label before clinician override note"
+  },
+  "appointmentsCancel": "അപ്പോയിൻ്റ്മെൻ്റ് റദ്ദാക്കുക",
+  "@appointmentsCancel": {
+    "description": "Dialog title to cancel an appointment"
+  },
+  "appointmentsConfirmCancel": "അതെ, റദ്ദാക്കുക",
+  "@appointmentsConfirmCancel": {
+    "description": "Confirm button to cancel an appointment"
+  },
+  "appointmentsSelectTimeSlot": "ടൈം സ്ലോട്ട് തിരഞ്ഞെടുക്കുക",
+  "@appointmentsSelectTimeSlot": {
+    "description": "Sheet title for time slot picker"
+  },
+  "appointmentsLogOutAndBack": "നിങ്ങളുടെ കൂടിക്കാഴ്‌ചകൾ കാണുന്നതിന് ദയവായി ലോഗ് ഔട്ട് ചെയ്‌ത് വീണ്ടും ലോഗിൻ ചെയ്യുക.",
+  "@appointmentsLogOutAndBack": {
+    "description": "Message asking user to re-login when patient id missing"
+  },
+  "appointmentsEmpty": "ഇതുവരെ നിയമനങ്ങളൊന്നുമില്ല",
+  "@appointmentsEmpty": {
+    "description": "Empty state for appointments list"
+  },
+  "appointmentsBookOneNow": "ഇപ്പോൾ ഒന്ന് ബുക്ക് ചെയ്യൂ",
+  "@appointmentsBookOneNow": {
+    "description": "Button label to book first appointment"
+  },
+  "appointmentsViewPrescription": "കുറിപ്പടി കാണുക",
+  "@appointmentsViewPrescription": {
+    "description": "Button to view prescription from appointment"
+  },
+  "symptomCheckerTitle": "രോഗലക്ഷണ പരിശോധന",
+  "@symptomCheckerTitle": {
+    "description": "AppBar title for symptom checker"
+  },
+  "symptomCheckerDescribePrompt": "നിങ്ങൾക്ക് എന്താണ് തോന്നുന്നതെന്ന് വിവരിക്കുക",
+  "@symptomCheckerDescribePrompt": {
+    "description": "Heading above symptom input"
+  },
+  "symptomCheckerRedFlags": "ചുവന്ന പതാകകൾ",
+  "@symptomCheckerRedFlags": {
+    "description": "Section heading for red-flag symptoms"
+  },
+  "symptomCheckerPossibleCauses": "സാധ്യമായ കാരണങ്ങൾ",
+  "@symptomCheckerPossibleCauses": {
+    "description": "Section heading for possible causes"
+  },
+  "symptomCheckerBookAppointment": "ഒരു അപ്പോയിൻ്റ്മെൻ്റ് ബുക്ക് ചെയ്യുക",
+  "@symptomCheckerBookAppointment": {
+    "description": "Button to book an appointment from symptom checker"
+  },
+  "symptomCheckerDisclaimer": "ട്രയേജ് ഔട്ട്‌പുട്ട് AI-അസിസ്റ്റഡ് ആണ്, ഒരു മെഡിക്കൽ ഡയഗ്‌നോസിസ് അല്ല. എല്ലായ്പ്പോഴും യോഗ്യതയുള്ള ഒരു ഡോക്ടറെ സമീപിക്കുക.",
+  "@symptomCheckerDisclaimer": {
+    "description": "Footer disclaimer about AI triage"
+  },
+  "checkinSaveFailed": "ചെക്ക്-ഇൻ സംരക്ഷിക്കാൻ കഴിഞ്ഞില്ല. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
+  "@checkinSaveFailed": {
+    "description": "Snackbar when daily check-in save fails"
+  },
+  "checkinTitle": "പ്രതിദിന ചെക്ക്-ഇൻ",
+  "@checkinTitle": {
+    "description": "Sheet title for daily check-in"
+  },
+  "checkinHowFeeling": "ഇന്ന് നിങ്ങൾക്ക് എങ്ങനെ തോന്നുന്നു?",
+  "@checkinHowFeeling": {
+    "description": "Mood prompt in check-in sheet"
+  },
+  "checkinQuickVitals": "ദ്രുത ജീവികൾ (ഓപ്ഷണൽ)",
+  "@checkinQuickVitals": {
+    "description": "Heading for optional quick vitals"
+  },
+  "checkinSaveButton": "ചെക്ക്-ഇൻ സംരക്ഷിക്കുക · +10 പോയിൻ്റുകൾ",
+  "@checkinSaveButton": {
+    "description": "Submit button on check-in sheet"
+  },
+  "checkinSavedToast": "+10 ആരോഗ്യ പോയിൻ്റുകൾ ചേർത്തു. നാളെ നിന്നെ കാണാം!",
+  "@checkinSavedToast": {
+    "description": "Snackbar after successful check-in"
+  },
+  "settingsHealthIdLabel": "ആരോഗ്യ ഐഡി (ABHA)",
+  "@settingsHealthIdLabel": {
+    "description": "Section title for ABHA in settings"
+  },
+  "settingsHealthIdSubtitle": "ആയുഷ്മാൻ ഭാരത് ഹെൽത്ത് അക്കൗണ്ട്",
+  "@settingsHealthIdSubtitle": {
+    "description": "Subtitle under Health ID section"
+  },
+  "settingsConnectWearables": "ധരിക്കാവുന്നവ ബന്ധിപ്പിക്കുക",
+  "@settingsConnectWearables": {
+    "description": "Section title for wearables connection"
+  },
+  "settingsConnectWearablesSubtitle": "Apple Health / Google Health Connect-ൽ നിന്ന് ഘട്ടങ്ങൾ, ഹൃദയമിടിപ്പ്, SpO₂ എന്നിവ സമന്വയിപ്പിക്കുക",
+  "@settingsConnectWearablesSubtitle": {
+    "description": "Subtitle under wearables section"
+  },
+  "settingsHealthPermissionsDenied": "ആരോഗ്യ അനുമതികൾ നൽകിയിട്ടില്ല",
+  "@settingsHealthPermissionsDenied": {
+    "description": "Snackbar when health permissions denied"
+  },
+  "settingsSyncingHealth": "ആരോഗ്യ ഡാറ്റ സമന്വയിപ്പിക്കുന്നു...",
+  "@settingsSyncingHealth": {
+    "description": "Snackbar while syncing health data"
+  },
+  "otpVerifyPhoneHeading": "നിങ്ങളുടെ ഫോൺ നമ്പർ പരിശോധിക്കുക",
+  "@otpVerifyPhoneHeading": {
+    "description": "Heading on the OTP verification screen"
+  },
+  "otpEnterDigits": "അയച്ച 6-അക്ക OTP നൽകുക",
+  "@otpEnterDigits": {
+    "description": "Subheading prefix above phone number on OTP screen"
+  },
+  "otpVerifyButtonText": "OTP പരിശോധിക്കുക",
+  "@otpVerifyButtonText": {
+    "description": "Button label to verify OTP"
+  },
+  "otpResendingOtp": "OTP വീണ്ടും അയയ്‌ക്കുന്നു...",
+  "@otpResendingOtp": {
+    "description": "Status while OTP resend is in progress"
+  },
+  "otpSentSuccess": "OTP നിങ്ങളുടെ ഫോൺ നമ്പറിലേക്ക് അയച്ചു",
+  "@otpSentSuccess": {
+    "description": "Snackbar after OTP resend succeeds"
+  },
+  "dashboardScheduleNextVisit": "നിങ്ങളുടെ അടുത്ത സന്ദർശനം ഷെഡ്യൂൾ ചെയ്യുക",
+  "@dashboardScheduleNextVisit": {
+    "description": "Dashboard widget title when no upcoming visit"
+  },
+  "dashboardStayOnTop": "നിങ്ങളുടെ ആരോഗ്യത്തിന് മുകളിൽ നിൽക്കുക",
+  "@dashboardStayOnTop": {
+    "description": "Dashboard widget body when no upcoming visit"
+  },
+  "dashboardBookNow": "ഇപ്പോൾ ബുക്ക് ചെയ്യുക",
+  "@dashboardBookNow": {
+    "description": "Dashboard CTA to book an appointment"
+  },
+  "dashboardLastVisit": "അവസാന സന്ദർശനം",
+  "@dashboardLastVisit": {
+    "description": "Label for last visit date"
+  },
+  "dashboardNextVisit": "അടുത്ത സന്ദർശനം",
+  "@dashboardNextVisit": {
+    "description": "Label for next visit date"
+  },
+  "dashboardLastVisitColon": "അവസാനം:",
+  "@dashboardLastVisitColon": {
+    "description": "Compact label for last visit"
+  },
+  "dashboardNextVisitColon": "അടുത്തത്:",
+  "@dashboardNextVisitColon": {
+    "description": "Compact label for next visit"
+  },
+  "dashboardToggleTheme": "തീം ടോഗിൾ ചെയ്യുക",
+  "@dashboardToggleTheme": {
+    "description": "Tooltip on theme toggle"
+  },
+  "dashboardToggleFontSize": "ഫോണ്ട് സൈസ് ടോഗിൾ ചെയ്യുക",
+  "@dashboardToggleFontSize": {
+    "description": "Tooltip on font size toggle"
+  },
+  "dashboardHealthPoints": "ആരോഗ്യ പോയിൻ്റുകൾ",
+  "@dashboardHealthPoints": {
+    "description": "Dashboard widget title for health points"
+  },
+  "dashboardWellnessScore": "വെൽനസ് സ്കോർ",
+  "@dashboardWellnessScore": {
+    "description": "Dashboard widget title for wellness score"
+  },
+  "dashboardLastVisitTitle": "അവസാന സന്ദർശനം",
+  "@dashboardLastVisitTitle": {
+    "description": "Title for last visit card"
+  },
+  "dashboardNextVisitTitle": "അടുത്ത സന്ദർശനം",
+  "@dashboardNextVisitTitle": {
+    "description": "Title for next visit card"
+  },
+  "investigationsFileTooLarge": "ഫയൽ വളരെ വലുതാണ്. പരമാവധി വലിപ്പം 10 MB ആണ്.",
+  "@investigationsFileTooLarge": {
+    "description": "Snackbar when uploaded file exceeds size limit"
+  },
+  "investigationsViewDownloadReport": "റിപ്പോർട്ട് കാണുക / ഡൗൺലോഡ് ചെയ്യുക",
+  "@investigationsViewDownloadReport": {
+    "description": "Button label to view or download a report"
+  },
+  "investigationsBookButton": "പുസ്തക അന്വേഷണം",
+  "@investigationsBookButton": {
+    "description": "Button to navigate to book investigation"
+  },
+  "investigationsNoFiles": "ഫയലുകളൊന്നും ലഭ്യമല്ല",
+  "@investigationsNoFiles": {
+    "description": "Empty state for investigation files list"
+  },
+  "myBookingsSlipAttached": "കുറിപ്പടി സ്ലിപ്പ് ഘടിപ്പിച്ചിരിക്കുന്നു",
+  "@myBookingsSlipAttached": {
+    "description": "Indicator on bookings list"
+  },
+  "myBookingsDownloadResult": "ഫലം ഡൗൺലോഡ് ചെയ്യുക",
+  "@myBookingsDownloadResult": {
+    "description": "Button to download investigation result"
+  },
+  "pharmacyOrderNote": "ഓർഡർ കുറിപ്പ്",
+  "@pharmacyOrderNote": {
+    "description": "Label for order note section"
+  },
+  "pharmacyDeliveryInfo": "ഡെലിവറി വിവരം",
+  "@pharmacyDeliveryInfo": {
+    "description": "Label for delivery info section"
+  },
+  "pharmacyOrdersEmpty": "ഇതുവരെ ഉത്തരവുകളൊന്നുമില്ല",
+  "@pharmacyOrdersEmpty": {
+    "description": "Empty state for orders list"
+  },
+  "pharmacyOrdersEmptyHint": "ഓർഡർ ടാബിൽ നിന്ന് നിങ്ങളുടെ ആദ്യ ഓർഡർ നൽകുക",
+  "@pharmacyOrdersEmptyHint": {
+    "description": "Empty-state hint for orders list"
+  },
+  "pharmacyOrderCancelled": "ഓർഡർ റദ്ദാക്കി",
+  "@pharmacyOrderCancelled": {
+    "description": "Status label when order cancelled"
+  },
+  "splashDeviceNotSupported": "ഉപകരണം പിന്തുണയ്ക്കുന്നില്ല",
+  "@splashDeviceNotSupported": {
+    "description": "Heading shown when device fails attestation"
+  },
+  "splashDeviceNotSupportedBody": "നിങ്ങളുടെ സുരക്ഷയ്ക്കായി, VH Health ഈ ഉപകരണത്തിൽ പ്രവർത്തിക്കാൻ കഴിയില്ല. കാരണം:",
+  "@splashDeviceNotSupportedBody": {
+    "description": "Body shown when device fails attestation"
+  },
+  "splashAppName": "VH Health",
+  "@splashAppName": {
+    "description": "App name shown on splash screen"
+  },
+  "splashTapAnywhere": "തുടരാൻ എവിടെയും ടാപ്പ് ചെയ്യുക",
+  "@splashTapAnywhere": {
+    "description": "Splash hint to tap to continue"
+  },
+  "gamificationRewardClaimed": "റിവാർഡ് ക്ലെയിം ചെയ്തു!",
+  "@gamificationRewardClaimed": {
+    "description": "Dialog title after redeeming a reward"
+  },
+  "gamificationVoucherCode": "നിങ്ങളുടെ വൗച്ചർ കോഡ്:",
+  "@gamificationVoucherCode": {
+    "description": "Label above voucher code"
+  },
+  "gamificationVoucherCopied": "വൗച്ചർ കോഡ് പകർത്തി!",
+  "@gamificationVoucherCopied": {
+    "description": "Snackbar after copying voucher code"
+  },
+  "gamificationCouldNotShare": "ഇപ്പോൾ പങ്കിടാൻ കഴിഞ്ഞില്ല",
+  "@gamificationCouldNotShare": {
+    "description": "Snackbar when share fails"
+  },
+  "gamificationShareSubtitle": "നിങ്ങളുടെ പുരോഗതി കുടുംബാംഗങ്ങളുമായും സുഹൃത്തുക്കളുമായും പങ്കിടുക",
+  "@gamificationShareSubtitle": {
+    "description": "Subtitle on share card"
+  },
+  "gamificationLoadFailed": "നിങ്ങളുടെ പോയിൻ്റുകളുടെ സംഗ്രഹം ലോഡ് ചെയ്യാനായില്ല",
+  "@gamificationLoadFailed": {
+    "description": "Error state for points summary"
+  },
+  "gamificationHowToEarn": "പോയിൻ്റുകൾ എങ്ങനെ നേടാം",
+  "@gamificationHowToEarn": {
+    "description": "Heading above earning rules"
+  },
+  "gamificationCompleteMilestones": "റിവാർഡുകൾ നേടാൻ നാഴികക്കല്ലുകൾ പൂർത്തിയാക്കുക!",
+  "@gamificationCompleteMilestones": {
+    "description": "Empty state for rewards tab"
+  },
+  "gamificationNoPointHistory": "ഇതുവരെ പോയിൻ്റ് ചരിത്രമില്ല",
+  "@gamificationNoPointHistory": {
+    "description": "Empty state for points history"
+  },
+  "gamificationNoMilestones": "ഇതുവരെ നാഴികക്കല്ലുകളൊന്നും ലഭ്യമല്ല",
+  "@gamificationNoMilestones": {
+    "description": "Empty state for milestones"
+  },
+  "stepsShareCardTitle": "VH Health സ്റ്റെപ്പ് ചലഞ്ച്",
+  "@stepsShareCardTitle": {
+    "description": "Title on the step share card image"
+  },
+  "stepsShareCardSubtitle": "Venkataeswara Hospitals, ചെന്നൈ",
+  "@stepsShareCardSubtitle": {
+    "description": "Subtitle on the step share card image"
+  },
+  "stepsShareCardFooter": "VH Health ആപ്പ്",
+  "@stepsShareCardFooter": {
+    "description": "Footer on the step share card image"
+  },
+  "documentOpening": "പ്രമാണം തുറക്കുന്നു...",
+  "@documentOpening": {
+    "description": "Snackbar while opening a document"
+  },
+  "documentCouldNotOpen": "പ്രമാണം തുറക്കാനായില്ല",
+  "@documentCouldNotOpen": {
+    "description": "Snackbar when document fails to open"
+  },
+  "permissionsNotNow": "ഇപ്പോൾ അല്ല",
+  "@permissionsNotNow": {
+    "description": "Permission prompt: dismiss button"
+  },
+  "permissionsOpenSettings": "ക്രമീകരണങ്ങൾ തുറക്കുക",
+  "@permissionsOpenSettings": {
+    "description": "Permission prompt: open settings button"
+  },
+  "feedbackRateExperience": "നിങ്ങളുടെ അനുഭവം വിലയിരുത്തുക",
+  "@feedbackRateExperience": {
+    "description": "Heading on feedback prompt"
+  },
+  "feedbackSubmitButton": "ഫീഡ്ബാക്ക് സമർപ്പിക്കുക",
+  "@feedbackSubmitButton": {
+    "description": "Button to submit feedback"
+  },
+  "feedbackHistoryTitle": "എൻ്റെ ഫീഡ്ബാക്ക്",
+  "@feedbackHistoryTitle": {
+    "description": "AppBar title for feedback history"
+  },
+  "logoutConfirmTitle": "ലോഗ്ഔട്ട് സ്ഥിരീകരിക്കുക",
+  "@logoutConfirmTitle": {
+    "description": "Dialog title to confirm logout"
+  },
+  "logoutConfirmBody": "ലോഗ്ഔട്ട് ചെയ്യണമെന്ന് തീർച്ചയാണോ?",
+  "@logoutConfirmBody": {
+    "description": "Dialog body to confirm logout"
+  },
+  "aboutHospitalName": "Venkataeswara Hospitals",
+  "@aboutHospitalName": {
+    "description": "Hospital name heading on About Us"
+  },
+  "aboutOpenInMaps": "Google മാപ്‌സിൽ തുറക്കാൻ ടാപ്പ് ചെയ്യുക →",
+  "@aboutOpenInMaps": {
+    "description": "Link to open hospital location in Google Maps"
+  },
+  "departmentsConsultationFee": "കൺസൾട്ടേഷൻ ഫീസ്",
+  "@departmentsConsultationFee": {
+    "description": "Label for doctor consultation fee"
+  },
+  "departmentsNoDoctors": "ഈ വിഭാഗത്തിൽ ഡോക്ടർമാരില്ല",
+  "@departmentsNoDoctors": {
+    "description": "Empty state for doctors in a department"
+  },
+  "circularDialNoFeatures": "ഫീച്ചറുകളൊന്നും ലഭ്യമല്ല",
+  "@circularDialNoFeatures": {
+    "description": "Empty state for circular feature dial"
+  },
+  "deliveryYourLocation": "നിങ്ങളുടെ സ്ഥാനം",
+  "@deliveryYourLocation": {
+    "description": "Label for user location on delivery map"
+  },
+  "authDevLoginSkipOtp": "ഡെവലപ്പ് ലോഗിൻ (OTP ഒഴിവാക്കുക)",
+  "@authDevLoginSkipOtp": {
+    "description": "Dev-only button to skip OTP"
+  },
+  "permissionGateSettingUp": "സജ്ജീകരിക്കുന്നു...",
+  "@permissionGateSettingUp": {
+    "description": "Status text while permission gate runs"
+  },
+  "yourHealthUploadRecord": "റെക്കോർഡ് അപ്‌ലോഡ് ചെയ്യുക",
+  "@yourHealthUploadRecord": {
+    "description": "Action button on Your Health screen to open upload sheet"
+  }
 }

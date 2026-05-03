@@ -34,12 +34,13 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
     'other': s.housekeepingRequestTypeOther,
   };
 
-  Map<String, ({String label, Color color})> _urgencyConfigFor(AppStrings s) => {
-    'low': (label: s.urgencyLow, color: const Color(0xFF4CAF50)),
-    'normal': (label: s.urgencyNormal, color: const Color(0xFF607D8B)),
-    'high': (label: s.urgencyHigh, color: const Color(0xFFF57C00)),
-    'urgent': (label: s.priorityUrgent, color: const Color(0xFFD32F2F)),
-  };
+  Map<String, ({String label, Color color})> _urgencyConfigFor(AppStrings s) =>
+      {
+        'low': (label: s.urgencyLow, color: const Color(0xFF4CAF50)),
+        'normal': (label: s.urgencyNormal, color: const Color(0xFF607D8B)),
+        'high': (label: s.urgencyHigh, color: const Color(0xFFF57C00)),
+        'urgent': (label: s.priorityUrgent, color: const Color(0xFFD32F2F)),
+      };
 
   @override
   void initState() {
@@ -150,7 +151,10 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
                 const SizedBox(height: 20),
                 Text(
                   s.housekeepingRaisedTitle,
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 if (_requestNumber != null) ...[
                   const SizedBox(height: 8),
@@ -413,7 +417,9 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
                       )
                     : const Icon(Icons.send_outlined, color: Colors.white),
                 label: Text(
-                  _submitting ? s.housekeepingRaisingButton : s.housekeepingRaiseRequestButton,
+                  _submitting
+                      ? s.housekeepingRaisingButton
+                      : s.housekeepingRaiseRequestButton,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,

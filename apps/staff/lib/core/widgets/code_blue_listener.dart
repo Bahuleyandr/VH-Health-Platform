@@ -87,7 +87,10 @@ class _CodeBlueListenerState extends State<CodeBlueListener> {
                 const SizedBox(height: 12),
                 Text(
                   s.codeBlueRespond,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
                 ),
               ],
             ),

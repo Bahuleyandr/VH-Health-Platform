@@ -153,7 +153,9 @@ class _CircularFeatureDialState extends State<CircularFeatureDial>
   @override
   Widget build(BuildContext context) {
     if (_reorderedFeatures.isEmpty) {
-      return Center(child: Text(AppLocalizations.of(context)!.circularDialNoFeatures));
+      return Center(
+        child: Text(AppLocalizations.of(context)!.circularDialNoFeatures),
+      );
     }
 
     final theme = Theme.of(context);

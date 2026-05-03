@@ -281,28 +281,34 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                       decoration: InputDecoration(
                         labelText: AppStrings.of(ctx).vitalsChartConsciousness,
                         prefixIcon: const ExcludeSemantics(
-                            child: Icon(Icons.visibility)),
+                          child: Icon(Icons.visibility),
+                        ),
                         border: const OutlineInputBorder(),
                       ),
                       items: [
                         DropdownMenuItem(
-                            value: 'Alert',
-                            child: Text(
-                                AppStrings.of(ctx).vitalsChartConsciousAlert)),
+                          value: 'Alert',
+                          child: Text(
+                            AppStrings.of(ctx).vitalsChartConsciousAlert,
+                          ),
+                        ),
                         DropdownMenuItem(
                           value: 'Verbal',
                           child: Text(
-                              AppStrings.of(ctx).vitalsChartConsciousVerbal),
+                            AppStrings.of(ctx).vitalsChartConsciousVerbal,
+                          ),
                         ),
                         DropdownMenuItem(
                           value: 'Pain',
                           child: Text(
-                              AppStrings.of(ctx).vitalsChartConsciousPain),
+                            AppStrings.of(ctx).vitalsChartConsciousPain,
+                          ),
                         ),
                         DropdownMenuItem(
                           value: 'Unresponsive',
                           child: Text(
-                              AppStrings.of(ctx).vitalsChartConsciousUnresp),
+                            AppStrings.of(ctx).vitalsChartConsciousUnresp,
+                          ),
                         ),
                       ],
                       onChanged: (v) => setSheetState(
@@ -421,7 +427,8 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                AppStrings.of(context).vitalsChartRecordFailed(e.toString())),
+              AppStrings.of(context).vitalsChartRecordFailed(e.toString()),
+            ),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -519,59 +526,70 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                               DropdownMenuItem(
                                 value: 'oral',
                                 child: Text(
-                                    AppStrings.of(ctx).vitalsChartIntakeOral),
+                                  AppStrings.of(ctx).vitalsChartIntakeOral,
+                                ),
                               ),
                               DropdownMenuItem(
                                 value: 'iv',
                                 child: Text(
-                                    AppStrings.of(ctx).vitalsChartIntakeIv),
+                                  AppStrings.of(ctx).vitalsChartIntakeIv,
+                                ),
                               ),
                               DropdownMenuItem(
                                 value: 'blood',
                                 child: Text(
-                                    AppStrings.of(ctx).vitalsChartIntakeBlood),
+                                  AppStrings.of(ctx).vitalsChartIntakeBlood,
+                                ),
                               ),
                               DropdownMenuItem(
                                 value: 'ng_tube',
                                 child: Text(
-                                    AppStrings.of(ctx).vitalsChartIntakeNg),
+                                  AppStrings.of(ctx).vitalsChartIntakeNg,
+                                ),
                               ),
                               DropdownMenuItem(
                                 value: 'other',
                                 child: Text(
-                                    AppStrings.of(ctx).vitalsChartCatOther),
+                                  AppStrings.of(ctx).vitalsChartCatOther,
+                                ),
                               ),
                             ]
                           : [
                               DropdownMenuItem(
                                 value: 'urine',
                                 child: Text(
-                                    AppStrings.of(ctx).vitalsChartOutputUrine),
+                                  AppStrings.of(ctx).vitalsChartOutputUrine,
+                                ),
                               ),
                               DropdownMenuItem(
                                 value: 'drain',
                                 child: Text(
-                                    AppStrings.of(ctx).vitalsChartOutputDrain),
+                                  AppStrings.of(ctx).vitalsChartOutputDrain,
+                                ),
                               ),
                               DropdownMenuItem(
                                 value: 'emesis',
                                 child: Text(
-                                    AppStrings.of(ctx).vitalsChartOutputEmesis),
+                                  AppStrings.of(ctx).vitalsChartOutputEmesis,
+                                ),
                               ),
                               DropdownMenuItem(
                                 value: 'stool',
                                 child: Text(
-                                    AppStrings.of(ctx).vitalsChartOutputStool),
+                                  AppStrings.of(ctx).vitalsChartOutputStool,
+                                ),
                               ),
                               DropdownMenuItem(
                                 value: 'blood_loss',
-                                child: Text(AppStrings.of(ctx)
-                                    .vitalsChartOutputBloodLoss),
+                                child: Text(
+                                  AppStrings.of(ctx).vitalsChartOutputBloodLoss,
+                                ),
                               ),
                               DropdownMenuItem(
                                 value: 'other',
                                 child: Text(
-                                    AppStrings.of(ctx).vitalsChartCatOther),
+                                  AppStrings.of(ctx).vitalsChartCatOther,
+                                ),
                               ),
                             ],
                       onChanged: (v) =>
@@ -586,7 +604,8 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                       decoration: InputDecoration(
                         labelText: AppStrings.of(ctx).vitalsChartAmount,
                         prefixIcon: const ExcludeSemantics(
-                            child: Icon(Icons.water_drop)),
+                          child: Icon(Icons.water_drop),
+                        ),
                         border: const OutlineInputBorder(),
                       ),
                       validator: (v) => (v == null || v.isEmpty)
@@ -704,8 +723,9 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content:
-                Text(AppStrings.of(context).vitalsChartIoFailed(e.toString())),
+            content: Text(
+              AppStrings.of(context).vitalsChartIoFailed(e.toString()),
+            ),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -765,35 +785,65 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
           dataRowMaxHeight: 44,
           columns: [
             DataColumn(
-                label: Text(AppStrings.of(context).vitalsChartColTime,
-                    style: _headerStyle)),
+              label: Text(
+                AppStrings.of(context).vitalsChartColTime,
+                style: _headerStyle,
+              ),
+            ),
             DataColumn(
-                label: Text(AppStrings.of(context).vitalsChartColHr,
-                    style: _headerStyle)),
+              label: Text(
+                AppStrings.of(context).vitalsChartColHr,
+                style: _headerStyle,
+              ),
+            ),
             DataColumn(
-                label: Text(AppStrings.of(context).vitalsChartColBp,
-                    style: _headerStyle)),
+              label: Text(
+                AppStrings.of(context).vitalsChartColBp,
+                style: _headerStyle,
+              ),
+            ),
             DataColumn(
-                label: Text(AppStrings.of(context).vitalsChartColTemp,
-                    style: _headerStyle)),
+              label: Text(
+                AppStrings.of(context).vitalsChartColTemp,
+                style: _headerStyle,
+              ),
+            ),
             DataColumn(
-                label: Text(AppStrings.of(context).vitalsChartColSpo2,
-                    style: _headerStyle)),
+              label: Text(
+                AppStrings.of(context).vitalsChartColSpo2,
+                style: _headerStyle,
+              ),
+            ),
             DataColumn(
-                label: Text(AppStrings.of(context).vitalsChartColRr,
-                    style: _headerStyle)),
+              label: Text(
+                AppStrings.of(context).vitalsChartColRr,
+                style: _headerStyle,
+              ),
+            ),
             DataColumn(
-                label: Text(AppStrings.of(context).vitalsChartColGlucose,
-                    style: _headerStyle)),
+              label: Text(
+                AppStrings.of(context).vitalsChartColGlucose,
+                style: _headerStyle,
+              ),
+            ),
             DataColumn(
-                label: Text(AppStrings.of(context).vitalsChartColPain,
-                    style: _headerStyle)),
+              label: Text(
+                AppStrings.of(context).vitalsChartColPain,
+                style: _headerStyle,
+              ),
+            ),
             DataColumn(
-                label: Text(AppStrings.of(context).vitalsChartColGcs,
-                    style: _headerStyle)),
+              label: Text(
+                AppStrings.of(context).vitalsChartColGcs,
+                style: _headerStyle,
+              ),
+            ),
             DataColumn(
-                label: Text(AppStrings.of(context).vitalsChartColAvpu,
-                    style: _headerStyle)),
+              label: Text(
+                AppStrings.of(context).vitalsChartColAvpu,
+                style: _headerStyle,
+              ),
+            ),
           ],
           rows: _vitalsHistory.map((v) {
             return DataRow(
@@ -955,8 +1005,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
           if (entryList.isNotEmpty) ...[
             Text(
               AppStrings.of(context).vitalsChartTodayEntries,
-              style: const TextStyle(
-                  fontWeight: FontWeight.w600, fontSize: 15),
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
             ),
             const SizedBox(height: 8),
             ...entryList.map((entry) {
@@ -1040,10 +1089,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
             SizedBox(height: 2),
             Text(
               label,
-              style: TextStyle(
-                fontSize: 11,
-                color: AppTheme.textSecondary,
-              ),
+              style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
             ),
           ],
         ),
@@ -1071,10 +1117,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
               widget.patientName != null
                   ? s.vitalsChartRecordForName(widget.patientName!)
                   : s.vitalsChartRecordPatient,
-              style: TextStyle(
-                fontSize: 16,
-                color: AppTheme.textSecondary,
-              ),
+              style: TextStyle(fontSize: 16, color: AppTheme.textSecondary),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),

@@ -106,10 +106,7 @@ class _FirstRunWelcomeState extends State<FirstRunWelcome> {
               ],
             ),
             const SizedBox(height: 6),
-            _Tip(
-              icon: Icons.touch_app_outlined,
-              text: s.firstRunTipBedTap,
-            ),
+            _Tip(icon: Icons.touch_app_outlined, text: s.firstRunTipBedTap),
             _Tip(
               icon: Icons.edit_note_outlined,
               text: s.firstRunTipBedLongPress,
@@ -118,10 +115,7 @@ class _FirstRunWelcomeState extends State<FirstRunWelcome> {
               icon: Icons.person_search_outlined,
               text: s.firstRunTipMagnifier(modKey),
             ),
-            _Tip(
-              icon: Icons.dashboard_outlined,
-              text: s.firstRunTipDashboard,
-            ),
+            _Tip(icon: Icons.dashboard_outlined, text: s.firstRunTipDashboard),
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerRight,

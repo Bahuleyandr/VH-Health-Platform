@@ -151,7 +151,8 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                       decoration: InputDecoration(
                         labelText: AppStrings.of(ctx).admissionPatientLabel,
                         prefixIcon: const ExcludeSemantics(
-                            child: Icon(Icons.search)),
+                          child: Icon(Icons.search),
+                        ),
                         border: const OutlineInputBorder(),
                       ),
                       validator: (v) => (v == null || v.isEmpty)
@@ -215,19 +216,27 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                       items: [
                         DropdownMenuItem(
                           value: 'Routine',
-                          child: Text(AppStrings.of(ctx).admissionPriorityRoutine),
+                          child: Text(
+                            AppStrings.of(ctx).admissionPriorityRoutine,
+                          ),
                         ),
                         DropdownMenuItem(
                           value: 'Urgent',
-                          child: Text(AppStrings.of(ctx).admissionPriorityUrgent),
+                          child: Text(
+                            AppStrings.of(ctx).admissionPriorityUrgent,
+                          ),
                         ),
                         DropdownMenuItem(
                           value: 'Emergency',
-                          child: Text(AppStrings.of(ctx).admissionPriorityEmergency),
+                          child: Text(
+                            AppStrings.of(ctx).admissionPriorityEmergency,
+                          ),
                         ),
                         DropdownMenuItem(
                           value: 'Critical',
-                          child: Text(AppStrings.of(ctx).admissionPriorityCritical),
+                          child: Text(
+                            AppStrings.of(ctx).admissionPriorityCritical,
+                          ),
                         ),
                       ],
                       onChanged: (v) =>
@@ -316,8 +325,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content:
-                Text(AppStrings.of(context).admissionAdmittedSuccess),
+            content: Text(AppStrings.of(context).admissionAdmittedSuccess),
             backgroundColor: AppTheme.successGreen,
           ),
         );
@@ -327,8 +335,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-                AppStrings.of(context).admissionFailed(e.toString())),
+            content: Text(AppStrings.of(context).admissionFailed(e.toString())),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -418,7 +425,8 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                         ),
                       ),
                       title: Text(
-                        a['patient_name'] as String? ?? s.admissionPatientFallback,
+                        a['patient_name'] as String? ??
+                            s.admissionPatientFallback,
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
                       subtitle: Column(
@@ -500,10 +508,7 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
             width: 120,
             child: Text(
               label,
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
             ),
           ),
           Expanded(
@@ -578,31 +583,49 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                   Text(
                     AppStrings.of(context).admissionPatientInformation,
                     style: const TextStyle(
-                        fontWeight: FontWeight.w600, fontSize: 15),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    ),
                   ),
                   const SizedBox(height: 8),
-                  _infoRow(AppStrings.of(context).admissionUid,
-                      _detail?['patient_uid'] as String?),
-                  _infoRow(AppStrings.of(context).admissionAgeGender,
-                      _detail?['age_gender'] as String?),
-                  _infoRow(AppStrings.of(context).admissionBloodGroup,
-                      _detail?['blood_group'] as String?),
-                  _infoRow(AppStrings.of(context).admissionAllergies,
-                      _detail?['allergies'] as String?),
+                  _infoRow(
+                    AppStrings.of(context).admissionUid,
+                    _detail?['patient_uid'] as String?,
+                  ),
+                  _infoRow(
+                    AppStrings.of(context).admissionAgeGender,
+                    _detail?['age_gender'] as String?,
+                  ),
+                  _infoRow(
+                    AppStrings.of(context).admissionBloodGroup,
+                    _detail?['blood_group'] as String?,
+                  ),
+                  _infoRow(
+                    AppStrings.of(context).admissionAllergies,
+                    _detail?['allergies'] as String?,
+                  ),
 
                   const SizedBox(height: 16),
                   Text(
                     AppStrings.of(context).admissionDetails,
                     style: const TextStyle(
-                        fontWeight: FontWeight.w600, fontSize: 15),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    ),
                   ),
                   const SizedBox(height: 8),
-                  _infoRow(AppStrings.of(context).admissionWardField,
-                      _detail?['ward'] as String?),
-                  _infoRow(AppStrings.of(context).admissionBedField,
-                      _detail?['bed']?.toString()),
-                  _infoRow(AppStrings.of(context).admissionAdmittedOn,
-                      _detail?['admitted_at'] as String?),
+                  _infoRow(
+                    AppStrings.of(context).admissionWardField,
+                    _detail?['ward'] as String?,
+                  ),
+                  _infoRow(
+                    AppStrings.of(context).admissionBedField,
+                    _detail?['bed']?.toString(),
+                  ),
+                  _infoRow(
+                    AppStrings.of(context).admissionAdmittedOn,
+                    _detail?['admitted_at'] as String?,
+                  ),
                   _infoRow(
                     AppStrings.of(context).admissionChiefComplaint,
                     _detail?['chief_complaint'] as String?,
@@ -611,10 +634,14 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                     AppStrings.of(context).admissionDiagnosisField,
                     _detail?['provisional_diagnosis'] as String?,
                   ),
-                  _infoRow(AppStrings.of(context).admissionPriorityField,
-                      _detail?['priority'] as String?),
-                  _infoRow(AppStrings.of(context).admissionCodeStatus,
-                      _detail?['code_status'] as String?),
+                  _infoRow(
+                    AppStrings.of(context).admissionPriorityField,
+                    _detail?['priority'] as String?,
+                  ),
+                  _infoRow(
+                    AppStrings.of(context).admissionCodeStatus,
+                    _detail?['code_status'] as String?,
+                  ),
                   _infoRow(
                     AppStrings.of(context).admissionAttending,
                     _detail?['attending_doctor'] as String?,
@@ -625,7 +652,9 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                   Text(
                     AppStrings.of(context).admissionQuickActions,
                     style: const TextStyle(
-                        fontWeight: FontWeight.w600, fontSize: 15),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Wrap(
@@ -635,7 +664,8 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                       ActionChip(
                         avatar: const Icon(Icons.monitor_heart, size: 18),
                         label: Text(
-                            AppStrings.of(context).admissionActionVitals),
+                          AppStrings.of(context).admissionActionVitals,
+                        ),
                         onPressed: () {
                           Navigator.pop(context);
                           final uid = _detail?['patient_uid'] as String?;
@@ -649,8 +679,9 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                       ),
                       ActionChip(
                         avatar: const Icon(Icons.note_add, size: 18),
-                        label:
-                            Text(AppStrings.of(context).admissionActionNotes),
+                        label: Text(
+                          AppStrings.of(context).admissionActionNotes,
+                        ),
                         onPressed: () {
                           Navigator.pop(context);
                           final uid = _detail?['patient_uid'] as String?;
@@ -665,7 +696,8 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                       ActionChip(
                         avatar: const Icon(Icons.receipt_long, size: 18),
                         label: Text(
-                            AppStrings.of(context).admissionActionOrders),
+                          AppStrings.of(context).admissionActionOrders,
+                        ),
                         onPressed: () {
                           Navigator.pop(context);
                           final uid = _detail?['patient_uid'] as String?;
@@ -680,7 +712,8 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                       ActionChip(
                         avatar: const Icon(Icons.timeline, size: 18),
                         label: Text(
-                            AppStrings.of(context).admissionActionTimeline),
+                          AppStrings.of(context).admissionActionTimeline,
+                        ),
                         onPressed: () {
                           Navigator.pop(context);
                           final uid = _detail?['patient_uid'] as String?;

@@ -242,7 +242,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final s = AppStrings.of(context);
     final fields = <String, String>{
       s.profileFieldEmployeeId: _profile?['employeeId']?.toString() ?? '—',
-      s.profileFieldRole: (_profile?['role']?.toString() ?? '—').replaceAll('_', ' '),
+      s.profileFieldRole: (_profile?['role']?.toString() ?? '—').replaceAll(
+        '_',
+        ' ',
+      ),
       s.profileFieldDepartment: _profile?['department']?.toString() ?? '—',
       s.profileFieldPhone:
           _profile?['phone']?.toString() ??
@@ -301,7 +304,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               controller: _phoneCtrl,
               decoration: InputDecoration(
                 labelText: s.profileFieldPhone,
-                prefixIcon: const ExcludeSemantics(child: Icon(Icons.phone_outlined)),
+                prefixIcon: const ExcludeSemantics(
+                  child: Icon(Icons.phone_outlined),
+                ),
               ),
               keyboardType: TextInputType.phone,
             ),
@@ -310,7 +315,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               controller: _emailCtrl,
               decoration: InputDecoration(
                 labelText: s.profileFieldEmail,
-                prefixIcon: const ExcludeSemantics(child: Icon(Icons.email_outlined)),
+                prefixIcon: const ExcludeSemantics(
+                  child: Icon(Icons.email_outlined),
+                ),
               ),
               keyboardType: TextInputType.emailAddress,
             ),
@@ -319,7 +326,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               controller: _addressCtrl,
               decoration: InputDecoration(
                 labelText: s.profileFieldAddress,
-                prefixIcon: const ExcludeSemantics(child: Icon(Icons.home_outlined)),
+                prefixIcon: const ExcludeSemantics(
+                  child: Icon(Icons.home_outlined),
+                ),
                 alignLabelWithHint: true,
               ),
               maxLines: 2,
@@ -337,7 +346,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     )
                   : const Icon(Icons.save, color: Colors.white),
-              label: Text(_saving ? s.profileSavingButton : s.profileSaveChanges),
+              label: Text(
+                _saving ? s.profileSavingButton : s.profileSaveChanges,
+              ),
             ),
           ],
         ),
@@ -386,10 +397,7 @@ class _FieldRow extends StatelessWidget {
             width: 120,
             child: Text(
               label,
-              style: TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
             ),
           ),
           Expanded(

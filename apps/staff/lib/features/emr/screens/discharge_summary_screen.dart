@@ -192,9 +192,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(s.dischargeProceedTitle),
-        content: Text(
-          '${s.dischargeProceedBodyPrefix} ${widget.patientName}',
-        ),
+        content: Text('${s.dischargeProceedBodyPrefix} ${widget.patientName}'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -317,10 +315,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
               color: theme.colorScheme.primary,
             ),
             const SizedBox(height: 16),
-            Text(
-              s.dischargeGenerateTitle,
-              style: theme.textTheme.titleLarge,
-            ),
+            Text(s.dischargeGenerateTitle, style: theme.textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
               s.dischargeGenerateBody,
@@ -342,7 +337,9 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                       ),
                     )
                   : const Icon(Icons.auto_awesome),
-              label: Text(_generating ? s.dischargeGenerating : s.dischargeGenerateButton),
+              label: Text(
+                _generating ? s.dischargeGenerating : s.dischargeGenerateButton,
+              ),
             ),
             if (_error != null) ...[
               const SizedBox(height: 16),
@@ -400,7 +397,11 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
               ),
             ),
 
-          _buildSection(s.dischargeSectionHospitalCourse, _hospitalCourseCtrl, maxLines: 8),
+          _buildSection(
+            s.dischargeSectionHospitalCourse,
+            _hospitalCourseCtrl,
+            maxLines: 8,
+          ),
           _buildSection(
             s.dischargeSectionDiagnosis,
             _dischargeDiagnosisCtrl,
@@ -414,12 +415,19 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
           _buildSection(s.dischargeSectionFollowUp, _followUpCtrl, maxLines: 4),
           _buildSection(s.dischargeSectionActivity, _activityCtrl, maxLines: 3),
           _buildSection(s.dischargeSectionDiet, _dietCtrl, maxLines: 3),
-          _buildSection(s.dischargeSectionWarningSigns, _warningSignsCtrl, maxLines: 4),
+          _buildSection(
+            s.dischargeSectionWarningSigns,
+            _warningSignsCtrl,
+            maxLines: 4,
+          ),
 
           // Medications on discharge (read-only)
           if (_summary?['medications_on_discharge'] != null) ...[
             const SizedBox(height: 16),
-            Text(s.dischargeSectionMedications, style: theme.textTheme.titleSmall),
+            Text(
+              s.dischargeSectionMedications,
+              style: theme.textTheme.titleSmall,
+            ),
             const SizedBox(height: 8),
             ...(_summary!['medications_on_discharge'] as List).map(
               (med) => Card(
@@ -437,7 +445,10 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
           // Investigations summary (read-only)
           if (_summary?['investigations_summary'] != null) ...[
             const SizedBox(height: 16),
-            Text(s.dischargeSectionInvestigations, style: theme.textTheme.titleSmall),
+            Text(
+              s.dischargeSectionInvestigations,
+              style: theme.textTheme.titleSmall,
+            ),
             const SizedBox(height: 8),
             ...(_summary!['investigations_summary'] as List).map(
               (inv) => Card(
@@ -456,7 +467,10 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
           if (_summary?['procedures_performed'] != null &&
               (_summary!['procedures_performed'] as List).isNotEmpty) ...[
             const SizedBox(height: 16),
-            Text(s.dischargeSectionProcedures, style: theme.textTheme.titleSmall),
+            Text(
+              s.dischargeSectionProcedures,
+              style: theme.textTheme.titleSmall,
+            ),
             const SizedBox(height: 8),
             ...(_summary!['procedures_performed'] as List).map(
               (proc) => Card(

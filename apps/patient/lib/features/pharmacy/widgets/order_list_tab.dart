@@ -160,7 +160,10 @@ class OrderListTabState extends State<OrderListTab> {
                   order['order_note'].toString().isNotEmpty) ...[
                 Text(
                   AppLocalizations.of(context)!.pharmacyOrderNote,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(order['order_note']),
@@ -223,7 +226,10 @@ class OrderListTabState extends State<OrderListTab> {
                 const Divider(),
                 Text(
                   AppLocalizations.of(context)!.pharmacyDeliveryInfo,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 if (order['delivery_address'] != null)

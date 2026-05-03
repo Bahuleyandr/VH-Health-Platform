@@ -135,11 +135,9 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
 
       if (body.isEmpty) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(l.vitalsAtLeastOne),
-            ),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(l.vitalsAtLeastOne)));
         }
         return;
       }
@@ -169,9 +167,9 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
           ),
         );
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.vitalsRecordedSuccess)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.vitalsRecordedSuccess)));
         _formKey.currentState!.reset();
         _systolicCtrl.clear();
         _diastolicCtrl.clear();
@@ -183,19 +181,15 @@ class _VitalsFormTabState extends State<_VitalsFormTab> {
         widget.onSubmitted();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response.message ?? l.vitalsRecordFailed),
-          ),
+          SnackBar(content: Text(response.message ?? l.vitalsRecordFailed)),
         );
       }
     } catch (e) {
       if (kDebugMode) debugPrint('VitalsFormTab: submit error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l.vitalsRecordFailedRetry),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.vitalsRecordFailedRetry)));
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -497,7 +491,10 @@ class _VitalsHistoryTabState extends State<_VitalsHistoryTab> {
               color: Colors.grey.shade400,
             ),
             const SizedBox(height: 12),
-            Text(AppLocalizations.of(context)!.vitalsNoHistory, style: theme.textTheme.bodyMedium),
+            Text(
+              AppLocalizations.of(context)!.vitalsNoHistory,
+              style: theme.textTheme.bodyMedium,
+            ),
             const SizedBox(height: 8),
             Text(
               AppLocalizations.of(context)!.vitalsNoHistoryHint,

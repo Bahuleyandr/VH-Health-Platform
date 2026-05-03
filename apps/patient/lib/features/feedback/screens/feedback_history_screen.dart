@@ -46,7 +46,9 @@ class _FeedbackHistoryScreenState extends State<FeedbackHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(AppLocalizations.of(context)!.feedbackHistoryTitle)),
+      appBar: AppBar(
+        title: Text(AppLocalizations.of(context)!.feedbackHistoryTitle),
+      ),
       body: DataStateBuilder<dynamic>(
         isLoading: _loading,
         error: _error,

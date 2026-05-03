@@ -264,7 +264,9 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                     );
                   },
                   icon: const Icon(Icons.download),
-                  label: Text(AppLocalizations.of(context)!.myBookingsDownloadResult),
+                  label: Text(
+                    AppLocalizations.of(context)!.myBookingsDownloadResult,
+                  ),
                 ),
               ),
           ],

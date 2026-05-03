@@ -225,7 +225,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             labelText: s.loginEmployeeIdLabel,
                             hintText: s.loginEmployeeIdHint,
                             prefixText: _empIdPrefix,
-                            prefixIcon: const ExcludeSemantics(child: Icon(Icons.badge_outlined)),
+                            prefixIcon: const ExcludeSemantics(
+                              child: Icon(Icons.badge_outlined),
+                            ),
                           ),
                           keyboardType: TextInputType.number,
                           inputFormatters: [
@@ -283,7 +285,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             decoration: InputDecoration(
                               labelText: s.loginQuickPinLabel,
                               hintText: s.loginQuickPinHint,
-                              prefixIcon: const ExcludeSemantics(child: Icon(Icons.speed)),
+                              prefixIcon: const ExcludeSemantics(
+                                child: Icon(Icons.speed),
+                              ),
                             ),
                             validator: (v) {
                               if (v == null || v.isEmpty) {
@@ -299,7 +303,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             obscureText: _obscurePassword,
                             decoration: InputDecoration(
                               labelText: s.loginPasswordLabel,
-                              prefixIcon: const ExcludeSemantics(child: Icon(Icons.lock_outlined)),
+                              prefixIcon: const ExcludeSemantics(
+                                child: Icon(Icons.lock_outlined),
+                              ),
                               suffixIcon: IconButton(
                                 icon: Icon(
                                   _obscurePassword
@@ -322,10 +328,13 @@ class _LoginScreenState extends State<LoginScreen> {
                             decoration: InputDecoration(
                               labelText: s.loginPinFieldLabel,
                               hintText: s.loginPinHint,
-                              prefixIcon: const ExcludeSemantics(child: Icon(Icons.pin_outlined)),
+                              prefixIcon: const ExcludeSemantics(
+                                child: Icon(Icons.pin_outlined),
+                              ),
                             ),
                             validator: (v) {
-                              if (v == null || v.isEmpty) return s.loginPinRequired;
+                              if (v == null || v.isEmpty)
+                                return s.loginPinRequired;
                               if (v.length < 4) return s.loginPinMinDigits;
                               return null;
                             },

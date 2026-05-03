@@ -134,9 +134,9 @@ class _RecordsScreenState extends State<RecordsScreen>
     final l = AppLocalizations.of(context)!;
     final url = record.fileUrl;
     if (url == null || url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.recordsDocumentUrlMissing)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.recordsDocumentUrlMissing)));
       return;
     }
     await DocumentOpener.openFromUrl(
@@ -152,7 +152,9 @@ class _RecordsScreenState extends State<RecordsScreen>
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(l.recordsDeleteTitle),
-        content: Text('${l.recordsDeletePrefix}"${record.title}"? This cannot be undone.'),
+        content: Text(
+          '${l.recordsDeletePrefix}"${record.title}"? This cannot be undone.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -234,9 +236,7 @@ class _RecordsScreenState extends State<RecordsScreen>
             final lInner = AppLocalizations.of(ctx)!;
             if (pickedFilePath == null || titleCtrl.text.trim().isEmpty) {
               ScaffoldMessenger.of(ctx).showSnackBar(
-                SnackBar(
-                  content: Text(lInner.recordsPickFileFirst),
-                ),
+                SnackBar(content: Text(lInner.recordsPickFileFirst)),
               );
               return;
             }
@@ -507,7 +507,9 @@ class _RecordsScreenState extends State<RecordsScreen>
               ElevatedButton.icon(
                 onPressed: _showUploadSheet,
                 icon: const Icon(Icons.upload_file),
-                label: Text(AppLocalizations.of(context)!.recordsUploadSheetTitle),
+                label: Text(
+                  AppLocalizations.of(context)!.recordsUploadSheetTitle,
+                ),
               ),
             ],
           ),

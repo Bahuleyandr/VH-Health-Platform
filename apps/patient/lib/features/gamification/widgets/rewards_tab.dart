@@ -153,7 +153,11 @@ class RewardsTab extends StatelessWidget {
                               );
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text(AppLocalizations.of(context)!.gamificationVoucherCopied),
+                                  content: Text(
+                                    AppLocalizations.of(
+                                      context,
+                                    )!.gamificationVoucherCopied,
+                                  ),
                                   behavior: SnackBarBehavior.floating,
                                   duration: const Duration(seconds: 2),
                                 ),

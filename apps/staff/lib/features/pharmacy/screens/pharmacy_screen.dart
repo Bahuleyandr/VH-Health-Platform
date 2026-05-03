@@ -664,7 +664,9 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  deliveryType == 'pickup' ? s.pharmacyDeliveryTypePickup : s.pharmacyDeliveryTypeDelivery,
+                  deliveryType == 'pickup'
+                      ? s.pharmacyDeliveryTypePickup
+                      : s.pharmacyDeliveryTypeDelivery,
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                 ),
                 const Spacer(),

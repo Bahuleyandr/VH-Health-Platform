@@ -128,7 +128,10 @@ class _OvertimeScreenState extends State<OvertimeScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(s.disputeDateLabel, style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text(
+            s.disputeDateLabel,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
           InkWell(
             onTap: () async {
@@ -196,7 +199,10 @@ class _OvertimeScreenState extends State<OvertimeScreen>
             onChanged: (v) => setState(() => _hours = (v * 2).round() / 2),
           ),
           const SizedBox(height: 16),
-          Text(s.overtimeTypeLabel, style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text(
+            s.overtimeTypeLabel,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             initialValue: _type,
@@ -214,7 +220,10 @@ class _OvertimeScreenState extends State<OvertimeScreen>
             onChanged: (v) => setState(() => _type = v!),
           ),
           const SizedBox(height: 16),
-          Text(s.overtimeReasonLabel, style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text(
+            s.overtimeReasonLabel,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
           TextField(
             decoration: InputDecoration(

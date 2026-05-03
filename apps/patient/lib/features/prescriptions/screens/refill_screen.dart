@@ -66,9 +66,9 @@ class _RefillScreenState extends State<RefillScreen> {
         (prescription['_id'] as String?) ?? (prescription['id']?.toString());
     if (id == null || id.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.refillPrescriptionIdMissing)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.refillPrescriptionIdMissing)));
       }
       return;
     }
@@ -105,26 +105,22 @@ class _RefillScreenState extends State<RefillScreen> {
 
       if (response.isSuccess) {
         setState(() => _refillStatus[id] = 'submitted');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.refillRequested(medName))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.refillRequested(medName))));
       } else {
         setState(() => _refillStatus[id] = 'error');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response.message ?? l.refillRequestFailed),
-          ),
+          SnackBar(content: Text(response.message ?? l.refillRequestFailed)),
         );
       }
     } catch (e) {
       if (kDebugMode) debugPrint('RefillScreen: refill error: $e');
       if (mounted) {
         setState(() => _refillStatus[id] = 'error');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l.refillRequestRetry),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.refillRequestRetry)));
       }
     }
   }
@@ -190,10 +186,7 @@ class _RefillScreenState extends State<RefillScreen> {
                 color: Colors.grey.shade400,
               ),
               const SizedBox(height: 12),
-              Text(
-                l.refillNoActive,
-                style: theme.textTheme.bodyMedium,
-              ),
+              Text(l.refillNoActive, style: theme.textTheme.bodyMedium),
               const SizedBox(height: 8),
               Text(
                 l.refillNoActiveHint,

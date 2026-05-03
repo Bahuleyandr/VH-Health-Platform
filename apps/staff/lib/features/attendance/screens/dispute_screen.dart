@@ -167,7 +167,10 @@ class _DisputeScreenState extends State<DisputeScreen>
             ),
           ),
           const SizedBox(height: 16),
-          Text(s.disputeDateLabel, style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text(
+            s.disputeDateLabel,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
           InkWell(
             onTap: () async {

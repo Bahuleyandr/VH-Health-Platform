@@ -73,7 +73,9 @@ class ClinicalAiApiService {
         return raw;
       }
     }
-    throw Exception(resp.message ?? 'Clinical AI request failed (${resp.statusCode})');
+    throw Exception(
+      resp.message ?? 'Clinical AI request failed (${resp.statusCode})',
+    );
   }
 
   // ---------- review queue + decisions ----------------------------------
@@ -92,7 +94,8 @@ class ClinicalAiApiService {
   }) async {
     final query = <String, String>{};
     if (decision != null && decision.isNotEmpty) query['decision'] = decision;
-    if (moduleKey != null && moduleKey.isNotEmpty) query['module_key'] = moduleKey;
+    if (moduleKey != null && moduleKey.isNotEmpty)
+      query['module_key'] = moduleKey;
     if (limit != null) query['limit'] = limit.toString();
     final data = await _get('$_basePath/reviews', query: query);
     final reviews = data['reviews'];
@@ -147,9 +150,7 @@ class ClinicalAiApiService {
   static Future<Map<String, dynamic>> startDischargeCompose({
     required int admissionId,
   }) async {
-    return _post('$_basePath/discharge-compose', {
-      'admission_id': admissionId,
-    });
+    return _post('$_basePath/discharge-compose', {'admission_id': admissionId});
   }
 
   /// GET /discharge-compose — list recent compose runs (top-level only).
@@ -190,11 +191,16 @@ class ClinicalAiApiService {
   /// (tenant-scoped). Routed through the *non-clinical* legacy path
   /// `/api/v1/clinical/voice-note/my` because voice-note endpoints predate
   /// the Phase 0 control/clinical split.
-  static Future<List<Map<String, dynamic>>> listMyVoiceNotes({int? limit}) async {
+  static Future<List<Map<String, dynamic>>> listMyVoiceNotes({
+    int? limit,
+  }) async {
     final query = <String, String>{};
     if (limit != null) query['limit'] = limit.toString();
     // baseUrl already ends in `/api/v1`; do NOT re-prefix.
-    final resp = await ApiClient.get('/clinical/voice-note/my', queryParameters: query);
+    final resp = await ApiClient.get(
+      '/clinical/voice-note/my',
+      queryParameters: query,
+    );
     final data = _handle(resp);
     final notes = data['notes'] ?? data['data'];
     if (notes is List) return notes.cast<Map<String, dynamic>>();
@@ -205,7 +211,9 @@ class ClinicalAiApiService {
   /// into a SOAP draft. Returns the standard draft response shape (draft,
   /// citations, safety_flags, generation_id, review_id). The draft enters
   /// the caller's review queue keyed by module_key 'soap_from_dictation'.
-  static Future<Map<String, dynamic>> generateSoapFromVoiceNote(int voiceNoteId) async {
+  static Future<Map<String, dynamic>> generateSoapFromVoiceNote(
+    int voiceNoteId,
+  ) async {
     // baseUrl already ends in `/api/v1`; do NOT re-prefix.
     final resp = await ApiClient.post(
       '/clinical/voice-note/$voiceNoteId/generate-soap',
@@ -283,7 +291,8 @@ class ClinicalAiApiService {
       'report_text': reportText,
       'language': language,
     };
-    if (patientUid != null && patientUid.isNotEmpty) body['patient_uid'] = patientUid;
+    if (patientUid != null && patientUid.isNotEmpty)
+      body['patient_uid'] = patientUid;
     if (admissionId != null) body['admission_id'] = admissionId;
     return _post('$_basePath/patient-report-explanations', body);
   }

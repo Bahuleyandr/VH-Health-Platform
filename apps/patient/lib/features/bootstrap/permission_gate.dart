@@ -43,7 +43,10 @@ class _PermissionGateState extends State<PermissionGate> {
             const SizedBox(height: 24),
             const CircularProgressIndicator(),
             const SizedBox(height: 16),
-            Text(AppLocalizations.of(context)!.permissionGateSettingUp, style: Theme.of(context).textTheme.bodyLarge),
+            Text(
+              AppLocalizations.of(context)!.permissionGateSettingUp,
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
           ],
         ),
       ),

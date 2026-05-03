@@ -219,7 +219,8 @@ class _MarScanScreenState extends State<MarScanScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  ma['medication_name']?.toString() ?? s.marScanUnknownMedication,
+                  ma['medication_name']?.toString() ??
+                      s.marScanUnknownMedication,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 Text(
@@ -299,10 +300,7 @@ class _MarScanScreenState extends State<MarScanScreen> {
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: _reset,
-              child: Text(s.marScanScanNext),
-            ),
+            ElevatedButton(onPressed: _reset, child: Text(s.marScanScanNext)),
           ],
         ),
       ),
