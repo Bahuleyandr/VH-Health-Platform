@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../l10n/app_strings.dart';
 
 class ShiftCard extends StatelessWidget {
   final Map<String, dynamic>? shift;
@@ -15,7 +16,7 @@ class ShiftCard extends StatelessWidget {
               const Icon(Icons.schedule_outlined, size: 18, color: Colors.grey),
               const SizedBox(width: 8),
               Text(
-                'No shift assigned',
+                AppStrings.of(context).shiftCardNoShift,
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
               ),
             ],

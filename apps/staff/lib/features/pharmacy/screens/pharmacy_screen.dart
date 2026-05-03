@@ -200,7 +200,9 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                     errorBuilder: (_, _, _) => Container(
                       height: 80,
                       color: Colors.grey.shade200,
-                      child: const Center(child: Text('No preview')),
+                      child: Center(
+                        child: Text(AppStrings.of(context).pharmacyNoPreview),
+                      ),
                     ),
                   ),
                 ),

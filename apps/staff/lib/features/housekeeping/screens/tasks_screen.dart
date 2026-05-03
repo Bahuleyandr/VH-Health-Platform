@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../l10n/app_strings.dart';
 
 /// Housekeeping Tasks screen — General staff view/complete assigned tasks.
 /// TODO: Integrate with backend when /staff/housekeeping/tasks endpoint is available.
@@ -83,10 +84,10 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
       task.status = 'completed';
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('✅ Task marked as complete'),
+      SnackBar(
+        content: Text(AppStrings.of(context).housekeepingTaskCompleted),
         backgroundColor: AppTheme.successGreen,
-        duration: Duration(seconds: 2),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -98,35 +99,36 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
       task.status = 'in_progress';
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Task started'),
-        duration: Duration(seconds: 2),
+      SnackBar(
+        content: Text(AppStrings.of(context).housekeepingTaskStarted),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings.of(context);
     return StaffScaffold(
-      title: 'My Tasks',
+      title: s.housekeepingTasksTitle,
       body: Column(
         children: [
           // API notice
           Container(
             color: AppTheme.warningAmber.withValues(alpha: 0.08),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(
+                const Icon(
                   Icons.info_outline,
                   color: AppTheme.warningAmber,
                   size: 16,
                 ),
-                SizedBox(width: 8),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Showing sample tasks. Backend API coming soon.',
-                    style: TextStyle(
+                    s.housekeepingSampleNotice,
+                    style: const TextStyle(
                       color: AppTheme.warningAmber,
                       fontSize: 11,
                     ),
@@ -145,9 +147,9 @@ class _HousekeepingTasksScreenState extends State<HousekeepingTasksScreen>
               unselectedLabelColor: AppTheme.textSecondary,
               indicatorColor: AppTheme.successGreen,
               tabs: [
-                Tab(text: 'All (${_tasks.length})'),
-                Tab(text: 'Pending (${_pendingTasks.length})'),
-                Tab(text: 'Done (${_completedTasks.length})'),
+                Tab(text: '${s.housekeepingTabAll} (${_tasks.length})'),
+                Tab(text: '${s.housekeepingTabPending} (${_pendingTasks.length})'),
+                Tab(text: '${s.housekeepingTabDone} (${_completedTasks.length})'),
               ],
             ),
           ),
@@ -199,9 +201,9 @@ class _TaskList extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.task_alt, size: 56, color: AppTheme.textSecondary),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             Text(
-              'No tasks here',
+              AppStrings.of(context).housekeepingNoTasks,
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
@@ -398,7 +400,10 @@ class _TaskCard extends StatelessWidget {
                       foregroundColor: AppTheme.accentCyan,
                       visualDensity: VisualDensity.compact,
                     ),
-                    child: const Text('Start', style: TextStyle(fontSize: 12)),
+                    child: Text(
+                      AppStrings.of(context).housekeepingActionStart,
+                      style: const TextStyle(fontSize: 12),
+                    ),
                   ),
                   const SizedBox(width: 4),
                 ],
@@ -410,9 +415,9 @@ class _TaskCard extends StatelessWidget {
                       minimumSize: const Size(80, 32),
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                     ),
-                    child: const Text(
-                      'Done',
-                      style: TextStyle(fontSize: 12, color: Colors.white),
+                    child: Text(
+                      AppStrings.of(context).housekeepingActionDone,
+                      style: const TextStyle(fontSize: 12, color: Colors.white),
                     ),
                   ),
               ],

@@ -48,10 +48,11 @@ class _OvertimeScreenState extends State<OvertimeScreen>
   }
 
   Future<void> _submit() async {
+    final s = AppStrings.of(context);
     if (_date == null || _reason.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Date and reason required'),
+        SnackBar(
+          content: Text(s.overtimeRequiredError),
           backgroundColor: Colors.red,
         ),
       );
@@ -67,8 +68,8 @@ class _OvertimeScreenState extends State<OvertimeScreen>
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Overtime request submitted'),
+          SnackBar(
+            content: Text(s.overtimeSubmittedSuccess),
             backgroundColor: Colors.green,
           ),
         );

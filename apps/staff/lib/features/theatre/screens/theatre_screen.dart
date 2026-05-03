@@ -123,12 +123,13 @@ class _TheatreScreenState extends State<TheatreScreen>
   }
 
   String _statusLabel(String? status) {
+    final s = AppStrings.of(context);
     return switch (status?.toLowerCase()) {
-      'scheduled' => 'Scheduled',
-      'in_progress' => 'In Progress',
-      'completed' => 'Completed',
-      'cancelled' => 'Cancelled',
-      _ => status ?? 'Unknown',
+      'scheduled' => s.theatreStatusScheduled,
+      'in_progress' => s.theatreStatusInProgress,
+      'completed' => s.theatreStatusCompleted,
+      'cancelled' => s.theatreStatusCancelled,
+      _ => status ?? '—',
     };
   }
 
@@ -173,16 +174,16 @@ class _TheatreScreenState extends State<TheatreScreen>
       onRefresh: _fetchSchedule,
       child: _schedule.isEmpty
           ? ListView(
-              children: const [
-                SizedBox(height: 120),
+              children: [
+                const SizedBox(height: 120),
                 Center(
                   child: Column(
                     children: [
-                      Icon(Icons.event_busy, size: 64, color: Colors.grey),
-                      SizedBox(height: 12),
+                      const Icon(Icons.event_busy, size: 64, color: Colors.grey),
+                      const SizedBox(height: 12),
                       Text(
-                        'No surgeries scheduled',
-                        style: TextStyle(color: Colors.grey, fontSize: 16),
+                        AppStrings.of(context).theatreNoSurgeries,
+                        style: const TextStyle(color: Colors.grey, fontSize: 16),
                       ),
                     ],
                   ),
@@ -267,7 +268,7 @@ class _TheatreScreenState extends State<TheatreScreen>
               ),
               SizedBox(height: 6),
               Text(
-                'Surgeon: ${s['surgeon']?.toString() ?? '-'}',
+                '${AppStrings.of(context).theatreSurgeonPrefix} ${s['surgeon']?.toString() ?? '-'}',
                 style: TextStyle(
                   fontSize: 13,
                   color: AppTheme.textSecondary,
@@ -297,6 +298,7 @@ class _TheatreScreenState extends State<TheatreScreen>
   void _showDetailSheet(Map<String, dynamic> s) {
     final status = s['status']?.toString().toLowerCase();
     final id = s['id'] as int?;
+    final str = AppStrings.of(context);
 
     showModalBottomSheet(
       context: context,
@@ -328,7 +330,7 @@ class _TheatreScreenState extends State<TheatreScreen>
                   ),
                   SizedBox(height: 20),
                   Text(
-                    s['procedure_name']?.toString() ?? 'Procedure',
+                    s['procedure_name']?.toString() ?? '—',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -337,36 +339,36 @@ class _TheatreScreenState extends State<TheatreScreen>
                   ),
                   const SizedBox(height: 16),
                   _detailRow(
-                    'Patient UID',
+                    str.theatreLabelPatientUid,
                     s['patient_uid']?.toString() ?? '-',
                   ),
                   _detailRow(
-                    'Procedure Code',
+                    str.theatreLabelProcedureCode,
                     s['procedure_code']?.toString() ?? '-',
                   ),
-                  _detailRow('OT Room', s['ot_room']?.toString() ?? '-'),
-                  _detailRow('Date', s['scheduled_date']?.toString() ?? '-'),
-                  _detailRow('Time', s['scheduled_time']?.toString() ?? '-'),
+                  _detailRow(str.theatreLabelOtRoom, s['ot_room']?.toString() ?? '-'),
+                  _detailRow(str.theatreLabelDate, s['scheduled_date']?.toString() ?? '-'),
+                  _detailRow(str.theatreLabelTime, s['scheduled_time']?.toString() ?? '-'),
                   _detailRow(
-                    'Duration',
+                    str.theatreLabelDuration,
                     '${s['estimated_duration'] ?? '-'} min',
                   ),
-                  _detailRow('Surgeon', s['surgeon']?.toString() ?? '-'),
+                  _detailRow(str.theatreLabelSurgeon, s['surgeon']?.toString() ?? '-'),
                   _detailRow(
-                    'Anesthetist',
+                    str.theatreLabelAnesthetist,
                     s['anesthetist']?.toString() ?? '-',
                   ),
-                  _detailRow('Status', _statusLabel(status)),
+                  _detailRow(str.theatreLabelStatus, _statusLabel(status)),
                   _detailRow(
-                    'Blood Arranged',
-                    s['blood_arranged'] == true ? 'Yes' : 'No',
+                    str.theatreLabelBloodArranged,
+                    s['blood_arranged'] == true ? str.theatreYes : str.theatreNo,
                   ),
                   _detailRow(
-                    'Consent',
-                    s['consent_obtained'] == true ? 'Yes' : 'No',
+                    str.theatreLabelConsent,
+                    s['consent_obtained'] == true ? str.theatreYes : str.theatreNo,
                   ),
                   if (s['equipment_needed'] != null)
-                    _detailRow('Equipment', s['equipment_needed'].toString()),
+                    _detailRow(str.theatreLabelEquipment, s['equipment_needed'].toString()),
                   const SizedBox(height: 24),
                   if (id != null) ...[
                     if (status == 'scheduled')
@@ -376,7 +378,7 @@ class _TheatreScreenState extends State<TheatreScreen>
                           onPressed: () =>
                               _updateStatus(ctx, id, 'in_progress'),
                           icon: const Icon(Icons.play_arrow),
-                          label: const Text('Start Surgery'),
+                          label: Text(str.theatreStartSurgery),
                         ),
                       ),
                     if (status == 'in_progress') ...[
@@ -385,7 +387,7 @@ class _TheatreScreenState extends State<TheatreScreen>
                         child: ElevatedButton.icon(
                           onPressed: () => _updateStatus(ctx, id, 'completed'),
                           icon: const Icon(Icons.check_circle),
-                          label: const Text('Mark Complete'),
+                          label: Text(str.theatreMarkComplete),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.successGreen,
                           ),
@@ -399,7 +401,7 @@ class _TheatreScreenState extends State<TheatreScreen>
                         child: OutlinedButton.icon(
                           onPressed: () => _updateStatus(ctx, id, 'cancelled'),
                           icon: const Icon(Icons.cancel),
-                          label: const Text('Cancel'),
+                          label: Text(str.theatreCancelButton),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: AppTheme.errorRed,
                             side: const BorderSide(color: AppTheme.errorRed),
@@ -416,7 +418,7 @@ class _TheatreScreenState extends State<TheatreScreen>
                           _showChecklistSheet(id, s);
                         },
                         icon: const Icon(Icons.checklist),
-                        label: const Text('Pre-op Checklist'),
+                        label: Text(str.theatrePreOpChecklist),
                       ),
                     ),
                   ],
@@ -462,11 +464,12 @@ class _TheatreScreenState extends State<TheatreScreen>
     String status,
   ) async {
     Navigator.pop(sheetCtx);
+    final str = AppStrings.of(context);
     try {
       await TheatreApiService.updateStatus(id, status);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Status updated to ${_statusLabel(status)}')),
+          SnackBar(content: Text('${str.theatreStatusUpdatedTo} ${_statusLabel(status)}')),
         );
       }
       _fetchSchedule();
@@ -474,7 +477,7 @@ class _TheatreScreenState extends State<TheatreScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to update: $e'),
+            content: Text('${str.errorSomethingWentWrong}: $e'),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -488,6 +491,7 @@ class _TheatreScreenState extends State<TheatreScreen>
     bool bloodArranged = existing['blood_arranged'] == true;
     bool equipmentChecked = existing['equipment_checked'] == true;
     bool patientIdentified = existing['patient_identified'] == true;
+    final str = AppStrings.of(context);
 
     showModalBottomSheet(
       context: context,
@@ -515,7 +519,7 @@ class _TheatreScreenState extends State<TheatreScreen>
                   ),
                   SizedBox(height: 16),
                   Text(
-                    'Pre-op Checklist',
+                    str.theatrePreOpChecklist,
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -524,22 +528,22 @@ class _TheatreScreenState extends State<TheatreScreen>
                   ),
                   const SizedBox(height: 12),
                   SwitchListTile(
-                    title: const Text('Consent Obtained'),
+                    title: Text(str.theatreChecklistConsent),
                     value: consentObtained,
                     onChanged: (v) => setSheetState(() => consentObtained = v),
                   ),
                   SwitchListTile(
-                    title: const Text('Blood Arranged'),
+                    title: Text(str.theatreChecklistBlood),
                     value: bloodArranged,
                     onChanged: (v) => setSheetState(() => bloodArranged = v),
                   ),
                   SwitchListTile(
-                    title: const Text('Equipment Checked'),
+                    title: Text(str.theatreChecklistEquipment),
                     value: equipmentChecked,
                     onChanged: (v) => setSheetState(() => equipmentChecked = v),
                   ),
                   SwitchListTile(
-                    title: const Text('Patient Identified'),
+                    title: Text(str.theatreChecklistPatientId),
                     value: patientIdentified,
                     onChanged: (v) =>
                         setSheetState(() => patientIdentified = v),
@@ -559,8 +563,8 @@ class _TheatreScreenState extends State<TheatreScreen>
                           });
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Checklist updated'),
+                              SnackBar(
+                                content: Text(str.theatreChecklistUpdated),
                               ),
                             );
                           }
@@ -569,14 +573,14 @@ class _TheatreScreenState extends State<TheatreScreen>
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text('Failed to update: $e'),
+                                content: Text('${str.theatreChecklistUpdated}: $e'),
                                 backgroundColor: AppTheme.errorRed,
                               ),
                             );
                           }
                         }
                       },
-                      child: const Text('Submit Checklist'),
+                      child: Text(str.theatreSubmitChecklist),
                     ),
                   ),
                 ],
@@ -596,16 +600,16 @@ class _TheatreScreenState extends State<TheatreScreen>
       onRefresh: _fetchAvailability,
       child: _availability.isEmpty
           ? ListView(
-              children: const [
-                SizedBox(height: 120),
+              children: [
+                const SizedBox(height: 120),
                 Center(
                   child: Column(
                     children: [
-                      Icon(Icons.meeting_room, size: 64, color: Colors.grey),
-                      SizedBox(height: 12),
+                      const Icon(Icons.meeting_room, size: 64, color: Colors.grey),
+                      const SizedBox(height: 12),
                       Text(
-                        'No room data available',
-                        style: TextStyle(color: Colors.grey, fontSize: 16),
+                        AppStrings.of(context).theatreNoRoomData,
+                        style: const TextStyle(color: Colors.grey, fontSize: 16),
                       ),
                     ],
                   ),
@@ -667,7 +671,7 @@ class _TheatreScreenState extends State<TheatreScreen>
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
-                            available ? 'Available' : 'Occupied',
+                            available ? AppStrings.of(context).theatreAvailable : AppStrings.of(context).theatreOccupied,
                             style: TextStyle(
                               color: available
                                   ? AppTheme.successGreen
@@ -687,6 +691,7 @@ class _TheatreScreenState extends State<TheatreScreen>
   }
 
   Widget _buildError(VoidCallback retry) {
+    final s = AppStrings.of(context);
     return Center(
       child: Padding(
         padding: EdgeInsets.all(32),
@@ -696,7 +701,7 @@ class _TheatreScreenState extends State<TheatreScreen>
             const Icon(Icons.error_outline, size: 48, color: AppTheme.errorRed),
             const SizedBox(height: 16),
             Text(
-              _error ?? 'Something went wrong',
+              _error ?? s.errorSomethingWentWrong,
               textAlign: TextAlign.center,
               style: TextStyle(color: AppTheme.textSecondary),
             ),
@@ -704,7 +709,7 @@ class _TheatreScreenState extends State<TheatreScreen>
             ElevatedButton.icon(
               onPressed: retry,
               icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
+              label: Text(s.actionRetry),
             ),
           ],
         ),

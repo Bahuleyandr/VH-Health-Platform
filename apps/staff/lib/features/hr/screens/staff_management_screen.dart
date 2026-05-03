@@ -428,7 +428,7 @@ class _ErrorState extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Staff list API may not be available yet.',
+            AppStrings.of(context).staffMgmtListApiUnavailable,
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
           ),
           TextButton(onPressed: onRetry, child: Text(AppStrings.of(context).actionRetry)),

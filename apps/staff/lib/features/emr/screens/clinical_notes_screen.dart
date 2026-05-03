@@ -400,14 +400,14 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Row(
+                    Row(
                       children: [
-                        Icon(Icons.auto_awesome,
+                        const Icon(Icons.auto_awesome,
                             size: 20, color: AppTheme.primaryBlue),
-                        SizedBox(width: 8),
+                        const SizedBox(width: 8),
                         Text(
-                          'AI Assist',
-                          style: TextStyle(
+                          AppStrings.of(context).aiAssistTitle,
+                          style: const TextStyle(
                             fontWeight: FontWeight.w600,
                             color: AppTheme.primaryBlue,
                             fontSize: 15,
@@ -417,7 +417,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Generate a plain-language patient explainer of this note. Draft will land in your review queue for sign-off before reaching the patient.',
+                      AppStrings.of(context).aiAssistGenerateBlurb,
                       style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                     ),
                     const SizedBox(height: 10),
@@ -429,7 +429,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                           _generateAiExplainer(note);
                         },
                         icon: const Icon(Icons.auto_awesome, size: 18),
-                        label: const Text('Generate patient explainer'),
+                        label: Text(AppStrings.of(context).aiAssistGenerateButton),
                         style: FilledButton.styleFrom(
                           backgroundColor: AppTheme.primaryBlue,
                         ),
@@ -481,11 +481,12 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   }
 
   Future<void> _generateAiExplainer(Map<String, dynamic> note) async {
+    final s = AppStrings.of(context);
     final reportText = _composeReportText(note);
     if (reportText.length < 30) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Note is too short to generate a patient explainer (need at least 30 characters of content).'),
+        SnackBar(
+          content: Text(s.aiAssistNoteTooShort),
           backgroundColor: AppTheme.warningAmber,
         ),
       );
@@ -496,16 +497,16 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(
+      builder: (ctx) => Center(
         child: Card(
           child: Padding(
-            padding: EdgeInsets.all(24),
+            padding: const EdgeInsets.all(24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 12),
-                Text('Generating patient explainer…'),
+                const CircularProgressIndicator(),
+                const SizedBox(height: 12),
+                Text(AppStrings.of(ctx).aiAssistGenerating),
               ],
             ),
           ),
@@ -531,7 +532,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     if (error != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('AI Assist failed: $error'),
+          content: Text(s.aiAssistFailed(error)),
           backgroundColor: AppTheme.errorRed,
         ),
       );
@@ -941,11 +942,12 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
   }
 
   Future<void> _decide(String decision, {String? rejectionReason}) async {
+    final s = AppStrings.of(context);
     final id = _reviewId;
     if (id == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cannot sign — review row was not created (schema may be unavailable).'),
+        SnackBar(
+          content: Text(s.aiAssistCannotSign),
           backgroundColor: AppTheme.errorRed,
         ),
       );
@@ -962,7 +964,7 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Patient explainer $decision'),
+          content: Text(s.aiAssistDecisionToast(decision)),
           backgroundColor: decision == 'rejected'
               ? AppTheme.warningAmber
               : AppTheme.successGreen,
@@ -974,7 +976,7 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Sign-off failed: $e'),
+          content: Text(s.aiAssistSignFailed(e.toString())),
           backgroundColor: AppTheme.errorRed,
         ),
       );
@@ -982,41 +984,45 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
   }
 
   Future<void> _confirmReject() async {
+    final s = AppStrings.of(context);
     final controller = TextEditingController();
     final reason = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Reject draft?'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Why is this draft not suitable for patient delivery?'),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                hintText: 'e.g. clinical inaccuracy in next-steps section',
-                border: OutlineInputBorder(),
+      builder: (ctx) {
+        final ds = AppStrings.of(ctx);
+        return AlertDialog(
+          title: Text(ds.aiAssistRejectTitle),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(ds.aiAssistRejectPrompt),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                decoration: InputDecoration(
+                  hintText: ds.aiAssistRejectHint,
+                  border: const OutlineInputBorder(),
+                ),
+                maxLines: 3,
               ),
-              maxLines: 3,
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text(ds.actionCancel)),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+              style: FilledButton.styleFrom(backgroundColor: AppTheme.errorRed),
+              child: Text(ds.clinicalAiDraftRejectButton),
             ),
           ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-            style: FilledButton.styleFrom(backgroundColor: AppTheme.errorRed),
-            child: const Text('Reject'),
-          ),
-        ],
-      ),
+        );
+      },
     );
     if (reason == null) return;
     if (reason.length < 5) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Rejection reason must be at least 5 characters.')),
+        SnackBar(content: Text(s.aiAssistRejectMinChars)),
       );
       return;
     }
@@ -1067,9 +1073,9 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
               Row(
                 children: [
                   Icon(Icons.auto_awesome, color: AppTheme.primaryBlue),
-                  SizedBox(width: 8),
+                  const SizedBox(width: 8),
                   Text(
-                    'AI Patient Explainer',
+                    AppStrings.of(context).aiAssistDrawerTitle,
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w600,
@@ -1130,21 +1136,21 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                     border: Border.all(color: Colors.amber.shade300),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Text(
-                    'The model returned no parseable draft; a fallback shape is shown. Re-generate after checking provider config.',
-                    style: TextStyle(fontSize: 12),
+                  child: Text(
+                    AppStrings.of(context).aiAssistFallbackBanner,
+                    style: const TextStyle(fontSize: 12),
                   ),
                 ),
               const SizedBox(height: 16),
-              const Text('Summary',
-                  style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.primaryBlue)),
+              Text(AppStrings.of(context).aiAssistSummary,
+                  style: const TextStyle(fontWeight: FontWeight.w600, color: AppTheme.primaryBlue)),
               const SizedBox(height: 4),
-              Text(summary.isEmpty ? '(empty)' : summary,
+              Text(summary.isEmpty ? AppStrings.of(context).aiAssistEmpty : summary,
                   style: const TextStyle(height: 1.5)),
               const SizedBox(height: 16),
               if (keyPoints.isNotEmpty) ...[
-                const Text('Key points',
-                    style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.primaryBlue)),
+                Text(AppStrings.of(context).aiAssistKeyPoints,
+                    style: const TextStyle(fontWeight: FontWeight.w600, color: AppTheme.primaryBlue)),
                 const SizedBox(height: 4),
                 ...keyPoints.map((kp) => Padding(
                       padding: const EdgeInsets.only(bottom: 6),
@@ -1169,8 +1175,8 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                 const SizedBox(height: 12),
               ],
               if (nextSteps.isNotEmpty) ...[
-                const Text('Next steps',
-                    style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.primaryBlue)),
+                Text(AppStrings.of(context).aiAssistNextSteps,
+                    style: const TextStyle(fontWeight: FontWeight.w600, color: AppTheme.primaryBlue)),
                 const SizedBox(height: 4),
                 ...nextSteps.map((s) => Padding(
                       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -1190,8 +1196,8 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('When to seek help',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
+                      Text(AppStrings.of(context).aiAssistWhenToSeekHelp,
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
                       const SizedBox(height: 4),
                       ...whenToSeekHelp.map((s) => Padding(
                             padding: const EdgeInsets.symmetric(vertical: 2),
@@ -1210,7 +1216,7 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                     child: OutlinedButton.icon(
                       onPressed: _busy ? null : _confirmReject,
                       icon: const Icon(Icons.close),
-                      label: const Text('Reject'),
+                      label: Text(AppStrings.of(context).clinicalAiDraftRejectButton),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppTheme.errorRed,
                         side: BorderSide(color: AppTheme.errorRed.withValues(alpha: 0.5)),
@@ -1222,7 +1228,7 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                     child: OutlinedButton.icon(
                       onPressed: _busy ? null : () => _decide('needs_revision'),
                       icon: const Icon(Icons.edit_note),
-                      label: const Text('Needs edits'),
+                      label: Text(AppStrings.of(context).aiAssistNeedsEdits),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1237,7 +1243,7 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                               child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                             )
                           : const Icon(Icons.check_circle),
-                      label: const Text('Accept & sign'),
+                      label: Text(AppStrings.of(context).aiAssistAcceptSign),
                       style: FilledButton.styleFrom(backgroundColor: AppTheme.successGreen),
                     ),
                   ),

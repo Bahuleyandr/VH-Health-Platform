@@ -53,10 +53,11 @@ class _DisputeScreenState extends State<DisputeScreen>
   }
 
   Future<void> _submitDispute() async {
+    final s = AppStrings.of(context);
     if (_disputeDate == null || _descriptionCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Date and description are required'),
+        SnackBar(
+          content: Text(s.disputeRequiredError),
           backgroundColor: Colors.red,
         ),
       );
@@ -75,12 +76,10 @@ class _DisputeScreenState extends State<DisputeScreen>
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              '✅ Dispute submitted. HR will review within 24 hours.',
-            ),
+          SnackBar(
+            content: Text(s.disputeSubmittedSuccess),
             backgroundColor: Colors.green,
-            duration: Duration(seconds: 4),
+            duration: const Duration(seconds: 4),
           ),
         );
         _descriptionCtrl.clear();
@@ -365,7 +364,7 @@ class _DisputeScreenState extends State<DisputeScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              'No disputes filed',
+              AppStrings.of(context).disputeEmpty,
               style: TextStyle(color: Colors.grey.shade600),
             ),
           ],

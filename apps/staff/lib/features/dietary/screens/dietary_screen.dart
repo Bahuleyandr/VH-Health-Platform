@@ -51,6 +51,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
   }
 
   Future<void> _discontinueOrder(String orderId) async {
+    final s = AppStrings.of(context);
     try {
       final response = await ApiClient.put(
         '/dietary/$orderId',
@@ -59,8 +60,8 @@ class _DietaryScreenState extends State<DietaryScreen> {
       if (mounted) {
         if (response.isSuccess) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Diet order discontinued'),
+            SnackBar(
+              content: Text(s.dietaryDiscontinuedSuccess),
               backgroundColor: AppTheme.successGreen,
             ),
           );
@@ -68,7 +69,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(response.message ?? 'Failed to update order'),
+              content: Text(response.message ?? s.errorSomethingWentWrong),
               backgroundColor: AppTheme.errorRed,
             ),
           );
@@ -77,8 +78,8 @@ class _DietaryScreenState extends State<DietaryScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not update order'),
+          SnackBar(
+            content: Text(s.errorSomethingWentWrong),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -87,6 +88,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
   }
 
   Future<void> _showCreateOrderDialog() async {
+    final s = AppStrings.of(context);
     final formKey = GlobalKey<FormState>();
     final patientUidCtrl = TextEditingController();
     final restrictionsCtrl = TextEditingController();
@@ -94,27 +96,33 @@ class _DietaryScreenState extends State<DietaryScreen> {
     String? dietType;
     String? mealTime;
 
-    const dietTypes = {
-      'Regular': 'regular',
-      'Diabetic': 'diabetic',
-      'Cardiac': 'cardiac',
-      'Renal': 'renal',
-      'Soft': 'soft',
-      'Liquid': 'liquid',
-      'NPO': 'npo',
-      'Enteral': 'enteral',
+    final dietTypes = {
+      s.dietaryDietRegular: 'regular',
+      s.dietaryDietDiabetic: 'diabetic',
+      s.dietaryDietCardiac: 'cardiac',
+      s.dietaryDietRenal: 'renal',
+      s.dietaryDietSoft: 'soft',
+      s.dietaryDietLiquid: 'liquid',
+      s.dietaryDietNpo: 'npo',
+      s.dietaryDietEnteral: 'enteral',
     };
 
-    const mealTimes = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+    final mealTimes = [
+      s.dietaryMealBreakfast,
+      s.dietaryMealLunch,
+      s.dietaryMealDinner,
+      s.dietaryMealSnack,
+    ];
 
     final result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
         var submitting = false;
+        final ds = AppStrings.of(ctx);
         return StatefulBuilder(
           builder: (ctx, setDialogState) => AlertDialog(
-            title: const Text('New Dietary Order'),
+            title: Text(ds.dietaryNewOrderDialog),
             content: SingleChildScrollView(
               child: Form(
                 key: formKey,
@@ -123,19 +131,19 @@ class _DietaryScreenState extends State<DietaryScreen> {
                   children: [
                     TextFormField(
                       controller: patientUidCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Patient UID',
-                        prefixIcon: ExcludeSemantics(child: Icon(Icons.person_outline)),
+                      decoration: InputDecoration(
+                        labelText: ds.dietaryPatientUidLabel,
+                        prefixIcon: const ExcludeSemantics(child: Icon(Icons.person_outline)),
                       ),
                       validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? 'Required' : null,
+                          (v == null || v.trim().isEmpty) ? ds.dietaryPatientUidRequired : null,
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       initialValue: dietType,
-                      decoration: const InputDecoration(
-                        labelText: 'Diet Type',
-                        prefixIcon: ExcludeSemantics(child: Icon(Icons.restaurant_menu)),
+                      decoration: InputDecoration(
+                        labelText: ds.dietaryDietTypeLabel,
+                        prefixIcon: const ExcludeSemantics(child: Icon(Icons.restaurant_menu)),
                       ),
                       items: dietTypes.entries
                           .map(
@@ -146,14 +154,14 @@ class _DietaryScreenState extends State<DietaryScreen> {
                           )
                           .toList(),
                       onChanged: (v) => dietType = v,
-                      validator: (v) => v == null ? 'Select diet type' : null,
+                      validator: (v) => v == null ? ds.dietaryDietTypeRequired : null,
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       initialValue: mealTime,
-                      decoration: const InputDecoration(
-                        labelText: 'Meal Time',
-                        prefixIcon: ExcludeSemantics(child: Icon(Icons.access_time)),
+                      decoration: InputDecoration(
+                        labelText: ds.dietaryMealTimeLabel,
+                        prefixIcon: const ExcludeSemantics(child: Icon(Icons.access_time)),
                       ),
                       items: mealTimes
                           .map(
@@ -161,23 +169,23 @@ class _DietaryScreenState extends State<DietaryScreen> {
                           )
                           .toList(),
                       onChanged: (v) => mealTime = v,
-                      validator: (v) => v == null ? 'Select meal time' : null,
+                      validator: (v) => v == null ? ds.dietaryMealTimeRequired : null,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: restrictionsCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Restrictions / Allergies',
-                        prefixIcon: ExcludeSemantics(child: Icon(Icons.warning_amber_outlined)),
+                      decoration: InputDecoration(
+                        labelText: ds.dietaryRestrictionsLabel,
+                        prefixIcon: const ExcludeSemantics(child: Icon(Icons.warning_amber_outlined)),
                       ),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: notesCtrl,
                       maxLines: 2,
-                      decoration: const InputDecoration(
-                        labelText: 'Notes',
-                        prefixIcon: ExcludeSemantics(child: Icon(Icons.notes)),
+                      decoration: InputDecoration(
+                        labelText: ds.dietaryNotesLabel,
+                        prefixIcon: const ExcludeSemantics(child: Icon(Icons.notes)),
                       ),
                     ),
                   ],
@@ -187,7 +195,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
             actions: [
               TextButton(
                 onPressed: submitting ? null : () => Navigator.pop(ctx, false),
-                child: const Text('Cancel'),
+                child: Text(ds.actionCancel),
               ),
               ElevatedButton(
                 onPressed: submitting
@@ -216,7 +224,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
                             ScaffoldMessenger.of(ctx).showSnackBar(
                               SnackBar(
                                 content: Text(
-                                  response.message ?? 'Failed to create order',
+                                  response.message ?? ds.errorSomethingWentWrong,
                                 ),
                                 backgroundColor: AppTheme.errorRed,
                               ),
@@ -226,8 +234,8 @@ class _DietaryScreenState extends State<DietaryScreen> {
                           if (!ctx.mounted) return;
                           setDialogState(() => submitting = false);
                           ScaffoldMessenger.of(ctx).showSnackBar(
-                            const SnackBar(
-                              content: Text('Could not create order'),
+                            SnackBar(
+                              content: Text(ds.errorSomethingWentWrong),
                               backgroundColor: AppTheme.errorRed,
                             ),
                           );
@@ -246,7 +254,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
                           color: Colors.white,
                         ),
                       )
-                    : const Text('Create'),
+                    : Text(ds.dietaryCreateButton),
               ),
             ],
           ),
@@ -256,8 +264,8 @@ class _DietaryScreenState extends State<DietaryScreen> {
 
     if (result == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Dietary order created'),
+        SnackBar(
+          content: Text(s.dietaryCreatedSuccess),
           backgroundColor: AppTheme.successGreen,
         ),
       );
@@ -369,6 +377,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
   }
 
   Widget _buildError() {
+    final s = AppStrings.of(context);
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -380,7 +389,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
           ElevatedButton.icon(
             onPressed: _fetchOrders,
             icon: const Icon(Icons.refresh),
-            label: const Text('Retry'),
+            label: Text(s.actionRetry),
           ),
         ],
       ),
@@ -388,6 +397,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
   }
 
   Widget _buildEmpty() {
+    final s = AppStrings.of(context);
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -395,7 +405,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
           Icon(Icons.restaurant_menu, size: 64, color: Colors.grey.shade400),
           SizedBox(height: 16),
           Text(
-            'No dietary orders',
+            s.dietaryEmptyTitle,
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
@@ -404,7 +414,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Tap the button below to create a new order',
+            s.dietaryEmptyBody,
             style: TextStyle(color: AppTheme.textSecondary),
           ),
         ],
@@ -573,7 +583,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
                   TextButton.icon(
                     onPressed: () => _discontinueOrder(orderId),
                     icon: const Icon(Icons.cancel_outlined, size: 16),
-                    label: const Text('Discontinue'),
+                    label: Text(AppStrings.of(context).dietaryDiscontinue),
                     style: TextButton.styleFrom(
                       foregroundColor: AppTheme.errorRed,
                       textStyle: const TextStyle(

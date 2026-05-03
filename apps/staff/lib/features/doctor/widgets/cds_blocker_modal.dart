@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_strings.dart';
+
 /// Outcome of the CDS hard-block modal. If [overrideReason] is non-null, the
 /// clinician has chosen to proceed with a recorded override. Otherwise the
 /// prescription save is cancelled.
@@ -53,19 +55,20 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final s = AppStrings.of(context);
     final hasAllergyBlocker = widget.blockers.any(
       (b) => b is Map && b['type'] == 'ALLERGY_CONFLICT',
     );
 
     return AlertDialog(
-      title: const Row(
+      title: Row(
         children: [
-          Icon(Icons.block, color: Colors.red, size: 28),
-          SizedBox(width: 8),
+          const Icon(Icons.block, color: Colors.red, size: 28),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Prescription blocked',
-              style: TextStyle(fontWeight: FontWeight.bold),
+              s.cdsBlockerTitle,
+              style: const TextStyle(fontWeight: FontWeight.bold),
             ),
           ),
         ],
@@ -76,8 +79,7 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Clinical decision support flagged the following issues. '
-              'Cancel to revise the prescription, or override with a documented reason.',
+              s.cdsBlockerBody,
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
@@ -85,7 +87,7 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
             if (widget.warnings.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(
-                'Warnings',
+                s.cdsBlockerWarningsHeader,
                 style: theme.textTheme.labelMedium?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
@@ -105,19 +107,18 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
                       color: Colors.orange.withValues(alpha: 0.5),
                     ),
                   ),
-                  child: const Text(
-                    'Allergy conflict: reference the supervising physician who approved '
-                    'this override in your reason.',
-                    style: TextStyle(fontSize: 12),
+                  child: Text(
+                    s.cdsBlockerAllergyHint,
+                    style: const TextStyle(fontSize: 12),
                   ),
                 ),
               TextField(
                 controller: _reasonCtrl,
                 maxLines: 3,
                 autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Override reason (required, min 5 chars)',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: s.cdsBlockerOverrideReasonLabel,
+                  border: const OutlineInputBorder(),
                 ),
                 onChanged: (_) => setState(() {}),
               ),
@@ -128,12 +129,12 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(CdsOverrideOutcome()),
-          child: const Text('Cancel'),
+          child: Text(s.actionCancel),
         ),
         if (!_showOverrideField)
           TextButton(
             onPressed: () => setState(() => _showOverrideField = true),
-            child: const Text('Override'),
+            child: Text(s.cdsBlockerOverrideButton),
           )
         else
           ElevatedButton(
@@ -146,7 +147,7 @@ class _CdsBlockerModalState extends State<CdsBlockerModal> {
                     CdsOverrideOutcome(overrideReason: _reasonCtrl.text.trim()),
                   )
                 : null,
-            child: const Text('Override & save'),
+            child: Text(s.cdsBlockerOverrideSave),
           ),
       ],
     );

@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../l10n/app_strings.dart';
 import '../theme/app_theme.dart';
 
 /// One-time welcome card shown above the dashboard tile grid that
@@ -65,6 +66,7 @@ class _FirstRunWelcomeState extends State<FirstRunWelcome> {
     if (!_checked || !_show) return const SizedBox.shrink();
     final isMac = !kIsWeb && Platform.isMacOS;
     final modKey = isMac ? '⌘' : 'Ctrl';
+    final s = AppStrings.of(context);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -87,7 +89,7 @@ class _FirstRunWelcomeState extends State<FirstRunWelcome> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'A few shortcuts worth knowing',
+                    s.firstRunWelcomeTitle,
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: AppTheme.primaryBlue,
@@ -97,7 +99,7 @@ class _FirstRunWelcomeState extends State<FirstRunWelcome> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.close, size: 18),
-                  tooltip: 'Dismiss',
+                  tooltip: s.firstRunWelcomeDismiss,
                   onPressed: _dismiss,
                   visualDensity: VisualDensity.compact,
                 ),
@@ -106,30 +108,26 @@ class _FirstRunWelcomeState extends State<FirstRunWelcome> {
             const SizedBox(height: 6),
             _Tip(
               icon: Icons.touch_app_outlined,
-              text:
-                  'Tap a bed card on the Bed Board for patient details + quick actions.',
+              text: s.firstRunTipBedTap,
             ),
             _Tip(
               icon: Icons.edit_note_outlined,
-              text:
-                  'Long-press a bed card to edit its notes inline (no full sheet).',
+              text: s.firstRunTipBedLongPress,
             ),
             _Tip(
               icon: Icons.person_search_outlined,
-              text:
-                  'Use the magnifier in any header — or press $modKey+K — to jump to any patient\'s chart.',
+              text: s.firstRunTipMagnifier(modKey),
             ),
             _Tip(
               icon: Icons.dashboard_outlined,
-              text:
-                  'The cards above each route to where you can act on them — tap "Due Meds", "Inpatients", etc.',
+              text: s.firstRunTipDashboard,
             ),
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
                 onPressed: _dismiss,
-                child: const Text('Got it'),
+                child: Text(s.firstRunWelcomeGotIt),
               ),
             ),
           ],

@@ -76,12 +76,13 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
   }
 
   String _statusLabel(String? status) {
+    final s = AppStrings.of(context);
     return switch (status?.toLowerCase()) {
-      'pending' => 'Pending',
-      'in_progress' => 'In Progress',
-      'completed' => 'Completed',
-      'cancelled' => 'Cancelled',
-      _ => status ?? 'Unknown',
+      'pending' => s.radiologyStatusPending,
+      'in_progress' => s.radiologyStatusInProgress,
+      'completed' => s.radiologyStatusCompleted,
+      'cancelled' => s.radiologyStatusCancelled,
+      _ => status ?? '—',
     };
   }
 
@@ -120,6 +121,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
   }
 
   Widget _buildFilterRow() {
+    final str = AppStrings.of(context);
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -128,9 +130,9 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
           Expanded(
             child: DropdownButtonFormField<String>(
               initialValue: _statusFilter,
-              decoration: const InputDecoration(
-                labelText: 'Status',
-                contentPadding: EdgeInsets.symmetric(
+              decoration: InputDecoration(
+                labelText: str.radiologyStatusLabel,
+                contentPadding: const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 8,
                 ),
@@ -139,7 +141,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
               items: _statusOptions.map((s) {
                 return DropdownMenuItem(
                   value: s,
-                  child: Text(s == 'all' ? 'All' : _statusLabel(s)),
+                  child: Text(s == 'all' ? str.radiologyStatusAll : _statusLabel(s)),
                 );
               }).toList(),
               onChanged: (v) {
@@ -154,9 +156,9 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
           Expanded(
             child: DropdownButtonFormField<String>(
               initialValue: _modalityFilter,
-              decoration: const InputDecoration(
-                labelText: 'Modality',
-                contentPadding: EdgeInsets.symmetric(
+              decoration: InputDecoration(
+                labelText: str.radiologyModalityLabel,
+                contentPadding: const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 8,
                 ),
@@ -165,7 +167,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
               items: _modalityOptions.map((m) {
                 return DropdownMenuItem(
                   value: m,
-                  child: Text(m == 'all' ? 'All' : m),
+                  child: Text(m == 'all' ? str.radiologyStatusAll : m),
                 );
               }).toList(),
               onChanged: (v) {
@@ -204,7 +206,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
               ElevatedButton.icon(
                 onPressed: _fetchWorklist,
                 icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
+                label: Text(AppStrings.of(context).actionRetry),
               ),
             ],
           ),
@@ -218,20 +220,20 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
       onRefresh: _fetchWorklist,
       child: _orders.isEmpty
           ? ListView(
-              children: const [
-                SizedBox(height: 120),
+              children: [
+                const SizedBox(height: 120),
                 Center(
                   child: Column(
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.image_not_supported,
                         size: 64,
                         color: Colors.grey,
                       ),
-                      SizedBox(height: 12),
+                      const SizedBox(height: 12),
                       Text(
-                        'No radiology orders',
-                        style: TextStyle(color: Colors.grey, fontSize: 16),
+                        AppStrings.of(context).radiologyNoOrders,
+                        style: const TextStyle(color: Colors.grey, fontSize: 16),
                       ),
                     ],
                   ),
@@ -380,6 +382,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
   void _showDetailSheet(Map<String, dynamic> o) {
     final status = o['status']?.toString().toLowerCase();
     final id = o['id'] as int?;
+    final str = AppStrings.of(context);
 
     showModalBottomSheet(
       context: context,
@@ -411,7 +414,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                   ),
                   SizedBox(height: 20),
                   Text(
-                    '${o['study_type'] ?? 'Study'} - ${o['modality'] ?? ''}',
+                    '${o['study_type'] ?? '—'} - ${o['modality'] ?? ''}',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -420,26 +423,26 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                   ),
                   const SizedBox(height: 16),
                   _detailRow(
-                    'Patient UID',
+                    str.theatreLabelPatientUid,
                     o['patient_uid']?.toString() ?? '-',
                   ),
-                  _detailRow('Study Type', o['study_type']?.toString() ?? '-'),
-                  _detailRow('Modality', o['modality']?.toString() ?? '-'),
-                  _detailRow('Body Part', o['body_part']?.toString() ?? '-'),
-                  _detailRow('Priority', o['priority']?.toString() ?? '-'),
-                  _detailRow('Status', _statusLabel(status)),
+                  _detailRow(str.radiologyLabelStudyType, o['study_type']?.toString() ?? '-'),
+                  _detailRow(str.radiologyLabelModality, o['modality']?.toString() ?? '-'),
+                  _detailRow(str.radiologyLabelBodyPart, o['body_part']?.toString() ?? '-'),
+                  _detailRow(str.radiologyLabelPriority, o['priority']?.toString() ?? '-'),
+                  _detailRow(str.theatreLabelStatus, _statusLabel(status)),
                   _detailRow(
-                    'Clinical Indication',
+                    str.radiologyLabelClinicalIndication,
                     o['clinical_indication']?.toString() ?? '-',
                   ),
                   if (o['notes'] != null)
-                    _detailRow('Notes', o['notes'].toString()),
+                    _detailRow(str.radiologyLabelNotes, o['notes'].toString()),
                   if (o['report'] != null)
-                    _detailRow('Report', o['report'].toString()),
+                    _detailRow(str.radiologyLabelReport, o['report'].toString()),
                   if (o['findings'] != null)
-                    _detailRow('Findings', o['findings'].toString()),
+                    _detailRow(str.radiologyLabelFindings, o['findings'].toString()),
                   if (o['impression'] != null)
-                    _detailRow('Impression', o['impression'].toString()),
+                    _detailRow(str.radiologyLabelImpression, o['impression'].toString()),
                   const SizedBox(height: 24),
                   if (id != null) ...[
                     if (status == 'pending' || status == 'in_progress')
@@ -451,7 +454,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                             _showReportForm(id);
                           },
                           icon: const Icon(Icons.description),
-                          label: const Text('Submit Report'),
+                          label: Text(str.radiologySubmitReport),
                         ),
                       ),
                     if (status != 'completed' && status != 'cancelled') ...[
@@ -461,7 +464,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                         child: OutlinedButton.icon(
                           onPressed: () => _cancelOrder(ctx, id),
                           icon: const Icon(Icons.cancel),
-                          label: const Text('Cancel Order'),
+                          label: Text(str.radiologyCancelOrder),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: AppTheme.errorRed,
                             side: const BorderSide(color: AppTheme.errorRed),
@@ -509,6 +512,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
   void _showReportForm(int id) {
     final findingsCtrl = TextEditingController();
     final impressionCtrl = TextEditingController();
+    final s = AppStrings.of(context);
 
     showModalBottomSheet(
       context: context,
@@ -517,6 +521,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) {
+        final ds = AppStrings.of(ctx);
         return Padding(
           padding: EdgeInsets.only(
             left: 24,
@@ -540,7 +545,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
               ),
               SizedBox(height: 16),
               Text(
-                'Submit Report',
+                ds.radiologySubmitReport,
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -551,8 +556,8 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
               TextField(
                 controller: findingsCtrl,
                 maxLines: 4,
-                decoration: const InputDecoration(
-                  labelText: 'Findings',
+                decoration: InputDecoration(
+                  labelText: ds.radiologyLabelFindings,
                   alignLabelWithHint: true,
                 ),
               ),
@@ -560,8 +565,8 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
               TextField(
                 controller: impressionCtrl,
                 maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Impression',
+                decoration: InputDecoration(
+                  labelText: ds.radiologyLabelImpression,
                   alignLabelWithHint: true,
                 ),
               ),
@@ -574,7 +579,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                     final impression = impressionCtrl.text.trim();
                     if (findings.isEmpty) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Findings are required')),
+                        SnackBar(content: Text(s.radiologyFindingsRequired)),
                       );
                       return;
                     }
@@ -586,7 +591,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                       });
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Report submitted')),
+                          SnackBar(content: Text(s.radiologyReportSubmitted)),
                         );
                       }
                       _fetchWorklist();
@@ -594,14 +599,14 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('Failed to submit: $e'),
+                            content: Text('${s.errorSomethingWentWrong}: $e'),
                             backgroundColor: AppTheme.errorRed,
                           ),
                         );
                       }
                     }
                   },
-                  child: const Text('Submit'),
+                  child: Text(ds.actionSubmit),
                 ),
               ),
             ],
@@ -613,19 +618,20 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
 
   Future<void> _cancelOrder(BuildContext sheetCtx, int id) async {
     Navigator.pop(sheetCtx);
+    final s = AppStrings.of(context);
     try {
       await RadiologyApiService.cancelOrder(id);
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('Order cancelled')));
+        ).showSnackBar(SnackBar(content: Text(s.radiologyOrderCancelled)));
       }
       _fetchWorklist();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to cancel: $e'),
+            content: Text('${s.errorSomethingWentWrong}: $e'),
             backgroundColor: AppTheme.errorRed,
           ),
         );
@@ -634,6 +640,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
   }
 
   void _showFilterSheet() {
+    final str = AppStrings.of(context);
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -647,7 +654,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Filters',
+                str.radiologyFiltersHeader,
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -655,9 +662,9 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'Status',
-                style: TextStyle(fontWeight: FontWeight.w500),
+              Text(
+                str.radiologyStatusLabel,
+                style: const TextStyle(fontWeight: FontWeight.w500),
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -665,7 +672,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                 children: _statusOptions.map((s) {
                   final selected = _statusFilter == s;
                   return ChoiceChip(
-                    label: Text(s == 'all' ? 'All' : _statusLabel(s)),
+                    label: Text(s == 'all' ? str.radiologyStatusAll : _statusLabel(s)),
                     selected: selected,
                     onSelected: (_) {
                       setState(() => _statusFilter = s);
@@ -676,9 +683,9 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                 }).toList(),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'Modality',
-                style: TextStyle(fontWeight: FontWeight.w500),
+              Text(
+                str.radiologyModalityLabel,
+                style: const TextStyle(fontWeight: FontWeight.w500),
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -686,7 +693,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                 children: _modalityOptions.map((m) {
                   final selected = _modalityFilter == m;
                   return ChoiceChip(
-                    label: Text(m == 'all' ? 'All' : m),
+                    label: Text(m == 'all' ? str.radiologyStatusAll : m),
                     selected: selected,
                     onSelected: (_) {
                       setState(() => _modalityFilter = m);

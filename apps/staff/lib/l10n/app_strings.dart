@@ -666,6 +666,13 @@ class AppStrings {
   String get voiceDictateTranscriptAdded =>
       _t('voice_dictate.transcript_added');
   String get voiceDictateMicDenied => _t('voice_dictate.mic_denied');
+  String get voiceDictateHint => _t('voice_dictate.hint');
+  String get voiceDictateAddedToast =>
+      _t('voice_dictate.added_toast');
+  String get voiceDictateRecordingStarted =>
+      _t('voice_dictate.recording_started');
+  String get voiceDictateRecordingStopped =>
+      _t('voice_dictate.recording_stopped');
 
   // ── Doctor queue screen ────────────────────────────────────────────
   String get queueTitle => _t('queue.title');
@@ -1940,6 +1947,103 @@ class AppStrings {
   String clinicalNotesCreateFailed(String e) =>
       '${_t('clinical_notes.create_failed_prefix')} $e';
 
+  // ── AI Assist (clinical notes — patient explainer) ─────────────────
+  String get aiAssistTitle => _t('ai_assist.title');
+  String get aiAssistGenerateBlurb => _t('ai_assist.generate_blurb');
+  String get aiAssistGenerateButton => _t('ai_assist.generate_button');
+  String get aiAssistNoteTooShort => _t('ai_assist.note_too_short');
+  String get aiAssistGenerating => _t('ai_assist.generating');
+  String aiAssistFailed(String err) =>
+      '${_t('ai_assist.failed_prefix')} $err';
+  String get aiAssistCannotSign => _t('ai_assist.cannot_sign');
+  String get aiAssistRejectTitle => _t('ai_assist.reject_title');
+  String get aiAssistRejectPrompt => _t('ai_assist.reject_prompt');
+  String get aiAssistRejectMinChars => _t('ai_assist.reject_min_chars');
+  String get aiAssistRejectHint => _t('ai_assist.reject_hint');
+  String get aiAssistDrawerTitle => _t('ai_assist.drawer_title');
+  String get aiAssistFallbackBanner => _t('ai_assist.fallback_banner');
+  String get aiAssistKeyPoints => _t('ai_assist.key_points');
+  String get aiAssistNextSteps => _t('ai_assist.next_steps');
+  String get aiAssistWhenToSeekHelp => _t('ai_assist.when_to_seek_help');
+  String get aiAssistNeedsEdits => _t('ai_assist.needs_edits');
+  // REVIEW: clinical-action confirmation — sign-off binds patient explainer
+  String get aiAssistAcceptSign => _t('ai_assist.accept_sign');
+  String get aiAssistSummary => _t('ai_assist.summary');
+  String get aiAssistEmpty => _t('ai_assist.empty');
+  String aiAssistDecisionToast(String decision) =>
+      '${_t('ai_assist.decision_prefix')} $decision';
+  String aiAssistSignFailed(String err) =>
+      '${_t('ai_assist.sign_failed_prefix')} $err';
+
+  // ── CDS blocker modal (clinical-safety hard block) ─────────────────
+  // REVIEW: clinical-safety — confirm with attending. CRITICAL hard-block
+  // wording shown when the prescription engine flags a dangerous order
+  // (severe allergy, lethal interaction). Translators MUST review.
+  String get cdsBlockerTitle => _t('cds.blocker_title');
+  String get cdsBlockerBody => _t('cds.blocker_body');
+  String get cdsBlockerWarningsHeader => _t('cds.warnings_header');
+  String get cdsBlockerAllergyHint => _t('cds.allergy_hint');
+  String get cdsBlockerOverrideReasonLabel =>
+      _t('cds.override_reason_label');
+  String get cdsBlockerOverrideButton => _t('cds.override_button');
+  String get cdsBlockerOverrideSave => _t('cds.override_save');
+
+  // ── Code Blue (real-time emergency overlay) ────────────────────────
+  // REVIEW: clinical-safety — confirm with attending. The highest-stakes
+  // string in the app: shown the instant a Code Blue fires, blocking the
+  // UI. Mistranslation could delay response. Translators MUST review.
+  String get codeBlueTitle => _t('code_blue.title');
+  String get codeBlueRespond => _t('code_blue.respond');
+  String get codeBlueWardPrefix => _t('code_blue.ward_prefix');
+  String get codeBlueBedPrefix => _t('code_blue.bed_prefix');
+  String get codeBluePatientPrefix => _t('code_blue.patient_prefix');
+  String get codeBlueAcknowledge => _t('code_blue.acknowledge');
+
+  // ── First-run welcome card ─────────────────────────────────────────
+  String get firstRunWelcomeTitle => _t('first_run.welcome_title');
+  String get firstRunWelcomeDismiss => _t('first_run.welcome_dismiss');
+  String get firstRunWelcomeGotIt => _t('first_run.welcome_got_it');
+  String get firstRunTipBedTap => _t('first_run.tip_bed_tap');
+  String get firstRunTipBedLongPress => _t('first_run.tip_bed_long_press');
+  String firstRunTipMagnifier(String modKey) =>
+      '${_t('first_run.tip_magnifier_prefix')} $modKey${_t('first_run.tip_magnifier_suffix')}';
+  String get firstRunTipDashboard => _t('first_run.tip_dashboard');
+
+  // ── Splash screen / device integrity ───────────────────────────────
+  // REVIEW: device-integrity blocker — wording must clearly tell the
+  // user the device is rejected for safety, and direct to a hospital-
+  // issued device.
+  String get splashAppTitle => _t('splash.app_title');
+  String get splashDeviceUnsupportedTitle =>
+      _t('splash.device_unsupported_title');
+  String splashDeviceUnsupportedBody(String reasons) =>
+      '${_t('splash.device_unsupported_body')} $reasons. ${_t('splash.device_unsupported_use_hospital_device')}';
+
+  // ── Housekeeping tasks (placeholder screen) ────────────────────────
+  String get housekeepingTasksTitle => _t('housekeeping.tasks_title');
+  String get housekeepingSampleNotice => _t('housekeeping.sample_notice');
+  String get housekeepingTaskCompleted => _t('housekeeping.task_completed');
+  String get housekeepingTaskStarted => _t('housekeeping.task_started');
+  String get housekeepingNoTasks => _t('housekeeping.no_tasks');
+  String get housekeepingTabAll => _t('housekeeping.tab_all');
+  String get housekeepingTabPending => _t('housekeeping.tab_pending');
+  String get housekeepingTabDone => _t('housekeeping.tab_done');
+  String get housekeepingActionStart => _t('housekeeping.action_start');
+  String get housekeepingActionDone => _t('housekeeping.action_done');
+
+  // ── Logout dialog ──────────────────────────────────────────────────
+  String get logoutDialogTitle => _t('logout.dialog_title');
+  String get logoutDialogBody => _t('logout.dialog_body');
+  String get logoutTooltip => _t('logout.tooltip');
+
+  // ── Misc shared widgets ────────────────────────────────────────────
+  String get shiftCardNoShift => _t('shift_card.no_shift');
+  String get pharmacyNoPreview => _t('pharmacy.no_preview');
+  String get printGeneratedBy => _t('print.generated_by');
+  String get errorSomethingWentWrong => _t('error.something_went_wrong');
+  String get errorRestartOrContact => _t('error.restart_or_contact');
+  String get appointmentsNoToday => _t('appointments.no_today');
+
   // ────────────────────────────────────────────────────────────────────
   // Translation tables.
   // ────────────────────────────────────────────────────────────────────
@@ -2415,6 +2519,10 @@ class AppStrings {
       'voice_dictate.stop': 'Stop & Transcribe',
       'voice_dictate.transcribing': 'Transcribing…',
       'voice_dictate.transcript_added': 'Dictation added to notes',
+      'voice_dictate.hint': 'Speak naturally. Tap Stop when done.',
+      'voice_dictate.added_toast': 'Dictation added to notes',
+      'voice_dictate.recording_started': 'Recording started',
+      'voice_dictate.recording_stopped': 'Recording stopped, transcribing',
       'voice_dictate.mic_denied':
           'Microphone permission denied. Enable it in your OS / app settings.',
       // Bed Board (additions)
@@ -3551,6 +3659,100 @@ class AppStrings {
       'clinical_ai.voice_notes.generate_soap': 'Generate SOAP draft',
       'clinical_ai.voice_notes.drafting': 'Drafting...',
       'clinical_ai.voice_notes.generation_failed_prefix': 'SOAP generation failed:',
+      // AI Assist (clinical-notes patient explainer)
+      'ai_assist.title': 'AI Assist',
+      'ai_assist.generate_blurb':
+          'Generate a plain-language patient explainer of this note. Draft will land in your review queue for sign-off before reaching the patient.',
+      'ai_assist.generate_button': 'Generate patient explainer',
+      'ai_assist.note_too_short':
+          'Note is too short to generate a patient explainer (need at least 30 characters of content).',
+      'ai_assist.generating': 'Generating patient explainer…',
+      'ai_assist.failed_prefix': 'AI Assist failed:',
+      'ai_assist.cannot_sign':
+          'Cannot sign — review row was not created (schema may be unavailable).',
+      'ai_assist.reject_title': 'Reject draft?',
+      'ai_assist.reject_prompt':
+          'Why is this draft not suitable for patient delivery?',
+      'ai_assist.reject_min_chars':
+          'Rejection reason must be at least 5 characters.',
+      'ai_assist.reject_hint':
+          'e.g. clinical inaccuracy in next-steps section',
+      'ai_assist.drawer_title': 'AI Patient Explainer',
+      'ai_assist.fallback_banner':
+          'The model returned no parseable draft; a fallback shape is shown. Re-generate after checking provider config.',
+      'ai_assist.key_points': 'Key points',
+      'ai_assist.next_steps': 'Next steps',
+      'ai_assist.when_to_seek_help': 'When to seek help',
+      'ai_assist.needs_edits': 'Needs edits',
+      'ai_assist.accept_sign': 'Accept & sign',
+      'ai_assist.summary': 'Summary',
+      'ai_assist.empty': '(empty)',
+      'ai_assist.decision_prefix': 'Patient explainer',
+      'ai_assist.sign_failed_prefix': 'Sign-off failed:',
+      // CDS blocker modal — clinical-safety hard block
+      'cds.blocker_title': 'Prescription blocked',
+      'cds.blocker_body':
+          'Clinical decision support flagged the following issues. '
+          'Cancel to revise the prescription, or override with a documented reason.',
+      'cds.warnings_header': 'Warnings',
+      'cds.allergy_hint':
+          'Allergy conflict: reference the supervising physician who approved '
+          'this override in your reason.',
+      'cds.override_reason_label': 'Override reason (required, min 5 chars)',
+      'cds.override_button': 'Override',
+      'cds.override_save': 'Override & save',
+      // Code Blue — emergency overlay
+      'code_blue.title': 'CODE BLUE',
+      'code_blue.respond': 'Respond immediately.',
+      'code_blue.ward_prefix': 'Ward:',
+      'code_blue.bed_prefix': 'Bed:',
+      'code_blue.patient_prefix': 'Patient ID:',
+      'code_blue.acknowledge': 'ACKNOWLEDGED',
+      // First-run welcome card
+      'first_run.welcome_title': 'A few shortcuts worth knowing',
+      'first_run.welcome_dismiss': 'Dismiss',
+      'first_run.welcome_got_it': 'Got it',
+      'first_run.tip_bed_tap':
+          'Tap a bed card on the Bed Board for patient details + quick actions.',
+      'first_run.tip_bed_long_press':
+          'Long-press a bed card to edit its notes inline (no full sheet).',
+      'first_run.tip_magnifier_prefix':
+          'Use the magnifier in any header — or press',
+      'first_run.tip_magnifier_suffix':
+          '+K — to jump to any patient\'s chart.',
+      'first_run.tip_dashboard':
+          'The cards above each route to where you can act on them — tap "Due Meds", "Inpatients", etc.',
+      // Splash / device integrity
+      'splash.app_title': 'VHHealth Staff',
+      'splash.device_unsupported_title': 'Device not supported',
+      'splash.device_unsupported_body':
+          'For patient data safety, VHHealth Staff cannot run on this device. Reason:',
+      'splash.device_unsupported_use_hospital_device':
+          'Please use a hospital-issued, unmodified device.',
+      // Housekeeping tasks (placeholder)
+      'housekeeping.tasks_title': 'My Tasks',
+      'housekeeping.sample_notice':
+          'Showing sample tasks. Backend API coming soon.',
+      'housekeeping.task_completed': '✅ Task marked as complete',
+      'housekeeping.task_started': 'Task started',
+      'housekeeping.no_tasks': 'No tasks here',
+      'housekeeping.tab_all': 'All',
+      'housekeeping.tab_pending': 'Pending',
+      'housekeeping.tab_done': 'Done',
+      'housekeeping.action_start': 'Start',
+      'housekeeping.action_done': 'Done',
+      // Logout
+      'logout.dialog_title': 'Logout?',
+      'logout.dialog_body':
+          'You will need to sign in again with your employee ID and password.',
+      'logout.tooltip': 'Logout',
+      // Misc shared
+      'shift_card.no_shift': 'No shift assigned',
+      'pharmacy.no_preview': 'No preview',
+      'print.generated_by': 'Generated by VHHealth Staff app',
+      'error.something_went_wrong': 'Something went wrong',
+      'error.restart_or_contact': 'Please restart the app or contact support.',
+      'appointments.no_today': 'No appointments today',
     },
     // ── हिन्दी (Hindi) ────────────────────────────────────────────────
     // Second-pass reviewed for register, common clinical-staff
@@ -4039,6 +4241,10 @@ class AppStrings {
       'voice_dictate.stop': 'रोकें और लिखें',
       'voice_dictate.transcribing': 'टेक्स्ट में बदल रहा है…',
       'voice_dictate.transcript_added': 'नोट्स में जोड़ा गया',
+      'voice_dictate.hint': 'सामान्य रूप से बोलें। समाप्त होने पर रोकें।',
+      'voice_dictate.added_toast': 'नोट्स में जोड़ा गया',
+      'voice_dictate.recording_started': 'रिकॉर्डिंग शुरू',
+      'voice_dictate.recording_stopped': 'रिकॉर्डिंग रुकी, ट्रांसक्राइब हो रहा है',
       'voice_dictate.mic_denied':
           'माइक्रोफ़ोन की अनुमति नहीं है। OS / ऐप सेटिंग्स में अनुमति दें।',
       // Bed Board (additions)
@@ -4706,6 +4912,107 @@ class AppStrings {
       'clinical_ai.draft.admission_prefix': 'भर्ती:',
       'clinical_ai.draft.status_prefix': 'स्थिति:',
       'clinical_ai.draft.provider_prefix': 'प्रदाता:',
+      // AI Assist
+      'ai_assist.title': 'AI सहायक',
+      'ai_assist.generate_blurb':
+          'इस नोट का सरल भाषा में रोगी के लिए विवरण तैयार करें। सबमिट करने से पहले समीक्षा कतार में आएगा।',
+      'ai_assist.generate_button': 'रोगी के लिए विवरण तैयार करें',
+      'ai_assist.note_too_short':
+          'विवरण तैयार करने के लिए नोट बहुत छोटा है (कम से कम 30 अक्षर चाहिए)।',
+      'ai_assist.generating': 'रोगी विवरण तैयार हो रहा है…',
+      'ai_assist.failed_prefix': 'AI सहायक विफल:',
+      // REVIEW: clinical-safety — confirm with attending
+      'ai_assist.cannot_sign':
+          'साइन नहीं किया जा सकता — समीक्षा रिकॉर्ड नहीं बना (स्कीमा अनुपलब्ध हो सकती है)।',
+      'ai_assist.reject_title': 'मसौदा अस्वीकार करें?',
+      'ai_assist.reject_prompt':
+          'यह मसौदा रोगी को देने के लिए उपयुक्त क्यों नहीं है?',
+      'ai_assist.reject_min_chars':
+          'अस्वीकृति का कारण कम से कम 5 अक्षर का होना चाहिए।',
+      'ai_assist.reject_hint':
+          'जैसे: अगले-कदम भाग में चिकित्सीय अशुद्धि',
+      'ai_assist.drawer_title': 'AI रोगी विवरण',
+      'ai_assist.fallback_banner':
+          'मॉडल ने पार्स करने योग्य मसौदा नहीं दिया; फॉलबैक प्रारूप दिखाया गया है। प्रदाता कॉन्फ़िगरेशन जाँचने के बाद पुनः जनरेट करें।',
+      'ai_assist.key_points': 'मुख्य बिंदु',
+      'ai_assist.next_steps': 'अगले कदम',
+      'ai_assist.when_to_seek_help': 'मदद कब लें',
+      'ai_assist.needs_edits': 'संशोधन आवश्यक',
+      // REVIEW: clinical-safety — confirm with attending
+      'ai_assist.accept_sign': 'स्वीकार करें और साइन करें',
+      'ai_assist.summary': 'सारांश',
+      'ai_assist.empty': '(खाली)',
+      'ai_assist.decision_prefix': 'रोगी विवरण',
+      'ai_assist.sign_failed_prefix': 'साइन-ऑफ विफल:',
+      // CDS blocker — REVIEW: clinical-safety — confirm with attending
+      'cds.blocker_title': 'नुस्खा अवरुद्ध',
+      'cds.blocker_body':
+          'क्लिनिकल निर्णय समर्थन ने निम्नलिखित समस्याओं का संकेत दिया है। '
+          'नुस्खे को संशोधित करने के लिए रद्द करें, या दर्ज कारण के साथ ओवरराइड करें।',
+      'cds.warnings_header': 'चेतावनियाँ',
+      'cds.allergy_hint':
+          'एलर्जी संघर्ष: कारण में उस पर्यवेक्षक चिकित्सक का उल्लेख करें जिसने इस ओवरराइड को मंजूरी दी।',
+      'cds.override_reason_label':
+          'ओवरराइड कारण (आवश्यक, न्यूनतम 5 अक्षर)',
+      'cds.override_button': 'ओवरराइड',
+      'cds.override_save': 'ओवरराइड और सेव करें',
+      // Code Blue — REVIEW: clinical-safety — confirm with attending
+      'code_blue.title': 'कोड ब्लू',
+      'code_blue.respond': 'तुरंत प्रतिक्रिया दें।',
+      'code_blue.ward_prefix': 'वार्ड:',
+      'code_blue.bed_prefix': 'बेड:',
+      'code_blue.patient_prefix': 'रोगी ID:',
+      'code_blue.acknowledge': 'स्वीकार किया',
+      // First-run welcome
+      'first_run.welcome_title': 'जानने योग्य कुछ शॉर्टकट',
+      'first_run.welcome_dismiss': 'खारिज करें',
+      'first_run.welcome_got_it': 'समझ गया',
+      'first_run.tip_bed_tap':
+          'रोगी विवरण और त्वरित कार्यों के लिए बेड बोर्ड पर बेड कार्ड पर टैप करें।',
+      'first_run.tip_bed_long_press':
+          'नोट्स को इनलाइन संपादित करने के लिए बेड कार्ड को लंबे समय तक दबाएँ।',
+      'first_run.tip_magnifier_prefix':
+          'किसी भी हेडर में आवर्धक का उपयोग करें — या दबाएँ',
+      'first_run.tip_magnifier_suffix':
+          '+K — किसी भी रोगी के चार्ट पर जाने के लिए।',
+      'first_run.tip_dashboard':
+          'ऊपर के कार्ड आपको कार्य स्थानों पर ले जाते हैं — "देय दवाएँ", "भर्ती मरीज़", आदि पर टैप करें।',
+      // Splash
+      'splash.app_title': 'VHHealth स्टाफ',
+      'splash.device_unsupported_title': 'डिवाइस समर्थित नहीं',
+      'splash.device_unsupported_body':
+          'रोगी डेटा सुरक्षा के लिए, VHHealth स्टाफ इस डिवाइस पर नहीं चल सकता। कारण:',
+      'splash.device_unsupported_use_hospital_device':
+          'कृपया अस्पताल द्वारा जारी, अनसंशोधित डिवाइस का उपयोग करें।',
+      // Housekeeping
+      'housekeeping.tasks_title': 'मेरे कार्य',
+      'housekeeping.sample_notice':
+          'नमूना कार्य दिखाए जा रहे हैं। बैकएंड API जल्द आ रहा है।',
+      'housekeeping.task_completed': '✅ कार्य पूर्ण के रूप में चिह्नित',
+      'housekeeping.task_started': 'कार्य शुरू किया गया',
+      'housekeeping.no_tasks': 'यहाँ कोई कार्य नहीं',
+      'housekeeping.tab_all': 'सभी',
+      'housekeeping.tab_pending': 'लंबित',
+      'housekeeping.tab_done': 'पूर्ण',
+      'housekeeping.action_start': 'शुरू',
+      'housekeeping.action_done': 'पूर्ण',
+      // Logout
+      'logout.dialog_title': 'लॉगआउट करें?',
+      'logout.dialog_body':
+          'आपको अपनी कर्मचारी ID और पासवर्ड के साथ फिर से साइन इन करना होगा।',
+      'logout.tooltip': 'लॉगआउट',
+      // Misc
+      'shift_card.no_shift': 'कोई शिफ्ट निर्दिष्ट नहीं',
+      'pharmacy.no_preview': 'कोई पूर्वावलोकन नहीं',
+      'print.generated_by': 'VHHealth स्टाफ ऐप द्वारा जनरेट किया गया',
+      'error.something_went_wrong': 'कुछ गलत हुआ',
+      'error.restart_or_contact':
+          'कृपया ऐप को पुनरारंभ करें या समर्थन से संपर्क करें।',
+      'directory.api_unavailable':
+          'स्टाफ निर्देशिका API अभी उपलब्ध नहीं हो सकता है।',
+      'staff_mgmt.list_api_unavailable':
+          'स्टाफ सूची API अभी उपलब्ध नहीं हो सकता है।',
+      'appointments.no_today': 'आज कोई अपॉइंटमेंट नहीं',
     },
     // ── தமிழ் (Tamil) ─────────────────────────────────────────────────
     // First-pass machine translation. REVIEW required before production.
@@ -5209,6 +5516,14 @@ class AppStrings {
       'voice_dictate.stop': 'நிறுத்து & எழுது',
       'voice_dictate.transcribing': 'உரையாக்குகிறது…',
       'voice_dictate.transcript_added': 'குறிப்புகளில் சேர்க்கப்பட்டது',
+      // REVIEW:
+      'voice_dictate.hint': 'இயல்பாக பேசவும். முடிந்ததும் நிறுத்து என்பதைத் தட்டவும்.',
+      // REVIEW:
+      'voice_dictate.added_toast': 'குறிப்புகளில் சேர்க்கப்பட்டது',
+      // REVIEW:
+      'voice_dictate.recording_started': 'பதிவு தொடங்கியது',
+      // REVIEW:
+      'voice_dictate.recording_stopped': 'பதிவு நின்றது, உரையாக்குகிறது',
       'voice_dictate.mic_denied':
           'மைக்ரோஃபோன் அனுமதி மறுக்கப்பட்டது. OS / பயன்பாட்டு அமைப்புகளில் இயக்கவும்.',
       // Bed Board (additions) — REVIEW
@@ -5808,6 +6123,172 @@ class AppStrings {
       'clinical_ai.draft.admission_prefix': 'அனுமதி:',
       'clinical_ai.draft.status_prefix': 'நிலை:',
       'clinical_ai.draft.provider_prefix': 'வழங்குநர்:',
+      // AI Assist — REVIEW: Tamil-fluent clinician must verify
+      'ai_assist.title': 'AI உதவி',
+      // REVIEW:
+      'ai_assist.generate_blurb':
+          'இந்த குறிப்பிற்கு நோயாளிக்கான எளிய மொழி விளக்கத்தை உருவாக்கவும். கையெழுத்துக்காக மதிப்பாய்வு வரிசையில் சேரும்.',
+      // REVIEW:
+      'ai_assist.generate_button': 'நோயாளி விளக்கத்தை உருவாக்கு',
+      // REVIEW:
+      'ai_assist.note_too_short':
+          'விளக்கத்தை உருவாக்க குறிப்பு மிகச் சிறியது (குறைந்தது 30 எழுத்துகள் தேவை).',
+      // REVIEW:
+      'ai_assist.generating': 'நோயாளி விளக்கம் உருவாக்கப்படுகிறது…',
+      // REVIEW:
+      'ai_assist.failed_prefix': 'AI உதவி தோல்வி:',
+      // REVIEW: clinical-safety — confirm with attending
+      'ai_assist.cannot_sign':
+          'கையெழுத்திட முடியாது — மதிப்பாய்வு பதிவு உருவாக்கப்படவில்லை (ஸ்கீமா கிடைக்கவில்லை).',
+      // REVIEW:
+      'ai_assist.reject_title': 'வரைவை நிராகரிக்கவா?',
+      // REVIEW:
+      'ai_assist.reject_prompt':
+          'இந்த வரைவு நோயாளிக்கு ஏன் பொருத்தமற்றது?',
+      // REVIEW:
+      'ai_assist.reject_min_chars':
+          'நிராகரிப்புக் காரணம் குறைந்தது 5 எழுத்துகள் கொண்டிருக்க வேண்டும்.',
+      // REVIEW:
+      'ai_assist.reject_hint':
+          'எ.கா: அடுத்த-படிகள் பிரிவில் மருத்துவத் தவறு',
+      // REVIEW:
+      'ai_assist.drawer_title': 'AI நோயாளி விளக்கம்',
+      // REVIEW:
+      'ai_assist.fallback_banner':
+          'மாதிரி பகுப்பாய்வு செய்யக்கூடிய வரைவை வழங்கவில்லை; ஃபால்பேக் வடிவம் காட்டப்படுகிறது. வழங்குநர் கட்டமைப்பைச் சரிபார்த்த பிறகு மீண்டும் உருவாக்கவும்.',
+      // REVIEW:
+      'ai_assist.key_points': 'முக்கிய அம்சங்கள்',
+      // REVIEW:
+      'ai_assist.next_steps': 'அடுத்த படிகள்',
+      // REVIEW:
+      'ai_assist.when_to_seek_help': 'எப்போது உதவி நாடவேண்டும்',
+      // REVIEW:
+      'ai_assist.needs_edits': 'திருத்தம் தேவை',
+      // REVIEW: clinical-safety — confirm with attending
+      'ai_assist.accept_sign': 'ஏற்றுக்கொண்டு கையெழுத்திடு',
+      // REVIEW:
+      'ai_assist.summary': 'சுருக்கம்',
+      // REVIEW:
+      'ai_assist.empty': '(காலி)',
+      // REVIEW:
+      'ai_assist.decision_prefix': 'நோயாளி விளக்கம்',
+      // REVIEW:
+      'ai_assist.sign_failed_prefix': 'கையெழுத்து தோல்வி:',
+      // CDS blocker — REVIEW: clinical-safety, Tamil-fluent clinician must verify
+      // REVIEW:
+      'cds.blocker_title': 'மருந்துச்சீட்டு தடுக்கப்பட்டது',
+      // REVIEW:
+      'cds.blocker_body':
+          'மருத்துவ முடிவு ஆதரவு பின்வரும் சிக்கல்களைக் குறிப்பிட்டுள்ளது. '
+          'மருந்துச்சீட்டை திருத்த ரத்து செய்யவும், அல்லது ஆவணப்படுத்தப்பட்ட காரணத்துடன் மீறவும்.',
+      // REVIEW:
+      'cds.warnings_header': 'எச்சரிக்கைகள்',
+      // REVIEW:
+      'cds.allergy_hint':
+          'ஒவ்வாமை முரண்: இந்த மீறலை அங்கீகரித்த மேற்பார்வை மருத்துவரை உங்கள் காரணத்தில் குறிப்பிடவும்.',
+      // REVIEW:
+      'cds.override_reason_label':
+          'மீறல் காரணம் (தேவை, குறைந்தது 5 எழுத்துகள்)',
+      // REVIEW:
+      'cds.override_button': 'மீறு',
+      // REVIEW:
+      'cds.override_save': 'மீறி சேமி',
+      // Code Blue — REVIEW: clinical-safety, Tamil-fluent clinician must verify
+      // REVIEW:
+      'code_blue.title': 'கோட் ப்ளூ',
+      // REVIEW:
+      'code_blue.respond': 'உடனடியாக பதிலளிக்கவும்.',
+      // REVIEW:
+      'code_blue.ward_prefix': 'வார்டு:',
+      // REVIEW:
+      'code_blue.bed_prefix': 'படுக்கை:',
+      // REVIEW:
+      'code_blue.patient_prefix': 'நோயாளி ID:',
+      // REVIEW:
+      'code_blue.acknowledge': 'ஒப்புக்கொள்ளப்பட்டது',
+      // First-run welcome
+      // REVIEW:
+      'first_run.welcome_title': 'தெரிந்துகொள்ள வேண்டிய சில குறுக்குவழிகள்',
+      // REVIEW:
+      'first_run.welcome_dismiss': 'நிராகரி',
+      // REVIEW:
+      'first_run.welcome_got_it': 'புரிந்தது',
+      // REVIEW:
+      'first_run.tip_bed_tap':
+          'நோயாளி விவரங்கள் மற்றும் விரைவான செயல்களுக்கு பெட் போர்டில் படுக்கை அட்டையைத் தட்டவும்.',
+      // REVIEW:
+      'first_run.tip_bed_long_press':
+          'குறிப்புகளை இன்லைனில் திருத்த படுக்கை அட்டையை நீண்ட நேரம் அழுத்தவும்.',
+      // REVIEW:
+      'first_run.tip_magnifier_prefix':
+          'எந்த தலைப்பிலும் பெரிதாக்கியைப் பயன்படுத்தவும் — அல்லது அழுத்தவும்',
+      // REVIEW:
+      'first_run.tip_magnifier_suffix':
+          '+K — எந்த நோயாளியின் விவரத்திற்கும் செல்ல.',
+      // REVIEW:
+      'first_run.tip_dashboard':
+          'மேலே உள்ள அட்டைகள் நீங்கள் செயல்பட இடங்களுக்கு வழிநடத்தும் — "தேவையான மருந்துகள்", "உள்நோயாளிகள்" போன்றவற்றைத் தட்டவும்.',
+      // Splash
+      // REVIEW:
+      'splash.app_title': 'VHHealth பணியாளர்',
+      // REVIEW:
+      'splash.device_unsupported_title': 'சாதனம் ஆதரிக்கப்படவில்லை',
+      // REVIEW:
+      'splash.device_unsupported_body':
+          'நோயாளி தரவு பாதுகாப்பிற்காக, VHHealth பணியாளர் இந்த சாதனத்தில் இயங்க முடியாது. காரணம்:',
+      // REVIEW:
+      'splash.device_unsupported_use_hospital_device':
+          'மருத்துவமனை வழங்கிய, மாற்றப்படாத சாதனத்தைப் பயன்படுத்தவும்.',
+      // Housekeeping
+      // REVIEW:
+      'housekeeping.tasks_title': 'என் பணிகள்',
+      // REVIEW:
+      'housekeeping.sample_notice':
+          'மாதிரி பணிகள் காட்டப்படுகின்றன. பின்-முனை API விரைவில் வருகிறது.',
+      // REVIEW:
+      'housekeeping.task_completed': '✅ பணி முடிந்ததாக குறிக்கப்பட்டது',
+      // REVIEW:
+      'housekeeping.task_started': 'பணி தொடங்கப்பட்டது',
+      // REVIEW:
+      'housekeeping.no_tasks': 'இங்கு எந்த பணியும் இல்லை',
+      // REVIEW:
+      'housekeeping.tab_all': 'அனைத்து',
+      // REVIEW:
+      'housekeeping.tab_pending': 'நிலுவையில்',
+      // REVIEW:
+      'housekeeping.tab_done': 'முடிந்தது',
+      // REVIEW:
+      'housekeeping.action_start': 'தொடங்கு',
+      // REVIEW:
+      'housekeeping.action_done': 'முடிந்தது',
+      // Logout
+      // REVIEW:
+      'logout.dialog_title': 'வெளியேறவா?',
+      // REVIEW:
+      'logout.dialog_body':
+          'உங்கள் பணியாளர் ID மற்றும் கடவுச்சொல்லுடன் மீண்டும் உள்நுழைய வேண்டும்.',
+      // REVIEW:
+      'logout.tooltip': 'வெளியேறு',
+      // Misc
+      // REVIEW:
+      'shift_card.no_shift': 'பணி நேரம் ஒதுக்கப்படவில்லை',
+      // REVIEW:
+      'pharmacy.no_preview': 'முன்னோட்டம் இல்லை',
+      // REVIEW:
+      'print.generated_by': 'VHHealth பணியாளர் ஆப் வழியாக உருவாக்கப்பட்டது',
+      // REVIEW:
+      'error.something_went_wrong': 'ஏதோ தவறு நடந்தது',
+      // REVIEW:
+      'error.restart_or_contact':
+          'ஆப்பை மீண்டும் தொடங்கவும் அல்லது ஆதரவைத் தொடர்புகொள்ளவும்.',
+      // REVIEW:
+      'directory.api_unavailable':
+          'பணியாளர் கோப்பகம் API இன்னும் கிடைக்காமல் இருக்கலாம்.',
+      // REVIEW:
+      'staff_mgmt.list_api_unavailable':
+          'பணியாளர் பட்டியல் API இன்னும் கிடைக்காமல் இருக்கலாம்.',
+      // REVIEW:
+      'appointments.no_today': 'இன்று எந்த சந்திப்பும் இல்லை',
     },
     // ── తెలుగు (Telugu) ──────────────────────────────────────────────
     // First-pass machine translation. REVIEW required before production.
@@ -6312,6 +6793,15 @@ class AppStrings {
       'voice_dictate.stop': 'ఆపండి & ట్రాన్స్క్రైబ్',
       'voice_dictate.transcribing': 'ట్రాన్స్క్రైబ్ అవుతోంది…',
       'voice_dictate.transcript_added': 'గమనికలకు జోడించబడింది',
+      // REVIEW:
+      'voice_dictate.hint': 'సహజంగా మాట్లాడండి. పూర్తయినప్పుడు ఆపు నొక్కండి.',
+      // REVIEW:
+      'voice_dictate.added_toast': 'గమనికలకు జోడించబడింది',
+      // REVIEW:
+      'voice_dictate.recording_started': 'రికార్డింగ్ ప్రారంభమైంది',
+      // REVIEW:
+      'voice_dictate.recording_stopped':
+          'రికార్డింగ్ ఆగింది, ట్రాన్స్‌క్రైబ్ అవుతోంది',
       'voice_dictate.mic_denied':
           'మైక్రోఫోన్ అనుమతి తిరస్కరించబడింది. OS / యాప్ సెట్టింగ్‌లలో ప్రారంభించండి.',
       // Bed Board (additions) — REVIEW
@@ -6918,6 +7408,173 @@ class AppStrings {
       'clinical_ai.draft.admission_prefix': 'ప్రవేశం:',
       'clinical_ai.draft.status_prefix': 'స్థితి:',
       'clinical_ai.draft.provider_prefix': 'ప్రదాత:',
+      // AI Assist — REVIEW: Telugu-fluent clinician must verify
+      // REVIEW:
+      'ai_assist.title': 'AI సహాయం',
+      // REVIEW:
+      'ai_assist.generate_blurb':
+          'ఈ గమనిక యొక్క సాధారణ-భాషలో రోగి వివరణను రూపొందించండి. సంతకం కోసం మీ సమీక్ష క్యూలో కనిపిస్తుంది.',
+      // REVIEW:
+      'ai_assist.generate_button': 'రోగి వివరణ రూపొందించు',
+      // REVIEW:
+      'ai_assist.note_too_short':
+          'వివరణ రూపొందించడానికి గమనిక చాలా తక్కువ (కనీసం 30 అక్షరాలు అవసరం).',
+      // REVIEW:
+      'ai_assist.generating': 'రోగి వివరణ రూపొందుతోంది…',
+      // REVIEW:
+      'ai_assist.failed_prefix': 'AI సహాయం విఫలమైంది:',
+      // REVIEW: clinical-safety — confirm with attending
+      'ai_assist.cannot_sign':
+          'సంతకం చేయలేరు — సమీక్ష రికార్డ్ సృష్టించబడలేదు (స్కీమా అందుబాటులో లేకపోవచ్చు).',
+      // REVIEW:
+      'ai_assist.reject_title': 'ముసాయిదాను తిరస్కరించాలా?',
+      // REVIEW:
+      'ai_assist.reject_prompt':
+          'ఈ ముసాయిదా రోగికి అందించడానికి ఎందుకు అనుకూలం కాదు?',
+      // REVIEW:
+      'ai_assist.reject_min_chars':
+          'తిరస్కరణ కారణం కనీసం 5 అక్షరాలు ఉండాలి.',
+      // REVIEW:
+      'ai_assist.reject_hint':
+          'ఉదా: తదుపరి-దశల విభాగంలో వైద్య అశుద్ధత',
+      // REVIEW:
+      'ai_assist.drawer_title': 'AI రోగి వివరణ',
+      // REVIEW:
+      'ai_assist.fallback_banner':
+          'మోడల్ పార్స్ చేయగల ముసాయిదాను అందించలేదు; ఫాల్‌బ్యాక్ ఆకృతి చూపబడుతోంది. ప్రొవైడర్ కాన్ఫిగరేషన్ తనిఖీ చేసిన తర్వాత మళ్లీ రూపొందించండి.',
+      // REVIEW:
+      'ai_assist.key_points': 'ముఖ్య అంశాలు',
+      // REVIEW:
+      'ai_assist.next_steps': 'తదుపరి దశలు',
+      // REVIEW:
+      'ai_assist.when_to_seek_help': 'ఎప్పుడు సహాయం తీసుకోవాలి',
+      // REVIEW:
+      'ai_assist.needs_edits': 'సవరణలు అవసరం',
+      // REVIEW: clinical-safety — confirm with attending
+      'ai_assist.accept_sign': 'అంగీకరించి సంతకం చేయి',
+      // REVIEW:
+      'ai_assist.summary': 'సారాంశం',
+      // REVIEW:
+      'ai_assist.empty': '(ఖాళీ)',
+      // REVIEW:
+      'ai_assist.decision_prefix': 'రోగి వివరణ',
+      // REVIEW:
+      'ai_assist.sign_failed_prefix': 'సంతకం విఫలమైంది:',
+      // CDS blocker — REVIEW: clinical-safety, Telugu-fluent clinician must verify
+      // REVIEW:
+      'cds.blocker_title': 'ప్రిస్క్రిప్షన్ నిరోధించబడింది',
+      // REVIEW:
+      'cds.blocker_body':
+          'క్లినికల్ నిర్ణయ మద్దతు కింది సమస్యలను సూచించింది. '
+          'ప్రిస్క్రిప్షన్‌ను సవరించడానికి రద్దు చేయండి, లేదా నమోదు చేసిన కారణంతో అతిక్రమించండి.',
+      // REVIEW:
+      'cds.warnings_header': 'హెచ్చరికలు',
+      // REVIEW:
+      'cds.allergy_hint':
+          'అలర్జీ సంఘర్షణ: ఈ అతిక్రమణను ఆమోదించిన పర్యవేక్షక వైద్యుడిని మీ కారణంలో పేర్కొనండి.',
+      // REVIEW:
+      'cds.override_reason_label':
+          'అతిక్రమణ కారణం (అవసరం, కనీసం 5 అక్షరాలు)',
+      // REVIEW:
+      'cds.override_button': 'అతిక్రమించు',
+      // REVIEW:
+      'cds.override_save': 'అతిక్రమించి సేవ్ చేయి',
+      // Code Blue — REVIEW: clinical-safety, Telugu-fluent clinician must verify
+      // REVIEW:
+      'code_blue.title': 'కోడ్ బ్లూ',
+      // REVIEW:
+      'code_blue.respond': 'తక్షణం స్పందించండి.',
+      // REVIEW:
+      'code_blue.ward_prefix': 'వార్డు:',
+      // REVIEW:
+      'code_blue.bed_prefix': 'మంచం:',
+      // REVIEW:
+      'code_blue.patient_prefix': 'రోగి ID:',
+      // REVIEW:
+      'code_blue.acknowledge': 'అంగీకరించబడింది',
+      // First-run welcome
+      // REVIEW:
+      'first_run.welcome_title': 'తెలుసుకోవలసిన కొన్ని సత్వరమార్గాలు',
+      // REVIEW:
+      'first_run.welcome_dismiss': 'తొలగించు',
+      // REVIEW:
+      'first_run.welcome_got_it': 'అర్థమైంది',
+      // REVIEW:
+      'first_run.tip_bed_tap':
+          'రోగి వివరాలు మరియు త్వరిత చర్యల కోసం బెడ్ బోర్డులోని బెడ్ కార్డుపై ట్యాప్ చేయండి.',
+      // REVIEW:
+      'first_run.tip_bed_long_press':
+          'గమనికలను ఇన్‌లైన్‌లో సవరించడానికి బెడ్ కార్డుపై ఎక్కువ సేపు నొక్కండి.',
+      // REVIEW:
+      'first_run.tip_magnifier_prefix':
+          'ఏ హెడర్‌లోనైనా మాగ్నిఫైయర్‌ను ఉపయోగించండి — లేదా నొక్కండి',
+      // REVIEW:
+      'first_run.tip_magnifier_suffix':
+          '+K — ఏ రోగి చార్టుకైనా వెళ్లడానికి.',
+      // REVIEW:
+      'first_run.tip_dashboard':
+          'పైన ఉన్న కార్డులు మీరు చర్య తీసుకోగల ప్రదేశాలకు తీసుకువెళతాయి — "డ్యూ మెడ్స్", "ఇన్‌పేషెంట్స్" మొదలైనవి ట్యాప్ చేయండి.',
+      // Splash
+      // REVIEW:
+      'splash.app_title': 'VHHealth సిబ్బంది',
+      // REVIEW:
+      'splash.device_unsupported_title': 'పరికరం మద్దతు లేదు',
+      // REVIEW:
+      'splash.device_unsupported_body':
+          'రోగి డేటా భద్రత కోసం, VHHealth సిబ్బంది ఈ పరికరంలో నడవలేదు. కారణం:',
+      // REVIEW:
+      'splash.device_unsupported_use_hospital_device':
+          'దయచేసి హాస్పిటల్ జారీ చేసిన, మార్చబడని పరికరాన్ని ఉపయోగించండి.',
+      // Housekeeping
+      // REVIEW:
+      'housekeeping.tasks_title': 'నా పనులు',
+      // REVIEW:
+      'housekeeping.sample_notice':
+          'నమూనా పనులు చూపబడుతున్నాయి. బ్యాకెండ్ API త్వరలో వస్తుంది.',
+      // REVIEW:
+      'housekeeping.task_completed': '✅ పని పూర్తైనట్లు గుర్తించబడింది',
+      // REVIEW:
+      'housekeeping.task_started': 'పని ప్రారంభమైంది',
+      // REVIEW:
+      'housekeeping.no_tasks': 'ఇక్కడ ఎటువంటి పనులు లేవు',
+      // REVIEW:
+      'housekeeping.tab_all': 'అన్నీ',
+      // REVIEW:
+      'housekeeping.tab_pending': 'పెండింగ్',
+      // REVIEW:
+      'housekeeping.tab_done': 'పూర్తైంది',
+      // REVIEW:
+      'housekeeping.action_start': 'ప్రారంభించు',
+      // REVIEW:
+      'housekeeping.action_done': 'పూర్తైంది',
+      // Logout
+      // REVIEW:
+      'logout.dialog_title': 'లాగౌట్?',
+      // REVIEW:
+      'logout.dialog_body':
+          'మీరు మీ ఉద్యోగి ID మరియు పాస్‌వర్డ్‌తో మళ్లీ సైన్ ఇన్ చేయాల్సి ఉంటుంది.',
+      // REVIEW:
+      'logout.tooltip': 'లాగౌట్',
+      // Misc
+      // REVIEW:
+      'shift_card.no_shift': 'షిఫ్ట్ కేటాయించబడలేదు',
+      // REVIEW:
+      'pharmacy.no_preview': 'ప్రివ్యూ లేదు',
+      // REVIEW:
+      'print.generated_by': 'VHHealth సిబ్బంది యాప్ ద్వారా రూపొందించబడింది',
+      // REVIEW:
+      'error.something_went_wrong': 'ఏదో తప్పు జరిగింది',
+      // REVIEW:
+      'error.restart_or_contact':
+          'దయచేసి యాప్‌ను పునఃప్రారంభించండి లేదా మద్దతును సంప్రదించండి.',
+      // REVIEW:
+      'directory.api_unavailable':
+          'సిబ్బంది డైరెక్టరీ API ఇంకా అందుబాటులో లేకపోవచ్చు.',
+      // REVIEW:
+      'staff_mgmt.list_api_unavailable':
+          'సిబ్బంది జాబితా API ఇంకా అందుబాటులో లేకపోవచ్చు.',
+      // REVIEW:
+      'appointments.no_today': 'నేడు ఎటువంటి అపాయింట్‌మెంట్‌లు లేవు',
     },
   };
 }

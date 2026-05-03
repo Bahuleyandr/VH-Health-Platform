@@ -9,6 +9,7 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
+import '../../../l10n/app_strings.dart';
 import '../../../core/widgets/states/success_toast.dart';
 
 class AppointmentsScreen extends StatefulWidget {
@@ -185,13 +186,13 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                   ? (_searchQuery.trim().isNotEmpty
                       ? Center(
                           child: Text(
-                            'No matches for "$_searchQuery"',
+                            AppStrings.of(context).noMatchesFor(_searchQuery),
                             style: TextStyle(color: AppTheme.textSecondary),
                           ),
                         )
-                      : const EmptyState(
+                      : EmptyState(
                           icon: Icons.event_available_outlined,
-                          title: 'No appointments today',
+                          title: AppStrings.of(context).appointmentsNoToday,
                           body: 'New appointments will show up here.',
                         ))
                   : ListView.builder(
