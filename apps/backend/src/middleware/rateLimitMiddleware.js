@@ -21,6 +21,10 @@ const defaultKeyGenerator = (req) => {
   return ipKeyGenerator(req);
 };
 
+const isRateLimitingDisabled = () =>
+  String(process.env.DISABLE_RATE_LIMITING || '').toLowerCase() === 'true' ||
+  String(process.env.RATE_LIMIT_DISABLED || '').toLowerCase() === 'true';
+
 /** Uniform JSON 429 response */
 const defaultHandler = (req, res, _next, options) => {
   const retrySecs = Math.ceil((options.windowMs ?? 0) / 1000);
@@ -55,6 +59,7 @@ export const getRateLimiter = (profileName = 'default') => {
   const skipFn = typeof profile.skip === 'function'
     ? profile.skip
     : (req) => {
+        if (isRateLimitingDisabled()) return true;
         if (isTestEnv) return true;
         const p = req.path || '';
         return (
@@ -105,7 +110,7 @@ export const authRateLimiter = expressRateLimit({
     return `auth:${ip}`;
   },
   handler: defaultHandler,
-  skip: () => false
+  skip: isRateLimitingDisabled
 });
 
 /**
@@ -127,7 +132,7 @@ export const otpRateLimiter = expressRateLimit({
     return `otp:${ipKeyGenerator(req)}`;
   },
   handler: defaultHandler,
-  skip: () => false
+  skip: isRateLimitingDisabled
 });
 
 /**
@@ -146,7 +151,7 @@ export const sosRateLimiter = expressRateLimit({
     return `sos:${ipKeyGenerator(req)}`;
   },
   handler: defaultHandler,
-  skip: () => false
+  skip: isRateLimitingDisabled
 });
 
 /** ✅ Data export rate limiter — strict: 5 requests per hour */

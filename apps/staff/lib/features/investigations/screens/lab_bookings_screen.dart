@@ -39,7 +39,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
 
   @override
   void dispose() {
-    _stopLocationSharing();
+    _stopLocationSharing(notify: false);
     _tabController.dispose();
     super.dispose();
   }
@@ -60,7 +60,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
     });
   }
 
-  void _stopLocationSharing() {
+  void _stopLocationSharing({bool notify = true}) {
     _locationTimer?.cancel();
     _locationTimer = null;
     if (_trackingBookingId != null && _sharingLocation) {
@@ -71,7 +71,7 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
     }
     _trackingBookingId = null;
     _sharingLocation = false;
-    if (mounted) setState(() {});
+    if (notify && mounted) setState(() {});
   }
 
   Future<void> _sendLocation() async {

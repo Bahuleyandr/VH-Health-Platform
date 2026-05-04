@@ -60,10 +60,13 @@ void main() async {
   }
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  const disableCrashlytics = bool.fromEnvironment('VH_DISABLE_CRASHLYTICS');
 
   // Route non-fatal errors from core + app through the same Crashlytics-backed
   // reporter. Fatal errors are still handled via FlutterError.onError below.
-  CrashReporter.install(const FirebaseCrashReporter());
+  if (!disableCrashlytics) {
+    CrashReporter.install(const FirebaseCrashReporter());
+  }
 
   // Register the terminated/background Code Blue handler *before* any foreground
   // plumbing so notifications fire even if the app hasn't been opened this session.
@@ -72,16 +75,18 @@ void main() async {
 
   // Strip potential PHI from error messages before sending to Crashlytics.
   // Phone numbers, patient names, or medical data may appear in stack traces.
-  FlutterError.onError = (FlutterErrorDetails details) {
-    final sanitised = FlutterErrorDetails(
-      exception: _sanitiseForCrashlytics(details.exception),
-      stack: details.stack,
-      library: details.library,
-      context: details.context,
-      silent: details.silent,
-    );
-    FirebaseCrashlytics.instance.recordFlutterFatalError(sanitised);
-  };
+  if (!disableCrashlytics) {
+    FlutterError.onError = (FlutterErrorDetails details) {
+      final sanitised = FlutterErrorDetails(
+        exception: _sanitiseForCrashlytics(details.exception),
+        stack: details.stack,
+        library: details.library,
+        context: details.context,
+        silent: details.silent,
+      );
+      FirebaseCrashlytics.instance.recordFlutterFatalError(sanitised);
+    };
+  }
 
   // Global error widget — shows a friendly message instead of red screen
   ErrorWidget.builder = (FlutterErrorDetails details) {

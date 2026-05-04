@@ -1,13 +1,26 @@
 import prisma from '../../lib/prisma.js';
 
+async function resolveStaffIntId(staffId) {
+  const raw = String(staffId ?? '').trim();
+  if (/^\d+$/.test(raw)) return Number.parseInt(raw, 10);
+  if (!raw) return null;
+
+  const users = await prisma.$queryRawUnsafe(
+    'SELECT id FROM users WHERE uid = $1::uuid LIMIT 1',
+    raw,
+  ).catch(() => []);
+
+  return users[0]?.id ?? null;
+}
+
 /**
  * Get staff's current shift assignment.
  *
- * Tolerant of staffId being passed as either an integer or a numeric
- * string (the Flutter staff app's AttendanceApiService sends "2" not
- * 2; the SQL `staff_shift_assignments.staff_id` column is INTEGER and
- * `WHERE ssa.staff_id = '2'` raises 42883). Returns null when the
- * staff member has no active shift assignment — attendance still
+ * Tolerant of staffId being passed as an integer, a numeric string, or
+ * an authenticated users.uid UUID. The SQL `staff_shift_assignments.staff_id`
+ * column is INTEGER and `WHERE ssa.staff_id = '2'` raises 42883, while
+ * staff self-service routes usually only have req.user.uid. Returns null
+ * when the staff member has no active shift assignment — attendance still
  * records, just with `attendance_status='unclassified'`.
  *
  * Also includes both `grace_period_minutes` and `grace_minutes` —
@@ -15,8 +28,8 @@ import prisma from '../../lib/prisma.js';
  * 141 for why they coexist as separate columns).
  */
 export async function getStaffShift(staffId) {
-  const id = Number.parseInt(staffId, 10);
-  if (!Number.isFinite(id)) return null;
+  const id = await resolveStaffIntId(staffId);
+  if (!Number.isInteger(id)) return null;
   const res = await prisma.$queryRawUnsafe(`
     SELECT ss.id, ss.name, ss.start_time, ss.end_time, ss.is_active,
            ss.is_preset, ss.grace_minutes, ss.grace_period_minutes,

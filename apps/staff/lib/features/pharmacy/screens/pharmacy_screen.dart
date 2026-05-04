@@ -36,7 +36,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
 
   @override
   void dispose() {
-    _stopLocationSharing();
+    _stopLocationSharing(notify: false);
     _tabController.dispose();
     super.dispose();
   }
@@ -58,7 +58,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
     });
   }
 
-  void _stopLocationSharing() {
+  void _stopLocationSharing({bool notify = true}) {
     _locationTimer?.cancel();
     _locationTimer = null;
     if (_trackingOrderId != null && _sharingLocation) {
@@ -69,7 +69,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
     }
     _trackingOrderId = null;
     _sharingLocation = false;
-    if (mounted) setState(() {});
+    if (notify && mounted) setState(() {});
   }
 
   Future<void> _sendLocation() async {

@@ -242,7 +242,16 @@ export const getStaffProfile = async (identifier, userRole, userId, includePriva
         DATE(check_in_time) as date,
         check_in_time, check_out_time,
         EXTRACT(EPOCH FROM (check_out_time - check_in_time))/3600 as hours_worked,
-        status, location
+        COALESCE(
+          attendance_status,
+          type,
+          CASE
+            WHEN check_in_time IS NOT NULL AND check_out_time IS NULL THEN 'checked_in'
+            WHEN check_in_time IS NOT NULL AND check_out_time IS NOT NULL THEN 'checked_out'
+            ELSE 'unknown'
+          END
+        ) as status,
+        location
       FROM staff_attendance 
       WHERE staff_id = $1 
         AND check_in_time >= CURRENT_DATE - INTERVAL '7 days'

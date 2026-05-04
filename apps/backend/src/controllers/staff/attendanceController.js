@@ -63,6 +63,11 @@ export const getStaffAttendance = async (req, res) => {
 export const getAttendanceCalendar = async (req, res) => {
   try {
     const { id } = req.params;
+    const staffId = Number.parseInt(id, 10);
+    if (!Number.isInteger(staffId) || staffId <= 0) {
+      return error(res, 'Valid staff id is required', HTTP_STATUS.BAD_REQUEST);
+    }
+
     const { month, year } = req.query;
     const m = parseInt(month) || new Date().getMonth() + 1;
     const y = parseInt(year) || new Date().getFullYear();
@@ -76,12 +81,12 @@ export const getAttendanceCalendar = async (req, res) => {
         CASE WHEN EXTRACT(HOUR FROM check_in_time) > 9 OR 
              (EXTRACT(HOUR FROM check_in_time) = 9 AND EXTRACT(MINUTE FROM check_in_time) > 15)
              THEN true ELSE false END as is_late
-        FROM staff_attendance WHERE staff_id = $1 AND DATE(check_in_time) BETWEEN $2 AND $3`,
-        id, startDate, endDate),
+        FROM staff_attendance WHERE staff_id = $1::int AND DATE(check_in_time) BETWEEN $2::date AND $3::date`,
+        staffId, startDate, endDate),
       prisma.$queryRawUnsafe(`SELECT DATE(start_date) as start_date, DATE(end_date) as end_date, leave_type, status
-        FROM leave_applications WHERE staff_id = $1 AND status = 'approved'
-        AND start_date <= $3 AND end_date >= $2`, id, startDate, endDate)
-        .catch(() => ({ rows: [] }))
+        FROM leave_applications WHERE staff_id = $1::int AND status = 'approved'
+        AND start_date <= $3::date AND end_date >= $2::date`, staffId, startDate, endDate)
+        .catch(() => [])
     ]);
 
     // Build day-by-day map

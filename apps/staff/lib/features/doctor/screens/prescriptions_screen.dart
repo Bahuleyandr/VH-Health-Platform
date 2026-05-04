@@ -744,17 +744,24 @@ class _PatientSearchFieldState extends State<_PatientSearchField> {
   // ignore: unused_field
   bool _searching = false;
 
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _search(String query) async {
     if (query.length < 3) {
-      setState(() => _results = []);
+      if (mounted) setState(() => _results = []);
       return;
     }
-    setState(() => _searching = true);
+    if (mounted) setState(() => _searching = true);
     try {
       final resp = await ApiClient.get(
         '/users/lookup',
         queryParameters: {'search': query},
       );
+      if (!mounted) return;
       if (resp.isSuccess && resp.raw is Map) {
         final raw = resp.raw as Map<String, dynamic>;
         if (raw['success'] == true) {
@@ -764,7 +771,7 @@ class _PatientSearchFieldState extends State<_PatientSearchField> {
     } catch (e) {
       debugPrint('PatientSearch error: $e');
     }
-    setState(() => _searching = false);
+    if (mounted) setState(() => _searching = false);
   }
 
   @override
@@ -825,9 +832,15 @@ class _DoctorSearchFieldState extends State<_DoctorSearchField> {
   final _ctrl = TextEditingController();
   List<dynamic> _results = [];
 
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _search(String query) async {
     if (query.length < 2) {
-      setState(() => _results = []);
+      if (mounted) setState(() => _results = []);
       return;
     }
     try {
@@ -835,6 +848,7 @@ class _DoctorSearchFieldState extends State<_DoctorSearchField> {
         '/doctors',
         queryParameters: {'search': query},
       );
+      if (!mounted) return;
       if (resp.isSuccess && resp.raw is Map) {
         final raw = resp.raw as Map<String, dynamic>;
         if (raw['success'] == true) {
@@ -1128,7 +1142,7 @@ class _MedicationCardState extends State<_MedicationCard> {
               const SizedBox(width: 10),
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  initialValue: med.route,
+                  initialValue: med.route.isEmpty ? null : med.route,
                   decoration: InputDecoration(
                     labelText: s.prescriptionsRoute,
                     isDense: true,
@@ -1215,12 +1229,14 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       final resp = await ApiClient.get('/prescriptions/all');
+      if (!mounted) return;
       if (resp.isSuccess && resp.raw is Map) {
         final raw = resp.raw as Map<String, dynamic>;
         if (raw['success'] == true) {
@@ -1234,6 +1250,7 @@ class _RecentEPrescriptionsTabState extends State<_RecentEPrescriptionsTab> {
         setState(() => _error = resp.message ?? 'Failed to load');
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);

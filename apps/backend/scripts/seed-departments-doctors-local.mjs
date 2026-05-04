@@ -58,12 +58,24 @@ try {
     const userId = u.rows[0].id;
     const d = await client.query(`SELECT id FROM departments WHERE name = $1`, [dept]);
     const deptId = d.rows[0]?.id ?? null;
-    await client.query(
-      `INSERT INTO doctors (user_id, name, department_id, department, specialty, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
-       ON CONFLICT DO NOTHING`,
-      [userId, name, deptId, dept, specialty]
+    const existingDoctor = await client.query(
+      'SELECT id FROM doctors WHERE user_id = $1 LIMIT 1',
+      [userId]
     );
+    if (existingDoctor.rowCount) {
+      await client.query(
+        `UPDATE doctors
+         SET name = $1, department_id = $2, department = $3, specialty = $4, updated_at = NOW()
+         WHERE id = $5`,
+        [name, deptId, dept, specialty, existingDoctor.rows[0].id]
+      );
+    } else {
+      await client.query(
+        `INSERT INTO doctors (user_id, name, department_id, department, specialty, updated_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [userId, name, deptId, dept, specialty]
+      );
+    }
   }
   await client.query('COMMIT');
 } catch (e) {

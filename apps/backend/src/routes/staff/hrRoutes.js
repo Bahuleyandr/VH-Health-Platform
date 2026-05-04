@@ -46,6 +46,9 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
 
     // Shifts
     ['/shifts', shiftController.getAllShifts],
+    // Backward-compatible staff desktop/mobile alias. The canonical route is
+    // /shift/my-shift, but older clients called /shift directly.
+    ['/shift', shiftController.getMyShift],
     ['/shift/my-shift', shiftController.getMyShift],
 
     // Overtime

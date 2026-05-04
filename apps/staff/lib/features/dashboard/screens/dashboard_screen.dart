@@ -230,7 +230,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           slivers: [
             // App bar
             SliverAppBar(
-              expandedHeight: 180,
+              expandedHeight: 196,
               pinned: true,
               backgroundColor: AppTheme.primaryBlue,
               foregroundColor: Colors.white,
@@ -301,16 +301,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      Row(
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          Text(
-                            today,
-                            style: const TextStyle(
-                              color: Colors.white60,
-                              fontSize: 12,
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 220),
+                            child: Text(
+                              today,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white60,
+                                fontSize: 12,
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 10,
@@ -325,6 +332,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                             child: Text(
                               _role.displayName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 11,

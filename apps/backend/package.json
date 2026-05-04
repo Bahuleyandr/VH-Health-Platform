@@ -16,6 +16,7 @@
     "check:schema-drift": "node scripts/check-schema-drift.mjs",
     "secrets:scan": "node ../../scripts/scan-secrets.mjs",
     "test:db:setup": "node scripts/ensure-test-db.mjs",
+    "seed:test-data": "node scripts/seed-comprehensive-test-data.mjs",
     "pretest": "npm run test:db:setup",
     "test": "node --experimental-vm-modules --max-old-space-size=4096 node_modules/jest/bin/jest.js --runInBand",
     "start:local": "dotenv -e .env.local -- node src/bin/www.js",

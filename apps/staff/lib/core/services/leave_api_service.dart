@@ -93,8 +93,15 @@ class LeaveApiService {
   /// GET /staff/hr/replacement/pending — pending replacement requests for me
   static Future<List<dynamic>> getReplacementRequests() async {
     try {
-      final result = await _get('/staff/hr/replacement/pending');
-      return result['data'] as List? ?? result as List? ?? [];
+      final resp = await ApiClient.get('/staff/hr/replacement/pending');
+      if (resp.isSuccess && resp.raw is Map) {
+        final raw = resp.raw as Map<String, dynamic>;
+        final data = raw['data'];
+        if (raw['success'] == true && data is List) {
+          return data;
+        }
+      }
+      throw Exception(resp.message ?? 'Request failed (${resp.statusCode})');
     } catch (e) {
       debugPrint('LeaveApiService.getReplacementRequests error: $e');
       return [];
