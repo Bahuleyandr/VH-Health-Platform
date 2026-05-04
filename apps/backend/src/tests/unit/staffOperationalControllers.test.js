@@ -2,6 +2,9 @@ import { jest } from '@jest/globals';
 
 const queryRawUnsafe = jest.fn();
 const usersFindUnique = jest.fn();
+const usersFindMany = jest.fn();
+const staffFindMany = jest.fn();
+const staffAttendanceFindMany = jest.fn();
 const generateAnnualTaxSummary = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -9,6 +12,13 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
     $queryRawUnsafe: queryRawUnsafe,
     users: {
       findUnique: usersFindUnique,
+      findMany: usersFindMany,
+    },
+    staff: {
+      findMany: staffFindMany,
+    },
+    staff_attendance: {
+      findMany: staffAttendanceFindMany,
     },
   },
 }));
@@ -21,6 +31,24 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 
 jest.unstable_mockModule('../../services/staff/attendanceService.js', () => ({}));
+
+jest.unstable_mockModule('../../services/auth/staffAuthService.js', () => ({
+  StaffAuthService: {
+    authenticateStaff: jest.fn(),
+    authenticateStaffWithPin: jest.fn(),
+    registerStaffDevice: jest.fn(),
+    quickLogin: jest.fn(),
+    setupPin: jest.fn(),
+    toggleBiometric: jest.fn(),
+    refreshStaffSession: jest.fn(),
+    logoutStaff: jest.fn(),
+    listStaffDevices: jest.fn(),
+    removeDevice: jest.fn(),
+    markAttendance: jest.fn(),
+    getAttendanceStatus: jest.fn(),
+    checkDeviceStatus: jest.fn(),
+  },
+}));
 
 jest.unstable_mockModule('../../services/staff/payrollService.js', () => ({
   calculateArrears: jest.fn(),
@@ -43,7 +71,10 @@ jest.unstable_mockModule('../../utils/payslipPDF.js', () => ({
 }));
 
 const { getGeofenceBreaches, getTodayBreaks } = await import('../../controllers/staff/attendanceController.js');
+const { getHealthStatus } = await import('../../controllers/auth/staffAuthController.js');
+const { getAttendanceAuditDashboard, getAttendanceHRActivity } = await import('../../controllers/staff/attendanceAuditController.js');
 const { getMyOvertimeRequests } = await import('../../controllers/staff/overtimeController.js');
+const { getAuditDashboard, getAdminActivityReport } = await import('../../controllers/staff/reportAuditController.js');
 const {
   getAttendanceAnomalies,
   getLateArrivals,
@@ -58,6 +89,7 @@ const {
   getAllLeaveRequests,
   getLeavePatterns,
 } = await import('../../controllers/staff/staffAdminLeaveController.js');
+const { getOnboardingStatus } = await import('../../controllers/staff/staffAdminHRController.js');
 const { advancedStaffSearch } = await import('../../controllers/staff/staffAdminOperationsController.js');
 const {
   getAllAdvances,
@@ -66,6 +98,7 @@ const {
   getMyPayslipQueries,
   getMyTaxSummary,
 } = await import('../../controllers/staff/payrollController.js');
+const { generateStaffReport } = await import('../../services/staff/hr/reportingService.js');
 const { getStaffStatistics } = await import('../../services/staff/staffService.js');
 
 function makeRes() {
@@ -252,6 +285,7 @@ describe('staff operational endpoint drift guards', () => {
 
     await getPerformanceAnalytics(req, res);
 
+    expect(queryRawUnsafe.mock.calls[0][0]).toContain('ROUND(AVG(pr.rating)::numeric, 2)');
     expect(queryRawUnsafe).toHaveBeenCalledWith(
       expect.stringContaining('FROM staff_performance_reviews pr'),
       'nursing'
@@ -369,5 +403,78 @@ describe('staff operational endpoint drift guards', () => {
     );
     expect(queryRawUnsafe.mock.calls[0][0]).toContain('LIMIT $1::int');
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('returns staff auth health without calling a missing service method', async () => {
+    const res = makeRes();
+
+    await getHealthStatus({}, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json.mock.calls[0][0].data).toMatchObject({
+      service: 'staff-auth',
+      status: 'healthy',
+    });
+  });
+
+  it('uses the current staff onboarding task table', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]);
+    const res = makeRes();
+
+    await getOnboardingStatus({}, res);
+
+    expect(queryRawUnsafe.mock.calls[0][0]).toContain('LEFT JOIN staff_onboarding_tasks ot');
+    expect(queryRawUnsafe.mock.calls[0][0]).not.toContain('LEFT JOIN onboarding_tasks');
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('joins report audit UUID foreign keys through users.uid', async () => {
+    queryRawUnsafe.mockResolvedValue([]);
+    const res = makeRes();
+
+    await getAuditDashboard({}, res);
+    await getAdminActivityReport({ query: { days: '30' } }, res);
+
+    const combinedSql = queryRawUnsafe.mock.calls.map(([sql]) => sql).join('\n');
+    expect(combinedSql).toContain('ir.assigned_to = u.uid');
+    expect(combinedSql).toContain('ru.author_id = u.uid');
+    expect(combinedSql).toContain('sg.assigned_to = u.uid');
+    expect(combinedSql).not.toContain('ru.author_id = u.id');
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('uses leave_applications and array fallbacks for attendance audit reads', async () => {
+    queryRawUnsafe.mockRejectedValue(new Error('missing relation'));
+    const res = makeRes();
+
+    await getAttendanceAuditDashboard({}, res);
+    await getAttendanceHRActivity({ query: { days: '30' } }, res);
+
+    const combinedSql = queryRawUnsafe.mock.calls.map(([sql]) => sql).join('\n');
+    expect(combinedSql).toContain('FROM leave_applications');
+    expect(combinedSql).not.toContain('FROM leave_requests');
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json.mock.calls.at(-1)[0].data).toMatchObject({
+      actors: [],
+      leave_detail: [],
+      regularization_detail: [],
+      dispute_detail: [],
+      overtime_detail: [],
+      bulk_corrections: [],
+    });
+  });
+
+  it('accepts the legacy type query alias for HR staff reports', async () => {
+    staffFindMany.mockResolvedValueOnce([]);
+
+    const report = await generateStaffReport({
+      type: 'payroll',
+      generatedBy: staffUid,
+    });
+
+    expect(report.report_type).toBe('payroll');
+    expect(staffFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { is_active: true },
+    }));
   });
 });

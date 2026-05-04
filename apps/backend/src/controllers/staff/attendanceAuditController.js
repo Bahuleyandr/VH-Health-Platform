@@ -30,9 +30,9 @@ export const getAttendanceAuditDashboard = async (req, res) => {
           COUNT(*) FILTER (WHERE status = 'approved') as approved_count,
           COUNT(*) FILTER (WHERE status = 'rejected') as rejected_count,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') as this_month,
-          ROUND(AVG(EXTRACT(EPOCH FROM (updated_at - created_at))/3600) FILTER (WHERE status != 'pending')::NUMERIC, 1) as avg_action_hours
-        FROM leave_requests
-      `).catch(() => ({ rows: [{ pending_count: 0, overdue_count: 0, approved_count: 0, rejected_count: 0, this_month: 0, avg_action_hours: null }] })),
+          ROUND(AVG(EXTRACT(EPOCH FROM (reviewed_at - created_at))/3600) FILTER (WHERE reviewed_at IS NOT NULL)::NUMERIC, 1) as avg_action_hours
+        FROM leave_applications
+      `).catch(() => [{ pending_count: 0, overdue_count: 0, approved_count: 0, rejected_count: 0, this_month: 0, avg_action_hours: null }]),
 
       prisma.$queryRawUnsafe(`
         SELECT
@@ -42,7 +42,7 @@ export const getAttendanceAuditDashboard = async (req, res) => {
           COUNT(*) FILTER (WHERE status = 'rejected') as rejected_count,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') as this_month
         FROM attendance_regularization
-      `).catch(() => ({ rows: [{ pending_count: 0, overdue_count: 0, approved_count: 0, rejected_count: 0, this_month: 0 }] })),
+      `).catch(() => [{ pending_count: 0, overdue_count: 0, approved_count: 0, rejected_count: 0, this_month: 0 }]),
 
       prisma.$queryRawUnsafe(`
         SELECT
@@ -52,7 +52,7 @@ export const getAttendanceAuditDashboard = async (req, res) => {
           COUNT(*) FILTER (WHERE status = 'rejected') as rejected_count,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') as this_month
         FROM attendance_disputes
-      `).catch(() => ({ rows: [{ pending_count: 0, overdue_count: 0, approved_count: 0, rejected_count: 0, this_month: 0 }] })),
+      `).catch(() => [{ pending_count: 0, overdue_count: 0, approved_count: 0, rejected_count: 0, this_month: 0 }]),
 
       prisma.$queryRawUnsafe(`
         SELECT
@@ -62,7 +62,7 @@ export const getAttendanceAuditDashboard = async (req, res) => {
           COUNT(*) FILTER (WHERE status = 'rejected') as rejected_count,
           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') as this_month
         FROM overtime_requests
-      `).catch(() => ({ rows: [{ pending_count: 0, overdue_count: 0, approved_count: 0, rejected_count: 0, this_month: 0 }] })),
+      `).catch(() => [{ pending_count: 0, overdue_count: 0, approved_count: 0, rejected_count: 0, this_month: 0 }]),
 
       prisma.$queryRawUnsafe(`
         SELECT
@@ -71,13 +71,13 @@ export const getAttendanceAuditDashboard = async (req, res) => {
           COUNT(DISTINCT staff_id) as unique_staff,
           COUNT(*) FILTER (WHERE alerted = false) as unalerted
         FROM geofence_breaches
-      `).catch(() => ({ rows: [{ total_breaches: 0, this_week: 0, unique_staff: 0, unalerted: 0 }] })),
+      `).catch(() => [{ total_breaches: 0, this_week: 0, unique_staff: 0, unalerted: 0 }]),
 
       // Combined pending items needing action
       prisma.$queryRawUnsafe(`
         SELECT 'leave' as type, id, staff_id, 'Leave Request' as subject, created_at,
           EXTRACT(EPOCH FROM (NOW() - created_at))/3600 as hours_pending
-        FROM leave_requests WHERE status = 'pending' AND created_at < NOW() - INTERVAL '48 hours'
+        FROM leave_applications WHERE status = 'pending' AND created_at < NOW() - INTERVAL '48 hours'
         UNION ALL
         SELECT 'regularization' as type, id, staff_id, 'Regularization Request' as subject, created_at,
           EXTRACT(EPOCH FROM (NOW() - created_at))/3600 as hours_pending
@@ -91,7 +91,7 @@ export const getAttendanceAuditDashboard = async (req, res) => {
           EXTRACT(EPOCH FROM (NOW() - created_at))/3600 as hours_pending
         FROM overtime_requests WHERE status = 'pending' AND created_at < NOW() - INTERVAL '72 hours'
         ORDER BY hours_pending DESC LIMIT 30
-      `).catch(() => ({ rows: [] })),
+      `).catch(() => []),
     ]);
 
     success(res, {
@@ -124,15 +124,15 @@ export const getAttendanceHRActivity = async (req, res) => {
           COUNT(*) FILTER (WHERE lr.status = 'approved') as approved,
           COUNT(*) FILTER (WHERE lr.status = 'rejected') as rejected,
           COUNT(*) as total,
-          ROUND(AVG(EXTRACT(EPOCH FROM (lr.updated_at - lr.created_at))/3600)::NUMERIC, 1) as avg_response_hours,
-          MAX(lr.updated_at) as last_action
-        FROM leave_requests lr
-        JOIN users u ON lr.reviewed_by = u.id
-        WHERE lr.updated_at >= NOW() - $1::INTERVAL
+          ROUND(AVG(EXTRACT(EPOCH FROM (lr.reviewed_at - lr.created_at))/3600)::NUMERIC, 1) as avg_response_hours,
+          MAX(lr.reviewed_at) as last_action
+        FROM leave_applications lr
+        JOIN users u ON lr.reviewed_by = u.uid
+        WHERE lr.reviewed_at >= NOW() - $1::INTERVAL
           AND lr.status != 'pending'
         GROUP BY u.id, u.name, u.role
         ORDER BY total DESC
-      `, interval).catch(() => ({ rows: [] })),
+      `, interval).catch(() => []),
 
       prisma.$queryRawUnsafe(`
         SELECT
@@ -142,11 +142,11 @@ export const getAttendanceHRActivity = async (req, res) => {
           COUNT(*) as total,
           MAX(ar.reviewed_at) as last_action
         FROM attendance_regularization ar
-        JOIN users u ON ar.reviewed_by = u.id
+        JOIN users u ON ar.reviewed_by = u.uid
         WHERE ar.reviewed_at >= NOW() - $1::INTERVAL
         GROUP BY u.id, u.name, u.role
         ORDER BY total DESC
-      `, interval).catch(() => ({ rows: [] })),
+      `, interval).catch(() => []),
 
       prisma.$queryRawUnsafe(`
         SELECT
@@ -160,7 +160,7 @@ export const getAttendanceHRActivity = async (req, res) => {
         WHERE ad.reviewed_at >= NOW() - $1::INTERVAL
         GROUP BY u.id, u.name, u.role
         ORDER BY total DESC
-      `, interval).catch(() => ({ rows: [] })),
+      `, interval).catch(() => []),
 
       prisma.$queryRawUnsafe(`
         SELECT
@@ -174,7 +174,7 @@ export const getAttendanceHRActivity = async (req, res) => {
         WHERE ot.approved_at >= NOW() - $1::INTERVAL
         GROUP BY u.id, u.name, u.role
         ORDER BY total DESC
-      `, interval).catch(() => ({ rows: [] })),
+      `, interval).catch(() => []),
 
       // Bulk corrections — potentially sensitive, full log
       prisma.$queryRawUnsafe(`
@@ -184,10 +184,10 @@ export const getAttendanceHRActivity = async (req, res) => {
           u.name as staff_name, u2.name as reviewed_by_name
         FROM attendance_regularization ar
         LEFT JOIN users u ON ar.staff_id = u.id
-        LEFT JOIN users u2 ON ar.reviewed_by = u2.id
+        LEFT JOIN users u2 ON ar.reviewed_by = u2.uid
         WHERE ar.reason ILIKE '%bulk%' OR ar.reason ILIKE '%admin correction%'
         ORDER BY ar.reviewed_at DESC NULLS LAST LIMIT 50
-      `).catch(() => ({ rows: [] })),
+      `).catch(() => []),
     ]);
 
     // Build combined per-person summary
@@ -290,10 +290,10 @@ export const getLeaveAuditTrail = async (req, res) => {
       SELECT lr.*, u.name as staff_name, s.department,
              u2.name as reviewed_by_name,
              rr.status as replacement_status, u3.name as replacement_name
-      FROM leave_requests lr
+      FROM leave_applications lr
       JOIN users u ON lr.staff_id = u.id
       LEFT JOIN staff s ON u.uid = s.user_id
-      LEFT JOIN users u2 ON lr.reviewed_by = u2.id
+      LEFT JOIN users u2 ON lr.reviewed_by = u2.uid
       LEFT JOIN replacement_requests rr ON rr.leave_request_id = lr.id
       LEFT JOIN users u3 ON rr.replacement_staff_id = u3.id
       WHERE lr.id = $1
@@ -301,8 +301,8 @@ export const getLeaveAuditTrail = async (req, res) => {
 
     if (leave.length === 0) return error(res, 'Leave request not found', HTTP_STATUS.NOT_FOUND);
 
-    const hoursToAction = leave[0].updated_at && leave[0].status !== 'pending'
-      ? (new Date(leave[0].updated_at).getTime() - new Date(leave[0].created_at).getTime()) / 3600000
+    const hoursToAction = leave[0].reviewed_at && leave[0].status !== 'pending'
+      ? (new Date(leave[0].reviewed_at).getTime() - new Date(leave[0].created_at).getTime()) / 3600000
       : null;
 
     success(res, {
@@ -336,11 +336,11 @@ export const getAttendanceSLAReport = async (req, res) => {
           COUNT(*) as total,
           COUNT(*) FILTER (WHERE status != 'pending') as actioned,
           COUNT(*) FILTER (WHERE status = 'pending' AND created_at < NOW() - INTERVAL '48 hours') as overdue,
-          COUNT(*) FILTER (WHERE status != 'pending' AND EXTRACT(EPOCH FROM (updated_at - created_at))/3600 <= 48) as within_sla,
-          ROUND(AVG(EXTRACT(EPOCH FROM (updated_at - created_at))/3600) FILTER (WHERE status != 'pending')::NUMERIC, 1) as avg_hours
-        FROM leave_requests
+          COUNT(*) FILTER (WHERE reviewed_at IS NOT NULL AND EXTRACT(EPOCH FROM (reviewed_at - created_at))/3600 <= 48) as within_sla,
+          ROUND(AVG(EXTRACT(EPOCH FROM (reviewed_at - created_at))/3600) FILTER (WHERE reviewed_at IS NOT NULL)::NUMERIC, 1) as avg_hours
+        FROM leave_applications
         WHERE created_at >= NOW() - $1::INTERVAL
-      `, interval).catch(() => ({ rows: [{}] })),
+      `, interval).catch(() => [{}]),
 
       prisma.$queryRawUnsafe(`
         SELECT
@@ -351,7 +351,7 @@ export const getAttendanceSLAReport = async (req, res) => {
           ROUND(AVG(EXTRACT(EPOCH FROM (reviewed_at - created_at))/3600) FILTER (WHERE reviewed_at IS NOT NULL)::NUMERIC, 1) as avg_hours
         FROM attendance_regularization
         WHERE created_at >= NOW() - $1::INTERVAL
-      `, interval).catch(() => ({ rows: [{}] })),
+      `, interval).catch(() => [{}]),
 
       prisma.$queryRawUnsafe(`
         SELECT
@@ -362,7 +362,7 @@ export const getAttendanceSLAReport = async (req, res) => {
           ROUND(AVG(EXTRACT(EPOCH FROM (reviewed_at - created_at))/3600) FILTER (WHERE reviewed_at IS NOT NULL)::NUMERIC, 1) as avg_hours
         FROM attendance_disputes
         WHERE created_at >= NOW() - $1::INTERVAL
-      `, interval).catch(() => ({ rows: [{}] })),
+      `, interval).catch(() => [{}]),
 
       prisma.$queryRawUnsafe(`
         SELECT
@@ -373,7 +373,7 @@ export const getAttendanceSLAReport = async (req, res) => {
           ROUND(AVG(EXTRACT(EPOCH FROM (approved_at - created_at))/3600) FILTER (WHERE approved_at IS NOT NULL)::NUMERIC, 1) as avg_hours
         FROM overtime_requests
         WHERE created_at >= NOW() - $1::INTERVAL
-      `, interval).catch(() => ({ rows: [{}] })),
+      `, interval).catch(() => [{}]),
     ]);
 
     success(res, {

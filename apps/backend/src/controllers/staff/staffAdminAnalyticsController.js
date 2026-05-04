@@ -17,7 +17,7 @@ export const getPerformanceAnalytics = async (req, res) => {
       SELECT 
         s.department,
         COUNT(DISTINCT pr.staff_id) as reviewed_staff,
-        ROUND(AVG(pr.rating), 2) as avg_rating,
+        ROUND(AVG(pr.rating)::numeric, 2) as avg_rating,
         COUNT(*) FILTER (WHERE pr.rating >= 4) as high_performers,
         COUNT(*) FILTER (WHERE pr.rating < 3) as needs_improvement
       FROM staff_performance_reviews pr

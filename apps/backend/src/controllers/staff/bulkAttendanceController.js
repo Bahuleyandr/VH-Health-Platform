@@ -56,7 +56,7 @@ export const bulkCorrectAttendance = async (req, res) => {
               vals.push(existing[0].id);
               await prisma.$queryRawUnsafe(
                 `UPDATE staff_attendance SET ${updates.join(', ')} WHERE id=$${idx}`,
-                vals
+                ...vals
               );
             }
           } else if (c.check_in_time) {

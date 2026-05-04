@@ -13,16 +13,18 @@ const fmtDate = (d) => d
 export const generateStaffReport = async (reportParams) => {
   const {
     report_type,
+    type,
     department,
     start_date,
     end_date,
     format,
     generatedBy,
   } = reportParams;
+  const selectedReportType = report_type || type;
 
   let reportData;
 
-  switch (report_type) {
+  switch (selectedReportType) {
     case 'attendance':
       reportData = await generateAttendanceReport(department, start_date, end_date);
       break;
@@ -44,7 +46,7 @@ export const generateStaffReport = async (reportParams) => {
   }
 
   return {
-    report_type,
+    report_type: selectedReportType,
     department: department || 'All Departments',
     date_range: { start_date, end_date },
     generated_by: generatedBy,

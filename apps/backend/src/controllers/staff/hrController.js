@@ -322,11 +322,13 @@ export const exportStaffReport = async (req, res) => {
   try {
     const { 
       report_type, // attendance, performance, leave, payroll
+      type,
       department,
       start_date,
       end_date,
       format = 'csv' // csv, pdf
     } = req.query;
+    const selectedReportType = report_type || type;
     
     const userRole = req.user?.role;
     const generatedBy = req.user?.name;
@@ -337,7 +339,7 @@ export const exportStaffReport = async (req, res) => {
     }
 
     const report = await hrService.generateStaffReport({
-      report_type,
+      report_type: selectedReportType,
       department,
       start_date,
       end_date,
@@ -352,7 +354,7 @@ export const exportStaffReport = async (req, res) => {
     // For CSV format, set appropriate headers
     if (format === 'csv') {
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=staff_${report_type}_report_${new Date().toISOString().split('T')[0]}.csv`);
+      res.setHeader('Content-Disposition', `attachment; filename=staff_${selectedReportType}_report_${new Date().toISOString().split('T')[0]}.csv`);
       return res.send(report.data);
     }
 

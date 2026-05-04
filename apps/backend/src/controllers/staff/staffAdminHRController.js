@@ -45,7 +45,7 @@ export const getOnboardingStatus = async (req, res) => {
         COUNT(ot.id) FILTER (WHERE ot.completed = true) as completed_tasks,
         ROUND(100.0 * COUNT(ot.id) FILTER (WHERE ot.completed = true) / NULLIF(COUNT(ot.id), 0), 2) as completion_percentage
       FROM staff s
-      LEFT JOIN onboarding_tasks ot ON s.id = ot.staff_id
+      LEFT JOIN staff_onboarding_tasks ot ON s.id = ot.staff_id
       WHERE s.join_date >= CURRENT_DATE - INTERVAL '90 days'
       GROUP BY s.id, s.name, s.department, s.join_date
       ORDER BY s.join_date DESC

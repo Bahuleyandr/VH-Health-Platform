@@ -67,7 +67,7 @@ export const getAuditDashboard = async (req, res) => {
           EXTRACT(EPOCH FROM (NOW() - ir.created_at))/3600 as hours_open,
           (SELECT COUNT(*) FROM report_updates ru WHERE ru.report_type='incident' AND ru.report_id=ir.id AND ru.author_role != 'system') as admin_action_count
         FROM incident_reports ir
-        LEFT JOIN users u ON ir.assigned_to = u.id
+        LEFT JOIN users u ON ir.assigned_to = u.uid
         WHERE ir.status NOT IN ('resolved','closed')
           AND ir.created_at < NOW() - (
             CASE ir.severity
@@ -99,7 +99,7 @@ export const getAuditDashboard = async (req, res) => {
             ELSE (SELECT grievance_number FROM staff_grievances WHERE id = ru.report_id)
           END as report_number
         FROM report_updates ru
-        LEFT JOIN users u ON ru.author_id = u.id
+        LEFT JOIN users u ON ru.author_id = u.uid
         WHERE ru.author_role IN ('admin','hr')
         ORDER BY ru.created_at DESC
         LIMIT 30
@@ -146,20 +146,20 @@ export const getReportAuditTrail = async (req, res) => {
       ? `SELECT ir.*, u.name as reporter_name, s.department as reporter_dept,
                 u2.name as assigned_to_name, u3.name as resolved_by_name
          FROM incident_reports ir
-         LEFT JOIN users u ON ir.reporter_id = u.id
+         LEFT JOIN users u ON ir.reporter_id = u.uid
          LEFT JOIN staff s ON u.uid = s.user_id
-         LEFT JOIN users u2 ON ir.assigned_to = u2.id
-         LEFT JOIN users u3 ON ir.resolved_by = u3.id
+         LEFT JOIN users u2 ON ir.assigned_to = u2.uid
+         LEFT JOIN users u3 ON ir.resolved_by = u3.uid
          WHERE ir.id = $1`
       : `SELECT sg.*,
                 CASE WHEN sg.is_anonymous THEN 'Anonymous' ELSE u.name END as reporter_name,
                 CASE WHEN sg.is_anonymous THEN NULL ELSE s.department END as reporter_dept,
                 u2.name as assigned_to_name, u3.name as resolved_by_name
          FROM staff_grievances sg
-         LEFT JOIN users u ON sg.reporter_id = u.id
+         LEFT JOIN users u ON sg.reporter_id = u.uid
          LEFT JOIN staff s ON u.uid = s.user_id
-         LEFT JOIN users u2 ON sg.assigned_to = u2.id
-         LEFT JOIN users u3 ON sg.resolved_by = u3.id
+         LEFT JOIN users u2 ON sg.assigned_to = u2.uid
+         LEFT JOIN users u3 ON sg.resolved_by = u3.uid
          WHERE sg.id = $1`;
 
     const report = await prisma.$queryRawUnsafe(reportQuery, id);
@@ -169,7 +169,7 @@ export const getReportAuditTrail = async (req, res) => {
     const trail = await prisma.$queryRawUnsafe(`
       SELECT ru.*, u.name as author_name, u.role as author_db_role
       FROM report_updates ru
-      LEFT JOIN users u ON ru.author_id = u.id
+      LEFT JOIN users u ON ru.author_id = u.uid
       WHERE ru.report_type = $1 AND ru.report_id = $2
       ORDER BY ru.created_at ASC
     `, type, id);
@@ -228,7 +228,7 @@ export const getAdminActivityReport = async (req, res) => {
         MAX(ru.created_at) as last_action,
         COUNT(*) as total_actions
       FROM report_updates ru
-      JOIN users u ON ru.author_id = u.id
+      JOIN users u ON ru.author_id = u.uid
       WHERE ru.author_role IN ('admin','hr')
         AND ru.created_at >= NOW() - $1::INTERVAL
       GROUP BY u.id, u.name, u.role
@@ -250,7 +250,7 @@ export const getAdminActivityReport = async (req, res) => {
         EXTRACT(EPOCH FROM (NOW() - ir.created_at))/3600 as hours_open,
         (SELECT COUNT(*) FROM report_updates ru WHERE ru.report_type='incident' AND ru.report_id=ir.id AND ru.author_role NOT IN ('system','reporter')) as admin_actions
       FROM incident_reports ir
-      LEFT JOIN users u ON ir.assigned_to = u.id
+      LEFT JOIN users u ON ir.assigned_to = u.uid
       WHERE ir.status NOT IN ('resolved','closed')
         AND (
           SELECT COUNT(*) FROM report_updates ru
@@ -271,7 +271,7 @@ export const getAdminActivityReport = async (req, res) => {
         EXTRACT(EPOCH FROM (NOW() - sg.created_at))/3600 as hours_open,
         (SELECT COUNT(*) FROM report_updates ru WHERE ru.report_type='grievance' AND ru.report_id=sg.id AND ru.author_role NOT IN ('system','reporter')) as admin_actions
       FROM staff_grievances sg
-      LEFT JOIN users u ON sg.assigned_to = u.id
+      LEFT JOIN users u ON sg.assigned_to = u.uid
       WHERE sg.status NOT IN ('resolved','closed')
         AND (
           SELECT COUNT(*) FROM report_updates ru
