@@ -321,6 +321,11 @@ export const getAnnualReviewStatus = async (req, res) => {
 export const getRevisionDetail = async (req, res) => {
   try {
     const { id } = req.params;
+    const revisionId = Number.parseInt(id, 10);
+
+    if (!Number.isInteger(revisionId) || revisionId <= 0) {
+      return error(res, 'Invalid revision id', HTTP_STATUS.BAD_REQUEST);
+    }
 
     const result = await prisma.$queryRawUnsafe(`
       SELECT sr.id, sr.staff_uid, sr.revision_type, sr.current_basic, sr.proposed_basic, sr.current_gross, sr.proposed_gross,
@@ -336,8 +341,8 @@ export const getRevisionDetail = async (req, res) => {
       LEFT JOIN users u2 ON sr.proposed_by = u2.uid
       LEFT JOIN users u3 ON sr.hr_signed_by = u3.uid
       LEFT JOIN users u4 ON sr.admin_signed_by = u4.uid
-      WHERE sr.id = $1
-    `, id);
+      WHERE sr.id = $1::int
+    `, revisionId);
 
     if (result.length === 0) return error(res, 'Revision not found', HTTP_STATUS.NOT_FOUND);
     success(res, result[0], 'Revision detail fetched');

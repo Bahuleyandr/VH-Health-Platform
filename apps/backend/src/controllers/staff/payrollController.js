@@ -166,7 +166,12 @@ export const getMyPayslips = async (req, res) => {
 export const getPayslipDetail = async (req, res) => {
   try {
     const { id } = req.params;
+    const payslipId = Number.parseInt(id, 10);
     const staffUid = req.user?.uid;
+
+    if (!Number.isInteger(payslipId) || payslipId <= 0) {
+      return error(res, 'Invalid payslip id', HTTP_STATUS.BAD_REQUEST);
+    }
 
     const payslip = await prisma.$queryRawUnsafe(`
       SELECT p.id, p.staff_uid, p.month, p.year, p.payroll_run_id, p.basic_earned, p.hra_earned,
@@ -175,8 +180,8 @@ export const getPayslipDetail = async (req, res) => {
         p.professional_tax, p.tds, p.total_deductions, p.net_salary, p.status, p.pdf_key,
         p.created_at, p.updated_at
       FROM payslips p
-      WHERE p.id = $1 AND p.staff_uid = $2::uuid AND p.status IN ('issued','viewed','downloaded')
-    `, id, staffUid);
+      WHERE p.id = $1::int AND p.staff_uid = $2::uuid AND p.status IN ('issued','viewed','downloaded')
+    `, payslipId, staffUid);
 
     if (payslip.length === 0) return error(res, 'Payslip not found', HTTP_STATUS.NOT_FOUND);
 
@@ -535,6 +540,11 @@ export const getPayrollRuns = async (req, res) => {
 export const getPayrollRunDetail = async (req, res) => {
   try {
     const { runId } = req.params;
+    const runIdNumber = Number.parseInt(runId, 10);
+
+    if (!Number.isInteger(runIdNumber) || runIdNumber <= 0) {
+      return error(res, 'Invalid payroll run id', HTTP_STATUS.BAD_REQUEST);
+    }
 
     const payslips = await prisma.$queryRawUnsafe(`
       SELECT p.*, u.name as staff_name, u.email,
@@ -544,11 +554,19 @@ export const getPayrollRunDetail = async (req, res) => {
       JOIN users u ON p.staff_uid = u.uid
       LEFT JOIN staff s ON s.user_id = u.uid
       LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid
-      WHERE p.payroll_run_id = $1
+      WHERE p.payroll_run_id = $1::int
       ORDER BY u.name
-    `, runId);
+    `, runIdNumber);
 
-    const run = await prisma.$queryRawUnsafe('SELECT id, month, year, status, generated_by, generated_at, approved_by, approved_at, total_gross, total_deductions, total_net, employee_count, notes, created_at, updated_at FROM payroll_runs WHERE id=$1', runId);
+    const run = await prisma.$queryRawUnsafe(
+      `SELECT id, month, year, status, generated_by, generated_at,
+              hr_approved_by, hr_approved_at, admin_approved_by, admin_approved_at,
+              total_gross, total_deductions, total_net, employee_count,
+              notes, created_at, updated_at
+       FROM payroll_runs
+       WHERE id=$1::int`,
+      runIdNumber,
+    );
     if (run.length === 0) return error(res, 'Payroll run not found', HTTP_STATUS.NOT_FOUND);
 
     success(res, { run: run[0], payslips: payslips }, 'Payroll run detail fetched');
@@ -613,12 +631,12 @@ export const getStaffSalaryConfig = async (req, res) => {
       FROM staff_salary ss
       JOIN users u ON ss.staff_uid = u.uid
       LEFT JOIN staff s ON s.user_id = u.uid
-      WHERE ss.staff_uid = $1
+      WHERE ss.staff_uid = $1::uuid
     `, staffUid);
 
     if (config.length === 0) {
       const user = await prisma.$queryRawUnsafe(
-        'SELECT uid, name, role, phone FROM users WHERE uid = $1', staffUid);
+        'SELECT uid, name, role, phone FROM users WHERE uid = $1::uuid', staffUid);
       return success(res, user[0] ? { ...user[0], no_config: true } : null, 'No salary config found');
     }
 
@@ -652,7 +670,7 @@ export const upsertStaffSalaryConfig = async (req, res) => {
       return error(res, 'basic_salary is required and must be positive', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const userCheck = await prisma.$queryRawUnsafe('SELECT uid, name FROM users WHERE uid = $1', staffUid);
+    const userCheck = await prisma.$queryRawUnsafe('SELECT uid, name FROM users WHERE uid = $1::uuid', staffUid);
     if (userCheck.length === 0) {
       return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
     }

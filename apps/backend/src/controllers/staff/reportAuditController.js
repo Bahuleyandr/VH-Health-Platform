@@ -137,9 +137,13 @@ export const getAuditDashboard = async (req, res) => {
 export const getReportAuditTrail = async (req, res) => {
   try {
     const { type, id } = req.params;
+    const reportId = Number.parseInt(id, 10);
 
     if (!['incident', 'grievance'].includes(type)) {
       return error(res, 'type must be incident or grievance', HTTP_STATUS.BAD_REQUEST);
+    }
+    if (!Number.isInteger(reportId) || reportId <= 0) {
+      return error(res, 'Invalid report id', HTTP_STATUS.BAD_REQUEST);
     }
 
     const reportQuery = type === 'incident'
@@ -150,7 +154,7 @@ export const getReportAuditTrail = async (req, res) => {
          LEFT JOIN staff s ON u.uid = s.user_id
          LEFT JOIN users u2 ON ir.assigned_to = u2.uid
          LEFT JOIN users u3 ON ir.resolved_by = u3.uid
-         WHERE ir.id = $1`
+         WHERE ir.id = $1::int`
       : `SELECT sg.*,
                 CASE WHEN sg.is_anonymous THEN 'Anonymous' ELSE u.name END as reporter_name,
                 CASE WHEN sg.is_anonymous THEN NULL ELSE s.department END as reporter_dept,
@@ -160,9 +164,9 @@ export const getReportAuditTrail = async (req, res) => {
          LEFT JOIN staff s ON u.uid = s.user_id
          LEFT JOIN users u2 ON sg.assigned_to = u2.uid
          LEFT JOIN users u3 ON sg.resolved_by = u3.uid
-         WHERE sg.id = $1`;
+         WHERE sg.id = $1::int`;
 
-    const report = await prisma.$queryRawUnsafe(reportQuery, id);
+    const report = await prisma.$queryRawUnsafe(reportQuery, reportId);
     if (report.length === 0) return error(res, 'Report not found', HTTP_STATUS.NOT_FOUND);
 
     // All updates including internal (audit view sees everything)
@@ -170,9 +174,9 @@ export const getReportAuditTrail = async (req, res) => {
       SELECT ru.*, u.name as author_name, u.role as author_db_role
       FROM report_updates ru
       LEFT JOIN users u ON ru.author_id = u.uid
-      WHERE ru.report_type = $1 AND ru.report_id = $2
+      WHERE ru.report_type = $1 AND ru.report_id = $2::int
       ORDER BY ru.created_at ASC
-    `, type, id);
+    `, type, reportId);
 
     // SLA calculation
     const reportData = report[0];

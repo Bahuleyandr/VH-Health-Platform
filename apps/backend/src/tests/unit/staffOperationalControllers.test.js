@@ -72,9 +72,9 @@ jest.unstable_mockModule('../../utils/payslipPDF.js', () => ({
 
 const { getGeofenceBreaches, getTodayBreaks } = await import('../../controllers/staff/attendanceController.js');
 const { getHealthStatus } = await import('../../controllers/auth/staffAuthController.js');
-const { getAttendanceAuditDashboard, getAttendanceHRActivity } = await import('../../controllers/staff/attendanceAuditController.js');
+const { getAttendanceAuditDashboard, getAttendanceHRActivity, getLeaveAuditTrail } = await import('../../controllers/staff/attendanceAuditController.js');
 const { getMyOvertimeRequests } = await import('../../controllers/staff/overtimeController.js');
-const { getAuditDashboard, getAdminActivityReport } = await import('../../controllers/staff/reportAuditController.js');
+const { getAuditDashboard, getAdminActivityReport, getReportAuditTrail } = await import('../../controllers/staff/reportAuditController.js');
 const {
   getAttendanceAnomalies,
   getLateArrivals,
@@ -93,13 +93,17 @@ const { getOnboardingStatus } = await import('../../controllers/staff/staffAdmin
 const { advancedStaffSearch } = await import('../../controllers/staff/staffAdminOperationsController.js');
 const {
   getAllAdvances,
+  getPayslipDetail,
+  getPayrollRunDetail,
+  getStaffSalaryConfig,
   getMyAdvances,
   getMyDeclarations,
   getMyPayslipQueries,
   getMyTaxSummary,
 } = await import('../../controllers/staff/payrollController.js');
+const { getRevisionDetail } = await import('../../controllers/staff/salaryRevisionController.js');
 const { generateStaffReport } = await import('../../services/staff/hr/reportingService.js');
-const { getStaffStatistics } = await import('../../services/staff/staffService.js');
+const { getStaffByDepartment, getStaffByShift, getStaffStatistics } = await import('../../services/staff/staffService.js');
 
 function makeRes() {
   return {
@@ -403,6 +407,71 @@ describe('staff operational endpoint drift guards', () => {
     );
     expect(queryRawUnsafe.mock.calls[0][0]).toContain('LIMIT $1::int');
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('spreads department and shift staff lookup params and joins attendance by users.id', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await getStaffByDepartment('nursing', null, false, 'ADMIN');
+    await getStaffByShift('morning', null, '2026-05-04', 'ADMIN');
+
+    expect(queryRawUnsafe.mock.calls[0].slice(1)).toEqual(['nursing', expect.any(Array)]);
+    expect(queryRawUnsafe.mock.calls[1][0]).toContain('u.id = att.staff_id');
+    expect(queryRawUnsafe.mock.calls[1][0]).toContain('DATE(att.check_in_time) = $3::date');
+    expect(queryRawUnsafe.mock.calls[1].slice(1)).toEqual(['morning', expect.any(Array), '2026-05-04']);
+  });
+
+  it('casts detail route ids and UUID params for payroll and audit details', async () => {
+    queryRawUnsafe
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await getPayslipDetail({ params: { id: '1' }, user: { uid: staffUid } }, makeRes());
+    await getPayrollRunDetail({ params: { runId: '1' } }, makeRes());
+    await getStaffSalaryConfig({ params: { staffUid } }, makeRes());
+    await getRevisionDetail({ params: { id: '1' } }, makeRes());
+    await getReportAuditTrail({ params: { type: 'incident', id: '1' } }, makeRes());
+    await getLeaveAuditTrail({ params: { id: '1' } }, makeRes());
+
+    expect(queryRawUnsafe.mock.calls[0]).toEqual([
+      expect.stringContaining('p.id = $1::int'),
+      1,
+      staffUid,
+    ]);
+    expect(queryRawUnsafe.mock.calls[1]).toEqual([
+      expect.stringContaining('p.payroll_run_id = $1::int'),
+      1,
+    ]);
+    expect(queryRawUnsafe.mock.calls[2]).toEqual([
+      expect.stringContaining('FROM payroll_runs'),
+      1,
+    ]);
+    expect(queryRawUnsafe.mock.calls[3]).toEqual([
+      expect.stringContaining('ss.staff_uid = $1::uuid'),
+      staffUid,
+    ]);
+    expect(queryRawUnsafe.mock.calls[4]).toEqual([
+      expect.stringContaining('users WHERE uid = $1::uuid'),
+      staffUid,
+    ]);
+    expect(queryRawUnsafe.mock.calls[5]).toEqual([
+      expect.stringContaining('sr.id = $1::int'),
+      1,
+    ]);
+    expect(queryRawUnsafe.mock.calls[6]).toEqual([
+      expect.stringContaining('ir.id = $1::int'),
+      1,
+    ]);
+    expect(queryRawUnsafe.mock.calls[7]).toEqual([
+      expect.stringContaining('lr.id = $1::int'),
+      1,
+    ]);
   });
 
   it('returns staff auth health without calling a missing service method', async () => {

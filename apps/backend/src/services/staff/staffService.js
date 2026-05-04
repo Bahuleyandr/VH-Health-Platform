@@ -550,7 +550,7 @@ export const getStaffByDepartment = async (department, shift, includeInactive, u
     ORDER BY s.position, u.name
   `;
 
-  const result = await prisma.$queryRawUnsafe(query, params);
+  const result = await prisma.$queryRawUnsafe(query, ...params);
 
   // Calculate department statistics
   const stats = {
@@ -614,21 +614,21 @@ export const getStaffByShift = async (shift, department, date, userRole) => {
       END as current_status,
       CASE 
         WHEN att.check_in_time IS NOT NULL THEN 'present'
-        WHEN att.staff_id IS NULL AND '$1' = 'MORNING' AND EXTRACT(HOUR FROM NOW()) > 8 THEN 'absent'
-        WHEN att.staff_id IS NULL AND '$1' = 'AFTERNOON' AND EXTRACT(HOUR FROM NOW()) > 16 THEN 'absent'
-        WHEN att.staff_id IS NULL AND '$1' = 'NIGHT' AND EXTRACT(HOUR FROM NOW()) > 0 THEN 'absent'
+        WHEN att.staff_id IS NULL AND UPPER($1::text) = 'MORNING' AND EXTRACT(HOUR FROM NOW()) > 8 THEN 'absent'
+        WHEN att.staff_id IS NULL AND UPPER($1::text) = 'AFTERNOON' AND EXTRACT(HOUR FROM NOW()) > 16 THEN 'absent'
+        WHEN att.staff_id IS NULL AND UPPER($1::text) = 'NIGHT' AND EXTRACT(HOUR FROM NOW()) > 0 THEN 'absent'
         ELSE 'scheduled'
       END as attendance_status
     FROM users u 
     JOIN staff s ON u.uid = s.user_id 
-    LEFT JOIN staff_attendance att ON s.user_id = att.staff_id 
-      AND DATE(att.check_in_time) = $${paramIndex}
+    LEFT JOIN staff_attendance att ON u.id = att.staff_id
+      AND DATE(att.check_in_time) = $${paramIndex}::date
     ${whereClause}
     ORDER BY s.department, u.name
   `;
 
   params.push(date);
-  const result = await prisma.$queryRawUnsafe(query, params);
+  const result = await prisma.$queryRawUnsafe(query, ...params);
 
   // Calculate shift statistics
   const shiftDetails = SHIFT_TYPES[shift];

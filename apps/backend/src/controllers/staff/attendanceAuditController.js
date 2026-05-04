@@ -285,6 +285,11 @@ export const getGeofenceBreachLog = async (req, res) => {
 export const getLeaveAuditTrail = async (req, res) => {
   try {
     const { id } = req.params;
+    const leaveId = Number.parseInt(id, 10);
+
+    if (!Number.isInteger(leaveId) || leaveId <= 0) {
+      return error(res, 'Invalid leave id', HTTP_STATUS.BAD_REQUEST);
+    }
 
     const leave = await prisma.$queryRawUnsafe(`
       SELECT lr.*, u.name as staff_name, s.department,
@@ -296,8 +301,8 @@ export const getLeaveAuditTrail = async (req, res) => {
       LEFT JOIN users u2 ON lr.reviewed_by = u2.uid
       LEFT JOIN replacement_requests rr ON rr.leave_request_id = lr.id
       LEFT JOIN users u3 ON rr.replacement_staff_id = u3.id
-      WHERE lr.id = $1
-    `, id);
+      WHERE lr.id = $1::int
+    `, leaveId);
 
     if (leave.length === 0) return error(res, 'Leave request not found', HTTP_STATUS.NOT_FOUND);
 
