@@ -119,13 +119,37 @@ void main() {
     await pumpFor(tester, const Duration(seconds: 2));
   }
 
+  Future<void> expandMoreTools(WidgetTester tester) async {
+    final moreTools = find.text('More tools');
+    await scrollToText(tester, 'More tools');
+    await waitFor(
+      tester,
+      moreTools,
+      timeout: const Duration(seconds: 8),
+      reason: 'Expected More tools section to be present',
+    );
+    await tester.ensureVisible(moreTools.last);
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.tap(moreTools.last);
+    await pumpFor(tester, const Duration(milliseconds: 600));
+  }
+
+  Future<void> tapDashboardItem(WidgetTester tester, String label) async {
+    final finder = find.text(label);
+    if (finder.evaluate().isEmpty) {
+      await expandMoreTools(tester);
+    }
+    await tapVisibleText(tester, label);
+  }
+
   Future<void> goHome(WidgetTester tester) async {
     final home = find.text('Home');
     if (home.evaluate().isNotEmpty) {
       await tester.tap(home.last);
       await pumpFor(tester, const Duration(seconds: 2));
     }
-    await waitFor(tester, find.text('All Features'));
+    await waitFor(tester, find.text('Daily Work'));
+    await waitFor(tester, find.text('More tools'));
   }
 
   testWidgets(
@@ -156,10 +180,11 @@ void main() {
 
       await waitFor(
         tester,
-        find.text('All Features'),
+        find.text('Daily Work'),
         timeout: const Duration(seconds: 30),
         reason: 'Dashboard did not render after staff login',
       );
+      await waitFor(tester, find.text('More tools'));
       expectCleanScreen(tester, 'dashboard after login');
 
       final bottomNavLabels = ['Messages', 'Settings', 'Profile'];
@@ -170,7 +195,7 @@ void main() {
       }
 
       final featureLabels = [
-        'Attendance',
+        'Check In/Out',
         'Shift Schedule',
         'Appointments',
         'Appt Queue',
@@ -198,7 +223,7 @@ void main() {
 
       for (final label in featureLabels) {
         await goHome(tester);
-        await tapVisibleText(tester, label);
+        await tapDashboardItem(tester, label);
         expectCleanScreen(tester, 'dashboard feature "$label"');
       }
     },

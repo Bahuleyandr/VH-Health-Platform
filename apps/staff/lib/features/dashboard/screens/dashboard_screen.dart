@@ -221,6 +221,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _attendanceStatus?['isCheckedIn'] == true ||
         _attendanceStatus?['status'] == 'checked-in';
     final features = RoleFeatures.getFeaturesForRole(_role);
+    final dailyFeatures = _dailyFeaturesForRole(features);
+    final moreFeatures = _moreFeaturesForRole(features, dailyFeatures);
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
@@ -522,38 +524,184 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             const SizedBox(height: 16),
                           ],
 
-                          // Feature grid
-                          Text(
-                            s.dashboardAllFeatures,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.textPrimary,
+                          // Daily work stays on the front screen; low-frequency
+                          // self-service/admin tools are tucked into More tools.
+                          if (dailyFeatures.isNotEmpty) ...[
+                            Text(
+                              s.dashboardDailyWork,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.textPrimary,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 10),
-                          GridView.count(
-                            crossAxisCount: 3,
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            mainAxisSpacing: 12,
-                            crossAxisSpacing: 12,
-                            childAspectRatio: 1.0,
-                            children: features.map((f) {
-                              return _FeatureButton(
-                                icon: f.icon,
-                                label: f.title,
-                                color: f.color,
-                                route: f.route,
-                              );
-                            }).toList(),
-                          ),
+                            const SizedBox(height: 10),
+                            _buildFeatureGrid(dailyFeatures),
+                            const SizedBox(height: 16),
+                          ],
+
+                          if (moreFeatures.isNotEmpty)
+                            _buildMoreTools(moreFeatures),
                           const SizedBox(height: 24),
                         ],
                       ),
                     ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  List<DashboardFeature> _dailyFeaturesForRole(
+    List<DashboardFeature> features,
+  ) {
+    final dailyIds = switch (_role) {
+      StaffRole.doctor => {
+        'queue',
+        'appointments',
+        'patient_records',
+        'prescriptions',
+        'investigation_results',
+        'bed_board',
+      },
+      StaffRole.nurse => {
+        'appointments',
+        'patient_records',
+        'vitals',
+        'nursing_notes',
+        'handover',
+        'lab_bookings',
+        'bed_board',
+      },
+      StaffRole.hr => {
+        'hr_dashboard',
+        'staff_management',
+        'performance',
+        'staff_directory',
+      },
+      StaffRole.admin || StaffRole.superAdmin => {
+        'appointments',
+        'appointment_queue',
+        'patient_records',
+        'pharmacy_orders',
+        'investigations_upload',
+        'investigation_results',
+        'lab_bookings',
+        'bed_board',
+        'hr_dashboard',
+        'staff_management',
+      },
+      StaffRole.pharmacy => {'pharmacy_orders'},
+      StaffRole.lab => {
+        'investigations_upload',
+        'investigation_results',
+        'lab_bookings',
+      },
+      StaffRole.general => {
+        'appointment_queue',
+        'housekeeping_hub',
+        'housekeeping_tasks',
+      },
+    };
+
+    return features.where((feature) => dailyIds.contains(feature.id)).toList();
+  }
+
+  List<DashboardFeature> _moreFeaturesForRole(
+    List<DashboardFeature> features,
+    List<DashboardFeature> dailyFeatures,
+  ) {
+    final dailyIds = dailyFeatures.map((feature) => feature.id).toSet();
+    const alreadyPromotedIds = {'attendance', 'schedule', 'messaging'};
+    return features
+        .where(
+          (feature) =>
+              !dailyIds.contains(feature.id) &&
+              !alreadyPromotedIds.contains(feature.id),
+        )
+        .toList();
+  }
+
+  Widget _buildFeatureGrid(List<DashboardFeature> features) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final crossAxisCount = width >= 900
+            ? 6
+            : width >= 640
+            ? 4
+            : 3;
+        return GridView.builder(
+          itemCount: features.length,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.0,
+          ),
+          itemBuilder: (context, index) {
+            final feature = features[index];
+            return _FeatureButton(
+              icon: feature.icon,
+              label: feature.title,
+              color: feature.color,
+              route: feature.route,
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildMoreTools(List<DashboardFeature> features) {
+    final s = AppStrings.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+          childrenPadding: const EdgeInsets.fromLTRB(6, 0, 6, 8),
+          leading: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: AppTheme.primaryBlue.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.apps_outlined,
+              color: AppTheme.primaryBlue,
+              size: 20,
+            ),
+          ),
+          title: Text(
+            s.dashboardMoreTools,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+          ),
+          subtitle: Text(
+            s.dashboardMoreToolsHint,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12),
+          ),
+          children: features
+              .map(
+                (feature) => _SecondaryFeatureTile(
+                  icon: feature.icon,
+                  label: feature.title,
+                  color: feature.color,
+                  route: feature.route,
+                ),
+              )
+              .toList(),
         ),
       ),
     );
@@ -589,7 +737,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: _recentPatients.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              separatorBuilder: (context, index) => const SizedBox(width: 8),
               itemBuilder: (context, i) {
                 final p = _recentPatients[i];
                 final uid = (p['uid'] ?? '').toString();
@@ -1092,6 +1240,45 @@ class _AttendanceStatusCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _SecondaryFeatureTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final String route;
+
+  const _SecondaryFeatureTile({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.route,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      dense: true,
+      visualDensity: VisualDensity.compact,
+      leading: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(9),
+        ),
+        child: Icon(icon, color: color, size: 18),
+      ),
+      title: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+      ),
+      trailing: const Icon(Icons.chevron_right, size: 18),
+      onTap: () => context.go(route),
     );
   }
 }

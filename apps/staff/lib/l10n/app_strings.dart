@@ -166,6 +166,9 @@ class AppStrings {
   String get dashboardWelcomeBack => _t('dashboard.welcome_back');
   String get dashboardSeeAll => _t('dashboard.see_all');
   String get dashboardAllFeatures => _t('dashboard.all_features');
+  String get dashboardDailyWork => _t('dashboard.daily_work');
+  String get dashboardMoreTools => _t('dashboard.more_tools');
+  String get dashboardMoreToolsHint => _t('dashboard.more_tools_hint');
   String get dashboardRecentActivity => _t('dashboard.recent_activity');
   String get dashboardCheckedInTitle => _t('dashboard.checked_in_title');
   String get dashboardNotCheckedInTitle => _t('dashboard.not_checked_in_title');
@@ -2241,6 +2244,10 @@ class AppStrings {
       'dashboard.welcome_back': 'Welcome back',
       'dashboard.see_all': 'See all',
       'dashboard.all_features': 'All Features',
+      'dashboard.daily_work': 'Daily Work',
+      'dashboard.more_tools': 'More tools',
+      'dashboard.more_tools_hint':
+          'Leave, profile, settings, and occasional workflows',
       'dashboard.recent_activity': 'Recent Activity',
       'dashboard.checked_in_title': 'Checked In',
       'dashboard.not_checked_in_title': 'Not Checked In',
@@ -3982,6 +3989,10 @@ class AppStrings {
       'dashboard.welcome_back': 'वापस स्वागत है',
       'dashboard.see_all': 'सभी देखें',
       'dashboard.all_features': 'सभी सुविधाएँ',
+      'dashboard.daily_work': 'दैनिक कार्य',
+      'dashboard.more_tools': 'अधिक टूल',
+      'dashboard.more_tools_hint':
+          'छुट्टी, प्रोफ़ाइल, सेटिंग्स और कभी-कभार के कार्य',
       'dashboard.recent_activity': 'हाल की गतिविधि',
       'dashboard.checked_in_title': 'चेक इन हो गया',
       'dashboard.not_checked_in_title': 'चेक इन नहीं हुआ',
@@ -5938,6 +5949,10 @@ class AppStrings {
       'dashboard.welcome_back': 'மீண்டும் வரவேற்கிறோம்',
       'dashboard.see_all': 'அனைத்தும் பார்',
       'dashboard.all_features': 'அனைத்து அம்சங்கள்',
+      'dashboard.daily_work': 'தினசரி பணி',
+      'dashboard.more_tools': 'மேலும் கருவிகள்',
+      'dashboard.more_tools_hint':
+          'விடுப்பு, சுயவிவரம், அமைப்புகள் மற்றும் அரிதான பணிகள்',
       'dashboard.recent_activity': 'சமீபத்திய செயல்பாடு',
       'dashboard.checked_in_title': 'சரிபார்க்கப்பட்டது',
       'dashboard.not_checked_in_title': 'சரிபார்க்கப்படவில்லை',
@@ -8356,6 +8371,10 @@ class AppStrings {
       'dashboard.welcome_back': 'తిరిగి స్వాగతం',
       'dashboard.see_all': 'అన్నీ చూడండి',
       'dashboard.all_features': 'అన్ని ఫీచర్లు',
+      'dashboard.daily_work': 'రోజువారీ పని',
+      'dashboard.more_tools': 'మరిన్ని టూల్స్',
+      'dashboard.more_tools_hint':
+          'సెలవు, ప్రొఫైల్, సెట్టింగులు మరియు అప్పుడప్పుడు చేసే పనులు',
       'dashboard.recent_activity': 'ఇటీవలి కార్యకలాపం',
       'dashboard.checked_in_title': 'చెక్ ఇన్',
       'dashboard.not_checked_in_title': 'చెక్ ఇన్ కాలేదు',
