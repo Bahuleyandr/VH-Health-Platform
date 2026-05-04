@@ -177,8 +177,9 @@ export async function getBreaches(filters = {}) {
   const result = await prisma.$queryRawUnsafe(
     `SELECT id, breach_id, severity, description, affected_records,
             affected_patient_uids, discovered_at, reported_by, status,
-            containment_actions, resolution_notes, notification_sent_at,
-            resolved_at, created_at
+            containment_actions, resolution_notes, resolved_at, created_at,
+            regulator_notified_at, regulator_reference, regulator_jurisdiction,
+            data_subjects_notified_at, data_subject_notification_count
      FROM data_breaches
      ${whereClause}
      ORDER BY created_at DESC
@@ -204,8 +205,9 @@ export async function getBreachTimeline(breachId) {
   const breachResult = await prisma.$queryRawUnsafe(
     `SELECT id, breach_id, severity, description, affected_records,
             affected_patient_uids, discovered_at, reported_by, status,
-            containment_actions, resolution_notes, notification_sent_at,
-            resolved_at, created_at
+            containment_actions, resolution_notes, resolved_at, created_at,
+            regulator_notified_at, regulator_reference, regulator_jurisdiction,
+            data_subjects_notified_at, data_subject_notification_count
      FROM data_breaches
      WHERE breach_id = $1`,
     breachId
@@ -310,11 +312,9 @@ async function notifyAdminsOfBreach(breach) {
       }
     }
 
-    // Mark notification as sent on the breach
-    await prisma.$queryRawUnsafe(
-      `UPDATE data_breaches SET notification_sent_at = NOW() WHERE breach_id = $1`,
-      breach.breach_id
-    );
+    logBreachAudit(null, 'breach_admin_notifications_queued', breach.breach_id, {
+      admin_count: adminsResult.length,
+    });
 
     logger.info('Breach notifications queued for admins', {
       breach_id: breach.breach_id,

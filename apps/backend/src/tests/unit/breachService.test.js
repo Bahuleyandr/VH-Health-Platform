@@ -11,12 +11,73 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryUnsafeMock },
 }));
 
-const { notifyRegulator, notifyDataSubjects } = await import('../../services/compliance/breachService.js');
+const {
+  getBreaches,
+  getBreachTimeline,
+  notifyDataSubjects,
+  notifyRegulator,
+  reportBreach,
+} = await import('../../services/compliance/breachService.js');
 
 const USER = '11111111-1111-4111-8111-111111111111';
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
+});
+
+afterEach(async () => {
+  await new Promise((resolve) => setImmediate(resolve));
+});
+
+describe('breach listing queries', () => {
+  it('selects schema-backed notification fields when listing breaches', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ total: '1' }])
+      .mockResolvedValueOnce([{ breach_id: 'B-001' }]);
+
+    await getBreaches();
+
+    const selectSql = queryUnsafeMock.mock.calls[1][0];
+    expect(selectSql).not.toMatch(/notification_sent_at/);
+    expect(selectSql).toMatch(/data_subjects_notified_at/);
+    expect(selectSql).toMatch(/regulator_notified_at/);
+  });
+
+  it('selects schema-backed notification fields for breach timelines', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ breach_id: 'B-001' }])
+      .mockResolvedValueOnce([]);
+
+    await getBreachTimeline('B-001');
+
+    const selectSql = queryUnsafeMock.mock.calls[0][0];
+    expect(selectSql).not.toMatch(/notification_sent_at/);
+    expect(selectSql).toMatch(/data_subjects_notified_at/);
+    expect(selectSql).toMatch(/regulator_notified_at/);
+  });
+
+  it('does not write the removed notification_sent_at column for admin alerts', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{
+        breach_id: 'B-001',
+        severity: 'critical',
+        affected_records: 12,
+      }])
+      .mockResolvedValueOnce([{ uid: USER, name: 'Admin' }])
+      .mockResolvedValueOnce([]);
+
+    await reportBreach({
+      severity: 'critical',
+      description: 'Test breach',
+      affectedRecords: 12,
+      affectedPatientUids: [],
+      reportedBy: USER,
+    });
+
+    const sql = queryUnsafeMock.mock.calls.map((call) => call[0]).join('\n');
+    expect(sql).toMatch(/notification_outbox/);
+    expect(sql).not.toMatch(/notification_sent_at/);
+  });
 });
 
 describe('notifyRegulator', () => {
