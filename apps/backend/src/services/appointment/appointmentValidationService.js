@@ -13,9 +13,11 @@ export class AppointmentValidationService {
     }
 
     // Check doctor exists and has correct role
-    const doctor = await appointmentService.validateUser(bookingData.doctor_id, 'DOCTOR');
+    const doctor = await appointmentService.validateDoctor(bookingData.doctor_id);
     if (!doctor) {
       errors.push('Doctor not found');
+    } else {
+      bookingData.doctor_id = doctor.id;
     }
 
     // P1 IDOR: patient may only book for themselves. jwtMiddleware now surfaces the

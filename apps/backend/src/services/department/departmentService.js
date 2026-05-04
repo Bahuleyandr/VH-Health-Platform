@@ -298,11 +298,13 @@ class DepartmentService {
     try {
       const rows = await prisma.$queryRaw`
         SELECT d.id, d.name, d.description,
-               COUNT(doc.user_id) as doctor_count,
+               COUNT(doc.id) as doctor_count,
                json_agg(
                  json_build_object(
-                  'id', u.id,
-                  'name', u.name,
+                  'id', COALESCE(u.id, doc.id),
+                  'doctor_profile_id', doc.id,
+                  'user_id', u.id,
+                  'name', COALESCE(u.name, doc.name),
                   'specialization', doc.specialty,
                   'is_available', doc.is_available,
                   'experience_years', null,
@@ -314,10 +316,14 @@ class DepartmentService {
                   'qualifications', null,
                   'image_url', doc.image_url
                 )
-               ) FILTER (WHERE u.id IS NOT NULL) as doctors
+                ) FILTER (WHERE doc.id IS NOT NULL) as doctors
         FROM departments d
-        LEFT JOIN doctors doc ON doc.department_id = d.id
-        LEFT JOIN users u ON doc.user_id = u.id
+        LEFT JOIN doctors doc ON doc.is_active = true
+          AND (
+            doc.department_id = d.id
+            OR (doc.department_id IS NULL AND LOWER(doc.department) = LOWER(d.name))
+          )
+        LEFT JOIN users u ON doc.user_id = u.id AND u.role = 'DOCTOR'
         WHERE d.is_active = true
         GROUP BY d.id, d.name, d.description
         ORDER BY d.name

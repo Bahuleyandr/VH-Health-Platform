@@ -304,8 +304,8 @@ export class UserService {
   // matching the bare 10-digit Indian phone form) as a phone lookup.
   static async getUserById(identifier, userRole) {
     const id = String(identifier);
-    const isNumericId = /^\d+$/.test(id) && id.length < 12;
     const looksLikePhone = id.startsWith('+') || /^\d{10}$/.test(id);
+    const isNumericId = /^\d+$/.test(id) && !looksLikePhone;
     let identifierCondition;
     if (isNumericId) {
       identifierCondition = Prisma.sql`u.id = ${parseInt(id, 10)}`;

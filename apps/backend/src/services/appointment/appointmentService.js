@@ -20,6 +20,27 @@ export class AppointmentService {
     }
   }
 
+  async validateDoctor(doctorId) {
+    try {
+      const id = parseInt(doctorId, 10);
+      const rows = await prisma.$queryRaw`
+        SELECT COALESCE(u.id, d.id) AS id,
+               COALESCE(u.name, d.name) AS name,
+               'DOCTOR'::text AS role
+        FROM doctors d
+        LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
+        WHERE d.is_active = true
+          AND (u.id = ${id} OR d.id = ${id})
+        ORDER BY CASE WHEN u.id = ${id} THEN 0 ELSE 1 END
+        LIMIT 1
+      `;
+      return rows[0] || null;
+    } catch (error) {
+      logger.error('Error validating doctor:', error);
+      throw error;
+    }
+  }
+
   async checkConflict(doctorId, appointmentDate, appointmentTime, excludeId = null) {
     try {
       let rows;
@@ -58,7 +79,16 @@ export class AppointmentService {
         // Resolve patient phone + doctor name for the NOT NULL columns on appointments.
         const [pRows, dRows] = await Promise.all([
           tx.$queryRaw`SELECT id, phone, name FROM users WHERE id = ${parseInt(patient_id)}`,
-          tx.$queryRaw`SELECT id, name FROM users WHERE id = ${parseInt(doctor_id)}`,
+          tx.$queryRaw`
+            SELECT COALESCE(u.id, d.id) AS id,
+                   COALESCE(u.name, d.name) AS name
+            FROM doctors d
+            LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
+            WHERE d.is_active = true
+              AND (u.id = ${parseInt(doctor_id)} OR d.id = ${parseInt(doctor_id)})
+            ORDER BY CASE WHEN u.id = ${parseInt(doctor_id)} THEN 0 ELSE 1 END
+            LIMIT 1
+          `,
         ]);
         const patientPhone = pRows[0]?.phone ?? '';
         const patientName = pRows[0]?.name ?? null;
