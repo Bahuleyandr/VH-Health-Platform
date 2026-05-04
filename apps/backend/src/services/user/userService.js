@@ -138,7 +138,10 @@ export class UserService {
       });
 
       if (existingUser) {
-        const updateData = buildProfileUpdateData(data);
+        const updateData = {
+          ...buildProfileUpdateData(data),
+          updated_at: new Date(),
+        };
 
         const updatedUser = await prisma.users.update({
           where: { phone },
@@ -158,6 +161,8 @@ export class UserService {
           phone,
           ...buildProfileUpdateData(data, true),
           role: data.role || USER_CONFIG.ROLES.PATIENT,
+          registered_at: new Date(),
+          updated_at: new Date(),
         },
         select: USER_SELECT,
       });

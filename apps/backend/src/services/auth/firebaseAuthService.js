@@ -67,9 +67,9 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req) => {
     // Create new user
     const insertResult = await query(
       `INSERT INTO users (
-        phone, firebase_uid, role, registered_at, last_login,
+        phone, firebase_uid, role, registered_at, updated_at, last_login,
         name, email, email_verified
-      ) VALUES ($1, $2, $3, NOW(), NOW(), $4, $5, $6) 
+      ) VALUES ($1, $2, $3, NOW(), NOW(), NOW(), $4, $5, $6)
       RETURNING id, uid, name, phone, email, role, firebase_uid, gender, email_verified, is_active, last_login`,
       [
         phone,
@@ -89,12 +89,12 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req) => {
     // Update Firebase UID if missing
     if (!user.firebase_uid) {
       await query(
-        'UPDATE users SET firebase_uid = $1, last_login = NOW() WHERE uid = $2',
+        'UPDATE users SET firebase_uid = $1, last_login = NOW(), updated_at = NOW() WHERE uid = $2',
         [firebaseUid, user.uid]
       );
     } else {
       await query(
-        'UPDATE users SET last_login = NOW() WHERE uid = $1',
+        'UPDATE users SET last_login = NOW(), updated_at = NOW() WHERE uid = $1',
         [user.uid]
       );
     }
@@ -147,7 +147,7 @@ export const completeUserProfile = async (profileData) => {
     `UPDATE users SET
       name = $1, gender = $2, email = $3, birthday = $4::date,
       anniversary = $5::date, address = $6, emergency_contact = $7,
-      profile_completed_at = NOW()
+      profile_completed_at = NOW(), updated_at = NOW()
     WHERE phone = $8
     RETURNING id, uid, name, phone, email, role, gender, is_active`,
     [
@@ -218,7 +218,7 @@ export const linkFirebaseAccount = async (phone, idToken, otp) => {
   
   // Link Firebase UID to existing user
   await query(
-    'UPDATE users SET firebase_uid = $1 WHERE uid = $2',
+    'UPDATE users SET firebase_uid = $1, updated_at = NOW() WHERE uid = $2',
     [firebaseUid, user.uid]
   );
   
@@ -428,8 +428,8 @@ export const legacyRegisterUser = async (userData) => {
   const insertResult = await query(
     `INSERT INTO users (
       phone, name, gender, email, birthday, anniversary, address,
-      role, registered_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+      role, registered_at, updated_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
     RETURNING id, uid, name, phone, email, role, is_active`,
     [
       normalizedPhone, name, gender, email, birthday, 

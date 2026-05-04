@@ -48,13 +48,15 @@ router.post('/patient-login', async (req, res) => {
 
     let isNewUser = false;
     if (!user) {
+      const now = new Date();
       user = await prisma.users.create({
         data: {
           phone,
           role: 'PATIENT',
           name,
-          registered_at: new Date(),
-          last_sign_in_at: new Date(),
+          registered_at: now,
+          updated_at: now,
+          last_sign_in_at: now,
         },
         select: {
           uid: true, id: true, name: true, phone: true, email: true,
@@ -66,7 +68,7 @@ router.post('/patient-login', async (req, res) => {
     } else {
       await prisma.users.update({
         where: { uid: user.uid },
-        data: { last_sign_in_at: new Date() },
+        data: { last_sign_in_at: new Date(), updated_at: new Date() },
       });
       logger.info(`[dev-login] existing patient ${phone} (${user.uid})`);
     }

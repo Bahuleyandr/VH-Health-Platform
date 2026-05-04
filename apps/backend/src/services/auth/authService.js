@@ -95,6 +95,7 @@ export class AuthService {
         select: { uid: true },
       });
       const isNewUser = !existingUser;
+      const now = new Date();
 
       // Upsert: create if new, update last_login if existing
       const user = await prisma.users.upsert({
@@ -102,9 +103,10 @@ export class AuthService {
         create: {
           phone: normalizedPhone,
           role: 'PATIENT',
-          registered_at: new Date(),
+          registered_at: now,
+          updated_at: now,
         },
-        update: {},
+        update: { updated_at: now },
         select: { uid: true, id: true, name: true, phone: true, role: true },
       });
 
@@ -138,7 +140,11 @@ export class AuthService {
     try {
       const normalizedPhone = normalizePhone(phone);
       const user = await this.getUserByPhone(normalizedPhone);
-      if (!user) throw new Error('User not found');
+      if (!user) {
+        const err = new Error('User not found');
+        err.statusCode = HTTP_STATUS.NOT_FOUND;
+        throw err;
+      }
 
       const token = generateToken({
         uid: user.uid,
@@ -813,14 +819,18 @@ export class AuthService {
       });
 
       if (existingUser) {
-        throw new Error('User already exists');
+        const err = new Error('User already exists');
+        err.statusCode = HTTP_STATUS.CONFLICT;
+        throw err;
       }
+      const now = new Date();
 
       const user = await prisma.users.create({
         data: {
           phone: normalizedPhone,
           role: 'PATIENT',
-          registered_at: new Date(),
+          registered_at: now,
+          updated_at: now,
         },
         select: { uid: true, id: true, phone: true, role: true },
       });
@@ -1012,15 +1022,17 @@ export class AuthService {
         select: { uid: true },
       });
       const isNewUser = !existingUser;
+      const now = new Date();
 
       const user = await prisma.users.upsert({
         where: { phone: normalizedPhone },
         create: {
           phone: normalizedPhone,
           role: 'PATIENT',
-          registered_at: new Date(),
+          registered_at: now,
+          updated_at: now,
         },
-        update: {},
+        update: { updated_at: now },
         select: { uid: true, id: true, name: true, phone: true, role: true },
       });
 
