@@ -24,14 +24,24 @@ export class AppointmentService {
     try {
       const id = parseInt(doctorId, 10);
       const rows = await prisma.$queryRaw`
-        SELECT COALESCE(u.id, d.id) AS id,
-               COALESCE(u.name, d.name) AS name,
-               'DOCTOR'::text AS role
-        FROM doctors d
-        LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
-        WHERE d.is_active = true
-          AND (u.id = ${id} OR d.id = ${id})
-        ORDER BY CASE WHEN u.id = ${id} THEN 0 ELSE 1 END
+        SELECT id, name, role
+        FROM (
+          SELECT u.id, u.name, u.role, 0 AS sort_order
+          FROM users u
+          WHERE u.id = ${id}
+            AND u.role = 'DOCTOR'
+            AND u.is_active = true
+          UNION ALL
+          SELECT COALESCE(u.id, d.id) AS id,
+                 COALESCE(u.name, d.name) AS name,
+                 'DOCTOR'::text AS role,
+                 1 AS sort_order
+          FROM doctors d
+          LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
+          WHERE d.is_active = true
+            AND (u.id = ${id} OR d.id = ${id})
+        ) candidates
+        ORDER BY sort_order
         LIMIT 1
       `;
       return rows[0] || null;
@@ -80,13 +90,23 @@ export class AppointmentService {
         const [pRows, dRows] = await Promise.all([
           tx.$queryRaw`SELECT id, phone, name FROM users WHERE id = ${parseInt(patient_id)}`,
           tx.$queryRaw`
-            SELECT COALESCE(u.id, d.id) AS id,
-                   COALESCE(u.name, d.name) AS name
-            FROM doctors d
-            LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
-            WHERE d.is_active = true
-              AND (u.id = ${parseInt(doctor_id)} OR d.id = ${parseInt(doctor_id)})
-            ORDER BY CASE WHEN u.id = ${parseInt(doctor_id)} THEN 0 ELSE 1 END
+            SELECT id, name
+            FROM (
+              SELECT u.id, u.name, 0 AS sort_order
+              FROM users u
+              WHERE u.id = ${parseInt(doctor_id)}
+                AND u.role = 'DOCTOR'
+                AND u.is_active = true
+              UNION ALL
+              SELECT COALESCE(u.id, d.id) AS id,
+                     COALESCE(u.name, d.name) AS name,
+                     1 AS sort_order
+              FROM doctors d
+              LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
+              WHERE d.is_active = true
+                AND (u.id = ${parseInt(doctor_id)} OR d.id = ${parseInt(doctor_id)})
+            ) candidates
+            ORDER BY sort_order
             LIMIT 1
           `,
         ]);

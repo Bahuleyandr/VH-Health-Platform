@@ -80,6 +80,7 @@ class BillingService {
     }
 
     const invoiceNumber = await this._generateInvoiceNumber();
+    const now = new Date();
 
     const invoice = await prisma.invoices.create({
       data: {
@@ -96,6 +97,7 @@ class BillingService {
         notes: notes || null,
         issued_by: issued_by || null,
         due_date: due_date ? new Date(due_date) : null,
+        updated_at: now,
       },
     });
 
@@ -140,6 +142,7 @@ class BillingService {
     }
 
     const paidAt = newStatus === 'paid' ? new Date() : null;
+    const now = new Date();
 
     // Transaction + invoice update in one batch
     const [transaction, updatedInvoice] = await prisma.$transaction([
@@ -159,6 +162,7 @@ class BillingService {
           payment_status: newStatus,
           payment_method: method.toLowerCase(),
           paid_at: paidAt,
+          updated_at: now,
         },
         select: {
           id: true, invoice_number: true, patient_uid: true, total_amount: true,
@@ -376,6 +380,7 @@ class BillingService {
     }
 
     const claimNumber = await this._generateClaimNumber();
+    const now = new Date();
 
     const claim = await prisma.insurance_claims.create({
       data: {
@@ -386,6 +391,7 @@ class BillingService {
         policy_number,
         claim_amount,
         documents,
+        updated_at: now,
       },
     });
 
@@ -393,7 +399,7 @@ class BillingService {
     if (invoice_id) {
       await prisma.invoices.update({
         where: { id: invoice_id },
-        data: { insurance_claim_id: claim.id },
+        data: { insurance_claim_id: claim.id, updated_at: now },
       });
     }
 
@@ -419,6 +425,7 @@ class BillingService {
     const reviewedAt = ['approved', 'partially_approved', 'rejected'].includes(status)
       ? new Date()
       : null;
+    const now = new Date();
 
     const updated = await prisma.insurance_claims.update({
       where: { id: claimId },
@@ -427,6 +434,7 @@ class BillingService {
         approved_amount: approvedAmount ?? null,
         rejection_reason: reason ?? null,
         reviewed_at: reviewedAt,
+        updated_at: now,
       },
     });
 

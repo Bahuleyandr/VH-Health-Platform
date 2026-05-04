@@ -56,6 +56,7 @@ export const createInvestigationOrder = async (orderData) => {
   if (!patient) throw new Error('PATIENT_NOT_FOUND');
 
   const requesterUuid = doctor_uid || orderedBy;
+  const now = new Date();
 
   const investigation = await prisma.investigations.create({
     data: {
@@ -66,8 +67,7 @@ export const createInvestigationOrder = async (orderData) => {
       status: 'REQUESTED',
       priority: priority.toUpperCase(),
       requested_by: requesterUuid,
-      // requested_at / updated_at / created_at are managed by schema defaults
-      // (@default(now()) + @updatedAt), so we don't set them here.
+      updated_at: now,
     },
     select: INVESTIGATION_SELECT,
   });
@@ -83,6 +83,7 @@ export const createInvestigationOrder = async (orderData) => {
       body: `Your doctor has ordered: ${test_name}. Please check your appointments.`,
       type: 'investigation_ordered',
       is_read: false,
+      updated_at: now,
     },
   }).catch((err) => logger.warn(`investigation notification insert failed: ${err.message}`));
 
@@ -96,6 +97,7 @@ export const createInvestigationOrder = async (orderData) => {
 };
 
 export const createLegacyInvestigation = async ({ phone, test_name, file_key, createdBy }) => {
+  const now = new Date();
   const investigation = await prisma.investigations.create({
     data: {
       phone,
@@ -103,6 +105,7 @@ export const createLegacyInvestigation = async ({ phone, test_name, file_key, cr
       file_key: file_key ?? null,
       status: 'REQUESTED',
       requested_by: createdBy ?? null,
+      updated_at: now,
     },
     select: {
       id: true,
@@ -123,6 +126,7 @@ export const createLegacyInvestigation = async ({ phone, test_name, file_key, cr
       body: `Your investigation report for "${test_name}" is now available.`,
       type: 'investigation_ready',
       is_read: false,
+      updated_at: now,
     },
   }).catch((err) => logger.warn(`legacy investigation notification failed: ${err.message}`));
 
