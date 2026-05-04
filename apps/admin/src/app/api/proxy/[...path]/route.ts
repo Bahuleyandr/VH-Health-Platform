@@ -21,6 +21,8 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/investigations",
   "api/v1/sos",
   "api/v1/analytics",
+  "api/v1/beds",
+  "api/v1/wards",
   "api/v1/devices",
   "api/v1/feedback",
   "api/v1/billing",

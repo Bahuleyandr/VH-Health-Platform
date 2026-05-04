@@ -1,5 +1,6 @@
 import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import appointmentQueryService from '../../services/appointment/appointmentQueryService.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -65,6 +66,34 @@ export const getAppointmentById = async (req, res) => {
   } catch (err) {
     logger.error('Error getting appointment:', err);
     error(res, 'Failed to retrieve appointment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+export const getRecentCompletedAppointments = async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT
+        a.id,
+        COALESCE(NULLIF(u.name, ''), NULLIF(a.patient_name, ''), a.phone, 'Unknown patient') AS patient_name,
+        to_char(a.appointment_date, 'YYYY-MM-DD') AS appointment_date,
+        a.appointment_time
+      FROM appointments a
+      LEFT JOIN users u ON u.id = a.patient_id
+      WHERE LOWER(a.status) IN ('completed', 'done')
+      ORDER BY a.appointment_date DESC, a.appointment_time DESC
+      LIMIT $1::int
+    `, limit);
+
+    success(res, rows.map((row) => ({
+      id: Number(row.id),
+      patient_name: row.patient_name || 'Unknown patient',
+      appointment_date: row.appointment_date,
+      appointment_time: row.appointment_time,
+    })), 'Completed appointments retrieved successfully');
+  } catch (err) {
+    logger.error('Error getting completed appointments:', err);
+    error(res, 'Failed to retrieve completed appointments', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
