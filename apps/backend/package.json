@@ -21,7 +21,7 @@
     "db:contracts": "node scripts/check-db-contracts.mjs",
     "db:contracts:seeded": "node scripts/check-db-contracts.mjs --require-seeded",
     "ci:db-guardrails": "npm run db:contracts && npm run seed:test-data && npm run db:contracts:seeded && node scripts/ci-schema-drift.mjs",
-    "pretest": "npm run test:db:setup",
+    "pretest": "npm run db:generate && npm run test:db:setup",
     "test": "node --experimental-vm-modules --max-old-space-size=4096 node_modules/jest/bin/jest.js --runInBand",
     "start:local": "dotenv -e .env.local -- node src/bin/www.js",
     "start:render": "node src/bin/www.js",
