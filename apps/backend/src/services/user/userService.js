@@ -369,7 +369,10 @@ export class UserService {
 
     for (const field of allowedFields) {
       if (updateData[field] !== undefined && PROFILE_FIELDS_IN_SCHEMA.includes(field)) {
-        setClauses.push(Prisma.sql`${Prisma.raw(field)} = ${updateData[field]}`);
+        const value = coerceProfileField(field, updateData[field]);
+        setClauses.push(PROFILE_DATE_FIELDS.has(field)
+          ? Prisma.sql`${Prisma.raw(field)} = ${value}::date`
+          : Prisma.sql`${Prisma.raw(field)} = ${value}`);
       }
     }
 
