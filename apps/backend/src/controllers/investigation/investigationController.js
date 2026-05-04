@@ -527,13 +527,13 @@ export const getInvestigationSLADashboard = async (req, res) => {
           COUNT(CASE WHEN status='PENDING' THEN 1 END) as pending,
           COUNT(CASE WHEN priority IN ('URGENT','STAT') AND status NOT IN ('completed','COMPLETED') THEN 1 END) as urgent_pending,
           AVG(CASE WHEN result_uploaded_at IS NOT NULL THEN EXTRACT(EPOCH FROM (result_uploaded_at-requested_at))/3600 END) as avg_tat_hours
-        FROM investigations WHERE DATE(requested_at) BETWEEN $1 AND $2`, from, to
+        FROM investigations WHERE DATE(requested_at) BETWEEN $1::date AND $2::date`, from, to
       ),
       prisma.$queryRawUnsafe(
-        `SELECT status, COUNT(*) as count FROM investigations WHERE DATE(requested_at) BETWEEN $1 AND $2 GROUP BY status`, from, to
+        `SELECT status, COUNT(*) as count FROM investigations WHERE DATE(requested_at) BETWEEN $1::date AND $2::date GROUP BY status`, from, to
       ),
       prisma.$queryRawUnsafe(
-        `SELECT priority, COUNT(*) as count FROM investigations WHERE DATE(requested_at) BETWEEN $1 AND $2 GROUP BY priority`, from, to
+        `SELECT priority, COUNT(*) as count FROM investigations WHERE DATE(requested_at) BETWEEN $1::date AND $2::date GROUP BY priority`, from, to
       ),
       prisma.$queryRawUnsafe(
         `SELECT i.*, u.name as patient_name, u.phone as patient_phone, d.name as doctor_name,

@@ -127,9 +127,11 @@ class FeedbackService {
       doctor_id, department_id
     } = filters;
 
-    const offset = (page - 1) * limit;
+    const parsedPage = Math.max(parseInt(page, 10) || 1, 1);
+    const parsedLimit = Math.max(parseInt(limit, 10) || 50, 1);
+    const offset = (parsedPage - 1) * parsedLimit;
     let whereClause = 'WHERE 1=1';
-    const params = [limit, offset];
+    const params = [parsedLimit, offset];
     let paramIndex = 3;
 
     if (category) {
@@ -197,14 +199,15 @@ class FeedbackService {
       `SELECT COUNT(*) FROM feedback f ${whereClause}`,
       ...params.slice(2)
     );
+    const totalCount = Number(total[0]?.count || 0);
 
     return {
       feedback: Array.isArray(feedback) ? feedback : [],
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: parseInt(total[0].count),
-        totalPages: Math.ceil(total[0].count / limit)
+        page: parsedPage,
+        limit: parsedLimit,
+        total: totalCount,
+        totalPages: Math.ceil(totalCount / parsedLimit)
       }
     };
   }
