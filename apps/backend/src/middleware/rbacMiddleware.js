@@ -45,12 +45,13 @@ export default function rbacMiddleware(allowedRoles = []) {
       if (roles.length === 0) return next();
 
       const userRole = normalizeRole(req.user.role);
+      const rawUserRole = normalizeRole(req.user.rawRole);
 
       // SUPER_ADMIN bypass (also handled by hasRole, but explicit here for clarity)
-      if (userRole === SUPER_ADMIN) return next();
+      if (userRole === SUPER_ADMIN || rawUserRole === SUPER_ADMIN) return next();
 
       // Check role membership (case-insensitive)
-      if (!hasRole(userRole, roles)) {
+      if (!hasRole(userRole, roles) && !hasRole(rawUserRole, roles)) {
         logSecurityEvent('PERMISSION_DENIED', {
           userId: req.user.uid || req.user.id,
           userName: req.user.email || req.user.phone,
