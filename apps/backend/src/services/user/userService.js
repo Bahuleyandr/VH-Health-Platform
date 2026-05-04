@@ -310,7 +310,7 @@ export class UserService {
     if (isNumericId) {
       identifierCondition = Prisma.sql`u.id = ${parseInt(id, 10)}`;
     } else if (looksLikePhone) {
-      identifierCondition = Prisma.sql`u.phone = ${id}`;
+      identifierCondition = Prisma.sql`u.phone = ${normalizePhone(id)}`;
     } else {
       identifierCondition = Prisma.sql`u.uid = ${id}::uuid`;
     }

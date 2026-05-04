@@ -2,11 +2,16 @@
 import { body, query, param } from 'express-validator';
 import { USER_CONFIG } from '../../config/userConfig.js';
 
-// User profile validation
-export const userValidation = [
-  body('phone')
+const phoneValidation = body('phone')
     .matches(/^\+?[1-9]\d{9,14}$/)
-    .withMessage('Phone number must be 10-15 digits'),
+  .withMessage('Phone number must be 10-15 digits');
+
+const optionalPhoneValidation = body('phone')
+  .optional()
+  .matches(/^\+?[1-9]\d{9,14}$/)
+  .withMessage('Phone number must be 10-15 digits');
+
+const profileFieldValidation = [
   body('name')
     .optional()
     .isLength({ min: 2, max: 100 })
@@ -57,6 +62,17 @@ export const userValidation = [
     .isLength({ max: 200 })
     .withMessage('Preferred hospital must be less than 200 characters')
     .trim()
+];
+
+// User profile validation
+export const userValidation = [
+  phoneValidation,
+  ...profileFieldValidation,
+];
+
+export const userUpdateValidation = [
+  optionalPhoneValidation,
+  ...profileFieldValidation,
 ];
 
 // Search validation

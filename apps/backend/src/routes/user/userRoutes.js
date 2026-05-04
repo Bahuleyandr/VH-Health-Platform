@@ -4,6 +4,7 @@ import { UserController } from '../../controllers/user/userController.js';
 import { sanitizeProfileFields } from '../../middleware/sanitizeMiddleware.js';
 import {
   userValidation,
+  userUpdateValidation,
   searchValidation,
   userIdValidation,
   roleValidation,
@@ -38,7 +39,7 @@ router.get('/department/:department', departmentValidation, UserController.getUs
 router.get('/search', userSearchValidation, UserController.searchUsers);
 
 // Update User Profile
-router.put('/:identifier', [...userIdValidation, ...userValidation], sanitizeProfileFields, UserController.updateUser);
+router.put('/:identifier', [...userIdValidation, ...userUpdateValidation], sanitizeProfileFields, UserController.updateUser);
 
 // Change User Status
 router.put('/:identifier/status', statusChangeValidation, UserController.changeUserStatus);
