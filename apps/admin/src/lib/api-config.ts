@@ -155,6 +155,12 @@ export const API_ENDPOINTS = {
       system: "/api/v1/admin/health/system", // GET - getSystemHealth()
     },
 
+    database: {
+      overview: "/api/v1/admin/database/overview", // GET - schema, table inventory, contract status
+      tableRows: (tableName: string) =>
+        `/api/v1/admin/database/tables/${encodeURIComponent(tableName)}/rows`, // GET
+    },
+
     // Reports (matching reportService.js)
     reports: {
       refreshCache: "/api/v1/admin/refresh-cache", // POST - refreshDashboardCache()

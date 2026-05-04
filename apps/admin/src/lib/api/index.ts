@@ -140,6 +140,18 @@ export { createAdminUser, deactivateAdmin, reactivateAdmin, updateAdminPermissio
 import { updateSystemSetting, getSystemSettings } from "./settings";
 export { updateSystemSetting, getSystemSettings };
 
+// Database
+import { getDatabaseOverview, getDatabaseTableRows } from "./database";
+export type {
+  DatabaseColumn,
+  DatabaseContractSummary,
+  DatabaseOverview,
+  DatabaseRowsResponse,
+  DatabaseTableDetail,
+  DatabaseTableSummary,
+} from "./database";
+export { getDatabaseOverview, getDatabaseTableRows };
+
 // Infrastructure & Logs
 import { getAuditLogs, toggleUserStatus } from "./infrastructure";
 export { getAuditLogs, toggleUserStatus };
@@ -207,6 +219,8 @@ export const api = {
   getRecentActivities,
   getSystemAlerts,
   getModuleHealth,
+  getDatabaseOverview,
+  getDatabaseTableRows,
 
   // Attendance
   getAttendanceAnalytics,

@@ -93,6 +93,15 @@ jobs:
       - name: Apply raw migrations + seed lookup data
         run: node scripts/ci-setup-db.mjs
 
+      - name: DB contract check
+        run: npm run db:contracts
+
+      - name: Seed comprehensive test data
+        run: npm run seed:test-data
+
+      - name: Seeded DB coverage check
+        run: npm run db:contracts:seeded
+
       - name: Schema drift check (table allowlist)
         run: node scripts/ci-schema-drift.mjs
 

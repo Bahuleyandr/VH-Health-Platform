@@ -16,7 +16,7 @@ export async function detectSchemaDrift() {
     'users', 'appointments', 'doctors', 'departments',
     'health_records', 'patient_records', 'patient_allergies',
     'investigations', 'investigation_bookings', 'investigation_test_catalog',
-    'pharmacy_orders', 'e_prescriptions', 'medications',
+    'pharmacy_orders', 'pharmacy_catalog', 'e_prescriptions', 'medications',
     'notifications', 'notification_outbox', 'scheduled_notifications',
     'feedback', 'sos_alerts',
     'staff_devices', 'staff_auth_sessions',

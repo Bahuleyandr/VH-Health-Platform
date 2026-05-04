@@ -50,6 +50,7 @@ const navigation: NavItem[] = [
   { name: 'Payroll & HR Comp', href: '/dashboard/payroll', requiredRole: 'ADMIN' },
   { name: 'Admin Management', href: '/dashboard/admin-management', requiredRole: 'ADMIN', requiredPermissions: ['adminManagement'] },
   { name: 'System Logs', href: '/dashboard/system-logs', requiredPermissions: ['viewAuditLogs'] },
+  { name: 'Database', href: '/dashboard/database', requiredRole: 'SUPER_ADMIN' },
   { name: 'Feature Flags', href: '/dashboard/feature-flags', requiredRole: 'ADMIN' },
   { name: 'Compliance', href: '/dashboard/compliance', requiredRole: 'ADMIN' },
   { name: 'Clinical AI', href: '/dashboard/clinical-ai', requiredRole: 'ADMIN' },
