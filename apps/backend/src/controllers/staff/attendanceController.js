@@ -72,33 +72,61 @@ export const getAttendanceCalendar = async (req, res) => {
     const m = parseInt(month) || new Date().getMonth() + 1;
     const y = parseInt(year) || new Date().getFullYear();
 
-    const startDate = `${y}-${String(m).padStart(2,'0')}-01`;
+    const startDate = `${y}-${String(m).padStart(2, '0')}-01`;
     const endDate = new Date(y, m, 0).toISOString().split('T')[0];
+    const startDateObj = new Date(`${startDate}T00:00:00.000Z`);
+    const endDateExclusive = new Date(Date.UTC(y, m, 1));
+    const endDateObj = new Date(`${endDate}T23:59:59.999Z`);
 
-    const [attendance, leaves] = await Promise.all([
-      prisma.$queryRawUnsafe(`SELECT DATE(check_in_time) as date, check_in_time, check_out_time,
-        EXTRACT(EPOCH FROM (check_out_time - check_in_time))/3600 as hours_worked,
-        CASE WHEN EXTRACT(HOUR FROM check_in_time) > 9 OR 
-             (EXTRACT(HOUR FROM check_in_time) = 9 AND EXTRACT(MINUTE FROM check_in_time) > 15)
-             THEN true ELSE false END as is_late
-        FROM staff_attendance WHERE staff_id = $1::int AND DATE(check_in_time) BETWEEN $2::date AND $3::date`,
-        staffId, startDate, endDate),
-      prisma.$queryRawUnsafe(`SELECT DATE(start_date) as start_date, DATE(end_date) as end_date, leave_type, status
-        FROM leave_applications WHERE staff_id = $1::int AND status = 'approved'
-        AND start_date <= $3::date AND end_date >= $2::date`, staffId, startDate, endDate)
-        .catch(() => [])
-    ]);
+    const attendance = await prisma.staff_attendance.findMany({
+      where: {
+        staff_id: staffId,
+        check_in_time: {
+          gte: startDateObj,
+          lt: endDateExclusive,
+        },
+      },
+      select: {
+        check_in_time: true,
+        check_out_time: true,
+      },
+      orderBy: { check_in_time: 'asc' },
+    });
+
+    let leaves = [];
+    try {
+      leaves = await prisma.leave_applications.findMany({
+        where: {
+          staff_id: staffId,
+          status: 'approved',
+          start_date: { lte: endDateObj },
+          end_date: { gte: startDateObj },
+        },
+        select: {
+          start_date: true,
+          end_date: true,
+          leave_type: true,
+        },
+      });
+    } catch (leaveErr) {
+      logger.warn('Attendance calendar leave overlay skipped:', leaveErr);
+    }
 
     // Build day-by-day map
     const attendanceMap = {};
     for (const row of attendance) {
-      const dateStr = row.date instanceof Date ? row.date.toISOString().split('T')[0] : String(row.date);
+      const dateStr = row.check_in_time.toISOString().split('T')[0];
+      const hoursWorked = row.check_in_time && row.check_out_time
+        ? (row.check_out_time.getTime() - row.check_in_time.getTime()) / 3_600_000
+        : 0;
+      const checkInHour = row.check_in_time.getUTCHours();
+      const checkInMinute = row.check_in_time.getUTCMinutes();
       attendanceMap[dateStr] = {
         status: 'present',
         checkIn: row.check_in_time,
         checkOut: row.check_out_time,
-        hoursWorked: parseFloat(row.hours_worked || 0).toFixed(1),
-        isLate: row.is_late,
+        hoursWorked: hoursWorked.toFixed(1),
+        isLate: checkInHour > 9 || (checkInHour === 9 && checkInMinute > 15),
       };
     }
     
