@@ -27,7 +27,7 @@ function calcProfessionalTax(grossMonthly) {
 export async function calculatePayslip(staffUid, month, year) {
   // Get salary config
   const salaryRes = await prisma.$queryRawUnsafe(
-    'SELECT id, staff_uid, basic_salary, hra_pct, da_pct, special_allowance, transport_allowance, medical_allowance, pf_employee_pct, esi_applicable, tds_monthly, is_active, effective_from FROM staff_salary WHERE staff_uid = $1 AND is_active = true',
+    'SELECT id, staff_uid, basic_salary, hra_pct, da_pct, special_allowance, transport_allowance, medical_allowance, pf_employee_pct, esi_applicable, tds_monthly, is_active, effective_from FROM staff_salary WHERE staff_uid = $1::uuid AND is_active = true',
     staffUid
   );
   if (salaryRes.length === 0) {
@@ -44,7 +44,7 @@ export async function calculatePayslip(staffUid, month, year) {
       COUNT(*) FILTER (WHERE status IS NOT NULL) as days_present,
       SUM(COALESCE(overtime_hours, 0)) as total_overtime_hours
     FROM staff_attendance
-    WHERE staff_uid = $1
+    WHERE staff_uid = $1::uuid
       AND EXTRACT(MONTH FROM date) = $2
       AND EXTRACT(YEAR FROM date) = $3
   `, staffUid, month, year);
@@ -60,7 +60,7 @@ export async function calculatePayslip(staffUid, month, year) {
       + 1
     ), 0) as leave_days
     FROM leave_applications
-    WHERE staff_uid = $1
+    WHERE staff_uid = $1::uuid
       AND status = 'approved'
       AND from_date::date <= (make_date($3::int, $2::int, 1) + INTERVAL '1 month - 1 day')::date
       AND to_date::date >= make_date($3::int, $2::int, 1)
@@ -103,7 +103,7 @@ export async function calculatePayslip(staffUid, month, year) {
   // ─── FEATURE 4: Check for pending arrears ───────────────────────────────
   const arrearsRes = await prisma.$queryRawUnsafe(`
     SELECT COALESCE(SUM(arrears_amount), 0) as total FROM salary_arrears
-    WHERE staff_uid = $1 AND status = 'pending'
+    WHERE staff_uid = $1::uuid AND status = 'pending'
   `, staffUid).catch(() => ({ rows: [{ total: 0 }] }));
   const arrearsAmount = parseFloat(arrearsRes[0]?.total || 0);
 
@@ -127,7 +127,7 @@ export async function calculatePayslip(staffUid, month, year) {
   // ─── FEATURE 3: Check for active salary advances to deduct ──────────────
   const advanceRes = await prisma.$queryRawUnsafe(`
     SELECT id, staff_uid, amount, deduction_month, deduction_year, status, created_at FROM salary_advances
-    WHERE staff_uid = $1
+    WHERE staff_uid = $1::uuid
       AND status = 'approved'
       AND deduction_start_year <= $3
       AND (deduction_start_year < $3 OR deduction_start_month <= $2)
@@ -152,7 +152,7 @@ export async function calculatePayslip(staffUid, month, year) {
            sr.current_basic, sr.proposed_basic,
            sr.bonus_amount, sr.increment_pct, sr.effective_from
     FROM salary_revisions sr
-    WHERE sr.staff_uid = $1
+    WHERE sr.staff_uid = $1::uuid
       AND sr.status = 'applied'
       AND EXTRACT(MONTH FROM sr.effective_from::date) = $2
       AND EXTRACT(YEAR FROM sr.effective_from::date) = $3
@@ -308,7 +308,7 @@ export async function generateAnnualTaxSummary(staffUid, financialYear) {
 
   const payslips = await prisma.$queryRawUnsafe(`
     SELECT id, staff_uid, month, year, payroll_run_id, basic_earned, hra_earned, da_earned, special_allowance_earned, transport_allowance_earned, medical_allowance_earned, overtime_pay, bonus_this_month, arrears_amount, gross_salary, pf_employee, esi_employee, professional_tax, tds, total_deductions, net_salary, status, created_at FROM payslips
-    WHERE staff_uid = $1
+    WHERE staff_uid = $1::uuid
       AND status IN ('issued','viewed','downloaded')
       AND (
         (year = $2 AND month >= 4) OR
@@ -506,7 +506,7 @@ export async function calculateArrears(revisionId) {
 
   for (const { month, year } of arrearMonths) {
     const payslip = await prisma.$queryRawUnsafe(
-      'SELECT id, staff_uid, month, year, payroll_run_id, basic_earned, hra_earned, da_earned, special_allowance_earned, transport_allowance_earned, medical_allowance_earned, overtime_pay, gross_salary, pf_employee, esi_employee, professional_tax, tds, total_deductions, net_salary, status, days_present, total_working_days, created_at FROM payslips WHERE staff_uid=$1 AND month=$2 AND year=$3',
+      'SELECT id, staff_uid, month, year, payroll_run_id, basic_earned, hra_earned, da_earned, special_allowance_earned, transport_allowance_earned, medical_allowance_earned, overtime_pay, gross_salary, pf_employee, esi_employee, professional_tax, tds, total_deductions, net_salary, status, days_present, total_working_days, created_at FROM payslips WHERE staff_uid=$1::uuid AND month=$2 AND year=$3',
       r.staff_uid, month, year
     );
     if (payslip.length > 0) {

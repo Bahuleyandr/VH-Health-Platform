@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 
 const queryRawUnsafe = jest.fn();
 const usersFindUnique = jest.fn();
+const generateAnnualTaxSummary = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
@@ -24,7 +25,7 @@ jest.unstable_mockModule('../../services/staff/attendanceService.js', () => ({})
 jest.unstable_mockModule('../../services/staff/payrollService.js', () => ({
   calculateArrears: jest.fn(),
   calculatePayslip: jest.fn(),
-  generateAnnualTaxSummary: jest.fn(),
+  generateAnnualTaxSummary,
   savePayslip: jest.fn(),
 }));
 
@@ -48,6 +49,7 @@ const {
   getMyAdvances,
   getMyDeclarations,
   getMyPayslipQueries,
+  getMyTaxSummary,
 } = await import('../../controllers/staff/payrollController.js');
 
 function makeRes() {
@@ -77,11 +79,10 @@ describe('staff operational endpoint drift guards', () => {
       where: { uid: staffUid },
       select: { id: true, uid: true },
     });
-    expect(queryRawUnsafe).toHaveBeenCalledWith(
-      expect.stringContaining('FROM staff_breaks'),
-      5,
-      expect.any(String)
-    );
+    const sql = queryRawUnsafe.mock.calls[0][0];
+    expect(sql).toContain('FROM staff_breaks');
+    expect(sql).toContain('DATE(b.break_start)=$2::date');
+    expect(queryRawUnsafe).toHaveBeenCalledWith(expect.any(String), 5, expect.any(String));
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
@@ -159,5 +160,24 @@ describe('staff operational endpoint drift guards', () => {
       staffUid
     );
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('returns a clean no-data tax summary when no issued payslips exist', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]);
+    generateAnnualTaxSummary.mockRejectedValueOnce(new Error('No payslips found for this financial year'));
+
+    const req = { user: { uid: staffUid }, query: { fy: '2025-26' } };
+    const res = makeRes();
+
+    await getMyTaxSummary(req, res);
+
+    expect(generateAnnualTaxSummary).toHaveBeenCalledWith(staffUid, '2025-26');
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json.mock.calls[0][0].data).toMatchObject({
+      staff_uid: staffUid,
+      financial_year: '2025-26',
+      months_included: 0,
+      status: 'unavailable',
+    });
   });
 });

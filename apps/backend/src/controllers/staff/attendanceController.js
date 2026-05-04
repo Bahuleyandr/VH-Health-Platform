@@ -238,7 +238,7 @@ export const startBreak = async (req, res) => {
     // Find today's active attendance record
     const today = new Date().toISOString().split('T')[0];
     const att = await prisma.$queryRawUnsafe(
-      `SELECT id FROM staff_attendance WHERE staff_id=$1 AND DATE(check_in_time)=$2 AND check_out_time IS NULL`,
+      `SELECT id FROM staff_attendance WHERE staff_id=$1 AND DATE(check_in_time)=$2::date AND check_out_time IS NULL`,
       staff.id, today
     );
 
@@ -313,7 +313,7 @@ export const getTodayBreaks = async (req, res) => {
       SELECT b.*,
         COALESCE(b.duration_minutes, EXTRACT(EPOCH FROM (NOW() - b.break_start))/60) as duration_minutes_calc
       FROM staff_breaks b
-      WHERE b.staff_id=$1 AND DATE(b.break_start)=$2
+      WHERE b.staff_id=$1 AND DATE(b.break_start)=$2::date
       ORDER BY b.break_start
     `, staff.id, today);
 
@@ -454,7 +454,7 @@ export const resolveDispute = async (req, res) => {
     if (status === 'approved' && apply_correction !== false) {
       if (d.requested_check_in || d.requested_check_out) {
         const existingAtt = await prisma.$queryRawUnsafe(
-          `SELECT id FROM staff_attendance WHERE staff_id=$1 AND DATE(check_in_time)=$2`,
+          `SELECT id FROM staff_attendance WHERE staff_id=$1 AND DATE(check_in_time)=$2::date`,
           d.staff_id, d.dispute_date
         );
 
