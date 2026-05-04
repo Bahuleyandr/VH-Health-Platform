@@ -3,53 +3,140 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 
-const VALID_INCIDENT_TYPES = ['patient_fall','medication_error','needle_stick','equipment_failure','near_miss','infection','fire_safety','patient_aggression','security_breach','other'];
-const VALID_SEVERITIES = ['low','moderate','severe','sentinel'];
-const VALID_STATUSES = ['submitted','under_review','investigating','resolved','closed'];
+const VALID_INCIDENT_TYPES = [
+  'patient_fall',
+  'medication_error',
+  'needle_stick',
+  'equipment_failure',
+  'near_miss',
+  'infection',
+  'fire_safety',
+  'patient_aggression',
+  'security_breach',
+  'other',
+];
+const VALID_SEVERITIES = ['low', 'moderate', 'severe', 'sentinel'];
+const VALID_STATUSES = [
+  'submitted',
+  'under_review',
+  'investigating',
+  'resolved',
+  'closed',
+];
+
+const INCIDENT_SELECT = `
+  ir.id,
+  ir.report_number,
+  ir.reporter_id,
+  ir.incident_type,
+  ir.severity,
+  ir.title,
+  ir.description,
+  ir.location,
+  ir.incident_date,
+  ir.patient_involved,
+  ir.patient_name,
+  ir.witnesses,
+  ir.immediate_action_taken,
+  ir.status,
+  ir.priority,
+  ir.assigned_to,
+  ir.admin_notes,
+  ir.resolution,
+  ir.resolved_at,
+  ir.is_anonymous,
+  ir.created_at,
+  ir.updated_at
+`;
+
+const parsePagingInt = (value, fallback) => {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+};
 
 // Staff: Submit incident report
 export const submitIncident = async (req, res) => {
   try {
     const reporterId = req.user?.uid;
     const {
-      incident_type, severity = 'moderate', title, description,
-      location, incident_date, patient_involved = false,
-      patient_name, witnesses, immediate_action_taken, is_anonymous = false
+      incident_type,
+      severity = 'moderate',
+      title,
+      description,
+      location,
+      incident_date,
+      patient_involved = false,
+      patient_name,
+      witnesses,
+      immediate_action_taken,
+      is_anonymous = false,
     } = req.body;
 
     if (!incident_type || !title || !description || !incident_date) {
-      return error(res, 'incident_type, title, description, and incident_date are required', HTTP_STATUS.BAD_REQUEST);
+      return error(
+        res,
+        'incident_type, title, description, and incident_date are required',
+        HTTP_STATUS.BAD_REQUEST
+      );
     }
     if (!VALID_INCIDENT_TYPES.includes(incident_type)) {
-      return error(res, `incident_type must be one of: ${VALID_INCIDENT_TYPES.join(', ')}`, HTTP_STATUS.BAD_REQUEST);
+      return error(
+        res,
+        `incident_type must be one of: ${VALID_INCIDENT_TYPES.join(', ')}`,
+        HTTP_STATUS.BAD_REQUEST
+      );
     }
     if (!VALID_SEVERITIES.includes(severity)) {
-      return error(res, `severity must be one of: ${VALID_SEVERITIES.join(', ')}`, HTTP_STATUS.BAD_REQUEST);
+      return error(
+        res,
+        `severity must be one of: ${VALID_SEVERITIES.join(', ')}`,
+        HTTP_STATUS.BAD_REQUEST
+      );
     }
 
-    const priority = ['sentinel','severe'].includes(severity) ? 'urgent' : severity === 'moderate' ? 'high' : 'normal';
+    const priority =
+      severity === 'sentinel' || severity === 'severe'
+        ? 'urgent'
+        : severity === 'moderate'
+          ? 'high'
+          : 'normal';
 
-    const result = await prisma.$queryRawUnsafe(`
+    const result = await prisma.$queryRawUnsafe(
+      `
       INSERT INTO incident_reports
         (reporter_id, incident_type, severity, title, description, location, incident_date,
          patient_involved, patient_name, witnesses, immediate_action_taken, is_anonymous, priority)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-      RETURNING id, reported_by, description, category, severity, status, location, created_at, incident_number
-    `, 
+      VALUES ($1::uuid,$2,$3,$4,$5,$6,$7::timestamptz,$8,$9,$10,$11,$12,$13)
+      RETURNING id, report_number, reporter_id, incident_type, severity, title, status, priority,
+        location, incident_date, patient_involved, is_anonymous, created_at, updated_at
+    `,
       is_anonymous ? null : reporterId,
-      incident_type, severity, title, description,
-      location || null, incident_date,
-      patient_involved, patient_name || null,
-      witnesses || null, immediate_action_taken || null,
-      is_anonymous, priority
+      incident_type,
+      severity,
+      title,
+      description,
+      location || null,
+      incident_date,
+      patient_involved,
+      patient_name || null,
+      witnesses || null,
+      immediate_action_taken || null,
+      is_anonymous,
+      priority
     );
 
-    await prisma.$queryRawUnsafe(`
+    const reportNumber = result[0].report_number;
+
+    await prisma.$queryRawUnsafe(
+      `
       INSERT INTO report_updates (report_type, report_id, author_role, message, is_internal)
       VALUES ('incident', $1, 'system', $2, false)
-    `, result[0].id, `Incident report ${result[0].report_number} submitted. Severity: ${severity.toUpperCase()}.`);
+    `,
+      result[0].id,
+      `Incident report ${reportNumber} submitted. Severity: ${severity.toUpperCase()}.`
+    );
 
-    success(res, result[0], `Incident report ${result[0].report_number} submitted successfully`);
+    success(res, result[0], `Incident report ${reportNumber} submitted successfully`);
   } catch (err) {
     logger.error('Submit Incident Error:', err);
     error(res, 'Failed to submit incident report', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -60,12 +147,16 @@ export const submitIncident = async (req, res) => {
 export const getMyIncidents = async (req, res) => {
   try {
     const staffId = req.user?.uid;
-    const incidents = await prisma.$queryRawUnsafe(`
-      SELECT id, report_number, incident_type, severity, title, status, priority, incident_date, created_at, is_anonymous
+    const incidents = await prisma.$queryRawUnsafe(
+      `
+      SELECT id, report_number, incident_type, severity, title, status, priority,
+             incident_date, created_at, is_anonymous
       FROM incident_reports
-      WHERE reporter_id = $1
+      WHERE reporter_id = $1::uuid
       ORDER BY created_at DESC LIMIT 50
-    `, staffId);
+    `,
+      staffId
+    );
     success(res, incidents, 'Incidents fetched');
   } catch (err) {
     logger.error('Get My Incidents Error:', err);
@@ -79,27 +170,36 @@ export const getIncidentDetail = async (req, res) => {
     const { id } = req.params;
     const staffId = req.user?.uid;
 
-    const incident = await prisma.$queryRawUnsafe(`
-      SELECT ir.id, ir.reported_by, ir.description, ir.category, ir.severity, ir.status,
-        ir.location, ir.acknowledged_by, ir.created_at, ir.updated_at,
-        u.name as reporter_name, u2.name as assigned_to_name
+    const incident = await prisma.$queryRawUnsafe(
+      `
+      SELECT ${INCIDENT_SELECT},
+        CASE WHEN ir.is_anonymous THEN 'Anonymous' ELSE u.name END as reporter_name,
+        u2.name as assigned_to_name
       FROM incident_reports ir
-      LEFT JOIN users u ON ir.reporter_id = u.id
-      LEFT JOIN users u2 ON ir.assigned_to = u2.id
-      WHERE ir.id = $1 AND (ir.reporter_id = $2 OR ir.is_anonymous = true)
-    `, id, staffId);
+      LEFT JOIN users u ON ir.reporter_id = u.uid
+      LEFT JOIN users u2 ON ir.assigned_to = u2.uid
+      WHERE ir.id = $1::int AND (ir.reporter_id = $2::uuid OR ir.is_anonymous = true)
+    `,
+      id,
+      staffId
+    );
 
-    if (incident.length === 0) return error(res, 'Incident not found', HTTP_STATUS.NOT_FOUND);
+    if (incident.length === 0) {
+      return error(res, 'Incident not found', HTTP_STATUS.NOT_FOUND);
+    }
 
-    const updates = await prisma.$queryRawUnsafe(`
+    const updates = await prisma.$queryRawUnsafe(
+      `
       SELECT ru.*, u.name as author_name
       FROM report_updates ru
-      LEFT JOIN users u ON ru.author_id = u.id
-      WHERE ru.report_type = 'incident' AND ru.report_id = $1 AND ru.is_internal = false
+      LEFT JOIN users u ON ru.author_id = u.uid
+      WHERE ru.report_type = 'incident' AND ru.report_id = $1::int AND ru.is_internal = false
       ORDER BY ru.created_at ASC
-    `, id);
+    `,
+      id
+    );
 
-    success(res, { ...incident[0], updates: updates }, 'Incident detail fetched');
+    success(res, { ...incident[0], updates }, 'Incident detail fetched');
   } catch (err) {
     logger.error('Get Incident Detail Error:', err);
     error(res, 'Failed to fetch incident', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -109,41 +209,63 @@ export const getIncidentDetail = async (req, res) => {
 // Admin: Get all incidents with filters
 export const getAllIncidents = async (req, res) => {
   try {
-    const { status, severity, incident_type, limit = 50, offset = 0 } = req.query;
+    const { status, severity, incident_type } = req.query;
+    const limit = parsePagingInt(req.query.limit, 50);
+    const offset = parsePagingInt(req.query.offset, 0);
     const conditions = [];
     const params = [];
     let idx = 1;
 
-    if (status) { conditions.push(`ir.status = $${idx++}`); params.push(status); }
-    if (severity) { conditions.push(`ir.severity = $${idx++}`); params.push(severity); }
-    if (incident_type) { conditions.push(`ir.incident_type = $${idx++}`); params.push(incident_type); }
+    if (status) {
+      conditions.push(`ir.status = $${idx++}`);
+      params.push(status);
+    }
+    if (severity) {
+      conditions.push(`ir.severity = $${idx++}`);
+      params.push(severity);
+    }
+    if (incident_type) {
+      conditions.push(`ir.incident_type = $${idx++}`);
+      params.push(incident_type);
+    }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    params.push(parseInt(limit), parseInt(offset));
+    const queryParams = [...params, limit, offset];
 
-    const incidents = await prisma.$queryRawUnsafe(`
-      SELECT ir.id, ir.reported_by, ir.description, ir.category, ir.severity, ir.status,
-        ir.location, ir.acknowledged_by, ir.created_at, ir.updated_at,
-        u.name as reporter_name, s.department as reporter_department, u2.name as assigned_to_name
+    const incidents = await prisma.$queryRawUnsafe(
+      `
+      SELECT ${INCIDENT_SELECT},
+        CASE WHEN ir.is_anonymous THEN 'Anonymous' ELSE u.name END as reporter_name,
+        CASE WHEN ir.is_anonymous THEN NULL ELSE s.department END as reporter_department,
+        u2.name as assigned_to_name
       FROM incident_reports ir
-      LEFT JOIN users u ON ir.reporter_id = u.id
+      LEFT JOIN users u ON ir.reporter_id = u.uid
       LEFT JOIN staff s ON u.uid = s.user_id
-      LEFT JOIN users u2 ON ir.assigned_to = u2.id
+      LEFT JOIN users u2 ON ir.assigned_to = u2.uid
       ${where}
       ORDER BY
         CASE ir.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 ELSE 3 END,
         ir.created_at DESC
       LIMIT $${idx++} OFFSET $${idx}
-    `, params);
+    `,
+      ...queryParams
+    );
 
-    const countResult = await prisma.$queryRawUnsafe(`SELECT COUNT(*) FROM incident_reports ir ${where}`, params.slice(0, -2));
+    const countResult = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*) FROM incident_reports ir ${where}`,
+      ...params
+    );
 
-    success(res, {
-      incidents: incidents,
-      total: parseInt(countResult[0].count),
-      limit: parseInt(limit),
-      offset: parseInt(offset)
-    }, 'Incidents fetched');
+    success(
+      res,
+      {
+        incidents,
+        total: Number(countResult[0].count),
+        limit,
+        offset,
+      },
+      'Incidents fetched'
+    );
   } catch (err) {
     logger.error('Get All Incidents Error:', err);
     error(res, 'Failed to fetch incidents', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -155,28 +277,37 @@ export const getAdminIncidentDetail = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const incident = await prisma.$queryRawUnsafe(`
-      SELECT ir.id, ir.reported_by, ir.description, ir.category, ir.severity, ir.status,
-        ir.location, ir.acknowledged_by, ir.created_at, ir.updated_at,
-        u.name as reporter_name, s.department as reporter_department, u2.name as assigned_to_name
+    const incident = await prisma.$queryRawUnsafe(
+      `
+      SELECT ${INCIDENT_SELECT},
+        CASE WHEN ir.is_anonymous THEN 'Anonymous' ELSE u.name END as reporter_name,
+        CASE WHEN ir.is_anonymous THEN NULL ELSE s.department END as reporter_department,
+        u2.name as assigned_to_name
       FROM incident_reports ir
-      LEFT JOIN users u ON ir.reporter_id = u.id
+      LEFT JOIN users u ON ir.reporter_id = u.uid
       LEFT JOIN staff s ON u.uid = s.user_id
-      LEFT JOIN users u2 ON ir.assigned_to = u2.id
-      WHERE ir.id = $1
-    `, id);
+      LEFT JOIN users u2 ON ir.assigned_to = u2.uid
+      WHERE ir.id = $1::int
+    `,
+      id
+    );
 
-    if (incident.length === 0) return error(res, 'Incident not found', HTTP_STATUS.NOT_FOUND);
+    if (incident.length === 0) {
+      return error(res, 'Incident not found', HTTP_STATUS.NOT_FOUND);
+    }
 
-    const updates = await prisma.$queryRawUnsafe(`
+    const updates = await prisma.$queryRawUnsafe(
+      `
       SELECT ru.*, u.name as author_name
       FROM report_updates ru
-      LEFT JOIN users u ON ru.author_id = u.id
-      WHERE ru.report_type = 'incident' AND ru.report_id = $1
+      LEFT JOIN users u ON ru.author_id = u.uid
+      WHERE ru.report_type = 'incident' AND ru.report_id = $1::int
       ORDER BY ru.created_at ASC
-    `, id);
+    `,
+      id
+    );
 
-    success(res, { ...incident[0], updates: updates }, 'Incident detail fetched');
+    success(res, { ...incident[0], updates }, 'Incident detail fetched');
   } catch (err) {
     logger.error('Get Admin Incident Detail Error:', err);
     error(res, 'Failed to fetch incident', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -188,10 +319,28 @@ export const updateIncident = async (req, res) => {
   try {
     const { id } = req.params;
     const adminId = req.user?.uid;
-    const { status, assigned_to, admin_notes, resolution, priority, internal_note, public_update } = req.body;
+    const {
+      status,
+      assigned_to,
+      admin_notes,
+      resolution,
+      priority,
+      internal_note,
+      public_update,
+    } = req.body;
 
-    const existing = await prisma.$queryRawUnsafe('SELECT id, reported_by, description, category, severity, status, location, acknowledged_by, created_at, updated_at FROM incident_reports WHERE id = $1', id);
-    if (existing.length === 0) return error(res, 'Incident not found', HTTP_STATUS.NOT_FOUND);
+    const existing = await prisma.$queryRawUnsafe(
+      `
+      SELECT id, report_number, reporter_id, incident_type, severity, title, status, priority,
+             assigned_to, admin_notes, resolution, created_at, updated_at
+      FROM incident_reports
+      WHERE id = $1::int
+    `,
+      id
+    );
+    if (existing.length === 0) {
+      return error(res, 'Incident not found', HTTP_STATUS.NOT_FOUND);
+    }
 
     const updates = [];
     const vals = [];
@@ -201,33 +350,80 @@ export const updateIncident = async (req, res) => {
       updates.push(`status = $${idx++}`);
       vals.push(status);
       if (status === 'resolved') {
-        updates.push(`resolved_at = NOW()`, `resolved_by = $${idx++}`);
+        updates.push('resolved_at = NOW()', `resolved_by = $${idx++}::uuid`);
         vals.push(adminId);
       }
     }
-    if (assigned_to) { updates.push(`assigned_to = $${idx++}`); vals.push(assigned_to); }
-    if (admin_notes !== undefined) { updates.push(`admin_notes = $${idx++}`); vals.push(admin_notes); }
-    if (resolution !== undefined) { updates.push(`resolution = $${idx++}`); vals.push(resolution); }
-    if (priority) { updates.push(`priority = $${idx++}`); vals.push(priority); }
+    if (assigned_to) {
+      updates.push(`assigned_to = $${idx++}::uuid`);
+      vals.push(assigned_to);
+    }
+    if (admin_notes !== undefined) {
+      updates.push(`admin_notes = $${idx++}`);
+      vals.push(admin_notes);
+    }
+    if (resolution !== undefined) {
+      updates.push(`resolution = $${idx++}`);
+      vals.push(resolution);
+    }
+    if (priority) {
+      updates.push(`priority = $${idx++}`);
+      vals.push(priority);
+    }
 
-    updates.push(`updated_at = NOW()`);
+    updates.push('updated_at = NOW()');
     vals.push(id);
 
     if (updates.length > 1) {
-      await prisma.$queryRawUnsafe(`UPDATE incident_reports SET ${updates.join(', ')} WHERE id = $${idx}`, vals);
+      await prisma.$queryRawUnsafe(
+        `UPDATE incident_reports SET ${updates.join(', ')} WHERE id = $${idx}::int`,
+        ...vals
+      );
     }
 
     if (internal_note) {
-      await prisma.$queryRawUnsafe(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('incident',$1,$2,'admin',$3,true)`, id, adminId, internal_note);
+      await prisma.$queryRawUnsafe(
+        `
+        INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal)
+        VALUES ('incident',$1::int,$2::uuid,'admin',$3,true)
+      `,
+        id,
+        adminId,
+        internal_note
+      );
     }
     if (public_update) {
-      await prisma.$queryRawUnsafe(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('incident',$1,$2,'admin',$3,false)`, id, adminId, public_update);
+      await prisma.$queryRawUnsafe(
+        `
+        INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal)
+        VALUES ('incident',$1::int,$2::uuid,'admin',$3,false)
+      `,
+        id,
+        adminId,
+        public_update
+      );
     }
     if (status && status !== existing[0].status) {
-      await prisma.$queryRawUnsafe(`INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal) VALUES ('incident',$1,$2,'system',$3,false)`, id, adminId, `Status updated to: ${status.replace('_',' ').toUpperCase()}`);
+      await prisma.$queryRawUnsafe(
+        `
+        INSERT INTO report_updates (report_type, report_id, author_id, author_role, message, is_internal)
+        VALUES ('incident',$1::int,$2::uuid,'system',$3,false)
+      `,
+        id,
+        adminId,
+        `Status updated to: ${status.replace('_', ' ').toUpperCase()}`
+      );
     }
 
-    const updated = await prisma.$queryRawUnsafe(`SELECT ir.id, ir.reported_by, ir.description, ir.category, ir.severity, ir.status, ir.location, ir.acknowledged_by, ir.created_at, ir.updated_at, u.name as assigned_to_name FROM incident_reports ir LEFT JOIN users u ON ir.assigned_to = u.id WHERE ir.id = $1`, id);
+    const updated = await prisma.$queryRawUnsafe(
+      `
+      SELECT ${INCIDENT_SELECT}, u.name as assigned_to_name
+      FROM incident_reports ir
+      LEFT JOIN users u ON ir.assigned_to = u.uid
+      WHERE ir.id = $1::int
+    `,
+      id
+    );
     success(res, updated[0], 'Incident updated');
   } catch (err) {
     logger.error('Update Incident Error:', err);
