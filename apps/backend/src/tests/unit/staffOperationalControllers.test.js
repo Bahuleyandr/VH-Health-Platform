@@ -70,7 +70,7 @@ jest.unstable_mockModule('../../utils/payslipPDF.js', () => ({
   generatePayslipPDF: jest.fn(),
 }));
 
-const { getGeofenceBreaches, getTodayBreaks } = await import('../../controllers/staff/attendanceController.js');
+const { getGeofenceBreaches, getTodayBreaks, requestRegularization } = await import('../../controllers/staff/attendanceController.js');
 const { getHealthStatus } = await import('../../controllers/auth/staffAuthController.js');
 const { getAttendanceAuditDashboard, getAttendanceHRActivity, getLeaveAuditTrail } = await import('../../controllers/staff/attendanceAuditController.js');
 const { getMyOvertimeRequests } = await import('../../controllers/staff/overtimeController.js');
@@ -406,6 +406,30 @@ describe('staff operational endpoint drift guards', () => {
       4
     );
     expect(queryRawUnsafe.mock.calls[0][0]).toContain('LIMIT $1::int');
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('casts regularization route params before inserting', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([{ id: 1, staff_id: 2 }]);
+    const res = makeRes();
+
+    await requestRegularization({
+      params: { id: '2' },
+      body: {
+        date: '2026-05-04',
+        reason: 'Forgot checkout',
+        check_in_time: '2026-05-04T09:00:00Z',
+      },
+    }, res);
+
+    expect(queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('VALUES ($1::int, $2::date'),
+      2,
+      '2026-05-04',
+      'Forgot checkout',
+      '2026-05-04T09:00:00Z',
+      null,
+    );
     expect(res.status).toHaveBeenCalledWith(200);
   });
 

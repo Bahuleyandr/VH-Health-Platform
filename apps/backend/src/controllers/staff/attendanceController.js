@@ -203,18 +203,22 @@ export const getAttendanceCalendar = async (req, res) => {
 export const requestRegularization = async (req, res) => {
   try {
     const { id } = req.params;
+    const staffId = Number.parseInt(id, 10);
     const { date, reason, check_in_time, check_out_time } = req.body;
 
+    if (!Number.isInteger(staffId) || staffId <= 0) {
+      return error(res, 'Invalid staff id', HTTP_STATUS.BAD_REQUEST);
+    }
     if (!date || !reason) {
       return error(res, 'date and reason are required', HTTP_STATUS.BAD_REQUEST);
     }
 
     const result = await prisma.$queryRawUnsafe(`
       INSERT INTO attendance_regularization (staff_id, date, reason, requested_check_in, requested_check_out, status, created_at)
-      VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
+      VALUES ($1::int, $2::date, $3, $4::timestamptz, $5::timestamptz, 'pending', NOW())
       ON CONFLICT (staff_id, date) DO UPDATE SET reason=$3, requested_check_in=$4, requested_check_out=$5, status='pending', created_at=NOW()
       RETURNING id, staff_id, date, reason, requested_check_in, requested_check_out, status, created_at
-    `, id, date, reason, check_in_time || null, check_out_time || null);
+    `, staffId, date, reason, check_in_time || null, check_out_time || null);
 
     success(res, result[0], 'Regularization request submitted');
   } catch (err) {
