@@ -143,7 +143,8 @@ class ReferralService {
     const parsedLimit = parseInt(limit, 10);
     const offset = (parseInt(page, 10) - 1) * parsedLimit;
 
-    const where = { referred_to_doctor: doctorUid };
+    const where = {};
+    if (doctorUid) where.referred_to_doctor = doctorUid;
     if (status) where.status = status;
     if (urgency) where.urgency = urgency;
 
@@ -155,12 +156,13 @@ class ReferralService {
     // page 1). This is the only remaining raw read in this service.
     const total = await prisma.referrals.count({ where });
 
-    const conditions = [`referred_to_doctor = $1`];
-    const params = [doctorUid];
-    let paramIndex = 2;
+    const conditions = [];
+    const params = [];
+    let paramIndex = 1;
+    if (doctorUid) { conditions.push(`referred_to_doctor = $${paramIndex++}`); params.push(doctorUid); }
     if (status) { conditions.push(`status = $${paramIndex++}`); params.push(status); }
     if (urgency) { conditions.push(`urgency = $${paramIndex++}`); params.push(urgency); }
-    const whereClause = `WHERE ${conditions.join(' AND ')}`;
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const result = await prisma.$queryRawUnsafe(
       `SELECT id, referral_number, patient_uid, encounter_id,
@@ -194,7 +196,8 @@ class ReferralService {
     const parsedLimit = parseInt(limit, 10);
     const offset = (parseInt(page, 10) - 1) * parsedLimit;
 
-    const where = { referring_doctor: doctorUid };
+    const where = {};
+    if (doctorUid) where.referring_doctor = doctorUid;
     if (status) where.status = status;
     if (urgency) where.urgency = urgency;
 

@@ -18,7 +18,15 @@ const validate = (req, res, next) => {
 const router = Router();
 
 function canManageReferrals(role) {
-  return isDoctor(role) || isAdmin(role);
+  return role === 'SUPER_ADMIN' || isDoctor(role) || isAdmin(role);
+}
+
+function canViewReferrals(role) {
+  return role === 'SUPER_ADMIN' || isAdmin(role) || isClinical(role);
+}
+
+function isReferralAdmin(role) {
+  return role === 'SUPER_ADMIN' || isAdmin(role);
 }
 
 /**
@@ -61,7 +69,7 @@ router.post('/', requiredUUID('patient_uid'), requiredString('to_department', 10
  */
 router.get('/incoming', async (req, res, next) => {
   try {
-    if (!canManageReferrals(req.user?.role)) {
+    if (!canViewReferrals(req.user?.role)) {
       return error(res, 'Only doctors can view incoming referrals', 403);
     }
 
@@ -72,7 +80,10 @@ router.get('/incoming', async (req, res, next) => {
       limit: req.query.limit,
     };
 
-    const result = await referralService.getIncomingReferrals(req.user?.uid, filters);
+    const result = await referralService.getIncomingReferrals(
+      isReferralAdmin(req.user?.role) ? null : req.user?.uid,
+      filters
+    );
 
     return success(res, result.referrals, 'Incoming referrals retrieved', 200, {
       pagination: result.pagination,
@@ -92,7 +103,7 @@ router.get('/incoming', async (req, res, next) => {
  */
 router.get('/outgoing', async (req, res, next) => {
   try {
-    if (!canManageReferrals(req.user?.role)) {
+    if (!canViewReferrals(req.user?.role)) {
       return error(res, 'Only doctors can view outgoing referrals', 403);
     }
 
@@ -103,7 +114,10 @@ router.get('/outgoing', async (req, res, next) => {
       limit: req.query.limit,
     };
 
-    const result = await referralService.getOutgoingReferrals(req.user?.uid, filters);
+    const result = await referralService.getOutgoingReferrals(
+      isReferralAdmin(req.user?.role) ? null : req.user?.uid,
+      filters
+    );
 
     return success(res, result.referrals, 'Outgoing referrals retrieved', 200, {
       pagination: result.pagination,
@@ -196,7 +210,7 @@ router.put('/:id/decline', paramId(), requiredString('reason', 500), validate, a
 router.get('/patient/:uid', async (req, res, next) => {
   try {
     const role = req.user?.role;
-    if (!isClinical(role) && !isAdmin(role)) {
+    if (!canViewReferrals(role)) {
       return error(res, 'Only clinical staff can view patient referrals', 403);
     }
 

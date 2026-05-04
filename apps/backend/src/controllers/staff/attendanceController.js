@@ -32,6 +32,11 @@ async function resolveCurrentUserRef(req) {
   });
 }
 
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export const markAttendance = async (req, res) => {
   try {
     const markedBy = req.user?.uid;
@@ -85,6 +90,49 @@ export const getStaffAttendance = async (req, res) => {
     } else {
       error(res, 'Failed to fetch attendance', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
+  }
+};
+
+export const getMyAttendance = async (req, res) => {
+  try {
+    const staff = await resolveCurrentUserRef(req);
+    if (!staff) {
+      return success(res, [], 'Attendance records fetched');
+    }
+
+    const now = new Date();
+    const year = parsePositiveInt(req.query.year, now.getFullYear());
+    const rawMonth = parsePositiveInt(req.query.month, now.getMonth() + 1);
+    const month = Math.min(Math.max(rawMonth, 1), 12);
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const endDate = month === 12
+      ? `${year + 1}-01-01`
+      : `${year}-${String(month + 1).padStart(2, '0')}-01`;
+
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT
+        to_char(COALESCE(check_in_time, staff_attendance."timestamp"), 'YYYY-MM-DD') AS date,
+        CASE
+          WHEN LOWER(COALESCE(attendance_status, attendance_type, type, 'present')) IN ('absent') THEN 'ABSENT'
+          WHEN LOWER(COALESCE(attendance_status, attendance_type, type, 'present')) IN ('leave', 'on_leave') THEN 'LEAVE'
+          WHEN LOWER(COALESCE(attendance_status, attendance_type, type, 'present')) IN ('half_day', 'half-day') THEN 'HALF_DAY'
+          WHEN LOWER(COALESCE(attendance_status, attendance_type, type, 'present')) IN ('late') OR COALESCE(minutes_late, 0) > 0 THEN 'LATE'
+          ELSE 'PRESENT'
+        END AS status,
+        to_char(check_in_time, 'HH24:MI') AS check_in,
+        to_char(check_out_time, 'HH24:MI') AS check_out,
+        notes
+      FROM staff_attendance
+      WHERE staff_id = $1::int
+        AND COALESCE(check_in_time, staff_attendance."timestamp") >= $2::date
+        AND COALESCE(check_in_time, staff_attendance."timestamp") < $3::date
+      ORDER BY COALESCE(check_in_time, staff_attendance."timestamp") ASC
+    `, staff.id, startDate, endDate);
+
+    return success(res, rows, 'Attendance records fetched');
+  } catch (err) {
+    logger.error('Get My Attendance Error:', err);
+    return error(res, 'Failed to fetch attendance', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -225,6 +273,15 @@ export const requestRegularization = async (req, res) => {
     logger.error('Regularization Error:', err);
     error(res, 'Failed to submit regularization request', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
+};
+
+export const requestMyRegularization = async (req, res) => {
+  const staff = await resolveCurrentUserRef(req);
+  if (!staff) {
+    return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
+  }
+  req.params.id = String(staff.id);
+  return requestRegularization(req, res);
 };
 
 // ===== BREAK TRACKING =====
@@ -377,6 +434,17 @@ export const submitDispute = async (req, res) => {
     logger.error('Submit Dispute Error:', err);
     error(res, 'Failed to submit dispute', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
+};
+
+export const submitMyDispute = async (req, res) => {
+  const staff = await resolveCurrentUserRef(req);
+  if (!staff) {
+    return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
+  }
+  req.params.id = String(staff.id);
+  req.body.dispute_type = req.body.dispute_type || 'other';
+  req.body.description = req.body.description || req.body.reason;
+  return submitDispute(req, res);
 };
 
 /**

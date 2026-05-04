@@ -17,6 +17,7 @@ import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 // ====================================
 
 const callbackRouter = Router();
+const ABDM_CALLBACK_PATHS = new Set(['/consent/on-notify', '/health-info/on-request']);
 
 /**
  * Middleware: Validate ABDM gateway request signature.
@@ -24,6 +25,10 @@ const callbackRouter = Router();
  * Rejects requests that don't appear to come from the ABDM gateway.
  */
 function validateABDMRequest(req, res, next) {
+  if (!ABDM_CALLBACK_PATHS.has(req.path)) {
+    return next('router');
+  }
+
   if (!ABDM_CONFIG.enabled) {
     return error(res, 'ABDM integration is not enabled', 503);
   }

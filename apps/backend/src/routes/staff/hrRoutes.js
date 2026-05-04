@@ -29,6 +29,8 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     ['/onboarding/:staff_id', hrController.getOnboardingChecklist],
     
     // Leave Management
+    ['/leave/my', hrController.getMyLeaveApplications],
+    ['/leave/balance', hrController.getMyLeaveBalance],
     ['/leave-balance/:staff_id', hrController.getStaffLeaveBalance],
     
     // Department Analytics
@@ -89,7 +91,7 @@ wrapAutoRBAC(router, 'staffHRRoutes', {
     ['/performance-review', performanceReviewValidation, hrController.createPerformanceReview],
     
     // Apply for Leave
-    ['/leave/apply', leaveApplicationValidation, hrController.applyForLeave],
+    ['/leave/apply', hrController.normalizeLeaveApplicationRequest, leaveApplicationValidation, hrController.applyForLeave],
 
     // Replacement requests
     ['/replacement/request', replacementController.requestReplacement],

@@ -1,6 +1,8 @@
 // validators/staff/hrValidators.js
 import { body, query, param } from 'express-validator';
 
+const STAFF_IDENTIFIER_RE = /^(?:\d+|EMP-[A-Z0-9-]+|[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
+
 // Performance Review Validation
 export const performanceReviewValidation = [
   body('staff_id').isInt().withMessage('Staff ID must be a valid integer'),
@@ -27,8 +29,10 @@ export const updateOnboardingTaskValidation = [
 
 // Leave Application Validation
 export const leaveApplicationValidation = [
-  body('staff_id').isInt().withMessage('Staff ID must be a valid integer'),
-  body('leave_type').isIn(['ANNUAL', 'SICK', 'CASUAL', 'MATERNITY', 'PATERNITY', 'BEREAVEMENT', 'UNPAID'])
+  body('staff_id')
+    .custom((value) => STAFF_IDENTIFIER_RE.test(String(value || '').trim()))
+    .withMessage('Staff ID must be a valid integer, employee ID, or UUID'),
+  body('leave_type').isIn(['ANNUAL', 'SICK', 'CASUAL', 'EARNED', 'MATERNITY', 'PATERNITY', 'BEREAVEMENT', 'UNPAID', 'COMPENSATORY'])
     .withMessage('Invalid leave type'),
   body('start_date').isISO8601().withMessage('Start date must be a valid date'),
   body('end_date').isISO8601().withMessage('End date must be a valid date')

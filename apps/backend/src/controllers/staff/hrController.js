@@ -1,10 +1,49 @@
 // controllers/staff/hrController.js
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import * as hrService from '../../services/staff/hr/index.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // Import all HR services from the index
+
+async function resolveCurrentStaffRef(req) {
+  if (!req.user?.uid) return null;
+  const user = await prisma.users.findUnique({
+    where: { uid: req.user.uid },
+    select: {
+      id: true,
+      uid: true,
+      staff: {
+        select: { employee_id: true },
+        take: 1,
+      },
+    },
+  });
+  if (!user?.staff?.length) return null;
+  return { id: user.id, uid: user.uid };
+}
+
+function formatISODate(value) {
+  if (!value) return null;
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+function inclusiveDays(startDate, endDate) {
+  if (!startDate || !endDate) return 0;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  return Math.max(1, Math.ceil((end - start) / 86_400_000) + 1);
+}
+
+export function normalizeLeaveApplicationRequest(req, _res, next) {
+  req.body = {
+    ...(req.body || {}),
+    staff_id: req.body?.staff_id || req.user?.uid,
+    leave_type: req.body?.leave_type || req.body?.type,
+  };
+  next();
+}
 
 // Get HR Dashboard
 export const getHRDashboard = async (req, res) => {
@@ -212,12 +251,86 @@ export const getStaffLeaveBalance = async (req, res) => {
   }
 };
 
+export const getMyLeaveApplications = async (req, res) => {
+  try {
+    const staff = await resolveCurrentStaffRef(req);
+    if (!staff) {
+      return success(res, [], 'Leave applications retrieved successfully');
+    }
+
+    const rows = await prisma.leave_applications.findMany({
+      where: { staff_id: staff.id },
+      select: {
+        id: true,
+        leave_type: true,
+        start_date: true,
+        end_date: true,
+        days_taken: true,
+        reason: true,
+        status: true,
+        applied_date: true,
+        reviewed_by: true,
+        review_notes: true,
+      },
+      orderBy: { applied_date: 'desc' },
+      take: 50,
+    });
+
+    const applications = rows.map((leave) => ({
+      id: leave.id,
+      type: leave.leave_type,
+      start_date: formatISODate(leave.start_date),
+      end_date: formatISODate(leave.end_date),
+      days: Number(leave.days_taken) || inclusiveDays(leave.start_date, leave.end_date),
+      reason: leave.reason,
+      status: String(leave.status || 'PENDING').toUpperCase(),
+      created_at: leave.applied_date,
+      reviewed_by: leave.reviewed_by,
+      review_notes: leave.review_notes,
+    }));
+
+    return success(res, applications, 'Leave applications retrieved successfully');
+  } catch (err) {
+    logger.error('Get My Leave Applications Error:', err);
+    return error(res, 'Failed to retrieve leave applications', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+export const getMyLeaveBalance = async (req, res) => {
+  try {
+    const staff = await resolveCurrentStaffRef(req);
+    const emptyBalance = { casual: 0, sick: 0, earned: 0, annual: 0 };
+    if (!staff) {
+      return success(res, emptyBalance, 'Leave balance retrieved successfully');
+    }
+
+    const leaveData = await hrService.getStaffLeaveBalance(
+      String(staff.id),
+      req.query.year || new Date().getFullYear()
+    );
+    const balance = { ...emptyBalance };
+    for (const leave of leaveData?.leaveBalance || []) {
+      const key = String(leave.leave_type || '').toLowerCase();
+      if (key === 'casual') balance.casual = Number(leave.days_remaining) || 0;
+      if (key === 'sick') balance.sick = Number(leave.days_remaining) || 0;
+      if (key === 'earned') balance.earned = Number(leave.days_remaining) || 0;
+      if (key === 'annual') balance.annual = Number(leave.days_remaining) || 0;
+    }
+
+    return success(res, balance, 'Leave balance retrieved successfully');
+  } catch (err) {
+    logger.error('Get My Leave Balance Error:', err);
+    return error(res, 'Failed to retrieve leave balance', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
 // Apply for Leave
 export const applyForLeave = async (req, res) => {
   try {
     const {
       staff_id,
       leave_type,
+      type,
       start_date,
       end_date,
       reason,
@@ -236,8 +349,8 @@ export const applyForLeave = async (req, res) => {
     }
 
     const leaveApplication = await hrService.applyForLeave({
-      staff_id,
-      leave_type,
+      staff_id: staff_id || appliedBy,
+      leave_type: leave_type || type,
       start_date,
       end_date,
       reason,
@@ -258,6 +371,8 @@ export const applyForLeave = async (req, res) => {
       error(res, 'Insufficient leave balance', HTTP_STATUS.BAD_REQUEST);
     } else if (err.message === 'INVALID_DATE_RANGE') {
       error(res, 'Invalid date range for leave application', HTTP_STATUS.BAD_REQUEST);
+    } else if (err.message === 'STAFF_NOT_FOUND') {
+      error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
     } else {
       error(res, 'Failed to apply for leave', HTTP_STATUS.INTERNAL_SERVER_ERROR);
     }
