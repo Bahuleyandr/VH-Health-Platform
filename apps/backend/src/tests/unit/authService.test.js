@@ -101,7 +101,7 @@ describe('AuthService.getUserByPhone', () => {
 
     expect(mockPrisma.users.findUnique).toHaveBeenCalledWith({
       where: { phone: '+919876543210' },
-      select: { uid: true, phone: true, name: true, role: true },
+      select: { uid: true, id: true, phone: true, name: true, role: true },
     });
     expect(result).toEqual(fakeUser);
   });

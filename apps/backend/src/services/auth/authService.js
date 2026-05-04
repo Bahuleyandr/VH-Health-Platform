@@ -116,6 +116,7 @@ export class AuthService {
 
       const token = generateToken({
         uid: user.uid,
+        id: user.id,
         phone: user.phone,
         role: user.role,
       });
@@ -124,6 +125,7 @@ export class AuthService {
         token,
         user: {
           uid: user.uid,
+          id: user.id,
           phone: user.phone,
           name: user.name,
           role: user.role,
@@ -148,6 +150,7 @@ export class AuthService {
 
       const token = generateToken({
         uid: user.uid,
+        id: user.id,
         phone: user.phone,
         role: user.role,
       });
@@ -156,6 +159,7 @@ export class AuthService {
         token,
         user: {
           uid: user.uid,
+          id: user.id,
           phone: user.phone,
           name: user.name,
           role: user.role,
@@ -724,7 +728,7 @@ export class AuthService {
 
       const user = await prisma.users.findUnique({
         where: { uid: decoded.uid },
-        select: { uid: true, phone: true, name: true, role: true },
+        select: { uid: true, id: true, phone: true, name: true, role: true },
       });
       if (!user) throw new Error('User not found');
 
@@ -737,6 +741,7 @@ export class AuthService {
 
       const newToken = generateToken({
         uid: user.uid,
+        id: user.id,
         phone: user.phone,
         role: user.role,
       });
@@ -745,6 +750,7 @@ export class AuthService {
         token: newToken,
         user: {
           uid: user.uid,
+          id: user.id,
           phone: user.phone,
           name: user.name,
           role: user.role,
@@ -796,7 +802,7 @@ export class AuthService {
       const normalizedPhone = normalizePhone(phone);
       const user = await prisma.users.findUnique({
         where: { phone: normalizedPhone },
-        select: { uid: true, phone: true, name: true, role: true },
+        select: { uid: true, id: true, phone: true, name: true, role: true },
       });
       return user || null;
     } catch (error) {
@@ -837,6 +843,7 @@ export class AuthService {
 
       const token = generateToken({
         uid: user.uid,
+        id: user.id,
         phone: user.phone,
         role: user.role,
       });
@@ -845,6 +852,7 @@ export class AuthService {
         token,
         user: {
           uid: user.uid,
+          id: user.id,
           phone: user.phone,
           role: user.role,
         },
@@ -1042,6 +1050,7 @@ export class AuthService {
 
       const token = generateToken({
         uid: user.uid,
+        id: user.id,
         phone: user.phone,
         role: user.role,
       });
@@ -1050,6 +1059,7 @@ export class AuthService {
         token,
         user: {
           uid: user.uid,
+          id: user.id,
           phone: user.phone,
           name: user.name,
           role: user.role,
