@@ -46,7 +46,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: r2-sync
-              image: amazon/aws-cli:2.34.37
+              image: amazon/aws-cli:2.34.41
               imagePullPolicy: IfNotPresent
               command: ["/bin/sh", "-c"]
               args:
