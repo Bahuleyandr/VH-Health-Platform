@@ -948,8 +948,18 @@ export const getMyTaxSummary = async (req, res) => {
       ? `${now.getFullYear()}-${String(now.getFullYear() + 1).slice(-2)}`
       : `${now.getFullYear() - 1}-${String(now.getFullYear()).slice(-2)}`);
 
-    const summary = await prisma.$queryRawUnsafe(
-      'SELECT id, staff_uid, financial_year, total_income, total_tds, total_pf, total_esi, created_at FROM annual_tax_summaries WHERE staff_uid=$1 AND financial_year=$2', staffUid, financialYear);
+    const summary = await prisma.$queryRawUnsafe(`
+      SELECT id, staff_uid, financial_year,
+        total_gross AS total_income,
+        total_basic, total_hra, total_da, total_special_allowance,
+        total_transport_allowance, total_medical_allowance, total_overtime,
+        total_bonus, total_arrears, total_gross, total_tds, total_pf,
+        total_esi, total_professional_tax, total_advance_deductions,
+        total_deductions, total_net, taxable_income, tax_payable,
+        months_included, generated_at, pdf_key, status, created_at, updated_at
+      FROM annual_tax_summaries
+      WHERE staff_uid=$1::uuid AND financial_year=$2
+    `, staffUid, financialYear);
 
     if (summary.length === 0) {
       const generated = await generateAnnualTaxSummary(staffUid, financialYear);
@@ -1032,7 +1042,7 @@ export const getMyAdvances = async (req, res) => {
              (sa.amount - sa.total_deducted) as balance_remaining
       FROM salary_advances sa
       LEFT JOIN users u ON sa.approved_by = u.uid
-      WHERE sa.staff_uid = $1 ORDER BY sa.created_at DESC
+      WHERE sa.staff_uid = $1::uuid ORDER BY sa.created_at DESC
     `, staffUid);
     success(res, advances, 'Advances fetched');
   } catch (err) {
@@ -1058,7 +1068,7 @@ export const getAllAdvances = async (req, res) => {
       JOIN users u ON sa.staff_uid = u.uid
       LEFT JOIN staff_salary ss ON ss.staff_uid = u.uid
       ${where} ORDER BY sa.created_at DESC
-    `, params);
+    `, ...params);
     success(res, advances, 'Advances fetched');
   } catch (err) {
     logger.error('Get All Advances Error:', err);
@@ -1439,7 +1449,7 @@ export const getFnFList = async (req, res) => {
        FROM full_final_settlements f
        JOIN users u ON f.staff_uid = u.uid
        LEFT JOIN staff_salary ss ON ss.staff_uid = f.staff_uid
-       ${where} ORDER BY f.created_at DESC`, params);
+       ${where} ORDER BY f.created_at DESC`, ...params);
     success(res, result, 'F&F list fetched');
   } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
@@ -1579,7 +1589,35 @@ export const upsertDeclaration = async (req, res) => {
 
 export const getMyDeclarations = async (req, res) => {
   try {
-    const result = await prisma.$queryRawUnsafe('SELECT id, staff_uid, financial_year, section_80c, section_80d, hra_exemption, lta, other_deductions, status, created_at, updated_at FROM investment_declarations WHERE staff_uid=$1 ORDER BY financial_year DESC', req.user?.uid);
+    const result = await prisma.$queryRawUnsafe(`
+      SELECT id, staff_uid, financial_year,
+        ppf, epf_voluntary, elss, lic_premium, nsc,
+        home_loan_principal, tuition_fees, other_80c,
+        health_insurance_self, health_insurance_parents,
+        education_loan_interest, rent_paid_monthly, rent_receipt_provided,
+        home_loan_interest, nps_contribution, notes,
+        status, submitted_at, approved_by, approved_at,
+        proof_submitted, created_at, updated_at,
+        (
+          COALESCE(ppf, 0) + COALESCE(epf_voluntary, 0) + COALESCE(elss, 0) +
+          COALESCE(lic_premium, 0) + COALESCE(nsc, 0) +
+          COALESCE(home_loan_principal, 0) + COALESCE(tuition_fees, 0) +
+          COALESCE(other_80c, 0)
+        ) AS section_80c,
+        (
+          COALESCE(health_insurance_self, 0) + COALESCE(health_insurance_parents, 0)
+        ) AS section_80d,
+        rent_paid_monthly AS hra_exemption,
+        0::numeric AS lta,
+        (
+          COALESCE(education_loan_interest, 0) +
+          COALESCE(home_loan_interest, 0) +
+          COALESCE(nps_contribution, 0)
+        ) AS other_deductions
+      FROM investment_declarations
+      WHERE staff_uid=$1::uuid
+      ORDER BY financial_year DESC
+    `, req.user?.uid);
     success(res, result, 'Declarations fetched');
   } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
@@ -1595,7 +1633,7 @@ export const getAllDeclarations = async (req, res) => {
        FROM investment_declarations d
        JOIN users u ON d.staff_uid = u.uid
        LEFT JOIN staff_salary ss ON ss.staff_uid = d.staff_uid
-       ${where} ORDER BY u.name`, params);
+       ${where} ORDER BY u.name`, ...params);
     success(res, result, 'Declarations fetched');
   } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
@@ -1674,7 +1712,7 @@ export const getLeaveEncashments = async (req, res) => {
        FROM leave_encashments le
        JOIN users u ON le.staff_uid = u.uid
        LEFT JOIN staff_salary ss ON ss.staff_uid = le.staff_uid
-       ${where} ORDER BY le.created_at DESC`, params);
+       ${where} ORDER BY le.created_at DESC`, ...params);
     success(res, result, 'Leave encashments fetched');
   } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
@@ -1721,7 +1759,7 @@ export const getMyPayslipQueries = async (req, res) => {
          (SELECT json_agg(r ORDER BY r.created_at) FROM payslip_query_replies r WHERE r.query_id=pq.id) as replies
        FROM payslip_queries pq
        JOIN payslips p ON pq.payslip_id=p.id
-       WHERE pq.staff_uid=$1 ORDER BY pq.created_at DESC`, req.user?.uid);
+       WHERE pq.staff_uid=$1::uuid ORDER BY pq.created_at DESC`, req.user?.uid);
     success(res, result, 'Queries fetched');
   } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };
@@ -1739,7 +1777,7 @@ export const getAllPayslipQueries = async (req, res) => {
        JOIN payslips p ON pq.payslip_id=p.id
        JOIN users u ON pq.staff_uid=u.uid
        LEFT JOIN staff_salary ss ON ss.staff_uid=pq.staff_uid
-       ${where} ORDER BY pq.created_at DESC`, params);
+       ${where} ORDER BY pq.created_at DESC`, ...params);
     success(res, result, 'All queries fetched');
   } catch (_err) { error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR); }
 };

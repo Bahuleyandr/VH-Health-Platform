@@ -3,12 +3,23 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
 
+async function resolveCurrentUserRef(req) {
+  if (!req.user?.uid) return null;
+  return prisma.users.findUnique({
+    where: { uid: req.user.uid },
+    select: { id: true, uid: true },
+  });
+}
+
 /**
  * Request overtime
  */
 export const requestOvertime = async (req, res) => {
   try {
-    const staffId = req.user?.uid;
+    const staff = await resolveCurrentUserRef(req);
+    if (!staff) {
+      return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
+    }
     const { date, extra_hours, reason, type } = req.body;
 
     if (!date || !extra_hours || !reason) {
@@ -16,9 +27,10 @@ export const requestOvertime = async (req, res) => {
     }
 
     const result = await prisma.$queryRawUnsafe(`
-      INSERT INTO overtime_requests (staff_id, date, extra_hours, reason, type)
-      VALUES ($1, $2, $3, $4, $5) RETURNING id, staff_uid, date, hours, reason, status, approved_by, created_at
-    `, staffId, date, extra_hours, reason, type || 'comp_time');
+      INSERT INTO overtime_requests (staff_id, staff_uid, date, extra_hours, reason, type)
+      VALUES ($1, $2::uuid, $3::date, $4, $5, $6)
+      RETURNING id, staff_id, staff_uid, date, extra_hours, reason, type, status, approved_by, created_at
+    `, staff.id, staff.uid, date, extra_hours, reason, type || 'comp_time');
 
     success(res, result[0], 'Overtime request submitted');
   } catch (err) {
@@ -32,13 +44,16 @@ export const requestOvertime = async (req, res) => {
  */
 export const getMyOvertimeRequests = async (req, res) => {
   try {
-    const staffId = req.user?.uid;
+    const staff = await resolveCurrentUserRef(req);
+    if (!staff) {
+      return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
+    }
     const rows = await prisma.$queryRawUnsafe(`
       SELECT o.*, u.name as approved_by_name
       FROM overtime_requests o
       LEFT JOIN users u ON o.approved_by = u.id
       WHERE o.staff_id = $1 ORDER BY o.date DESC LIMIT 30
-    `, staffId);
+    `, staff.id);
 
     success(res, rows, 'Overtime requests fetched');
   } catch (err) {
@@ -53,7 +68,10 @@ export const getMyOvertimeRequests = async (req, res) => {
 export const approveOvertime = async (req, res) => {
   try {
     const { id } = req.params;
-    const approverId = req.user?.uid;
+    const approver = await resolveCurrentUserRef(req);
+    if (!approver) {
+      return error(res, 'Approver not found', HTTP_STATUS.NOT_FOUND);
+    }
     const { status, rejection_reason } = req.body;
 
     if (!['approved', 'rejected'].includes(status)) {
@@ -62,9 +80,10 @@ export const approveOvertime = async (req, res) => {
 
     const result = await prisma.$queryRawUnsafe(`
       UPDATE overtime_requests
-      SET status=$1, approved_by=$2, approved_at=NOW(), rejection_reason=$3
-      WHERE id=$4 RETURNING id, staff_uid, date, hours, reason, status, approved_by, created_at
-    `, status, approverId, rejection_reason || null, id);
+      SET status=$1, approved_by=$2, approved_by_uid=$3::uuid, approved_at=NOW(), rejection_reason=$4, updated_at=NOW()
+      WHERE id=$5::int
+      RETURNING id, staff_id, staff_uid, date, extra_hours, reason, type, status, approved_by, created_at
+    `, status, approver.id, approver.uid, rejection_reason || null, id);
 
     if (result.length === 0) {
       return error(res, 'Request not found', HTTP_STATUS.NOT_FOUND);

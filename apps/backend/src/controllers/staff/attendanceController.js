@@ -4,6 +4,34 @@ import logger from '../../logging/logger.js';
 import * as attendanceService from '../../services/staff/attendanceService.js';
 import { success, error } from '../../utils/responseHelper.js';
 
+async function resolveStaffRef(req) {
+  if (req.user?.uid) {
+    const user = await prisma.users.findUnique({
+      where: { uid: req.user.uid },
+      select: { id: true, uid: true },
+    });
+    if (user) return user;
+  }
+
+  const staffId = Number.parseInt(req.params.id, 10);
+  if (Number.isInteger(staffId) && staffId > 0) {
+    return prisma.users.findUnique({
+      where: { id: staffId },
+      select: { id: true, uid: true },
+    });
+  }
+
+  return null;
+}
+
+async function resolveCurrentUserRef(req) {
+  if (!req.user?.uid) return null;
+  return prisma.users.findUnique({
+    where: { uid: req.user.uid },
+    select: { id: true, uid: true },
+  });
+}
+
 export const markAttendance = async (req, res) => {
   try {
     const markedBy = req.user?.uid;
@@ -202,13 +230,16 @@ export const requestRegularization = async (req, res) => {
  */
 export const startBreak = async (req, res) => {
   try {
-    const staffId = req.user?.uid || req.params.id;
+    const staff = await resolveStaffRef(req);
+    if (!staff) {
+      return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
+    }
 
     // Find today's active attendance record
     const today = new Date().toISOString().split('T')[0];
     const att = await prisma.$queryRawUnsafe(
       `SELECT id FROM staff_attendance WHERE staff_id=$1 AND DATE(check_in_time)=$2 AND check_out_time IS NULL`,
-      staffId, today
+      staff.id, today
     );
 
     if (att.length === 0) {
@@ -217,15 +248,17 @@ export const startBreak = async (req, res) => {
 
     // Check no open break exists
     const openBreak = await prisma.$queryRawUnsafe(
-      `SELECT id FROM staff_breaks WHERE staff_id=$1 AND break_end IS NULL`, staffId);
+      `SELECT id FROM staff_breaks WHERE staff_id=$1 AND break_end IS NULL`, staff.id);
 
     if (openBreak.length > 0) {
       return error(res, 'Break already in progress', HTTP_STATUS.BAD_REQUEST);
     }
 
     const result = await prisma.$queryRawUnsafe(`
-      INSERT INTO staff_breaks (attendance_id, staff_id, break_start) VALUES ($1, $2, NOW()) RETURNING id, attendance_id, staff_id, break_start, break_end, duration_minutes
-    `, att[0].id, staffId);
+      INSERT INTO staff_breaks (attendance_id, staff_id, staff_uid, break_start)
+      VALUES ($1, $2, $3::uuid, NOW())
+      RETURNING id, attendance_id, staff_id, staff_uid, break_start, break_end, duration_minutes
+    `, att[0].id, staff.id, staff.uid);
 
     success(res, result[0], 'Break started');
   } catch (err) {
@@ -239,10 +272,13 @@ export const startBreak = async (req, res) => {
  */
 export const endBreak = async (req, res) => {
   try {
-    const staffId = req.user?.uid || req.params.id;
+    const staff = await resolveStaffRef(req);
+    if (!staff) {
+      return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
+    }
 
     const openBreak = await prisma.$queryRawUnsafe(
-      `SELECT id, break_start FROM staff_breaks WHERE staff_id=$1 AND break_end IS NULL`, staffId);
+      `SELECT id, break_start FROM staff_breaks WHERE staff_id=$1 AND break_end IS NULL`, staff.id);
 
     if (openBreak.length === 0) {
       return error(res, 'No active break', HTTP_STATUS.BAD_REQUEST);
@@ -252,7 +288,7 @@ export const endBreak = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(`
       UPDATE staff_breaks SET break_end=NOW(),
         duration_minutes=EXTRACT(EPOCH FROM (NOW() - break_start))/60
-      WHERE id=$1 RETURNING id, attendance_id, staff_id, break_start, break_end, duration_minutes
+      WHERE id=$1 RETURNING id, attendance_id, staff_id, staff_uid, break_start, break_end, duration_minutes
     `, breakId);
 
     success(res, result[0], `Break ended — ${Math.round(result[0].duration_minutes)} minutes`);
@@ -267,7 +303,10 @@ export const endBreak = async (req, res) => {
  */
 export const getTodayBreaks = async (req, res) => {
   try {
-    const staffId = req.user?.uid || req.params.id;
+    const staff = await resolveStaffRef(req);
+    if (!staff) {
+      return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
+    }
     const today = new Date().toISOString().split('T')[0];
 
     const breaks = await prisma.$queryRawUnsafe(`
@@ -276,7 +315,7 @@ export const getTodayBreaks = async (req, res) => {
       FROM staff_breaks b
       WHERE b.staff_id=$1 AND DATE(b.break_start)=$2
       ORDER BY b.break_start
-    `, staffId, today);
+    `, staff.id, today);
 
     const totalBreakMinutes = breaks.reduce((sum, b) => sum + parseFloat(b.duration_minutes_calc || 0), 0);
     success(res, { breaks: breaks, totalBreakMinutes: Math.round(totalBreakMinutes) }, 'Breaks fetched');
@@ -293,7 +332,10 @@ export const getTodayBreaks = async (req, res) => {
  */
 export const submitDispute = async (req, res) => {
   try {
-    const staffId = req.user?.uid || req.params.id;
+    const staff = await resolveStaffRef(req);
+    if (!staff) {
+      return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
+    }
     const { date, dispute_type, description, requested_check_in, requested_check_out, evidence_url } = req.body;
 
     if (!date || !dispute_type || !description) {
@@ -306,11 +348,25 @@ export const submitDispute = async (req, res) => {
     }
 
     const result = await prisma.$queryRawUnsafe(`
-      INSERT INTO attendance_disputes (staff_id, date, dispute_type, description, requested_check_in, requested_check_out, evidence_url)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      ON CONFLICT (staff_id, date) DO UPDATE SET dispute_type=$3, description=$4, requested_check_in=$5, requested_check_out=$6, evidence_url=$7, status='pending', created_at=NOW()
-      RETURNING id, staff_uid, dispute_date, reason, status, resolution, created_at
-    `, staffId, date, dispute_type, description, requested_check_in || null, requested_check_out || null, evidence_url || null);
+      INSERT INTO attendance_disputes
+        (staff_id, staff_uid, dispute_date, dispute_type, reason, requested_check_in, requested_check_out, evidence_url)
+      VALUES ($1, $2::uuid, $3::date, $4, $5, $6::timestamptz, $7::timestamptz, $8)
+      ON CONFLICT (staff_id, dispute_date) DO UPDATE SET
+        dispute_type=$4,
+        reason=$5,
+        requested_check_in=$6::timestamptz,
+        requested_check_out=$7::timestamptz,
+        evidence_url=$8,
+        status='pending',
+        resolution=NULL,
+        reviewer_comment=NULL,
+        reviewed_by=NULL,
+        reviewed_by_uid=NULL,
+        reviewed_at=NULL,
+        updated_at=NOW()
+      RETURNING id, staff_id, staff_uid, dispute_date, dispute_type, reason,
+        requested_check_in, requested_check_out, evidence_url, status, resolution, created_at
+    `, staff.id, staff.uid, date, dispute_type, description, requested_check_in || null, requested_check_out || null, evidence_url || null);
 
     success(res, result[0], 'Dispute submitted. HR will review within 24 hours.');
   } catch (err) {
@@ -324,14 +380,19 @@ export const submitDispute = async (req, res) => {
  */
 export const getMyDisputes = async (req, res) => {
   try {
-    const staffId = req.user?.uid || req.params.id;
+    const staff = await resolveStaffRef(req);
+    if (!staff) {
+      return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
+    }
     const disputes = await prisma.$queryRawUnsafe(`
-      SELECT d.id, d.staff_uid, d.dispute_date, d.reason, d.status, d.resolution, d.resolved_by, d.created_at,
+      SELECT d.id, d.staff_id, d.staff_uid, d.dispute_date, d.dispute_type, d.reason,
+        d.requested_check_in, d.requested_check_out, d.evidence_url,
+        d.status, d.resolution, d.reviewer_comment, d.reviewed_by, d.reviewed_at,
         u.name as reviewer_name
       FROM attendance_disputes d
       LEFT JOIN users u ON d.reviewed_by = u.id
-      WHERE d.staff_id = $1 ORDER BY d.date DESC LIMIT 30
-    `, staffId);
+      WHERE d.staff_id = $1 ORDER BY d.dispute_date DESC LIMIT 30
+    `, staff.id);
 
     success(res, disputes, 'Disputes fetched');
   } catch (err) {
@@ -346,12 +407,14 @@ export const getMyDisputes = async (req, res) => {
 export const getPendingDisputes = async (req, res) => {
   try {
     const disputes = await prisma.$queryRawUnsafe(`
-      SELECT d.id, d.staff_uid, d.dispute_date, d.reason, d.status, d.resolution, d.resolved_by, d.created_at,
+      SELECT d.id, d.staff_id, d.staff_uid, d.dispute_date, d.dispute_type, d.reason,
+        d.requested_check_in, d.requested_check_out, d.evidence_url,
+        d.status, d.resolution, d.reviewer_comment, d.reviewed_by, d.reviewed_at,
         u.name as staff_name, s.employee_id, s.department
       FROM attendance_disputes d
       JOIN users u ON d.staff_id = u.id
       LEFT JOIN staff s ON u.uid = s.user_id
-      WHERE d.status = 'pending' ORDER BY d.date DESC
+      WHERE d.status = 'pending' ORDER BY d.dispute_date DESC
     `);
 
     success(res, disputes, 'Pending disputes fetched');
@@ -367,14 +430,22 @@ export const getPendingDisputes = async (req, res) => {
 export const resolveDispute = async (req, res) => {
   try {
     const { id } = req.params;
-    const reviewerId = req.user?.uid;
+    const reviewer = await resolveCurrentUserRef(req);
+    if (!reviewer) {
+      return error(res, 'Reviewer not found', HTTP_STATUS.NOT_FOUND);
+    }
     const { status, reviewer_comment, apply_correction } = req.body;
 
     if (!['approved', 'rejected'].includes(status)) {
       return error(res, 'status must be approved or rejected', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const dispute = await prisma.$queryRawUnsafe('SELECT id, staff_uid, dispute_date, reason, status, resolution, resolved_by, created_at FROM attendance_disputes WHERE id=$1', id);
+    const dispute = await prisma.$queryRawUnsafe(`
+      SELECT id, staff_id, staff_uid, dispute_date, dispute_type, reason,
+        requested_check_in, requested_check_out, status, resolution, reviewed_by, created_at
+      FROM attendance_disputes
+      WHERE id=$1::int
+    `, id);
     if (dispute.length === 0) return error(res, 'Dispute not found', HTTP_STATUS.NOT_FOUND);
 
     const d = dispute[0];
@@ -384,7 +455,7 @@ export const resolveDispute = async (req, res) => {
       if (d.requested_check_in || d.requested_check_out) {
         const existingAtt = await prisma.$queryRawUnsafe(
           `SELECT id FROM staff_attendance WHERE staff_id=$1 AND DATE(check_in_time)=$2`,
-          d.staff_id, d.date
+          d.staff_id, d.dispute_date
         );
 
         if (existingAtt.length > 0) {
@@ -403,21 +474,32 @@ export const resolveDispute = async (req, res) => {
 
           vals.push(existingAtt[0].id);
           if (updates.length) {
-            await prisma.$queryRawUnsafe(`UPDATE staff_attendance SET ${updates.join(', ')} WHERE id=$${idx}`, vals);
+            await prisma.$queryRawUnsafe(`UPDATE staff_attendance SET ${updates.join(', ')} WHERE id=$${idx}`, ...vals);
           }
         } else if (d.requested_check_in) {
           await prisma.$queryRawUnsafe(
-            `INSERT INTO staff_attendance (staff_id, check_in_time, check_out_time) VALUES ($1, $2, $3)`,
-            d.staff_id, d.requested_check_in, d.requested_check_out || null
+            `INSERT INTO staff_attendance (staff_id, staff_uid, check_in_time, check_out_time) VALUES ($1, $2::uuid, $3, $4)`,
+            d.staff_id, d.staff_uid, d.requested_check_in, d.requested_check_out || null
           );
         }
       }
     }
 
     const result = await prisma.$queryRawUnsafe(`
-      UPDATE attendance_disputes SET status=$1, reviewer_comment=$2, reviewed_by=$3, reviewed_at=NOW()
-      WHERE id=$4 RETURNING id, staff_uid, dispute_date, reason, status, resolution, created_at
-    `, status, reviewer_comment || null, reviewerId, id);
+      UPDATE attendance_disputes
+      SET status=$1,
+        reviewer_comment=$2,
+        reviewed_by=$3,
+        reviewed_by_uid=$4::uuid,
+        reviewed_at=NOW(),
+        resolved_by=$3,
+        resolution=COALESCE($2, resolution),
+        updated_at=NOW()
+      WHERE id=$5::int
+      RETURNING id, staff_id, staff_uid, dispute_date, dispute_type, reason,
+        requested_check_in, requested_check_out, evidence_url,
+        status, resolution, reviewer_comment, reviewed_by, reviewed_at, created_at
+    `, status, reviewer_comment || null, reviewer.id, reviewer.uid, id);
 
     success(res, result[0], `Dispute ${status}`);
   } catch (err) {
@@ -440,7 +522,7 @@ export const getGeofenceBreaches = async (req, res) => {
       JOIN users u ON gb.staff_id = u.id
       ${whereClause}
       ORDER BY gb.occurred_at DESC LIMIT $1
-    `, params);
+    `, ...params);
 
     success(res, breaches, 'Geofence breaches fetched');
   } catch (err) {

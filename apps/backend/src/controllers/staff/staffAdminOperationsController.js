@@ -99,11 +99,11 @@ export const advancedStaffSearch = async (req, res) => {
     query += ` LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
     params.push(limit, (page - 1) * limit);
 
-    const result = await prisma.$queryRawUnsafe(query, params);
+    const result = await prisma.$queryRawUnsafe(query, ...params);
 
     // Get total count
     const countQuery = query.replace(/SELECT[\s\S]*FROM/, 'SELECT COUNT(*) FROM').replace(/ORDER BY[\s\S]*$/, '');
-    const countResult = await prisma.$queryRawUnsafe(countQuery, params.slice(0, -2));
+    const countResult = await prisma.$queryRawUnsafe(countQuery, ...params.slice(0, -2));
 
     success(res, {
       staff: result,

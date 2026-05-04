@@ -244,7 +244,7 @@ export const getGeofenceBreachLog = async (req, res) => {
       ${whereClause}
       ORDER BY gb.occurred_at DESC
       LIMIT $1
-    `, params);
+    `, ...params);
 
     // Summary stats
     const stats = await prisma.$queryRawUnsafe(`

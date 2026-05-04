@@ -274,7 +274,7 @@ export const getRevisions = async (req, res) => {
       ${where}
       ORDER BY sr.created_at DESC
       LIMIT $${idx}
-    `, params);
+    `, ...params);
 
     success(res, revisions, 'Revisions fetched');
   } catch (err) {
