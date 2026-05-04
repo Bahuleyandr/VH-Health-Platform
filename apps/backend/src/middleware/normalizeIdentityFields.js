@@ -43,7 +43,7 @@ export function normalizeIdentityFields(req, res, next) {
 
   // ✅ Normalize gender
   if (typeof src?.gender === 'string') {
-    req.body.gender = src.gender.trim().toLowerCase();
+    req.body.gender = src.gender.trim().toUpperCase();
   }
 
   // ✅ Normalize name and email
