@@ -765,11 +765,18 @@ export const getStaffStatistics = async (userRole, timeframe) => {
     },
     departments: departmentStats,
     roles: roleStats,
-    shifts: shiftStats.map(shift => ({
-      ...shift,
-      shift_details: SHIFT_TYPES[shift.shift] || null,
-      attendance_rate: shift.count > 0 ? Math.round((shift.checked_in_count / shift.count) * 100) : 0
-    })),
+    shifts: shiftStats.map((shift) => {
+      const count = Number(shift.count || 0);
+      const checkedInCount = Number(shift.checked_in_count || 0);
+
+      return {
+        ...shift,
+        count,
+        checked_in_count: checkedInCount,
+        shift_details: SHIFT_TYPES[shift.shift] || null,
+        attendance_rate: count > 0 ? Math.round((checkedInCount / count) * 100) : 0,
+      };
+    }),
     attendance: attendanceStats,
     metadata: {
       timeframe,

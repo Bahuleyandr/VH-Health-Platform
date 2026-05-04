@@ -16,9 +16,9 @@ export const getPendingReviews = async (req, res) => {
         pr.review_period,
         pr.created_at,
         DATE_PART('day', NOW() - pr.created_at) as pending_days
-      FROM performance_reviews pr
+      FROM staff_performance_reviews pr
       JOIN staff s ON pr.staff_id = s.id
-      WHERE pr.status = 'pending'
+      WHERE pr.review_date IS NULL
       ORDER BY pr.created_at ASC
     `);
 
@@ -68,15 +68,14 @@ export const approvePerformanceReview = async (req, res) => {
     const approvedBy = req.user?.uid;
 
     const result = await prisma.$queryRawUnsafe(`
-      UPDATE performance_reviews
-      SET 
-        status = 'approved',
-        approved_by = $2,
-        approved_at = NOW(),
-        approver_comments = $3,
-        final_rating = COALESCE($4, rating)
+      UPDATE staff_performance_reviews
+      SET
+        reviewer_id = COALESCE($2::uuid, reviewer_id),
+        reviewer_comments = COALESCE($3, reviewer_comments),
+        rating = COALESCE($4::double precision, rating),
+        review_date = CURRENT_DATE
       WHERE id = $1
-      RETURNING id, staff_id, review_period, status, rating, final_rating, approved_by, approved_at, approver_comments, created_at
+      RETURNING id, staff_id, review_period, rating, reviewer_id, reviewer_comments, review_date, created_at
     `, reviewId, approvedBy, comments, final_rating);
 
     if (result.length === 0) {

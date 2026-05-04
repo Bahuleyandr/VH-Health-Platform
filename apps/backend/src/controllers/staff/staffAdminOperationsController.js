@@ -41,9 +41,8 @@ export const advancedStaffSearch = async (req, res) => {
         GROUP BY staff_id
       ) att ON s.id = att.staff_id
       LEFT JOIN (
-        SELECT staff_id, COUNT(*) as pending_reviews
-        FROM performance_reviews
-        WHERE status = 'pending'
+        SELECT staff_id, COUNT(*) FILTER (WHERE review_date IS NULL) as pending_reviews
+        FROM staff_performance_reviews
         GROUP BY staff_id
       ) pr ON s.id = pr.staff_id
       LEFT JOIN leave_applications la ON s.id = la.staff_id
@@ -81,8 +80,8 @@ export const advancedStaffSearch = async (req, res) => {
 
     if (attendance_rate_min) {
       paramCount++;
-      query += ` AND COALESCE(att.attendance_rate, 0) >= $${paramCount}`;
-      params.push(attendance_rate_min);
+      query += ` AND COALESCE(att.attendance_rate, 0) >= $${paramCount}::numeric`;
+      params.push(Number(attendance_rate_min));
     }
 
     if (has_pending_review === 'true') {
@@ -95,23 +94,38 @@ export const advancedStaffSearch = async (req, res) => {
       query += ` AND la.id IS NULL`;
     }
 
-    query += ` ORDER BY ${sort_by} ${order}`;
+    const sortColumns = {
+      name: 'u.name',
+      employee_id: 's.employee_id',
+      department: 's.department',
+      shift: 's.shift',
+      attendance_rate: 'attendance_rate',
+      pending_reviews: 'pending_reviews',
+    };
+    const sortColumn = sortColumns[sort_by] || sortColumns.name;
+    const sortOrder = String(order).toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+    const pageNumber = Math.max(parseInt(page, 10) || 1, 1);
+    const pageSize = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+
+    const filteredQuery = query;
+
+    query += ` ORDER BY ${sortColumn} ${sortOrder}`;
     query += ` LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
-    params.push(limit, (page - 1) * limit);
+    params.push(pageSize, (pageNumber - 1) * pageSize);
 
     const result = await prisma.$queryRawUnsafe(query, ...params);
 
     // Get total count
-    const countQuery = query.replace(/SELECT[\s\S]*FROM/, 'SELECT COUNT(*) FROM').replace(/ORDER BY[\s\S]*$/, '');
+    const countQuery = `SELECT COUNT(*) as count FROM (${filteredQuery}) staff_search_count`;
     const countResult = await prisma.$queryRawUnsafe(countQuery, ...params.slice(0, -2));
 
     success(res, {
       staff: result,
       pagination: {
         total: parseInt(countResult[0].count),
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(countResult[0].count / limit)
+        page: pageNumber,
+        limit: pageSize,
+        totalPages: Math.ceil(Number(countResult[0].count || 0) / pageSize)
       }
     }, 'Staff search completed successfully');
   } catch (err) {
@@ -217,18 +231,18 @@ export const generatePayrollData = async (req, res) => {
       FROM staff s
       JOIN users u ON s.user_id = u.uid
       LEFT JOIN staff_attendance a ON s.id = a.staff_id
-        AND EXTRACT(MONTH FROM a.check_in_time) = $1
-        AND EXTRACT(YEAR FROM a.check_in_time) = $2
+        AND EXTRACT(MONTH FROM a.check_in_time)::int = $1::int
+        AND EXTRACT(YEAR FROM a.check_in_time)::int = $2::int
       LEFT JOIN leave_applications la ON s.id = la.staff_id
         AND la.status = 'approved'
-        AND EXTRACT(MONTH FROM la.start_date) = $1
-        AND EXTRACT(YEAR FROM la.start_date) = $2
+        AND EXTRACT(MONTH FROM la.start_date)::int = $1::int
+        AND EXTRACT(YEAR FROM la.start_date)::int = $2::int
       WHERE 
         s.is_active = true
         ${department ? 'AND s.department = $3' : ''}
       GROUP BY s.employee_id, u.name, s.department, s.base_salary
       ORDER BY s.department, u.name
-    `, department ? [month, year, department] : [month, year]);
+    `, month, year, ...(department ? [department] : []));
 
     success(res, {
       payrollData: payrollData,
@@ -322,9 +336,9 @@ export const purgeOldRecords = async (req, res) => {
         break;
       case 'reviews':
         result = await prisma.$queryRawUnsafe(`
-          DELETE FROM performance_reviews
+          DELETE FROM staff_performance_reviews
           WHERE created_at < NOW() - make_interval(days => $1)
-          AND status = 'completed'
+          AND review_date IS NOT NULL
           RETURNING id
         `, safeDays);
         break;
@@ -369,7 +383,7 @@ async function exportAttendanceData(department, start_date, end_date) {
       AND a.check_in_time <= COALESCE($2::timestamp, CURRENT_DATE)
       ${department ? 'AND s.department = $3' : ''}
     ORDER BY a.check_in_time DESC
-  `, department ? [start_date, end_date, department] : [start_date, end_date]);
+  `, start_date || null, end_date || null, ...(department ? [department] : []));
 
   // Convert to CSV format
   const headers = ['Employee ID', 'Name', 'Department', 'Date', 'Check In', 'Check Out', 'Hours Worked'];

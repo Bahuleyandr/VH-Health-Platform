@@ -18,12 +18,12 @@ export const getLeavePatterns = async (req, res) => {
       FROM leave_applications la
       JOIN staff s ON la.staff_id = s.id
       WHERE 
-        EXTRACT(YEAR FROM la.start_date) = $1
+        EXTRACT(YEAR FROM la.start_date)::int = $1::int
         AND la.status = 'approved'
         ${department ? 'AND s.department = $2' : ''}
       GROUP BY month, la.leave_type
       ORDER BY month, la.leave_type
-    `, department ? [year, department] : [year]);
+    `, year, ...(department ? [department] : []));
 
     success(res, {
       patterns: patterns,
@@ -59,7 +59,7 @@ export const getAllLeaveRequests = async (req, res) => {
         la.status = $1
         ${department ? 'AND s.department = $2' : ''}
       ORDER BY la.created_at DESC
-    `, department ? [status, department] : [status]);
+    `, status, ...(department ? [department] : []));
 
     success(res, {
       leaveRequests: leaveRequests,
@@ -115,7 +115,7 @@ export const approveLeaveRequest = async (req, res) => {
         reviewed_at = NOW(),
         review_notes = $3
       WHERE id = $1
-      RETURNING id, staff_uid, leave_type, start_date, end_date, status, reviewed_by, reason, created_at
+      RETURNING id, staff_id, leave_type, start_date, end_date, status, reviewed_by, reason, created_at
     `, leaveId, approvedBy, comments);
 
     if (result.length === 0) {

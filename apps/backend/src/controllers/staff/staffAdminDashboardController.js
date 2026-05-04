@@ -28,14 +28,17 @@ export const getStaffAdminDashboard = async (req, res) => {
         WHERE check_in_time::date = CURRENT_DATE
       ),
       hr_pending AS (
-        SELECT 
-          COUNT(*) FILTER (WHERE status = 'pending') as pending_reviews,
-          COUNT(*) FILTER (WHERE status = 'pending') as pending_leaves
-        FROM (
-          SELECT status FROM performance_reviews WHERE status = 'pending'
-          UNION ALL
-          SELECT status FROM leave_applications WHERE status = 'pending'
-        ) hr_actions
+        SELECT
+          COALESCE((
+            SELECT COUNT(*)
+            FROM staff_performance_reviews
+            WHERE review_date IS NULL
+          ), 0) as pending_reviews,
+          COALESCE((
+            SELECT COUNT(*)
+            FROM leave_applications
+            WHERE status = 'pending'
+          ), 0) as pending_leaves
       )
       SELECT 
         to_json(staff_stats.*) as staff,

@@ -42,8 +42,23 @@ jest.unstable_mockModule('../../utils/payslipPDF.js', () => ({
   generatePayslipPDF: jest.fn(),
 }));
 
-const { getTodayBreaks } = await import('../../controllers/staff/attendanceController.js');
+const { getGeofenceBreaches, getTodayBreaks } = await import('../../controllers/staff/attendanceController.js');
 const { getMyOvertimeRequests } = await import('../../controllers/staff/overtimeController.js');
+const {
+  getAttendanceAnomalies,
+  getLateArrivals,
+} = await import('../../controllers/staff/staffAdminAttendanceController.js');
+const {
+  getEfficiencyReport,
+  getOvertimeReport,
+  getPerformanceAnalytics,
+} = await import('../../controllers/staff/staffAdminAnalyticsController.js');
+const { getStaffAdminDashboard } = await import('../../controllers/staff/staffAdminDashboardController.js');
+const {
+  getAllLeaveRequests,
+  getLeavePatterns,
+} = await import('../../controllers/staff/staffAdminLeaveController.js');
+const { advancedStaffSearch } = await import('../../controllers/staff/staffAdminOperationsController.js');
 const {
   getAllAdvances,
   getMyAdvances,
@@ -51,6 +66,7 @@ const {
   getMyPayslipQueries,
   getMyTaxSummary,
 } = await import('../../controllers/staff/payrollController.js');
+const { getStaffStatistics } = await import('../../services/staff/staffService.js');
 
 function makeRes() {
   return {
@@ -179,5 +195,179 @@ describe('staff operational endpoint drift guards', () => {
       months_included: 0,
       status: 'unavailable',
     });
+  });
+
+  it('maps attendance anomalies to existing CTE columns', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]);
+
+    const res = makeRes();
+
+    await getAttendanceAnomalies({}, res);
+
+    const sql = queryRawUnsafe.mock.calls[0][0];
+    expect(sql).toContain('id as staff_id');
+    expect(sql).toContain('0 as absent_days');
+    expect(sql).toContain('missing_checkout_days');
+    expect(sql).not.toContain('staff_uid, name, late_days, early_leave_days, absent_days');
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('spreads staff admin attendance report filters and casts dates', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]);
+
+    const req = { query: { date: '2026-05-04', department: 'nursing' } };
+    const res = makeRes();
+
+    await getLateArrivals(req, res);
+
+    expect(queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('a.check_in_time::date = $1::date'),
+      '2026-05-04',
+      'nursing'
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('uses current performance review table in staff admin dashboard', async () => {
+    queryRawUnsafe
+      .mockResolvedValueOnce([{ staff: {}, attendance: {}, hr_actions: {} }])
+      .mockResolvedValueOnce([]);
+
+    const res = makeRes();
+
+    await getStaffAdminDashboard({}, res);
+
+    const sql = queryRawUnsafe.mock.calls[0][0];
+    expect(sql).toContain('FROM staff_performance_reviews');
+    expect(sql).toContain('WHERE review_date IS NULL');
+    expect(sql).not.toContain('FROM performance_reviews');
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('uses current performance review table and spread params for admin analytics', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]);
+
+    const req = { query: { department: 'nursing', timeframe: 'monthly' } };
+    const res = makeRes();
+
+    await getPerformanceAnalytics(req, res);
+
+    expect(queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('FROM staff_performance_reviews pr'),
+      'nursing'
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('spreads efficiency and overtime report parameters', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await getEfficiencyReport(
+      { query: { start_date: '2026-05-01', end_date: '2026-05-04', department: 'lab' } },
+      makeRes()
+    );
+    await getOvertimeReport(
+      { query: { month: '5', year: '2026', department: 'lab' } },
+      makeRes()
+    );
+
+    expect(queryRawUnsafe.mock.calls[0]).toEqual([
+      expect.stringContaining('LEFT JOIN staff_performance_reviews pr'),
+      '2026-05-01',
+      '2026-05-04',
+      'lab',
+    ]);
+    expect(queryRawUnsafe.mock.calls[1]).toEqual([
+      expect.stringContaining('EXTRACT(MONTH FROM a.check_in_time)::int = $1::int'),
+      '5',
+      '2026',
+      'lab',
+    ]);
+  });
+
+  it('spreads leave report filters and casts the year', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await getLeavePatterns({ query: { year: '2026', department: 'nursing' } }, makeRes());
+    await getAllLeaveRequests({ query: { status: 'pending', department: 'nursing' } }, makeRes());
+
+    expect(queryRawUnsafe.mock.calls[0]).toEqual([
+      expect.stringContaining('EXTRACT(YEAR FROM la.start_date)::int = $1::int'),
+      '2026',
+      'nursing',
+    ]);
+    expect(queryRawUnsafe.mock.calls[1]).toEqual([
+      expect.any(String),
+      'pending',
+      'nursing',
+    ]);
+  });
+
+  it('builds advanced staff search with safe performance table, sort whitelist, and count subquery', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]).mockResolvedValueOnce([{ count: 0n }]);
+
+    const req = {
+      query: {
+        department: 'nursing',
+        attendance_rate_min: '80',
+        sort_by: 'name; DROP TABLE users',
+        order: 'desc',
+        page: '2',
+        limit: '10',
+      },
+    };
+    const res = makeRes();
+
+    await advancedStaffSearch(req, res);
+
+    const searchSql = queryRawUnsafe.mock.calls[0][0];
+    const countSql = queryRawUnsafe.mock.calls[1][0];
+    expect(searchSql).toContain('FROM staff_performance_reviews');
+    expect(searchSql).toContain('ORDER BY u.name DESC');
+    expect(searchSql).not.toContain('DROP TABLE');
+    expect(countSql).toContain('SELECT COUNT(*) as count FROM (');
+    expect(queryRawUnsafe.mock.calls[0].slice(1)).toEqual(['nursing', 80, 10, 10]);
+    expect(queryRawUnsafe.mock.calls[1].slice(1)).toEqual(['nursing', 80]);
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('normalizes BigInt shift counts before attendance-rate math', async () => {
+    queryRawUnsafe
+      .mockResolvedValueOnce([{
+        total_staff: 2n,
+        active_staff: 2n,
+        inactive_staff: 0n,
+        average_salary: null,
+        currently_checked_in: 1n,
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ shift: 'morning', count: 2n, checked_in_count: 1n }])
+      .mockResolvedValueOnce([{ staff_with_attendance: 0n, total_attendance_records: 0n, avg_daily_hours: null }]);
+
+    const result = await getStaffStatistics('ADMIN', 'monthly');
+
+    expect(result.shifts[0]).toMatchObject({
+      count: 2,
+      checked_in_count: 1,
+      attendance_rate: 50,
+    });
+  });
+
+  it('casts geofence breach filters and clamps limits', async () => {
+    queryRawUnsafe.mockResolvedValueOnce([]);
+
+    const req = { query: { limit: '999', staff_id: '4' } };
+    const res = makeRes();
+
+    await getGeofenceBreaches(req, res);
+
+    expect(queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('gb.staff_id = $2::int'),
+      200,
+      4
+    );
+    expect(queryRawUnsafe.mock.calls[0][0]).toContain('LIMIT $1::int');
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 });

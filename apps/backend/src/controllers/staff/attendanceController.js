@@ -514,14 +514,15 @@ export const resolveDispute = async (req, res) => {
 export const getGeofenceBreaches = async (req, res) => {
   try {
     const { limit = 50, staff_id } = req.query;
-    const whereClause = staff_id ? 'WHERE gb.staff_id = $2' : '';
-    const params = staff_id ? [parseInt(limit), staff_id] : [parseInt(limit)];
+    const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
+    const whereClause = staff_id ? 'WHERE gb.staff_id = $2::int' : '';
+    const params = staff_id ? [safeLimit, Number(staff_id)] : [safeLimit];
 
     const breaches = await prisma.$queryRawUnsafe(`
       SELECT gb.*, u.name as staff_name FROM geofence_breaches gb
       JOIN users u ON gb.staff_id = u.id
       ${whereClause}
-      ORDER BY gb.occurred_at DESC LIMIT $1
+      ORDER BY gb.occurred_at DESC LIMIT $1::int
     `, ...params);
 
     success(res, breaches, 'Geofence breaches fetched');

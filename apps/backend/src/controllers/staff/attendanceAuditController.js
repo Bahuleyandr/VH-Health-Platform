@@ -233,8 +233,9 @@ export const getGeofenceBreachLog = async (req, res) => {
   try {
     const { limit = 100, staff_id } = req.query;
 
-    const whereClause = staff_id ? 'WHERE gb.staff_id = $2' : '';
-    const params = staff_id ? [parseInt(limit), staff_id] : [parseInt(limit)];
+    const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500);
+    const whereClause = staff_id ? 'WHERE gb.staff_id = $2::int' : '';
+    const params = staff_id ? [safeLimit, Number(staff_id)] : [safeLimit];
 
     const breaches = await prisma.$queryRawUnsafe(`
       SELECT gb.*, u.name as staff_name, s.department, u.role as staff_role
@@ -243,7 +244,7 @@ export const getGeofenceBreachLog = async (req, res) => {
       LEFT JOIN staff s ON u.uid = s.user_id
       ${whereClause}
       ORDER BY gb.occurred_at DESC
-      LIMIT $1
+      LIMIT $1::int
     `, ...params);
 
     // Summary stats

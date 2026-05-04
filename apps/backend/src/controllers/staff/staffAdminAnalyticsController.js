@@ -20,13 +20,13 @@ export const getPerformanceAnalytics = async (req, res) => {
         ROUND(AVG(pr.rating), 2) as avg_rating,
         COUNT(*) FILTER (WHERE pr.rating >= 4) as high_performers,
         COUNT(*) FILTER (WHERE pr.rating < 3) as needs_improvement
-      FROM performance_reviews pr
+      FROM staff_performance_reviews pr
       JOIN staff s ON pr.staff_id = s.id
       WHERE 
         pr.created_at >= CURRENT_DATE - INTERVAL '${safeInterval}'
         ${department ? 'AND s.department = $1' : ''}
       GROUP BY s.department
-    `, department ? [department] : []);
+    `, ...(department ? [department] : []));
 
     success(res, {
       analytics: analytics,
@@ -84,13 +84,13 @@ export const getEfficiencyReport = async (req, res) => {
       LEFT JOIN staff_attendance a ON s.id = a.staff_id
         AND a.check_in_time >= COALESCE($1::timestamp, CURRENT_DATE - INTERVAL '30 days')
         AND a.check_in_time <= COALESCE($2::timestamp, CURRENT_DATE)
-      LEFT JOIN performance_reviews pr ON s.id = pr.staff_id
+      LEFT JOIN staff_performance_reviews pr ON s.id = pr.staff_id
         AND pr.created_at >= CURRENT_DATE - INTERVAL '3 months'
       WHERE 
         s.is_active = true
         ${department ? 'AND s.department = $3' : ''}
       GROUP BY s.department
-    `, department ? [start_date, end_date, department] : [start_date, end_date]);
+    `, start_date || null, end_date || null, ...(department ? [department] : []));
 
     success(res, {
       efficiency: efficiency,
@@ -121,8 +121,8 @@ export const getOvertimeReport = async (req, res) => {
       FROM staff s
       JOIN staff_attendance a ON s.id = a.staff_id
       WHERE 
-        EXTRACT(MONTH FROM a.check_in_time) = $1
-        AND EXTRACT(YEAR FROM a.check_in_time) = $2
+        EXTRACT(MONTH FROM a.check_in_time)::int = $1::int
+        AND EXTRACT(YEAR FROM a.check_in_time)::int = $2::int
         ${department ? 'AND s.department = $3' : ''}
       GROUP BY s.name, s.employee_id, s.department
       HAVING SUM(CASE 
@@ -131,7 +131,7 @@ export const getOvertimeReport = async (req, res) => {
         ELSE 0 
       END) > 0
       ORDER BY total_overtime_hours DESC
-    `, department ? [month, year, department] : [month, year]);
+    `, month, year, ...(department ? [department] : []));
 
     success(res, {
       overtime: overtime,
@@ -157,7 +157,7 @@ export const getTurnoverReport = async (req, res) => {
           COUNT(*) FILTER (WHERE s.is_active = false) as left_count,
           COUNT(*) FILTER (WHERE s.join_date >= DATE_TRUNC('month', s.updated_at)) as joined_count
         FROM staff s
-        WHERE EXTRACT(YEAR FROM s.updated_at) = $1
+        WHERE EXTRACT(YEAR FROM s.updated_at)::int = $1::int
         GROUP BY EXTRACT(MONTH FROM s.updated_at), s.department
       )
       SELECT 

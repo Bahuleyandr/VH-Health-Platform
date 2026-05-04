@@ -60,7 +60,17 @@ export const getAttendanceAnomalies = async (req, res) => {
           OR COUNT(*) FILTER (WHERE a.check_out_time::time < '17:00:00') > 3
           OR COUNT(*) FILTER (WHERE a.check_out_time IS NULL) > 0
       )
-      SELECT staff_uid, name, late_days, early_leave_days, absent_days FROM anomalies ORDER BY late_days DESC, early_leave_days DESC
+      SELECT
+        id as staff_id,
+        name,
+        department,
+        employee_id,
+        late_days,
+        early_leave_days,
+        0 as absent_days,
+        missing_checkout_days
+      FROM anomalies
+      ORDER BY late_days DESC, early_leave_days DESC
     `);
 
     success(res, {
@@ -88,11 +98,11 @@ export const getLateArrivals = async (req, res) => {
       FROM staff_attendance a
       JOIN staff s ON a.staff_id = s.id
       WHERE 
-        a.check_in_time::date = $1
+        a.check_in_time::date = $1::date
         AND a.check_in_time::time > '09:30:00'
         ${department ? 'AND s.department = $2' : ''}
       ORDER BY a.check_in_time DESC
-    `, department ? [date, department] : [date]);
+    `, date, ...(department ? [department] : []));
 
     success(res, {
       date,
@@ -120,11 +130,11 @@ export const getEarlyDepartures = async (req, res) => {
       FROM staff_attendance a
       JOIN staff s ON a.staff_id = s.id
       WHERE 
-        a.check_out_time::date = $1
+        a.check_out_time::date = $1::date
         AND a.check_out_time::time < '17:00:00'
         ${department ? 'AND s.department = $2' : ''}
       ORDER BY a.check_out_time
-    `, department ? [date, department] : [date]);
+    `, date, ...(department ? [department] : []));
 
     success(res, {
       date,
@@ -155,16 +165,16 @@ export const getAbsentReport = async (req, res) => {
       FROM staff s
       LEFT JOIN users u ON s.user_id = u.uid
       LEFT JOIN staff_attendance a ON s.id = a.staff_id
-        AND a.check_in_time::date = $1
+        AND a.check_in_time::date = $1::date
       LEFT JOIN leave_applications la ON s.id = la.staff_id
         AND la.status = 'approved'
-        AND $1 BETWEEN la.start_date AND la.end_date
+        AND $1::date BETWEEN la.start_date AND la.end_date
       WHERE 
         s.is_active = true
         AND a.id IS NULL
         ${department ? 'AND s.department = $2' : ''}
       ORDER BY s.department, s.name
-    `, department ? [date, department] : [date]);
+    `, date, ...(department ? [department] : []));
 
     success(res, {
       date,
