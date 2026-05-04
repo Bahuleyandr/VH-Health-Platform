@@ -29,6 +29,18 @@ const PROFILE_FIELDS_IN_SCHEMA = [
   'address',
   'profile_picture',
 ];
+const PROFILE_DATE_FIELDS = new Set(['birthday', 'anniversary']);
+
+function coerceProfileField(field, value) {
+  if (!PROFILE_DATE_FIELDS.has(field) || value === null || value === undefined) {
+    return value;
+  }
+  if (value instanceof Date) return value;
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return new Date(`${value}T00:00:00.000Z`);
+  }
+  return new Date(value);
+}
 
 function mapUserSummary(user) {
   if (!user) return user;
@@ -51,7 +63,7 @@ function buildProfileUpdateData(data, includeRole = false) {
 
   for (const field of PROFILE_FIELDS_IN_SCHEMA) {
     if (data[field] !== undefined) {
-      updateData[field] = data[field];
+      updateData[field] = coerceProfileField(field, data[field]);
     }
   }
 
