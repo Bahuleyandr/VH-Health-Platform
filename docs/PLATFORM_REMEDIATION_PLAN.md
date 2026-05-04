@@ -43,9 +43,11 @@ This tracker is the canonical platform-level remediation list. It focuses on rel
 
 - [x] Update root README, admin README, deployment guide, release docs, and stale workflow comments.
 - [x] Add patient/staff/admin smoke E2E journeys for login, dashboard, booking, uploads, and Clinical AI review.
+- [x] Promote admin/patient/staff smoke coverage into a repeatable `Smoke E2E` GitHub workflow and add a local staff desktop smoke wrapper.
 - [x] Triage patient audit backlog: SOS nearby-services 400, profile setup recheck, investigation booking walkthrough, pull-to-refresh, medication reminder surface, and empty states.
 - [x] Add bundle/performance work for heavy admin routes, especially Clinical AI.
 - [x] Plan and execute resolvable breaking Flutter plugin migrations; document remaining resolver-blocked majors for device_info_plus 13, share_plus 13, vector_math 2.3, and platform override cleanup.
+- [x] Add release-readiness and translation human-review trackers for the next production cut.
 
 ## Owner Actions Outside Code
 

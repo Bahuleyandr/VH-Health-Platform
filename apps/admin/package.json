@@ -15,6 +15,7 @@
     "test:coverage": "jest --coverage",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "smoke:routes": "playwright test --project=chromium --workers=1 e2e/route-crawl.spec.ts && playwright test --project=chromium --workers=1 e2e/authenticated.spec.ts",
     "type-check": "tsc --noEmit",
     "clean": "node scripts/clean.js",
     "clean:install": "npm run clean && npm install",

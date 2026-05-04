@@ -31,7 +31,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: vhhealth
           POSTGRES_PASSWORD: ${{ github.run_id }}
@@ -49,6 +49,7 @@ jobs:
       API_KEY: test-api-key
       JWT_SECRET: test-jwt-secret-for-ci-must-be-at-least-32-chars
       NODE_ENV: test
+      VH_ALLOW_NON_TEST_DATA_SEED: 'true'
 
     steps:
       - uses: actions/checkout@v6
@@ -87,8 +88,14 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      - name: Enable pgvector extension
+        run: npm run db:ensure-pgvector
+
       - name: Apply Prisma schema
-        run: npx prisma db push --force-reset --skip-generate
+        run: npx prisma db push --skip-generate --accept-data-loss
+
+      - name: Schema drift check (column-level via prisma db pull)
+        run: node scripts/check-schema-drift.mjs
 
       - name: Apply raw migrations + seed lookup data
         run: node scripts/ci-setup-db.mjs
@@ -104,9 +111,6 @@ jobs:
 
       - name: Schema drift check (table allowlist)
         run: node scripts/ci-schema-drift.mjs
-
-      - name: Schema drift check (column-level via prisma db pull)
-        run: node scripts/check-schema-drift.mjs
 
       - name: Run tests
         run: node --max-old-space-size=4096 --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --forceExit --detectOpenHandles

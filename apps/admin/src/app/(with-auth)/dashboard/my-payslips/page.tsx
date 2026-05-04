@@ -2,7 +2,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { API_BASE_URL, API_ENDPOINTS } from '@/lib/api-config';
+import { API_ENDPOINTS } from '@/lib/api-config';
 
 interface Payslip {
   id: string;
@@ -20,6 +20,7 @@ const STATUS_STYLE: Record<string, string> = {
   PAID:      'bg-green-500/20 text-green-400',
   PENDING:   'bg-yellow-500/20 text-yellow-400',
 };
+const CLIENT_API_BASE_URL = '/api/proxy';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(amount);
@@ -38,7 +39,7 @@ export default function MyPayslipsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.myWork.payslips.list}`, { headers });
+      const res = await fetch(`${CLIENT_API_BASE_URL}${API_ENDPOINTS.myWork.payslips.list}`, { headers });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { data?: Payslip[]; payslips?: Payslip[] } | Payslip[];
       const items = Array.isArray(d)
@@ -58,7 +59,7 @@ export default function MyPayslipsPage() {
   const downloadPayslip = async (id: string) => {
     setDownloading(id);
     try {
-      const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.myWork.payslips.download(id)}`, { headers });
+      const res = await fetch(`${CLIENT_API_BASE_URL}${API_ENDPOINTS.myWork.payslips.download(id)}`, { headers });
       if (!res.ok) throw new Error('Download failed');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -79,7 +80,7 @@ export default function MyPayslipsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white">My Payslips</h1>
         <a
-          href={`${API_BASE_URL}${API_ENDPOINTS.myWork.payslips.taxSummary}`}
+          href={`${CLIENT_API_BASE_URL}${API_ENDPOINTS.myWork.payslips.taxSummary}`}
           target="_blank"
           rel="noopener noreferrer"
           className="rounded bg-muted px-3 py-1.5 text-sm text-muted-foreground hover:text-white transition-colors"

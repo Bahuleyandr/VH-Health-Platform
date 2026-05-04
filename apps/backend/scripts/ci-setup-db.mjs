@@ -81,6 +81,27 @@ for (const file of files) {
 }
 logger.info(`→ Migrations: ${applied} applied, ${skipped} skipped, ${errors} with non-fatal errors\n`);
 
+logger.info('→ Recording CI migration tracker state …');
+try {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS _migrations (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL UNIQUE,
+      executed_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  for (const file of files) {
+    await client.query(
+      'INSERT INTO _migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING',
+      [file],
+    );
+  }
+  logger.info(`  ✓ Recorded ${files.length} migration file(s) in _migrations\n`);
+} catch (err) {
+  logger.info(`  ! Recording _migrations failed: ${err.message}\n`);
+}
+
 // Seed minimal lookup data the tests rely on
 logger.info('→ Seeding departments + doctors …');
 try {

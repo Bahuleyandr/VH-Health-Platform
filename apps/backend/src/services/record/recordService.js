@@ -177,7 +177,7 @@ export async function createHealthRecord(data, createdBy, _createdByRole) {
 // (migration 086). Patient info still fetched via a separate findMany keyed
 // on medical_records.patient_id (uuid, no FK — the column's two prior
 // interpretations are documented in migration 086's header).
-const REL_DOCTOR = 'users';
+const REL_DOCTOR = 'users_medical_records_doctor_idTousers';
 
 // Format a created_at/updated_at value the way the old TO_CHAR-based
 // SQL did: DD-MM-YYYY HH24:MI. One helper so every list view stays

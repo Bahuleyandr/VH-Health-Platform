@@ -19,7 +19,7 @@ type QualityDashboard = {
   total_incidents: number;
   open_incidents: number;
   resolved_incidents: number;
-  by_severity: Record<string, number>;
+  by_severity?: Record<string, number> | Array<{ severity: string; count: number }>;
   infection_cases_this_month?: number;
   active_outbreaks?: number;
 };
@@ -61,6 +61,16 @@ function fmtDate(d?: string | null) {
   catch { return d; }
 }
 
+function severityRows(bySeverity: QualityDashboard["by_severity"]): Array<[string, number]> {
+  if (!bySeverity) return [];
+  if (Array.isArray(bySeverity)) {
+    return bySeverity
+      .filter((row) => row?.severity)
+      .map((row) => [row.severity, Number(row.count) || 0]);
+  }
+  return Object.entries(bySeverity).map(([severity, count]) => [severity, Number(count) || 0]);
+}
+
 function StatCard({ label, value, color = "text-foreground", bg = "bg-card" }: { label: string; value: string | number; color?: string; bg?: string }) {
   return (
     <div className={`${bg} border border-border rounded-lg p-4`}>
@@ -86,6 +96,7 @@ function DashboardTab() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  const severityBreakdown = severityRows(stats?.by_severity);
 
   return (
     <div className="space-y-4">
@@ -101,12 +112,12 @@ function DashboardTab() {
               <StatCard label="Active Outbreaks" value={stats.active_outbreaks} color={stats.active_outbreaks > 0 ? "text-red-600" : "text-green-700"} bg={stats.active_outbreaks > 0 ? "bg-red-50" : "bg-green-50"} />
             )}
           </div>
-          {stats.by_severity && Object.keys(stats.by_severity).length > 0 && (
+          {severityBreakdown.length > 0 && (
             <div className="border border-border rounded-lg p-4">
               <p className="text-sm font-semibold mb-3">Incidents by Severity</p>
               <div className="flex gap-3 flex-wrap">
-                {Object.entries(stats.by_severity).map(([sev, count]) => (
-                  <div key={sev} className={`px-4 py-2 rounded-lg text-center ${SEVERITY_COLORS[sev?.toUpperCase()] ?? "bg-gray-100"}`}>
+                {severityBreakdown.map(([sev, count], index) => (
+                  <div key={`${sev}-${index}`} className={`px-4 py-2 rounded-lg text-center ${SEVERITY_COLORS[sev?.toUpperCase()] ?? "bg-gray-100"}`}>
                     <p className="text-lg font-bold">{count}</p>
                     <p className="text-xs font-medium">{sev}</p>
                   </div>

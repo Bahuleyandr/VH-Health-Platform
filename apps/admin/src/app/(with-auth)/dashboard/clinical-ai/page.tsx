@@ -466,12 +466,12 @@ function GuardrailEditor({
         </div>
       </div>
 
-      {(budget?.alerts ?? []).length > 0 ? (
-        <div className="space-y-2">
-          {(budget?.alerts ?? []).map((alert) => (
-            <div
-              key={alert.code}
-              className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
+          {(budget?.alerts ?? []).length > 0 ? (
+            <div className="space-y-2">
+              {(budget?.alerts ?? []).map((alert, index) => (
+                <div
+                  key={`${alert.code}-${index}`}
+                  className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
                 alert.severity === "block"
                   ? "border-red-200 bg-red-50 text-red-800"
                   : "border-amber-200 bg-amber-50 text-amber-800"
@@ -1157,8 +1157,8 @@ export default function ClinicalAiGovernancePage() {
                       </td>
                     </tr>
                   ) : (
-                    safetyReviewSummary?.recent_findings.map((finding) => (
-                      <tr key={`${finding.review_id}-${finding.code}-${finding.created_at}`}>
+                    safetyReviewSummary?.recent_findings.map((finding, index) => (
+                      <tr key={`${finding.review_id}-${finding.code}-${finding.created_at}-${index}`}>
                         <td className="px-4 py-3">
                           <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${severityClass(finding.severity ?? finding.status)}`}>
                             {finding.severity || readableKey(finding.status)}
@@ -1212,8 +1212,8 @@ export default function ClinicalAiGovernancePage() {
                   </td>
                 </tr>
               ) : (
-                flagRows.map((flag) => (
-                  <tr key={`${flag.generation_id}-${flag.code}-${flag.created_at}`}>
+                flagRows.map((flag, index) => (
+                  <tr key={`${flag.generation_id}-${flag.code}-${flag.created_at}-${index}`}>
                     <td className="px-4 py-3">
                       <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${severityClass(flag.severity)}`}>
                         {flag.severity}

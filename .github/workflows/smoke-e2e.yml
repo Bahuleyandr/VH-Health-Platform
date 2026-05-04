@@ -1,0 +1,184 @@
+name: Smoke E2E
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/admin/**'
+      - 'apps/backend/**'
+      - 'scripts/smoke-*.ps1'
+      - '.github/workflows/smoke-e2e.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  local-full-stack:
+    name: Backend + admin + API smokes
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: vhhealth
+          POSTGRES_PASSWORD: ${{ github.run_id }}
+          POSTGRES_DB: vhhealth
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vhhealth"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://vhhealth:${{ github.run_id }}@127.0.0.1:5432/vhhealth
+      API_KEY: vhhealth-local-api-key
+      BACKEND_API_KEY: vhhealth-local-api-key
+      JWT_SECRET: vhhealth-local-admin-smoke-secret-123456789
+      FIELD_ENCRYPTION_KEY: ci-field-encryption-key-32-chars-minimum
+      TOTP_ENCRYPTION_KEY: ci-totp-encryption-key-32-chars-minimum
+      BACKUP_ENCRYPTION_KEY: ci-backup-encryption-key-32-chars-minimum
+      REQUIRE_MFA_FOR_SUPER_ADMIN: 'false'
+      VH_ALLOW_NON_TEST_DATA_SEED: 'true'
+      NODE_ENV: test
+      PORT: '5206'
+      BACKEND_URL: http://127.0.0.1:5206
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:5206
+      NEXT_PUBLIC_ALLOWED_ORIGIN: http://localhost:3001,http://127.0.0.1:3001
+      NEXT_PUBLIC_APP_ORIGIN: http://localhost:3001
+      NEXT_PUBLIC_APP_NAME: VHHealth Admin
+      NEXT_PUBLIC_WS_URL: ws://127.0.0.1:5206
+      NEXT_PUBLIC_X_API_KEY: vhhealth-local-api-key
+      PLAYWRIGHT_BASE_URL: http://localhost:3001
+      PLAYWRIGHT_ADMIN_USERNAME: admin
+      PLAYWRIGHT_ADMIN_PASSWORD: test1234
+      PLAYWRIGHT_EXTERNAL_SERVER: '1'
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            apps/backend/package-lock.json
+            apps/admin/package-lock.json
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install backend dependencies
+        working-directory: apps/backend
+        run: npm ci
+
+      - name: Install admin dependencies
+        working-directory: apps/admin
+        run: npm ci
+
+      - name: Install Playwright browser
+        working-directory: apps/admin
+        run: npx playwright install --with-deps chromium
+
+      - name: Prepare migrated and seeded database
+        working-directory: apps/backend
+        run: |
+          npx prisma generate
+          npm run db:ensure-pgvector
+          npx prisma db push --skip-generate --accept-data-loss
+          node scripts/check-schema-drift.mjs
+          node scripts/ci-setup-db.mjs
+          npm run ci:db-guardrails
+
+      - name: Start backend
+        working-directory: apps/backend
+        run: |
+          mkdir -p ../../output/ci-smoke
+          node src/bin/www.js > ../../output/ci-smoke/backend.log 2>&1 &
+          echo $! > ../../output/ci-smoke/backend.pid
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:5206/health/live >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat ../../output/ci-smoke/backend.log
+          exit 1
+
+      - name: Start admin
+        working-directory: apps/admin
+        run: |
+          npm run dev > ../../output/ci-smoke/admin.log 2>&1 &
+          echo $! > ../../output/ci-smoke/admin.pid
+          for i in {1..60}; do
+            if curl -fsS http://localhost:3001/login >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat ../../output/ci-smoke/admin.log
+          exit 1
+
+      - name: Admin browser route smoke
+        working-directory: apps/admin
+        run: npm run smoke:routes
+
+      - name: Patient API smoke
+        shell: pwsh
+        run: >
+          ./scripts/smoke-patient-routing.ps1
+          -BackendBase http://127.0.0.1:5206
+          -ApiKey $env:API_KEY
+          -JwtSecret $env:JWT_SECRET
+          -PgHost 127.0.0.1
+          -PgPort 5432
+          -PgUser vhhealth
+          -PgDatabase vhhealth
+          -PgPassword '${{ github.run_id }}'
+
+      - name: Staff API smoke
+        shell: pwsh
+        run: >
+          ./scripts/smoke-staff-routing.ps1
+          -BackendBase http://127.0.0.1:5206
+          -ApiKey $env:API_KEY
+          -JwtSecret $env:JWT_SECRET
+          -PgHost 127.0.0.1
+          -PgPort 5432
+          -PgUser vhhealth
+          -PgDatabase vhhealth
+          -PgPassword '${{ github.run_id }}'
+
+      - name: Staff clinical-safety API smoke
+        shell: pwsh
+        run: >
+          ./scripts/smoke-staff-clinical-safety.ps1
+          -BackendBase http://127.0.0.1:5206
+          -ApiKey $env:API_KEY
+          -JwtSecret $env:JWT_SECRET
+          -PgHost 127.0.0.1
+          -PgPort 5432
+          -PgUser vhhealth
+          -PgDatabase vhhealth
+          -PgPassword '${{ github.run_id }}'
+
+      - name: Upload smoke logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: smoke-e2e-logs
+          path: |
+            output/ci-smoke
+            apps/admin/playwright-report
+            apps/admin/test-results
+          if-no-files-found: ignore

@@ -22,8 +22,8 @@ import { defineConfig, devices } from "@playwright/test";
  *
  * CI note:
  *   The reusable admin workflow runs lint, type-check, tests, build, and the
- *   Clinical AI bundle guard. Playwright authenticated journeys remain a local
- *   smoke gate until the seeded backend fixture is promoted into CI.
+ *   Clinical AI bundle guard. The full-stack Smoke E2E workflow starts a
+ *   seeded backend/admin pair and runs the authenticated browser journeys.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -54,7 +54,7 @@ export default defineConfig({
       testIgnore: /auth\.setup\.ts/,
     },
   ],
-  webServer: process.env.CI
+  webServer: process.env.CI && process.env.PLAYWRIGHT_EXTERNAL_SERVER !== "1"
     ? {
         command: "npm run dev",
         url: "http://localhost:3001",

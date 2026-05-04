@@ -16,6 +16,27 @@ becoming a full regression suite.
 - The scripts use disposable records and the local test API key/JWT secret
   passed as parameters or defaults.
 
+## CI Coverage
+
+The repeatable full-stack smoke gate lives at:
+
+```text
+.github/workflows/smoke-e2e.yml
+```
+
+It runs on `workflow_dispatch` and on PRs that touch backend, admin, or smoke
+scripts. The job boots Postgres, migrates and seeds the backend database, starts
+the backend and admin portal, then runs:
+
+- admin authenticated browser route crawl
+- patient API routing smoke
+- staff API routing smoke
+- staff clinical-safety API smoke
+
+This is intentionally a local fixture smoke. It does not need production
+credentials and should fail fast when endpoint drift, missing tables, proxy
+allowlist drift, or visible admin route errors return.
+
 ## Patient
 
 Command:
@@ -83,3 +104,37 @@ Covered journeys:
 Browser-level local journeys live in `apps/admin/e2e/authenticated.spec.ts` and
 cover login/session reuse, dashboard, users, appointments, uploads,
 upload-prescription, Clinical AI, payroll, and system logs.
+
+The broader route crawler is:
+
+```bash
+cd apps/admin
+npm run smoke:routes
+```
+
+It discovers every static page under `src/app/(with-auth)/dashboard`, skips
+dynamic routes such as `[id]`, and fails on visible error text, uncaught page
+errors, console errors, or failed `/api/proxy` responses.
+
+## Staff Desktop
+
+Command:
+
+```powershell
+$env:VH_BASE_URL='https://<host>/api/v1'
+$env:VH_API_KEY='<staff/patient smoke API key>'
+.\scripts\smoke-staff-desktop.ps1
+```
+
+Covered journey:
+
+- Launches the Flutter staff Windows app through `flutter test -d windows`.
+- Logs in as seeded staff user `1007` / `test1234`.
+- Opens the day-to-day dashboard, bottom navigation, and the common dashboard
+  actions from the front screen and `More tools`.
+- Fails on Flutter exceptions, route-not-found text, HTTP 404/500 text, and
+  common client request failure strings.
+
+This remains a Windows/local smoke because GitHub-hosted Windows runners do not
+provide the same disposable Postgres service container setup used by the Linux
+full-stack smoke workflow.

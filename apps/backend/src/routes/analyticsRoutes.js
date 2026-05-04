@@ -49,11 +49,11 @@ wrapAutoRBAC(
                 SELECT 
                   COUNT(*) as total_users,
                   COUNT(*) FILTER (WHERE registered_at > NOW() - INTERVAL '${interval}') as new_users,
-                  COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '7 days') as active_users_7d,
+                  COUNT(*) FILTER (WHERE last_sign_in_at > NOW() - INTERVAL '7 days') as active_users_7d,
                   COUNT(*) FILTER (WHERE role = 'PATIENT') as patients,
                   COUNT(*) FILTER (WHERE role = 'DOCTOR') as doctors,
                   COUNT(*) FILTER (WHERE role IN ('NURSE', 'ADMIN', 'PHARMACIST')) as staff,
-                  COUNT(DISTINCT CASE WHEN last_login > NOW() - INTERVAL '24 hours' THEN id END) as daily_active_users
+                  COUNT(DISTINCT CASE WHEN last_sign_in_at > NOW() - INTERVAL '24 hours' THEN id END) as daily_active_users
                 FROM users
               `),
               
@@ -75,7 +75,7 @@ wrapAutoRBAC(
                 SELECT 
                   COUNT(*) as total_records,
                   COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '${interval}') as recent_records,
-                  COUNT(DISTINCT patient_id) as patients_with_records,
+                  COUNT(DISTINCT COALESCE(uid::text, phone)) as patients_with_records,
                   SUM(CASE WHEN file_type LIKE 'image%' THEN 1 ELSE 0 END) as image_records,
                   SUM(CASE WHEN file_type = 'application/pdf' THEN 1 ELSE 0 END) as pdf_records,
                   AVG(file_size) as avg_file_size
@@ -100,7 +100,7 @@ wrapAutoRBAC(
               prisma.$queryRawUnsafe(`
                 SELECT 
                   COUNT(*) as total_orders,
-                  COUNT(*) FILTER (WHERE placed_at > NOW() - INTERVAL '${interval}') as recent_orders,
+                  COUNT(*) FILTER (WHERE ordered_at > NOW() - INTERVAL '${interval}') as recent_orders,
                   COUNT(*) FILTER (WHERE status = 'PENDING') as pending_orders,
                   COUNT(*) FILTER (WHERE status = 'FULFILLED') as fulfilled_orders,
                   COUNT(*) FILTER (WHERE status = 'CANCELLED') as cancelled_orders,
@@ -108,7 +108,7 @@ wrapAutoRBAC(
                   COALESCE(SUM(total_amount), 0) as total_revenue,
                   COALESCE(AVG(total_amount), 0) as avg_order_value
                 FROM pharmacy_orders
-                WHERE placed_at > NOW() - INTERVAL '${interval}'
+                WHERE ordered_at > NOW() - INTERVAL '${interval}'
               `),
               
               // Feedback analytics
@@ -120,7 +120,7 @@ wrapAutoRBAC(
                   COUNT(*) FILTER (WHERE rating >= 4) as positive_feedback,
                   COUNT(*) FILTER (WHERE rating <= 2) as negative_feedback,
                   COUNT(*) FILTER (WHERE rating = 3) as neutral_feedback,
-                  COUNT(DISTINCT patient_id) as unique_reviewers
+                  COUNT(DISTINCT COALESCE(uid::text, phone)) as unique_reviewers
                 FROM feedback
               `),
               
@@ -133,7 +133,10 @@ wrapAutoRBAC(
                   COUNT(*) FILTER (WHERE severity = 'CRITICAL') as critical_alerts,
                   COUNT(*) FILTER (WHERE severity = 'HIGH') as high_priority_alerts,
                   COUNT(*) FILTER (WHERE status = 'RESOLVED') as resolved_alerts,
-                  AVG(CASE WHEN response_time_minutes IS NOT NULL THEN response_time_minutes END) as avg_response_time
+                  AVG(CASE
+                    WHEN raised_at IS NOT NULL AND COALESCE(responded_at, resolved_at) IS NOT NULL
+                    THEN EXTRACT(EPOCH FROM (COALESCE(responded_at, resolved_at) - raised_at)) / 60
+                  END) as avg_response_time
                 FROM sos_alerts
               `)
             ]);
@@ -266,31 +269,36 @@ wrapAutoRBAC(
                 groupBy = 'day';
             }
 
-            let tableName, dateField, additionalFields = '';
+            let tableName, dateField, additionalFields = '', uniqueEntityExpression = 'id';
             switch (metric) {
               case 'users':
                 tableName = 'users';
                 dateField = 'registered_at';
+                uniqueEntityExpression = 'id';
                 additionalFields = ', COUNT(*) FILTER (WHERE role = \'DOCTOR\') as doctors, COUNT(*) FILTER (WHERE role = \'PATIENT\') as patients';
                 break;
               case 'appointments':
                 tableName = 'appointments';
                 dateField = 'created_at';
+                uniqueEntityExpression = 'patient_id';
                 additionalFields = ', COUNT(*) FILTER (WHERE status = \'COMPLETED\') as completed, COUNT(*) FILTER (WHERE status = \'CANCELLED\') as cancelled';
                 break;
               case 'investigations':
                 tableName = 'investigations';
                 dateField = 'requested_at';
+                uniqueEntityExpression = 'patient_id';
                 additionalFields = ', COUNT(*) FILTER (WHERE status = \'COMPLETED\') as completed, COUNT(*) FILTER (WHERE status = \'PENDING\') as pending';
                 break;
               case 'feedback':
                 tableName = 'feedback';
                 dateField = 'created_at';
+                uniqueEntityExpression = 'COALESCE(uid::text, phone)';
                 additionalFields = ', AVG(rating) as avg_rating, COUNT(*) FILTER (WHERE rating >= 4) as positive';
                 break;
               case 'pharmacy':
                 tableName = 'pharmacy_orders';
-                dateField = 'placed_at';
+                dateField = 'ordered_at';
+                uniqueEntityExpression = 'COALESCE(patient_id::text, uid::text, phone)';
                 additionalFields = ', SUM(total_amount) as revenue, AVG(total_amount) as avg_order_value';
                 break;
               default:
@@ -301,7 +309,7 @@ wrapAutoRBAC(
               SELECT 
                 TO_CHAR(${dateField}, '${dateFormat}') as period,
                 COUNT(*) as count,
-                COUNT(DISTINCT COALESCE(patient_id, phone, id)) as unique_entities
+                COUNT(DISTINCT ${uniqueEntityExpression}) as unique_entities
                 ${additionalFields}
               FROM ${tableName}
               WHERE ${dateField} > NOW() - INTERVAL '${days} days'
@@ -440,7 +448,7 @@ wrapAutoRBAC(
               prisma.$queryRawUnsafe(`
                 SELECT 
                   COUNT(*) as total_orders,
-                  COUNT(*) FILTER (WHERE placed_at > NOW() - INTERVAL '${interval}') as recent_orders,
+                  COUNT(*) FILTER (WHERE ordered_at > NOW() - INTERVAL '${interval}') as recent_orders,
                   COUNT(*) FILTER (WHERE status = 'PENDING') as pending_orders,
                   COUNT(*) FILTER (WHERE status = 'FULFILLED') as fulfilled_orders,
                   COUNT(*) FILTER (WHERE status = 'CANCELLED') as cancelled_orders,
@@ -449,19 +457,19 @@ wrapAutoRBAC(
                   COALESCE(AVG(total_amount), 0) as avg_order_value,
                   COALESCE(MAX(total_amount), 0) as highest_order_value
                 FROM pharmacy_orders
-                WHERE placed_at > NOW() - INTERVAL '${interval}'
+                WHERE ordered_at > NOW() - INTERVAL '${interval}'
               `),
               
               // Top medicines
               prisma.$queryRawUnsafe(`
                 SELECT 
-                  medicine_name,
-                  SUM(quantity) as total_quantity_sold,
+                  COALESCE(medication, order_note, 'Unspecified') as medicine_name,
+                  COUNT(*) as total_quantity_sold,
                   COUNT(*) as order_frequency,
                   SUM(total_amount) as medicine_revenue
                 FROM pharmacy_orders
-                WHERE placed_at > NOW() - INTERVAL '${interval}' AND status = 'FULFILLED'
-                GROUP BY medicine_name
+                WHERE ordered_at > NOW() - INTERVAL '${interval}' AND status = 'FULFILLED'
+                GROUP BY COALESCE(medication, order_note, 'Unspecified')
                 ORDER BY total_quantity_sold DESC
                 LIMIT 10
               `),
@@ -469,13 +477,13 @@ wrapAutoRBAC(
               // Daily revenue trend
               prisma.$queryRawUnsafe(`
                 SELECT 
-                  DATE(placed_at) as order_date,
+                  DATE(ordered_at) as order_date,
                   COUNT(*) as daily_orders,
                   SUM(total_amount) as daily_revenue,
                   COUNT(DISTINCT patient_id) as unique_customers
                 FROM pharmacy_orders
-                WHERE placed_at > NOW() - INTERVAL '${interval}'
-                GROUP BY DATE(placed_at)
+                WHERE ordered_at > NOW() - INTERVAL '${interval}'
+                GROUP BY DATE(ordered_at)
                 ORDER BY order_date DESC
               `)
             ]);
@@ -563,7 +571,7 @@ wrapAutoRBAC(
                   COUNT(*) FILTER (WHERE rating = 1) as one_star,
                   COUNT(*) FILTER (WHERE rating >= 4) as positive_feedback,
                   COUNT(*) FILTER (WHERE rating <= 2) as negative_feedback,
-                  COUNT(DISTINCT patient_id) as unique_reviewers
+                  COUNT(DISTINCT COALESCE(uid::text, phone)) as unique_reviewers
                 FROM feedback
                 WHERE created_at > NOW() - INTERVAL '${interval}'
               `),
@@ -695,7 +703,7 @@ wrapAutoRBAC(
                   'Pharmacy Orders' as feature,
                   COUNT(*) as usage_count
                 FROM pharmacy_orders
-                WHERE placed_at > NOW() - INTERVAL '${interval}'
+                WHERE ordered_at > NOW() - INTERVAL '${interval}'
                 ORDER BY usage_count DESC
               `),
               

@@ -8,7 +8,12 @@ const REFRESH_INTERVAL_MS = 60 * 1000; // 60 seconds
 
 async function refreshCache() {
   try {
-    const rows = await prisma.$queryRawUnsafe('SELECT id, name, is_enabled, description, created_at FROM feature_flags');
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT id, name, enabled, enabled AS is_enabled, description,
+             rollout_percentage, allowed_roles, created_at, updated_at
+      FROM feature_flags
+      ORDER BY name
+    `);
     flagCache.clear();
     for (const row of rows) {
       flagCache.set(row.name, row);
@@ -84,7 +89,8 @@ export async function setFlag(name, data) {
        rollout_percentage = $4,
        allowed_roles = $5,
        updated_at = NOW()
-     RETURNING id, name, is_enabled, description, created_at`,
+     RETURNING id, name, enabled, enabled AS is_enabled, description,
+               rollout_percentage, allowed_roles, created_at, updated_at`,
     name, description, enabled, rollout_percentage, allowed_roles
   );
 
@@ -100,8 +106,8 @@ export async function setFlag(name, data) {
  * @returns {Promise<boolean>}
  */
 export async function deleteFlag(name) {
-  const { rowCount } = await prisma.$queryRawUnsafe('DELETE FROM feature_flags WHERE name = $1', name);
+  const deleted = await prisma.$executeRawUnsafe('DELETE FROM feature_flags WHERE name = $1', name);
   flagCache.delete(name);
   logger.info(`Feature flag deleted: ${name}`);
-  return rowCount > 0;
+  return deleted > 0;
 }

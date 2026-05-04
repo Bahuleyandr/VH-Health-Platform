@@ -23,16 +23,47 @@ npm run db:contracts:seeded
 
 # Verify prisma/schema.prisma still matches the migrated database.
 npm run check:schema-drift
+
+# Or run the same contract/drift bundle used by smoke CI.
+npm run ci:db-guardrails
 ```
 
 If a developer has `apps/backend/.env` pointing to another database, keep the
 first two variables blank for `test:db:setup`. The bootstrap intentionally uses
 `127.0.0.1:55432/vhhealth_test` when those variables are absent.
 
+The Prisma schema includes a pgvector-backed `Unsupported("vector")` column.
+Local Postgres must provide the `vector` extension before `prisma db push` can
+create that table. `npm run test:db:setup` checks this before resetting the
+schema. If local Postgres does not have pgvector, use a disposable pgvector
+container and point `DATABASE_URL` at it:
+
+```powershell
+docker run --rm -p 55433:5432 `
+  -e POSTGRES_USER=postgres `
+  -e POSTGRES_PASSWORD=postgres `
+  -e POSTGRES_DB=vhhealth_test `
+  pgvector/pgvector:pg16
+
+$env:PGPASSWORD='postgres'
+$env:DATABASE_URL="postgresql://postgres:$($env:PGPASSWORD)@127.0.0.1:55433/vhhealth_test"
+$env:VH_ALLOW_NON_TEST_DATA_SEED='true'
+cd apps/backend
+npm run db:ensure-pgvector
+npx prisma db push --skip-generate --accept-data-loss
+node scripts/check-schema-drift.mjs
+node scripts/ci-setup-db.mjs
+npm run ci:db-guardrails
+```
+
 ## CI Checks
 
-The backend reusable workflow now runs:
+The backend reusable workflow uses the `pgvector/pgvector:pg16` service image
+and now runs:
 
+- `npm run db:ensure-pgvector`
+- Prisma `db push`
+- `node scripts/check-schema-drift.mjs` before raw migrations add unmanaged tables
 - raw SQL migrations
 - `npm run db:contracts`
 - `npm run seed:test-data`
@@ -43,6 +74,10 @@ The backend reusable workflow now runs:
 `db:contracts` protects critical backend routes from missing tables/columns.
 `db:contracts:seeded` catches seed gaps and fixture rot by requiring all public
 application tables to have at least one row after the comprehensive seed.
+
+The `Smoke E2E` workflow runs the same `npm run ci:db-guardrails` bundle before
+starting backend/admin smoke tests. This catches table/column drift before the
+UI route crawler and Flutter API smoke scripts start making requests.
 
 ## Admin Viewer
 

@@ -31,6 +31,7 @@ const logFile = path.join(dataDir, 'postgres.log');
 
 const pgBin = findPgBin();
 const bin = (name) => path.join(pgBin, process.platform === 'win32' ? `${name}.exe` : name);
+const prismaSchemaPath = path.join(backendRoot, 'prisma', 'schema.prisma');
 
 function findPgBin() {
   const candidates = [
@@ -120,6 +121,39 @@ function ensureDatabase() {
   }
 
   psql(database, 'CREATE EXTENSION IF NOT EXISTS pgcrypto');
+}
+
+function schemaRequiresPgvector() {
+  return fs.existsSync(prismaSchemaPath) &&
+    fs.readFileSync(prismaSchemaPath, 'utf8').includes('Unsupported("vector")');
+}
+
+function isPgvectorAvailable() {
+  return psql(
+    database,
+    "SELECT 1 FROM pg_available_extensions WHERE name = 'vector' LIMIT 1",
+    true
+  )
+    .split(/\r?\n/)
+    .some((line) => line.trim() === '1');
+}
+
+function assertPgvectorAvailable() {
+  if (!schemaRequiresPgvector()) return;
+  if (isPgvectorAvailable()) return;
+
+  throw new Error(
+    'Local test DB setup requires pgvector because prisma/schema.prisma contains Unsupported("vector"). ' +
+    'Install the vector extension for local Postgres, or run the smoke database with Docker, for example: ' +
+    'docker run --rm -p 55433:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres ' +
+    '-e POSTGRES_DB=vhhealth_test pgvector/pgvector:pg16'
+  );
+}
+
+function ensurePgvectorExtension() {
+  if (schemaRequiresPgvector()) {
+    psql(database, 'CREATE EXTENSION IF NOT EXISTS vector');
+  }
 }
 
 function ensureCompatibilityTables() {
@@ -552,6 +586,7 @@ function syncSchema() {
     CREATE EXTENSION IF NOT EXISTS pgcrypto;
     CREATE SEQUENCE IF NOT EXISTS _migrations_id_seq;
   `);
+  ensurePgvectorExtension();
 
   // Drop RLS policies first — `prisma db push --accept-data-loss` wants to drop
   // tenant_id columns (not in schema.prisma) and fails when policies depend on
@@ -593,6 +628,7 @@ function syncSchema() {
 try {
   ensureCluster();
   ensureDatabase();
+  assertPgvectorAvailable();
   syncSchema();
   console.log(`Local backend test DB ready: ${databaseUrl}`);
 } catch (error) {
