@@ -430,6 +430,7 @@ describe('staff operational endpoint drift guards', () => {
       '2026-05-04T09:00:00Z',
       null,
     );
+    expect(queryRawUnsafe.mock.calls[0][0]).toContain('requested_check_in=$4::timestamptz');
     expect(res.status).toHaveBeenCalledWith(200);
   });
 

@@ -216,7 +216,7 @@ export const requestRegularization = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(`
       INSERT INTO attendance_regularization (staff_id, date, reason, requested_check_in, requested_check_out, status, created_at)
       VALUES ($1::int, $2::date, $3, $4::timestamptz, $5::timestamptz, 'pending', NOW())
-      ON CONFLICT (staff_id, date) DO UPDATE SET reason=$3, requested_check_in=$4, requested_check_out=$5, status='pending', created_at=NOW()
+      ON CONFLICT (staff_id, date) DO UPDATE SET reason=$3, requested_check_in=$4::timestamptz, requested_check_out=$5::timestamptz, status='pending', created_at=NOW()
       RETURNING id, staff_id, date, reason, requested_check_in, requested_check_out, status, created_at
     `, staffId, date, reason, check_in_time || null, check_out_time || null);
 
