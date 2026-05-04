@@ -40,7 +40,7 @@ export default {
   pharmacyRoutes: [PHARMACY_STAFF, DOCTOR, ADMIN],
   // If you use a separate key for /pharmacy-orders in wrappers:
   pharmacyOrdersRoutes: [PATIENT, PHARMACY_STAFF, DOCTOR, ADMIN],
-  pharmacyOrderRoutes: [PHARMACY_STAFF, DOCTOR, ADMIN],
+  pharmacyOrderRoutes: [PATIENT, PHARMACY_STAFF, DOCTOR, ADMIN],
   // Pharmacy lifecycle — patient can place + view own orders
   pharmacyPatientOrderRoutes: [PATIENT, PHARMACY_STAFF, DOCTOR, ADMIN],
   // Pharmacy staff/admin lifecycle actions
