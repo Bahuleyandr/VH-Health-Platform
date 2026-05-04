@@ -310,7 +310,11 @@ export class UserService {
     if (isNumericId) {
       identifierCondition = Prisma.sql`u.id = ${parseInt(id, 10)}`;
     } else if (looksLikePhone) {
-      identifierCondition = Prisma.sql`u.phone = ${normalizePhone(id)}`;
+      const normalizedPhone = normalizePhone(id);
+      const nationalPhone = normalizedPhone?.startsWith('+91')
+        ? normalizedPhone.slice(3)
+        : id.replace(/[^\d]/g, '');
+      identifierCondition = Prisma.sql`u.phone IN (${normalizedPhone}, ${nationalPhone})`;
     } else {
       identifierCondition = Prisma.sql`u.uid = ${id}::uuid`;
     }

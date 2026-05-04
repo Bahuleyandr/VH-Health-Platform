@@ -3,7 +3,9 @@ import expressRateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
 
 /**
- * Prefer keying by API key, then authenticated UID, else IP (IPv6-safe).
+ * Prefer keying by authenticated UID, then API key, else IP (IPv6-safe).
+ * Mobile and admin clients share app-level API keys; once JWT auth has run,
+ * the user identity is the right bucket to avoid cross-user throttling.
  * Uses ipKeyGenerator(req) to satisfy express-rate-limit's IPv6 validation.
  */
 const defaultKeyGenerator = (req) => {
@@ -14,8 +16,8 @@ const defaultKeyGenerator = (req) => {
 
   const uid = req.user?.uid || req.user?.id;
 
-  if (apiKey) return `k:${String(apiKey)}`;
   if (uid) return `u:${String(uid)}`;
+  if (apiKey) return `k:${String(apiKey)}`;
 
   // Fallback MUST use ipKeyGenerator for IPv6 safety
   return ipKeyGenerator(req);

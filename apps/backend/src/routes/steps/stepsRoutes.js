@@ -246,6 +246,7 @@ router.get('/profile', async (req, res) => {
           display_color: '#2196F3',
           daily_goal: 8000,
           opted_in: true,
+          updated_at: new Date(),
         },
       });
     }
@@ -306,6 +307,7 @@ router.put('/profile', async (req, res) => {
         ...(displayColor !== undefined && { display_color: displayColor }),
         ...(dailyGoal !== undefined && { daily_goal: dailyGoal }),
         ...(optedIn !== undefined && { opted_in: Boolean(optedIn) }),
+        updated_at: new Date(),
       },
     });
 

@@ -553,7 +553,7 @@ class ABDMService {
               date_range_from, date_range_to, expiry_date, status,
               requester_name, granted_at, revoked_at, created_at
        FROM abdm_consents
-       WHERE patient_uid = $1
+       WHERE patient_uid = $1::uuid
        ORDER BY created_at DESC`,
       patientUid
     );
