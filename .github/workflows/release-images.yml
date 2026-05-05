@@ -54,6 +54,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
+  RELEASE_SCAN_PLATFORM: linux/amd64
 
 jobs:
   main-push-notice:
@@ -140,6 +141,12 @@ jobs:
           provenance: true
           sbom: true
 
+      - name: Prune local Docker cache before release analysis
+        run: |
+          docker buildx prune -af || true
+          docker system prune -af --volumes || true
+          df -h
+
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@v0
         with:
@@ -149,16 +156,28 @@ jobs:
           output-file: vh-health-backend-sbom.spdx.json
           upload-artifact: true
 
-      - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@v0.36.0
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514
         with:
-          image-ref: ${{ steps.images.outputs.backend }}@${{ steps.build.outputs.digest }}
-          format: sarif
-          output: trivy-backend.sarif
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: '1'
-          vuln-type: os,library
+          version: v0.70.0
+          cache: true
+
+      - name: Scan image with Trivy
+        env:
+          IMAGE_REF: ${{ steps.images.outputs.backend }}@${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p .cache/trivy
+          trivy image \
+            --platform "${RELEASE_SCAN_PLATFORM}" \
+            --scanners vuln \
+            --format sarif \
+            --output trivy-backend.sarif \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1 \
+            --vuln-type os,library \
+            --cache-dir .cache/trivy \
+            "${IMAGE_REF}"
 
       - name: Upload Trivy SARIF to GitHub Security
         if: always() && hashFiles('trivy-backend.sarif') != ''
@@ -218,7 +237,7 @@ jobs:
             echo "${TAGS}"
             echo '```'
             echo ""
-            echo "**Trivy findings:** ${CRITICAL:-0} CRITICAL / ${HIGH:-0} HIGH (fixable only)"
+            echo "**Trivy findings (${RELEASE_SCAN_PLATFORM}):** ${CRITICAL:-0} CRITICAL / ${HIGH:-0} HIGH (fixable only)"
             echo ""
             echo "**SBOM:** attached as workflow artifact \`vh-health-backend-sbom.spdx.json\`"
             echo ""
@@ -302,6 +321,12 @@ jobs:
             NEXT_PUBLIC_ALLOWED_ORIGIN=${{ vars.NEXT_PUBLIC_ALLOWED_ORIGIN || 'https://admin.vhhealth.app' }}
             NEXT_PUBLIC_SENTRY_DSN=${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
 
+      - name: Prune local Docker cache before release analysis
+        run: |
+          docker buildx prune -af || true
+          docker system prune -af --volumes || true
+          df -h
+
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@v0
         with:
@@ -311,16 +336,28 @@ jobs:
           output-file: vh-health-adminportal-sbom.spdx.json
           upload-artifact: true
 
-      - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@v0.36.0
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514
         with:
-          image-ref: ${{ steps.images.outputs.admin }}@${{ steps.build.outputs.digest }}
-          format: sarif
-          output: trivy-admin.sarif
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: '1'
-          vuln-type: os,library
+          version: v0.70.0
+          cache: true
+
+      - name: Scan image with Trivy
+        env:
+          IMAGE_REF: ${{ steps.images.outputs.admin }}@${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p .cache/trivy
+          trivy image \
+            --platform "${RELEASE_SCAN_PLATFORM}" \
+            --scanners vuln \
+            --format sarif \
+            --output trivy-admin.sarif \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1 \
+            --vuln-type os,library \
+            --cache-dir .cache/trivy \
+            "${IMAGE_REF}"
 
       - name: Upload Trivy SARIF to GitHub Security
         if: always() && hashFiles('trivy-admin.sarif') != ''
@@ -379,7 +416,7 @@ jobs:
             echo "${TAGS}"
             echo '```'
             echo ""
-            echo "**Trivy findings:** ${CRITICAL:-0} CRITICAL / ${HIGH:-0} HIGH (fixable only)"
+            echo "**Trivy findings (${RELEASE_SCAN_PLATFORM}):** ${CRITICAL:-0} CRITICAL / ${HIGH:-0} HIGH (fixable only)"
             echo ""
             echo "**SBOM:** attached as workflow artifact \`vh-health-adminportal-sbom.spdx.json\`"
             echo ""
@@ -411,7 +448,7 @@ jobs:
           {
             echo "# VH Health image release — ${REF}"
             echo ""
-            echo "| Image | Result | Digest | Trivy (CRITICAL/HIGH, fixable) |"
+            echo "| Image | Result | Digest | Trivy ${RELEASE_SCAN_PLATFORM} (CRITICAL/HIGH, fixable) |"
             echo "| --- | --- | --- | --- |"
             echo "| \`ghcr.io/${owner_lc}/vh-health-platform-backend\` | ${BACKEND_RESULT} | \`${BACKEND_DIGEST:-n/a}\` | ${BACKEND_CRITICAL:-0} / ${BACKEND_HIGH:-0} |"
             echo "| \`ghcr.io/${owner_lc}/vh-health-platform-adminportal\` | ${ADMIN_RESULT} | \`${ADMIN_DIGEST:-n/a}\` | ${ADMIN_CRITICAL:-0} / ${ADMIN_HIGH:-0} |"
