@@ -11,7 +11,7 @@ name: Release Container Images
 #   - push of tag `admin-v*`       → tags `admin-v1.2.3` + `latest-admin`
 #   - workflow_dispatch            → manual
 #
-# Image registry: ghcr.io/<owner>/vh-health-{backend,adminportal}
+# Image registry: ghcr.io/<lowercase-owner>/vh-health-{backend,adminportal}
 # Signing:        keyless cosign via GitHub OIDC (no KMS key required)
 # SBOM:           SPDX via anchore/sbom-action (uploaded as GH artifact)
 # Scanning:       Trivy (fails build on fixable CRITICAL/HIGH vulns)
@@ -48,8 +48,6 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/vh-health-backend
-  ADMIN_IMAGE: ghcr.io/${{ github.repository_owner }}/vh-health-adminportal
 
 jobs:
   build-backend:
@@ -81,13 +79,22 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # GHCR_TOKEN is optional. Use it when an existing GHCR package has
+          # not granted this repository's GITHUB_TOKEN write access.
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Set image names
+        id: images
+        run: |
+          owner_lc="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          echo "backend=${REGISTRY}/${owner_lc}/vh-health-backend" >> "$GITHUB_OUTPUT"
+          echo "admin=${REGISTRY}/${owner_lc}/vh-health-adminportal" >> "$GITHUB_OUTPUT"
 
       - name: Extract image metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.BACKEND_IMAGE }}
+          images: ${{ steps.images.outputs.backend }}
           tags: |
             # main branch → main-<sha> + latest
             type=raw,value=main-${{ github.sha }},enable=${{ github.ref == 'refs/heads/main' }}
@@ -121,7 +128,7 @@ jobs:
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ env.BACKEND_IMAGE }}@${{ steps.build.outputs.digest }}
+          image: ${{ steps.images.outputs.backend }}@${{ steps.build.outputs.digest }}
           format: spdx-json
           artifact-name: vh-health-backend-sbom.spdx.json
           output-file: vh-health-backend-sbom.spdx.json
@@ -130,7 +137,7 @@ jobs:
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ env.BACKEND_IMAGE }}@${{ steps.build.outputs.digest }}
+          image-ref: ${{ steps.images.outputs.backend }}@${{ steps.build.outputs.digest }}
           format: sarif
           output: trivy-backend.sarif
           severity: CRITICAL,HIGH
@@ -139,7 +146,7 @@ jobs:
           vuln-type: os,library
 
       - name: Upload Trivy SARIF to GitHub Security
-        if: always()
+        if: always() && hashFiles('trivy-backend.sarif') != ''
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-backend.sarif
@@ -231,13 +238,22 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # GHCR_TOKEN is optional. Use it when an existing GHCR package has
+          # not granted this repository's GITHUB_TOKEN write access.
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Set image names
+        id: images
+        run: |
+          owner_lc="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          echo "backend=${REGISTRY}/${owner_lc}/vh-health-backend" >> "$GITHUB_OUTPUT"
+          echo "admin=${REGISTRY}/${owner_lc}/vh-health-adminportal" >> "$GITHUB_OUTPUT"
 
       - name: Extract image metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.ADMIN_IMAGE }}
+          images: ${{ steps.images.outputs.admin }}
           tags: |
             type=raw,value=main-${{ github.sha }},enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
@@ -276,7 +292,7 @@ jobs:
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ env.ADMIN_IMAGE }}@${{ steps.build.outputs.digest }}
+          image: ${{ steps.images.outputs.admin }}@${{ steps.build.outputs.digest }}
           format: spdx-json
           artifact-name: vh-health-adminportal-sbom.spdx.json
           output-file: vh-health-adminportal-sbom.spdx.json
@@ -285,7 +301,7 @@ jobs:
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ env.ADMIN_IMAGE }}@${{ steps.build.outputs.digest }}
+          image-ref: ${{ steps.images.outputs.admin }}@${{ steps.build.outputs.digest }}
           format: sarif
           output: trivy-admin.sarif
           severity: CRITICAL,HIGH
@@ -294,7 +310,7 @@ jobs:
           vuln-type: os,library
 
       - name: Upload Trivy SARIF to GitHub Security
-        if: always()
+        if: always() && hashFiles('trivy-admin.sarif') != ''
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-admin.sarif
@@ -377,13 +393,14 @@ jobs:
           ADMIN_CRITICAL: ${{ needs.build-admin.outputs.trivy-critical }}
           ADMIN_HIGH: ${{ needs.build-admin.outputs.trivy-high }}
         run: |
+          owner_lc="$(printf '%s' "${OWNER}" | tr '[:upper:]' '[:lower:]')"
           {
             echo "# VH Health image release — ${REF}"
             echo ""
             echo "| Image | Result | Digest | Trivy (CRITICAL/HIGH, fixable) |"
             echo "| --- | --- | --- | --- |"
-            echo "| \`ghcr.io/${OWNER}/vh-health-backend\` | ${BACKEND_RESULT} | \`${BACKEND_DIGEST:-n/a}\` | ${BACKEND_CRITICAL:-0} / ${BACKEND_HIGH:-0} |"
-            echo "| \`ghcr.io/${OWNER}/vh-health-adminportal\` | ${ADMIN_RESULT} | \`${ADMIN_DIGEST:-n/a}\` | ${ADMIN_CRITICAL:-0} / ${ADMIN_HIGH:-0} |"
+            echo "| \`ghcr.io/${owner_lc}/vh-health-backend\` | ${BACKEND_RESULT} | \`${BACKEND_DIGEST:-n/a}\` | ${BACKEND_CRITICAL:-0} / ${BACKEND_HIGH:-0} |"
+            echo "| \`ghcr.io/${owner_lc}/vh-health-adminportal\` | ${ADMIN_RESULT} | \`${ADMIN_DIGEST:-n/a}\` | ${ADMIN_CRITICAL:-0} / ${ADMIN_HIGH:-0} |"
             echo ""
             echo "## Tags pushed"
             echo ""
@@ -404,8 +421,8 @@ jobs:
             echo '```bash'
             echo "cd infra/kubernetes/overlays/prod"
             echo "kustomize edit set image \\"
-            echo "  ghcr.io/${OWNER}/vh-health-backend=ghcr.io/${OWNER}/vh-health-backend@${BACKEND_DIGEST:-<digest>} \\"
-            echo "  ghcr.io/${OWNER}/vh-health-adminportal=ghcr.io/${OWNER}/vh-health-adminportal@${ADMIN_DIGEST:-<digest>}"
+            echo "  ghcr.io/${owner_lc}/vh-health-backend=ghcr.io/${owner_lc}/vh-health-backend@${BACKEND_DIGEST:-<digest>} \\"
+            echo "  ghcr.io/${owner_lc}/vh-health-adminportal=ghcr.io/${owner_lc}/vh-health-adminportal@${ADMIN_DIGEST:-<digest>}"
             echo "git commit -am \"bump images to ${REF}\""
             echo "git push"
             echo '```'
@@ -422,6 +439,6 @@ jobs:
             echo "cosign verify \\"
             echo "  --certificate-identity-regexp='https://github.com/${{ github.repository }}/.github/workflows/release-images.yml@.*' \\"
             echo "  --certificate-oidc-issuer=https://token.actions.githubusercontent.com \\"
-            echo "  ghcr.io/${OWNER}/vh-health-backend@${BACKEND_DIGEST:-<digest>}"
+            echo "  ghcr.io/${owner_lc}/vh-health-backend@${BACKEND_DIGEST:-<digest>}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
