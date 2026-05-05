@@ -6,10 +6,10 @@ name: Release Container Images
 # kustomize overlays under `infra/kubernetes/overlays/prod` for tag bumps.
 #
 # Triggers:
-#   - push to main                 → tags `main-<sha>` + `latest`
+#   - push to main                 → validates workflow wiring, no publish
 #   - push of tag `backend-v*`     → tags `backend-v1.2.3` + `latest-backend`
 #   - push of tag `admin-v*`       → tags `admin-v1.2.3` + `latest-admin`
-#   - workflow_dispatch            → manual
+#   - workflow_dispatch            → manual publish
 #
 # Image registry: ghcr.io/<lowercase-owner>/vh-health-{backend,adminportal}
 # Signing:        keyless cosign via GitHub OIDC (no KMS key required)
@@ -43,6 +43,7 @@ permissions:
   id-token: write       # cosign keyless signing via OIDC
   packages: write       # push to ghcr.io
   contents: read        # actions/checkout
+  actions: read         # codeql-action/upload-sarif workflow-run lookup
   attestations: write   # provenance / SBOM attestations
   security-events: write # Trivy SARIF upload
 
@@ -50,15 +51,26 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  main-push-notice:
+    name: Release images skipped on main push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Explain release trigger policy
+        run: |
+          {
+            echo "Release image publishing is restricted to version tags and manual dispatch."
+            echo "Use backend-v* / admin-v* tags, or workflow_dispatch, when a signed GHCR release image is required."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build-backend:
     name: Build + sign backend image
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # Skip when only an admin-v* tag was pushed, unless manually dispatched with build_backend=true.
+    # Publish backend images only for backend release tags or explicit manual dispatch.
     if: |
-      github.event_name != 'push' ||
-      !startsWith(github.ref, 'refs/tags/admin-v') ||
-      github.event_name == 'workflow_dispatch'
+      startsWith(github.ref, 'refs/tags/backend-v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.build_backend)
     outputs:
       image-digest: ${{ steps.build.outputs.digest }}
       image-tags: ${{ steps.meta.outputs.tags }}
@@ -147,6 +159,7 @@ jobs:
 
       - name: Upload Trivy SARIF to GitHub Security
         if: always() && hashFiles('trivy-backend.sarif') != ''
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-backend.sarif
@@ -157,8 +170,8 @@ jobs:
         if: always()
         run: |
           if [ -f trivy-backend.sarif ]; then
-            critical=$(jq '[.runs[].results[] | select(.properties."security-severity" | tonumber >= 9.0)] | length' trivy-backend.sarif)
-            high=$(jq '[.runs[].results[] | select(.properties."security-severity" | tonumber >= 7.0 and (.properties."security-severity" | tonumber < 9.0))] | length' trivy-backend.sarif)
+            critical=$(jq '[.runs[].results[] | ((.properties."security-severity"? // "0") | tonumber? // 0) as $sev | select($sev >= 9.0)] | length' trivy-backend.sarif)
+            high=$(jq '[.runs[].results[] | ((.properties."security-severity"? // "0") | tonumber? // 0) as $sev | select($sev >= 7.0 and $sev < 9.0)] | length' trivy-backend.sarif)
           else
             critical=0
             high=0
@@ -213,11 +226,10 @@ jobs:
     name: Build + sign admin image
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # Skip when only a backend-v* tag was pushed, unless manually dispatched.
+    # Publish admin images only for admin release tags or explicit manual dispatch.
     if: |
-      github.event_name != 'push' ||
-      !startsWith(github.ref, 'refs/tags/backend-v') ||
-      github.event_name == 'workflow_dispatch'
+      startsWith(github.ref, 'refs/tags/admin-v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.build_admin)
     outputs:
       image-digest: ${{ steps.build.outputs.digest }}
       image-tags: ${{ steps.meta.outputs.tags }}
@@ -311,6 +323,7 @@ jobs:
 
       - name: Upload Trivy SARIF to GitHub Security
         if: always() && hashFiles('trivy-admin.sarif') != ''
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-admin.sarif
@@ -321,8 +334,8 @@ jobs:
         if: always()
         run: |
           if [ -f trivy-admin.sarif ]; then
-            critical=$(jq '[.runs[].results[] | select(.properties."security-severity" | tonumber >= 9.0)] | length' trivy-admin.sarif)
-            high=$(jq '[.runs[].results[] | select(.properties."security-severity" | tonumber >= 7.0 and (.properties."security-severity" | tonumber < 9.0))] | length' trivy-admin.sarif)
+            critical=$(jq '[.runs[].results[] | ((.properties."security-severity"? // "0") | tonumber? // 0) as $sev | select($sev >= 9.0)] | length' trivy-admin.sarif)
+            high=$(jq '[.runs[].results[] | ((.properties."security-severity"? // "0") | tonumber? // 0) as $sev | select($sev >= 7.0 and $sev < 9.0)] | length' trivy-admin.sarif)
           else
             critical=0
             high=0
