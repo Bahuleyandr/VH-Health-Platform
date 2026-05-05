@@ -1,5 +1,9 @@
 # CI required checks — branch-protection runbook
 
+> **Current repo:** CI and branch protection now belong to the monorepo
+> `Bahuleyandr/VH-Health-Platform`. The old per-app repositories are archived
+> and must not be used as protection or release authorities.
+
 > Running CI on every PR doesn't stop anyone from clicking merge while it's
 > red. This doc lists the exact status-check names to require on each repo's
 > `main` branch and gives the one-shot `gh` command to configure it.
@@ -12,21 +16,18 @@ Pro or make this repository public to enable this feature." Options:
 2. Make the repo public (NOT viable for anything touching PHI).
 3. Fall back to a local pre-push hook (see §"Free-tier fallback" below).
 
-All five repos already have CI (`.github/workflows/ci.yml`). The gap has
-been that GitHub doesn't know *which* checks are load-bearing, so a red PR
-can still be merged. The check name GitHub sees is the **job name** inside
-the workflow (not the filename, not the workflow `name:` field).
+The monorepo owns CI under root `.github/workflows/`. The check name GitHub
+sees is the **job name** inside the workflow (not the filename, not the
+workflow `name:` field).
 
 ## Per-repo required checks
 
-| Repo                          | Workflow         | Job (= check name)      | What it covers                                                          |
-|-------------------------------|------------------|-------------------------|-------------------------------------------------------------------------|
-| `VH-health-backend`           | Backend CI       | `lint-and-test`         | npm audit, ESLint, Swagger/Spectral, Prisma, raw migrations, Jest suite |
-| `VH-health-backend`           | Backend CI       | `codeql`                | CodeQL JS static analysis                                               |
-| `VH-Health-Adminportal`       | Admin Portal CI  | `lint-typecheck-build`  | npm audit, ESLint, `tsc`, Jest, `next build`                            |
-| `VH-health` (patient)         | Patient App CI   | `analyze-and-test`      | `flutter analyze`, `flutter test`, debug APK build                      |
-| `VHhealth-staff`              | Staff App CI     | `analyze-and-test`      | `flutter analyze`, `flutter test`, debug APK build                      |
-| `vhhealth-core`               | Core Library CI  | `analyze-and-test`      | `flutter analyze`, `flutter test`                                       |
+| Repo | Workflow | Job (= check name) | What it covers |
+| --- | --- | --- | --- |
+| `VH-Health-Platform` | Backend CI | `lint-and-test` | npm audit, ESLint, Swagger/Spectral, Prisma, raw migrations, Jest suite |
+| `VH-Health-Platform` | Backend CI | `codeql` | CodeQL JS static analysis |
+| `VH-Health-Platform` | Admin CI | `lint-typecheck-build` | npm audit, ESLint, `tsc`, Jest, `next build` |
+| `VH-Health-Platform` | Flutter CI | `analyze-and-test` | `melos bootstrap`, `flutter analyze`, tests, format gate |
 
 `fhir-conformance` and `deploy-staging` are NOT required — the former is
 intentionally `continue-on-error` until warnings are cleaned up; the latter
@@ -42,50 +43,10 @@ so null fields serialise correctly.
 ```bash
 gh auth login   # one-time, needs `repo` scope
 
-# Backend
-gh api -X PUT repos/Bahuleyandr/vh-health-backend/branches/main/protection --input - <<'EOF'
+# Monorepo
+gh api -X PUT repos/Bahuleyandr/VH-Health-Platform/branches/main/protection --input - <<'EOF'
 {
-  "required_status_checks": {"strict": true, "contexts": ["lint-and-test", "codeql"]},
-  "enforce_admins": true,
-  "required_pull_request_reviews": null,
-  "restrictions": null
-}
-EOF
-
-# Admin portal
-gh api -X PUT repos/Bahuleyandr/VH-Health-Adminportal/branches/main/protection --input - <<'EOF'
-{
-  "required_status_checks": {"strict": true, "contexts": ["lint-typecheck-build"]},
-  "enforce_admins": true,
-  "required_pull_request_reviews": null,
-  "restrictions": null
-}
-EOF
-
-# Patient app
-gh api -X PUT repos/Bahuleyandr/VH-health/branches/main/protection --input - <<'EOF'
-{
-  "required_status_checks": {"strict": true, "contexts": ["analyze-and-test"]},
-  "enforce_admins": true,
-  "required_pull_request_reviews": null,
-  "restrictions": null
-}
-EOF
-
-# Staff app
-gh api -X PUT repos/Bahuleyandr/vhhealth-staff/branches/main/protection --input - <<'EOF'
-{
-  "required_status_checks": {"strict": true, "contexts": ["analyze-and-test"]},
-  "enforce_admins": true,
-  "required_pull_request_reviews": null,
-  "restrictions": null
-}
-EOF
-
-# Core library
-gh api -X PUT repos/Bahuleyandr/vhhealth-core/branches/main/protection --input - <<'EOF'
-{
-  "required_status_checks": {"strict": true, "contexts": ["analyze-and-test"]},
+  "required_status_checks": {"strict": true, "contexts": ["lint-and-test", "codeql", "lint-typecheck-build", "analyze-and-test"]},
   "enforce_admins": true,
   "required_pull_request_reviews": null,
   "restrictions": null
@@ -133,7 +94,7 @@ installed. Worth pairing with `husky` if you already use it.
 ## Verifying protection
 
 ```bash
-gh api repos/Bahuleyandr/vh-health-backend/branches/main/protection | jq '.required_status_checks.contexts'
+gh api repos/Bahuleyandr/VH-Health-Platform/branches/main/protection | jq '.required_status_checks.contexts'
 ```
 
 Expected output includes every required check name above. Repeat per repo.

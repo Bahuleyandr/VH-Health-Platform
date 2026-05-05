@@ -74,8 +74,8 @@ VH Health Backend is a production-ready, enterprise-grade hospital management sy
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/your-org/vh-health-backend.git
-   cd vh-health-backend
+   git clone https://github.com/Bahuleyandr/VH-Health-Platform.git
+   cd VH-Health-Platform/apps/backend
    ```
 
 2. **Install dependencies**
@@ -346,7 +346,7 @@ npm run lint                 # Run ESLint
 ### **📁 Project Structure**
 
 ```
-vh-health-backend/
+apps/backend/
 ├── docs/                          # Documentation
 │   ├── API_DOCUMENTATION.md      # Complete API reference
 │   └── guides/                    # Developer guides
@@ -585,7 +585,7 @@ npm test -- --coverage
 
 ### **🌐 Resources**
 
-- **GitHub Repository:** [VH Health Backend](https://github.com/your-org/vh-health-backend)
+- **GitHub Repository:** [VH Health Platform](https://github.com/Bahuleyandr/VH-Health-Platform/tree/main/apps/backend)
 - **API Documentation:** [Complete Reference](./docs/API_DOCUMENTATION.md)
 - **Developer Portal:** [Developer Guide](#-developer-guide)
 - **Status Page:** [System Status](https://status.vhhealth.com)
@@ -624,7 +624,7 @@ This project is licensed under the **ISC License**. See [LICENSE](LICENSE) file 
 
 **VH Health Backend** - *Powering Modern Healthcare Operations*
 
-[![GitHub Stars](https://img.shields.io/github/stars/your-org/vh-health-backend?style=social)](https://github.com/your-org/vh-health-backend)
+[![GitHub Stars](https://img.shields.io/github/stars/Bahuleyandr/VH-Health-Platform?style=social)](https://github.com/Bahuleyandr/VH-Health-Platform)
 [![Twitter Follow](https://img.shields.io/twitter/follow/vhhealth?style=social)](https://twitter.com/vhhealth)
 
 *Built with ❤️ for healthcare professionals worldwide*

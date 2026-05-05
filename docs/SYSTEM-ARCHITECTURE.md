@@ -591,9 +591,9 @@ Redis HA). The ArgoCD `AppProject` is [`project.yaml`](../infra/kubernetes/base/
 ### GitOps flow
 
 ```
-push to main
+release tag / manual dispatch
   └─> GHA: release-images.yml (build + cosign keyless + SBOM + trivy scan)
-       └─> push to ghcr.io/<owner>/vh-health-{backend,adminportal}:main-<sha>
+       └─> push to ghcr.io/<owner>/vh-health-platform-{backend,adminportal}:<tag>
              └─> ArgoCD poll (3 min default)
                   └─> auto-sync Kustomize overlays
                        └─> rolling update in vhhealth namespace
@@ -602,8 +602,8 @@ push to main
 
 Prod pins to semver tags (`backend-v1.5.2`, `admin-v1.5.2`). Bumping
 is either a `kustomize edit set image ...` + commit (manual) or via
-the planned ArgoCD image updater. Staging tracks `main-<sha>`
-automatically. Tag convention is documented in root
+the planned ArgoCD image updater. Staging can track manually published
+`main-<sha>` images. Tag convention is documented in root
 [`CLAUDE.md`](../CLAUDE.md).
 
 ### Ingress — zero inbound ports

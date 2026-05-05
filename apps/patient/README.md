@@ -374,9 +374,9 @@ bash
 
 Copy code
 
-git clone https://github.com/Bahuleyandr/VH-health.git
+git clone https://github.com/Bahuleyandr/VH-Health-Platform.git
 
-cd VH-health
+cd VH-Health-Platform/apps/patient
 
 Install dependencies:
 

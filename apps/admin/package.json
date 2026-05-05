@@ -107,10 +107,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Bahuleyandr/VH-Health-Adminportal.git"
+    "url": "https://github.com/Bahuleyandr/VH-Health-Platform.git",
+    "directory": "apps/admin"
   },
   "bugs": {
-    "url": "https://github.com/Bahuleyandr/VH-Health-Adminportal/issues"
+    "url": "https://github.com/Bahuleyandr/VH-Health-Platform/issues"
   },
-  "homepage": "https://github.com/Bahuleyandr/VH-Health-Adminportal#readme"
+  "homepage": "https://github.com/Bahuleyandr/VH-Health-Platform/tree/main/apps/admin#readme"
 }

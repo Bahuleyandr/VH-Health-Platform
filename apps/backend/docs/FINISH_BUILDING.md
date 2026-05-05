@@ -1,16 +1,22 @@
 # VH Health — Finish-Building Plan
 
+> **Superseded operating model:** VH Health now lives in the single
+> `Bahuleyandr/VH-Health-Platform` monorepo. The old per-app repositories are
+> archived and must not be used for new PRs, releases, package ownership, or
+> deployment authority. This document remains historical; use root-level
+> trackers such as `docs/PLATFORM_REMEDIATION_PLAN.md` for current work.
+
 > Cross-repo execution plan for closing out every deferred and "still open"
 > item so the stack is actually production-shippable, not just vertical-slice
 > coded. Tick the boxes as items land. Each item lists **where** it lives and
 > **proof-of-done** so we can tell the difference between "written" and "done".
 
-**Repos** (all under `C:\Dev\Projects\VH Health\`):
-- `vh-health-backend` — Node/Express API
-- `vhhealth-core` — shared Dart package
-- `VH-health` — patient Flutter app
-- `vhhealth-staff` — staff Flutter app
-- `VH-Health-Adminportal` — Next.js admin portal
+**Current monorepo paths**:
+- `apps/backend` — Node/Express API
+- `packages/vhhealth_core` — shared Dart package
+- `apps/patient` — patient Flutter app
+- `apps/staff` — staff Flutter app
+- `apps/admin` — Next.js admin portal
 
 Legend: `[ ]` open · `[~]` in progress · `[x]` done · `[!]` blocked · `[-]` dropped
 
@@ -226,8 +232,8 @@ individual features — they're investments that make every future change
 cheaper. Numbered items have `[needs-decision]` when they require product
 input before we execute.
 
-- [x] **5.1 Melos monorepo** — 2026-04-18: shipped. Live repo:
-      https://github.com/Bahuleyandr/VH-Health-MonoRepo (private).
+- [x] **5.1 Monorepo** — 2026-04-18: shipped. Live repo:
+      https://github.com/Bahuleyandr/VH-Health-Platform (private).
       Layout: `packages/vhhealth_core`, `apps/patient`, `apps/staff`.
       Full history of the 3 source repos preserved via `git subtree add`
       (`git log apps/patient/` walks every original commit). Uses
@@ -238,10 +244,9 @@ input before we execute.
       of the migration (staff bumped to `firebase_core ^4`,
       `firebase_messaging ^16`, `firebase_crashlytics ^5`). `melos
       bootstrap` + `melos run analyze` verified green.
-      Backend + admin portal intentionally stay in their own repos
-      (different stacks, different deploy cadences) — cross-stack
-      changes continue to follow `docs/CROSS_REPO_PR_CONVENTION.md`.
-      Old 3 Flutter repos not yet archived (owner-held).
+      Backend and admin have since joined the same platform monorepo, so
+      cross-stack changes now land as one coordinated branch/PR here.
+      Old component repos are archived and are not release authorities.
 - [x] **5.2 Finish duplication migration** — 2026-04-14: patient + staff
       apps route through `vhhealth_core.VHHttpClient` via thin shims. Native
       ApiClient copies kept as deprecation-tagged façades so existing call

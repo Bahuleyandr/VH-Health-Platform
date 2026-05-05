@@ -62,7 +62,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Bahuleyandr/vh-health-backend.git"
+    "url": "https://github.com/Bahuleyandr/VH-Health-Platform.git",
+    "directory": "apps/backend"
   },
   "author": "VH Health Tech Team",
   "license": "ISC",

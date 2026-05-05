@@ -155,13 +155,14 @@ act --dryrun push          # preview only
 - `patient-v1.2.3` — patient app release (fires `release-patient.yml`)
 - `staff-v1.2.3` — staff app release (fires `release-staff.yml`)
 - `backend-v1.2.3` / `admin-v1.2.3` — semver-tagged container image releases
-  (backend/admin image-build workflow pushes `ghcr.io/.../backend:v1.2.3` +
-  `:latest` on the stable channel). ArgoCD pins to these tags in
-  `overlays/prod/kustomization.yaml`.
-- `main-<short-sha>` — every push to `main` builds and pushes
-  `ghcr.io/.../backend:main-<sha>` + `ghcr.io/.../admin:main-<sha>`. Staging
-  overlay tracks `main-*` for automatic rollouts; prod tracks `v*` and bumps
-  via ArgoCD image updater or manual kustomize edit + PR.
+  (backend/admin image-build workflow pushes
+  `ghcr.io/<owner>/vh-health-platform-backend:backend-v1.2.3` and
+  `ghcr.io/<owner>/vh-health-platform-adminportal:admin-v1.2.3`, plus
+  `latest-backend` / `latest-admin` stable tags). ArgoCD pins digests derived
+  from these platform-owned packages in `overlays/prod/kustomization.yaml`.
+- Manual `release-images.yml` dispatches can publish `main-<sha>` and
+  `manual-<sha>` tags for staging-style verification. Plain pushes to `main`
+  validate the workflow wiring but do not publish images.
 
 ## Deleted but worth knowing
 

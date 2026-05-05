@@ -11,7 +11,12 @@ name: Release Container Images
 #   - push of tag `admin-v*`       → tags `admin-v1.2.3` + `latest-admin`
 #   - workflow_dispatch            → manual publish
 #
-# Image registry: ghcr.io/<lowercase-owner>/vh-health-{backend,adminportal}
+# Image registry:
+#   ghcr.io/<lowercase-owner>/vh-health-platform-backend
+#   ghcr.io/<lowercase-owner>/vh-health-platform-adminportal
+# These platform-scoped package names deliberately avoid the archived
+# pre-monorepo backend/admin repositories and keep GHCR ownership attached to
+# `Bahuleyandr/VH-Health-Platform`.
 # Signing:        keyless cosign via GitHub OIDC (no KMS key required)
 # SBOM:           SPDX via anchore/sbom-action (uploaded as GH artifact)
 # Scanning:       Trivy (fails build on fixable CRITICAL/HIGH vulns)
@@ -91,16 +96,14 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          # GHCR_TOKEN is optional. Use it when an existing GHCR package has
-          # not granted this repository's GITHUB_TOKEN write access.
-          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set image names
         id: images
         run: |
           owner_lc="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          echo "backend=${REGISTRY}/${owner_lc}/vh-health-backend" >> "$GITHUB_OUTPUT"
-          echo "admin=${REGISTRY}/${owner_lc}/vh-health-adminportal" >> "$GITHUB_OUTPUT"
+          echo "backend=${REGISTRY}/${owner_lc}/vh-health-platform-backend" >> "$GITHUB_OUTPUT"
+          echo "admin=${REGISTRY}/${owner_lc}/vh-health-platform-adminportal" >> "$GITHUB_OUTPUT"
 
       - name: Extract image metadata
         id: meta
@@ -250,16 +253,14 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          # GHCR_TOKEN is optional. Use it when an existing GHCR package has
-          # not granted this repository's GITHUB_TOKEN write access.
-          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set image names
         id: images
         run: |
           owner_lc="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          echo "backend=${REGISTRY}/${owner_lc}/vh-health-backend" >> "$GITHUB_OUTPUT"
-          echo "admin=${REGISTRY}/${owner_lc}/vh-health-adminportal" >> "$GITHUB_OUTPUT"
+          echo "backend=${REGISTRY}/${owner_lc}/vh-health-platform-backend" >> "$GITHUB_OUTPUT"
+          echo "admin=${REGISTRY}/${owner_lc}/vh-health-platform-adminportal" >> "$GITHUB_OUTPUT"
 
       - name: Extract image metadata
         id: meta
@@ -412,8 +413,8 @@ jobs:
             echo ""
             echo "| Image | Result | Digest | Trivy (CRITICAL/HIGH, fixable) |"
             echo "| --- | --- | --- | --- |"
-            echo "| \`ghcr.io/${owner_lc}/vh-health-backend\` | ${BACKEND_RESULT} | \`${BACKEND_DIGEST:-n/a}\` | ${BACKEND_CRITICAL:-0} / ${BACKEND_HIGH:-0} |"
-            echo "| \`ghcr.io/${owner_lc}/vh-health-adminportal\` | ${ADMIN_RESULT} | \`${ADMIN_DIGEST:-n/a}\` | ${ADMIN_CRITICAL:-0} / ${ADMIN_HIGH:-0} |"
+            echo "| \`ghcr.io/${owner_lc}/vh-health-platform-backend\` | ${BACKEND_RESULT} | \`${BACKEND_DIGEST:-n/a}\` | ${BACKEND_CRITICAL:-0} / ${BACKEND_HIGH:-0} |"
+            echo "| \`ghcr.io/${owner_lc}/vh-health-platform-adminportal\` | ${ADMIN_RESULT} | \`${ADMIN_DIGEST:-n/a}\` | ${ADMIN_CRITICAL:-0} / ${ADMIN_HIGH:-0} |"
             echo ""
             echo "## Tags pushed"
             echo ""
@@ -434,8 +435,8 @@ jobs:
             echo '```bash'
             echo "cd infra/kubernetes/overlays/prod"
             echo "kustomize edit set image \\"
-            echo "  ghcr.io/${owner_lc}/vh-health-backend=ghcr.io/${owner_lc}/vh-health-backend@${BACKEND_DIGEST:-<digest>} \\"
-            echo "  ghcr.io/${owner_lc}/vh-health-adminportal=ghcr.io/${owner_lc}/vh-health-adminportal@${ADMIN_DIGEST:-<digest>}"
+            echo "  ghcr.io/${owner_lc}/vh-health-platform-backend=ghcr.io/${owner_lc}/vh-health-platform-backend@${BACKEND_DIGEST:-<digest>} \\"
+            echo "  ghcr.io/${owner_lc}/vh-health-platform-adminportal=ghcr.io/${owner_lc}/vh-health-platform-adminportal@${ADMIN_DIGEST:-<digest>}"
             echo "git commit -am \"bump images to ${REF}\""
             echo "git push"
             echo '```'
@@ -452,6 +453,6 @@ jobs:
             echo "cosign verify \\"
             echo "  --certificate-identity-regexp='https://github.com/${{ github.repository }}/.github/workflows/release-images.yml@.*' \\"
             echo "  --certificate-oidc-issuer=https://token.actions.githubusercontent.com \\"
-            echo "  ghcr.io/${owner_lc}/vh-health-backend@${BACKEND_DIGEST:-<digest>}"
+            echo "  ghcr.io/${owner_lc}/vh-health-platform-backend@${BACKEND_DIGEST:-<digest>}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

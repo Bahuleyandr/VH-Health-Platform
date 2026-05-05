@@ -77,9 +77,9 @@ spec:
       containers:
         - name: backend
           # Pinned to an immutable tag; prod overlay replaces with a digest:
-          #   image: ghcr.io/bahuleyandr/vh-health-backend@sha256:...
+          #   image: ghcr.io/bahuleyandr/vh-health-platform-backend@sha256:...
           # Never use `:latest` — fails-build in our CI/ArgoCD policy.
-          image: ghcr.io/bahuleyandr/vh-health-backend:0.0.0-placeholder
+          image: ghcr.io/bahuleyandr/vh-health-platform-backend:0.0.0-placeholder
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

@@ -13,7 +13,7 @@ This document is the single source of truth for rebuilding the VHHealth PostgreS
 
 - PostgreSQL 15 running (Docker or managed service)
 - A database and user created (see below)
-- Backend repo cloned: `Bahuleyandr/vh-health-backend`
+- Platform repo cloned: `Bahuleyandr/VH-Health-Platform`
 
 ---
 
@@ -49,7 +49,7 @@ DATABASE_URL=postgresql://<user>:<password>@<host>:5432/vhhealth?sslmode=require
 Prisma manages the core 64 tables + billing/step tables via its own migration system.
 
 ```bash
-cd vhhealth-backend
+cd VH-Health-Platform/apps/backend
 npm install
 npx prisma migrate deploy
 ```
@@ -125,7 +125,7 @@ Expected output: `164`, `0`, `0`
 ## Step 5 — Create First Admin
 
 ```bash
-cd vhhealth-backend
+cd VH-Health-Platform/apps/backend
 export ADMIN_BOOTSTRAP_PASSWORD="<choose-strong-admin-password>"
 node src/scripts/create-admin.js
 ```

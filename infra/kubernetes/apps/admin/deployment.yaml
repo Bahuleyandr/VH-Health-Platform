@@ -65,7 +65,7 @@ spec:
               app.kubernetes.io/name: vhhealth-admin
       containers:
         - name: admin
-          image: ghcr.io/bahuleyandr/vh-health-adminportal:0.0.0-placeholder
+          image: ghcr.io/bahuleyandr/vh-health-platform-adminportal:0.0.0-placeholder
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

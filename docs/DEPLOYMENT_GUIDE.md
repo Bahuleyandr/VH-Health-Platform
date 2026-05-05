@@ -483,7 +483,7 @@ Automatic via ArgoCD image updater (planned) or manual bump in
 
 ```bash
 # Manual tag bump for backend
-kustomize edit set image ghcr.io/bahuleyan/vhhealth-backend=ghcr.io/bahuleyan/vhhealth-backend:v1.5.2
+kustomize edit set image ghcr.io/bahuleyandr/vh-health-platform-backend=ghcr.io/bahuleyandr/vh-health-platform-backend:backend-v1.5.2
 git commit -am "deploy: backend v1.5.2"
 git push
 # ArgoCD syncs within 3 minutes; rolling update is zero-downtime.
