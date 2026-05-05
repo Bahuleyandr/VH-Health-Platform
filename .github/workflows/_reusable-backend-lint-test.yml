@@ -113,7 +113,10 @@ jobs:
         run: node scripts/ci-schema-drift.mjs
 
       - name: Run tests
-        run: node --max-old-space-size=4096 --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --forceExit --detectOpenHandles
+        # Keep this aligned with apps/backend/package.json. `--detectOpenHandles`
+        # is a useful local debugging flag, but it retains extra async-resource
+        # metadata and can push the full backend suite over GitHub runner memory.
+        run: node --max-old-space-size=4096 --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --forceExit
 
       - name: Notify Discord on failure
         if: failure() && inputs.notify_on_failure

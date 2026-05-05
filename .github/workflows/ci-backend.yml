@@ -45,7 +45,6 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: javascript
-          config-file: ./apps/backend/.github/codeql/codeql-config.yml
           source-root: apps/backend
 
       - name: Perform CodeQL Analysis
