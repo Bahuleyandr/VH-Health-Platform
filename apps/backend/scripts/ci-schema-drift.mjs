@@ -4,9 +4,8 @@
 // CI wrapper around utils/schemaDriftDetector. Exits 1 if any expected
 // table is missing from the database — that means a Prisma model or raw
 // migration wasn't applied, which would break routes at runtime.
-// "Unexpected tables" (raw migrations the detector's allowlist doesn't
-// know about) are surfaced as info but DO NOT fail the build — the
-// allowlist is static + incomplete by design.
+// Additional tables are expected in this hybrid Prisma + raw-SQL schema and
+// are covered by contract and seeded-table checks elsewhere in CI.
 
 import { detectSchemaDrift } from '../src/utils/schemaDriftDetector.js';
 
@@ -15,7 +14,7 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-const { missing, unexpected, total, error } = await detectSchemaDrift();
+const { missing, additional = [], expected = 0, total, error } = await detectSchemaDrift();
 
 if (error) {
   console.error(`✗ Schema drift detector errored: ${error}`);
@@ -32,11 +31,11 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
-console.log(`✓ Schema drift check: ${total} tables present, 0 missing.`);
-if (unexpected.length > 0) {
+console.log(`✓ Schema drift check: ${expected} route-critical tables expected, ${total} tables present, 0 missing.`);
+if (additional.length > 0) {
   console.log(
-    `  (${unexpected.length} tables not in the detector allowlist — this is ` +
-    'fine, the allowlist lags the raw-migrations set.)',
+    `  (${additional.length} additional managed table(s) are present beyond the ` +
+    'route-critical sentinel list; seeded-table coverage protects them.)',
   );
 }
 process.exit(0);

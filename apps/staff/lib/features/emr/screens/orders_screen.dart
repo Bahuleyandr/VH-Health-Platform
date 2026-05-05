@@ -212,7 +212,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 ),
               ),
             ),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             Text(
               AppStrings.of(ctx).ordersNewOrder,
               style: TextStyle(
@@ -560,7 +560,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                         ),
                       ),
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
                     Text(
                       title,
                       style: TextStyle(
@@ -788,7 +788,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
               children: [
                 const SizedBox(height: 8),
                 _buildStatusFilters(),
-                SizedBox(height: 4),
+                const SizedBox(height: 4),
                 Expanded(
                   child: filtered.isEmpty
                       ? Center(
@@ -800,7 +800,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                 size: 64,
                                 color: AppTheme.divider,
                               ),
-                              SizedBox(height: 12),
+                              const SizedBox(height: 12),
                               Text(
                                 s.ordersNoFound,
                                 style: TextStyle(color: AppTheme.textSecondary),
@@ -891,7 +891,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                         ),
                                       ],
                                       if (order['ordered_by'] != null) ...[
-                                        SizedBox(height: 4),
+                                        const SizedBox(height: 4),
                                         Row(
                                           children: [
                                             Icon(
@@ -899,7 +899,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                               size: 13,
                                               color: AppTheme.textSecondary,
                                             ),
-                                            SizedBox(width: 4),
+                                            const SizedBox(width: 4),
                                             Text(
                                               order['ordered_by'] as String,
                                               style: TextStyle(

@@ -373,7 +373,7 @@ class _ReviewListTabState extends State<_ReviewListTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
+            const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
             const SizedBox(height: 8),
             Text(_error!, style: TextStyle(color: AppTheme.textSecondary)),
             TextButton(onPressed: _load, child: Text(s.actionRetry)),
@@ -465,7 +465,7 @@ class _ReviewListTabState extends State<_ReviewListTab> {
                       ),
                     ],
                   ),
-                  SizedBox(height: 4),
+                  const SizedBox(height: 4),
                   Text(
                     period,
                     style: TextStyle(

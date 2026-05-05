@@ -429,8 +429,9 @@ class _HandoverScreenState extends State<HandoverScreen>
     try {
       final dt = DateTime.parse(ts);
       final diff = DateTime.now().difference(dt);
-      if (diff.inMinutes < 60)
+      if (diff.inMinutes < 60) {
         return '${diff.inMinutes}${s.timeMinutesAgoSuffix}';
+      }
       if (diff.inHours < 24) return '${diff.inHours}${s.timeHoursAgoSuffix}';
       return DateFormat('d MMM, HH:mm').format(dt);
     } catch (e) {

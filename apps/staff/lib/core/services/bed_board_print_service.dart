@@ -96,7 +96,7 @@ class BedBoardPrintService {
               4: pw.FixedColumnWidth(80),
               5: pw.FlexColumnWidth(3),
             },
-            rowDecoration: pw.BoxDecoration(
+            rowDecoration: const pw.BoxDecoration(
               border: pw.Border(
                 bottom: pw.BorderSide(color: PdfColors.grey300, width: 0.4),
               ),

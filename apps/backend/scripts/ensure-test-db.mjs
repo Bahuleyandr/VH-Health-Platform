@@ -144,9 +144,8 @@ function assertPgvectorAvailable() {
 
   throw new Error(
     'Local test DB setup requires pgvector because prisma/schema.prisma contains Unsupported("vector"). ' +
-    'Install the vector extension for local Postgres, or run the smoke database with Docker, for example: ' +
-    'docker run --rm -p 55433:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres ' +
-    '-e POSTGRES_DB=vhhealth_test pgvector/pgvector:pg16'
+    'Install the vector extension for local Postgres, or run the Docker-backed guardrail: ' +
+    'npm run ci:db-guardrails:docker'
   );
 }
 

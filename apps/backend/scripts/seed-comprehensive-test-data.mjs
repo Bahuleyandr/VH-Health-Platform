@@ -1,7 +1,6 @@
 import bcrypt from 'bcrypt';
 import pg from 'pg';
 
-const TEST_DATABASE_RE = /127\.0\.0\.1:55432\/vhhealth_test|localhost:55432\/vhhealth_test/i;
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const STAFF_PASSWORD = process.env.VH_TEST_STAFF_PASSWORD || ['test', '1234'].join('');
 const ADMIN_PASSWORD = process.env.VH_TEST_ADMIN_PASSWORD || STAFF_PASSWORD;
@@ -12,9 +11,21 @@ if (!connectionString) {
   throw new Error('DATABASE_URL or TEST_DATABASE_URL is required.');
 }
 
-if (!TEST_DATABASE_RE.test(connectionString) && process.env.VH_ALLOW_NON_TEST_DATA_SEED !== 'true') {
+function isLocalTestDatabase(urlText) {
+  try {
+    const url = new URL(urlText);
+    const host = url.hostname.toLowerCase();
+    const database = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+    return ['127.0.0.1', 'localhost', '::1'].includes(host) && database === 'vhhealth_test';
+  } catch {
+    return false;
+  }
+}
+
+if (!isLocalTestDatabase(connectionString) && process.env.VH_ALLOW_NON_TEST_DATA_SEED !== 'true') {
   throw new Error(
-    'Refusing to seed a non-local database. Set DATABASE_URL to postgresql://postgres@127.0.0.1:55432/vhhealth_test.'
+    'Refusing to seed a non-local test database. Use a local vhhealth_test database, ' +
+    'or set VH_ALLOW_NON_TEST_DATA_SEED=true for an intentional disposable CI database.'
   );
 }
 

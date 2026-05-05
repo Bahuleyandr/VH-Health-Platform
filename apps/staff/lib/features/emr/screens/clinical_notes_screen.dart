@@ -199,7 +199,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                         _signedBadge(signed),
                       ],
                     ),
-                    SizedBox(height: 6),
+                    const SizedBox(height: 6),
                     Row(
                       children: [
                         Icon(
@@ -207,7 +207,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                           size: 14,
                           color: AppTheme.textSecondary,
                         ),
-                        SizedBox(width: 4),
+                        const SizedBox(width: 4),
                         Text(
                           note['author_name'] as String? ??
                               AppStrings.of(ctx).clinicalNotesUnknownAuthor,
@@ -216,13 +216,13 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                             color: AppTheme.textSecondary,
                           ),
                         ),
-                        SizedBox(width: 12),
+                        const SizedBox(width: 12),
                         Icon(
                           Icons.access_time,
                           size: 14,
                           color: AppTheme.textSecondary,
                         ),
-                        SizedBox(width: 4),
+                        const SizedBox(width: 4),
                         Text(
                           _formatTimestamp(note['created_at'] as String?),
                           style: TextStyle(
@@ -343,7 +343,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                   _signedBadge(note['signed'] == true),
                 ],
               ),
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Text(
                 '${note['author_name'] ?? AppStrings.of(ctx).clinicalNotesUnknownAuthor} - ${_formatTimestamp(note['created_at'] as String?)}',
                 style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
@@ -809,7 +809,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                       ),
                     ),
                   ),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   Text(
                     title,
                     style: TextStyle(
@@ -1095,7 +1095,7 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
         ),
         child: SingleChildScrollView(
           controller: scrollController,
-          padding: EdgeInsets.all(20),
+          padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1112,7 +1112,7 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Icon(Icons.auto_awesome, color: AppTheme.primaryBlue),
+                  const Icon(Icons.auto_awesome, color: AppTheme.primaryBlue),
                   const SizedBox(width: 8),
                   Text(
                     AppStrings.of(context).aiAssistDrawerTitle,
@@ -1229,7 +1229,7 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                       children: [
                         Text(
                           '${kp['label'] ?? ''}: ${kp['value'] ?? ''}',
-                          style: TextStyle(fontWeight: FontWeight.w500),
+                          style: const TextStyle(fontWeight: FontWeight.w500),
                         ),
                         if (kp['what_it_means'] != null)
                           Padding(

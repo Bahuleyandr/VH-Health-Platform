@@ -212,8 +212,9 @@ class _QueueScreenState extends State<QueueScreen> {
     try {
       final parsed = DateTime.parse(dt);
       final diff = DateTime.now().difference(parsed);
-      if (diff.isNegative)
+      if (diff.isNegative) {
         return '${s.queueInPrefix} ${_formatDuration(-diff)}';
+      }
       return '${s.queueWaitingPrefix} ${_formatDuration(diff)}';
     } catch (e) {
       return '';
@@ -233,7 +234,7 @@ class _QueueScreenState extends State<QueueScreen> {
         ),
       ],
       body: _loading
-          ? Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator())
           : _error != null
           ? Center(
               child: Column(
@@ -306,7 +307,7 @@ class _QueueScreenState extends State<QueueScreen> {
                   ),
                   if (_waiting.isEmpty)
                     Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24),
+                      padding: const EdgeInsets.symmetric(vertical: 24),
                       child: Center(
                         child: Text(
                           s.queueNoPatientsWaiting,
@@ -345,7 +346,7 @@ class _QueueScreenState extends State<QueueScreen> {
                   ),
                   if (_completed.isEmpty)
                     Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24),
+                      padding: const EdgeInsets.symmetric(vertical: 24),
                       child: Center(
                         child: Text(
                           s.queueNoCompletedConsultations,
@@ -802,7 +803,7 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
             // Content
             Expanded(
               child: _loading
-                  ? Center(child: CircularProgressIndicator())
+                  ? const Center(child: CircularProgressIndicator())
                   : _error != null
                   ? Center(
                       child: Text(

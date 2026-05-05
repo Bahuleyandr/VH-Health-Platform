@@ -92,7 +92,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
           // Search
           Container(
             color: Colors.white,
-            padding: EdgeInsets.all(12),
+            padding: const EdgeInsets.all(12),
             child: TextField(
               controller: _searchCtrl,
               decoration: InputDecoration(
@@ -309,7 +309,7 @@ class _PatientDetailsSheet extends StatelessWidget {
               ),
             ),
           ),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           Text(
             patientName,
             style: TextStyle(
@@ -321,7 +321,7 @@ class _PatientDetailsSheet extends StatelessWidget {
           const SizedBox(height: 4),
           if (phone != '—')
             Text('📱 $phone', style: TextStyle(color: AppTheme.textSecondary)),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           Text(
             AppStrings.of(context).patientRecordsDetails,
             style: TextStyle(
@@ -391,7 +391,7 @@ class _InfoRow extends StatelessWidget {
       child: Row(
         children: [
           Icon(icon, size: 14, color: AppTheme.textSecondary),
-          SizedBox(width: 6),
+          const SizedBox(width: 6),
           Expanded(
             child: Text(
               text,
@@ -448,7 +448,7 @@ class _EmptyState extends StatelessWidget {
             size: 56,
             color: AppTheme.textSecondary,
           ),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           Text(
             hasSearch ? s.patientRecordsNoFound : s.patientRecordsEmpty,
             style: TextStyle(

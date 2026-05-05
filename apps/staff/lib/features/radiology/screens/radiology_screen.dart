@@ -189,7 +189,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
     if (_error != null) {
       return Center(
         child: Padding(
-          padding: EdgeInsets.all(32),
+          padding: const EdgeInsets.all(32),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -316,11 +316,11 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                   ),
                 ],
               ),
-              SizedBox(height: 8),
+              const SizedBox(height: 8),
               Row(
                 children: [
                   Icon(Icons.person, size: 14, color: AppTheme.textSecondary),
-                  SizedBox(width: 4),
+                  const SizedBox(width: 4),
                   Text(
                     displayUid,
                     style: TextStyle(
@@ -328,13 +328,13 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                       color: AppTheme.textSecondary,
                     ),
                   ),
-                  SizedBox(width: 16),
+                  const SizedBox(width: 16),
                   Icon(
                     Icons.accessibility_new,
                     size: 14,
                     color: AppTheme.textSecondary,
                   ),
-                  SizedBox(width: 4),
+                  const SizedBox(width: 4),
                   Text(
                     o['body_part']?.toString() ?? '-',
                     style: TextStyle(
@@ -413,7 +413,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                       ),
                     ),
                   ),
-                  SizedBox(height: 20),
+                  const SizedBox(height: 20),
                   Text(
                     '${o['study_type'] ?? '—'} - ${o['modality'] ?? ''}',
                     style: TextStyle(
@@ -562,7 +562,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
                   ),
                 ),
               ),
-              SizedBox(height: 16),
+              const SizedBox(height: 16),
               Text(
                 ds.radiologySubmitReport,
                 style: TextStyle(

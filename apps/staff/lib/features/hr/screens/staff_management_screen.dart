@@ -78,7 +78,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
           // Search bar
           Container(
             color: Colors.white,
-            padding: EdgeInsets.all(12),
+            padding: const EdgeInsets.all(12),
             child: TextField(
               controller: _searchCtrl,
               decoration: InputDecoration(
@@ -451,7 +451,7 @@ class _EmptyState extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.people_outline, size: 56, color: AppTheme.textSecondary),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           Text(
             hasSearch ? s.staffMgmtNoStaffFound : s.staffMgmtNoStaffMembers,
             style: TextStyle(

@@ -83,7 +83,7 @@ class _StaffDirectoryScreenState extends State<StaffDirectoryScreen> {
           // Search bar
           Container(
             color: Colors.white,
-            padding: EdgeInsets.all(12),
+            padding: const EdgeInsets.all(12),
             child: TextField(
               controller: _searchCtrl,
               decoration: InputDecoration(
@@ -148,7 +148,7 @@ class _DeptSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: 8),
           child: Text(
             dept,
             style: TextStyle(
@@ -238,7 +238,7 @@ class _StaffTile extends StatelessWidget {
               ),
             ),
             if (phone.isNotEmpty) ...[
-              SizedBox(height: 4),
+              const SizedBox(height: 4),
               Icon(
                 Icons.phone_outlined,
                 size: 14,
@@ -298,7 +298,7 @@ class _DialogRow extends StatelessWidget {
       child: Row(
         children: [
           Icon(icon, size: 16, color: AppTheme.textSecondary),
-          SizedBox(width: 8),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(text, style: TextStyle(color: AppTheme.textPrimary)),
           ),
@@ -352,7 +352,7 @@ class _EmptyState extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.people_outline, size: 56, color: AppTheme.textSecondary),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           Text(
             hasSearch ? s.directoryStaffEmptyBody : s.directoryEmpty,
             style: TextStyle(

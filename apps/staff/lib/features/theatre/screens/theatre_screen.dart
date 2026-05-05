@@ -273,7 +273,7 @@ class _TheatreScreenState extends State<TheatreScreen>
                   ),
                 ],
               ),
-              SizedBox(height: 6),
+              const SizedBox(height: 6),
               Text(
                 '${AppStrings.of(context).theatreSurgeonPrefix} ${s['surgeon']?.toString() ?? '-'}',
                 style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
@@ -332,7 +332,7 @@ class _TheatreScreenState extends State<TheatreScreen>
                       ),
                     ),
                   ),
-                  SizedBox(height: 20),
+                  const SizedBox(height: 20),
                   Text(
                     s['procedure_name']?.toString() ?? '—',
                     style: TextStyle(
@@ -541,7 +541,7 @@ class _TheatreScreenState extends State<TheatreScreen>
                       ),
                     ),
                   ),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   Text(
                     str.theatrePreOpChecklist,
                     style: TextStyle(
@@ -679,7 +679,7 @@ class _TheatreScreenState extends State<TheatreScreen>
                               ? AppTheme.successGreen
                               : AppTheme.errorRed,
                         ),
-                        SizedBox(height: 8),
+                        const SizedBox(height: 8),
                         Text(
                           name,
                           style: TextStyle(
@@ -729,7 +729,7 @@ class _TheatreScreenState extends State<TheatreScreen>
     final s = AppStrings.of(context);
     return Center(
       child: Padding(
-        padding: EdgeInsets.all(32),
+        padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

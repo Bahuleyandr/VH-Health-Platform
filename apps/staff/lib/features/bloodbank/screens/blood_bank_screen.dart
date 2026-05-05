@@ -181,7 +181,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
 
   Widget _buildInventoryTab() {
     if (_loadingInventory) {
-      return Center(child: CircularProgressIndicator());
+      return const Center(child: CircularProgressIndicator());
     }
     if (_inventoryError != null) {
       return Center(
@@ -385,8 +385,9 @@ class _BloodBankScreenState extends State<BloodBankScreen>
                 fillColor: Colors.white,
               ),
               validator: (v) {
-                if (v == null || v.trim().isEmpty)
+                if (v == null || v.trim().isEmpty) {
                   return s.bloodBankUnitsRequired;
+                }
                 final n = int.tryParse(v.trim());
                 if (n == null || n < 1) return s.bloodBankUnitsInvalid;
                 return null;
@@ -452,7 +453,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
     final s = AppStrings.of(context);
     return Center(
       child: Padding(
-        padding: EdgeInsets.all(32),
+        padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

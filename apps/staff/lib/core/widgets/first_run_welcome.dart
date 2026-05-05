@@ -82,7 +82,7 @@ class _FirstRunWelcomeState extends State<FirstRunWelcome> {
           children: [
             Row(
               children: [
-                Icon(
+                const Icon(
                   Icons.tips_and_updates_outlined,
                   color: AppTheme.primaryBlue,
                 ),
@@ -90,7 +90,7 @@ class _FirstRunWelcomeState extends State<FirstRunWelcome> {
                 Expanded(
                   child: Text(
                     s.firstRunWelcomeTitle,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       color: AppTheme.primaryBlue,
                       fontSize: 15,

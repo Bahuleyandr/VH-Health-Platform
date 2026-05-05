@@ -417,7 +417,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.restaurant_menu, size: 64, color: Colors.grey.shade400),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           Text(
             s.dietaryEmptyTitle,
             style: TextStyle(
@@ -568,7 +568,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
 
             // Notes
             if (notes.isNotEmpty) ...[
-              SizedBox(height: 6),
+              const SizedBox(height: 6),
               Text(
                 notes,
                 style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),

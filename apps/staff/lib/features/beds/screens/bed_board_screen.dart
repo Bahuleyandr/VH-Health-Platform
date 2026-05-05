@@ -802,7 +802,10 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                   const SizedBox(height: 8),
                   Text(
                     errorMsg!,
-                    style: TextStyle(color: AppTheme.errorRed, fontSize: 12),
+                    style: const TextStyle(
+                      color: AppTheme.errorRed,
+                      fontSize: 12,
+                    ),
                   ),
                 ],
               ],
@@ -1359,7 +1362,10 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                 const SizedBox(height: 8),
                 Text(
                   _saveError!,
-                  style: TextStyle(color: AppTheme.errorRed, fontSize: 12),
+                  style: const TextStyle(
+                    color: AppTheme.errorRed,
+                    fontSize: 12,
+                  ),
                 ),
               ],
 
@@ -1475,7 +1481,11 @@ class _DetailRow extends StatelessWidget {
         ),
         Expanded(child: valueText),
         if (onTap != null)
-          Icon(Icons.chevron_right, size: 18, color: AppTheme.primaryBlue),
+          const Icon(
+            Icons.chevron_right,
+            size: 18,
+            color: AppTheme.primaryBlue,
+          ),
       ],
     );
 
@@ -1568,7 +1578,7 @@ class _BedQuickActions extends StatelessWidget {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: actions.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
           final a = actions[i];
           return SizedBox(
@@ -1792,7 +1802,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
     try {
       final body = <String, dynamic>{
         'patient_name': patientName,
-        if (patientIntId != null) 'patient_id': patientIntId,
+        'patient_id': ?patientIntId,
       };
       final response = await ApiClient.post('/beds/$id/admit', body: body);
       if (!mounted) return;
@@ -2026,7 +2036,10 @@ class _AdmitPatientPickerState extends State<_AdmitPatientPicker> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(_error!, style: TextStyle(color: AppTheme.errorRed)),
+          child: Text(
+            _error!,
+            style: const TextStyle(color: AppTheme.errorRed),
+          ),
         ),
       );
     }
@@ -2054,7 +2067,7 @@ class _AdmitPatientPickerState extends State<_AdmitPatientPicker> {
     }
     return ListView.separated(
       itemCount: _rows.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (ctx, i) {
         final p = _rows[i];
         final name = (p['name'] ?? AppStrings.of(ctx).bedBoardPatientUnnamed)

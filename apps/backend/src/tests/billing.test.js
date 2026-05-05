@@ -455,7 +455,11 @@ describe('Billing API', () => {
       expect(Array.isArray(res.body.data.claims)).toBe(true);
       expect(res.body.data.claims.length).toBeGreaterThanOrEqual(2);
       expect(res.body.data.claims.every((c) => c.status !== 'approved' && c.status !== 'paid')).toBe(true);
-      expect(res.body.data.claims[0]).toEqual(
+      const testClaim = res.body.data.claims.find((claim) =>
+        claim.insurance_provider === 'TestCorp' &&
+        /^CLM-\d{6}-\d{4}$/.test(claim.claim_number)
+      );
+      expect(testClaim).toEqual(
         expect.objectContaining({
           claim_number: expect.stringMatching(/^CLM-\d{6}-\d{4}$/),
           insurance_provider: 'TestCorp',

@@ -94,8 +94,9 @@ class ClinicalAiApiService {
   }) async {
     final query = <String, String>{};
     if (decision != null && decision.isNotEmpty) query['decision'] = decision;
-    if (moduleKey != null && moduleKey.isNotEmpty)
+    if (moduleKey != null && moduleKey.isNotEmpty) {
       query['module_key'] = moduleKey;
+    }
     if (limit != null) query['limit'] = limit.toString();
     final data = await _get('$_basePath/reviews', query: query);
     final reviews = data['reviews'];
@@ -291,8 +292,9 @@ class ClinicalAiApiService {
       'report_text': reportText,
       'language': language,
     };
-    if (patientUid != null && patientUid.isNotEmpty)
+    if (patientUid != null && patientUid.isNotEmpty) {
       body['patient_uid'] = patientUid;
+    }
     if (admissionId != null) body['admission_id'] = admissionId;
     return _post('$_basePath/patient-report-explanations', body);
   }

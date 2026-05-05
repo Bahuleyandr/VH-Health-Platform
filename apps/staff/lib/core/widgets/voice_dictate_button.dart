@@ -45,16 +45,22 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
 
   Future<void> _start() async {
     if (_busy) return;
+    final strings = AppStrings.of(context);
+    final textDirection = Directionality.of(context);
+    final view = View.of(context);
     setState(() => _busy = true);
     try {
       await VoiceDictationService.start();
       // Audio + haptic cue so blind users get the same "recording
       // started" feedback sighted users get from the pulsing red mic.
-      // SemanticsService.announce reads the message via TalkBack/NVDA;
+      // SemanticsService.sendAnnouncement reads the message via TalkBack/NVDA;
       // HapticFeedback gives a vibration on devices that support it.
-      SemanticsService.announce(
-        AppStrings.of(context).voiceDictateRecordingStarted,
-        Directionality.of(context),
+      unawaited(
+        SemanticsService.sendAnnouncement(
+          view,
+          strings.voiceDictateRecordingStarted,
+          textDirection,
+        ),
       );
       HapticFeedback.lightImpact();
     } catch (e) {
@@ -98,9 +104,12 @@ class _VoiceDictateButtonState extends State<VoiceDictateButton> {
       // flight. Followed by the success/failure announcement once the
       // upload settles.
       if (mounted) {
-        SemanticsService.announce(
-          AppStrings.of(context).voiceDictateRecordingStopped,
-          Directionality.of(context),
+        unawaited(
+          SemanticsService.sendAnnouncement(
+            view,
+            strings.voiceDictateRecordingStopped,
+            textDirection,
+          ),
         );
         HapticFeedback.selectionClick();
       }

@@ -136,7 +136,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                         ),
                       ),
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
                     Text(
                       AppStrings.of(ctx).admissionAdmitPatient,
                       style: TextStyle(
@@ -393,7 +393,7 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(Icons.bed, size: 64, color: AppTheme.divider),
-                  SizedBox(height: 12),
+                  const SizedBox(height: 12),
                   Text(
                     s.admissionNoActive,
                     style: TextStyle(color: AppTheme.textSecondary),
@@ -559,7 +559,7 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                       ),
                     ),
                   ),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   Text(
                     _detail?['patient_name'] as String? ??
                         AppStrings.of(context).admissionPatientFallback,
@@ -569,7 +569,7 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                       color: AppTheme.textPrimary,
                     ),
                   ),
-                  SizedBox(height: 4),
+                  const SizedBox(height: 4),
                   Text(
                     AppStrings.of(context).admissionNumber(widget.admissionId),
                     style: TextStyle(

@@ -316,7 +316,7 @@ class _TaskCard extends StatelessWidget {
                           ),
                         ],
                       ),
-                      SizedBox(height: 2),
+                      const SizedBox(height: 2),
                       Row(
                         children: [
                           Icon(
@@ -324,7 +324,7 @@ class _TaskCard extends StatelessWidget {
                             size: 12,
                             color: AppTheme.textSecondary,
                           ),
-                          SizedBox(width: 2),
+                          const SizedBox(width: 2),
                           Text(
                             task.location,
                             style: TextStyle(
@@ -332,13 +332,13 @@ class _TaskCard extends StatelessWidget {
                               color: AppTheme.textSecondary,
                             ),
                           ),
-                          SizedBox(width: 12),
+                          const SizedBox(width: 12),
                           Icon(
                             Icons.schedule_outlined,
                             size: 12,
                             color: AppTheme.textSecondary,
                           ),
-                          SizedBox(width: 2),
+                          const SizedBox(width: 2),
                           Text(
                             task.dueTime,
                             style: TextStyle(

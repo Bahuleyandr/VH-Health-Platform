@@ -208,8 +208,9 @@ class _UploadTabState extends State<_UploadTab> {
                 ),
               ),
               validator: (v) {
-                if (v == null || v.trim().isEmpty)
+                if (v == null || v.trim().isEmpty) {
                   return s.investigationsPhoneRequired;
+                }
                 if (v.trim().length < 10) return s.investigationsPhoneInvalid;
                 return null;
               },
@@ -478,7 +479,7 @@ class _PendingTabState extends State<_PendingTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
+            const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
             const SizedBox(height: 8),
             Text(_error!, style: TextStyle(color: AppTheme.textSecondary)),
             TextButton(onPressed: _load, child: Text(s.actionRetry)),
@@ -491,7 +492,7 @@ class _PendingTabState extends State<_PendingTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
+            const Icon(
               Icons.check_circle_outline,
               size: 56,
               color: AppTheme.successGreen,
@@ -597,7 +598,7 @@ class _PendingTabState extends State<_PendingTab> {
                     ],
                   ),
                   if (date.isNotEmpty) ...[
-                    SizedBox(height: 8),
+                    const SizedBox(height: 8),
                     Text(
                       date,
                       style: TextStyle(
@@ -686,7 +687,7 @@ class _RecentUploadsTabState extends State<_RecentUploadsTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
+            const Icon(Icons.error_outline, color: AppTheme.errorRed, size: 40),
             const SizedBox(height: 8),
             Text(_error!, style: TextStyle(color: AppTheme.textSecondary)),
             TextButton(onPressed: _load, child: Text(s.actionRetry)),

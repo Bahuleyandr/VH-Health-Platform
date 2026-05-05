@@ -404,7 +404,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                                 ),
                               ),
                             ),
-                            Spacer(),
+                            const Spacer(),
                             Text(
                               _formatTimestamp(event['timestamp'] as String?),
                               style: TextStyle(
@@ -424,7 +424,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                           ),
                         ),
                         if (event['description'] != null) ...[
-                          SizedBox(height: 4),
+                          const SizedBox(height: 4),
                           Text(
                             event['description'] as String,
                             style: TextStyle(
@@ -436,7 +436,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                           ),
                         ],
                         if (event['author'] != null) ...[
-                          SizedBox(height: 6),
+                          const SizedBox(height: 6),
                           Row(
                             children: [
                               Icon(
@@ -444,7 +444,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                                 size: 13,
                                 color: AppTheme.textSecondary,
                               ),
-                              SizedBox(width: 4),
+                              const SizedBox(width: 4),
                               Text(
                                 event['author'] as String,
                                 style: TextStyle(
@@ -502,7 +502,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
               children: [
                 const SizedBox(height: 8),
                 _buildFilterChips(),
-                SizedBox(height: 8),
+                const SizedBox(height: 8),
                 Expanded(
                   child: filtered.isEmpty
                       ? Center(
@@ -514,7 +514,7 @@ class _PatientTimelineScreenState extends State<PatientTimelineScreen> {
                                 size: 64,
                                 color: AppTheme.divider,
                               ),
-                              SizedBox(height: 12),
+                              const SizedBox(height: 12),
                               Text(
                                 s.timelineNoEvents,
                                 style: TextStyle(color: AppTheme.textSecondary),

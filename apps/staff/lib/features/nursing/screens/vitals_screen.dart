@@ -706,7 +706,7 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
                       size: 18,
                       color: Color(0xFFC62828),
                     ),
-                    SizedBox(width: 8),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         date,
@@ -740,7 +740,7 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
                   ],
                 ),
                 if (r['notes'] != null && r['notes'].toString().isNotEmpty) ...[
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   Text(
                     r['notes'].toString(),
                     style: TextStyle(

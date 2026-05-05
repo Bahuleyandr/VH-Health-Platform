@@ -192,16 +192,18 @@ class _LoginScreenState extends State<LoginScreen> {
                 width: double.infinity,
                 decoration: BoxDecoration(
                   color: AppTheme.backgroundGrey,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(28),
+                  ),
                 ),
                 child: SingleChildScrollView(
-                  padding: EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(24),
                   child: Form(
                     key: _formKey,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SizedBox(height: 8),
+                        const SizedBox(height: 8),
                         Text(
                           s.loginScreenTitle,
                           style: Theme.of(context).textTheme.headlineSmall
@@ -333,8 +335,9 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                             validator: (v) {
-                              if (v == null || v.isEmpty)
+                              if (v == null || v.isEmpty) {
                                 return s.loginPinRequired;
+                              }
                               if (v.length < 4) return s.loginPinMinDigits;
                               return null;
                             },
@@ -531,7 +534,7 @@ class _ModeChip extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         decoration: BoxDecoration(
           color: selected ? AppTheme.primaryBlue : Colors.white,
           borderRadius: BorderRadius.circular(20),

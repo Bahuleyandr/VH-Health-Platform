@@ -255,13 +255,16 @@ export async function recordIntakeOutput(data) {
 
 export async function getIOBalance(patientUid, encounterId, date) {
   if (!date) throw AppError.badRequest('date is required (YYYY-MM-DD)');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+    throw AppError.badRequest('date must be in YYYY-MM-DD format');
+  }
 
-  // The pre-ORM query did `recorded_at::date = $date::date` (server-local
-  // tz). Mirror with explicit day bounds so the query stays index-friendly.
-  const dayStart = new Date(date);
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayEnd.getDate() + 1);
+  // Keep this aligned to the DB calendar day used by `current_date` in tests
+  // and production UTC Postgres. Parsing YYYY-MM-DD with local setHours can
+  // shift late-night records out of the requested DB day on non-UTC hosts.
+  const [year, month, day] = String(date).split('-').map(Number);
+  const dayStart = new Date(Date.UTC(year, month - 1, day));
+  const dayEnd = new Date(Date.UTC(year, month - 1, day + 1));
 
   const where = {
     patient_uid: patientUid,

@@ -35,8 +35,24 @@ first two variables blank for `test:db:setup`. The bootstrap intentionally uses
 The Prisma schema includes a pgvector-backed `Unsupported("vector")` column.
 Local Postgres must provide the `vector` extension before `prisma db push` can
 create that table. `npm run test:db:setup` checks this before resetting the
-schema. If local Postgres does not have pgvector, use a disposable pgvector
-container and point `DATABASE_URL` at it:
+schema. If local Postgres does not have pgvector, use the Docker-backed
+guardrail runner. It starts a disposable `pgvector/pgvector:pg16` container on a
+free local port, applies Prisma + raw SQL migrations, seeds comprehensive QA
+data, runs the contract checks, then removes the container:
+
+```powershell
+cd apps/backend
+npm run ci:db-guardrails:docker
+```
+
+For manual inspection, you can keep the disposable database running:
+
+```powershell
+$env:VH_KEEP_DOCKER_TEST_DB='true'
+npm run ci:db-guardrails:docker
+```
+
+The older fully manual equivalent is:
 
 ```powershell
 docker run --rm -p 55433:5432 `
@@ -68,12 +84,15 @@ and now runs:
 - `npm run db:contracts`
 - `npm run seed:test-data`
 - `npm run db:contracts:seeded`
-- schema drift checks
+- route-critical schema drift checks
 - backend tests
 
 `db:contracts` protects critical backend routes from missing tables/columns.
 `db:contracts:seeded` catches seed gaps and fixture rot by requiring all public
 application tables to have at least one row after the comprehensive seed.
+The table drift check intentionally distinguishes route-critical missing tables
+from additional managed tables created by raw migrations; additional tables are
+not a failure because seeded-table coverage checks them separately.
 
 The `Smoke E2E` workflow runs the same `npm run ci:db-guardrails` bundle before
 starting backend/admin smoke tests. This catches table/column drift before the

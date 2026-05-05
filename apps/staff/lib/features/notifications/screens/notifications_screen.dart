@@ -425,8 +425,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final diff = now.difference(dt);
 
     if (diff.inMinutes < 1) return s.timeJustNow;
-    if (diff.inMinutes < 60)
+    if (diff.inMinutes < 60) {
       return '${diff.inMinutes}${s.timeMinutesAgoSuffix}';
+    }
     if (diff.inHours < 24) return '${diff.inHours}${s.timeHoursAgoSuffix}';
     if (diff.inDays < 7) return '${diff.inDays}${s.timeDaysAgoSuffix}';
     return DateFormat('dd MMM yyyy').format(dt);

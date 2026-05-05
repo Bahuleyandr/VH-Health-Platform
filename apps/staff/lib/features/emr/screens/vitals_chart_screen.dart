@@ -148,7 +148,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                         ),
                       ),
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
                     Text(
                       AppStrings.of(ctx).vitalsChartRecordVitals,
                       style: TextStyle(
@@ -180,7 +180,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                           ),
                         ),
                         Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
                           child: Text(
                             '/',
                             style: TextStyle(
@@ -477,7 +477,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                         ),
                       ),
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
                     Text(
                       AppStrings.of(ctx).vitalsChartRecordIo,
                       style: TextStyle(
@@ -663,7 +663,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: EdgeInsets.symmetric(vertical: 14),
+        padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
           color: selected
               ? color.withValues(alpha: 0.12)
@@ -682,7 +682,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
               color: selected ? color : AppTheme.textSecondary,
               size: 20,
             ),
-            SizedBox(width: 6),
+            const SizedBox(width: 6),
             Text(
               label,
               style: TextStyle(
@@ -762,7 +762,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.monitor_heart, size: 64, color: AppTheme.divider),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             Text(
               AppStrings.of(context).vitalsChartNoVitals,
               style: TextStyle(color: AppTheme.textSecondary),
@@ -1053,7 +1053,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
           ] else
             Center(
               child: Padding(
-                padding: EdgeInsets.all(24),
+                padding: const EdgeInsets.all(24),
                 child: Text(
                   AppStrings.of(context).vitalsChartNoIoToday,
                   style: TextStyle(color: AppTheme.textSecondary),
@@ -1086,7 +1086,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                 color: color,
               ),
             ),
-            SizedBox(height: 2),
+            const SizedBox(height: 2),
             Text(
               label,
               style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),

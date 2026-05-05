@@ -334,7 +334,7 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(bottom: 8, left: 4),
+      padding: const EdgeInsets.only(bottom: 8, left: 4),
       child: Text(
         title.toUpperCase(),
         style: TextStyle(
@@ -443,7 +443,7 @@ class _BiometricToggleTileState extends State<_BiometricToggleTile> {
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
     return ListTile(
-      leading: Icon(Icons.fingerprint, color: AppTheme.primaryBlue),
+      leading: const Icon(Icons.fingerprint, color: AppTheme.primaryBlue),
       title: Text(
         s.settingsBiometricTitle,
         style: TextStyle(
@@ -562,7 +562,7 @@ class _ManageDevicesSheetState extends State<_ManageDevicesSheet> {
           const Divider(height: 1),
           Expanded(
             child: _loading
-                ? Center(child: CircularProgressIndicator())
+                ? const Center(child: CircularProgressIndicator())
                 : _error != null
                 ? Center(child: Text(_error!))
                 : _devices.isEmpty

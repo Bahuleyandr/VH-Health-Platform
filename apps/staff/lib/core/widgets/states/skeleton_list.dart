@@ -65,11 +65,11 @@ class _SkeletonListState extends State<SkeletonList>
       child: ListView.separated(
         padding: widget.padding,
         itemCount: widget.itemCount,
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        separatorBuilder: (_, _) => const SizedBox(height: 12),
         itemBuilder: (context, _) {
           return AnimatedBuilder(
             animation: _ctrl,
-            builder: (context, __) {
+            builder: (context, _) {
               final t = reduceMotion ? 0.5 : _ctrl.value;
               return Container(
                 height: widget.itemHeight,
@@ -187,7 +187,7 @@ class _SkeletonGridState extends State<SkeletonGrid>
         itemBuilder: (context, _) {
           return AnimatedBuilder(
             animation: _ctrl,
-            builder: (context, __) {
+            builder: (context, _) {
               final t = reduceMotion ? 0.5 : _ctrl.value;
               return Container(
                 decoration: BoxDecoration(

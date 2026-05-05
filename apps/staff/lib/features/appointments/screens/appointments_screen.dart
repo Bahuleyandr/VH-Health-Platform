@@ -357,7 +357,7 @@ class _InfoRow extends StatelessWidget {
       child: Row(
         children: [
           Icon(icon, size: 14, color: AppTheme.textSecondary),
-          SizedBox(width: 6),
+          const SizedBox(width: 6),
           Expanded(
             child: Text(
               text,

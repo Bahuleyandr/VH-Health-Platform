@@ -136,7 +136,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
       ],
       body: _loading
-          ? Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator())
           : _error != null
           ? Center(
               child: Column(

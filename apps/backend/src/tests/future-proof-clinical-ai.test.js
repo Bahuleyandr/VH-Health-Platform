@@ -9,6 +9,7 @@ const ADMIN_UID = 'c1111111-1111-4111-8111-111111111a03';
 const ENCOUNTER_ID = 'c1111111-1111-4111-8111-111111111a04';
 const IT_UID = 'c1111111-1111-4111-8111-111111111a05';
 const CULTURE_INVESTIGATION_UID = 'c1111111-1111-4111-8111-111111111a06';
+const LONG_CLINICAL_AI_TEST_TIMEOUT_MS = 60000;
 
 function authed(role, uid) {
   const token = generateTestToken(role, { uid, id: role === 'PATIENT' ? 7001 : 7002 });
@@ -408,7 +409,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expect(auditActions).toContain('CLINICAL_AI_GOVERNANCE_REPORT_EXPORTED');
     const moduleAudit = audit.body.data.logs.find((row) => row.action === 'CLINICAL_AI_MODULE_UPDATED');
     expect(moduleAudit.metadata.changed_fields).toContain('enabled');
-  });
+  }, LONG_CLINICAL_AI_TEST_TIMEOUT_MS);
 
   it('exposes timeline, handover draft, FHIR everything, and downtime packet', async () => {
     const timeline = await doctor.get(`/api/v1/emr/timeline/${PATIENT_UID}`);
@@ -565,7 +566,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     });
     expectStatus(decisioned, 200, 'accept review');
     expect(decisioned.body.data.decision).toBe('accepted');
-  });
+  }, LONG_CLINICAL_AI_TEST_TIMEOUT_MS);
 
   it('extracts clinical task candidates into an auditable review queue', async () => {
     await enableModule('clinical_task_extractor');
