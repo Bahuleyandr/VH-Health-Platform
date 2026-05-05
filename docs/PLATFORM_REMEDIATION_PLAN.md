@@ -29,6 +29,7 @@ This tracker is the canonical platform-level remediation list. It focuses on rel
 - [x] Fix Dart analyzer infos, especially async `BuildContext` usage.
 - [x] Upgrade dependencies responsible for moderate audit findings and apply safe Flutter plugin upgrades.
 - [x] Ensure CI runs backend/admin/mobile builds, gitleaks, format, tests, and manifest validation.
+- [x] Add `node scripts/local-ci.mjs` as the canonical local fallback when GitHub-hosted Actions minutes are unavailable.
 
 ## P2 - Architecture Debt
 

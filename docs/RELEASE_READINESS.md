@@ -20,7 +20,29 @@ talks to the backend, and has the required operational guardrails?
 The release workflows validate these before building and fail before artifact
 creation if any required value is missing.
 
-## Pre-Tag Gate
+## Local CI Gate
+
+GitHub-hosted minutes are optional for this repo. The canonical pre-merge and
+pre-tag gate is the local runner:
+
+```bash
+node scripts/local-ci.mjs
+```
+
+Useful scoped runs:
+
+```bash
+node scripts/local-ci.mjs --only=security,backend
+node scripts/local-ci.mjs --only=admin
+node scripts/local-ci.mjs --only=flutter
+node scripts/local-ci.mjs --only=infra
+```
+
+This runs the same trust checks that matter for release: secret scans, backend
+Docker-backed DB/tests, admin lint/type-check/test/build/bundle guard, Flutter
+format/analyze/test, and Kubernetes manifest validation.
+
+## Manual Pre-Tag Gate
 
 Run these from a clean `main` checkout before creating `patient-v*` or
 `staff-v*` tags:

@@ -57,6 +57,12 @@ Backend monitors should use:
 
 CI and local release checks are tracked in
 [`docs/PLATFORM_REMEDIATION_PLAN.md`](docs/PLATFORM_REMEDIATION_PLAN.md).
+When GitHub-hosted minutes are unavailable, use the repo-local gate:
+
+```bash
+node scripts/local-ci.mjs
+```
+
 Smoke journey coverage is documented in
 [`docs/SMOKE_E2E_JOURNEYS.md`](docs/SMOKE_E2E_JOURNEYS.md).
 
