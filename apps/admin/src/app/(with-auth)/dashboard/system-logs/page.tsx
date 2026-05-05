@@ -26,12 +26,14 @@ function SystemLogsContent() {
     error,
     currentPage,
     totalPages,
+    pageSize,
     autoRefresh,
     refreshInterval,
     setAutoRefresh,
     setRefreshInterval,
     handleTabChange,
     handlePageChange,
+    handlePageSizeChange,
     handleFilterChange,
     handleExport,
   } = useSystemLogsData();
@@ -93,7 +95,9 @@ function SystemLogsContent() {
       <LogsPagination
         currentPage={currentPage}
         totalPages={totalPages}
+        pageSize={pageSize}
         onPageChange={handlePageChange}
+        onPageSizeChange={handlePageSizeChange}
       />
 
       <LogMonitor logs={activeLogs} type={activeType} isActive={autoRefresh} />

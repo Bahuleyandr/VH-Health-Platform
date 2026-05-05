@@ -4,6 +4,7 @@ import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { adminDoctorService } from '../../services/doctor/adminDoctorService.js';
+import { parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 export const adminDoctorController = {
@@ -39,15 +40,33 @@ export const adminDoctorController = {
         return error(res, 'Validation error', 400, errors.array());
       }
 
+      const listQuery = parseListQuery(req.query, {
+        defaultLimit: 20,
+        maxLimit: 100,
+        defaultSortBy: 'name',
+        defaultSortOrder: 'ASC',
+        allowedSortFields: [
+          'name',
+          'department',
+          'specialization',
+          'status',
+          'registered_at',
+          'total_appointments',
+          'recent_appointments'
+        ]
+      });
+
       const filters = {
-        page: Math.max(parseInt(req.query.page) || 1, 1),
-        limit: Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100),
+        page: listQuery.page,
+        limit: listQuery.limit,
         department: req.query.department,
         specialization: req.query.specialization,
         status: req.query.status,
         experience_min: req.query.experience_min,
         experience_max: req.query.experience_max,
-        search: req.query.search
+        search: listQuery.search,
+        sortBy: listQuery.sortBy,
+        sortOrder: listQuery.sortOrder
       };
 
       const result = await adminDoctorService.getDoctorManagementList(filters);

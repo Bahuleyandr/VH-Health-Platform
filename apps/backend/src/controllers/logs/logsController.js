@@ -1,6 +1,7 @@
 // src/controllers/logs/logsController.js
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -17,10 +18,11 @@ async function tableExists(tableName) {
 }
 
 function parsePagination(query) {
-  const page = Math.max(1, parseInt(query.page ?? '1', 10) || 1);
-  const limit = Math.min(200, Math.max(1, parseInt(query.limit ?? '50', 10) || 50));
-  const offset = (page - 1) * limit;
-  return { page, limit, offset };
+  return parseListQuery(query, {
+    defaultLimit: 50,
+    maxLimit: 200,
+    defaultSortBy: 'created_at',
+  });
 }
 
 // ─── audit logs ──────────────────────────────────────────────────────────────
@@ -32,7 +34,8 @@ function parsePagination(query) {
 export async function getAuditLogs(req, res) {
   try {
     if (!(await tableExists('audit_logs'))) {
-      return success(res, { logs: [], total: 0, page: 1, limit: 50 }, 'No audit logs yet');
+      const pagination = buildPagination(0, 1, 50);
+      return success(res, { logs: [], total: 0, page: 1, limit: 50, pagination }, 'No audit logs yet');
     }
 
     const { page, limit, offset } = parsePagination(req.query);
@@ -62,7 +65,7 @@ export async function getAuditLogs(req, res) {
 
     const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*)::int AS total FROM audit_logs ${whereClause}`,
-      params
+      ...params
     );
     const total = countResult[0]?.total ?? 0;
 
@@ -74,12 +77,13 @@ export async function getAuditLogs(req, res) {
        ${whereClause}
        ORDER BY occurred_at DESC
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
-      params
+      ...params
     );
 
+    const pagination = buildPagination(total, page, limit);
     success(
       res,
-      { logs: dataResult, total, page, limit, totalPages: Math.ceil(total / limit) },
+      { logs: dataResult, total, page, limit, pagination, totalPages: pagination.totalPages },
       'Audit logs fetched'
     );
   } catch (err) {
@@ -128,7 +132,7 @@ export async function exportAuditLogs(req, res) {
        ${whereClause}
        ORDER BY occurred_at DESC
        LIMIT 5000`,
-      params
+      ...params
     );
 
     success(res, result, `Audit log export: ${result.length} records`);
@@ -165,7 +169,7 @@ async function buildSystemLogs({ limit, offset, start_date, end_date, level }) {
                 created_at
          FROM sos_alerts ${whereClause}
          ORDER BY created_at DESC LIMIT 500`,
-        params
+        ...params
       );
       logs.push(...r);
     } catch { /* table may have different schema */ }
@@ -187,7 +191,7 @@ async function buildSystemLogs({ limit, offset, start_date, end_date, level }) {
                 COALESCE(timestamp, created_at) AS created_at
          FROM audit_logs ${whereClause}
          ORDER BY created_at DESC LIMIT 500`,
-        params
+        ...params
       );
       logs.push(...r);
     } catch { /* schema mismatch */ }
@@ -218,9 +222,10 @@ export async function getSystemLogs(req, res) {
 
     const { logs, total } = await buildSystemLogs({ limit, offset, start_date, end_date, level });
 
+    const pagination = buildPagination(total, page, limit);
     success(
       res,
-      { logs, total, page, limit, totalPages: Math.ceil(total / limit) },
+      { logs, total, page, limit, pagination, totalPages: pagination.totalPages },
       'System logs fetched'
     );
   } catch (err) {

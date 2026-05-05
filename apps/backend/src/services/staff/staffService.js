@@ -1,6 +1,7 @@
 import { STAFF_ROLES, SHIFT_TYPES } from '../../config/staffConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { buildPagination } from '../../utils/listQuery.js';
 import { getStaffHierarchy } from '../../utils/staff/staffHelpers.js';
 
 export const getStaffList = async (filters, userRole) => {
@@ -143,14 +144,7 @@ export const getStaffList = async (filters, userRole) => {
 
   return {
     staff: enhancedStaff,
-    pagination: {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: totalStaff,
-      totalPages: Math.ceil(totalStaff / limit),
-      hasNext: page * limit < totalStaff,
-      hasPrev: page > 1
-    },
+    pagination: buildPagination(totalStaff, page, limit),
     filters: { role, department, shift, active, search, supervisor_id, skill },
     statistics: {
       departments: departmentStats,

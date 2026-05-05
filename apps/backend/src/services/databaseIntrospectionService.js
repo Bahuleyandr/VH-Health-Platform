@@ -1,5 +1,6 @@
 import prisma from '../lib/prisma.js';
 import { quoteIdentifier, runSchemaContractCheck } from '../db/schemaContracts.js';
+import { buildPagination, parseListQuery } from '../utils/listQuery.js';
 
 const MAX_ROW_LIMIT = 100;
 const DEFAULT_ROW_LIMIT = 50;
@@ -28,12 +29,6 @@ function normalizeJsonValue(value) {
     );
   }
   return value;
-}
-
-function clampInt(value, fallback, min, max) {
-  const parsed = Number.parseInt(String(value ?? ''), 10);
-  if (!Number.isInteger(parsed)) return fallback;
-  return Math.min(Math.max(parsed, min), max);
 }
 
 function assertSafeTableName(tableName) {
@@ -194,8 +189,12 @@ export async function getTableDetail(tableName) {
 export async function getTableRows(tableName, options = {}) {
   await assertPublicTable(tableName);
 
-  const limit = clampInt(options.limit, DEFAULT_ROW_LIMIT, 1, MAX_ROW_LIMIT);
-  const offset = clampInt(options.offset, 0, 0, 1_000_000);
+  const listQuery = parseListQuery(options, {
+    defaultLimit: DEFAULT_ROW_LIMIT,
+    maxLimit: MAX_ROW_LIMIT,
+    defaultSortBy: 'primary_key',
+    allowOffset: true,
+  });
   const primaryKeyColumns = await getPrimaryKeyColumns(tableName);
   const orderBy = primaryKeyColumns.length
     ? ` ORDER BY ${primaryKeyColumns.map(quoteIdentifier).join(', ')}`
@@ -208,16 +207,17 @@ export async function getTableRows(tableName, options = {}) {
          FROM ${quoteIdentifier(tableName)}
         ${orderBy}
         LIMIT $1 OFFSET $2`,
-      limit,
-      offset
+      listQuery.limit,
+      listQuery.offset
     ),
   ]);
+  const pageFromOffset = Math.floor(listQuery.offset / listQuery.limit) + 1;
 
   return {
     table: detail,
     pagination: {
-      limit,
-      offset,
+      ...buildPagination(detail.rowCount, pageFromOffset, listQuery.limit),
+      offset: listQuery.offset,
       returned: rows.length,
     },
     rows: rows.map(redactRow),

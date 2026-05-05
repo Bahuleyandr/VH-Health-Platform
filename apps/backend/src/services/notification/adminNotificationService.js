@@ -16,6 +16,7 @@ import {
   formatNotificationResponse 
 } from '../../utils/notification/notificationHelpers.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 
 const query = async (sql, params = []) => {
@@ -108,9 +109,11 @@ export const adminNotificationService = {
    */
   async getManagementList(filters) {
     try {
-      const page = parseInt(filters.page) || 1;
-      const limit = Math.min(parseInt(filters.limit) || 50, NOTIFICATION_LIMITS.MAX_PAGE_SIZE);
-      const offset = (page - 1) * limit;
+      const listQuery = parseListQuery(filters, {
+        defaultLimit: 50,
+        maxLimit: NOTIFICATION_LIMITS.MAX_PAGE_SIZE,
+        defaultSortBy: 'created_at'
+      });
 
       // Notifications in this schema are phone-addressed (no user_id / sender_id
       // columns). Left-join users on phone to surface recipient metadata when
@@ -129,7 +132,7 @@ export const adminNotificationService = {
       sql += filterQuery.query;
 
       sql += ` ORDER BY n.created_at DESC LIMIT $${filterQuery.params.length + 1} OFFSET $${filterQuery.params.length + 2}`;
-      const params = [...filterQuery.params, limit, offset];
+      const params = [...filterQuery.params, listQuery.limit, listQuery.offset];
 
       const result = await query(sql, params);
 
@@ -142,14 +145,7 @@ export const adminNotificationService = {
 
       return {
         notifications: result.rows.map(n => formatNotificationResponse(n, true)),
-        pagination: {
-          page,
-          limit,
-          total: totalNotifications,
-          totalPages: Math.ceil(totalNotifications / limit),
-          hasNext: page * limit < totalNotifications,
-          hasPrev: page > 1
-        },
+        pagination: buildPagination(totalNotifications, listQuery.page, listQuery.limit),
         filters
       };
     } catch (error) {

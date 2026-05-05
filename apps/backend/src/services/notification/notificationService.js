@@ -12,6 +12,7 @@ import {
   buildNotificationQuery,
   formatNotificationResponse 
 } from '../../utils/notification/notificationHelpers.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 
 
@@ -137,36 +138,35 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
         }
       }
 
-      let query = `
-        SELECT n.id, n.title, n.message, n.type, n.priority, n.is_read,
+      let sql = `
+        SELECT n.id, n.title, n.body AS message, n.type, n.priority, n.is_read,
                n.created_at, n.read_at, n.scheduled_for, n.data,
-               ${userRole === 'ADMIN' ? 'sender.name as sender_name,' : ''} n.phone
+               n.phone
         FROM notifications n
-        ${userRole === 'ADMIN' ? 'LEFT JOIN users sender ON n.sender_id = sender.id' : ''}
         WHERE n.user_id = $1
       `;
       const params = [userId];
 
       // Apply filters
       if (filters.unread_only === 'true') {
-        query += ' AND n.is_read = false';
+        sql += ' AND n.is_read = false';
       }
 
       if (filters.type) {
-        query += ` AND n.type = $${params.length + 1}`;
+        sql += ` AND n.type = $${params.length + 1}`;
         params.push(filters.type.toUpperCase());
       }
 
       if (filters.priority) {
-        query += ` AND n.priority = $${params.length + 1}`;
+        sql += ` AND n.priority = $${params.length + 1}`;
         params.push(filters.priority.toUpperCase());
       }
 
       const limit = Math.min(parseInt(filters.limit) || NOTIFICATION_LIMITS.DEFAULT_PAGE_SIZE, NOTIFICATION_LIMITS.MAX_PAGE_SIZE);
-      query += ` ORDER BY n.created_at DESC LIMIT $${params.length + 1}`;
+      sql += ` ORDER BY n.created_at DESC LIMIT $${params.length + 1}`;
       params.push(limit);
 
-      const result = await query(query, params);
+      const result = await query(sql, params);
 
       // Get unread count
       const unreadResult = await query(
@@ -206,12 +206,11 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       }
 
       const result = await query(`
-        SELECT n.id, n.phone, n.title, n.body, n.type, n.is_read, n.data, n.created_at,
+        SELECT n.id, n.phone, n.title, n.body AS message, n.type, n.is_read, n.data, n.created_at,
                u.name as recipient_name, u.phone as recipient_phone,
-               ${userRole === 'ADMIN' ? 'u.email as recipient_email, sender.name as sender_name, sender.phone as sender_phone' : ''}
+               ${userRole === 'ADMIN' ? 'u.email as recipient_email' : ''}
         FROM notifications n
         LEFT JOIN users u ON n.user_id = u.id
-        ${userRole === 'ADMIN' ? 'LEFT JOIN users sender ON n.sender_id = sender.id' : ''}
         WHERE n.id = $1${accessQuery}
       `, params);
 
@@ -241,9 +240,20 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
    */
   async getNotificationList(filters, user) {
     try {
-      const page = parseInt(filters.page) || 1;
-      const limit = Math.min(parseInt(filters.limit) || NOTIFICATION_LIMITS.DEFAULT_PAGE_SIZE, NOTIFICATION_LIMITS.MAX_PAGE_SIZE);
-      const offset = (page - 1) * limit;
+      const allowedSortFields = {
+        created_at: 'n.created_at',
+        title: 'n.title',
+        type: 'n.type',
+        priority: 'n.priority',
+        is_read: 'n.is_read',
+      };
+      const listQuery = parseListQuery(filters, {
+        defaultLimit: NOTIFICATION_LIMITS.DEFAULT_PAGE_SIZE,
+        maxLimit: NOTIFICATION_LIMITS.MAX_PAGE_SIZE,
+        defaultSortBy: 'created_at',
+        defaultSortOrder: 'DESC',
+        allowedSortFields: Object.keys(allowedSortFields),
+      });
       const userRole = user?.role?.toUpperCase();
 
       let baseConditions = '1=1';
@@ -263,7 +273,8 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       const filterQuery = buildNotificationQuery({
         type: filters.type,
         priority: filters.priority,
-        read_status: filters.read === 'true' ? 'read' : filters.read === 'false' ? 'unread' : null
+        read_status: filters.read === 'true' ? 'read' : filters.read === 'false' ? 'unread' : null,
+        search: listQuery.search,
       });
 
       if (filterQuery.query) {
@@ -271,37 +282,39 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
         params.push(...filterQuery.params);
       }
 
-      const query = `
-        SELECT n.id, n.title, n.message, n.type, n.priority, n.is_read,
+      const sql = `
+        SELECT n.id, n.user_id, n.phone, n.title, n.body AS message, n.type, n.priority, n.is_read,
                n.created_at, n.read_at, n.scheduled_for,
-               ${userRole === 'ADMIN' ? 'n.data, u.name as recipient_name, u.phone as recipient_phone, sender.name as sender_name' : 'u.name as recipient_name'}
+               ${userRole === 'ADMIN' ? 'n.data, u.name as recipient_name, u.phone as recipient_phone' : 'u.name as recipient_name'}
         FROM notifications n
         LEFT JOIN users u ON n.user_id = u.id
-        ${userRole === 'ADMIN' ? 'LEFT JOIN users sender ON n.sender_id = sender.id' : ''}
         WHERE ${baseConditions}
-        ORDER BY n.created_at DESC 
+        ORDER BY ${allowedSortFields[listQuery.sortBy]} ${listQuery.sortOrder}, n.created_at DESC
         LIMIT $${params.length + 1} OFFSET $${params.length + 2}
       `;
 
-      params.push(limit, offset);
-      const result = await query(query, params);
+      params.push(listQuery.limit, listQuery.offset);
+      const result = await query(sql, params);
 
       // Get total count
-      const countQuery = `SELECT COUNT(*) FROM notifications n WHERE ${baseConditions}`;
+      const countQuery = `
+        SELECT COUNT(*)
+        FROM notifications n
+        LEFT JOIN users u ON n.user_id = u.id
+        WHERE ${baseConditions}
+      `;
       const countResult = await query(countQuery, params.slice(0, -2));
       const totalNotifications = parseInt(countResult[0].count);
 
       return {
         notifications: result.map(n => formatNotificationResponse(n, userRole === 'ADMIN')),
-        pagination: {
-          page,
-          limit,
-          total: totalNotifications,
-          totalPages: Math.ceil(totalNotifications / limit),
-          hasNext: page * limit < totalNotifications,
-          hasPrev: page > 1
+        pagination: buildPagination(totalNotifications, listQuery.page, listQuery.limit),
+        filters: {
+          ...filters,
+          search: listQuery.search || null,
+          sortBy: listQuery.sortBy,
+          sortOrder: listQuery.sortOrder,
         },
-        filters
       };
     } catch (error) {
       logger.error('Error getting notification list:', error.message);
@@ -478,7 +491,6 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
         user_ids, title, message, 
         type = NOTIFICATION_TYPES.SYSTEM, 
         priority = NOTIFICATION_PRIORITIES.MEDIUM, 
-        sender_id = null 
       } = data;
 
       if (user_ids.length > NOTIFICATION_LIMITS.MAX_BULK_RECIPIENTS) {
@@ -499,19 +511,23 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
 
       // Create notifications for all users
       const notifications = userCheck.map(recipient => [
-        recipient.id, title, message, type.toUpperCase(), priority.toUpperCase(), 
-        sender_id, user.uid, recipient.phone
+        recipient.id,
+        recipient.phone,
+        title,
+        message,
+        type.toUpperCase(),
+        priority.toUpperCase(),
       ]);
 
       const placeholders = notifications.map((_, index) => {
-        const offset = index * 8;
-        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, false, NOW(), $${offset + 7}, $${offset + 8})`;
+        const offset = index * 6;
+        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, false, NOW(), NOW())`;
       }).join(', ');
 
       const flatParams = notifications.flat();
 
       const result = await query(`
-        INSERT INTO notifications (user_id, title, message, type, priority, sender_id, is_read, created_at, created_by, phone)
+        INSERT INTO notifications (user_id, phone, title, body, type, priority, is_read, created_at, updated_at)
         VALUES ${placeholders}
         RETURNING id, user_id
       `, flatParams);
@@ -612,7 +628,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       }
 
       const result = await query(`
-        SELECT n.id, n.user_id, n.title, n.message, n.type, n.priority,
+        SELECT n.id, n.user_id, n.title, n.body AS message, n.type, n.priority,
                n.scheduled_for, n.data,
                u.name as recipient_name, u.phone, u.email
         FROM notifications n
@@ -644,7 +660,7 @@ async notifyEmergencyTeam(alertData, _nearbyHospitals = []) {
       }
 
       const result = await query(`
-        SELECT n.id, n.title, n.message, n.created_at, n.data,
+        SELECT n.id, n.title, n.body AS message, n.created_at, n.data,
                u.name as recipient_name, u.phone
         FROM notifications n
         JOIN users u ON n.user_id = u.id

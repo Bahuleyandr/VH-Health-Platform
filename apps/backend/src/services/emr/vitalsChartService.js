@@ -3,6 +3,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import * as news2Service from '../clinical/news2Service.js';
 
 
@@ -189,33 +190,32 @@ export async function getLatestVitals(patientUid) {
 }
 
 export async function getVitalsChart(patientUid, encounterId, pagination = {}) {
-  const { page = 1, limit = 50 } = pagination;
+  const listQuery = parseListQuery(pagination, {
+    defaultLimit: 50,
+    maxLimit: 100,
+    defaultSortBy: 'recorded_at'
+  });
 
   const where = { patient_uid: patientUid };
   if (encounterId) where.encounter_id = encounterId;
-
-  const safeLimit = Math.min(Math.max(1, parseInt(limit, 10)), 100);
-  const safePage = Math.max(1, parseInt(page, 10));
-  const skip = (safePage - 1) * safeLimit;
 
   const [vitals, total] = await Promise.all([
     prisma.vitals_chart.findMany({
       where,
       select: VITAL_SELECT,
       orderBy: { recorded_at: 'desc' },
-      take: safeLimit,
-      skip,
+      take: listQuery.limit,
+      skip: listQuery.offset,
     }),
     prisma.vitals_chart.count({ where }),
   ]);
+  const meta = buildPagination(total, listQuery.page, listQuery.limit);
 
   return {
     vitals,
     pagination: {
-      page: safePage,
-      limit: safeLimit,
-      total,
-      total_pages: Math.ceil(total / safeLimit),
+      ...meta,
+      total_pages: meta.totalPages,
     },
   };
 }

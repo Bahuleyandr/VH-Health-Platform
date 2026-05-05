@@ -4,6 +4,7 @@
 import { DEFAULT_PAGINATION } from '../../config/recordConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { buildPagination } from '../../utils/listQuery.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { encryptColumn } from '../security/phiColumnEncryption.js';
 
@@ -331,12 +332,7 @@ export async function getMedicalRecords(filters = {}, _userRole) {
 
     return {
       records,
-      pagination: {
-        page, limit, total: totalRecords,
-        totalPages: Math.ceil(totalRecords / limit),
-        hasNext: page * limit < totalRecords,
-        hasPrev: page > 1,
-      },
+      pagination: buildPagination(totalRecords, page, limit),
     };
   } catch (error) {
     logger.error(`[RecordService] Error getting medical records: ${error.message}`);

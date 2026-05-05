@@ -3,6 +3,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 const VALID_BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 const VALID_COMPONENTS = ['whole_blood', 'prbc', 'ffp', 'platelets', 'cryoprecipitate'];
@@ -173,9 +174,12 @@ class BloodBankService {
    * Get pending blood requests (not yet issued)
    */
   async getPendingRequests(filters = {}) {
-    const { blood_group, urgency, page = 1, limit = 50 } = filters;
-    const safeLimit = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
-    const offset = (Math.max(1, parseInt(page, 10) || 1) - 1) * safeLimit;
+    const { blood_group, urgency } = filters;
+    const listQuery = parseListQuery(filters, {
+      defaultLimit: 50,
+      maxLimit: 200,
+      defaultSortBy: 'created_at'
+    });
     const conditions = [`status IN ('requested', 'cross_matched')`];
     const params = [];
 
@@ -196,8 +200,8 @@ class BloodBankService {
     );
     const total = parseInt(countResult[0].count, 10);
 
-    params.push(safeLimit);
-    params.push(offset);
+    params.push(listQuery.limit);
+    params.push(listQuery.offset);
 
     const result = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, encounter_id, blood_group, component, units, urgency,
@@ -211,14 +215,13 @@ class BloodBankService {
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       ...params
     );
+    const pagination = buildPagination(total, listQuery.page, listQuery.limit);
 
     return {
       requests: result,
       pagination: {
-        total,
-        page: parseInt(page, 10),
-        limit: safeLimit,
-        pages: Math.ceil(total / safeLimit)
+        ...pagination,
+        pages: pagination.totalPages
       }
     };
   }

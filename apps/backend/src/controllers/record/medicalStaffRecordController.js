@@ -4,15 +4,21 @@ import logger from '../../logging/logger.js';
 import * as accessControl from '../../services/record/accessControlService.js';
 import * as recordService from '../../services/record/recordService.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
+import { parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 export async function getMedicalRecords(req, res) {
   try {
     const userRole = req.user?.role;
     const requestedBy = req.user?.uid || 'anonymous';
+    const listQuery = parseListQuery(req.query, {
+      defaultLimit: 10,
+      maxLimit: 100,
+      defaultSortBy: 'created_at',
+    });
     const filters = {
-      page: parseInt(req.query.page) || 1,
-      limit: Math.min(parseInt(req.query.limit) || 10, 100),
+      page: listQuery.page,
+      limit: listQuery.limit,
       patient_id: req.query.patient_id,
       doctor_id: req.query.doctor_id,
       record_type: req.query.type,

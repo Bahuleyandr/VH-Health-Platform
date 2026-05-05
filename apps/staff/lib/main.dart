@@ -84,7 +84,7 @@ void main() async {
         context: details.context,
         silent: details.silent,
       );
-      FirebaseCrashlytics.instance.recordFlutterFatalError(sanitised);
+      _recordCrashlyticsFlutterFatalError(sanitised);
     };
   }
 
@@ -142,13 +142,49 @@ void main() async {
       runApp(const VHHealthStaffApp());
     },
     (error, stack) {
-      FirebaseCrashlytics.instance.recordError(
-        _sanitiseForCrashlytics(error),
-        stack,
-        fatal: true,
-      );
+      if (!disableCrashlytics) {
+        _recordCrashlyticsAsyncError(error, stack);
+      } else if (kDebugMode) {
+        debugPrint('Uncaught async error: ${_sanitiseForCrashlytics(error)}');
+      }
     },
   );
+}
+
+void _recordCrashlyticsFlutterFatalError(FlutterErrorDetails details) {
+  try {
+    unawaited(
+      FirebaseCrashlytics.instance.recordFlutterFatalError(details).catchError((
+        Object e,
+      ) {
+        if (kDebugMode) {
+          debugPrint('Crashlytics Flutter error recording failed: $e');
+        }
+      }),
+    );
+  } catch (e) {
+    if (kDebugMode) {
+      debugPrint('Crashlytics Flutter error recording failed: $e');
+    }
+  }
+}
+
+void _recordCrashlyticsAsyncError(Object error, StackTrace stack) {
+  try {
+    unawaited(
+      FirebaseCrashlytics.instance
+          .recordError(_sanitiseForCrashlytics(error), stack, fatal: true)
+          .catchError((Object e) {
+            if (kDebugMode) {
+              debugPrint('Crashlytics async error recording failed: $e');
+            }
+          }),
+    );
+  } catch (e) {
+    if (kDebugMode) {
+      debugPrint('Crashlytics async error recording failed: $e');
+    }
+  }
 }
 
 /// Redact potential PHI (phone numbers, emails) from error messages

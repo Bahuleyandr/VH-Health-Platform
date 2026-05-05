@@ -39,6 +39,7 @@ function DoctorsTableSkeleton() {
 }
 
 const normalizeDoctors = normalizeList<Doctor>("doctors");
+const DOCTOR_TABLE_FETCH_LIMIT = 1000;
 
 export default function DoctorsPage() {
   const queryClient = useQueryClient();
@@ -50,7 +51,9 @@ export default function DoctorsPage() {
   } = useQuery({
     queryKey: ["doctors"],
     queryFn: async () => {
-      const resp = await fetchAdminAPI<unknown>("/doctors");
+      const resp = await fetchAdminAPI<unknown>(
+        `/doctors?limit=${DOCTOR_TABLE_FETCH_LIMIT}`,
+      );
       return normalizeDoctors(resp);
     },
   });
@@ -67,7 +70,8 @@ export default function DoctorsPage() {
     return (
       <div className="p-6">
         <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded">
-          Error: {error instanceof Error ? error.message : "Failed to fetch doctors"}
+          Error:{" "}
+          {error instanceof Error ? error.message : "Failed to fetch doctors"}
         </div>
       </div>
     );
@@ -76,7 +80,9 @@ export default function DoctorsPage() {
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-foreground">Doctor Management</h1>
+        <h1 className="text-3xl font-bold text-foreground">
+          Doctor Management
+        </h1>
         <Link
           href="/dashboard/doctors/create"
           className="bg-primary text-white px-4 py-2 rounded-md hover:bg-primary/90 transition-colors"

@@ -2,6 +2,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { getPatientTimeline as getUnifiedPatientTimeline } from './clinicalTimelineService.js';
 
 
@@ -260,7 +261,12 @@ export async function signNote(noteId, signerUid) {
  * @returns {Object} { notes, pagination }
  */
 export async function getPatientNotes(patientUid, filters = {}) {
-  const { note_type, date_from, date_to, author_uid, page = 1, limit = 20 } = filters;
+  const { note_type, date_from, date_to, author_uid } = filters;
+  const listQuery = parseListQuery(filters, {
+    defaultLimit: 20,
+    maxLimit: 100,
+    defaultSortBy: 'created_at'
+  });
 
   // Build the typed where clause — conditional spreads mirror the pre-ORM
   // dynamic-WHERE construction (the same fields, the same comparators).
@@ -273,28 +279,23 @@ export async function getPatientNotes(patientUid, filters = {}) {
     if (date_to) where.created_at.lte = new Date(date_to);
   }
 
-  const safeLimit = Math.min(Math.max(1, parseInt(limit, 10)), 100);
-  const safePage = Math.max(1, parseInt(page, 10));
-  const offset = (safePage - 1) * parseInt(limit, 10);
-
   const [total, notes] = await Promise.all([
     prisma.clinical_notes.count({ where }),
     prisma.clinical_notes.findMany({
       where,
       select: NOTE_SELECT,
       orderBy: { created_at: 'desc' },
-      skip: offset,
-      take: safeLimit,
+      skip: listQuery.offset,
+      take: listQuery.limit,
     }),
   ]);
+  const pagination = buildPagination(total, listQuery.page, listQuery.limit);
 
   return {
     notes,
     pagination: {
-      page: parseInt(page, 10),
-      limit: safeLimit,
-      total,
-      total_pages: Math.ceil(total / safeLimit),
+      ...pagination,
+      total_pages: pagination.totalPages,
     },
   };
 }

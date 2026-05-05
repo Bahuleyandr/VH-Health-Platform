@@ -2,6 +2,7 @@
 import { DOCTOR_CONFIG, DOCTOR_MESSAGES } from '../../config/doctorConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 export class DoctorService {
   async getDoctorSchema() {
@@ -171,10 +172,12 @@ export class DoctorService {
   async getAllDoctors(filters = {}) {
     try {
       const schema = await this.getDoctorSchema();
-      const { page, limit, department, available, search } = filters;
-      const pageNum = parseInt(page) || 1;
-      const limitNum = parseInt(limit) || DOCTOR_CONFIG.PAGINATION.DEFAULT_LIMIT;
-      const offset = (pageNum - 1) * limitNum;
+      const { department, available } = filters;
+      const listQuery = parseListQuery(filters, {
+        defaultLimit: DOCTOR_CONFIG.PAGINATION.DEFAULT_LIMIT,
+        maxLimit: 100,
+        defaultSortBy: 'name'
+      });
 
       const params = [];
       const where = [`d.is_active = true`];
@@ -189,8 +192,8 @@ export class DoctorService {
         where.push(`d.is_available = $${params.length}`);
       }
 
-      if (search) {
-        params.push(`%${search}%`);
+      if (listQuery.search) {
+        params.push(`%${listQuery.search}%`);
         const searchParam = `$${params.length}`;
         const searchClauses = [`COALESCE(u.name, d.name) ILIKE ${searchParam}`];
         if (schema.specialization) {
@@ -199,7 +202,7 @@ export class DoctorService {
         where.push(`(${searchClauses.join(' OR ')})`);
       }
 
-      params.push(limitNum, offset);
+      params.push(listQuery.limit, listQuery.offset);
       const rows = await prisma.$queryRawUnsafe(
         `
           SELECT ${this.buildDoctorSelectFieldsFromDoctors(schema)}
@@ -212,14 +215,14 @@ export class DoctorService {
         ...params,
       );
 
-      const countResult = await this.countDoctors(filters);
+      const countResult = await this.countDoctors({ ...filters, search: listQuery.search });
 
       return {
         doctors: rows,
         total: countResult,
-        page: pageNum,
-        limit: limitNum,
-        totalPages: Math.ceil(countResult / limitNum)
+        page: listQuery.page,
+        limit: listQuery.limit,
+        pagination: buildPagination(countResult, listQuery.page, listQuery.limit),
       };
     } catch (error) {
       logger.error('Error fetching doctors:', error);

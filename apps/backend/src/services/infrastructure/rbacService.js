@@ -15,6 +15,7 @@ import {
   ADMIN, PATIENT, NURSING_STAFF, PHARMACY_STAFF,
   LAB_STAFF, DOCTOR, GENERAL_STAFF, HR_STAFF
 } from '../../utils/roles.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 const ALL_ROLES = [
   ADMIN, PATIENT, NURSING_STAFF, PHARMACY_STAFF,
@@ -63,7 +64,12 @@ export class RBACService {
   // Get users grouped by role
   static async getUsersByRole(filters, userInfo) {
     try {
-      const { includeInactive = false, role, limit = 100 } = filters;
+      const { includeInactive = false, role } = filters;
+      const listQuery = parseListQuery(filters, {
+        defaultLimit: 100,
+        maxLimit: 100,
+        defaultSortBy: 'role'
+      });
 
       const conds = [];
       const params = [];
@@ -91,7 +97,7 @@ export class RBACService {
 
       const whereClause = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
 
-      params.push(parseInt(limit));
+      params.push(listQuery.limit);
       const result = await prisma.$queryRawUnsafe(`
         SELECT 
           u.role,
@@ -124,7 +130,7 @@ export class RBACService {
             ELSE 9
           END
         LIMIT $${params.length}
-      `, params);
+      `, ...params);
 
       const usersByRole = result.map(row => ({
         role: row.role,
@@ -137,7 +143,7 @@ export class RBACService {
       return {
         usersByRole,
         totalUsers: result.reduce((sum, row) => sum + parseInt(row.user_count), 0),
-        filters: { includeInactive, role, limit },
+        filters: { includeInactive, role, limit: listQuery.limit },
         requestedBy: userInfo.uid
       };
     } catch (error) {
@@ -376,8 +382,12 @@ export class RBACService {
   // Get audit log (fixed param numbering & safe WHERE reuse)
   static async getAuditLog(filters, adminInfo) {
     try {
-      const { page = 1, limit = 100, phone, role, startDate, endDate, action_type } = filters;
-      const offset = (page - 1) * limit;
+      const { phone, role, startDate, endDate, action_type } = filters;
+      const listQuery = parseListQuery(filters, {
+        defaultLimit: 100,
+        maxLimit: 100,
+        defaultSortBy: 'changed_at'
+      });
 
       // Build WHERE with a local parameter array (same for list & count)
       const conds = [];
@@ -418,22 +428,18 @@ export class RBACService {
         ${where}
         ORDER BY ura.changed_at DESC
         LIMIT $${vals.length + 1} OFFSET $${vals.length + 2}
-      `, ...vals, parseInt(limit), offset).catch(() => ({ rows: [] }));
+      `, ...vals, listQuery.limit, listQuery.offset).catch(() => ({ rows: [] }));
 
       // Count with same WHERE & same param list
       const total = await prisma.$queryRawUnsafe(
         `SELECT COUNT(*) FROM user_role_audit ura ${where}`,
-        vals
+        ...vals
       ).catch(() => ({ rows: [{ count: 0 }] }));
+      const totalCount = parseInt(total[0].count || 0, 10);
 
       return {
         auditLog: auditLog,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total: parseInt(total[0].count || 0),
-          totalPages: Math.ceil((parseInt(total[0].count || 0)) / limit)
-        },
+        pagination: buildPagination(totalCount, listQuery.page, listQuery.limit),
         filters,
         requestedBy: adminInfo.uid
       };

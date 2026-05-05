@@ -8,6 +8,15 @@ import { putJSON } from "@/lib/api";
 import { API_ENDPOINTS } from "@/lib/api-config";
 import { usePermissions } from "@/hooks/usePermissions";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  ClientTablePagination,
+  compareTableValues,
+  ManagedTableToolbar,
+  paginateRows,
+  SortableTableHeader,
+  type SortDirection,
+  type SortValue,
+} from "@/components/table/client";
 
 interface AdminsTableProps {
   admins: AdminUser[];
@@ -17,12 +26,23 @@ interface AdminsTableProps {
 }
 
 type ToggleAction = "deactivate" | "reactivate";
+type AdminSortKey = "name" | "role" | "permissions" | "status" | "last_login";
 
-export function AdminsTable({ admins, onAdminUpdated, isLoading, error }: AdminsTableProps) {
+export function AdminsTable({
+  admins,
+  onAdminUpdated,
+  isLoading,
+  error,
+}: AdminsTableProps) {
   const [updatingAdminId, setUpdatingAdminId] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingAdmin, setPendingAdmin] = useState<AdminUser | null>(null);
   const [pendingAction, setPendingAction] = useState<ToggleAction | null>(null);
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<AdminSortKey>("name");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Optional permission gating (SUPER_ADMIN auto-passes)
   const { hasPermission, isSuperAdmin } = usePermissions();
@@ -82,7 +102,11 @@ export function AdminsTable({ admins, onAdminUpdated, isLoading, error }: Admins
 
     const t = Date.parse(lastLogin);
     if (Number.isNaN(t))
-      return { text: "Invalid date", className: "text-muted-foreground", fullDate: "" };
+      return {
+        text: "Invalid date",
+        className: "text-muted-foreground",
+        fullDate: "",
+      };
 
     const date = new Date(t);
     const now = Date.now();
@@ -119,42 +143,118 @@ export function AdminsTable({ admins, onAdminUpdated, isLoading, error }: Admins
     return `${permissions.slice(0, 3).join(", ")} +${permissions.length - 3} more`;
   };
 
-  const rows = useMemo(() => admins ?? [], [admins]);
+  const rows = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    const filtered = (admins ?? []).filter((admin) => {
+      if (!query) return true;
+      return [
+        admin.name,
+        admin.email,
+        admin.role,
+        getPermissionsSummary(admin.permissions),
+        admin.is_active ? "active" : "inactive",
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+
+    filtered.sort((a, b) => {
+      const result = compareTableValues(
+        getAdminSortValue(a, sortKey),
+        getAdminSortValue(b, sortKey),
+      );
+      return sortDirection === "asc" ? result : -result;
+    });
+    return filtered;
+  }, [admins, search, sortDirection, sortKey]);
+
+  const paged = paginateRows(rows, page, pageSize);
+
+  const handleSort = (key: AdminSortKey) => {
+    setSortDirection((current) =>
+      sortKey === key && current === "asc" ? "desc" : "asc",
+    );
+    setSortKey(key);
+    setPage(1);
+  };
+
+  const handlePageSizeChange = (value: number) => {
+    setPageSize(value);
+    setPage(1);
+  };
 
   if (isLoading) {
-    return <div className="p-6 text-center text-muted-foreground">Loading administrators...</div>;
+    return (
+      <div className="p-6 text-center text-muted-foreground">
+        Loading administrators...
+      </div>
+    );
   }
 
   if (error) {
     return (
       <div className="p-6 text-center text-destructive">
-        {error} <button onClick={() => onAdminUpdated?.()} className="ml-2 underline">Retry</button>
+        {error}{" "}
+        <button onClick={() => onAdminUpdated?.()} className="ml-2 underline">
+          Retry
+        </button>
       </div>
     );
   }
 
   return (
     <>
+      <ManagedTableToolbar
+        search={search}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
+        placeholder="Search administrators by name, email, role, permission..."
+        countLabel={`${rows.length} of ${admins.length} administrators`}
+      />
+
       <div className="bg-white shadow rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-border">
+          <table className="min-w-[980px] w-full divide-y divide-border">
             <thead className="bg-muted">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Administrator
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Role
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Permissions
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Last Login
-                </th>
+                <SortableTableHeader
+                  label="Administrator"
+                  sortKey="name"
+                  activeSort={sortKey}
+                  direction={sortDirection}
+                  onSort={handleSort}
+                />
+                <SortableTableHeader
+                  label="Role"
+                  sortKey="role"
+                  activeSort={sortKey}
+                  direction={sortDirection}
+                  onSort={handleSort}
+                />
+                <SortableTableHeader
+                  label="Permissions"
+                  sortKey="permissions"
+                  activeSort={sortKey}
+                  direction={sortDirection}
+                  onSort={handleSort}
+                />
+                <SortableTableHeader
+                  label="Status"
+                  sortKey="status"
+                  activeSort={sortKey}
+                  direction={sortDirection}
+                  onSort={handleSort}
+                />
+                <SortableTableHeader
+                  label="Last Login"
+                  sortKey="last_login"
+                  activeSort={sortKey}
+                  direction={sortDirection}
+                  onSort={handleSort}
+                />
                 <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Actions
                 </th>
@@ -162,7 +262,7 @@ export function AdminsTable({ admins, onAdminUpdated, isLoading, error }: Admins
             </thead>
 
             <tbody className="bg-white divide-y divide-border">
-              {rows.map((admin) => {
+              {paged.rows.map((admin) => {
                 const loginInfo = formatLastLogin(admin.last_login ?? null);
                 const toggling = updatingAdminId === admin.uid;
                 const toggleAllowed = canToggleFor(admin.is_active);
@@ -174,12 +274,16 @@ export function AdminsTable({ admins, onAdminUpdated, isLoading, error }: Admins
                         <div className="text-sm font-medium text-foreground">
                           {admin.name}
                         </div>
-                        <div className="text-sm text-muted-foreground">{admin.email}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {admin.email}
+                        </div>
                       </div>
                     </td>
 
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-foreground">{admin.role}</div>
+                      <div className="text-sm text-foreground">
+                        {admin.role}
+                      </div>
                     </td>
 
                     <td className="px-6 py-4">
@@ -253,24 +357,65 @@ export function AdminsTable({ admins, onAdminUpdated, isLoading, error }: Admins
                   </tr>
                 );
               })}
+              {rows.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="px-6 py-10 text-center text-sm text-muted-foreground"
+                  >
+                    No administrators match the current search.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
+      <ClientTablePagination
+        page={paged.page}
+        pageSize={pageSize}
+        total={rows.length}
+        onPageChange={setPage}
+        onPageSizeChange={handlePageSizeChange}
+        itemLabel="administrators"
+      />
+
       <ConfirmDialog
         open={confirmOpen}
         setOpen={setConfirmOpen}
-        title={pendingAction === "deactivate" ? "Deactivate Admin" : "Reactivate Admin"}
+        title={
+          pendingAction === "deactivate"
+            ? "Deactivate Admin"
+            : "Reactivate Admin"
+        }
         message={
           pendingAction === "deactivate"
             ? `${pendingAdmin?.name ?? "This admin"} will lose all access immediately.`
             : `${pendingAdmin?.name ?? "This admin"} will regain access to the system.`
         }
-        confirmLabel={pendingAction === "deactivate" ? "Deactivate" : "Reactivate"}
+        confirmLabel={
+          pendingAction === "deactivate" ? "Deactivate" : "Reactivate"
+        }
         variant={pendingAction === "deactivate" ? "destructive" : "default"}
         onConfirm={handleConfirmToggle}
       />
     </>
   );
+}
+
+function getAdminSortValue(admin: AdminUser, key: AdminSortKey): SortValue {
+  switch (key) {
+    case "role":
+      return admin.role;
+    case "permissions":
+      return admin.permissions?.length ?? 0;
+    case "status":
+      return admin.is_active;
+    case "last_login":
+      return admin.last_login ? Date.parse(admin.last_login) : 0;
+    case "name":
+    default:
+      return admin.name;
+  }
 }

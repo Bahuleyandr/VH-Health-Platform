@@ -4,6 +4,7 @@ import {
   LAB_STAFF_ROLES
 } from '../../config/investigationConfig.js';
 import prisma from '../../lib/prisma.js';
+import { buildPagination } from '../../utils/listQuery.js';
 
 // Relation names Prisma generates for the two FKs pointing at `users`
 // (migration 082 declared both). Verbose because Prisma has to disambiguate
@@ -184,14 +185,7 @@ export const getInvestigations = async (page, limit, filters, userRole, userId) 
 
   return {
     investigations,
-    pagination: {
-      page,
-      limit,
-      total: totalInvestigations,
-      totalPages: Math.ceil(totalInvestigations / limit),
-      hasNext: page * limit < totalInvestigations,
-      hasPrev: page > 1
-    },
+    pagination: buildPagination(totalInvestigations, page, limit),
     filters
   };
 };

@@ -2,6 +2,7 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 class FeedbackService {
   /**
@@ -123,15 +124,17 @@ class FeedbackService {
    */
   async getRecentFeedback(filters, userRole, userId) {
     const {
-      page = 1, limit = 50, category, rating, priority = 'all',
+      category, rating, priority = 'all',
       doctor_id, department_id
     } = filters;
 
-    const parsedPage = Math.max(parseInt(page, 10) || 1, 1);
-    const parsedLimit = Math.max(parseInt(limit, 10) || 50, 1);
-    const offset = (parsedPage - 1) * parsedLimit;
+    const listQuery = parseListQuery(filters, {
+      defaultLimit: 50,
+      maxLimit: 100,
+      defaultSortBy: 'created_at'
+    });
     let whereClause = 'WHERE 1=1';
-    const params = [parsedLimit, offset];
+    const params = [listQuery.limit, listQuery.offset];
     let paramIndex = 3;
 
     if (category) {
@@ -203,12 +206,7 @@ class FeedbackService {
 
     return {
       feedback: Array.isArray(feedback) ? feedback : [],
-      pagination: {
-        page: parsedPage,
-        limit: parsedLimit,
-        total: totalCount,
-        totalPages: Math.ceil(totalCount / parsedLimit)
-      }
+      pagination: buildPagination(totalCount, listQuery.page, listQuery.limit)
     };
   }
 

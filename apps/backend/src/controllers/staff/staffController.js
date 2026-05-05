@@ -1,19 +1,25 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import * as staffService from '../../services/staff/staffService.js';
+import { parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // Get staff list with filtering
 export const getStaffList = async (req, res) => {
   try {
+    const listQuery = parseListQuery(req.query, {
+      defaultLimit: 20,
+      maxLimit: 100,
+      defaultSortBy: 'name',
+    });
     const filters = {
-      page: Math.max(parseInt(req.query.page, 10) || 1, 1),
-      limit: Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100),
+      page: listQuery.page,
+      limit: listQuery.limit,
       role: req.query.role,
       department: req.query.department,
       shift: req.query.shift,
       active: req.query.active !== 'false',
-      search: req.query.search,
+      search: listQuery.search,
       supervisor_id: req.query.supervisor_id,
       skill: req.query.skill
     };

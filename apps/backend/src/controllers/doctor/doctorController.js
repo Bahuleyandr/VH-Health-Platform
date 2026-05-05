@@ -4,6 +4,7 @@ import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { doctorService } from '../../services/doctor/doctorService.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 export const doctorController = {
@@ -20,26 +21,25 @@ export const doctorController = {
   // Get all doctors
   getAllDoctors: async (req, res) => {
     try {
+      const listQuery = parseListQuery(req.query, {
+        defaultLimit: 10,
+        maxLimit: 100,
+        defaultSortBy: 'name',
+        defaultSortOrder: 'ASC',
+      });
       const filters = {
-        page: Math.max(parseInt(req.query.page) || 1, 1),
-        limit: Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100),
+        page: listQuery.page,
+        limit: listQuery.limit,
         department: req.query.department,
         available: req.query.available === undefined ? undefined : req.query.available === 'true',
-        search: req.query.search
+        search: listQuery.search
       };
       
       const result = await doctorService.getAllDoctors(filters);
       
       success(res, {
         doctors: result.doctors,
-        pagination: {
-          page: result.page,
-          limit: result.limit,
-          total: result.total,
-          totalPages: result.totalPages,
-          hasNext: result.page * result.limit < result.total,
-          hasPrev: result.page > 1
-        },
+        pagination: buildPagination(result.total, result.page, result.limit),
         filters: {
           department: filters.department || null,
           available: filters.available || null,

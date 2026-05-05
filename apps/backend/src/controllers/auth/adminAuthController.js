@@ -15,6 +15,7 @@ import {
   verifyTotp,
   generateBackupCodes,
 } from '../../utils/totpUtils.js';
+import { parseListQuery } from '../../utils/listQuery.js';
 
 /* util: pick username OR email from body */
 const pickIdentity = (body) => (body?.username?.trim() || body?.email?.trim() || null);
@@ -153,10 +154,16 @@ export const getHealthStatus = async (req, res) => {
 export const getAdminActivityLogs = async (req, res) => {
   try {
     const adminId = String(req.params.adminId);
-    const page = Math.max(Number(req.query.page ?? 1), 1);
-    const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
+    const listQuery = parseListQuery(req.query, {
+      defaultLimit: 50,
+      maxLimit: 100,
+      defaultSortBy: 'created_at'
+    });
 
-    const result = await AuthService.getAdminActivityLogs(adminId, { page, limit });
+    const result = await AuthService.getAdminActivityLogs(adminId, {
+      page: listQuery.page,
+      limit: listQuery.limit
+    });
     return success(res, result, 'Activity logs retrieved successfully');
   } catch (err) {
     logger.error('[GetActivityLogs]:', err);
@@ -215,9 +222,7 @@ export const createAdmin = async (req, res) => {
 
 export const listAdmins = async (req, res) => {
   try {
-    const page = Math.max(Number(req.query.page ?? 1), 1);
-    const limit = Math.min(Math.max(Number(req.query.limit ?? 20), 1), 100);
-    const result = await AuthService.listAdmins(page, limit);
+    const result = await AuthService.listAdmins(req.query);
     return success(res, result, 'Admins retrieved successfully');
   } catch (err) {
     logger.error('[ListAdmins]:', err);

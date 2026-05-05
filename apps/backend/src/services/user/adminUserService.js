@@ -4,6 +4,7 @@
 import { Prisma } from '@prisma/client';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 export class AdminUserService {
   static async getUserAnalytics(timeframe = '30d') {
@@ -74,11 +75,13 @@ export class AdminUserService {
       action,
       startDate,
       endDate,
-      page = 1,
-      limit = 50,
     } = filters;
 
-    const offset = (page - 1) * limit;
+    const listQuery = parseListQuery(filters, {
+      defaultLimit: 50,
+      maxLimit: 100,
+      defaultSortBy: 'created_at'
+    });
     const conditions = [Prisma.sql`1=1`];
 
     if (userId) conditions.push(Prisma.sql`al.uid = ${userId}::uuid`);
@@ -98,7 +101,7 @@ export class AdminUserService {
         LEFT JOIN users u ON al.uid = u.uid
         WHERE ${whereClause}
         ORDER BY al.created_at DESC
-        LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
+        LIMIT ${listQuery.limit} OFFSET ${listQuery.offset}
       `,
       prisma.$queryRaw`
         SELECT COUNT(*)::int AS count
@@ -111,12 +114,7 @@ export class AdminUserService {
 
     return {
       logs,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: totalCount,
-        totalPages: Math.ceil(totalCount / limit),
-      },
+      pagination: buildPagination(totalCount, listQuery.page, listQuery.limit),
     };
   }
 

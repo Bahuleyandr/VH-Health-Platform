@@ -1,7 +1,6 @@
 // src/app/(with-auth)/dashboard/departments/page.tsx
 "use client";
 
-import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useDepartments } from "@/hooks/api-hooks";
 import { CreateDepartmentForm } from "./components/CreateDepartmentForm";
@@ -70,7 +69,6 @@ function isDepartmentArray(v: unknown): v is Department[] {
 }
 
 export default function DepartmentsPage() {
-  const [searchTerm, setSearchTerm] = useState("");
   const queryClient = useQueryClient();
   const { data, isLoading, error, refetch } = useDepartments();
 
@@ -80,7 +78,8 @@ export default function DepartmentsPage() {
   // to actually re-fire the network request and update cached state —
   // critical for delete/update where the user expects the row to vanish
   // or change immediately.
-  const refresh = () => queryClient.refetchQueries({ queryKey: ["departments"] });
+  const refresh = () =>
+    queryClient.refetchQueries({ queryKey: ["departments"] });
 
   // Normalize whatever the hook returns into Department[]
   let departments: Department[] = [];
@@ -92,14 +91,6 @@ export default function DepartmentsPage() {
   ) {
     departments = (data as Record<string, unknown>).departments as Department[];
   }
-
-  // Filter departments based on search term
-  const term = searchTerm.toLowerCase();
-  const filteredDepartments = departments.filter(
-    (dept) =>
-      dept.name.toLowerCase().includes(term) ||
-      (dept.description?.toLowerCase().includes(term) ?? false),
-  );
 
   if (isLoading) {
     return <DepartmentsSkeleton />;
@@ -139,30 +130,12 @@ export default function DepartmentsPage() {
         </p>
       </div>
 
-      {/* Search Bar */}
-      <div className="bg-white dark:bg-card p-4 rounded-lg shadow">
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <input
-              type="text"
-              placeholder="Search departments by name or description..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full px-4 py-2 border border-input dark:border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-white dark:bg-muted text-foreground dark:text-white"
-            />
-          </div>
-          <div className="text-sm text-muted-foreground">
-            {filteredDepartments.length} of {departments.length} departments
-          </div>
-        </div>
-      </div>
-
       {/* Create Department Form */}
       <CreateDepartmentForm />
 
       {/* Departments Table */}
       <DepartmentsTable
-        departments={filteredDepartments}
+        departments={departments}
         onDepartmentUpdated={refresh}
         onDepartmentDeleted={refresh}
       />

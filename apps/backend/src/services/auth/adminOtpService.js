@@ -5,6 +5,7 @@ import { OTP_CONFIG } from '../../config/otpConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
+import { buildPagination } from '../../utils/listQuery.js';
 import * as otpService from './otpService.js';
 
 
@@ -123,7 +124,7 @@ export const getOtpLogs = async (filters, requestedBy) => {
   ]);
   return {
     logs,
-    pagination: { page, limit, total: totalCount, totalPages: Math.ceil(totalCount / limit) },
+    pagination: buildPagination(totalCount, page, limit),
     filters: { phone, purpose, action, success, startDate, endDate, ipAddress },
     generatedBy: requestedBy
   };

@@ -4,14 +4,19 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import * as investigationService from '../../services/investigation/investigationService.js';
 import { logAudit } from '../../utils/logAudit.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // List investigations with filtering
 export const listInvestigations = async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || PAGINATION.DEFAULT_PAGE;
-    const limit = Math.min(parseInt(req.query.limit) || PAGINATION.DEFAULT_LIMIT, PAGINATION.MAX_LIMIT);
+    const listQuery = parseListQuery(req.query, {
+      defaultPage: PAGINATION.DEFAULT_PAGE,
+      defaultLimit: PAGINATION.DEFAULT_LIMIT,
+      maxLimit: PAGINATION.MAX_LIMIT,
+      defaultSortBy: 'requested_at',
+    });
     const userRole = req.user?.role?.toUpperCase();
     const userId = req.user?.uid;
     
@@ -24,8 +29,8 @@ export const listInvestigations = async (req, res) => {
     };
 
     const result = await investigationService.getInvestigations(
-      page,
-      limit,
+      listQuery.page,
+      listQuery.limit,
       filters,
       userRole,
       userId
@@ -322,9 +327,11 @@ export const getInvestigationsByPhone = async (req, res) => {
     }
     
     // Pagination
-    const page = parseInt(req.query.page) || 1;
-    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
-    const offset = (page - 1) * limit;
+    const { page, limit, offset } = parseListQuery(req.query, {
+      defaultLimit: 20,
+      maxLimit: 100,
+      defaultSortBy: 'created_at',
+    });
 
     // Get paginated results
     const result = await prisma.$queryRawUnsafe(
@@ -352,7 +359,7 @@ export const getInvestigationsByPhone = async (req, res) => {
     );
     
     const totalInvestigations = parseInt(countResult[0].count);
-    const totalPages = Math.ceil(totalInvestigations / limit);
+    const pagination = buildPagination(totalInvestigations, page, limit);
     
     await logAudit(req, 'investigations-phone-lookup', { 
       phone, 
@@ -363,14 +370,7 @@ export const getInvestigationsByPhone = async (req, res) => {
     
     success(res, {
       investigations: result,
-      pagination: {
-        page,
-        limit,
-        total: totalInvestigations,
-        totalPages,
-        hasNext: page < totalPages,
-        hasPrev: page > 1
-      },
+      pagination,
       requestedBy
     }, 'Investigations fetched successfully');
     
@@ -402,9 +402,11 @@ export const getInvestigationsByUID = async (req, res) => {
     const phone = userResult[0].phone;
     
     // Pagination parameters
-    const page = parseInt(req.query.page) || 1;
-    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
-    const offset = (page - 1) * limit;
+    const { page, limit, offset } = parseListQuery(req.query, {
+      defaultLimit: 20,
+      maxLimit: 100,
+      defaultSortBy: 'created_at',
+    });
     
     // Get paginated results
     const result = await prisma.$queryRawUnsafe(
@@ -432,7 +434,7 @@ export const getInvestigationsByUID = async (req, res) => {
     );
     
     const totalInvestigations = parseInt(countResult[0].count);
-    const totalPages = Math.ceil(totalInvestigations / limit);
+    const pagination = buildPagination(totalInvestigations, page, limit);
     
     await logAudit(req, 'investigations-uid-lookup', { 
       uid, 
@@ -443,14 +445,7 @@ export const getInvestigationsByUID = async (req, res) => {
     
     success(res, {
       investigations: result,
-      pagination: {
-        page,
-        limit,
-        total: totalInvestigations,
-        totalPages,
-        hasNext: page < totalPages,
-        hasPrev: page > 1
-      },
+      pagination,
       requestedBy
     }, 'Investigations retrieved by UID');
     

@@ -3,6 +3,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 const VALID_INCIDENT_TYPES = ['fall', 'medication_error', 'infection', 'equipment_failure', 'near_miss', 'complaint', 'other'];
 const VALID_SEVERITIES = ['minor', 'moderate', 'major', 'sentinel'];
@@ -104,8 +105,12 @@ class QualityService {
    * Get incidents with filters
    */
   async getIncidents(filters = {}) {
-    const { status, incident_type, severity, page = 1, limit = 20 } = filters;
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const { status, incident_type, severity } = filters;
+    const listQuery = parseListQuery(filters, {
+      defaultLimit: 20,
+      maxLimit: 100,
+      defaultSortBy: 'created_at'
+    });
     const conditions = [];
     const params = [];
     let paramIndex = 1;
@@ -140,17 +145,12 @@ class QualityService {
        FROM quality_incidents ${whereClause}
        ORDER BY created_at DESC
        LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
-      ...params, parseInt(limit, 10), offset
+      ...params, listQuery.limit, listQuery.offset
     );
 
     return {
       incidents: result,
-      pagination: {
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
-        total,
-        totalPages: Math.ceil(total / parseInt(limit, 10)),
-      },
+      pagination: buildPagination(total, listQuery.page, listQuery.limit),
     };
   }
 
@@ -331,8 +331,12 @@ class QualityService {
    * Get infection surveillance data with filters
    */
   async getInfectionSurveillance(filters = {}) {
-    const { status, organism, infection_site, page = 1, limit = 20 } = filters;
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const { status, organism, infection_site } = filters;
+    const listQuery = parseListQuery(filters, {
+      defaultLimit: 20,
+      maxLimit: 100,
+      defaultSortBy: 'detection_date'
+    });
     const conditions = [];
     const params = [];
     let paramIndex = 1;
@@ -366,7 +370,7 @@ class QualityService {
        FROM infection_cases ${whereClause}
        ORDER BY detection_date DESC
        LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
-      ...params, parseInt(limit, 10), offset
+      ...params, listQuery.limit, listQuery.offset
     );
 
     // Summary stats
@@ -381,12 +385,7 @@ class QualityService {
     return {
       cases: result,
       summary: summaryResult[0],
-      pagination: {
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
-        total,
-        totalPages: Math.ceil(total / parseInt(limit, 10)),
-      },
+      pagination: buildPagination(total, listQuery.page, listQuery.limit),
     };
   }
 

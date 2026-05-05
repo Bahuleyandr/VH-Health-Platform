@@ -5,6 +5,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { LookupService } from '../../services/user/lookupService.js';
 import { logAudit } from '../../utils/logAudit.js';
+import { parseListQuery } from '../../utils/listQuery.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -180,9 +181,14 @@ export class LookupController {
     }
 
     try {
-      const { phone, uid, name, email, limit = 10 } = req.query;
+      const { phone, uid, name, email } = req.query;
       const userRole = req.user?.role?.toUpperCase();
       const requestedBy = req.user?.uid;
+      const listQuery = parseListQuery(req.query, {
+        defaultLimit: 10,
+        maxLimit: userRole === 'ADMIN' ? 50 : 20,
+        defaultSortBy: 'registered_at'
+      });
 
       if (!phone && !uid && !name && !email) {
         return error(res, 'Provide phone, uid, name, or email to search', HTTP_STATUS.BAD_REQUEST);
@@ -243,9 +249,9 @@ export class LookupController {
 
       query += conditions.join(' OR ');
       query += ` ORDER BY registered_at DESC LIMIT $${params.length + 1}`;
-      params.push(Math.min(parseInt(limit), userRole === 'ADMIN' ? 50 : 20));
+      params.push(listQuery.limit);
 
-      const result = await prisma.$queryRawUnsafe(query, params);
+      const result = await prisma.$queryRawUnsafe(query, ...params);
 
       // Additional privacy filtering for non-admin users
       const filteredResults = result.map(user => {
@@ -309,8 +315,13 @@ export class LookupController {
       const {
         role, registeredAfter, registeredBefore, lastLoginAfter,
         ageMin, ageMax, hasProfilePicture, department, includeInactive = true,
-        sortBy = 'registered_at', sortOrder = 'DESC', limit = 25
       } = req.query;
+      const listQuery = parseListQuery(req.query, {
+        defaultLimit: 25,
+        maxLimit: 100,
+        defaultSortBy: 'registered_at',
+        allowedSortFields: ['name', 'registered_at', 'last_login', 'role']
+      });
 
       let query = `
         SELECT u.uid, u.phone, u.name, u.email, u.role, u.registered_at, u.last_sign_in_at AS last_login,
@@ -372,13 +383,13 @@ export class LookupController {
 
       // Validate and apply sorting
       const allowedSortFields = ['name', 'registered_at', 'last_login', 'role'];
-      const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'registered_at';
-      const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+      const sortField = allowedSortFields.includes(listQuery.sortBy) ? listQuery.sortBy : 'registered_at';
+      const order = listQuery.sortOrder;
 
       query += ` ORDER BY u.${sortField} ${order} LIMIT $${params.length + 1}`;
-      params.push(Math.min(parseInt(limit), 100));
+      params.push(listQuery.limit);
 
-      const result = await prisma.$queryRawUnsafe(query, params);
+      const result = await prisma.$queryRawUnsafe(query, ...params);
 
       await logAudit(req, 'user-advanced-search', {
         criteria: { role, registeredAfter, registeredBefore, lastLoginAfter, ageMin, ageMax, department },
@@ -533,7 +544,7 @@ export class LookupController {
         params = [normalizePhone(phone)];
       }
 
-      const result = await prisma.$queryRawUnsafe(query, params);
+      const result = await prisma.$queryRawUnsafe(query, ...params);
 
       if (result.length === 0) {
         await logAudit(req, 'user-verification-failed', { phone, uid });
@@ -583,7 +594,12 @@ export class LookupController {
         return error(res, 'Access denied: Admin privileges required', HTTP_STATUS.FORBIDDEN);
       }
 
-      const { days = 7, limit = 50 } = req.query;
+      const { days = 7 } = req.query;
+      const listQuery = parseListQuery(req.query, {
+        defaultLimit: 50,
+        maxLimit: 100,
+        defaultSortBy: 'last_login'
+      });
 
       const recentActivity = await prisma.$queryRawUnsafe(`
         SELECT
@@ -601,7 +617,7 @@ export class LookupController {
            OR u.last_sign_in_at > NOW() - make_interval(days => $2)
         ORDER BY COALESCE(u.last_sign_in_at, u.registered_at) DESC
         LIMIT $1
-      `, Math.min(parseInt(limit), 100), parseInt(days));
+      `, listQuery.limit, parseInt(days));
 
       await logAudit(req, 'user-activity-report-viewed', { days, recordCount: recentActivity.length });
 
@@ -638,7 +654,13 @@ export class LookupController {
       }
 
       const { criteria, options = {} } = req.body;
-      const { includeInactive = true, sortBy = 'registered_at', sortOrder = 'DESC', limit = 100 } = options;
+      const { includeInactive = true } = options;
+      const listQuery = parseListQuery(options, {
+        defaultLimit: 100,
+        maxLimit: 500,
+        defaultSortBy: 'registered_at',
+        allowedSortFields: ['name', 'registered_at', 'last_login', 'role', 'phone']
+      });
 
       let query = `SELECT id, uid, phone, name, email, gender, role, department, specialty,
         employee_id, is_active, status, registered_at, updated_at, last_login FROM users WHERE 1=1`;
@@ -676,13 +698,13 @@ export class LookupController {
 
       // Apply sorting and limiting
       const allowedSortFields = ['name', 'registered_at', 'last_login', 'role', 'phone'];
-      const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'registered_at';
-      const order = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+      const sortField = allowedSortFields.includes(listQuery.sortBy) ? listQuery.sortBy : 'registered_at';
+      const order = listQuery.sortOrder;
 
       query += ` ORDER BY ${sortField} ${order} LIMIT $${params.length + 1}`;
-      params.push(Math.min(parseInt(limit), 500));
+      params.push(listQuery.limit);
 
-      const result = await prisma.$queryRawUnsafe(query, params);
+      const result = await prisma.$queryRawUnsafe(query, ...params);
 
       await logAudit(req, 'user-bulk-search', {
         criteria,

@@ -3,6 +3,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 // Advanced Staff Search
 export const advancedStaffSearch = async (req, res) => {
@@ -15,10 +16,8 @@ export const advancedStaffSearch = async (req, res) => {
       attendance_rate_min,
       has_pending_review,
       on_leave,
-      sort_by = 'name',
-      order = 'ASC',
-      page = 1,
-      limit = 20
+      sort_by,
+      order
     } = req.query;
 
     let query = `
@@ -102,16 +101,28 @@ export const advancedStaffSearch = async (req, res) => {
       attendance_rate: 'attendance_rate',
       pending_reviews: 'pending_reviews',
     };
-    const sortColumn = sortColumns[sort_by] || sortColumns.name;
-    const sortOrder = String(order).toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
-    const pageNumber = Math.max(parseInt(page, 10) || 1, 1);
-    const pageSize = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+    const listQuery = parseListQuery(
+      {
+        ...req.query,
+        sortBy: req.query.sortBy ?? sort_by,
+        sortOrder: req.query.sortOrder ?? order,
+      },
+      {
+        defaultLimit: 20,
+        maxLimit: 100,
+        defaultSortBy: 'name',
+        defaultSortOrder: 'ASC',
+        allowedSortFields: Object.keys(sortColumns),
+      }
+    );
+    const sortColumn = sortColumns[listQuery.sortBy] || sortColumns.name;
+    const sortOrder = listQuery.sortOrder;
 
     const filteredQuery = query;
 
     query += ` ORDER BY ${sortColumn} ${sortOrder}`;
     query += ` LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
-    params.push(pageSize, (pageNumber - 1) * pageSize);
+    params.push(listQuery.limit, listQuery.offset);
 
     const result = await prisma.$queryRawUnsafe(query, ...params);
 
@@ -121,12 +132,7 @@ export const advancedStaffSearch = async (req, res) => {
 
     success(res, {
       staff: result,
-      pagination: {
-        total: parseInt(countResult[0].count),
-        page: pageNumber,
-        limit: pageSize,
-        totalPages: Math.ceil(Number(countResult[0].count || 0) / pageSize)
-      }
+      pagination: buildPagination(countResult[0].count, listQuery.page, listQuery.limit)
     }, 'Staff search completed successfully');
   } catch (err) {
     logger.error('Advanced Search Error:', err);

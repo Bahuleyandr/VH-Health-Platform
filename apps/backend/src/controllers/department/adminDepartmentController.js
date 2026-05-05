@@ -27,16 +27,13 @@ export const getDepartmentOverview = async (req, res) => {
 
 export const getDepartmentManagementData = async (req, res) => {
   try {
-    const { status, search } = req.query;
-    const departments = await adminDepartmentService.getDepartmentManagementData({ status, search });
+    const result = await adminDepartmentService.getDepartmentManagementData(req.query);
     
     success(res, {
-      departments,
-      count: departments.length,
-      filters: {
-        status: status || 'active',
-        search: search || null
-      }
+      departments: result.departments,
+      count: result.pagination.total,
+      pagination: result.pagination,
+      filters: result.filters
     }, 'Department management data retrieved successfully');
   } catch (err) {
     logger.error('Error in getDepartmentManagementData:', err);

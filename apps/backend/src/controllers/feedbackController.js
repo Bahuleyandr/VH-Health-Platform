@@ -8,6 +8,7 @@ import { normalizePhone } from '../utils/phoneUtils.js';
 import { resolvePhoneFromRequest, resolvePhoneFromUID } from '../utils/resolveIdentity.js';
 import { success, error } from '../utils/responseHelper.js';
 import { isClinical, isAdmin } from '../utils/roleHelpers.js';
+import { parseListQuery } from '../utils/listQuery.js';
 
 // Submit Feedback using resolved phone
 // Supports both star-rating feedback and "Ask a Doubt" (question) from Flutter app.
@@ -147,9 +148,15 @@ export async function getRecentFeedback(req, res) {
       return error(res, 'Staff access required for recent feedback', HTTP_STATUS.FORBIDDEN);
     }
 
+    const listQuery = parseListQuery(req.query, {
+      defaultLimit: 20,
+      maxLimit: 100,
+      defaultSortBy: 'created_at'
+    });
+
     const filters = {
-      page: Math.max(parseInt(req.query.page, 10) || 1, 1),
-      limit: Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100),
+      page: listQuery.page,
+      limit: listQuery.limit,
       category: req.query.category,
       rating: req.query.rating,
       priority: req.query.priority,

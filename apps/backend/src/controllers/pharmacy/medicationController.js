@@ -1,15 +1,22 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import * as medicationService from '../../services/pharmacy/medicationService.js';
+import { parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // Get all medications with filtering
 export const getAllMedications = async (req, res) => {
   try {
+    const listQuery = parseListQuery(req.query, {
+      defaultLimit: 20,
+      maxLimit: 100,
+      defaultSortBy: 'name',
+      defaultSortOrder: 'ASC',
+    });
     const filters = {
-      page: parseInt(req.query.page) || 1,
-      limit: Math.min(parseInt(req.query.limit) || 20, 100),
-      search: req.query.search,
+      page: listQuery.page,
+      limit: listQuery.limit,
+      search: listQuery.search,
       category: req.query.category,
       in_stock: req.query.in_stock
     };

@@ -44,7 +44,7 @@ export default function EditDoctorPage() {
 
         // Fetch both doctors and departments in parallel
         const [doctorsResp, departmentsResp] = await Promise.all([
-          fetchAdminAPI<unknown>("/doctors"),
+          fetchAdminAPI<unknown>("/doctors?limit=1000"),
           fetchAdminAPI<{ departments?: Department[] } | Department[]>(
             "/admin/departments/manage",
           ),

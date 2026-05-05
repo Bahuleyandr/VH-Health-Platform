@@ -148,7 +148,7 @@ export class DoctorStatsService {
                  d.available_days, d.available_hours, d.consultation_fee
                  ORDER BY total_appointments DESC`;
       
-      const result = await prisma.$queryRawUnsafe(query, params);
+      const result = await prisma.$queryRawUnsafe(query, ...params);
       
       // Calculate workload distribution
       const workloadDistribution = result.reduce((acc, doctor) => {

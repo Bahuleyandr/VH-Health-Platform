@@ -27,18 +27,99 @@ const DAYS_OF_WEEK = [
 type DaySchedule = { start: string; end: string };
 type ScheduleMap = Record<string, DaySchedule>;
 
+const DAY_ALIASES = new Map(
+  DAYS_OF_WEEK.flatMap((day) => [
+    [day.toLowerCase(), day],
+    [day.slice(0, 3).toLowerCase(), day],
+  ]),
+);
+
+function normalizeDayName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return DAY_ALIASES.get(value.trim().toLowerCase()) ?? null;
+}
+
+function coerceStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) =>
+        typeof item === "string" || typeof item === "number"
+          ? String(item).trim()
+          : "",
+      )
+      .filter(Boolean);
+  }
+
+  if (typeof value !== "string") return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    try {
+      return coerceStringArray(JSON.parse(trimmed));
+    } catch {
+      return [];
+    }
+  }
+
+  return trimmed
+    .split(/[,;|]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function coerceScheduleMap(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value !== "string") return {};
+  const trimmed = value.trim();
+  if (!trimmed) return {};
+  try {
+    const parsed = JSON.parse(trimmed);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function coerceDaySchedule(value: unknown): DaySchedule {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    const start = typeof obj.start === "string" ? obj.start : "09:00";
+    const end = typeof obj.end === "string" ? obj.end : "17:00";
+    return { start, end };
+  }
+
+  if (typeof value === "string") {
+    const match = value.match(/(\d{1,2}:\d{2})\s*(?:-|to)\s*(\d{1,2}:\d{2})/i);
+    if (match) return { start: match[1], end: match[2] };
+  }
+
+  return { start: "09:00", end: "17:00" };
+}
+
 function parseSchedule(doctor: Doctor): {
   enabledDays: Set<string>;
   hours: ScheduleMap;
 } {
   const raw = doctor as Record<string, unknown>;
-  const availDays = (raw.available_days as string[] | undefined) ?? [];
-  const availHours = (raw.available_hours as ScheduleMap | undefined) ?? {};
+  const availDays = coerceStringArray(raw.available_days)
+    .map(normalizeDayName)
+    .filter((day): day is string => Boolean(day));
+  const availHours = coerceScheduleMap(raw.available_hours);
 
   const enabledDays = new Set(availDays);
   const hours: ScheduleMap = {};
   for (const day of DAYS_OF_WEEK) {
-    hours[day] = availHours[day] ?? { start: "09:00", end: "17:00" };
+    const matchingKey = Object.keys(availHours).find(
+      (key) => normalizeDayName(key) === day,
+    );
+    hours[day] = coerceDaySchedule(
+      matchingKey ? availHours[matchingKey] : undefined,
+    );
   }
   return { enabledDays, hours };
 }
@@ -59,7 +140,7 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
   const [bio, setBio] = useState((raw.bio as string) ?? "");
   const [education, setEducation] = useState((raw.education as string) ?? "");
   const [qualifications, setQualifications] = useState(
-    ((raw.qualifications as string[]) ?? []).join(", "),
+    coerceStringArray(raw.qualifications).join(", "),
   );
   const [experienceYears, setExperienceYears] = useState(
     (raw.experience_years as number) ?? 0,
@@ -74,11 +155,7 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
     });
   };
 
-  const setDayTime = (
-    day: string,
-    field: "start" | "end",
-    value: string,
-  ) => {
+  const setDayTime = (day: string, field: "start" | "end", value: string) => {
     setHours((prev) => ({
       ...prev,
       [day]: { ...prev[day], [field]: value },
@@ -108,7 +185,11 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
       name: formData.get("name") as string,
       department: formData.get("department") as string,
       specialization: formData.get("specialization") as string,
-      consultation_fee: parseFloat(formData.get("consultation_fee") as string) || undefined,
+      consultation_fee: Number.isFinite(
+        parseFloat(formData.get("consultation_fee") as string),
+      )
+        ? parseFloat(formData.get("consultation_fee") as string)
+        : 0,
       experience_years: experienceYears,
       bio,
       education,
@@ -226,7 +307,7 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
               id="specialization"
               name="specialization"
               required
-              defaultValue={doctor.specialization}
+              defaultValue={doctor.specialization ?? ""}
               className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary bg-background"
               disabled={loading}
             />
@@ -244,7 +325,7 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
               id="consultation_fee"
               name="consultation_fee"
               required
-              defaultValue={doctor.consultation_fee}
+              defaultValue={doctor.consultation_fee ?? 0}
               min="0"
               className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary bg-background"
               disabled={loading}
@@ -378,9 +459,7 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
                   />
                   <span
                     className={`ml-2 text-sm font-medium ${
-                      isEnabled
-                        ? "text-foreground"
-                        : "text-muted-foreground"
+                      isEnabled ? "text-foreground" : "text-muted-foreground"
                     }`}
                   >
                     {day}
@@ -392,9 +471,7 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
                     <input
                       type="time"
                       value={hours[day]?.start ?? "09:00"}
-                      onChange={(e) =>
-                        setDayTime(day, "start", e.target.value)
-                      }
+                      onChange={(e) => setDayTime(day, "start", e.target.value)}
                       className="px-2 py-1 border border-input rounded-md bg-background text-foreground"
                       disabled={loading}
                     />
@@ -402,9 +479,7 @@ export function EditDoctorForm({ doctor, departments }: EditDoctorFormProps) {
                     <input
                       type="time"
                       value={hours[day]?.end ?? "17:00"}
-                      onChange={(e) =>
-                        setDayTime(day, "end", e.target.value)
-                      }
+                      onChange={(e) => setDayTime(day, "end", e.target.value)}
                       className="px-2 py-1 border border-input rounded-md bg-background text-foreground"
                       disabled={loading}
                     />

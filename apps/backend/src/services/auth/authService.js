@@ -7,6 +7,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDateDDMMYYYY } from '../../utils/dateUtils.js';
 import { generateToken, issueSetupToken, verifyToken, verifyTokenAllowExpired } from '../../utils/jwtUtils.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
@@ -572,9 +573,38 @@ export class AuthService {
     }
   }
 
-  static async listAdmins(page, limit) {
+  static async listAdmins(filters = {}) {
     try {
-      const offset = (page - 1) * limit;
+      const sortFields = {
+        name: 'name',
+        username: 'username',
+        email: 'email',
+        role: 'role',
+        status: 'status',
+        created_at: 'created_at',
+        last_login: 'last_login',
+      };
+      const listQuery = parseListQuery(filters, {
+        defaultLimit: 20,
+        maxLimit: 100,
+        defaultSortBy: 'created_at',
+        defaultSortOrder: 'DESC',
+        allowedSortFields: Object.keys(sortFields),
+      });
+      const where = {};
+      if (listQuery.search) {
+        where.OR = [
+          { name: { contains: listQuery.search, mode: 'insensitive' } },
+          { username: { contains: listQuery.search, mode: 'insensitive' } },
+          { email: { contains: listQuery.search, mode: 'insensitive' } },
+        ];
+      }
+      if (filters.role) {
+        where.role = String(filters.role).toUpperCase();
+      }
+      if (filters.status) {
+        where.status = String(filters.status).toLowerCase();
+      }
 
       const [admins, total] = await Promise.all([
         prisma.admins.findMany({
@@ -590,20 +620,23 @@ export class AuthService {
             created_at: true,
             last_login: true,
           },
-          orderBy: { created_at: 'desc' },
-          skip: offset,
-          take: limit,
+          where,
+          orderBy: { [sortFields[listQuery.sortBy]]: listQuery.sortOrder.toLowerCase() },
+          skip: listQuery.offset,
+          take: listQuery.limit,
         }),
-        prisma.admins.count(),
+        prisma.admins.count({ where }),
       ]);
 
       return {
         admins: admins.map((a) => ({ ...a })),  // uid is already the PK
-        pagination: {
-          page,
-          limit,
-          total,
-          totalPages: Math.ceil(total / limit),
+        pagination: buildPagination(total, listQuery.page, listQuery.limit),
+        filters: {
+          search: listQuery.search || null,
+          role: filters.role || null,
+          status: filters.status || null,
+          sortBy: listQuery.sortBy,
+          sortOrder: listQuery.sortOrder,
         },
       };
     } catch (error) {
@@ -919,12 +952,7 @@ export class AuthService {
           ...log,
           created_at: formatDateDDMMYYYY(log.created_at),
         })),
-        pagination: {
-          page,
-          limit,
-          total,
-          totalPages: Math.ceil(total / limit),
-        },
+        pagination: buildPagination(total, page, limit),
       };
     } catch (error) {
       logger.error('Get admin activity logs error:', error);

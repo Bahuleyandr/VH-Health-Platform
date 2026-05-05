@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { formatDate } from '../../utils/department/departmentHelpers.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import departmentAuditService from './departmentAuditService.js';
 
 class AdminDepartmentService {
@@ -92,6 +93,21 @@ class AdminDepartmentService {
   async getDepartmentManagementData(filters = {}) {
     try {
       const { status = 'active', search } = filters;
+      const allowedSortFields = {
+        name: 'd.name',
+        status: 'd.is_active',
+        created_at: 'd.created_at',
+        updated_at: 'd.updated_at',
+        doctor_count: 'doctor_count',
+        staff_count: 'staff_count',
+      };
+      const listQuery = parseListQuery({ ...filters, search }, {
+        defaultLimit: 20,
+        maxLimit: 100,
+        defaultSortBy: 'name',
+        defaultSortOrder: 'ASC',
+        allowedSortFields: Object.keys(allowedSortFields),
+      });
 
       // Build WHERE clause dynamically using only real columns
       const conditions = [];
@@ -103,35 +119,55 @@ class AdminDepartmentService {
         conditions.push('d.is_active = false');
       }
 
-      if (search) {
-        params.push(`%${search}%`);
+      if (listQuery.search) {
+        params.push(`%${listQuery.search}%`);
         conditions.push(`(d.name ILIKE $${params.length} OR d.description ILIKE $${params.length})`);
       }
 
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-      const rows = await prisma.$queryRawUnsafe(`
-        SELECT d.id, d.name, d.description, d.is_active,
-               d.created_at, d.updated_at,
-               COUNT(DISTINCT doc.id) as doctor_count,
-               COUNT(DISTINCT s.user_id) as staff_count,
-               STRING_AGG(DISTINCT COALESCE(doc_users.name, doc.name), ', ') as doctor_names
-        FROM departments d
-        LEFT JOIN doctors doc ON doc.department = d.name AND doc.is_active = true
-        LEFT JOIN users doc_users ON doc_users.id = doc.user_id
-        LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
-        ${where}
-        GROUP BY d.id, d.name, d.description, d.is_active, d.created_at, d.updated_at
-        ORDER BY d.name
-      `, ...params);
-
-      return rows.map(dept => ({
+      const listParams = [...params, listQuery.limit, listQuery.offset];
+      const [rows, countRows] = await Promise.all([
+        prisma.$queryRawUnsafe(`
+          SELECT d.id, d.name, d.description, d.is_active,
+                 d.created_at, d.updated_at,
+                 COUNT(DISTINCT doc.id) as doctor_count,
+                 COUNT(DISTINCT s.user_id) as staff_count,
+                 STRING_AGG(DISTINCT COALESCE(doc_users.name, doc.name), ', ') as doctor_names
+          FROM departments d
+          LEFT JOIN doctors doc ON doc.department = d.name AND doc.is_active = true
+          LEFT JOIN users doc_users ON doc_users.id = doc.user_id
+          LEFT JOIN staff s ON s.department = d.name AND s.is_active = true
+          ${where}
+          GROUP BY d.id, d.name, d.description, d.is_active, d.created_at, d.updated_at
+          ORDER BY ${allowedSortFields[listQuery.sortBy]} ${listQuery.sortOrder}, d.name ASC
+          LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+        `, ...listParams),
+        prisma.$queryRawUnsafe(`
+          SELECT COUNT(*)::int AS count
+          FROM departments d
+          ${where}
+        `, ...params),
+      ]);
+      const total = Number.parseInt(countRows?.[0]?.count, 10) || 0;
+      const departments = rows.map(dept => ({
         ...dept,
         doctor_count: parseInt(dept.doctor_count) || 0,
         staff_count: parseInt(dept.staff_count) || 0,
         created_at: formatDate(dept.created_at),
         updated_at: dept.updated_at ? formatDate(dept.updated_at) : null
       }));
+
+      return {
+        departments,
+        pagination: buildPagination(total, listQuery.page, listQuery.limit),
+        filters: {
+          status,
+          search: listQuery.search || null,
+          sortBy: listQuery.sortBy,
+          sortOrder: listQuery.sortOrder,
+        },
+      };
     } catch (error) {
       logger.error('Database error in getDepartmentManagementData:', error);
       throw new Error('Failed to retrieve department management data');

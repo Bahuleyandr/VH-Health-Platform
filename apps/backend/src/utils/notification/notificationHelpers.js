@@ -88,7 +88,7 @@ export const buildNotificationQuery = (filters) => {
   }
   
   if (search) {
-    conditions.push(`(n.title ILIKE $${params.length + 1} OR n.message ILIKE $${params.length + 1} OR u.name ILIKE $${params.length + 1})`);
+    conditions.push(`(n.title ILIKE $${params.length + 1} OR n.body ILIKE $${params.length + 1} OR u.name ILIKE $${params.length + 1})`);
     params.push(`%${search}%`);
   }
   

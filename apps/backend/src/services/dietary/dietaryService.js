@@ -3,6 +3,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 const VALID_DIET_TYPES = ['regular', 'diabetic', 'cardiac', 'renal', 'soft', 'liquid', 'npo', 'enteral'];
 const VALID_STATUSES = ['active', 'on_hold', 'discontinued'];
@@ -82,8 +83,11 @@ class DietaryService {
    * Get all active diet orders (optionally filtered)
    */
   async getActiveOrders(filters = {}) {
-    const { page = 1, limit = 50 } = filters;
-    const offset = (Math.max(1, parseInt(page, 10)) - 1) * parseInt(limit, 10);
+    const listQuery = parseListQuery(filters, {
+      defaultLimit: 50,
+      maxLimit: 100,
+      defaultSortBy: 'created_at'
+    });
 
     const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM diet_orders WHERE status = 'active'`
@@ -98,16 +102,15 @@ class DietaryService {
        WHERE status = 'active'
        ORDER BY created_at DESC
        LIMIT $1 OFFSET $2`,
-      parseInt(limit, 10), offset
+      listQuery.limit, listQuery.offset
     );
+    const pagination = buildPagination(total, listQuery.page, listQuery.limit);
 
     return {
       orders: result,
       pagination: {
-        total,
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
-        pages: Math.ceil(total / parseInt(limit, 10))
+        ...pagination,
+        pages: pagination.totalPages
       }
     };
   }
@@ -169,8 +172,11 @@ class DietaryService {
    * Get diet order history for a patient
    */
   async getPatientDietHistory(patientUid, filters = {}) {
-    const { page = 1, limit = 20 } = filters;
-    const offset = (Math.max(1, parseInt(page, 10)) - 1) * parseInt(limit, 10);
+    const listQuery = parseListQuery(filters, {
+      defaultLimit: 20,
+      maxLimit: 100,
+      defaultSortBy: 'created_at'
+    });
 
     const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM diet_orders WHERE patient_uid = $1::uuid`,
@@ -186,16 +192,15 @@ class DietaryService {
        WHERE patient_uid = $1::uuid
        ORDER BY created_at DESC
        LIMIT $2 OFFSET $3`,
-      patientUid, parseInt(limit, 10), offset
+      patientUid, listQuery.limit, listQuery.offset
     );
+    const pagination = buildPagination(total, listQuery.page, listQuery.limit);
 
     return {
       orders: result,
       pagination: {
-        total,
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
-        pages: Math.ceil(total / parseInt(limit, 10))
+        ...pagination,
+        pages: pagination.totalPages
       }
     };
   }
@@ -204,8 +209,12 @@ class DietaryService {
    * Get diet worklist (all non-discontinued orders for kitchen/nutrition staff)
    */
   async getDietWorklist(filters = {}) {
-    const { status, diet_type, page = 1, limit = 50 } = filters;
-    const offset = (Math.max(1, parseInt(page, 10)) - 1) * parseInt(limit, 10);
+    const { status, diet_type } = filters;
+    const listQuery = parseListQuery(filters, {
+      defaultLimit: 50,
+      maxLimit: 100,
+      defaultSortBy: 'created_at'
+    });
     const conditions = [];
     const params = [];
 
@@ -229,8 +238,8 @@ class DietaryService {
     );
     const total = parseInt(countResult[0].count, 10);
 
-    params.push(parseInt(limit, 10));
-    params.push(offset);
+    params.push(listQuery.limit);
+    params.push(listQuery.offset);
 
     const result = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, encounter_id, diet_type, restrictions, allergies,
@@ -242,14 +251,13 @@ class DietaryService {
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       ...params
     );
+    const pagination = buildPagination(total, listQuery.page, listQuery.limit);
 
     return {
       orders: result,
       pagination: {
-        total,
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
-        pages: Math.ceil(total / parseInt(limit, 10))
+        ...pagination,
+        pages: pagination.totalPages
       }
     };
   }

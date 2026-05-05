@@ -30,6 +30,26 @@ class WebSocketService {
   Stream<Map<String, dynamic>> get stream => _controller.stream;
   bool get isConnected => _isConnected;
 
+  static String _safeUriForLog(Uri uri) {
+    final safe = Uri(
+      scheme: uri.scheme,
+      host: uri.host,
+      port: uri.hasPort ? uri.port : null,
+      path: uri.path,
+    );
+    return uri.hasQuery ? '$safe?token=[redacted]' : safe.toString();
+  }
+
+  static String _redactSensitive(Object value) {
+    return value
+        .toString()
+        .replaceAll(RegExp(r'token=[^&\s]+'), 'token=[redacted]')
+        .replaceAll(
+          RegExp(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'),
+          '[redacted-jwt]',
+        );
+  }
+
   Future<void> connect({List<String> channels = const []}) async {
     _intentionalDisconnect = false;
     _retryCount = 0;
@@ -65,7 +85,7 @@ class WebSocketService {
 
       _isConnected = true;
       _retryCount = 0;
-      debugPrint('WebSocket: Connected to $wsUri');
+      debugPrint('WebSocket: Connected to ${_safeUriForLog(wsUri)}');
 
       // Subscribe to channels
       for (final channel in _subscribedChannels) {
@@ -78,7 +98,7 @@ class WebSocketService {
       // Listen for messages
       _channel!.stream.listen(_onMessage, onError: _onError, onDone: _onDone);
     } catch (e) {
-      debugPrint('WebSocket: Connection error: $e');
+      debugPrint('WebSocket: Connection error: ${_redactSensitive(e)}');
       _isConnected = false;
       _scheduleReconnect();
     }
@@ -96,7 +116,7 @@ class WebSocketService {
   }
 
   void _onError(dynamic error) {
-    debugPrint('WebSocket: Error: $error');
+    debugPrint('WebSocket: Error: ${_redactSensitive(error)}');
     _isConnected = false;
     _stopHeartbeat();
     _scheduleReconnect();

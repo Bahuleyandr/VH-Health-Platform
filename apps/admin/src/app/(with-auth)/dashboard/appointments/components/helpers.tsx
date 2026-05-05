@@ -65,28 +65,81 @@ export function isObj(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null;
 }
 
-export function normalizeAppointmentsResponse(response: unknown, page: number): AppointmentsAPIResponse {
+export function normalizeAppointmentsResponse(
+  response: unknown,
+  page: number,
+  requestedLimit = 10,
+): AppointmentsAPIResponse {
   if (Array.isArray(response)) {
     const list = response as AppointmentRow[];
-    return { appointments: list, pagination: { page, limit: 10, total: list.length, totalPages: Math.max(1, Math.ceil(list.length / 10)), hasNext: false, hasPrev: page > 1 } };
+    return {
+      appointments: list,
+      pagination: {
+        page,
+        limit: requestedLimit,
+        total: list.length,
+        totalPages: Math.max(1, Math.ceil(list.length / requestedLimit)),
+        hasNext: false,
+        hasPrev: page > 1,
+      },
+    };
   }
   if (isObj(response)) {
-    const appts = (Array.isArray((response as Record<string, unknown>)["appointments"]) ? (response as Record<string, unknown>)["appointments"] : (response as Record<string, unknown>)["data"]) as AppointmentRow[] ?? [];
-    const total = typeof (response as Record<string, unknown>)["total"] === "number" ? (response as Record<string, unknown>)["total"] as number : appts.length;
-    const limit = 10;
-    return { appointments: appts, pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)), hasNext: page * limit < total, hasPrev: page > 1 } };
+    const appts =
+      ((Array.isArray((response as Record<string, unknown>)["appointments"])
+        ? (response as Record<string, unknown>)["appointments"]
+        : (response as Record<string, unknown>)["data"]) as AppointmentRow[]) ??
+      [];
+    const total =
+      typeof (response as Record<string, unknown>)["total"] === "number"
+        ? ((response as Record<string, unknown>)["total"] as number)
+        : appts.length;
+    const limit =
+      typeof (response as Record<string, unknown>)["limit"] === "number"
+        ? ((response as Record<string, unknown>)["limit"] as number)
+        : requestedLimit;
+    return {
+      appointments: appts,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+        hasNext: page * limit < total,
+        hasPrev: page > 1,
+      },
+    };
   }
-  return { appointments: [], pagination: { page, limit: 10, total: 0, totalPages: 1, hasNext: false, hasPrev: page > 1 } };
+  return {
+    appointments: [],
+    pagination: {
+      page,
+      limit: requestedLimit,
+      total: 0,
+      totalPages: 1,
+      hasNext: false,
+      hasPrev: page > 1,
+    },
+  };
 }
 
 export function fmtDate(s: string | null | undefined) {
   if (!s) return "—";
-  return new Date(s).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  return new Date(s).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 export function fmtDateTime(s: string | null | undefined) {
   if (!s) return "—";
-  return new Date(s).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  return new Date(s).toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 // ── Status badge ──────────────────────────────────────────────────────────────
@@ -100,7 +153,9 @@ export function StatusBadge({ status }: { status: string }) {
     NO_SHOW: "bg-gray-100 text-gray-600",
   };
   return (
-    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${map[status] ?? "bg-blue-100 text-blue-700"}`}>
+    <span
+      className={`text-xs font-semibold px-2 py-0.5 rounded-full ${map[status] ?? "bg-blue-100 text-blue-700"}`}
+    >
       {status}
     </span>
   );

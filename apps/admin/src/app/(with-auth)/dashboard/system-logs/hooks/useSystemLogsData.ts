@@ -21,7 +21,7 @@ type LogsResponse<T> = {
   pagination?: Pagination;
 };
 
-const ITEMS_PER_PAGE = 20;
+const DEFAULT_ITEMS_PER_PAGE = 20;
 
 export interface SystemLogsData {
   currentTab: string;
@@ -31,12 +31,14 @@ export interface SystemLogsData {
   error: string | null;
   currentPage: number;
   totalPages: number;
+  pageSize: number;
   autoRefresh: boolean;
   refreshInterval: number;
   setAutoRefresh: (v: boolean) => void;
   setRefreshInterval: (n: number) => void;
   handleTabChange: (tab: string) => void;
   handlePageChange: (newPage: number) => void;
+  handlePageSizeChange: (pageSize: number) => void;
   handleFilterChange: (filters: LogFilters) => void;
   handleExport: () => Promise<void>;
 }
@@ -45,6 +47,13 @@ export function useSystemLogsData(): SystemLogsData {
   const searchParams = useSearchParams();
   const router = useRouter();
   const currentTab = searchParams.get("tab") || "audit";
+  const requestedPageSize = parseInt(
+    searchParams.get("limit") || String(DEFAULT_ITEMS_PER_PAGE),
+    10,
+  );
+  const pageSize = Number.isFinite(requestedPageSize)
+    ? Math.max(1, requestedPageSize)
+    : DEFAULT_ITEMS_PER_PAGE;
 
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [systemLogs, setSystemLogs] = useState<SystemLog[]>([]);
@@ -65,7 +74,7 @@ export function useSystemLogsData(): SystemLogsData {
 
         const queryParams = new URLSearchParams();
         queryParams.set("page", page.toString());
-        queryParams.set("limit", ITEMS_PER_PAGE.toString());
+        queryParams.set("limit", pageSize.toString());
 
         if (filters?.dateRange) queryParams.set("dateRange", filters.dateRange);
         if (filters?.search) queryParams.set("search", filters.search);
@@ -96,7 +105,7 @@ export function useSystemLogsData(): SystemLogsData {
         setLoading(false);
       }
     },
-    [currentTab],
+    [currentTab, pageSize],
   );
 
   // Initial + filter-driven fetch.
@@ -149,6 +158,16 @@ export function useSystemLogsData(): SystemLogsData {
     (newPage: number) => {
       const url = new URL(window.location.href);
       url.searchParams.set("page", newPage.toString());
+      router.push(url.pathname + url.search);
+    },
+    [router],
+  );
+
+  const handlePageSizeChange = useCallback(
+    (nextPageSize: number) => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("page", "1");
+      url.searchParams.set("limit", nextPageSize.toString());
       router.push(url.pathname + url.search);
     },
     [router],
@@ -271,12 +290,14 @@ export function useSystemLogsData(): SystemLogsData {
     error,
     currentPage,
     totalPages,
+    pageSize,
     autoRefresh,
     refreshInterval,
     setAutoRefresh,
     setRefreshInterval,
     handleTabChange,
     handlePageChange,
+    handlePageSizeChange,
     handleFilterChange,
     handleExport,
   };

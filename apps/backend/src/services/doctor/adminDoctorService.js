@@ -2,6 +2,7 @@
 import { DOCTOR_CONFIG, DOCTOR_MESSAGES } from '../../config/doctorConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 export class AdminDoctorService {
   // Get doctor management overview
@@ -67,16 +68,33 @@ export class AdminDoctorService {
   // Get doctor management list with advanced filtering
   async getDoctorManagementList(filters = {}) {
     try {
+      const allowedSortFields = {
+        name: 'COALESCE(u.name, d.name)',
+        department: 'd.department',
+        specialization: 'd.specialty',
+        status: 'd.is_available',
+        registered_at: 'COALESCE(u.registered_at, d.created_at)',
+        total_appointments: 'total_appointments',
+        recent_appointments: 'recent_appointments',
+      };
       const {
-        page = 1,
-        limit = DOCTOR_CONFIG.PAGINATION.DEFAULT_LIMIT,
         department,
         specialization,
         status,
-        search
       } = filters;
-      
-      const offset = (page - 1) * limit;
+      const { page, limit, offset, search, sortBy, sortOrder } = parseListQuery(filters, {
+        defaultLimit: DOCTOR_CONFIG.PAGINATION.DEFAULT_LIMIT,
+        maxLimit: DOCTOR_CONFIG.PAGINATION.MAX_LIMIT || 100,
+        defaultSortBy: 'name',
+        defaultSortOrder: 'ASC',
+        allowedSortFields: Object.keys(allowedSortFields),
+      });
+      const countFilters = {
+        department,
+        specialization,
+        status,
+        search,
+      };
       
       // Drive from doctors table so standalone doctors (no user_id) are included
       let query = `
@@ -110,7 +128,7 @@ export class AdminDoctorService {
         query += ` AND d.specialty ILIKE $${params.length + 1}`;
         params.push(`%${specialization}%`);
       }
-      
+
       if (status === 'available') {
         query += ' AND d.is_available = true';
       } else if (status === 'unavailable') {
@@ -124,12 +142,13 @@ export class AdminDoctorService {
       
       query += ` GROUP BY d.id, u.id, u.name, u.phone, u.email, u.gender, u.registered_at,
                  d.name, d.specialty, d.department, d.is_available, d.created_at
-                 ORDER BY COALESCE(u.name, d.name) LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+                 ORDER BY ${allowedSortFields[sortBy]} ${sortOrder}, COALESCE(u.name, d.name) ASC
+                 LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
       params.push(limit, offset);
       
       const [doctors, total] = await Promise.all([
         prisma.$queryRawUnsafe(query, ...params),
-        this.countManagementDoctors(filters)
+        this.countManagementDoctors(countFilters)
       ]);
       
       return {
@@ -138,15 +157,13 @@ export class AdminDoctorService {
           total_appointments: Number(doctor.total_appointments || 0),
           recent_appointments: Number(doctor.recent_appointments || 0),
         })),
-        pagination: {
-          page,
-          limit,
-          total,
-          totalPages: Math.ceil(total / limit),
-          hasNext: page * limit < total,
-          hasPrev: page > 1
-        },
-        filters
+        pagination: buildPagination(total, page, limit),
+        filters: {
+          ...countFilters,
+          search: search || null,
+          sortBy,
+          sortOrder,
+        }
       };
     } catch (error) {
       logger.error('Error fetching doctor management list:', error);

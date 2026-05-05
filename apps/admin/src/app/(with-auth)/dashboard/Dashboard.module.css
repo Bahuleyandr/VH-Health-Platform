@@ -955,28 +955,15 @@
 
 /* =============== Mobile Responsive =============== */
 @media (max-width: 1024px) {
-  .dashboardGrid {
-    grid-template-columns: 1fr;
-  }
-  
-  .prioritySection {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* On mobile, switch grid to single column and show hamburger */
-@media (max-width: 767px) {
   .grid {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
   }
 
-  /* Desktop sidebar hidden on mobile */
   .sidebar {
     display: none;
   }
 
-  /* Show overlay and drawer on mobile (controlled via conditional rendering in layout.tsx) */
   .mobileOverlay {
     display: block;
   }
@@ -990,6 +977,17 @@
     padding: 0.5rem 1rem;
   }
 
+  .dashboardGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .prioritySection {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* On mobile, tighten secondary surfaces further. */
+@media (max-width: 767px) {
   .keyboardHint {
     display: none;
   }
@@ -1049,7 +1047,7 @@
 }
 
 /* On desktop, hide mobile drawer and overlay */
-@media (min-width: 768px) {
+@media (min-width: 1025px) {
   .mobileDrawer {
     display: none;
   }

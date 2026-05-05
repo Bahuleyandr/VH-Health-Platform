@@ -10,6 +10,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 
 const VALID_STATUS_TRANSITIONS = {
@@ -395,7 +396,12 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
 }
 
 async function getActiveAdmissions(filters = {}) {
-  const { ward, doctor, department, status, page = 1, limit = 20 } = filters;
+  const { ward, doctor, department, status } = filters;
+  const listQuery = parseListQuery(filters, {
+    defaultLimit: 20,
+    maxLimit: 100,
+    defaultSortBy: 'admitted_at'
+  });
 
   const where = {};
   if (status) {
@@ -411,10 +417,6 @@ async function getActiveAdmissions(filters = {}) {
       { attending_doctor: doctor },
     ];
   }
-
-  const safeLimit = Math.min(100, Math.max(1, parseInt(limit, 10)));
-  const safePage = Math.max(1, parseInt(page, 10));
-  const offset = (safePage - 1) * safeLimit;
 
   const [total, rows] = await Promise.all([
     prisma.admissions.count({ where }),
@@ -441,8 +443,8 @@ async function getActiveAdmissions(filters = {}) {
         expected_los_days: true,
       },
       orderBy: { admitted_at: 'desc' },
-      take: safeLimit,
-      skip: offset,
+      take: listQuery.limit,
+      skip: listQuery.offset,
     }),
   ]);
 
@@ -483,12 +485,7 @@ async function getActiveAdmissions(filters = {}) {
 
   return {
     admissions,
-    pagination: {
-      page: parseInt(page, 10),
-      limit: safeLimit,
-      total,
-      totalPages: Math.ceil(total / safeLimit),
-    },
+    pagination: buildPagination(total, listQuery.page, listQuery.limit),
   };
 }
 

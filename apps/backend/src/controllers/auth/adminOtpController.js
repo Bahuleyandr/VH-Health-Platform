@@ -4,6 +4,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import * as adminOtpService from '../../services/auth/adminOtpService.js';
 import { logAudit } from '../../utils/logAudit.js';
+import { parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // Get OTP analytics
@@ -69,9 +70,14 @@ export const getActiveSessions = async (req, res) => {
 // Get OTP logs
 export const getOtpLogs = async (req, res) => {
   try {
+    const listQuery = parseListQuery(req.query, {
+      defaultLimit: 100,
+      maxLimit: 100,
+      defaultSortBy: 'created_at',
+    });
     const filters = {
-      page: Math.max(parseInt(req.query.page) || 1, 1),
-      limit: Math.min(Math.max(parseInt(req.query.limit) || 100, 1), 100),
+      page: listQuery.page,
+      limit: listQuery.limit,
       phone: req.query.phone,
       purpose: req.query.purpose,
       action: req.query.action,

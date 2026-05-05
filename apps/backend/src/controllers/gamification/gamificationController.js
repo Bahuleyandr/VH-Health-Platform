@@ -5,6 +5,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import * as pointService from '../../services/gamification/pointService.js';
 import * as wellnessService from '../../services/gamification/wellnessService.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 /**
@@ -32,9 +33,11 @@ export async function getHistory(req, res) {
     const uid = req.user?.uid;
     if (!uid) return error(res, 'Unauthorized', HTTP_STATUS.UNAUTHORIZED);
 
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
-    const offset = (page - 1) * limit;
+    const { page, limit, offset } = parseListQuery(req.query, {
+      defaultLimit: 20,
+      maxLimit: 100,
+      defaultSortBy: 'earned_at',
+    });
 
     const countRows = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*)::int AS total FROM health_point_ledger WHERE user_uid = $1::uuid`,
@@ -53,12 +56,7 @@ export async function getHistory(req, res) {
 
     return success(res, {
       entries,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: buildPagination(total, page, limit),
     }, 'Point history retrieved');
   } catch (err) {
     logger.error('Gamification getHistory error', { error: err.message });

@@ -2,11 +2,9 @@ import { Prisma } from '@prisma/client';
 import { USER_CONFIG } from '../../config/userConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
-import {
-  encryptColumn,
-  searchableHash,
-} from '../../services/security/phiColumnEncryption.js';
+import { encryptColumn, searchableHash } from '../../services/security/phiColumnEncryption.js';
 
 const USER_SELECT = {
   id: true,
@@ -17,7 +15,7 @@ const USER_SELECT = {
   role: true,
   is_active: true,
   registered_at: true,
-  updated_at: true,
+  updated_at: true
 };
 
 const PROFILE_FIELDS_IN_SCHEMA = [
@@ -27,7 +25,7 @@ const PROFILE_FIELDS_IN_SCHEMA = [
   'birthday',
   'anniversary',
   'address',
-  'profile_picture',
+  'profile_picture'
 ];
 const PROFILE_DATE_FIELDS = new Set(['birthday', 'anniversary']);
 
@@ -54,7 +52,7 @@ function mapUserSummary(user) {
     role: user.role,
     status: user.is_active ? USER_CONFIG.USER_STATUS.ACTIVE : USER_CONFIG.USER_STATUS.INACTIVE,
     created_at: user.registered_at,
-    updated_at: user.updated_at,
+    updated_at: user.updated_at
   };
 }
 
@@ -112,7 +110,7 @@ async function writePhiShadows(userId, data, { isCreate = false } = {}) {
   try {
     await prisma.$executeRawUnsafe(
       `UPDATE users SET ${sets.join(', ')} WHERE id = $${params.length}`,
-      ...params,
+      ...params
     );
   } catch (err) {
     if (!/does not exist/i.test(String(err.message))) {
@@ -146,19 +144,19 @@ export class UserService {
     try {
       const existingUser = await prisma.users.findUnique({
         where: { phone },
-        select: { uid: true, role: true },
+        select: { uid: true, role: true }
       });
 
       if (existingUser) {
         const updateData = {
           ...buildProfileUpdateData(data),
-          updated_at: new Date(),
+          updated_at: new Date()
         };
 
         const updatedUser = await prisma.users.update({
           where: { phone },
           data: updateData,
-          select: USER_SELECT,
+          select: USER_SELECT
         });
 
         // Phase E3 follow-up — write the *_encrypted shadow columns.
@@ -174,9 +172,9 @@ export class UserService {
           ...buildProfileUpdateData(data, true),
           role: data.role || USER_CONFIG.ROLES.PATIENT,
           registered_at: new Date(),
-          updated_at: new Date(),
+          updated_at: new Date()
         },
-        select: USER_SELECT,
+        select: USER_SELECT
       });
 
       // Phase E3 follow-up — write encrypted shadows + phone_search_hash.
@@ -192,20 +190,33 @@ export class UserService {
 
   // List users with advanced filtering
   static async listUsers(filters, userRole) {
+    const allowedSortFields = {
+      name: 'u.name',
+      registered_at: 'u.registered_at',
+      last_login: 'COALESCE(u.updated_at, u.registered_at)',
+      role: 'u.role',
+      phone: 'u.phone',
+      email: 'u.email',
+      department: 'COALESCE(s.department, d.department)',
+      status: `CASE
+        WHEN s.is_active IS NOT NULL THEN s.is_active
+        WHEN d.is_available IS NOT NULL THEN d.is_available
+        ELSE true
+      END`
+    };
+
     const {
-      page = 1,
-      limit = USER_CONFIG.DEFAULT_PAGE_SIZE,
       role,
-      search,
       status,
       department,
-      sortBy = USER_CONFIG.SEARCH.DEFAULT_SORT_BY,
-      sortOrder = USER_CONFIG.SEARCH.DEFAULT_SORT_ORDER,
     } = filters;
-
-    const parsedPage = parseInt(page, 10);
-    const parsedLimit = Math.min(parseInt(limit, 10) || USER_CONFIG.DEFAULT_PAGE_SIZE, USER_CONFIG.MAX_PAGE_SIZE);
-    const offset = (parsedPage - 1) * parsedLimit;
+    const { page, limit, offset, search, sortBy, sortOrder } = parseListQuery(filters, {
+      defaultLimit: USER_CONFIG.DEFAULT_PAGE_SIZE,
+      maxLimit: USER_CONFIG.MAX_PAGE_SIZE,
+      defaultSortBy: USER_CONFIG.SEARCH.DEFAULT_SORT_BY,
+      defaultSortOrder: USER_CONFIG.SEARCH.DEFAULT_SORT_ORDER,
+      allowedSortFields: Object.keys(allowedSortFields),
+    });
 
     const conditions = [];
 
@@ -243,15 +254,7 @@ export class UserService {
       ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`
       : Prisma.empty;
 
-    const allowedSortFields = {
-      name: 'u.name',
-      registered_at: 'u.registered_at',
-      last_login: 'COALESCE(u.updated_at, u.registered_at)',
-      role: 'u.role',
-      phone: 'u.phone',
-    };
     const sortField = allowedSortFields[sortBy] || allowedSortFields[USER_CONFIG.SEARCH.DEFAULT_SORT_BY];
-    const order = sortOrder?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
     const [users, countRows] = await Promise.all([
       prisma.$queryRaw`
@@ -271,8 +274,8 @@ export class UserService {
         LEFT JOIN staff s ON u.uid = s.user_id
         LEFT JOIN doctors d ON u.id = d.user_id
         ${whereClause}
-        ORDER BY ${Prisma.raw(sortField)} ${Prisma.raw(order)}
-        LIMIT ${parsedLimit} OFFSET ${offset}
+        ORDER BY ${Prisma.raw(sortField)} ${Prisma.raw(sortOrder)}
+        LIMIT ${limit} OFFSET ${offset}
       `,
       prisma.$queryRaw`
         SELECT COUNT(*)::int AS count
@@ -280,21 +283,20 @@ export class UserService {
         LEFT JOIN staff s ON u.uid = s.user_id
         LEFT JOIN doctors d ON u.id = d.user_id
         ${whereClause}
-      `,
+      `
     ]);
 
     const totalCount = countRows[0]?.count || 0;
 
     return {
       users,
-      pagination: {
-        page: parsedPage,
-        limit: parsedLimit,
-        total: totalCount,
-        totalPages: Math.ceil(totalCount / parsedLimit),
-        hasNext: parsedPage * parsedLimit < totalCount,
-        hasPrev: parsedPage > 1,
-      },
+      pagination: buildPagination(totalCount, page, limit),
+      filters: {
+        ...filters,
+        search: search || null,
+        sortBy,
+        sortOrder,
+      }
     };
   }
 
@@ -366,7 +368,7 @@ export class UserService {
       'blood_group',
       'allergies',
       'insurance_details',
-      'preferred_hospital',
+      'preferred_hospital'
     ];
 
     const setClauses = [];
@@ -374,9 +376,11 @@ export class UserService {
     for (const field of allowedFields) {
       if (updateData[field] !== undefined && PROFILE_FIELDS_IN_SCHEMA.includes(field)) {
         const value = coerceProfileField(field, updateData[field]);
-        setClauses.push(PROFILE_DATE_FIELDS.has(field)
-          ? Prisma.sql`${Prisma.raw(field)} = ${value}::date`
-          : Prisma.sql`${Prisma.raw(field)} = ${value}`);
+        setClauses.push(
+          PROFILE_DATE_FIELDS.has(field)
+            ? Prisma.sql`${Prisma.raw(field)} = ${value}::date`
+            : Prisma.sql`${Prisma.raw(field)} = ${value}`
+        );
       }
     }
 
@@ -398,7 +402,7 @@ export class UserService {
 
     return {
       ...result[0],
-      status: user.is_active ? USER_CONFIG.USER_STATUS.ACTIVE : USER_CONFIG.USER_STATUS.INACTIVE,
+      status: user.is_active ? USER_CONFIG.USER_STATUS.ACTIVE : USER_CONFIG.USER_STATUS.INACTIVE
     };
   }
 
@@ -424,15 +428,15 @@ export class UserService {
         where: { user_id: user.uid },
         data: {
           is_active: isActive,
-          ...(reason !== undefined ? { notes: reason } : {}),
-        },
+          ...(reason !== undefined ? { notes: reason } : {})
+        }
       });
     } else if (user.role === USER_CONFIG.ROLES.DOCTOR) {
       await prisma.doctors.updateMany({
         where: { user_id: user.id },
         data: {
-          is_available: isActive,
-        },
+          is_available: isActive
+        }
       });
     }
 
@@ -443,8 +447,8 @@ export class UserService {
         action: 'USER_STATUS_CHANGE',
         resource: 'users',
         resource_id: user.uid,
-        metadata: { status, reason, changedBy },
-      },
+        metadata: { status, reason, changedBy }
+      }
     });
 
     logger.info(`User status changed: ${user.uid} to ${status} by ${changedBy}`);
@@ -492,11 +496,14 @@ export class UserService {
       hasProfilePicture,
       includeInactive = true,
       page = 1,
-      limit = USER_CONFIG.DEFAULT_PAGE_SIZE,
+      limit = USER_CONFIG.DEFAULT_PAGE_SIZE
     } = searchCriteria;
 
     const parsedPage = parseInt(page, 10);
-    const parsedLimit = Math.min(parseInt(limit, 10) || USER_CONFIG.DEFAULT_PAGE_SIZE, USER_CONFIG.MAX_SEARCH_RESULTS);
+    const parsedLimit = Math.min(
+      parseInt(limit, 10) || USER_CONFIG.DEFAULT_PAGE_SIZE,
+      USER_CONFIG.MAX_SEARCH_RESULTS
+    );
     const offset = (parsedPage - 1) * parsedLimit;
     const conditions = [];
 
@@ -526,7 +533,9 @@ export class UserService {
     }
 
     if (lastLoginAfter) {
-      conditions.push(Prisma.sql`COALESCE(u.updated_at, u.registered_at) >= ${lastLoginAfter}::timestamp`);
+      conditions.push(
+        Prisma.sql`COALESCE(u.updated_at, u.registered_at) >= ${lastLoginAfter}::timestamp`
+      );
     }
 
     if (ageMin !== undefined) {
@@ -546,7 +555,9 @@ export class UserService {
     }
 
     if (!includeInactive) {
-      conditions.push(Prisma.sql`COALESCE(u.updated_at, u.registered_at) > NOW() - INTERVAL '30 days'`);
+      conditions.push(
+        Prisma.sql`COALESCE(u.updated_at, u.registered_at) > NOW() - INTERVAL '30 days'`
+      );
     }
 
     if (userRole !== USER_CONFIG.ROLES.ADMIN) {
@@ -573,7 +584,7 @@ export class UserService {
       LIMIT ${parsedLimit} OFFSET ${offset}
     `;
 
-    const filteredResults = result.map((user) => {
+    const filteredResults = result.map(user => {
       if (userRole !== USER_CONFIG.ROLES.ADMIN) {
         delete user.birthday;
         delete user.age;
@@ -589,7 +600,7 @@ export class UserService {
     return {
       users: filteredResults,
       totalFound: filteredResults.length,
-      searchCriteria,
+      searchCriteria
     };
   }
 
@@ -601,7 +612,7 @@ export class UserService {
 
     const results = {
       successful: [],
-      failed: [],
+      failed: []
     };
 
     for (const userData of usersData) {
@@ -610,18 +621,20 @@ export class UserService {
         results.successful.push({
           phone: userData.phone,
           name: userData.name,
-          status: result.isNew ? 'created' : 'updated',
+          status: result.isNew ? 'created' : 'updated'
         });
       } catch (error) {
         results.failed.push({
           phone: userData.phone,
           name: userData.name,
-          error: error.message,
+          error: error.message
         });
       }
     }
 
-    logger.info(`Bulk import completed: ${results.successful.length} successful, ${results.failed.length} failed`);
+    logger.info(
+      `Bulk import completed: ${results.successful.length} successful, ${results.failed.length} failed`
+    );
 
     return results;
   }

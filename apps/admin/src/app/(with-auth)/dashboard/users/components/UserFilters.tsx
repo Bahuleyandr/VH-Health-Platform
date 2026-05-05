@@ -5,6 +5,20 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useState, useCallback } from "react";
 import { useDebouncedCallback } from "use-debounce"; // npm install use-debounce
 
+const ROLE_OPTIONS = [
+  "ADMIN",
+  "SUPER_ADMIN",
+  "DOCTOR",
+  "PATIENT",
+  "NURSING_STAFF",
+  "PHARMACY_STAFF",
+  "LAB_STAFF",
+  "HR_STAFF",
+  "GENERAL_STAFF",
+  "RECEPTIONIST",
+  "TECHNICIAN",
+];
+
 export function UserFilters() {
   const router = useRouter();
   const pathname = usePathname();
@@ -17,9 +31,10 @@ export function UserFilters() {
   // Create a debounced search handler
   const debouncedSearch = useDebouncedCallback((value: string) => {
     const params = new URLSearchParams(searchParams);
+    const trimmed = value.trim();
 
-    if (value) {
-      params.set("search", value);
+    if (trimmed.length >= 2) {
+      params.set("search", trimmed);
     } else {
       params.delete("search");
     }
@@ -56,25 +71,25 @@ export function UserFilters() {
   );
 
   return (
-    <div className="mb-4 flex gap-4 items-center bg-white p-3 rounded-lg shadow">
+    <div className="mb-4 flex flex-col gap-3 rounded-lg bg-white p-3 shadow dark:bg-card sm:flex-row sm:items-center">
       <input
         type="text"
         placeholder="Search by name, email, phone..."
-        className="border p-2 rounded w-full"
+        className="min-w-0 flex-1 rounded border border-input bg-background p-2 text-foreground"
         value={search}
         onChange={(e) => handleSearchChange(e.target.value)}
       />
       <select
-        className="border p-2 rounded"
+        className="rounded border border-input bg-background p-2 text-foreground sm:w-44"
         value={role}
         onChange={(e) => handleRoleChange(e.target.value)}
       >
         <option value="">All Roles</option>
-        <option value="DOCTOR">Doctor</option>
-        <option value="PATIENT">Patient</option>
-        <option value="NURSE">Nurse</option>
-        <option value="ADMIN">Admin</option>
-        <option value="PHARMACIST">Pharmacist</option>
+        {ROLE_OPTIONS.map((option) => (
+          <option key={option} value={option}>
+            {option.replaceAll("_", " ")}
+          </option>
+        ))}
       </select>
     </div>
   );

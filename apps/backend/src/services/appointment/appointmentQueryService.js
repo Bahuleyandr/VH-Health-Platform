@@ -7,7 +7,7 @@
 import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { buildPaginationMeta } from '../../utils/appointment/appointmentHelpers.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 // Base set of appointment columns every list view returns.
 const APPT_BASE_SELECT = {
@@ -22,6 +22,8 @@ const APPT_BASE_SELECT = {
   phone: true,
   patient_name: true,
   doctor_name: true,
+  department: true,
+  token_number: true,
   created_at: true,
   updated_at: true,
 };
@@ -106,17 +108,57 @@ function flattenListRow(row) {
   // Legacy aliases used by different callers.
   flat.doctor_specialization = profile?.specialty ?? null;
   flat.specialty = profile?.specialty ?? null;
-  flat.doctor_department = profile?.department ?? null;
-  flat.department = profile?.department ?? null;
+  flat.doctor_department = profile?.department ?? row.department ?? null;
+  flat.department = profile?.department ?? row.department ?? null;
   return flat;
+}
+
+function appointmentOrderBy(sortBy, sortOrder) {
+  const direction = sortOrder.toLowerCase();
+  switch (sortBy) {
+    case 'appointment_time':
+      return [{ appointment_time: direction }, { appointment_date: direction }];
+    case 'created_at':
+      return [{ created_at: direction }];
+    case 'status':
+      return [{ status: direction }, { appointment_date: 'asc' }, { appointment_time: 'asc' }];
+    case 'patient':
+      return [{ patient_name: direction }, { appointment_date: 'asc' }, { appointment_time: 'asc' }];
+    case 'doctor':
+      return [{ doctor_name: direction }, { appointment_date: 'asc' }, { appointment_time: 'asc' }];
+    case 'phone':
+      return [{ phone: direction }, { appointment_date: 'asc' }, { appointment_time: 'asc' }];
+    case 'department':
+      return [{ department: direction }, { appointment_date: 'asc' }, { appointment_time: 'asc' }];
+    case 'token':
+      return [{ token_number: direction }, { appointment_date: 'asc' }, { appointment_time: 'asc' }];
+    case 'appointment_date':
+    default:
+      return [{ appointment_date: direction }, { appointment_time: direction }];
+  }
 }
 
 export class AppointmentQueryService {
   async getAppointments(filters = {}, pagination = {}, userRole = null, userId = null) {
     try {
-      const page = pagination.page || APPOINTMENT_CONFIG.DEFAULT_PAGINATION.PAGE;
-      const limit = pagination.limit || APPOINTMENT_CONFIG.DEFAULT_PAGINATION.LIMIT;
-      const offset = (page - 1) * limit;
+      const listQuery = parseListQuery({ ...filters, ...pagination }, {
+        defaultPage: APPOINTMENT_CONFIG.DEFAULT_PAGINATION.PAGE,
+        defaultLimit: APPOINTMENT_CONFIG.DEFAULT_PAGINATION.LIMIT,
+        maxLimit: APPOINTMENT_CONFIG.DEFAULT_PAGINATION.MAX_LIMIT || 100,
+        defaultSortBy: 'appointment_date',
+        defaultSortOrder: 'ASC',
+        allowedSortFields: [
+          'appointment_date',
+          'appointment_time',
+          'created_at',
+          'status',
+          'patient',
+          'doctor',
+          'phone',
+          'department',
+          'token',
+        ],
+      });
 
       const where = {};
       if (userRole === 'DOCTOR') where.doctor_id = parseInt(userId);
@@ -124,6 +166,14 @@ export class AppointmentQueryService {
       if (filters.doctor_id) where.doctor_id = parseInt(filters.doctor_id);
       if (filters.patient_id) where.patient_id = parseInt(filters.patient_id);
       if (filters.date) where.appointment_date = dateRangeFilter(filters.date);
+      if (listQuery.search) {
+        where.OR = [
+          { patient_name: { contains: listQuery.search, mode: 'insensitive' } },
+          { doctor_name: { contains: listQuery.search, mode: 'insensitive' } },
+          { phone: { contains: listQuery.search, mode: 'insensitive' } },
+          { reason: { contains: listQuery.search, mode: 'insensitive' } },
+        ];
+      }
 
       const [total, rows] = await Promise.all([
         prisma.appointments.count({ where }),
@@ -134,16 +184,21 @@ export class AppointmentQueryService {
             users_appointments_patient_idTousers: PATIENT_INCLUDE,
             users_appointments_doctor_idTousers: DOCTOR_INCLUDE,
           },
-          orderBy: [{ appointment_date: 'asc' }, { appointment_time: 'asc' }],
-          take: limit,
-          skip: offset,
+          orderBy: appointmentOrderBy(listQuery.sortBy, listQuery.sortOrder),
+          take: listQuery.limit,
+          skip: listQuery.offset,
         }),
       ]);
 
       return {
         appointments: rows.map(flattenListRow),
-        pagination: buildPaginationMeta(page, limit, total),
-        filters,
+        pagination: buildPagination(total, listQuery.page, listQuery.limit),
+        filters: {
+          ...filters,
+          search: listQuery.search || null,
+          sortBy: listQuery.sortBy,
+          sortOrder: listQuery.sortOrder,
+        },
       };
     } catch (error) {
       logger.error('Error getting appointments:', error);

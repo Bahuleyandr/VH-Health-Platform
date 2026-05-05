@@ -6,6 +6,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { normalizeAuditLogUserId } from '../../utils/auditLogIdentity.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 const VALID_SEVERITIES = ['low', 'medium', 'high', 'critical'];
 
@@ -148,7 +149,12 @@ export async function resolveBreach(breachId, resolutionNotes, adminId) {
  * List breaches with optional status/severity filters, paginated.
  */
 export async function getBreaches(filters = {}) {
-  const { status, severity, page = 1, limit = 20 } = filters;
+  const { status, severity } = filters;
+  const listQuery = parseListQuery(filters, {
+    defaultLimit: 20,
+    maxLimit: 100,
+    defaultSortBy: 'created_at'
+  });
   const conditions = [];
   const params = [];
   let paramIndex = 1;
@@ -163,16 +169,14 @@ export async function getBreaches(filters = {}) {
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
 
   const countResult = await prisma.$queryRawUnsafe(
     `SELECT COUNT(*) AS total FROM data_breaches ${whereClause}`,
-    params
+    ...params
   );
-  const total = parseInt(countResult[0].total);
+  const total = parseInt(countResult[0].total, 10);
 
-  params.push(parseInt(limit));
-  params.push(offset);
+  params.push(listQuery.limit, listQuery.offset);
 
   const result = await prisma.$queryRawUnsafe(
     `SELECT id, breach_id, severity, description, affected_records,
@@ -184,17 +188,12 @@ export async function getBreaches(filters = {}) {
      ${whereClause}
      ORDER BY created_at DESC
      LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
-    params
+    ...params
   );
 
   return {
     breaches: result,
-    pagination: {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total,
-      totalPages: Math.ceil(total / parseInt(limit)),
-    },
+    pagination: buildPagination(total, listQuery.page, listQuery.limit),
   };
 }
 

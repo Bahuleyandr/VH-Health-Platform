@@ -74,7 +74,7 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
   return (
     <div className="bg-white shadow rounded-lg overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-border">
+        <table className="w-full min-w-[1040px] divide-y divide-border">
           <thead className="bg-muted">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -129,7 +129,9 @@ export function SystemLogsTable({ logs, loading }: SystemLogsTableProps) {
                     {log.service || "API"}
                   </div>
                   {log.module ? (
-                    <div className="text-xs text-muted-foreground">{log.module}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {log.module}
+                    </div>
                   ) : null}
                 </td>
                 <td className="px-6 py-4 text-sm">

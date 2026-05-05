@@ -3,6 +3,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 const VALID_MODALITIES = ['xray', 'ct', 'mri', 'ultrasound', 'mammography', 'fluoroscopy'];
 const VALID_PRIORITIES = ['routine', 'urgent', 'stat'];
@@ -55,9 +56,12 @@ class RadiologyService {
   }
 
   async getWorklist(filters = {}) {
-    const { status, modality, priority, page = 1, limit = 50 } = filters;
-    const safeLimit = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
-    const offset = (Math.max(1, parseInt(page, 10) || 1) - 1) * safeLimit;
+    const { status, modality, priority } = filters;
+    const listQuery = parseListQuery(filters, {
+      defaultLimit: 50,
+      maxLimit: 200,
+      defaultSortBy: 'created_at'
+    });
     const conditions = [];
     const params = [];
 
@@ -82,8 +86,8 @@ class RadiologyService {
     );
     const total = parseInt(countResult[0].count, 10);
 
-    params.push(safeLimit);
-    params.push(offset);
+    params.push(listQuery.limit);
+    params.push(listQuery.offset);
 
     const result = await prisma.$queryRawUnsafe(
       `SELECT ro.id, ro.patient_uid, ro.encounter_id, ro.modality, ro.body_part,
@@ -97,14 +101,13 @@ class RadiologyService {
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       ...params
     );
+    const pagination = buildPagination(total, listQuery.page, listQuery.limit);
 
     return {
       orders: result,
       pagination: {
-        total,
-        page: parseInt(page, 10) || 1,
-        limit: safeLimit,
-        pages: Math.ceil(total / safeLimit),
+        ...pagination,
+        pages: pagination.totalPages,
       },
     };
   }
@@ -145,9 +148,11 @@ class RadiologyService {
   }
 
   async getPatientHistory(patientUid, filters = {}) {
-    const { page = 1, limit = 20 } = filters;
-    const safeLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
-    const offset = (Math.max(1, parseInt(page, 10) || 1) - 1) * safeLimit;
+    const listQuery = parseListQuery(filters, {
+      defaultLimit: 20,
+      maxLimit: 100,
+      defaultSortBy: 'created_at'
+    });
 
     const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*)::int AS count FROM radiology_orders WHERE patient_uid = $1::uuid`,
@@ -161,16 +166,15 @@ class RadiologyService {
        WHERE patient_uid = $1::uuid
        ORDER BY created_at DESC
        LIMIT $2 OFFSET $3`,
-      patientUid, safeLimit, offset
+      patientUid, listQuery.limit, listQuery.offset
     );
+    const pagination = buildPagination(total, listQuery.page, listQuery.limit);
 
     return {
       orders: result,
       pagination: {
-        total,
-        page: parseInt(page, 10) || 1,
-        limit: safeLimit,
-        pages: Math.ceil(total / safeLimit),
+        ...pagination,
+        pages: pagination.totalPages,
       },
     };
   }

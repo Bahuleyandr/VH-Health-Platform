@@ -54,15 +54,22 @@ function UsersContent() {
   // Build query string from search params
   const queryParams = new URLSearchParams();
   const page = searchParams.get("page") || "1";
+  const limit = searchParams.get("limit") || "10";
   const role = searchParams.get("role");
   const search = searchParams.get("search");
+  const sortBy = searchParams.get("sortBy") || "registered_at";
+  const sortOrder = searchParams.get("sortOrder") || "DESC";
 
   queryParams.set("page", page);
+  queryParams.set("limit", limit);
+  queryParams.set("sortBy", sortBy);
+  queryParams.set("sortOrder", sortOrder);
   if (role) queryParams.set("role", role);
-  if (search) queryParams.set("search", search);
+  if (search && search.trim().length >= 2)
+    queryParams.set("search", search.trim());
 
   const { data, isLoading, error } = useQuery<UsersAPIResponse>({
-    queryKey: ["users", page, role, search],
+    queryKey: ["users", page, limit, role, search, sortBy, sortOrder],
     queryFn: () => fetchAdminAPI(`/admin/users?${queryParams.toString()}`),
     staleTime: 30_000,
   });
@@ -92,7 +99,12 @@ function UsersContent() {
   return (
     <>
       <UserFilters />
-      <UsersTable users={data.users} onUserUpdated={onUserUpdated} />
+      <UsersTable
+        users={data.users}
+        onUserUpdated={onUserUpdated}
+        sortBy={sortBy}
+        sortOrder={sortOrder}
+      />
       <PaginationControls pagination={data.pagination} />
     </>
   );

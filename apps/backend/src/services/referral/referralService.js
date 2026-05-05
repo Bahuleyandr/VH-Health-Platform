@@ -3,6 +3,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 const VALID_REFERRAL_TYPES = ['internal', 'external'];
 const VALID_URGENCIES = ['routine', 'urgent', 'emergency'];
@@ -139,9 +140,12 @@ class ReferralService {
    * Get incoming referrals (referred to a specific doctor)
    */
   async getIncomingReferrals(doctorUid, filters = {}) {
-    const { status, urgency, page = 1, limit = 20 } = filters;
-    const parsedLimit = parseInt(limit, 10);
-    const offset = (parseInt(page, 10) - 1) * parsedLimit;
+    const { status, urgency } = filters;
+    const listQuery = parseListQuery(filters, {
+      defaultLimit: 20,
+      maxLimit: 100,
+      defaultSortBy: 'created_at'
+    });
 
     const where = {};
     if (doctorUid) where.referred_to_doctor = doctorUid;
@@ -174,17 +178,12 @@ class ReferralService {
          CASE urgency WHEN 'emergency' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END,
          created_at DESC
        LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
-      ...params, parsedLimit, offset
+      ...params, listQuery.limit, listQuery.offset
     );
 
     return {
       referrals: result,
-      pagination: {
-        page: parseInt(page, 10),
-        limit: parsedLimit,
-        total,
-        totalPages: Math.ceil(total / parsedLimit),
-      },
+      pagination: buildPagination(total, listQuery.page, listQuery.limit),
     };
   }
 
@@ -192,9 +191,12 @@ class ReferralService {
    * Get outgoing referrals (referred by a specific doctor)
    */
   async getOutgoingReferrals(doctorUid, filters = {}) {
-    const { status, urgency, page = 1, limit = 20 } = filters;
-    const parsedLimit = parseInt(limit, 10);
-    const offset = (parseInt(page, 10) - 1) * parsedLimit;
+    const { status, urgency } = filters;
+    const listQuery = parseListQuery(filters, {
+      defaultLimit: 20,
+      maxLimit: 100,
+      defaultSortBy: 'created_at'
+    });
 
     const where = {};
     if (doctorUid) where.referring_doctor = doctorUid;
@@ -207,19 +209,14 @@ class ReferralService {
         where,
         select: REFERRAL_LIST_SELECT,
         orderBy: { created_at: 'desc' },
-        take: parsedLimit,
-        skip: offset,
+        take: listQuery.limit,
+        skip: listQuery.offset,
       }),
     ]);
 
     return {
       referrals,
-      pagination: {
-        page: parseInt(page, 10),
-        limit: parsedLimit,
-        total,
-        totalPages: Math.ceil(total / parsedLimit),
-      },
+      pagination: buildPagination(total, listQuery.page, listQuery.limit),
     };
   }
 
@@ -335,9 +332,11 @@ class ReferralService {
    * Get all referrals for a specific patient
    */
   async getPatientReferrals(patientUid, filters = {}) {
-    const { page = 1, limit = 20 } = filters;
-    const parsedLimit = parseInt(limit, 10);
-    const offset = (parseInt(page, 10) - 1) * parsedLimit;
+    const listQuery = parseListQuery(filters, {
+      defaultLimit: 20,
+      maxLimit: 100,
+      defaultSortBy: 'created_at'
+    });
 
     const where = { patient_uid: patientUid };
 
@@ -347,19 +346,14 @@ class ReferralService {
         where,
         select: REFERRAL_LIST_SELECT,
         orderBy: { created_at: 'desc' },
-        take: parsedLimit,
-        skip: offset,
+        take: listQuery.limit,
+        skip: listQuery.offset,
       }),
     ]);
 
     return {
       referrals,
-      pagination: {
-        page: parseInt(page, 10),
-        limit: parsedLimit,
-        total,
-        totalPages: Math.ceil(total / parsedLimit),
-      },
+      pagination: buildPagination(total, listQuery.page, listQuery.limit),
     };
   }
 }

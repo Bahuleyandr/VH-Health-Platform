@@ -9,6 +9,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
 import { scheduleMedications } from '../clinical/marService.js';
@@ -409,7 +410,12 @@ export async function discontinueOrder(orderId, discontinuedBy, reason) {
  * @returns {Object} { orders, pagination }
  */
 export async function getPatientOrders(patientUid, filters = {}) {
-  const { order_type, status, date_from, date_to, page = 1, limit = 20 } = filters;
+  const { order_type, status, date_from, date_to } = filters;
+  const listQuery = parseListQuery(filters, {
+    defaultLimit: 20,
+    maxLimit: 100,
+    defaultSortBy: 'created_at'
+  });
 
   const where = { patient_uid: patientUid };
   if (order_type) where.order_type = order_type;
@@ -420,28 +426,23 @@ export async function getPatientOrders(patientUid, filters = {}) {
     if (date_to) where.created_at.lte = new Date(date_to);
   }
 
-  const safeLimit = Math.min(Math.max(1, parseInt(limit, 10)), 100);
-  const safePage = Math.max(1, parseInt(page, 10));
-  const offset = (safePage - 1) * safeLimit;
-
   const [total, orders] = await Promise.all([
     prisma.clinical_orders.count({ where }),
     prisma.clinical_orders.findMany({
       where,
       select: ORDER_RETURNING_SELECT,
       orderBy: { created_at: 'desc' },
-      take: safeLimit,
-      skip: offset,
+      take: listQuery.limit,
+      skip: listQuery.offset,
     }),
   ]);
+  const pagination = buildPagination(total, listQuery.page, listQuery.limit);
 
   return {
     orders,
     pagination: {
-      page: parseInt(page, 10),
-      limit: safeLimit,
-      total,
-      total_pages: Math.ceil(total / safeLimit),
+      ...pagination,
+      total_pages: pagination.totalPages,
     },
   };
 }

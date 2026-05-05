@@ -3,6 +3,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import appointmentQueryService from '../../services/appointment/appointmentQueryService.js';
+import { parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 export const listAppointments = async (req, res) => {
@@ -16,13 +17,27 @@ export const listAppointments = async (req, res) => {
       status: req.query.status,
       doctor_id: req.query.doctor_id,
       patient_id: req.query.patient_id,
-      date: req.query.date
+      date: req.query.date,
+      search: req.query.search
     };
 
-    const pagination = {
-      page: parseInt(req.query.page) || APPOINTMENT_CONFIG.DEFAULT_PAGINATION.PAGE,
-      limit: parseInt(req.query.limit) || APPOINTMENT_CONFIG.DEFAULT_PAGINATION.LIMIT
-    };
+    const pagination = parseListQuery(req.query, {
+      defaultPage: APPOINTMENT_CONFIG.DEFAULT_PAGINATION.PAGE,
+      defaultLimit: APPOINTMENT_CONFIG.DEFAULT_PAGINATION.LIMIT,
+      maxLimit: 100,
+      defaultSortBy: 'appointment_date',
+      allowedSortFields: [
+        'appointment_date',
+        'appointment_time',
+        'created_at',
+        'status',
+        'patient',
+        'doctor',
+        'phone',
+        'department',
+        'token'
+      ]
+    });
 
     const result = await appointmentQueryService.getAppointments(
       filters,

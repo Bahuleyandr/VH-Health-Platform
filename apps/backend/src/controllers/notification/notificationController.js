@@ -5,6 +5,7 @@ import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import logger from '../../logging/logger.js';
 import { notificationService } from '../../services/notification/notificationService.js';
 import { logAudit } from '../../utils/logAudit.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 export const notificationController = {
@@ -26,10 +27,17 @@ export const notificationController = {
    */
   getByPhone: async (req, res) => {
     try {
+      const listQuery = parseListQuery(req.query, {
+        defaultLimit: 20,
+        maxLimit: 100,
+        defaultSortBy: 'created_at',
+        allowOffset: true
+      });
+
       const result = await notificationService.getNotificationsByPhone(
         req.params.phone,
         req.user,
-        { limit: Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100), offset: Math.max(parseInt(req.query.offset) || 0, 0) }
+        { limit: listQuery.limit, offset: listQuery.offset }
       );
 
       await logAudit(req, 'notifications-phone-view', { 
@@ -156,7 +164,7 @@ export const notificationController = {
       // Graceful fallback
       success(res, {
         notifications: [],
-        pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+        pagination: buildPagination(0, 1, 20),
         message: 'Notification system temporarily unavailable',
         requestedBy: req.user?.uid
       }, 'Notification service status');

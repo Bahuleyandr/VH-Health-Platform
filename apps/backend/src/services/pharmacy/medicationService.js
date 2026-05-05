@@ -3,6 +3,7 @@
 
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { buildPagination } from '../../utils/listQuery.js';
 
 export const getAllMedications = async (filters) => {
   const { page, limit, search, category, in_stock } = filters;
@@ -38,14 +39,7 @@ export const getAllMedications = async (filters) => {
 
   return {
     medications,
-    pagination: {
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit),
-      hasNext: page * limit < total,
-      hasPrev: page > 1,
-    },
+    pagination: buildPagination(total, page, limit),
     filters: {
       search: search || null,
       category: category || null,

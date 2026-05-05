@@ -1,45 +1,86 @@
 // src/controllers/logs/logController.js
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
+
+function paginationWithLegacyPage(total, page, limit) {
+  const pagination = buildPagination(total, page, limit);
+  return {
+    ...pagination,
+    currentPage: pagination.page,
+  };
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/logs/audit  — paginated audit logs
 // ────────────────────────────────────────────────────────────────────────────
 export async function getAuditLogs(req, res) {
   try {
-    const limit = Math.min(Number(req.query.limit ?? 50), 500);
-    const page = Math.max(Number(req.query.page ?? 1), 1);
-    const offset = Number.isFinite(Number(req.query.offset))
-      ? Number(req.query.offset)
-      : (page - 1) * limit;
+    const allowedSortFields = {
+      created_at: 'created_at',
+      action: 'action',
+      role: 'role',
+      resource: 'resource',
+      ip_address: 'ip_address',
+    };
+    const listQuery = parseListQuery(req.query, {
+      defaultLimit: 50,
+      maxLimit: 500,
+      defaultSortBy: 'created_at',
+      defaultSortOrder: 'DESC',
+      allowedSortFields: Object.keys(allowedSortFields),
+      allowOffset: true,
+    });
 
     let rows = [];
     let total = 0;
 
     try {
+      const params = [];
+      const conditions = [];
+      if (listQuery.search) {
+        params.push(`%${listQuery.search}%`);
+        conditions.push(`(
+          action ILIKE $${params.length}
+          OR resource ILIKE $${params.length}
+          OR role ILIKE $${params.length}
+          OR resource_id::text ILIKE $${params.length}
+          OR ip_address ILIKE $${params.length}
+        )`);
+      }
+      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+      const listParams = [...params, listQuery.limit, listQuery.offset];
       rows = await prisma.$queryRawUnsafe(
         `SELECT id, uid, role, action, resource, resource_id, metadata,
           ip_address, user_agent, created_at
-         FROM audit_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
-        limit,
-        offset,
+         FROM audit_logs
+         ${where}
+         ORDER BY ${allowedSortFields[listQuery.sortBy]} ${listQuery.sortOrder}, created_at DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        ...listParams,
       );
 
-      const countResult = await prisma.$queryRawUnsafe(`SELECT COUNT(*)::int AS count FROM audit_logs`);
+      const countResult = await prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS count FROM audit_logs ${where}`,
+        ...params,
+      );
       total = parseInt(countResult?.[0]?.count ?? 0, 10);
     } catch (_tableError) {
       logger.warn('[logs] audit_logs table not found or unreadable; returning empty audit logs');
     }
 
+    const pagination = paginationWithLegacyPage(total, listQuery.page, listQuery.limit);
     success(res, {
       logs: Array.isArray(rows) ? rows : [],
       total,
-      limit,
-      offset,
-      pagination: {
-        currentPage: page,
-        totalPages: Math.max(1, Math.ceil(total / limit)),
+      limit: listQuery.limit,
+      offset: listQuery.offset,
+      pagination,
+      filters: {
+        search: listQuery.search || null,
+        sortBy: listQuery.sortBy,
+        sortOrder: listQuery.sortOrder,
       },
     }, 'Audit logs fetched');
   } catch (err) {
@@ -54,37 +95,67 @@ export async function getAuditLogs(req, res) {
 // ────────────────────────────────────────────────────────────────────────────
 export async function getSystemLogs(req, res) {
   try {
-    const limit = Math.min(Number(req.query.limit ?? 50), 500);
-    const page = Math.max(Number(req.query.page ?? 1), 1);
-    const offset = Number.isFinite(Number(req.query.offset))
-      ? Number(req.query.offset)
-      : (page - 1) * limit;
+    const allowedSortFields = {
+      created_at: 'created_at',
+      action: 'action',
+      admin_uid: 'admin_uid',
+      ip_address: 'ip_address',
+    };
+    const listQuery = parseListQuery(req.query, {
+      defaultLimit: 50,
+      maxLimit: 500,
+      defaultSortBy: 'created_at',
+      defaultSortOrder: 'DESC',
+      allowedSortFields: Object.keys(allowedSortFields),
+      allowOffset: true,
+    });
 
     let rows = [];
     let total = 0;
 
     try {
+      const params = [];
+      const conditions = [];
+      if (listQuery.search) {
+        params.push(`%${listQuery.search}%`);
+        conditions.push(`(
+          action ILIKE $${params.length}
+          OR description ILIKE $${params.length}
+          OR admin_uid::text ILIKE $${params.length}
+          OR ip_address ILIKE $${params.length}
+        )`);
+      }
+      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+      const listParams = [...params, listQuery.limit, listQuery.offset];
       rows = await prisma.$queryRawUnsafe(
         `SELECT id, admin_uid, action, description, details, ip_address, created_at
-         FROM admin_activity_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
-        limit,
-        offset,
+         FROM admin_activity_logs
+         ${where}
+         ORDER BY ${allowedSortFields[listQuery.sortBy]} ${listQuery.sortOrder}, created_at DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        ...listParams,
       );
-      const countResult = await prisma.$queryRawUnsafe(`SELECT COUNT(*) FROM admin_activity_logs`);
+      const countResult = await prisma.$queryRawUnsafe(
+        `SELECT COUNT(*) FROM admin_activity_logs ${where}`,
+        ...params,
+      );
       total = parseInt(countResult?.[0]?.count ?? 0, 10);
     } catch {
       // Table does not exist yet — return empty list, not an error
       logger.warn('[logs] admin_activity_logs table not found; returning empty system logs');
     }
 
+    const pagination = paginationWithLegacyPage(total, listQuery.page, listQuery.limit);
     success(res, {
       logs: Array.isArray(rows) ? rows : [],
       total,
-      limit,
-      offset,
-      pagination: {
-        currentPage: page,
-        totalPages: Math.max(1, Math.ceil(total / limit)),
+      limit: listQuery.limit,
+      offset: listQuery.offset,
+      pagination,
+      filters: {
+        search: listQuery.search || null,
+        sortBy: listQuery.sortBy,
+        sortOrder: listQuery.sortOrder,
       },
     }, 'System logs fetched');
   } catch (err) {

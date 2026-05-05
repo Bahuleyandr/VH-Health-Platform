@@ -4,6 +4,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 const VALID_INVOICE_TYPES = ['consultation', 'investigation', 'pharmacy', 'procedure', 'room_charge'];
 const VALID_PAYMENT_METHODS = ['cash', 'card', 'upi', 'insurance', 'cheque'];
@@ -181,11 +182,12 @@ class BillingService {
   async getPatientInvoices(patientUid, filters = {}) {
     if (!patientUid) throw AppError.badRequest('Patient UID is required');
 
-    const { status, type, page = 1, limit = 20, date_from, date_to } = filters;
-
-    const pageNum = Math.max(1, parseInt(page, 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
-    const offset = (pageNum - 1) * limitNum;
+    const { status, type, date_from, date_to } = filters;
+    const listQuery = parseListQuery(filters, {
+      defaultLimit: 20,
+      maxLimit: 100,
+      defaultSortBy: 'created_at'
+    });
 
     const where = { patient_uid: patientUid };
 
@@ -208,19 +210,14 @@ class BillingService {
           issued_at: true, due_date: true, created_at: true,
         },
         orderBy: { created_at: 'desc' },
-        skip: offset,
-        take: limitNum,
+        skip: listQuery.offset,
+        take: listQuery.limit,
       }),
     ]);
 
     return {
       invoices,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        totalPages: Math.ceil(total / limitNum),
-      },
+      pagination: buildPagination(total, listQuery.page, listQuery.limit),
     };
   }
 
@@ -446,11 +443,12 @@ class BillingService {
    * List insurance claims with filters
    */
   async getInsuranceClaims(filters = {}) {
-    const { patient_uid, status, page = 1, limit = 20 } = filters;
-
-    const pageNum = Math.max(1, parseInt(page, 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
-    const offset = (pageNum - 1) * limitNum;
+    const { patient_uid, status } = filters;
+    const listQuery = parseListQuery(filters, {
+      defaultLimit: 20,
+      maxLimit: 100,
+      defaultSortBy: 'created_at'
+    });
 
     const where = {};
     if (patient_uid) where.patient_uid = patient_uid;
@@ -467,19 +465,14 @@ class BillingService {
           reviewed_at: true, rejection_reason: true, created_at: true,
         },
         orderBy: { created_at: 'desc' },
-        skip: offset,
-        take: limitNum,
+        skip: listQuery.offset,
+        take: listQuery.limit,
       }),
     ]);
 
     return {
       claims,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        totalPages: Math.ceil(total / limitNum),
-      },
+      pagination: buildPagination(total, listQuery.page, listQuery.limit),
     };
   }
 }
