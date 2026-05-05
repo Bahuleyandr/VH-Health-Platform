@@ -201,14 +201,7 @@ try {
   runNodeScript('ci-schema-drift.mjs', [], { env });
   if (runTests) {
     console.log('Running backend Jest tests against disposable Postgres.');
-    run(process.execPath, [
-      '--max-old-space-size=4096',
-      '--experimental-vm-modules',
-      path.join('node_modules', 'jest', 'bin', 'jest.js'),
-      '--runInBand',
-      '--forceExit',
-      '--detectOpenHandles',
-    ], { env });
+    runNodeScript('run-ci-jest.mjs', [], { env });
   }
   console.log('Docker-backed DB guardrails passed.');
 } finally {
