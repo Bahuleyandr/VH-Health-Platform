@@ -133,9 +133,9 @@ Rules:
   file if shared (e.g. `OrderDetailModal.tsx`, `DetailPanel.tsx`).
 - Page.tsx: imports + tab state + tab-switcher + tab routing only.
 
-Pre-cut decomposition for the next two god-pages (appointments 1057 LOC,
-payroll 1603 LOC) lives in [`docs/REFACTORING_SKETCHES.md`](docs/REFACTORING_SKETCHES.md).
-The full `REFACTORING_PLAN.md` documents the full ranked leaderboard.
+The old one-off refactoring plan/sketch docs were removed after the largest
+splits landed. Keep this pattern here as the durable rule for future admin
+pages instead of creating long-lived scratch roadmaps.
 
 ## Testing
 
@@ -169,6 +169,7 @@ The full `REFACTORING_PLAN.md` documents the full ranked leaderboard.
 
 ## Future Directions
 
-See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current A+/S-tier roadmap.
-It tracks Phase 1 (security floor), Phase 2 (polish), and Phase 3 (marquee features).
-When starting a new Claude session, run `cat docs/ROADMAP.md` and pick any unchecked item.
+Use the root [`../../docs/PLATFORM_REMEDIATION_PLAN.md`](../../docs/PLATFORM_REMEDIATION_PLAN.md)
+and [`../../docs/RELEASE_READINESS.md`](../../docs/RELEASE_READINESS.md) for
+current platform priorities. For admin-specific work, create a focused
+branch/issue plan and keep durable conventions in this file.

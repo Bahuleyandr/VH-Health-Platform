@@ -57,3 +57,17 @@ Override the default route budget when needed:
 ```bash
 ADMIN_CLINICAL_AI_ROUTE_JS_BUDGET_KB=220 npm run check:clinical-ai-bundle
 ```
+
+## Documentation
+
+| Topic | Document |
+| --- | --- |
+| Admin conventions | [`CLAUDE.md`](CLAUDE.md) |
+| Historical code audit | [`CODE_AUDIT.md`](CODE_AUDIT.md) |
+| Release gate | [`../../docs/RELEASE_READINESS.md`](../../docs/RELEASE_READINESS.md) |
+| Smoke journeys | [`../../docs/SMOKE_E2E_JOURNEYS.md`](../../docs/SMOKE_E2E_JOURNEYS.md) |
+| Platform remediation | [`../../docs/PLATFORM_REMEDIATION_PLAN.md`](../../docs/PLATFORM_REMEDIATION_PLAN.md) |
+
+The old admin roadmap and scratch refactor-plan documents were removed because
+the major god-page splits they described have landed. New admin work should be
+tracked in a focused issue/branch plan or the root remediation tracker.

@@ -1,5 +1,10 @@
 # VHHealth Database Schema Reference
 
+> **Historical snapshot:** this document records the schema state validated on
+> 2026-04-04. Use
+> [`../../../docs/DB_SCHEMA_GUARDRAILS.md`](../../../docs/DB_SCHEMA_GUARDRAILS.md)
+> and the backend DB contract scripts for the current release gate.
+>
 > **Last validated:** 2026-04-04  
 > **DB:** PostgreSQL 15 · Docker container `vhhealth-db` · port 5433 (127.0.0.1)  
 > **Total tables:** 164 (excluding `_migrations` and `_prisma_migrations`)  
@@ -27,7 +32,7 @@ Two systems define the DB schema:
 | System | Scope | Location |
 |--------|-------|----------|
 | **Prisma schema** | Core 67 tables — models Prisma client queries directly | `prisma/schema.prisma` |
-| **SQL migrations** | Extended 97 tables + column additions | `migrations/*.sql` |
+| **SQL migrations** | Extended 97 tables + column additions | `src/migrations/*.sql` |
 
 Both must be applied to a fresh DB. See `docs/DB-REBUILD-GUIDE.md` for step-by-step instructions.
 

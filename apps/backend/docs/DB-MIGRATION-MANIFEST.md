@@ -18,7 +18,7 @@ Tracked in `_prisma_migrations` table. Applied via `npx prisma migrate deploy`.
 
 ## SQL Migrations
 
-Applied manually in order. Located in `migrations/` directory.
+Applied in order from `apps/backend/src/migrations`.
 
 | File | Status | Tables Created | Columns Added | Notes |
 |------|--------|---------------|---------------|-------|

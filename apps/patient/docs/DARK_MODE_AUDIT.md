@@ -6,8 +6,8 @@ feature screen is touched.
 ## Baseline
 
 `grep -rc "Colors\\." lib/` finds **340 callsites across 155 files**.
-Far broader than the original FINISH_BUILDING.md estimate of 283 (the
-original grep missed some re-exports). Not every callsite is a dark-mode
+Far broader than the original early-roadmap estimate of 283 (the original grep
+missed some re-exports). Not every callsite is a dark-mode
 bug — some are intentionally hardcoded (brand, status-semantic) — but
 every callsite **should be reviewed** against the rules below.
 

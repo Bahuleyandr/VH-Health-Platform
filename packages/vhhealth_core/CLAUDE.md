@@ -29,8 +29,11 @@ Add to consuming app's `pubspec.yaml`:
 ```yaml
 dependencies:
   vhhealth_core:
-    path: ../vhhealth-core
+    any
 ```
+
+The root Dart pub workspace resolves the local package by name. Do not add
+old standalone-repo path dependencies in the patient or staff apps.
 
 Then import:
 ```dart
@@ -139,7 +142,8 @@ When adding new shared code, prefer adding here + exporting via the
 
 ## Future Directions
 
-See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current roadmap and
-[`../FINISH_BUILDING.md`](../FINISH_BUILDING.md) for the cross-repo
-master plan. Top open items: `RealtimeClient` test coverage (zero today),
-conditional dependency exports to slim per-consumer transitive graph.
+Use the root [`../../docs/PLATFORM_REMEDIATION_PLAN.md`](../../docs/PLATFORM_REMEDIATION_PLAN.md)
+and focused branch plans for current work. Durable package debt that is still
+worth tracking here: `RealtimeClient` coverage, dependency split/conditional
+exports, and keeping shared APIs small enough that patient and staff do not
+inherit unnecessary platform dependencies.

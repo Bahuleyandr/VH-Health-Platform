@@ -2,7 +2,7 @@
 
 > Target architecture: 3-node on-prem RKE2 Kubernetes cluster, CloudNativePG
 > (CNPG) Postgres 17, MinIO in-cluster object storage, Cloudflare R2 offsite.
-> See [`../../docs/DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md) for the
+> See [`../../../docs/DEPLOYMENT_GUIDE.md`](../../../docs/DEPLOYMENT_GUIDE.md) for the
 > deployment model and kubeconfig setup.
 
 ## Recovery Objectives
@@ -190,9 +190,9 @@ Application-visible corruption (constraint violations, missing rows). Use
 All 3 nodes destroyed (fire, flood, hardware theft). Reconstruct from Ansible
 + R2.
 
-1. **Provision new hardware** per [`../../docs/HARDWARE_REQUIREMENTS.md`](../../docs/HARDWARE_REQUIREMENTS.md).
+1. **Provision new hardware** per [`../../../docs/HARDWARE_REQUIREMENTS.md`](../../../docs/HARDWARE_REQUIREMENTS.md).
    Follow the OS install + networking steps in
-   [`../../docs/DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md) §2–§3.
+   [`../../../docs/DEPLOYMENT_GUIDE.md`](../../../docs/DEPLOYMENT_GUIDE.md) §2–§3.
 
 2. **Bootstrap fresh cluster:**
    ```bash

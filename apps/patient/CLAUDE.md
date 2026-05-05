@@ -374,4 +374,10 @@ need plugin-channel mock setup that isn't in place yet — see
 
 ## Future Directions
 
-See [`../../AUDIT.md`](../../AUDIT.md) for the cross-stack state and [`../../SESSION_HANDOFF.md`](../../SESSION_HANDOFF.md) for the most recent session bootstrap. The roadmap docs that used to live here (`docs/ROADMAP.md`, `../FINISH_BUILDING.md`) are no longer maintained — AUDIT.md superseded them.
+Use [`../../docs/PLATFORM_REMEDIATION_PLAN.md`](../../docs/PLATFORM_REMEDIATION_PLAN.md),
+[`../../docs/RELEASE_READINESS.md`](../../docs/RELEASE_READINESS.md),
+[`docs/LANGUAGE_HEALTH.md`](docs/LANGUAGE_HEALTH.md), and
+[`../../docs/TRANSLATION_REVIEW_TRACKER.md`](../../docs/TRANSLATION_REVIEW_TRACKER.md)
+for current patient-app priorities and gates. [`../../AUDIT.md`](../../AUDIT.md)
+and [`../../SESSION_HANDOFF.md`](../../SESSION_HANDOFF.md) are historical
+snapshots; verify current state before acting.

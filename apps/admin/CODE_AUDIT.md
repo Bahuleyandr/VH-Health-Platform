@@ -18,8 +18,11 @@
 > - Testing: 21 Jest suites / 247 tests + 10 Playwright tests
 >   (batches 41–42).
 >
-> Treat the recommendations below as context, not a live to-do list.
-> The current roadmap is [`docs/ROADMAP.md`](docs/ROADMAP.md).
+> Treat the recommendations below as context, not a live to-do list. The old
+> admin roadmap was removed after the major god-page splits landed. Current
+> platform priorities live in
+> [`../../docs/PLATFORM_REMEDIATION_PLAN.md`](../../docs/PLATFORM_REMEDIATION_PLAN.md)
+> and [`../../docs/RELEASE_READINESS.md`](../../docs/RELEASE_READINESS.md).
 
 ---
 

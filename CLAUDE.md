@@ -43,11 +43,10 @@ Each app keeps its own `CLAUDE.md` next to its manifest:
 - [`apps/staff/CLAUDE.md`](apps/staff/CLAUDE.md) — staff auth, test philosophy, role config
 - [`packages/vhhealth_core/CLAUDE.md`](packages/vhhealth_core/CLAUDE.md) — shared contracts
 
-Per-app CLAUDE.md files still reference the old separate-repo paths
-(e.g. `../vhhealth-core`, `../vhhealth-backend`). The actual wiring
-is correct — Flutter packages resolve `vhhealth_core` via the Dart pub
-workspace; backend and admin call each other over HTTP the same way
-they always did. Paths in the docs are historical clutter.
+Historical source-repo names may still appear in merge-history notes. Current
+work must use the monorepo paths above. Flutter packages resolve
+`vhhealth_core` through the root Dart pub workspace; backend and admin call each
+other over HTTP through the configured deployment URLs.
 
 ## Cross-stack workflows
 

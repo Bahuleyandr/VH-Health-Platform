@@ -1,6 +1,7 @@
 # VH Health Platform — Session Handoff
 
-_Last updated: 2026-05-02. Picks up from `main` at commit `24e3c974`._
+_Last updated: 2026-05-02. Historical handoff snapshot. Verify current state
+with `git status`, `git log -1`, and the root README before acting._
 
 This doc is a single-page bootstrap for resuming work in another
 session / environment. Read top-to-bottom, then jump to whichever
@@ -31,9 +32,12 @@ patient) are queued for the dedicated translator pass.**
 
 - URL: `https://dalekdefender.hippocampus-monitor.ts.net:8444` (Tailnet only)
 - Admin portal: `https://dalekdefender.hippocampus-monitor.ts.net:8445`
-- API key (from `/tmp/dalek-secrets.env` on Windows host): `phone-83c3575b4dedd4f7f54a90745d3fe308`
-- Staff test users: `EMP-1001` … `EMP-1008` / password `test1234`. Roles cover NURSING_STAFF, PHARMACY_STAFF, LAB_STAFF, DOCTOR, HR_STAFF, ADMIN, SUPER_ADMIN, GENERAL_STAFF.
-- Admin login: `admin` / `DalekAdmin!2026` (SUPER_ADMIN, MFA off).
+- API key: stored outside the repo in the local deployment secret file. Do not
+  commit live keys to docs.
+- Staff test users: `EMP-1001` through `EMP-1008`; password is stored outside
+  the repo. Roles cover NURSING_STAFF, PHARMACY_STAFF, LAB_STAFF, DOCTOR,
+  HR_STAFF, ADMIN, SUPER_ADMIN, GENERAL_STAFF.
+- Admin login: seeded admin account; password is stored outside the repo.
 - Redeploy recipe lives in `~/.claude/projects/.../memory/project_vh_health_dalekdefender.md`.
 
 ### Most recent staff `.exe`
@@ -44,7 +48,7 @@ built 2026-05-02 at the end of this session with:
 ```
 flutter build windows --release \
   --dart-define=VH_BASE_URL=https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1 \
-  --dart-define=VH_API_KEY=phone-83c3575b4dedd4f7f54a90745d3fe308
+  --dart-define=VH_API_KEY=<release-smoke-api-key>
 ```
 
 Contains every change shipped in this session.
@@ -194,11 +198,7 @@ In priority order. Each item links to where to start.
 
 ### Smaller / housekeeping
 
-11. **Per-app CLAUDE.md cleanup** — historical paths reference old
-    separate-repo layouts (the root CLAUDE.md flags this as known).
-12. **Stale doc deletion** — `docs/ROADMAP.md` and
-    `FINISH_BUILDING.md` are superseded by AUDIT.md.
-13. **Prune the 135 unused getters** in staff `app_strings.dart`
+11. **Prune the 135 unused getters** in staff `app_strings.dart`
     (~9% of declared accessors; speculatively-added during batch 4).
 
 ---

@@ -215,10 +215,13 @@ ARB files in `lib/l10n/`, generated output in `lib/generated/`.
 
 ## CI/CD
 
-GitHub Actions (`.github/workflows/ci.yml`):
-1. Checkout patient app + `vhhealth-core` (fixes path dependency)
-2. `flutter pub get`
-3. `flutter analyze` (continue-on-error)
-4. `flutter test` (if test files exist)
+GitHub Actions and the local repo gate use the root Dart pub workspace:
+
+1. Checkout `VH-Health-Platform`.
+2. `dart pub get`.
+3. `dart run melos bootstrap`.
+4. `dart run melos run analyze`.
+5. `dart run melos run test`.
+6. `dart run melos run i18n-health-patient`.
 
 Currently only a smoke test exists. Real widget tests need Firebase mock setup.

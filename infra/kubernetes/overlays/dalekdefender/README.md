@@ -37,6 +37,7 @@ FE_KEY="$(openssl rand -base64 32)"
 TOTP_KEY="$(openssl rand -base64 32)"
 BK_KEY="$(openssl rand -base64 32)"
 API_KEY="phone-$(openssl rand -hex 16)"
+ADMIN_PASSWORD="$(openssl rand -base64 24 | tr -d '/+=' | head -c 24)"
 
 ssh dalekdefender "sudo kubectl create namespace vhhealth --dry-run=client -o yaml | sudo kubectl apply -f -"
 
@@ -52,7 +53,7 @@ ssh dalekdefender "sudo kubectl -n vhhealth create secret generic vhhealth-backe
   --from-literal=TOTP_ENCRYPTION_KEY='${TOTP_KEY}' \
   --from-literal=BACKUP_ENCRYPTION_KEY='${BK_KEY}' \
   --from-literal=ADMIN_BOOTSTRAP_USERNAME='admin' \
-  --from-literal=ADMIN_BOOTSTRAP_PASSWORD='DalekAdmin!2026' \
+  --from-literal=ADMIN_BOOTSTRAP_PASSWORD='${ADMIN_PASSWORD}' \
   --from-literal=ADMIN_BOOTSTRAP_EMAIL='admin@vhhealth.local' \
   --from-literal=ADMIN_BOOTSTRAP_NAME='Super Admin' \
   --from-literal=ALLOWED_ORIGINS='https://dalekdefender.hippocampus-monitor.ts.net:8444' \
@@ -65,6 +66,7 @@ ssh dalekdefender "sudo kubectl -n vhhealth create secret generic vhhealth-backe
 
 # Print the API_KEY — you'll need it for the APK build dart-define.
 echo "API_KEY=${API_KEY}"
+echo "ADMIN_BOOTSTRAP_PASSWORD=${ADMIN_PASSWORD}"
 
 # 5) Apply the manifests.
 ssh dalekdefender "cd ~/VH-Health-Platform && sudo kubectl apply -k infra/kubernetes/overlays/dalekdefender"

@@ -36,7 +36,7 @@
   fan warn → Sentry breadcrumbs + error → Sentry events.
 - **Compliance:** data-retention cron enforcement landed with policy doc
   (7-year clinical floor, 6-year PHI access, DSAR erasure workflow documented).
-- **Ops:** five operational runbooks under `docs/runbooks/`; CI schema-drift
+- **Ops:** operational runbooks under `docs/RUNBOOKS/`; CI schema-drift
   check added.
 
 ## What changed — by area
@@ -99,14 +99,9 @@ generic_name, brand_name, strength, dosage_form)` (migration 009) replaces
 
 ### Compliance (backend)
 
-- **Data retention policy.** `docs/DATA_RETENTION_POLICY.md` documents
-  per-table retention + legal basis. 7 years for clinical rows
-  (`medication_administrations`, `prescription_safety_overrides`,
-  `claim_denials`, etc.), 6 years for PHI access logs, 90 days for audit
-  logs, 2 years inactive for drug identifiers.
-- **Subject rights.** `docs/DATA_SUBJECT_RIGHTS.md` covers DPDPA erasure
-  (with clinical-retention override), DSAR access, rectification,
-  portability. DSAR tooling (scripts + admin page) sits as a follow-up.
+- **Data retention and subject rights.** Retention and DSAR work was scoped in
+  this release note, but the dedicated policy documents are not currently
+  tracked in this repo. Recreate and validate them before any compliance audit.
 - **Retention crons.** `retention-clinical-audit` (warns on overdue rows
   past 7-year window), `retention-e2e-keys` (nulls `users.e2e_public_key`
   when `deactivated_at` set), `retention-drug-identifiers` (purges inactive
@@ -114,7 +109,7 @@ generic_name, brand_name, strength, dosage_form)` (migration 009) replaces
 
 ### Ops
 
-- **Runbooks.** Five new runbooks under `docs/runbooks/`:
+- **Runbooks.** New runbooks under `docs/RUNBOOKS/`:
   `db-restore.md`, `r2-restore.md`, `cert-rotation.md`,
   `code-blue-misfire.md`, `chatbot-provider-switch.md`. Each follows the
   same shape: When / Prereqs / Steps / Verify / Rollback / Page.
@@ -157,16 +152,15 @@ includes `waiting` / `in_progress` / `inProgress` keys (previously absent)
   the admin portal at populated prod data.
 - **Branch protection not enforced** on private repos without GitHub Pro.
   See `docs/CI_REQUIRED_CHECKS.md` for the pre-push-hook fallback.
-- **DSAR export / erasure scripts** scoped but not built — see the TODO
-  block at the bottom of `DATA_SUBJECT_RIGHTS.md`.
+- **DSAR export / erasure scripts** scoped but not built. Dedicated DSAR docs
+  should be recreated before production audit sign-off.
 - **Due-meds list** ships the flow but doesn't yet surface the drug
   identifier's `resolved_drug` info in the 5-rights result UI — the field
   is on the wire, the UI can choose to render or ignore.
 
 ## Pointers
 
-- Full open-item list: [`docs/FINISH_BUILDING.md`](./FINISH_BUILDING.md)
-- Runbooks index: [`docs/runbooks/README.md`](./runbooks/README.md)
-- Retention policy: [`docs/DATA_RETENTION_POLICY.md`](./DATA_RETENTION_POLICY.md)
-- Subject rights: [`docs/DATA_SUBJECT_RIGHTS.md`](./DATA_SUBJECT_RIGHTS.md)
+- Current remediation tracker: [`../../../docs/PLATFORM_REMEDIATION_PLAN.md`](../../../docs/PLATFORM_REMEDIATION_PLAN.md)
+- Current release gate: [`../../../docs/RELEASE_READINESS.md`](../../../docs/RELEASE_READINESS.md)
+- Runbooks index: [`docs/RUNBOOKS/README.md`](./RUNBOOKS/README.md)
 - Branch-protection setup: [`docs/CI_REQUIRED_CHECKS.md`](./CI_REQUIRED_CHECKS.md)

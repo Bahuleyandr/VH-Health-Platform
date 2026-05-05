@@ -83,9 +83,8 @@ apps/admin               ← Bahuleyandr/VH-Health-Adminportal
 ```
 
 All five source repos are archived on GitHub. Pre-monorepo history is
-walkable via `git log apps/<path>/`. Per-app `CLAUDE.md` files still
-reference the old separate-repo paths in prose — the wiring is correct,
-the paths are historical clutter.
+walkable via `git log apps/<path>/`. Current engineering work should use only
+the monorepo paths under `apps/` and `packages/`.
 
 ### Per-app documentation
 
@@ -193,15 +192,15 @@ load-bearing section to read):
 | 7 | `express.json` / `urlencoded` | app.js:262 | Body parsing, 1 MB limit. |
 | 8 | `corsMiddleware` | [`src/middleware/corsMiddleware.js`](../apps/backend/src/middleware/corsMiddleware.js) | Origin allowlist. |
 | 9 | `loggingMiddleware` + `morganMiddleware` | [`src/logging/logger.js`](../apps/backend/src/logging/logger.js) | Winston + morgan. |
-| 10 | `attachUserContext` | [`src/middleware/userContextMiddleware.js`](../apps/backend/src/middleware/userContextMiddleware.js) | Pre-JWT stub for audit correlation. |
-| 11 | `auditLogMiddleware` | [`src/middleware/auditLogMiddleware.js`](../apps/backend/src/middleware/auditLogMiddleware.js) | Fire-and-forget universal audit capture; capped queue 1000; file fallback via Winston. |
+| 10 | `attachUserContext` | [`src/middleware/attachUserContext.js`](../apps/backend/src/middleware/attachUserContext.js) | Pre-JWT stub for audit correlation. |
+| 11 | `auditLogMiddleware` | [`src/middleware/auditLog.js`](../apps/backend/src/middleware/auditLog.js) | Fire-and-forget universal audit capture; capped queue 1000; file fallback via Winston. |
 | 12 | `selfHealingMiddleware` + `prometheusMiddleware` | ops | Pool pressure + metric counters. |
-| 13 | `validateApiKey` | [`src/middleware/apiKeyMiddleware.js`](../apps/backend/src/middleware/apiKeyMiddleware.js) | Timing-safe per-client key compare; sets `req.apiClient` for audit. |
+| 13 | `validateApiKey` | [`src/middleware/validateApiKey.js`](../apps/backend/src/middleware/validateApiKey.js) | Timing-safe per-client key compare; sets `req.apiClient` for audit. |
 | 14 | `jwtAuth` | [`src/middleware/jwtMiddleware.js`](../apps/backend/src/middleware/jwtMiddleware.js) | Verifies signature/expiry, checks blacklist, checks force-logout revocation, normalizes role (SUPER_ADMIN→ADMIN, NURSE→NURSING_STAFF), sets `req.user = { uid, id, role, rawRole, roles?, phone?, email?, tenant_id, scope }`. |
 | 15 | `enforceFullScope` | [`src/middleware/jwtMiddleware.js:179`](../apps/backend/src/middleware/jwtMiddleware.js) | Rejects tokens with `scope !== 'full'` (i.e. narrow-scope `mfa_setup` tokens). Returns 403 `INSUFFICIENT_SCOPE`. |
 | 16 | `tenantContextMiddleware` | [`src/middleware/tenantContextMiddleware.js`](../apps/backend/src/middleware/tenantContextMiddleware.js) | Resolves `req.tenantId` (JWT claim → `x-tenant-id` header for SUPER_ADMIN → `users.tenant_id` lookup → `DEFAULT_TENANT_ID`). Blocks non-SUPER_ADMIN if tenant is not `active`. |
-| 17 | `normalizeIdentityFields` | [`src/middleware/normalizeIdentityMiddleware.js`](../apps/backend/src/middleware/normalizeIdentityMiddleware.js) | Post-JWT uid/id normalization for int-FK comparisons. |
-| 18 | Per-route rate limiter | [`src/config/rateLimits.js`](../apps/backend/src/config/rateLimits.js) | `patientRateLimiter`, `adminRateLimiter`, `authRateLimiter`, `otpRateLimiter`, `dashboardRateLimiter`, `sosRateLimiter`. |
+| 17 | `normalizeIdentityFields` | [`src/middleware/normalizeIdentityFields.js`](../apps/backend/src/middleware/normalizeIdentityFields.js) | Post-JWT uid/id normalization for int-FK comparisons. |
+| 18 | Per-route rate limiter | [`src/middleware/rateLimitMiddleware.js`](../apps/backend/src/middleware/rateLimitMiddleware.js) | `patientRateLimiter`, `adminRateLimiter`, `authRateLimiter`, `otpRateLimiter`, `dashboardRateLimiter`, `sosRateLimiter`. |
 | 19 | Per-domain sanitize middleware | [`src/middleware/sanitizeMiddleware.js`](../apps/backend/src/middleware/sanitizeMiddleware.js) | `stripHtml()` on user-facing text fields (profile, feedback, pharmacy, investigation, appointment, SOS). |
 | 20 | RBAC — `requireRole(...)` or via `wrapAutoRBAC` | [`src/middleware/rbacMiddleware.js`](../apps/backend/src/middleware/rbacMiddleware.js), [`src/config/routeWrapper.js`](../apps/backend/src/config/routeWrapper.js) | Role-based access control. Double-guards on scope (narrow-scope tokens fail closed here too). SUPER_ADMIN bypasses role checks. |
 | 21 | PHI access logger | [`src/middleware/phiAccessMiddleware.js`](../apps/backend/src/middleware/phiAccessMiddleware.js) | Auto-logs PHI access (who, patient, record type, action, IP, requestId). Fires only on 2xx/3xx. |
@@ -301,11 +300,11 @@ Only two scopes exist today (`full`, `mfa_setup`) and they are load-bearing in t
 
 ### API keys
 
-Per-client keys via env: `API_KEY_PATIENT`, `API_KEY_STAFF`, `API_KEY_ADMIN`; shared `API_KEY` as fallback. Compared with `crypto.timingSafeEqual()` in [`apiKeyMiddleware.js`](../apps/backend/src/middleware/apiKeyMiddleware.js). The matched client is persisted on `req.apiClient` and used as an audit dimension — you can tell which front-end a call came from even when JWT is stripped.
+Per-client keys via env: `API_KEY_PATIENT`, `API_KEY_STAFF`, `API_KEY_ADMIN`; shared `API_KEY` as fallback. Compared with `crypto.timingSafeEqual()` in [`validateApiKey.js`](../apps/backend/src/middleware/validateApiKey.js). The matched client is persisted on `req.apiClient` and used as an audit dimension — you can tell which front-end a call came from even when JWT is stripped.
 
 ### Rate-limit profiles
 
-From [`apps/backend/src/config/rateLimits.js`](../apps/backend/src/config/rateLimits.js):
+From [`apps/backend/src/middleware/rateLimitMiddleware.js`](../apps/backend/src/middleware/rateLimitMiddleware.js):
 
 | Profile | Window | Max | Applied to |
 |---|---|---|---|
@@ -463,7 +462,8 @@ Exports from `src/lib/prisma.js`:
 
 Raw SQL migrations live in [`apps/backend/src/migrations/`](../apps/backend/src/migrations/), numbered with a three-digit prefix (`001_`, `002_`, … currently through `075_`+). This is the **authoritative** migrations tree.
 
-There is ALSO a legacy [`apps/backend/migrations/`](../apps/backend/migrations/) directory containing five pre-merge files (`002_investigations_notification.sql` through `006_universal_audit_log.sql`). These are preserved from the pre-monorepo history; new migrations go in `src/migrations/`.
+Older docs may mention a pre-merge `apps/backend/migrations/` directory. That
+directory is no longer part of the current checkout; use `src/migrations/`.
 
 CI runs [`scripts/ci-setup-db.mjs`](../apps/backend/scripts/ci-setup-db.mjs) after `prisma db push` to apply the raw migrations, because the Prisma schema only represents ~69 of the ~170 tables tests need. The remainder exist only as raw SQL.
 
@@ -717,7 +717,7 @@ team grows past two reviewers.
 
 ### Audit + PHI access
 
-- **Universal audit log**: [`src/middleware/auditLogMiddleware.js`](../apps/backend/src/middleware/auditLogMiddleware.js). Fire-and-forget, capped queue 1000, Winston file fallback. Writes to `audit_log` table.
+- **Universal audit log**: [`src/middleware/auditLog.js`](../apps/backend/src/middleware/auditLog.js). Fire-and-forget, capped queue 1000, Winston file fallback. Writes to `audit_log` table.
 - **PHI access log**: [`src/middleware/phiAccessMiddleware.js`](../apps/backend/src/middleware/phiAccessMiddleware.js) — `phiAccessLogger('RECORD_TYPE')` mounted on every PHI-touching router (appointments, records, investigations, prescriptions, pharmacy-orders, EMR, clinical workflows, documents, radiology, dietary, theatre, blood-bank, referrals). Records who / which patient / what record / action / IP / requestId / timestamp. Only fires on 2xx/3xx.
 
 ### Sentry
@@ -755,12 +755,12 @@ Cheatsheet for common changes. All paths relative to repo root.
 | Add an API route | [`apps/backend/src/routes/<domain>/`](../apps/backend/src/routes/) + thin controller in [`controllers/<domain>/`](../apps/backend/src/controllers/) + service in [`services/<domain>/`](../apps/backend/src/services/) + validator in [`validators/<domain>/`](../apps/backend/src/validators/). Wrap with `wrapRoutesWithValidation` + `wrapAutoRBAC` from [`config/routeWrapper.js`](../apps/backend/src/config/routeWrapper.js). |
 | Require a role | `requireRole('ADMIN', 'DOCTOR')` from [`middleware/rbacMiddleware.js`](../apps/backend/src/middleware/rbacMiddleware.js), mounted before the router; OR add a `roles:` entry to the route map passed to `wrapAutoRBAC(router, configKey, routeMap)`. |
 | Add a tenant-scoped query | Use `setTenant(req.tenantId, (tx) => tx.$queryRaw`…`)` from [`src/lib/prisma.js`](../apps/backend/src/lib/prisma.js). If the table isn't one of the 11 in migration 075, add it there AND add a `tenant_id uuid NOT NULL DEFAULT DEFAULT_TENANT_ID` column in a new migration. |
-| Add an env var | (1) [`src/utils/validateEnv.js`](../apps/backend/src/utils/validateEnv.js) — Joi rule + required vs optional. (2) [`.env.example`](../apps/backend/.env.example). (3) For prod: create a Sealed Secret via `kubeseal` — see [`docs/DEPLOYMENT_GUIDE.md` section 5](DEPLOYMENT_GUIDE.md). (4) For admin: [`apps/admin/.env.local.example`](../apps/admin/.env.local.example). |
+| Add an env var | (1) [`src/utils/validateEnv.js`](../apps/backend/src/utils/validateEnv.js) — Joi rule + required vs optional. (2) [`.env.example`](../apps/backend/.env.example). (3) For prod: create a Sealed Secret via `kubeseal` — see [`docs/DEPLOYMENT_GUIDE.md` section 5](DEPLOYMENT_GUIDE.md). (4) For admin: [`apps/admin/.env.example`](../apps/admin/.env.example). |
 | Add a k8s workload | New Kustomize base under [`infra/kubernetes/apps/<name>/`](../infra/kubernetes/apps/) with `deployment.yaml` + `service.yaml` + `kustomization.yaml`. Reference it from [`infra/kubernetes/apps/kustomization.yaml`](../infra/kubernetes/apps/kustomization.yaml). Image tag pinned in the overlay at [`overlays/prod/kustomization.yaml`](../infra/kubernetes/overlays/prod/kustomization.yaml). ArgoCD's `vhhealth-apps` Application will pick it up. |
 | Add a DB migration | `apps/backend/src/migrations/NNN_description.sql` with the next sequential 3-digit number (currently `075` is the last; `076_` next). Raw SQL, no Prisma. The file is applied by [`scripts/ci-setup-db.mjs`](../apps/backend/scripts/ci-setup-db.mjs) and — if it adds a new RLS-scoped table — must also be handled in [`scripts/ensure-test-db.mjs`](../apps/backend/scripts/ensure-test-db.mjs). |
 | Debug test-DB schema-sync failure | [`apps/backend/scripts/ensure-test-db.mjs`](../apps/backend/scripts/ensure-test-db.mjs), especially the "drop RLS policies" block starting around line 548. Prisma's `db push --accept-data-loss` conflicts with the live `tenant_isolation` policies; the script drops them, runs push, lets migration 075 recreate them. |
 | Rotate a JWT / API key / encryption key | [`apps/backend/docs/RUNBOOKS/cert-rotation.md`](../apps/backend/docs/RUNBOOKS/cert-rotation.md) + [`credential-incident-response.md`](../apps/backend/docs/RUNBOOKS/credential-incident-response.md). The flow is: update the plain Secret → `kubeseal` → commit → ArgoCD reconciles → `rollout restart deployment/vhhealth-backend`. |
-| Add a clinical-AI module | Service in [`apps/backend/src/services/clinicalAi/`](../apps/backend/src/services/clinicalAi/) + raw-SQL migration for the tables + admin route in [`apps/backend/src/routes/admin/clinicalAi/`](../apps/backend/src/routes/admin/) + tracker update at [`apps/backend/docs/AI_FEATURE_TRACKER.md`](../apps/backend/docs/AI_FEATURE_TRACKER.md) + admin UI at [`apps/admin/src/app/(with-auth)/dashboard/clinical-ai/`](../apps/admin/src/app/%28with-auth%29/dashboard/clinical-ai/). |
+| Add a clinical-AI module | Service in [`apps/backend/src/services/ai/`](../apps/backend/src/services/ai/) + raw-SQL migration for the tables + admin route in [`apps/backend/src/routes/admin/clinicalAi/`](../apps/backend/src/routes/admin/clinicalAi/) + tracker update at [`apps/backend/docs/AI_FEATURE_TRACKER.md`](../apps/backend/docs/AI_FEATURE_TRACKER.md) + admin UI at [`apps/admin/src/app/(with-auth)/dashboard/clinical-ai/`](../apps/admin/src/app/%28with-auth%29/dashboard/clinical-ai/). |
 | Change the admin auth flow | [`apps/admin/src/lib/api-client.ts`](../apps/admin/src/lib/api-client.ts) for login/logout, [`middleware.ts`](../apps/admin/src/middleware.ts) for SSR guard, [`contexts/AuthContext.tsx`](../apps/admin/src/contexts/AuthContext.tsx) for client-side state. Backend side: [`apps/backend/src/services/auth/authService.js`](../apps/backend/src/services/auth/authService.js). |
 | Add a patient-facing screen | [`apps/patient/lib/features/<feature>/`](../apps/patient/lib/features/) + register in [`lib/core/navigation/app_router.dart`](../apps/patient/lib/core/navigation/app_router.dart). All API calls via `ApiClient`. |
 | Investigate a prod incident | Entry runbook: [`docs/DEPLOYMENT_GUIDE.md` section 9](DEPLOYMENT_GUIDE.md#9-day-2-operations). Per-scenario: [`apps/backend/docs/DISASTER-RECOVERY.md`](../apps/backend/docs/DISASTER-RECOVERY.md) and the runbooks tree at [`apps/backend/docs/RUNBOOKS/`](../apps/backend/docs/RUNBOOKS/). |
