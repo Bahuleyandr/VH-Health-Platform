@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import process from 'node:process';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,8 +26,19 @@ const ciEnv = {
   NEXT_PUBLIC_X_API_KEY: 'test-api-key',
 };
 
-function commandName(command) {
-  return isWindows && command === 'npm' ? 'npm.cmd' : command;
+function commandSpec(command, args) {
+  if (isWindows && command === 'dart') {
+    const flutterRoot = process.env.FLUTTER_ROOT || 'D:\\Dev\\Tools\\flutter';
+    const dartExe = join(flutterRoot, 'bin', 'cache', 'dart-sdk', 'bin', 'dart.exe');
+    if (existsSync(dartExe)) return { command: dartExe, args };
+  }
+  if (isWindows && ['npm', 'flutter', 'melos'].includes(command)) {
+    return {
+      command: process.env.ComSpec || 'cmd.exe',
+      args: ['/d', '/s', '/c', command, ...args],
+    };
+  }
+  return { command, args };
 }
 
 function parseList(value) {
@@ -88,7 +100,8 @@ function run(command, args, options = {}) {
   const displayCwd = options.cwd ? options.cwd.replace(`${repoRoot}\\`, '').replace(`${repoRoot}/`, '') : '.';
   console.log(`\n$ ${command} ${args.join(' ')}  [${displayCwd}]`);
 
-  const result = spawnSync(commandName(command), args, {
+  const spec = commandSpec(command, args);
+  const result = spawnSync(spec.command, spec.args, {
     cwd: options.cwd || repoRoot,
     env: { ...process.env, ...(options.env || {}) },
     stdio: 'inherit',
@@ -113,6 +126,7 @@ const stages = {
   },
   backend() {
     const cwd = resolve(repoRoot, 'apps/backend');
+    run('docker', ['version', '--format', '{{.Server.Version}}']);
     run('npm', ['run', 'ci'], { cwd });
   },
   admin() {

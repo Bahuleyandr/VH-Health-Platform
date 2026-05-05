@@ -42,6 +42,9 @@ This runs the same trust checks that matter for release: secret scans, backend
 Docker-backed DB/tests, admin lint/type-check/test/build/bundle guard, Flutter
 format/analyze/test, and Kubernetes manifest validation.
 
+The backend stage requires Docker to be running because it creates a disposable
+`pgvector` Postgres database instead of trusting a developer database.
+
 ## Manual Pre-Tag Gate
 
 Run these from a clean `main` checkout before creating `patient-v*` or
