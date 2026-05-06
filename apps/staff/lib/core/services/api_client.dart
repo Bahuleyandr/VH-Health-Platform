@@ -10,6 +10,7 @@
 // abstraction.
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:vhhealth_core/vhhealth_core.dart';
 
 export 'package:vhhealth_core/models/api_response.dart' show ApiResponse;
@@ -69,4 +70,52 @@ class ApiClient {
     fileBuilder: fileBuilder,
     timeout: timeout,
   );
+
+  static Future<http.MultipartFile> multipartFileFromPath(
+    String field,
+    String filePath, {
+    String? filename,
+  }) {
+    return http.MultipartFile.fromPath(
+      field,
+      filePath,
+      filename: filename,
+      contentType: _contentTypeForPath(filename ?? filePath),
+    );
+  }
+
+  static MediaType _contentTypeForPath(String path) {
+    final lower = path.toLowerCase();
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+      return MediaType('image', 'jpeg');
+    }
+    if (lower.endsWith('.png')) return MediaType('image', 'png');
+    if (lower.endsWith('.gif')) return MediaType('image', 'gif');
+    if (lower.endsWith('.webp')) return MediaType('image', 'webp');
+    if (lower.endsWith('.tif') || lower.endsWith('.tiff')) {
+      return MediaType('image', 'tiff');
+    }
+    if (lower.endsWith('.bmp')) return MediaType('image', 'bmp');
+    if (lower.endsWith('.pdf')) return MediaType('application', 'pdf');
+    if (lower.endsWith('.txt')) return MediaType('text', 'plain');
+    if (lower.endsWith('.csv')) return MediaType('text', 'csv');
+    if (lower.endsWith('.rtf')) return MediaType('text', 'rtf');
+    if (lower.endsWith('.doc')) return MediaType('application', 'msword');
+    if (lower.endsWith('.docx')) {
+      return MediaType(
+        'application',
+        'vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
+    }
+    if (lower.endsWith('.xls')) {
+      return MediaType('application', 'vnd.ms-excel');
+    }
+    if (lower.endsWith('.xlsx')) {
+      return MediaType(
+        'application',
+        'vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+    }
+    return MediaType('application', 'octet-stream');
+  }
 }

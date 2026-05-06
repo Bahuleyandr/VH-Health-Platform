@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:http/http.dart' as http;
 import 'api_client.dart';
 
 /// Medical API calls: investigations, consultations, prescriptions, EMR,
@@ -108,7 +107,11 @@ class MedicalApiService {
         'date': ?date,
       };
       final files = [
-        await http.MultipartFile.fromPath('file', filePath, filename: fileName),
+        await ApiClient.multipartFileFromPath(
+          'file',
+          filePath,
+          filename: fileName,
+        ),
       ];
       final resp = await ApiClient.multipart(
         '/staff/medical/investigations',
@@ -209,7 +212,7 @@ class MedicalApiService {
     };
     if (slipPath != null) {
       final files = [
-        await http.MultipartFile.fromPath(
+        await ApiClient.multipartFileFromPath(
           'slip_photo',
           slipPath,
           filename: slipFileName,
@@ -281,7 +284,11 @@ class MedicalApiService {
   }) async {
     final fields = <String, String>{'result_notes': ?notes};
     final files = [
-      await http.MultipartFile.fromPath('file', filePath, filename: fileName),
+      await ApiClient.multipartFileFromPath(
+        'file',
+        filePath,
+        filename: fileName,
+      ),
     ];
     final resp = await ApiClient.multipart(
       '/investigations/bookings/$id/result',
@@ -353,7 +360,7 @@ class MedicalApiService {
         }
       });
       final files = [
-        await http.MultipartFile.fromPath('handwritten_photo', photo.path),
+        await ApiClient.multipartFileFromPath('handwritten_photo', photo.path),
       ];
       final resp = await ApiClient.multipart(
         '/prescriptions/create',
@@ -553,7 +560,11 @@ class MedicalApiService {
       if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
     };
     final files = [
-      await http.MultipartFile.fromPath('file', filePath, filename: fileName),
+      await ApiClient.multipartFileFromPath(
+        'file',
+        filePath,
+        filename: fileName,
+      ),
     ];
     final resp = await ApiClient.multipart(
       '/appointments/patient/records/upload',

@@ -76,14 +76,20 @@ const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   if (!HOSPITAL_UPLOAD_CONFIG.allowedMimeTypes.includes(file.mimetype)) {
-    return cb(new Error(`File type ${file.mimetype} not allowed in hospital system. Allowed types: ${HOSPITAL_UPLOAD_CONFIG.allowedMimeTypes.join(', ')}`));
+    const err = new Error(`File type ${file.mimetype} not allowed in hospital system. Allowed types: ${HOSPITAL_UPLOAD_CONFIG.allowedMimeTypes.join(', ')}`);
+    err.statusCode = 400;
+    err.code = 'INVALID_FILE_TYPE';
+    return cb(err);
   }
 
   // Check file name for malicious patterns
   // eslint-disable-next-line no-control-regex
   const dangerousPatterns = /[<>:"/\\|?*\x00-\x1f]/;
   if (dangerousPatterns.test(file.originalname)) {
-    return cb(new Error('File name contains invalid characters'));
+    const err = new Error('File name contains invalid characters');
+    err.statusCode = 400;
+    err.code = 'INVALID_FILE_NAME';
+    return cb(err);
   }
 
   cb(null, true);

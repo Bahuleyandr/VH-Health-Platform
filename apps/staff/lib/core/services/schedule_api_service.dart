@@ -1,4 +1,3 @@
-import 'package:http/http.dart' as http;
 import '../config/campus_config.dart';
 import 'api_client.dart';
 
@@ -239,7 +238,11 @@ class ScheduleApiService {
       'notes': ?notes,
     };
     final files = [
-      await http.MultipartFile.fromPath('file', filePath, filename: fileName),
+      await ApiClient.multipartFileFromPath(
+        'file',
+        filePath,
+        filename: fileName,
+      ),
     ];
     final resp = await ApiClient.multipart(
       '/appointments/documents/upload',
