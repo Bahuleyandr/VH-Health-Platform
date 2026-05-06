@@ -7,6 +7,8 @@ import { sendPushNotification } from './sendPushNotification.js';
 import { placeVoiceCall } from './sendVoiceNotification.js';
 import { sendWhatsApp } from './sendWhatsAppNotification.js';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /**
  * Unified notification dispatcher.
  * Each channel is best-effort — failures don't block other channels.
@@ -27,10 +29,24 @@ export async function dispatch({ userId, title, body, channels = ['push', 'inapp
   // Lookup user info
   let user = null;
   try {
-    const res = await prisma.$queryRawUnsafe(
-      `SELECT uid, phone, email, name, device_token FROM users WHERE uid = $1 OR phone = $1 LIMIT 1`,
-      userId
-    );
+    const identifier = String(userId || '').trim();
+    if (!identifier) return results;
+
+    const res = UUID_RE.test(identifier)
+      ? await prisma.$queryRawUnsafe(
+        `SELECT uid, phone, email, name, device_token
+         FROM users
+         WHERE uid = $1::uuid OR phone = $1
+         LIMIT 1`,
+        identifier
+      )
+      : await prisma.$queryRawUnsafe(
+        `SELECT uid, phone, email, name, device_token
+         FROM users
+         WHERE phone = $1
+         LIMIT 1`,
+        identifier
+      );
     user = res[0] || null;
   } catch (err) {
     logger.error(`Notification dispatch: failed to lookup user ${userId} — ${err.message}`);
