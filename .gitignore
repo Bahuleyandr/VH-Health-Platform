@@ -47,3 +47,6 @@ node_modules/
 
 # Playwright / test runner artifacts (screenshots, .last-run.json, etc.)
 test-results/
+
+# Backend local object-storage emulator output
+apps/backend/storage/

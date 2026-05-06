@@ -87,14 +87,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ScheduleApiService.getAppointments(
             staffId: _staffId,
             date: today,
-            status: 'scheduled',
-            limit: 5,
+            limit: 20,
           ).then((data) {
             final list = data['appointments'] as List? ?? [];
-            _appointmentCount = data['total'] ?? list.length;
+            final pagination = data['pagination'];
+            final rawTotal = pagination is Map
+                ? pagination['total']
+                : data['total'];
+            _appointmentCount = rawTotal is int
+                ? rawTotal
+                : int.tryParse('$rawTotal') ?? list.length;
             _upcomingAppointments = list
+                .whereType<Map>()
+                .map((a) => Map<String, dynamic>.from(a))
+                .where((a) {
+                  final status = (a['status'] ?? '').toString().toLowerCase();
+                  return status != 'cancelled' &&
+                      status != 'completed' &&
+                      status != 'done';
+                })
                 .take(5)
-                .map((a) => a is Map<String, dynamic> ? a : <String, dynamic>{})
                 .toList();
           }, onError: (_) {}),
         );

@@ -21,6 +21,23 @@ const FREQ_LABELS = {
   STAT: 'Immediately',
 };
 
+function parseJsonField(value, fallback = null) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value !== 'string') return value;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function parseIntegerField(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : NaN;
+}
+
 // ─── PDF Generation ──────────────────────────────────────────────────────────
 async function generatePrescriptionPDF(prescription, patient, doctor) {
   return new Promise((resolve, reject) => {
@@ -231,14 +248,24 @@ export const createPrescription = async (req, res) => {
       doctor_id,
       diagnosis,
       clinical_notes,
-      medications,
+      medications: rawMedications,
       follow_up_date,
       follow_up_notes,
-      vitals,
+      vitals: rawVitals,
     } = req.body;
 
-    if (!patient_id || !doctor_id) {
+    const patientId = parseIntegerField(patient_id);
+    const doctorId = parseIntegerField(doctor_id);
+    const appointmentId = parseIntegerField(appointment_id);
+    const medications = parseJsonField(rawMedications, []);
+    const vitals = parseJsonField(rawVitals, null);
+    const override = parseJsonField(req.body.override, null); // { reason, approvedBy? }
+
+    if (!Number.isInteger(patientId) || !Number.isInteger(doctorId)) {
       return error(res, 'patient_id and doctor_id are required', HTTP_STATUS.BAD_REQUEST);
+    }
+    if (appointment_id && !Number.isInteger(appointmentId)) {
+      return error(res, 'appointment_id must be a valid integer', HTTP_STATUS.BAD_REQUEST);
     }
     if (!medications || !Array.isArray(medications) || medications.length === 0) {
       return error(res, 'At least one medication is required', HTTP_STATUS.BAD_REQUEST);
@@ -248,8 +275,7 @@ export const createPrescription = async (req, res) => {
     // Run safety check; if blockers[] non-empty, require an explicit override payload.
     // Override requires a non-empty reason; we log it to prescription_safety_overrides
     // after the prescription is inserted so there's always a prescription_id to link.
-    const override = req.body.override; // { reason, approvedBy? }
-    const safety = await validatePrescriptionSafety(patient_id, medications);
+    const safety = await validatePrescriptionSafety(patientId, medications);
     if (!safety.safe) {
       if (!override || typeof override.reason !== 'string' || override.reason.trim().length < 5) {
         return error(
@@ -260,13 +286,13 @@ export const createPrescription = async (req, res) => {
         );
       }
       logger.warn(
-        `CDS override used by user=${req.user?.id} patient=${patient_id} blockers=${safety.blockers.length}`,
+        `CDS override used by user=${req.user?.id} patient=${patientId} blockers=${safety.blockers.length}`,
       );
     }
 
     // Validate appointment if provided
-    if (appointment_id) {
-      const apptCheck = await prisma.$queryRawUnsafe('SELECT id FROM appointments WHERE id=$1', appointment_id);
+    if (appointmentId) {
+      const apptCheck = await prisma.$queryRawUnsafe('SELECT id FROM appointments WHERE id=$1', appointmentId);
       if (apptCheck.length === 0) {
         return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
       }
@@ -288,11 +314,11 @@ export const createPrescription = async (req, res) => {
       `INSERT INTO e_prescriptions
         (appointment_id, patient_id, doctor_id, diagnosis, clinical_notes, medications,
          follow_up_date, follow_up_notes, vitals, handwritten_photo_key, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-       RETURNING id, appointment_id, patient_uid, doctor_uid, medications, notes, status, created_at, prescription_number, diagnosis, clinical_notes, vitals, follow_up_date, follow_up_notes, pdf_key, handwritten_photo_key`,
-      appointment_id || null,
-      patient_id,
-      doctor_id,
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::date, $8, $9::jsonb, $10, $11)
+       RETURNING id, appointment_id, patient_id, doctor_id, patient_uid, doctor_uid, medications, notes, status, created_at, prescription_number, diagnosis, clinical_notes, vitals, follow_up_date, follow_up_notes, pdf_key, handwritten_photo_key`,
+      appointmentId || null,
+      patientId,
+      doctorId,
       diagnosis || null,
       clinical_notes || null,
       JSON.stringify(medications),
@@ -313,8 +339,8 @@ export const createPrescription = async (req, res) => {
              (prescription_id, patient_id, doctor_id, blockers, reason, approved_by, created_by)
            VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)`,
           prescription.id,
-          patient_id,
-          doctor_id,
+          patientId,
+          doctorId,
           JSON.stringify(safety.blockers),
           override.reason.trim(),
           override.approvedBy || null,
@@ -327,10 +353,10 @@ export const createPrescription = async (req, res) => {
 
     // Fetch patient and doctor info for PDF
     const [patientRes, doctorRes] = await Promise.all([
-      prisma.$queryRawUnsafe('SELECT id, name, phone, gender, birthday FROM users WHERE id=$1', patient_id),
+      prisma.$queryRawUnsafe('SELECT id, name, phone, gender, birthday FROM users WHERE id=$1', patientId),
       prisma.$queryRawUnsafe(`SELECT u.id, u.name, u.phone, d.specialty AS specialization, NULL::text AS qualification
                 FROM users u LEFT JOIN doctors d ON d.user_id = u.id
-                WHERE u.id=$1`, doctor_id),
+                WHERE u.id=$1`, doctorId),
     ]);
     const patient = patientRes[0] || {};
     const doctor = doctorRes[0] || {};
@@ -642,7 +668,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     const orderResult = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_orders
         (phone, patient_id, patient_name, order_note, delivery_type, delivery_address, delivery_phone, items_list, total_amount, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, 'pending')
        RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at, order_number, delivery_type`,
       phone,
       rx.patient_id,

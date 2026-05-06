@@ -46,8 +46,17 @@ export async function validatePrescriptionSafety(patientId, medications) {
 
     // 2. Check for duplicate active prescriptions (same medication)
     const activeMedsResult = await prisma.$queryRawUnsafe(
-      `SELECT medication_name FROM e_prescriptions
-       WHERE patient_id = $1 AND status = 'ACTIVE' AND end_date >= CURRENT_DATE`,
+      `SELECT DISTINCT
+          COALESCE(
+            NULLIF(TRIM(ep.medication_name), ''),
+            NULLIF(TRIM(med.value->>'name'), ''),
+            NULLIF(TRIM(med.value->>'medication_name'), '')
+          ) AS medication_name
+       FROM e_prescriptions ep
+       LEFT JOIN LATERAL jsonb_array_elements(COALESCE(ep.medications, '[]'::jsonb)) AS med(value) ON TRUE
+       WHERE ep.patient_id = $1
+         AND LOWER(COALESCE(ep.status, 'active')) IN ('active', 'pharmacy_linked')
+         AND (ep.follow_up_date IS NULL OR ep.follow_up_date >= CURRENT_DATE)`,
       patientId
     );
 
