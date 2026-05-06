@@ -3,8 +3,72 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 import { uploadFileToR2, getSignedFileUrl, deleteObject } from '../../utils/r2Storage.js';
 import { success, error } from '../../utils/responseHelper.js';
+
+async function resolvePatientForRecordUpload(req) {
+  const role = String(req.user?.role || '').toUpperCase();
+  if (role === 'PATIENT') {
+    return req.user?.id;
+  }
+
+  const explicitId = parseInt(req.body.patient_id, 10);
+  if (Number.isFinite(explicitId)) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, role FROM users WHERE id=$1 LIMIT 1`,
+      explicitId,
+    );
+    if (!rows.length) {
+      const err = new Error('Patient not found');
+      err.statusCode = HTTP_STATUS.NOT_FOUND;
+      throw err;
+    }
+    if (rows[0].role !== 'PATIENT') {
+      const err = new Error('Target user is not a patient');
+      err.statusCode = HTTP_STATUS.CONFLICT;
+      throw err;
+    }
+    return rows[0].id;
+  }
+
+  const patientPhone = normalizePhone(req.body.patient_phone);
+  if (!patientPhone) {
+    const err = new Error('patient_phone or patient_id is required');
+    err.statusCode = HTTP_STATUS.BAD_REQUEST;
+    throw err;
+  }
+
+  const last10 = patientPhone.replace(/\D/g, '').slice(-10);
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT id, role
+       FROM users
+      WHERE phone = $1 OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $2
+      ORDER BY CASE WHEN phone = $1 THEN 0 ELSE 1 END, registered_at DESC NULLS LAST
+      LIMIT 1`,
+    patientPhone,
+    `%${last10}`,
+  );
+
+  if (existing.length > 0) {
+    if (existing[0].role !== 'PATIENT') {
+      const err = new Error('This phone number belongs to a non-patient account');
+      err.statusCode = HTTP_STATUS.CONFLICT;
+      throw err;
+    }
+    return existing[0].id;
+  }
+
+  const patientName = String(req.body.patient_name || '').trim() || 'New Patient';
+  const created = await prisma.$queryRawUnsafe(
+    `INSERT INTO users (phone, name, role, registered_at, updated_at)
+     VALUES ($1, $2, 'PATIENT', NOW(), NOW())
+     RETURNING id`,
+    patientPhone,
+    patientName,
+  );
+  return created[0].id;
+}
 
 /**
  * Upload prescription/scan after appointment (staff/doctor)
@@ -168,7 +232,7 @@ export const getPatientAllRecords = async (req, res) => {
  */
 export const uploadPatientRecord = async (req, res) => {
   try {
-    const patientId = req.user?.id;
+    const patientId = await resolvePatientForRecordUpload(req);
     const { document_type, title, source_hospital, record_date, notes } = req.body;
 
     if (!req.file || !title) return error(res, 'file and title are required', HTTP_STATUS.BAD_REQUEST);
@@ -199,6 +263,7 @@ export const uploadPatientRecord = async (req, res) => {
 
     success(res, result[0], 'Record uploaded');
   } catch (err) {
+    if (err?.statusCode) return error(res, err.message, err.statusCode);
     logger.error('Patient Upload Error:', err);
     error(res, 'Failed to upload record', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

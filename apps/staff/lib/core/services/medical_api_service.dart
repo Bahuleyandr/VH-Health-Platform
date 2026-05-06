@@ -184,6 +184,47 @@ class MedicalApiService {
     return _get('/investigations/bookings/queue', query: query);
   }
 
+  /// POST /investigations/bookings/create — staff creates OP/IP lab booking.
+  static Future<Map<String, dynamic>> createInvestigationBooking({
+    required String patientPhone,
+    String? patientName,
+    String? customTestNames,
+    String collectionType = 'walk_in',
+    String? preferredDate,
+    String? preferredTimeSlot,
+    String? notes,
+    String? slipPath,
+    String? slipFileName,
+  }) async {
+    final fields = <String, String>{
+      'patient_phone': patientPhone,
+      if (patientName != null && patientName.trim().isNotEmpty)
+        'patient_name': patientName.trim(),
+      if (customTestNames != null && customTestNames.trim().isNotEmpty)
+        'custom_test_names': customTestNames.trim(),
+      'collection_type': collectionType,
+      'preferred_date': ?preferredDate,
+      'preferred_time_slot': ?preferredTimeSlot,
+      if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+    };
+    if (slipPath != null) {
+      final files = [
+        await http.MultipartFile.fromPath(
+          'slip_photo',
+          slipPath,
+          filename: slipFileName,
+        ),
+      ];
+      final resp = await ApiClient.multipart(
+        '/investigations/bookings/create',
+        fields: fields,
+        files: files,
+      );
+      return _handle(resp);
+    }
+    return _post('/investigations/bookings/create', fields);
+  }
+
   /// GET /investigations/bookings/:id
   static Future<Map<String, dynamic>> getInvestigationBookingDetail(int id) {
     return _get('/investigations/bookings/$id');
@@ -486,6 +527,40 @@ class MedicalApiService {
   /// GET /records/patient/:patient_id — records for a specific patient
   static Future<Map<String, dynamic>> getPatientRecords(int patientId) async {
     return _get('/records/patient/$patientId');
+  }
+
+  /// POST /appointments/patient/records/upload — upload prior patient record.
+  static Future<Map<String, dynamic>> uploadPatientPriorRecord({
+    required String patientPhone,
+    String? patientName,
+    required String title,
+    required String documentType,
+    required String filePath,
+    String? fileName,
+    String? sourceHospital,
+    String? recordDate,
+    String? notes,
+  }) async {
+    final fields = <String, String>{
+      'patient_phone': patientPhone,
+      if (patientName != null && patientName.trim().isNotEmpty)
+        'patient_name': patientName.trim(),
+      'title': title,
+      'document_type': documentType,
+      if (sourceHospital != null && sourceHospital.trim().isNotEmpty)
+        'source_hospital': sourceHospital.trim(),
+      'record_date': ?recordDate,
+      if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+    };
+    final files = [
+      await http.MultipartFile.fromPath('file', filePath, filename: fileName),
+    ];
+    final resp = await ApiClient.multipart(
+      '/appointments/patient/records/upload',
+      fields: fields,
+      files: files,
+    );
+    return _handle(resp);
   }
 
   // ─── EMR: Admissions ──────────────────────────────────────────────────────

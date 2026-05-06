@@ -3,16 +3,83 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { sendSMS } from '../../services/smsService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { calculateETA } from '../delivery/deliveryTrackingController.js';
+
+async function resolveBookingPatient(req) {
+  const role = String(req.user?.role || '').toUpperCase();
+  if (role === 'PATIENT') {
+    const patient = await prisma.$queryRawUnsafe(
+      'SELECT id, name, phone FROM users WHERE id=$1 LIMIT 1',
+      req.user?.id,
+    );
+    return patient[0] || { id: req.user?.id, name: null, phone: null };
+  }
+
+  const explicitId = parseInt(req.body.patient_id, 10);
+  if (Number.isFinite(explicitId)) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, name, phone, role FROM users WHERE id=$1 LIMIT 1`,
+      explicitId,
+    );
+    if (!rows.length) {
+      const err = new Error('Patient not found');
+      err.statusCode = HTTP_STATUS.NOT_FOUND;
+      throw err;
+    }
+    if (rows[0].role !== 'PATIENT') {
+      const err = new Error('Target user is not a patient');
+      err.statusCode = HTTP_STATUS.CONFLICT;
+      throw err;
+    }
+    return rows[0];
+  }
+
+  const patientPhone = normalizePhone(req.body.patient_phone);
+  if (!patientPhone) {
+    const err = new Error('patient_phone or patient_id is required');
+    err.statusCode = HTTP_STATUS.BAD_REQUEST;
+    throw err;
+  }
+
+  const last10 = patientPhone.replace(/\D/g, '').slice(-10);
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT id, name, phone, role
+       FROM users
+      WHERE phone = $1 OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $2
+      ORDER BY CASE WHEN phone = $1 THEN 0 ELSE 1 END, registered_at DESC NULLS LAST
+      LIMIT 1`,
+    patientPhone,
+    `%${last10}`,
+  );
+
+  if (existing.length > 0) {
+    if (existing[0].role !== 'PATIENT') {
+      const err = new Error('This phone number belongs to a non-patient account');
+      err.statusCode = HTTP_STATUS.CONFLICT;
+      throw err;
+    }
+    return existing[0];
+  }
+
+  const patientName = String(req.body.patient_name || '').trim() || 'New Patient';
+  const created = await prisma.$queryRawUnsafe(
+    `INSERT INTO users (phone, name, role, registered_at, updated_at)
+     VALUES ($1, $2, 'PATIENT', NOW(), NOW())
+     RETURNING id, name, phone`,
+    patientPhone,
+    patientName,
+  );
+  return created[0];
+}
 
 // ─── Patient Endpoints ─────────────────────────────────────────────────────
 
 // POST /investigations/bookings/create — patient books investigation
 export const createBooking = async (req, res) => {
   try {
-    const patientId = req.user?.id;
     const {
       selected_tests,
       custom_test_names,
@@ -45,6 +112,9 @@ export const createBooking = async (req, res) => {
       }
     }
 
+    const patientRow = await resolveBookingPatient(req);
+    const patientId = patientRow.id;
+
     // Upload slip photo if provided
     let slipPhotoKey = null;
     if (req.file) {
@@ -55,8 +125,6 @@ export const createBooking = async (req, res) => {
         await uploadFileToR2(req.file.buffer, slipPhotoKey, req.file.mimetype);
       } catch (e) { logger.warn('Slip upload failed:', e.message); }
     }
-
-    const patient = await prisma.$queryRawUnsafe('SELECT name, phone FROM users WHERE id=$1', patientId);
 
     const result = await prisma.$queryRawUnsafe(`
       INSERT INTO investigation_bookings (
@@ -73,7 +141,7 @@ export const createBooking = async (req, res) => {
         preferred_date, preferred_time_slot, estimated_cost,
         status, created_at, updated_at
     `, 
-      patientId, patient[0]?.phone, patient[0]?.name,
+      patientId, patientRow?.phone, patientRow?.name,
       parsedTests || null, custom_test_names || null, slipPhotoKey, notes || null,
       collection_type || 'home', collection_address || null, collection_landmark || null,
       collection_lat || null, collection_lng || null,
@@ -93,7 +161,7 @@ export const createBooking = async (req, res) => {
       try {
         const labStaff = await prisma.$queryRawUnsafe(`
           SELECT device_token, name FROM users
-          WHERE role IN ('LAB_TECHNICIAN', 'TECHNICIAN', 'NURSE')
+          WHERE role IN ('LAB_STAFF', 'NURSING_STAFF')
             AND device_token IS NOT NULL AND is_active = TRUE LIMIT 20
         `);
         const tokens = labStaff.map(r => r.device_token).filter(Boolean);
@@ -101,7 +169,7 @@ export const createBooking = async (req, res) => {
           await sendPushNotification({
             tokens,
             title: '🔬 New Investigation Booking',
-            body: `${patient[0]?.name || 'Patient'} booked: ${parsedTests?.length ? parsedTests.length + ' tests' : custom_test_names || 'Prescription slip'}. ${collection_type === 'home' ? 'Home collection' : 'Walk-in'}`,
+            body: `${patientRow?.name || 'Patient'} booked: ${parsedTests?.length ? parsedTests.length + ' tests' : custom_test_names || 'Prescription slip'}. ${collection_type === 'home' ? 'Home collection' : 'Walk-in'}`,
             data: { type: 'investigation_booking', booking_id: String(result[0].id) }
           }).catch(e => logger.warn('Failed to send new booking push notification:', e.message));
         }
@@ -110,6 +178,7 @@ export const createBooking = async (req, res) => {
 
     success(res, result[0], `Investigation booked. ${result[0].booking_number}`);
   } catch (e) {
+    if (e?.statusCode) return error(res, e.message, e.statusCode);
     logger.error('createBooking error:', e);
     error(res, 'Failed to create investigation booking', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

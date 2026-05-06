@@ -24,12 +24,29 @@ class PharmacyApiService {
 
   static Map<String, dynamic> _handle(ApiResponse resp) {
     if (resp.isSuccess && resp.raw is Map) {
-      final raw = resp.raw as Map<String, dynamic>;
+      final raw = Map<String, dynamic>.from(resp.raw as Map);
       if (raw['success'] == true) {
-        return (raw['data'] as Map<String, dynamic>?) ?? raw;
+        final data = raw['data'];
+        if (data is Map) return Map<String, dynamic>.from(data);
+        if (data is List) return {'data': data};
+        return raw;
       }
     }
     throw Exception(resp.message ?? 'Request failed (${resp.statusCode})');
+  }
+
+  static List<dynamic> _listFrom(Map<String, dynamic> data, List<String> keys) {
+    dynamic value;
+    for (final key in keys) {
+      value = data[key];
+      if (value != null) break;
+    }
+    value ??= data['data'];
+    if (value is Map) {
+      return _listFrom(Map<String, dynamic>.from(value), keys);
+    }
+    if (value is List) return value;
+    return const [];
   }
 
   // ─── Pharmacy Orders ──────────────────────────────────────────────────────
@@ -68,9 +85,7 @@ class PharmacyApiService {
       '/pharmacy-orders/orders/queue',
       query: {'status': ?status},
     );
-    final data = resp['data'];
-    if (data is List) return data;
-    return [];
+    return _listFrom(resp, const ['orders', 'queue']);
   }
 
   /// POST /pharmacy-orders/orders/:id/confirm

@@ -37,12 +37,12 @@ export default {
   // 403 because they weren't listed; the staff app shows a perpetual
   // empty notifications panel until they're allowed.
   notificationRoutes: [PATIENT, GENERAL_STAFF, ADMIN, DOCTOR, NURSING_STAFF, PHARMACY_STAFF, LAB_STAFF, HR_STAFF],
-  pharmacyRoutes: [PHARMACY_STAFF, DOCTOR, ADMIN],
+  pharmacyRoutes: [PHARMACY_STAFF, NURSING_STAFF, DOCTOR, ADMIN],
   // If you use a separate key for /pharmacy-orders in wrappers:
-  pharmacyOrdersRoutes: [PATIENT, PHARMACY_STAFF, DOCTOR, ADMIN],
-  pharmacyOrderRoutes: [PHARMACY_STAFF, DOCTOR, ADMIN],
+  pharmacyOrdersRoutes: [PATIENT, PHARMACY_STAFF, NURSING_STAFF, DOCTOR, ADMIN],
+  pharmacyOrderRoutes: [PHARMACY_STAFF, NURSING_STAFF, DOCTOR, ADMIN],
   // Pharmacy lifecycle — patient can place + view own orders
-  pharmacyPatientOrderRoutes: [PATIENT, PHARMACY_STAFF, DOCTOR, ADMIN],
+  pharmacyPatientOrderRoutes: [PATIENT, PHARMACY_STAFF, NURSING_STAFF, DOCTOR, ADMIN],
   // Pharmacy staff/admin lifecycle actions
   pharmacyLifecycleRoutes: [PHARMACY_STAFF, ADMIN],
   // Pharmacy catalog management

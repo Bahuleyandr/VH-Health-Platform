@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import '../../../core/services/medical_api_service.dart';
+import '../../../core/services/patient_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
+
+String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D'), '');
 
 /// Patient Records screen — Doctors/Nurses/Admin view patient records.
 class PatientRecordsScreen extends StatefulWidget {
@@ -67,6 +73,420 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
     }
   }
 
+  Future<void> _showUploadRecordSheet() async {
+    final formKey = GlobalKey<FormState>();
+    final phoneCtrl = TextEditingController();
+    final patientNameCtrl = TextEditingController();
+    final titleCtrl = TextEditingController();
+    final sourceCtrl = TextEditingController(text: 'Venkataeswara Hospitals');
+    final notesCtrl = TextEditingController();
+    var documentType = 'prior_record';
+    DateTime? recordDate;
+    String? pickedPath;
+    String? pickedName;
+    var submitting = false;
+    var lookupBusy = false;
+    var patientNameReadOnly = false;
+    var lookupMessage = 'Enter phone, then tap Check';
+
+    Future<void> lookupPatient(StateSetter setSheetState) async {
+      final digits = _digitsOnly(phoneCtrl.text);
+      final last10 = digits.length >= 10
+          ? digits.substring(digits.length - 10)
+          : digits;
+      if (last10.length < 10) {
+        setSheetState(() {
+          lookupMessage = 'Enter a valid 10-digit phone number';
+          patientNameReadOnly = false;
+        });
+        return;
+      }
+
+      setSheetState(() {
+        lookupBusy = true;
+        lookupMessage = 'Checking patient registry...';
+      });
+
+      try {
+        final matches = await PatientApiService.search(
+          phoneCtrl.text,
+          limit: 10,
+        );
+        Map<String, dynamic>? exact;
+        for (final patient in matches) {
+          if (_digitsOnly(
+            patient['phone']?.toString() ?? '',
+          ).endsWith(last10)) {
+            exact = patient;
+            break;
+          }
+        }
+        if (exact == null) {
+          setSheetState(() {
+            lookupBusy = false;
+            patientNameReadOnly = false;
+            lookupMessage = 'New patient - name will be used during upload';
+          });
+          return;
+        }
+        setSheetState(() {
+          lookupBusy = false;
+          patientNameReadOnly = true;
+          patientNameCtrl.text = exact!['name']?.toString() ?? '';
+          lookupMessage = 'Existing patient found';
+        });
+      } catch (_) {
+        setSheetState(() {
+          lookupBusy = false;
+          patientNameReadOnly = false;
+          lookupMessage = 'Could not check now; upload can still continue';
+        });
+      }
+    }
+
+    final uploaded = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final recordDateLabel = recordDate == null
+              ? 'Record date'
+              : DateFormat('yyyy-MM-dd').format(recordDate!);
+
+          Future<void> submit() async {
+            if (!formKey.currentState!.validate()) return;
+            if (pickedPath == null) {
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                const SnackBar(
+                  content: Text('Attach a file or photo'),
+                  backgroundColor: AppTheme.errorRed,
+                ),
+              );
+              return;
+            }
+            setSheetState(() => submitting = true);
+            try {
+              await MedicalApiService.uploadPatientPriorRecord(
+                patientPhone: phoneCtrl.text.trim(),
+                patientName: patientNameCtrl.text.trim(),
+                title: titleCtrl.text.trim(),
+                documentType: documentType,
+                filePath: pickedPath!,
+                fileName: pickedName,
+                sourceHospital: sourceCtrl.text.trim(),
+                recordDate: recordDate == null
+                    ? null
+                    : DateFormat('yyyy-MM-dd').format(recordDate!),
+                notes: notesCtrl.text.trim().isEmpty
+                    ? null
+                    : notesCtrl.text.trim(),
+              );
+              if (ctx.mounted) Navigator.pop(ctx, true);
+            } catch (e) {
+              if (!ctx.mounted) return;
+              setSheetState(() => submitting = false);
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                SnackBar(
+                  content: Text(e.toString().replaceFirst('Exception: ', '')),
+                  backgroundColor: AppTheme.errorRed,
+                ),
+              );
+            }
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+            ),
+            child: SingleChildScrollView(
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Upload Prior Record',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          tooltip: 'Close',
+                          onPressed: submitting
+                              ? null
+                              : () => Navigator.pop(ctx, false),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: phoneCtrl,
+                      keyboardType: TextInputType.phone,
+                      decoration: InputDecoration(
+                        labelText: 'Patient phone',
+                        helperText: lookupMessage,
+                        prefixIcon: const ExcludeSemantics(
+                          child: Icon(Icons.phone_outlined),
+                        ),
+                        suffixIcon: lookupBusy
+                            ? const Padding(
+                                padding: EdgeInsets.all(12),
+                                child: SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              )
+                            : TextButton(
+                                onPressed: submitting
+                                    ? null
+                                    : () => lookupPatient(setSheetState),
+                                child: const Text('Check'),
+                              ),
+                      ),
+                      validator: (value) => _digitsOnly(value ?? '').length < 10
+                          ? 'Enter a valid phone number'
+                          : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: patientNameCtrl,
+                      readOnly: patientNameReadOnly,
+                      decoration: const InputDecoration(
+                        labelText: 'Patient name',
+                        prefixIcon: ExcludeSemantics(
+                          child: Icon(Icons.person_outline),
+                        ),
+                      ),
+                      validator: (value) => (value?.trim().length ?? 0) < 2
+                          ? 'Enter patient name'
+                          : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: titleCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Record title',
+                        hintText: 'Old discharge summary, prior scan...',
+                        prefixIcon: ExcludeSemantics(
+                          child: Icon(Icons.title_outlined),
+                        ),
+                      ),
+                      validator: (value) => (value?.trim().length ?? 0) < 3
+                          ? 'Enter a title'
+                          : null,
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: documentType,
+                      decoration: const InputDecoration(
+                        labelText: 'Document type',
+                        prefixIcon: ExcludeSemantics(
+                          child: Icon(Icons.folder_copy_outlined),
+                        ),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'prior_record',
+                          child: Text('Prior record'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'discharge_summary',
+                          child: Text('Discharge summary'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'lab_report',
+                          child: Text('Lab report'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'radiology',
+                          child: Text('Radiology'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'prescription',
+                          child: Text('Prescription'),
+                        ),
+                        DropdownMenuItem(value: 'other', child: Text('Other')),
+                      ],
+                      onChanged: submitting
+                          ? null
+                          : (value) => setSheetState(
+                              () => documentType = value ?? documentType,
+                            ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: sourceCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Source hospital',
+                              prefixIcon: ExcludeSemantics(
+                                child: Icon(Icons.local_hospital_outlined),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: submitting
+                                ? null
+                                : () async {
+                                    final picked = await showDatePicker(
+                                      context: ctx,
+                                      initialDate: recordDate ?? DateTime.now(),
+                                      firstDate: DateTime(1950),
+                                      lastDate: DateTime.now(),
+                                    );
+                                    if (picked != null) {
+                                      setSheetState(() => recordDate = picked);
+                                    }
+                                  },
+                            icon: const Icon(Icons.calendar_today_outlined),
+                            label: Text(recordDateLabel),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.attach_file),
+                            label: Text(pickedName ?? 'Choose file'),
+                            onPressed: submitting
+                                ? null
+                                : () async {
+                                    final result = await FilePicker.pickFiles(
+                                      type: FileType.custom,
+                                      allowedExtensions: [
+                                        'pdf',
+                                        'jpg',
+                                        'jpeg',
+                                        'png',
+                                      ],
+                                    );
+                                    final file = result?.files.single;
+                                    if (file?.path != null) {
+                                      setSheetState(() {
+                                        pickedPath = file!.path;
+                                        pickedName = file.name;
+                                      });
+                                    }
+                                  },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.camera_alt_outlined),
+                            label: const Text('Camera'),
+                            onPressed: submitting
+                                ? null
+                                : () async {
+                                    final picked = await ImagePicker()
+                                        .pickImage(source: ImageSource.camera);
+                                    if (picked != null) {
+                                      setSheetState(() {
+                                        pickedPath = picked.path;
+                                        pickedName = picked.name;
+                                      });
+                                    }
+                                  },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: notesCtrl,
+                      maxLines: 2,
+                      decoration: const InputDecoration(
+                        labelText: 'Notes (optional)',
+                        prefixIcon: ExcludeSemantics(
+                          child: Icon(Icons.notes_outlined),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: submitting ? null : submit,
+                        icon: submitting
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.upload_file,
+                                color: Colors.white,
+                              ),
+                        label: Text(
+                          submitting ? 'Uploading...' : 'Upload Record',
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryBlue,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    phoneCtrl.dispose();
+    patientNameCtrl.dispose();
+    titleCtrl.dispose();
+    sourceCtrl.dispose();
+    notesCtrl.dispose();
+
+    if (uploaded == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Patient record uploaded'),
+          backgroundColor: AppTheme.successGreen,
+        ),
+      );
+      if (_searchCtrl.text.trim().isNotEmpty) {
+        final digits = _digitsOnly(_searchCtrl.text);
+        if (digits.length == 10) {
+          await _searchByPhone(digits);
+          return;
+        }
+      }
+      _load();
+    }
+  }
+
   List<dynamic> get _filtered {
     if (_searchQuery.isEmpty) return _appointments;
     final q = _searchQuery.toLowerCase();
@@ -93,28 +513,61 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
           Container(
             color: Colors.white,
             padding: const EdgeInsets.all(12),
-            child: TextField(
-              controller: _searchCtrl,
-              decoration: InputDecoration(
-                hintText: s.patientRecordsSearchHint,
-                prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        tooltip: s.patientRecordsClearTooltip,
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          setState(() => _searchQuery = '');
-                        },
-                      )
-                    : null,
-                filled: true,
-                fillColor: AppTheme.backgroundGrey,
-              ),
-              onChanged: (v) => setState(() => _searchQuery = v),
-              onSubmitted: (v) {
-                final digits = v.replaceAll(RegExp(r'\D'), '');
-                if (digits.length == 10) _searchByPhone(digits);
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final searchField = TextField(
+                  controller: _searchCtrl,
+                  decoration: InputDecoration(
+                    hintText: s.patientRecordsSearchHint,
+                    prefixIcon: const ExcludeSemantics(
+                      child: Icon(Icons.search),
+                    ),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            tooltip: s.patientRecordsClearTooltip,
+                            onPressed: () {
+                              _searchCtrl.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: AppTheme.backgroundGrey,
+                  ),
+                  onChanged: (v) => setState(() => _searchQuery = v),
+                  onSubmitted: (v) {
+                    final digits = _digitsOnly(v);
+                    if (digits.length == 10) _searchByPhone(digits);
+                  },
+                );
+                final uploadButton = ElevatedButton.icon(
+                  onPressed: _showUploadRecordSheet,
+                  icon: const Icon(Icons.upload_file, color: Colors.white),
+                  label: const Text('Upload Prior Record'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryBlue,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(0, 50),
+                  ),
+                );
+                if (constraints.maxWidth < 560) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      searchField,
+                      const SizedBox(height: 10),
+                      uploadButton,
+                    ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: searchField),
+                    const SizedBox(width: 12),
+                    uploadButton,
+                  ],
+                );
               },
             ),
           ),

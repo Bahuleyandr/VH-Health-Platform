@@ -34,12 +34,37 @@ class ScheduleApiService {
 
   static Map<String, dynamic> _handle(ApiResponse resp) {
     if (resp.isSuccess && resp.raw is Map) {
-      final raw = resp.raw as Map<String, dynamic>;
+      final raw = Map<String, dynamic>.from(resp.raw as Map);
       if (raw['success'] == true) {
-        return (raw['data'] as Map<String, dynamic>?) ?? raw;
+        final data = raw['data'];
+        if (data is Map) return Map<String, dynamic>.from(data);
+        if (data is List) return {'data': data};
+        return raw;
       }
     }
     throw Exception(resp.message ?? 'Request failed (${resp.statusCode})');
+  }
+
+  static List<Map<String, dynamic>> _listFrom(
+    Map<String, dynamic> data,
+    List<String> keys,
+  ) {
+    dynamic value;
+    for (final key in keys) {
+      value = data[key];
+      if (value != null) break;
+    }
+    value ??= data['data'];
+    if (value is Map) {
+      return _listFrom(Map<String, dynamic>.from(value), keys);
+    }
+    if (value is List) {
+      return value
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+    }
+    return const [];
   }
 
   // ─── Shift Management ───────────────────────────────────────────────────
@@ -115,12 +140,7 @@ class ScheduleApiService {
         '/appointments/doctors/options',
         query: {'page': page.toString(), 'limit': '100', 'search': ?search},
       );
-      final list = data['doctors'] as List? ?? [];
-      doctors.addAll(
-        list.whereType<Map>().map(
-          (doctor) => Map<String, dynamic>.from(doctor),
-        ),
-      );
+      doctors.addAll(_listFrom(data, const ['doctors']));
       final pagination = data['pagination'] as Map<String, dynamic>?;
       hasNext = pagination?['hasNext'] == true;
       page += 1;
@@ -156,7 +176,7 @@ class ScheduleApiService {
       '/appointments/queue/today',
       query: {'doctor_id': ?doctorId, 'department': ?department},
     );
-    return r['data'] as List? ?? (r is List ? r as List : []);
+    return _listFrom(r, const ['queue', 'appointments']);
   }
 
   /// GET /appointments/pending — pending appointments needing confirmation
@@ -173,7 +193,7 @@ class ScheduleApiService {
         'doctor_id': ?doctorId,
       },
     );
-    return r['data'] as List? ?? (r is List ? r as List : []);
+    return _listFrom(r, const ['pending', 'appointments']);
   }
 
   /// POST /appointments/:id/confirm

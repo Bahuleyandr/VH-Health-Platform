@@ -11,6 +11,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
+String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D'), '');
+
 class LabBookingsScreen extends StatefulWidget {
   const LabBookingsScreen({super.key});
 
@@ -117,6 +119,290 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
     }
   }
 
+  Future<void> _showCreateBookingDialog() async {
+    final s = AppStrings.of(context);
+    final formKey = GlobalKey<FormState>();
+    final phoneCtrl = TextEditingController();
+    final patientNameCtrl = TextEditingController();
+    final testsCtrl = TextEditingController();
+    final notesCtrl = TextEditingController();
+    var collectionType = 'walk_in';
+    var preferredDate = DateTime.now();
+    var preferredTime = TimeOfDay.fromDateTime(
+      DateTime.now().add(const Duration(hours: 1)),
+    );
+    var submitting = false;
+    PlatformFile? pickedSlip;
+
+    final created = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final dateLabel = DateFormat('yyyy-MM-dd').format(preferredDate);
+          final timeLabel =
+              '${preferredTime.hour.toString().padLeft(2, '0')}:${preferredTime.minute.toString().padLeft(2, '0')}';
+
+          Future<void> submit() async {
+            if (!formKey.currentState!.validate()) return;
+            if (testsCtrl.text.trim().isEmpty && pickedSlip?.path == null) {
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                const SnackBar(
+                  content: Text('Enter test names or attach a prescription'),
+                  backgroundColor: AppTheme.errorRed,
+                ),
+              );
+              return;
+            }
+            setSheetState(() => submitting = true);
+            try {
+              await MedicalApiService.createInvestigationBooking(
+                patientPhone: phoneCtrl.text.trim(),
+                patientName: patientNameCtrl.text.trim(),
+                customTestNames: testsCtrl.text.trim(),
+                collectionType: collectionType,
+                preferredDate: dateLabel,
+                preferredTimeSlot: timeLabel,
+                notes: notesCtrl.text.trim().isEmpty
+                    ? null
+                    : notesCtrl.text.trim(),
+                slipPath: pickedSlip?.path,
+                slipFileName: pickedSlip?.name,
+              );
+              if (ctx.mounted) Navigator.pop(ctx, true);
+            } catch (e) {
+              if (!ctx.mounted) return;
+              setSheetState(() => submitting = false);
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                SnackBar(
+                  content: Text(e.toString().replaceFirst('Exception: ', '')),
+                  backgroundColor: AppTheme.errorRed,
+                ),
+              );
+            }
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+            ),
+            child: SingleChildScrollView(
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'New Lab Booking',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          tooltip: s.actionCancel,
+                          onPressed: submitting
+                              ? null
+                              : () => Navigator.pop(ctx, false),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: phoneCtrl,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Patient phone',
+                        prefixIcon: ExcludeSemantics(
+                          child: Icon(Icons.phone_outlined),
+                        ),
+                      ),
+                      validator: (value) => _digitsOnly(value ?? '').length < 10
+                          ? 'Enter a valid phone number'
+                          : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: patientNameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Patient name',
+                        helperText: 'Used if this phone is not registered yet',
+                        prefixIcon: ExcludeSemantics(
+                          child: Icon(Icons.person_outline),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: testsCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Tests',
+                        hintText: 'CBC, RFT, urine routine...',
+                        prefixIcon: ExcludeSemantics(
+                          child: Icon(Icons.science),
+                        ),
+                      ),
+                      minLines: 2,
+                      maxLines: 3,
+                    ),
+                    const SizedBox(height: 12),
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(
+                          value: 'walk_in',
+                          icon: Icon(Icons.local_hospital_outlined),
+                          label: Text('Visit lab'),
+                        ),
+                        ButtonSegment(
+                          value: 'home',
+                          icon: Icon(Icons.home_outlined),
+                          label: Text('Home'),
+                        ),
+                      ],
+                      selected: {collectionType},
+                      onSelectionChanged: submitting
+                          ? null
+                          : (selection) => setSheetState(
+                              () => collectionType = selection.first,
+                            ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: submitting
+                                ? null
+                                : () async {
+                                    final picked = await showDatePicker(
+                                      context: ctx,
+                                      initialDate: preferredDate,
+                                      firstDate: DateTime.now(),
+                                      lastDate: DateTime.now().add(
+                                        const Duration(days: 90),
+                                      ),
+                                    );
+                                    if (picked != null) {
+                                      setSheetState(
+                                        () => preferredDate = picked,
+                                      );
+                                    }
+                                  },
+                            icon: const Icon(Icons.calendar_today_outlined),
+                            label: Text(dateLabel),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: submitting
+                                ? null
+                                : () async {
+                                    final picked = await showTimePicker(
+                                      context: ctx,
+                                      initialTime: preferredTime,
+                                    );
+                                    if (picked != null) {
+                                      setSheetState(
+                                        () => preferredTime = picked,
+                                      );
+                                    }
+                                  },
+                            icon: const Icon(Icons.schedule_outlined),
+                            label: Text(timeLabel),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: submitting
+                          ? null
+                          : () async {
+                              final result = await FilePicker.pickFiles(
+                                type: FileType.custom,
+                                allowedExtensions: [
+                                  'pdf',
+                                  'jpg',
+                                  'jpeg',
+                                  'png',
+                                ],
+                              );
+                              if (result != null) {
+                                setSheetState(
+                                  () => pickedSlip = result.files.single,
+                                );
+                              }
+                            },
+                      icon: const Icon(Icons.attach_file),
+                      label: Text(pickedSlip?.name ?? 'Attach prescription'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: notesCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Notes (optional)',
+                        prefixIcon: ExcludeSemantics(
+                          child: Icon(Icons.notes_outlined),
+                        ),
+                      ),
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: submitting ? null : submit,
+                        icon: submitting
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.add, color: Colors.white),
+                        label: Text(submitting ? 'Booking...' : 'Book Lab'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryBlue,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    phoneCtrl.dispose();
+    patientNameCtrl.dispose();
+    testsCtrl.dispose();
+    notesCtrl.dispose();
+
+    if (created == true && mounted) {
+      _showSnack('Lab booking created');
+      _fetchBookings();
+    }
+  }
+
   List<dynamic> get _newBookings =>
       _bookings.where((b) => b['status'] == 'BOOKED').toList();
 
@@ -141,6 +427,37 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
       title: s.labBookingsTitle,
       body: Column(
         children: [
+          Container(
+            color: Theme.of(context).colorScheme.surface,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Book and track OP/IP lab requests',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Refresh',
+                  onPressed: _fetchBookings,
+                  icon: const Icon(Icons.refresh),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: _showCreateBookingDialog,
+                  icon: const Icon(Icons.add, color: Colors.white),
+                  label: const Text('New'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryBlue,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
           Container(
             color: Colors.white,
             child: TabBar(

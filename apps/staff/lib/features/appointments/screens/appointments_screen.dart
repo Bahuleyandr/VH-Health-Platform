@@ -15,6 +15,22 @@ import '../../../core/widgets/states/success_toast.dart';
 
 String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D'), '');
 
+int? _doctorId(Map<String, dynamic> doctor) =>
+    int.tryParse(doctor['id']?.toString() ?? '');
+
+String _doctorLabel(Map<String, dynamic> doctor) {
+  final id = _doctorId(doctor);
+  final name =
+      doctor['name']?.toString() ?? (id == null ? 'Doctor' : 'Doctor #$id');
+  final department = doctor['department']?.toString() ?? '';
+  final specialization = doctor['specialization']?.toString() ?? '';
+  return [
+    name,
+    if (department.isNotEmpty) department,
+    if (specialization.isNotEmpty) specialization,
+  ].join(' - ');
+}
+
 class AppointmentsScreen extends StatefulWidget {
   const AppointmentsScreen({super.key});
 
@@ -345,65 +361,145 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                       FutureBuilder<List<Map<String, dynamic>>>(
                         future: doctorsFuture,
                         builder: (context, snapshot) {
-                          final doctors = snapshot.data ?? const [];
-                          return DropdownButtonFormField<int>(
-                            initialValue: selectedDoctorId,
-                            isExpanded: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Doctor',
-                              prefixIcon: ExcludeSemantics(
-                                child: Icon(Icons.medical_services_outlined),
-                              ),
-                            ),
-                            items: doctors
-                                .map((doctor) {
-                                  final id = int.tryParse(
-                                    doctor['id']?.toString() ?? '',
+                          final doctors =
+                              snapshot.data ?? const <Map<String, dynamic>>[];
+                          final loading =
+                              snapshot.connectionState ==
+                              ConnectionState.waiting;
+
+                          return Autocomplete<Map<String, dynamic>>(
+                            displayStringForOption: _doctorLabel,
+                            optionsBuilder: (value) {
+                              final query = value.text.trim().toLowerCase();
+                              final options = query.isEmpty
+                                  ? doctors
+                                  : doctors.where((doctor) {
+                                      final label = _doctorLabel(
+                                        doctor,
+                                      ).toLowerCase();
+                                      final name =
+                                          doctor['name']
+                                              ?.toString()
+                                              .toLowerCase() ??
+                                          '';
+                                      final department =
+                                          doctor['department']
+                                              ?.toString()
+                                              .toLowerCase() ??
+                                          '';
+                                      final specialization =
+                                          doctor['specialization']
+                                              ?.toString()
+                                              .toLowerCase() ??
+                                          '';
+                                      return label.contains(query) ||
+                                          name.contains(query) ||
+                                          department.contains(query) ||
+                                          specialization.contains(query);
+                                    });
+                              return options.take(25);
+                            },
+                            onSelected: (doctor) {
+                              setSheetState(
+                                () => selectedDoctorId = _doctorId(doctor),
+                              );
+                            },
+                            fieldViewBuilder:
+                                (
+                                  context,
+                                  textController,
+                                  focusNode,
+                                  onFieldSubmitted,
+                                ) {
+                                  return TextFormField(
+                                    controller: textController,
+                                    focusNode: focusNode,
+                                    enabled: !submitting && !loading,
+                                    decoration: InputDecoration(
+                                      labelText: 'Doctor',
+                                      hintText: loading
+                                          ? 'Loading doctors...'
+                                          : snapshot.hasError
+                                          ? 'Could not load doctors'
+                                          : 'Type doctor name',
+                                      prefixIcon: const ExcludeSemantics(
+                                        child: Icon(
+                                          Icons.medical_services_outlined,
+                                        ),
+                                      ),
+                                    ),
+                                    onChanged: (text) {
+                                      final typed = text.trim().toLowerCase();
+                                      int? matchedId;
+                                      for (final doctor in doctors) {
+                                        if (_doctorLabel(
+                                              doctor,
+                                            ).toLowerCase() ==
+                                            typed) {
+                                          matchedId = _doctorId(doctor);
+                                          break;
+                                        }
+                                      }
+                                      setSheetState(
+                                        () => selectedDoctorId = matchedId,
+                                      );
+                                    },
+                                    validator: (_) => selectedDoctorId == null
+                                        ? 'Select a doctor'
+                                        : null,
                                   );
-                                  final name =
-                                      doctor['name']?.toString() ??
-                                      (id == null ? 'Doctor' : 'Doctor #$id');
-                                  final department =
-                                      doctor['department']?.toString() ?? '';
-                                  final specialization =
-                                      doctor['specialization']?.toString() ??
-                                      '';
-                                  final label = [
-                                    name,
-                                    if (department.isNotEmpty) department,
-                                    if (specialization.isNotEmpty)
-                                      specialization,
-                                  ].join(' - ');
-                                  return id == null
-                                      ? null
-                                      : DropdownMenuItem<int>(
-                                          value: id,
-                                          child: Text(
-                                            label,
+                                },
+                            optionsViewBuilder: (context, onSelected, options) {
+                              final items = options.toList(growable: false);
+                              return Align(
+                                alignment: Alignment.topLeft,
+                                child: Material(
+                                  elevation: 4,
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      maxHeight: 260,
+                                      maxWidth: 520,
+                                    ),
+                                    child: ListView.separated(
+                                      padding: EdgeInsets.zero,
+                                      shrinkWrap: true,
+                                      itemCount: items.length,
+                                      separatorBuilder: (_, _) =>
+                                          const Divider(height: 1),
+                                      itemBuilder: (context, index) {
+                                        final doctor = items[index];
+                                        return ListTile(
+                                          dense: true,
+                                          leading: const Icon(
+                                            Icons.person_outline,
+                                          ),
+                                          title: Text(
+                                            doctor['name']?.toString() ??
+                                                'Doctor',
                                             overflow: TextOverflow.ellipsis,
                                           ),
+                                          subtitle: Text(
+                                            [
+                                                  doctor['department']
+                                                          ?.toString() ??
+                                                      '',
+                                                  doctor['specialization']
+                                                          ?.toString() ??
+                                                      '',
+                                                ]
+                                                .where((v) => v.isNotEmpty)
+                                                .join(' - '),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          onTap: () => onSelected(doctor),
                                         );
-                                })
-                                .whereType<DropdownMenuItem<int>>()
-                                .toList(),
-                            hint: Text(
-                              snapshot.connectionState ==
-                                      ConnectionState.waiting
-                                  ? 'Loading doctors...'
-                                  : snapshot.hasError
-                                  ? 'Could not load doctors'
-                                  : 'Select doctor',
-                            ),
-                            onChanged:
-                                submitting ||
-                                    snapshot.connectionState ==
-                                        ConnectionState.waiting
-                                ? null
-                                : (value) => setSheetState(
-                                    () => selectedDoctorId = value,
+                                      },
+                                    ),
                                   ),
-                            validator: (value) =>
-                                value == null ? 'Select a doctor' : null,
+                                ),
+                              );
+                            },
                           );
                         },
                       ),
