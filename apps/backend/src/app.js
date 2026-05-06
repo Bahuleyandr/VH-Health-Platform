@@ -440,7 +440,7 @@ app.use('/api/v1/notifications', notificationRoutes);
 // for chart finding. Patient self-search isn't applicable.
 app.use(
   '/api/v1/patients',
-  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'),
+  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS', 'RECEPTIONIST', 'GENERAL_STAFF'),
   patientSearchRoutes,
 );
 app.use('/api/v1/upload', patientRateLimiter, uploadRoutes);

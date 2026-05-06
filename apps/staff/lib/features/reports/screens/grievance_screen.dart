@@ -166,6 +166,7 @@ class _GrievanceScreenState extends State<GrievanceScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.grievanceTitle),
         actions: const [LogoutAction()],
         backgroundColor: Colors.purple,

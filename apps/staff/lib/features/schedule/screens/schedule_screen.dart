@@ -156,6 +156,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.scheduleTitle),
         actions: const [LogoutAction()],
       ),

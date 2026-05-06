@@ -6,6 +6,7 @@ import 'code_blue_listener.dart';
 import 'logout_action.dart';
 import 'offline_sync_badge.dart';
 import 'patient_search_action.dart';
+import 'theme_toggle_action.dart';
 
 class StaffScaffold extends StatelessWidget {
   final String title;
@@ -35,9 +36,11 @@ class StaffScaffold extends StatelessWidget {
       child: Scaffold(
         backgroundColor: AppTheme.backgroundGrey,
         appBar: AppBar(
+          leading: const NavigationBackAction(),
           title: Text(title),
           actions: [
             const OfflineSyncBadge(),
+            const ThemeToggleAction(),
             ...?actions,
             // Global patient picker — magnifier next to logout. Open
             // from any StaffScaffold screen via this icon (or Cmd+K

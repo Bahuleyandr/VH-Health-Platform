@@ -89,6 +89,7 @@ class _MyReportsScreenState extends State<MyReportsScreen>
     final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.myReportsTitle),
         actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),

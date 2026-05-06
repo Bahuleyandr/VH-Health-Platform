@@ -235,6 +235,7 @@ class _MessagingThreadScreenState extends State<MessagingThreadScreen> {
     final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

@@ -167,6 +167,20 @@ class AppStrings {
   String get dashboardSeeAll => _t('dashboard.see_all');
   String get dashboardAllFeatures => _t('dashboard.all_features');
   String get dashboardDailyWork => _t('dashboard.daily_work');
+  String get dashboardOpServices => _t('dashboard.op_services');
+  String get dashboardIpServices => _t('dashboard.ip_services');
+  String get dashboardNoOpServices => _t('dashboard.no_op_services');
+  String get dashboardNoIpServices => _t('dashboard.no_ip_services');
+  String get dashboardOpLabBookings => _t('dashboard.op_lab_bookings');
+  String get dashboardIpLabBookings => _t('dashboard.ip_lab_bookings');
+  String get dashboardOpNursingNotes => _t('dashboard.op_nursing_notes');
+  String get dashboardIpNursingNotes => _t('dashboard.ip_nursing_notes');
+  String get dashboardOpPharmacy => _t('dashboard.op_pharmacy');
+  String get dashboardIpPharmacy => _t('dashboard.ip_pharmacy');
+  String get dashboardOpLabResults => _t('dashboard.op_lab_results');
+  String get dashboardIpLabResults => _t('dashboard.ip_lab_results');
+  String get dashboardOpPatientRecords => _t('dashboard.op_patient_records');
+  String get dashboardIpPatientRecords => _t('dashboard.ip_patient_records');
   String get dashboardMoreTools => _t('dashboard.more_tools');
   String get dashboardMoreToolsHint => _t('dashboard.more_tools_hint');
   String get dashboardRecentActivity => _t('dashboard.recent_activity');
@@ -2245,6 +2259,20 @@ class AppStrings {
       'dashboard.see_all': 'See all',
       'dashboard.all_features': 'All Features',
       'dashboard.daily_work': 'Daily Work',
+      'dashboard.op_services': 'OP Services',
+      'dashboard.ip_services': 'IP Services',
+      'dashboard.no_op_services': 'No OP services available for this role',
+      'dashboard.no_ip_services': 'No IP services available for this role',
+      'dashboard.op_lab_bookings': 'Lab Bookings (OP)',
+      'dashboard.ip_lab_bookings': 'Lab Bookings (IP)',
+      'dashboard.op_nursing_notes': 'Nursing Notes (OP)',
+      'dashboard.ip_nursing_notes': 'Nursing Notes (IP)',
+      'dashboard.op_pharmacy': 'Pharmacy (OP)',
+      'dashboard.ip_pharmacy': 'Pharmacy (IP)',
+      'dashboard.op_lab_results': 'Lab Results (OP)',
+      'dashboard.ip_lab_results': 'Lab Results (IP)',
+      'dashboard.op_patient_records': 'OP Patient Records',
+      'dashboard.ip_patient_records': 'IP Patient Records',
       'dashboard.more_tools': 'More tools',
       'dashboard.more_tools_hint':
           'Leave, profile, settings, and occasional workflows',
@@ -3990,6 +4018,20 @@ class AppStrings {
       'dashboard.see_all': 'सभी देखें',
       'dashboard.all_features': 'सभी सुविधाएँ',
       'dashboard.daily_work': 'दैनिक कार्य',
+      'dashboard.op_services': 'OP सेवाएँ',
+      'dashboard.ip_services': 'IP सेवाएँ',
+      'dashboard.no_op_services': 'इस भूमिका के लिए OP सेवाएँ उपलब्ध नहीं हैं',
+      'dashboard.no_ip_services': 'इस भूमिका के लिए IP सेवाएँ उपलब्ध नहीं हैं',
+      'dashboard.op_lab_bookings': 'OP लैब बुकिंग',
+      'dashboard.ip_lab_bookings': 'IP लैब बुकिंग',
+      'dashboard.op_nursing_notes': 'OP नर्सिंग नोट्स',
+      'dashboard.ip_nursing_notes': 'IP नर्सिंग नोट्स',
+      'dashboard.op_pharmacy': 'OP फ़ार्मेसी',
+      'dashboard.ip_pharmacy': 'IP फ़ार्मेसी',
+      'dashboard.op_lab_results': 'OP लैब परिणाम',
+      'dashboard.ip_lab_results': 'IP लैब परिणाम',
+      'dashboard.op_patient_records': 'OP मरीज़ रिकॉर्ड',
+      'dashboard.ip_patient_records': 'IP मरीज़ रिकॉर्ड',
       'dashboard.more_tools': 'अधिक टूल',
       'dashboard.more_tools_hint':
           'छुट्टी, प्रोफ़ाइल, सेटिंग्स और कभी-कभार के कार्य',
@@ -5950,6 +5992,20 @@ class AppStrings {
       'dashboard.see_all': 'அனைத்தும் பார்',
       'dashboard.all_features': 'அனைத்து அம்சங்கள்',
       'dashboard.daily_work': 'தினசரி பணி',
+      'dashboard.op_services': 'OP சேவைகள்',
+      'dashboard.ip_services': 'IP சேவைகள்',
+      'dashboard.no_op_services': 'இந்த பணிக்கு OP சேவைகள் கிடைக்கவில்லை',
+      'dashboard.no_ip_services': 'இந்த பணிக்கு IP சேவைகள் கிடைக்கவில்லை',
+      'dashboard.op_lab_bookings': 'OP ஆய்வக முன்பதிவு',
+      'dashboard.ip_lab_bookings': 'IP ஆய்வக முன்பதிவு',
+      'dashboard.op_nursing_notes': 'OP செவிலியர் குறிப்புகள்',
+      'dashboard.ip_nursing_notes': 'IP செவிலியர் குறிப்புகள்',
+      'dashboard.op_pharmacy': 'OP மருந்தகம்',
+      'dashboard.ip_pharmacy': 'IP மருந்தகம்',
+      'dashboard.op_lab_results': 'OP ஆய்வக முடிவுகள்',
+      'dashboard.ip_lab_results': 'IP ஆய்வக முடிவுகள்',
+      'dashboard.op_patient_records': 'OP நோயாளர் பதிவுகள்',
+      'dashboard.ip_patient_records': 'IP நோயாளர் பதிவுகள்',
       'dashboard.more_tools': 'மேலும் கருவிகள்',
       'dashboard.more_tools_hint':
           'விடுப்பு, சுயவிவரம், அமைப்புகள் மற்றும் அரிதான பணிகள்',
@@ -8372,6 +8428,20 @@ class AppStrings {
       'dashboard.see_all': 'అన్నీ చూడండి',
       'dashboard.all_features': 'అన్ని ఫీచర్లు',
       'dashboard.daily_work': 'రోజువారీ పని',
+      'dashboard.op_services': 'OP సేవలు',
+      'dashboard.ip_services': 'IP సేవలు',
+      'dashboard.no_op_services': 'ఈ పాత్రకు OP సేవలు అందుబాటులో లేవు',
+      'dashboard.no_ip_services': 'ఈ పాత్రకు IP సేవలు అందుబాటులో లేవు',
+      'dashboard.op_lab_bookings': 'OP ల్యాబ్ బుకింగ్స్',
+      'dashboard.ip_lab_bookings': 'IP ల్యాబ్ బుకింగ్స్',
+      'dashboard.op_nursing_notes': 'OP నర్సింగ్ నోట్లు',
+      'dashboard.ip_nursing_notes': 'IP నర్సింగ్ నోట్లు',
+      'dashboard.op_pharmacy': 'OP ఫార్మసీ',
+      'dashboard.ip_pharmacy': 'IP ఫార్మసీ',
+      'dashboard.op_lab_results': 'OP ల్యాబ్ ఫలితాలు',
+      'dashboard.ip_lab_results': 'IP ల్యాబ్ ఫలితాలు',
+      'dashboard.op_patient_records': 'OP రోగి రికార్డులు',
+      'dashboard.ip_patient_records': 'IP రోగి రికార్డులు',
       'dashboard.more_tools': 'మరిన్ని టూల్స్',
       'dashboard.more_tools_hint':
           'సెలవు, ప్రొఫైల్, సెట్టింగులు మరియు అప్పుడప్పుడు చేసే పనులు',

@@ -176,6 +176,7 @@ class _MessagingInboxScreenState extends State<MessagingInboxScreen> {
     final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Row(
           children: [
             Text(s.messagingInboxTitle),

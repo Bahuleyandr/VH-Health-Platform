@@ -73,6 +73,66 @@ class ScheduleApiService {
     );
   }
 
+  /// POST /appointments/book — create a scheduled appointment.
+  static Future<Map<String, dynamic>> createAppointment({
+    int? patientId,
+    String? patientPhone,
+    String? patientName,
+    required int doctorId,
+    required String appointmentDate,
+    required String appointmentTime,
+    required String reason,
+    String? notes,
+  }) async {
+    if (patientId == null &&
+        (patientPhone == null || patientPhone.trim().isEmpty)) {
+      throw Exception('Patient phone or patient ID is required');
+    }
+    return _post('/appointments/book', {
+      'patient_id': ?patientId,
+      if (patientPhone != null && patientPhone.trim().isNotEmpty)
+        'patient_phone': patientPhone.trim(),
+      if (patientName != null && patientName.trim().isNotEmpty)
+        'patient_name': patientName.trim(),
+      'doctor_id': doctorId,
+      'appointment_date': appointmentDate,
+      'appointment_time': appointmentTime,
+      'reason': reason,
+      'notes': ?notes,
+    });
+  }
+
+  /// GET /appointments/doctors/options — appointment-safe doctor picker.
+  static Future<List<Map<String, dynamic>>> getAppointmentDoctors({
+    String? search,
+  }) async {
+    final doctors = <Map<String, dynamic>>[];
+    var page = 1;
+    var hasNext = true;
+
+    while (hasNext && page <= 20) {
+      final data = await _get(
+        '/appointments/doctors/options',
+        query: {'page': page.toString(), 'limit': '100', 'search': ?search},
+      );
+      final list = data['doctors'] as List? ?? [];
+      doctors.addAll(
+        list.whereType<Map>().map(
+          (doctor) => Map<String, dynamic>.from(doctor),
+        ),
+      );
+      final pagination = data['pagination'] as Map<String, dynamic>?;
+      hasNext = pagination?['hasNext'] == true;
+      page += 1;
+    }
+
+    doctors.sort(
+      (a, b) =>
+          (a['name']?.toString() ?? '').compareTo(b['name']?.toString() ?? ''),
+    );
+    return doctors;
+  }
+
   /// PUT /appointments/:id/status — confirm or reschedule
   static Future<Map<String, dynamic>> updateAppointmentStatus(
     String appointmentId,

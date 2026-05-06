@@ -11,6 +11,7 @@ class AboutScreen extends StatelessWidget {
     final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.aboutTitle),
         actions: const [LogoutAction()],
       ),

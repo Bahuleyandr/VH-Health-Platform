@@ -238,6 +238,7 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text('${s.dischargeTitlePrefix} ${widget.patientName}'),
         actions: [
           if (_summary != null && !_isSigned)

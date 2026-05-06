@@ -5,6 +5,7 @@ import logger from '../../logging/logger.js';
 import { sendAppointmentConfirmationSMS } from '../../services/smsService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 // All four handlers below were originally written against a raw pg.Pool
 // client (await pool.connect → client.query → client.release) and ported
@@ -14,6 +15,62 @@ import { success, error } from '../../utils/responseHelper.js';
 // no confirmed_by, no confirmation_notes, no no_show_at, no completed_at,
 // no cancellation_reason. Status transitions live on the appointments
 // row plus an immutable appointment_status_history audit row.
+
+export const getDoctorOptions = async (req, res) => {
+  try {
+    const listQuery = parseListQuery(req.query, {
+      defaultLimit: 100,
+      maxLimit: 100,
+      defaultSortBy: 'name',
+      defaultSortOrder: 'ASC',
+    });
+    const params = [];
+    const where = ['d.is_active = true'];
+
+    if (listQuery.search) {
+      params.push(`%${listQuery.search}%`);
+      where.push(
+        `(COALESCE(u.name, d.name) ILIKE $${params.length}
+          OR COALESCE(d.department, '') ILIKE $${params.length}
+          OR COALESCE(d.specialty, '') ILIKE $${params.length})`,
+      );
+    }
+
+    const countRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS total
+         FROM doctors d
+         LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
+        WHERE ${where.join(' AND ')}`,
+      ...params,
+    );
+
+    const total = countRows[0]?.total ?? 0;
+    params.push(listQuery.limit, listQuery.offset);
+    const doctors = await prisma.$queryRawUnsafe(
+      `SELECT
+          d.id,
+          COALESCE(u.id, d.user_id) AS user_id,
+          COALESCE(u.name, d.name) AS name,
+          COALESCE(d.department, '') AS department,
+          COALESCE(d.specialty, '') AS specialization,
+          d.is_available
+         FROM doctors d
+         LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
+        WHERE ${where.join(' AND ')}
+        ORDER BY COALESCE(u.name, d.name) ASC
+        LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      ...params,
+    );
+
+    success(res, {
+      doctors,
+      pagination: buildPagination(total, listQuery.page, listQuery.limit),
+    }, 'Appointment doctor options retrieved successfully');
+  } catch (err) {
+    logger.error('Error fetching appointment doctor options:', err);
+    error(res, 'Failed to retrieve doctor options', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
 
 /**
  * Staff confirms an appointment — assigns token, sets confirmed_at, notifies patient

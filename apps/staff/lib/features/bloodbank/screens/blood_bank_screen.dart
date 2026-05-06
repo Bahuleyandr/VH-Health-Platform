@@ -145,6 +145,7 @@ class _BloodBankScreenState extends State<BloodBankScreen>
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.bloodBankTitle),
         backgroundColor: AppTheme.errorRed,
         foregroundColor: Colors.white,

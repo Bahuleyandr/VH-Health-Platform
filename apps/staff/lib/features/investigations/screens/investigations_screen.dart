@@ -19,6 +19,8 @@ class InvestigationsScreen extends StatefulWidget {
 class _InvestigationsScreenState extends State<InvestigationsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  int _pendingReloadKey = 0;
+  int _recentReloadKey = 0;
 
   @override
   void initState() {
@@ -32,6 +34,235 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     super.dispose();
   }
 
+  Future<void> _orderInvestigation() async {
+    final formKey = GlobalKey<FormState>();
+    final patientIdCtrl = TextEditingController();
+    final testNameCtrl = TextEditingController();
+    final notesCtrl = TextEditingController();
+    var type = 'LAB';
+    var priority = 'NORMAL';
+    var submitting = false;
+
+    try {
+      final ordered = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            Future<void> submit() async {
+              if (!formKey.currentState!.validate()) return;
+              setSheetState(() => submitting = true);
+              try {
+                await MedicalApiService.orderInvestigation(
+                  patientId: int.parse(patientIdCtrl.text.trim()),
+                  testName: testNameCtrl.text.trim(),
+                  type: type,
+                  priority: priority,
+                  notes: notesCtrl.text.trim().isEmpty
+                      ? null
+                      : notesCtrl.text.trim(),
+                );
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx, true);
+              } catch (e) {
+                if (!ctx.mounted) return;
+                setSheetState(() => submitting = false);
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(
+                    content: Text(e.toString().replaceFirst('Exception: ', '')),
+                    backgroundColor: AppTheme.errorRed,
+                  ),
+                );
+              }
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+              ),
+              child: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Order Investigation',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            tooltip: 'Close',
+                            onPressed: submitting
+                                ? null
+                                : () => Navigator.pop(ctx, false),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: patientIdCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Patient ID',
+                          prefixIcon: ExcludeSemantics(
+                            child: Icon(Icons.badge_outlined),
+                          ),
+                        ),
+                        validator: (value) {
+                          final id = int.tryParse(value?.trim() ?? '');
+                          return id == null || id < 1
+                              ? 'Enter a valid patient ID'
+                              : null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: testNameCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Test name',
+                          hintText: 'CBC, X-Ray chest, ECG...',
+                          prefixIcon: ExcludeSemantics(
+                            child: Icon(Icons.science_outlined),
+                          ),
+                        ),
+                        validator: (value) => (value?.trim().isEmpty ?? true)
+                            ? 'Test name is required'
+                            : null,
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: type,
+                        decoration: const InputDecoration(
+                          labelText: 'Type',
+                          prefixIcon: ExcludeSemantics(
+                            child: Icon(Icons.category_outlined),
+                          ),
+                        ),
+                        items:
+                            const [
+                                  'LAB',
+                                  'RADIOLOGY',
+                                  'PATHOLOGY',
+                                  'CARDIOLOGY',
+                                  'PULMONARY',
+                                  'ENDOSCOPY',
+                                ]
+                                .map(
+                                  (value) => DropdownMenuItem(
+                                    value: value,
+                                    child: Text(value),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged: submitting
+                            ? null
+                            : (value) =>
+                                  setSheetState(() => type = value ?? 'LAB'),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: priority,
+                        decoration: const InputDecoration(
+                          labelText: 'Priority',
+                          prefixIcon: ExcludeSemantics(
+                            child: Icon(Icons.priority_high_outlined),
+                          ),
+                        ),
+                        items: const ['NORMAL', 'HIGH', 'URGENT', 'LOW']
+                            .map(
+                              (value) => DropdownMenuItem(
+                                value: value,
+                                child: Text(value),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: submitting
+                            ? null
+                            : (value) => setSheetState(
+                                () => priority = value ?? 'NORMAL',
+                              ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: notesCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Clinical notes (optional)',
+                          prefixIcon: ExcludeSemantics(
+                            child: Icon(Icons.notes_outlined),
+                          ),
+                          alignLabelWithHint: true,
+                        ),
+                        maxLines: 3,
+                      ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: submitting ? null : submit,
+                          icon: submitting
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.add, color: Colors.white),
+                          label: Text(
+                            submitting ? 'Ordering...' : 'Order Investigation',
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.accentCyan,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      );
+
+      if (ordered == true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Investigation ordered'),
+            backgroundColor: AppTheme.successGreen,
+          ),
+        );
+        setState(() {
+          _pendingReloadKey++;
+          _recentReloadKey++;
+          _tabController.index = 1;
+        });
+      }
+    } finally {
+      patientIdCtrl.dispose();
+      testNameCtrl.dispose();
+      notesCtrl.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
@@ -39,6 +270,26 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
       title: s.investigationsTitle,
       body: Column(
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Row(
+              children: [
+                const Spacer(),
+                const SizedBox(width: 12),
+                ElevatedButton.icon(
+                  onPressed: _orderInvestigation,
+                  icon: const Icon(Icons.add, color: Colors.white, size: 18),
+                  label: const Text('Order'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.accentCyan,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(0, 38),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
           Container(
             color: Colors.white,
             child: TabBar(
@@ -56,10 +307,10 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: const [
-                _UploadTab(),
-                _PendingTab(),
-                _RecentUploadsTab(),
+              children: [
+                const _UploadTab(),
+                _PendingTab(key: ValueKey(_pendingReloadKey)),
+                _RecentUploadsTab(key: ValueKey(_recentReloadKey)),
               ],
             ),
           ),
@@ -395,7 +646,7 @@ class _UploadTabState extends State<_UploadTab> {
 }
 
 class _PendingTab extends StatefulWidget {
-  const _PendingTab();
+  const _PendingTab({super.key});
 
   @override
   State<_PendingTab> createState() => _PendingTabState();
@@ -639,7 +890,7 @@ class _PendingTabState extends State<_PendingTab> {
 }
 
 class _RecentUploadsTab extends StatefulWidget {
-  const _RecentUploadsTab();
+  const _RecentUploadsTab({super.key});
 
   @override
   State<_RecentUploadsTab> createState() => _RecentUploadsTabState();

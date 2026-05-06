@@ -3,7 +3,8 @@
 // Backed by `GET /api/v1/patients/search?q=…&limit=20` which RBAC's
 // open to clinical roles + admins. Returns a small payload (uid, name,
 // phone, gender, age, abha_address) per match — enough for the picker
-// row to render and route to /emr/timeline/:uid?name=… on tap.
+// row to render and route to /emr/timeline/:uid?name=… on tap. `id` is also
+// returned for staff workflows that need to create orders or appointments.
 
 import 'api_client.dart';
 
@@ -15,7 +16,7 @@ class PatientApiService {
   /// (the picker debounces but may fire on the first keystroke), so
   /// callers don't need to short-circuit.
   ///
-  /// Returns a list of `{ uid, name, phone, gender, age, abha_address }`.
+  /// Returns a list of `{ id, uid, name, phone, gender, age, abha_address }`.
   /// `age` is computed server-side from `users.birthday`.
   static Future<List<Map<String, dynamic>>> search(
     String query, {

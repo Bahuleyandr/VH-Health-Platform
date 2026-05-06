@@ -101,6 +101,7 @@ class _RadiologyScreenState extends State<RadiologyScreen> {
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.radiologyTitle),
         actions: [
           IconButton(

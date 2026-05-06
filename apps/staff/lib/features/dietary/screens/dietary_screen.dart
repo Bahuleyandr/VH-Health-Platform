@@ -353,6 +353,7 @@ class _DietaryScreenState extends State<DietaryScreen> {
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.dietaryTitle),
         backgroundColor: AppTheme.primaryTeal,
         foregroundColor: Colors.white,

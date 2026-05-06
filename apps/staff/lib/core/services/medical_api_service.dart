@@ -70,6 +70,23 @@ class MedicalApiService {
 
   // ─── Investigations ──────────────────────────────────────────────────────────
 
+  /// POST /investigations/order — doctor/admin investigation order entry.
+  static Future<Map<String, dynamic>> orderInvestigation({
+    required int patientId,
+    required String testName,
+    String type = 'LAB',
+    String priority = 'NORMAL',
+    String? notes,
+  }) async {
+    return _post('/investigations/order', {
+      'patient_id': patientId,
+      'test_name': testName,
+      'type': type,
+      'priority': priority,
+      'notes': ?notes,
+    });
+  }
+
   /// POST /staff/medical/investigations
   /// When filePath is provided, uses multipart upload.
   static Future<Map<String, dynamic>> uploadInvestigation({

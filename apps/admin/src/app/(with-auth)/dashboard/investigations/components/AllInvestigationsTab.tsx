@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import type { FormEvent } from "react";
 import { toast } from "react-hot-toast";
 import {
   ClientTablePagination,
@@ -10,6 +11,7 @@ import {
 } from "@/components/table";
 import {
   getInvestigationsList,
+  orderInvestigation,
   updateInvestigationStatus,
   type Investigation,
 } from "@/lib/api/investigations";
@@ -29,6 +31,7 @@ export function AllInvestigationsTab() {
   const [sortKey, setSortKey] = useState<InvestigationSortKey>("requested_at");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [filters, setFilters] = useState({ status: "", priority: "", from: "", to: "" });
+  const [showOrderForm, setShowOrderForm] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -111,7 +114,14 @@ export function AllInvestigationsTab() {
           });
           setPage(1);
         }}
-      />
+      >
+        <button
+          onClick={() => setShowOrderForm(true)}
+          className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+        >
+          Order investigation
+        </button>
+      </ManagedTableToolbar>
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
@@ -207,6 +217,140 @@ export function AllInvestigationsTab() {
           />
         </>
       )}
+
+      {showOrderForm && (
+        <OrderInvestigationModal
+          onClose={() => setShowOrderForm(false)}
+          onSuccess={() => {
+            setShowOrderForm(false);
+            setPage(1);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function OrderInvestigationModal({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [patientId, setPatientId] = useState("");
+  const [testName, setTestName] = useState("");
+  const [type, setType] = useState("LAB");
+  const [priority, setPriority] = useState("NORMAL");
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const parsedPatientId = Number(patientId);
+    if (!Number.isInteger(parsedPatientId) || parsedPatientId < 1) {
+      toast.error("Valid patient ID required");
+      return;
+    }
+    if (!testName.trim()) {
+      toast.error("Test name is required");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await orderInvestigation({
+        patient_id: parsedPatientId,
+        test_name: testName.trim(),
+        type,
+        priority,
+        notes: notes.trim() || undefined,
+      });
+      toast.success("Investigation ordered");
+      onSuccess();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to order investigation");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <form onSubmit={submit} className="w-full max-w-md rounded-xl bg-card p-6 text-card-foreground shadow-xl">
+        <h3 className="mb-4 text-lg font-bold">Order Investigation</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="text-sm font-medium">Patient ID</label>
+            <input
+              type="number"
+              min={1}
+              value={patientId}
+              onChange={(event) => setPatientId(event.target.value)}
+              className="mt-1 w-full rounded border bg-background px-3 py-2 text-sm"
+              placeholder="Numeric patient ID"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Test name</label>
+            <input
+              value={testName}
+              onChange={(event) => setTestName(event.target.value)}
+              className="mt-1 w-full rounded border bg-background px-3 py-2 text-sm"
+              placeholder="CBC, X-Ray chest, ECG"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium">Type</label>
+              <select
+                value={type}
+                onChange={(event) => setType(event.target.value)}
+                className="mt-1 w-full rounded border bg-background px-3 py-2 text-sm"
+              >
+                {["LAB", "RADIOLOGY", "PATHOLOGY", "CARDIOLOGY", "PULMONARY", "ENDOSCOPY"].map((value) => (
+                  <option key={value} value={value}>{value}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Priority</label>
+              <select
+                value={priority}
+                onChange={(event) => setPriority(event.target.value)}
+                className="mt-1 w-full rounded border bg-background px-3 py-2 text-sm"
+              >
+                {["NORMAL", "HIGH", "URGENT", "LOW"].map((value) => (
+                  <option key={value} value={value}>{value}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="text-sm font-medium">Notes</label>
+            <textarea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              className="mt-1 w-full rounded border bg-background px-3 py-2 text-sm"
+              rows={3}
+              placeholder="Optional clinical notes"
+            />
+          </div>
+        </div>
+        <div className="mt-4 flex gap-3">
+          <button type="button" onClick={onClose} className="flex-1 rounded border px-4 py-2 text-sm hover:bg-muted">
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={submitting}
+            className="flex-1 rounded bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {submitting ? "Ordering..." : "Order"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

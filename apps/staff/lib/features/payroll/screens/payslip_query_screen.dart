@@ -31,6 +31,7 @@ class _PayslipQueryScreenState extends State<PayslipQueryScreen>
     final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.payrollQueryTitle),
         actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),

@@ -84,6 +84,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.notificationsTitle),
         actions: [
           Consumer<NotificationProvider>(

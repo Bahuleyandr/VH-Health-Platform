@@ -34,6 +34,19 @@ class PharmacyApiService {
 
   // ─── Pharmacy Orders ──────────────────────────────────────────────────────
 
+  /// POST /pharmacy-orders/orders — create a pharmacy order for a patient.
+  static Future<Map<String, dynamic>> placePharmacyOrder({
+    required String phone,
+    required String orderNote,
+    bool urgent = false,
+  }) async {
+    return _post('/pharmacy-orders/orders', {
+      'phone': phone,
+      'order_note': orderNote,
+      'urgent': urgent,
+    });
+  }
+
   /// POST /staff/pharmacy/orders (legacy)
   static Future<Map<String, dynamic>> updatePharmacyOrder({
     required String phone,

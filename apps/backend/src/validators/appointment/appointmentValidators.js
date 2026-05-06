@@ -17,8 +17,27 @@ export const handleValidationErrors = (req, res, next) => {
 
 // Create appointment validators
 export const createAppointmentValidators = [
-  body('patient_id').isInt().withMessage('Patient ID must be a valid integer'),
-  body('doctor_id').isInt().withMessage('Doctor ID must be a valid integer'),
+  body().custom((_value, { req }) => {
+    if (!req.body.patient_id && !req.body.patient_phone) {
+      throw new Error('Patient ID or patient phone is required');
+    }
+    return true;
+  }),
+  body('patient_id')
+    .optional({ values: 'falsy' })
+    .isInt({ min: 1 })
+    .withMessage('Patient ID must be a valid integer'),
+  body('patient_phone')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isLength({ min: 10, max: 20 })
+    .withMessage('Patient phone must be 10-20 characters'),
+  body('patient_name')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isLength({ min: 2, max: 255 })
+    .withMessage('Patient name must be 2-255 characters'),
+  body('doctor_id').isInt({ min: 1 }).withMessage('Doctor ID must be a valid integer'),
   body('appointment_date')
     .custom((value) => {
       let appointmentDate;

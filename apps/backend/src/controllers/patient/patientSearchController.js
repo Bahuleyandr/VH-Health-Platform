@@ -4,7 +4,7 @@
 //
 // Backs the staff app's global patient picker (Cmd+K modal). Returns a
 // short list of patients matching the query string against name, phone,
-// or ABHA address. Result is intentionally small — uid/name/age/gender/phone
+// or ABHA address. Result is intentionally small — id/uid/name/age/gender/phone
 // — because the picker just needs enough to render the row and route to
 // /emr/timeline/:uid?name=… on tap. Full chart fetches happen via the
 // EMR endpoints once the user lands on the patient screen.
@@ -45,7 +45,7 @@ export const searchPatients = async (req, res) => {
     );
 
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT u.uid, u.name, u.phone, u.gender, u.abha_address,
+      `SELECT u.id, u.uid, u.name, u.phone, u.gender, u.abha_address,
               CASE WHEN u.birthday IS NOT NULL
                    THEN DATE_PART('year', AGE(u.birthday))::int
               END AS age

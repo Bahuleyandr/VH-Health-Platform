@@ -78,6 +78,7 @@ class _TaxSummaryScreenState extends State<TaxSummaryScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFE0F5F6),
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(str.payrollTaxSummaryTitle),
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,

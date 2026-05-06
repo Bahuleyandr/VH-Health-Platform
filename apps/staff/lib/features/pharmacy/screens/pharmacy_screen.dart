@@ -118,12 +118,22 @@ class _PharmacyScreenState extends State<PharmacyScreen>
     }
   }
 
+  bool _isNewStatus(Object? status) {
+    final value = status?.toString().toUpperCase();
+    return value == 'PENDING' || value == 'PLACED';
+  }
+
   List<dynamic> get _newOrders =>
-      _allOrders.where((o) => o['status'] == 'PLACED').toList();
+      _allOrders.where((o) => _isNewStatus(o['status'])).toList();
 
   List<dynamic> get _activeOrders => _allOrders
       .where(
-        (o) => ['CONFIRMED', 'PREPARING', 'DISPATCHED'].contains(o['status']),
+        (o) => [
+          'CONFIRMED',
+          'PREPARING',
+          'READY',
+          'DISPATCHED',
+        ].contains(o['status']),
       )
       .toList();
 
@@ -144,6 +154,171 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   // ═══════════════════════════════════════════════════════════════════════════
   // ACTIONS
   // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<void> _createOrder() async {
+    final formKey = GlobalKey<FormState>();
+    final phoneCtrl = TextEditingController();
+    final noteCtrl = TextEditingController();
+    var urgent = false;
+    var submitting = false;
+
+    try {
+      final created = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            Future<void> submit() async {
+              if (!formKey.currentState!.validate()) return;
+              setSheetState(() => submitting = true);
+              try {
+                await PharmacyApiService.placePharmacyOrder(
+                  phone: phoneCtrl.text.trim(),
+                  orderNote: noteCtrl.text.trim(),
+                  urgent: urgent,
+                );
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx, true);
+              } catch (e) {
+                if (!ctx.mounted) return;
+                setSheetState(() => submitting = false);
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(
+                    content: Text(e.toString().replaceFirst('Exception: ', '')),
+                    backgroundColor: AppTheme.errorRed,
+                  ),
+                );
+              }
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+              ),
+              child: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Create Pharmacy Order',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            tooltip: 'Close',
+                            onPressed: submitting
+                                ? null
+                                : () => Navigator.pop(ctx, false),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: phoneCtrl,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: 'Patient phone',
+                          hintText: '10-digit mobile number',
+                          prefixIcon: ExcludeSemantics(
+                            child: Icon(Icons.phone_outlined),
+                          ),
+                        ),
+                        validator: (value) {
+                          final digits = (value ?? '').replaceAll(
+                            RegExp(r'\D'),
+                            '',
+                          );
+                          return digits.length < 10
+                              ? 'Enter a valid phone number'
+                              : null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: noteCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Order note',
+                          hintText:
+                              'Medicine names, dose, quantity, or Rx note',
+                          prefixIcon: ExcludeSemantics(
+                            child: Icon(Icons.medication_outlined),
+                          ),
+                          alignLabelWithHint: true,
+                        ),
+                        minLines: 3,
+                        maxLines: 5,
+                        validator: (value) => (value?.trim().isEmpty ?? true)
+                            ? 'Order note is required'
+                            : null,
+                      ),
+                      const SizedBox(height: 8),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: urgent,
+                        title: const Text('Mark urgent'),
+                        onChanged: submitting
+                            ? null
+                            : (value) => setSheetState(() => urgent = value),
+                      ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: submitting ? null : submit,
+                          icon: submitting
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.add, color: Colors.white),
+                          label: Text(
+                            submitting ? 'Creating...' : 'Create Order',
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFE65100),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      );
+
+      if (created == true) {
+        _snack('Pharmacy order created');
+        _loadOrders();
+      }
+    } finally {
+      phoneCtrl.dispose();
+      noteCtrl.dispose();
+    }
+  }
 
   Future<void> _confirmOrder(Map<String, dynamic> order) async {
     final s = AppStrings.of(context);
@@ -510,6 +685,18 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                   tooltip: s.actionRefresh,
                   onPressed: _loadOrders,
                 ),
+                const SizedBox(width: 4),
+                ElevatedButton.icon(
+                  onPressed: _createOrder,
+                  icon: const Icon(Icons.add, color: Color(0xFFE65100)),
+                  label: const Text('New'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFFE65100),
+                    minimumSize: const Size(0, 38),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                ),
               ],
             ),
           ),
@@ -688,7 +875,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
                       ),
                     ),
                   )
-                else if (status == 'PLACED')
+                else if (_isNewStatus(status))
                   Text(
                     '${minsSincePlaced}m ago',
                     style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
@@ -738,7 +925,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
       spacing: 8,
       runSpacing: 8,
       children: [
-        if (status == 'PLACED')
+        if (_isNewStatus(status))
           _ActionBtn(
             label: s.pharmacyViewConfirm,
             icon: Icons.check_circle_outline,
@@ -752,7 +939,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
             color: AppTheme.warningAmber,
             onTap: () => _markPreparing(order),
           ),
-        if (status == 'PREPARING')
+        if (status == 'PREPARING' || status == 'READY')
           _ActionBtn(
             label: s.pharmacyDispatch,
             icon: Icons.delivery_dining,
@@ -808,9 +995,11 @@ class _PharmacyScreenState extends State<PharmacyScreen>
   Widget _buildStatusChip(String status) {
     final s = AppStrings.of(context);
     final (color, label) = switch (status) {
+      'PENDING' => (Colors.orange, s.pharmacyStatusPlaced),
       'PLACED' => (Colors.orange, s.pharmacyStatusPlaced),
       'CONFIRMED' => (AppTheme.primaryBlue, s.pharmacyStatusConfirmed),
       'PREPARING' => (AppTheme.warningAmber, s.pharmacyStatusPreparing),
+      'READY' => (Colors.teal, s.pharmacyStatusPreparing),
       'DISPATCHED' => (Colors.teal, s.pharmacyStatusDispatched),
       'DELIVERED' => (AppTheme.successGreen, s.pharmacyStatusDelivered),
       'CANCELLED' => (AppTheme.errorRed, s.pharmacyStatusCancelled),

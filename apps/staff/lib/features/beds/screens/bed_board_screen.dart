@@ -189,6 +189,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(AppStrings.of(context).bedBoardTitle),
         backgroundColor: AppTheme.primaryBlue,
         foregroundColor: Colors.white,
@@ -1515,6 +1516,7 @@ class _DetailRow extends StatelessWidget {
 ///   - Record Vitals   → /vitals?patient_uid=&name=&phone=
 ///   - Add Note        → /nursing-notes?patient_uid=&name=&phone=
 ///   - Handover        → /handover?patient_ref=Bed%20A-101%20—%20Demo%20Patient
+///   - IP lab/pharmacy/dietary worklists carry patient context as query params
 ///
 /// Closes the sheet first so back-navigation lands on the bed grid,
 /// not on a half-rendered sheet.
@@ -1571,6 +1573,34 @@ class _BedQuickActions extends StatelessWidget {
         color: const Color(0xFF6A1B9A),
         route: '/handover?patient_ref=$patientRef&phone=$phoneQ',
       ),
+      _QuickAction(
+        icon: Icons.science_outlined,
+        label: s.dashboardIpLabBookings,
+        color: const Color(0xFF00838F),
+        route:
+            '/lab-bookings?context=ip&patient_uid=$patientUid&patient_id=$pidQ&name=$nameQ&phone=$phoneQ',
+      ),
+      _QuickAction(
+        icon: Icons.biotech_outlined,
+        label: s.dashboardIpLabResults,
+        color: const Color(0xFF0097A7),
+        route:
+            '/investigations?context=ip&patient_uid=$patientUid&patient_id=$pidQ&name=$nameQ&phone=$phoneQ',
+      ),
+      _QuickAction(
+        icon: Icons.medication_outlined,
+        label: s.dashboardIpPharmacy,
+        color: const Color(0xFFE65100),
+        route:
+            '/pharmacy?context=ip&patient_uid=$patientUid&patient_id=$pidQ&name=$nameQ&phone=$phoneQ',
+      ),
+      _QuickAction(
+        icon: Icons.restaurant_menu_outlined,
+        label: s.dietaryTitle,
+        color: const Color(0xFF00796B),
+        route:
+            '/dietary?context=ip&patient_uid=$patientUid&patient_id=$pidQ&name=$nameQ&phone=$phoneQ',
+      ),
     ];
 
     return SizedBox(
@@ -1594,7 +1624,7 @@ class _BedQuickActions extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                   onTap: () {
                     Navigator.of(context).pop(false);
-                    context.go(a.route);
+                    context.push(a.route);
                   },
                   child: Padding(
                     padding: const EdgeInsets.all(10),
@@ -1611,6 +1641,8 @@ class _BedQuickActions extends StatelessWidget {
                           Text(
                             a.label,
                             textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,

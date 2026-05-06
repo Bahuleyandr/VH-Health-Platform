@@ -9,6 +9,7 @@ import { DocumentsTab } from "./components/DocumentsTab";
 import { DoctorQueueTab } from "./components/DoctorQueueTab";
 import { PrescriptionsTab } from "./components/PrescriptionsTab";
 import { SlaOverviewTab } from "./components/SlaOverviewTab";
+import { BookAppointmentDialog } from "./components/BookAppointmentDialog";
 import { WalkInDialog } from "./components/WalkInDialog";
 
 const TABS = [
@@ -25,21 +26,47 @@ type TabId = (typeof TABS)[number]["id"];
 function AppointmentsPageContent() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [showWalkIn, setShowWalkIn] = useState(false);
+  const [showBookAppointment, setShowBookAppointment] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold">Appointment Management</h2>
-        <button
-          onClick={() => setShowWalkIn(true)}
-          className="bg-teal-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-teal-700 flex items-center gap-2"
-        >
-          <span>➕</span> Register Walk-in
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setShowBookAppointment(true)}
+            className="bg-primary text-primary-foreground text-sm px-4 py-2 rounded-lg hover:bg-primary/90 flex items-center gap-2"
+          >
+            <span>+</span> Book Appointment
+          </button>
+          <button
+            onClick={() => setShowWalkIn(true)}
+            className="bg-teal-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-teal-700 flex items-center gap-2"
+          >
+            <span>+</span> Register Walk-in
+          </button>
+        </div>
       </div>
 
+      {showBookAppointment && (
+        <BookAppointmentDialog
+          onClose={() => setShowBookAppointment(false)}
+          onSuccess={() => {
+            setRefreshKey((value) => value + 1);
+            setActiveTab("appointments");
+          }}
+        />
+      )}
+
       {showWalkIn && (
-        <WalkInDialog onClose={() => setShowWalkIn(false)} onSuccess={() => {}} />
+        <WalkInDialog
+          onClose={() => setShowWalkIn(false)}
+          onSuccess={() => {
+            setRefreshKey((value) => value + 1);
+            setActiveTab("appointments");
+          }}
+        />
       )}
 
       {/* Tab bar */}
@@ -62,7 +89,7 @@ function AppointmentsPageContent() {
       {activeTab === "overview" && <SlaOverviewTab />}
       {activeTab === "appointments" && (
         <Suspense fallback={<Skeleton className="h-64 w-full" />}>
-          <AllAppointmentsTab />
+          <AllAppointmentsTab refreshKey={refreshKey} />
         </Suspense>
       )}
       {activeTab === "queue" && <DoctorQueueTab />}

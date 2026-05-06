@@ -110,6 +110,7 @@ class _DisputeScreenState extends State<DisputeScreen>
     final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.disputeTitle),
         actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),

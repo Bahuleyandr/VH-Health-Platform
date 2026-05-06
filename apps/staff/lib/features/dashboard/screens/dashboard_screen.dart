@@ -16,6 +16,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/first_run_welcome.dart';
 import '../../../core/widgets/logout_action.dart';
 import '../../../core/widgets/patient_search_action.dart';
+import '../../../core/widgets/theme_toggle_action.dart';
 import '../../../l10n/app_strings.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -48,6 +49,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _upcomingAppointments = [];
   List<dynamic> _recentNotifications = [];
   int _pendingSyncCount = 0;
+  int _clinicalServiceTabIndex = 0;
 
   @override
   void initState() {
@@ -222,6 +224,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _attendanceStatus?['status'] == 'checked-in';
     final features = RoleFeatures.getFeaturesForRole(_role);
     final dailyFeatures = _dailyFeaturesForRole(features);
+    final clinicalServiceTabs = _buildClinicalServiceTabs(features);
     final moreFeatures = _moreFeaturesForRole(features, dailyFeatures);
 
     return Scaffold(
@@ -236,6 +239,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               pinned: true,
               backgroundColor: AppTheme.primaryBlue,
               foregroundColor: Colors.white,
+              leading: const NavigationBackAction(closeOnFallback: true),
               actions: [
                 Consumer<WebSocketProvider>(
                   builder: (context, wsProv, _) {
@@ -269,6 +273,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     );
                   },
                 ),
+                const ThemeToggleAction(),
                 const PatientSearchAction(),
                 const LogoutAction(),
               ],
@@ -366,7 +371,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           _AttendanceStatusCard(
                             isCheckedIn: checkedIn,
                             checkInTime: _attendanceStatus?['checkInTime'],
-                            onTap: () => context.go('/attendance'),
+                            onTap: () => context.push('/attendance'),
                           ),
                           const SizedBox(height: 16),
 
@@ -423,7 +428,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 return const SizedBox.shrink();
                               }
                               return GestureDetector(
-                                onTap: () => context.go('/notifications'),
+                                onTap: () => context.push('/notifications'),
                                 child: Container(
                                   margin: const EdgeInsets.only(bottom: 16),
                                   padding: const EdgeInsets.symmetric(
@@ -526,7 +531,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                           // Daily work stays on the front screen; low-frequency
                           // self-service/admin tools are tucked into More tools.
-                          if (dailyFeatures.isNotEmpty) ...[
+                          if (dailyFeatures.isNotEmpty ||
+                              clinicalServiceTabs != null) ...[
                             Text(
                               s.dashboardDailyWork,
                               style: TextStyle(
@@ -536,7 +542,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             ),
                             const SizedBox(height: 10),
-                            _buildFeatureGrid(dailyFeatures),
+                            clinicalServiceTabs ??
+                                _buildFeatureGrid(dailyFeatures),
                             const SizedBox(height: 16),
                           ],
 
@@ -560,19 +567,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.doctor => {
         'queue',
         'appointments',
+        'appointment_queue',
         'patient_records',
         'prescriptions',
         'investigation_results',
+        'theatre',
+        'radiology',
         'bed_board',
+        'blood_bank',
       },
       StaffRole.nurse => {
         'appointments',
+        'appointment_queue',
         'patient_records',
+        'pharmacy_orders',
         'vitals',
         'nursing_notes',
         'handover',
         'lab_bookings',
+        'investigation_results',
         'bed_board',
+        'dietary',
       },
       StaffRole.hr => {
         'hr_dashboard',
@@ -589,6 +604,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'investigation_results',
         'lab_bookings',
         'bed_board',
+        'theatre',
+        'radiology',
+        'blood_bank',
+        'dietary',
         'hr_dashboard',
         'staff_management',
       },
@@ -621,6 +640,246 @@ class _DashboardScreenState extends State<DashboardScreen> {
               !alreadyPromotedIds.contains(feature.id),
         )
         .toList();
+  }
+
+  Widget? _buildClinicalServiceTabs(List<DashboardFeature> features) {
+    final groups = _clinicalServiceGroupsForRole(features);
+    if (groups == null || groups.every((group) => group.tiles.isEmpty)) {
+      return null;
+    }
+
+    final selectedIndex = _clinicalServiceTabIndex
+        .clamp(0, groups.length - 1)
+        .toInt();
+    final selectedGroup = groups[selectedIndex];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.cardSurface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.divider),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(10),
+      child: Column(
+        children: [
+          _buildServiceTabSwitcher(groups, selectedIndex),
+          const SizedBox(height: 12),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            child: selectedGroup.tiles.isEmpty
+                ? _ServiceEmptyState(
+                    key: ValueKey(selectedGroup.label),
+                    label: selectedGroup.emptyLabel,
+                  )
+                : _buildServiceGrid(
+                    selectedGroup.tiles,
+                    key: ValueKey(selectedGroup.label),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildServiceTabSwitcher(
+    List<_ClinicalServiceGroup> groups,
+    int selectedIndex,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppTheme.backgroundGrey,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Row(
+        children: [
+          for (var i = 0; i < groups.length; i++)
+            Expanded(
+              child: _ServiceTabButton(
+                label: groups[i].label,
+                selected: selectedIndex == i,
+                onTap: () => setState(() => _clinicalServiceTabIndex = i),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  List<_ClinicalServiceGroup>? _clinicalServiceGroupsForRole(
+    List<DashboardFeature> features,
+  ) {
+    final s = AppStrings.of(context);
+
+    return switch (_role) {
+      StaffRole.nurse => [
+        _ClinicalServiceGroup(
+          label: s.dashboardOpServices,
+          emptyLabel: s.dashboardNoOpServices,
+          tiles: _serviceTilesForIds(
+            features,
+            [
+              'appointments',
+              'appointment_queue',
+              'lab_bookings',
+              'nursing_notes',
+              'pharmacy_orders',
+              'investigation_results',
+              'patient_records',
+            ],
+            titleOverrides: {
+              'lab_bookings': s.dashboardOpLabBookings,
+              'nursing_notes': s.dashboardOpNursingNotes,
+              'pharmacy_orders': s.dashboardOpPharmacy,
+              'investigation_results': s.dashboardOpLabResults,
+              'patient_records': s.dashboardOpPatientRecords,
+            },
+          ),
+        ),
+        _ClinicalServiceGroup(
+          label: s.dashboardIpServices,
+          emptyLabel: s.dashboardNoIpServices,
+          tiles: _serviceTilesForIds(
+            features,
+            [
+              'bed_board',
+              'vitals',
+              'nursing_notes',
+              'lab_bookings',
+              'investigation_results',
+              'pharmacy_orders',
+              'dietary',
+              'handover',
+              'patient_records',
+            ],
+            titleOverrides: {
+              'nursing_notes': s.dashboardIpNursingNotes,
+              'lab_bookings': s.dashboardIpLabBookings,
+              'investigation_results': s.dashboardIpLabResults,
+              'pharmacy_orders': s.dashboardIpPharmacy,
+              'patient_records': s.dashboardIpPatientRecords,
+            },
+          ),
+        ),
+      ],
+      StaffRole.doctor => [
+        _ClinicalServiceGroup(
+          label: s.dashboardOpServices,
+          emptyLabel: s.dashboardNoOpServices,
+          tiles: _serviceTilesForIds(
+            features,
+            [
+              'appointment_queue',
+              'queue',
+              'appointments',
+              'patient_records',
+              'prescriptions',
+              'investigation_results',
+            ],
+            titleOverrides: {
+              'patient_records': s.dashboardOpPatientRecords,
+              'investigation_results': s.dashboardOpLabResults,
+            },
+          ),
+        ),
+        _ClinicalServiceGroup(
+          label: s.dashboardIpServices,
+          emptyLabel: s.dashboardNoIpServices,
+          tiles: _serviceTilesForIds(
+            features,
+            [
+              'bed_board',
+              'patient_records',
+              'prescriptions',
+              'investigation_results',
+              'radiology',
+              'theatre',
+              'blood_bank',
+            ],
+            titleOverrides: {
+              'patient_records': s.dashboardIpPatientRecords,
+              'investigation_results': s.dashboardIpLabResults,
+            },
+          ),
+        ),
+      ],
+      StaffRole.admin || StaffRole.superAdmin => [
+        _ClinicalServiceGroup(
+          label: s.dashboardOpServices,
+          emptyLabel: s.dashboardNoOpServices,
+          tiles: _serviceTilesForIds(
+            features,
+            [
+              'appointments',
+              'appointment_queue',
+              'patient_records',
+              'pharmacy_orders',
+              'investigations_upload',
+              'investigation_results',
+              'lab_bookings',
+            ],
+            titleOverrides: {
+              'patient_records': s.dashboardOpPatientRecords,
+              'pharmacy_orders': s.dashboardOpPharmacy,
+              'investigation_results': s.dashboardOpLabResults,
+              'lab_bookings': s.dashboardOpLabBookings,
+            },
+          ),
+        ),
+        _ClinicalServiceGroup(
+          label: s.dashboardIpServices,
+          emptyLabel: s.dashboardNoIpServices,
+          tiles: _serviceTilesForIds(
+            features,
+            [
+              'bed_board',
+              'patient_records',
+              'pharmacy_orders',
+              'investigations_upload',
+              'investigation_results',
+              'lab_bookings',
+              'dietary',
+              'theatre',
+              'radiology',
+              'blood_bank',
+            ],
+            titleOverrides: {
+              'patient_records': s.dashboardIpPatientRecords,
+              'pharmacy_orders': s.dashboardIpPharmacy,
+              'investigation_results': s.dashboardIpLabResults,
+              'lab_bookings': s.dashboardIpLabBookings,
+            },
+          ),
+        ),
+      ],
+      _ => null,
+    };
+  }
+
+  List<_ServiceTile> _serviceTilesForIds(
+    List<DashboardFeature> features,
+    List<String> ids, {
+    Map<String, String> titleOverrides = const {},
+  }) {
+    final byId = {for (final feature in features) feature.id: feature};
+    return [
+      for (final id in ids)
+        if (byId[id] != null)
+          _ServiceTile.fromFeature(
+            byId[id]!,
+            title: titleOverrides[id] ?? byId[id]!.title,
+          ),
+    ];
   }
 
   Widget _buildFeatureGrid(List<DashboardFeature> features) {
@@ -656,19 +915,59 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildServiceGrid(List<_ServiceTile> tiles, {Key? key}) {
+    return LayoutBuilder(
+      key: key,
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final crossAxisCount = width >= 900
+            ? 5
+            : width >= 640
+            ? 4
+            : 2;
+        return GridView.builder(
+          itemCount: tiles.length,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            childAspectRatio: width >= 640 ? 1.12 : 1.05,
+          ),
+          itemBuilder: (context, index) {
+            final tile = tiles[index];
+            return _FeatureButton(
+              icon: tile.icon,
+              label: tile.title,
+              color: tile.color,
+              route: tile.route,
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildMoreTools(List<DashboardFeature> features) {
     final s = AppStrings.of(context);
+    final textColor = AppTheme.textPrimary;
+    final subtitleColor = AppTheme.textSecondary;
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardSurface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+        border: Border.all(color: AppTheme.divider),
       ),
       child: Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
           tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
           childrenPadding: const EdgeInsets.fromLTRB(6, 0, 6, 8),
+          iconColor: subtitleColor,
+          collapsedIconColor: subtitleColor,
+          textColor: textColor,
+          collapsedTextColor: textColor,
           leading: Container(
             width: 36,
             height: 36,
@@ -684,13 +983,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           title: Text(
             s.dashboardMoreTools,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: textColor,
+            ),
           ),
           subtitle: Text(
             s.dashboardMoreToolsHint,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12),
+            style: TextStyle(fontSize: 12, color: subtitleColor),
           ),
           children: features
               .map(
@@ -771,7 +1074,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     onPressed: uid.isEmpty
                         ? null
-                        : () => context.go(
+                        : () => context.push(
                             '/emr/timeline/$uid?name=${Uri.encodeQueryComponent(name)}',
                           ),
                   ),
@@ -874,7 +1177,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             margin: const EdgeInsets.symmetric(horizontal: 4),
             child: InkWell(
               borderRadius: BorderRadius.circular(8),
-              onTap: s.route != null ? () => context.go(s.route!) : null,
+              onTap: s.route != null ? () => context.push(s.route!) : null,
               child: Padding(
                 padding: const EdgeInsets.all(12),
                 child: Column(
@@ -1001,7 +1304,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return ActionChip(
           avatar: Icon(a.icon, size: 18, color: a.color),
           label: Text(a.label),
-          onPressed: () => context.go(a.route),
+          onPressed: () => context.push(a.route),
           backgroundColor: a.color.withValues(alpha: 0.08),
           side: BorderSide(color: a.color.withValues(alpha: 0.2)),
         );
@@ -1023,7 +1326,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
         TextButton(
-          onPressed: () => context.go(route),
+          onPressed: () => context.push(route),
           child: Text(s.dashboardSeeAll),
         ),
       ],
@@ -1062,7 +1365,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ].join(' • '),
         ),
         trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-        onTap: () => context.go('/appointments'),
+        onTap: () => context.push('/appointments'),
       ),
     );
   }
@@ -1148,6 +1451,117 @@ class _QuickAction {
     required this.route,
     required this.color,
   });
+}
+
+class _ClinicalServiceGroup {
+  final String label;
+  final String emptyLabel;
+  final List<_ServiceTile> tiles;
+
+  const _ClinicalServiceGroup({
+    required this.label,
+    required this.emptyLabel,
+    required this.tiles,
+  });
+}
+
+class _ServiceTile {
+  final IconData icon;
+  final String title;
+  final String route;
+  final Color color;
+
+  const _ServiceTile({
+    required this.icon,
+    required this.title,
+    required this.route,
+    required this.color,
+  });
+
+  factory _ServiceTile.fromFeature(
+    DashboardFeature feature, {
+    required String title,
+  }) {
+    return _ServiceTile(
+      icon: feature.icon,
+      title: title,
+      route: feature.route,
+      color: feature.color,
+    );
+  }
+}
+
+class _ServiceTabButton extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ServiceTabButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? AppTheme.primaryBlue : AppTheme.textSecondary;
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Material(
+        color: selected
+            ? AppTheme.primaryBlue.withValues(alpha: 0.12)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(9),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(9),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: color,
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ServiceEmptyState extends StatelessWidget {
+  final String label;
+
+  const _ServiceEmptyState({super.key, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 12),
+      decoration: BoxDecoration(
+        color: AppTheme.backgroundGrey,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Text(
+        label,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: AppTheme.textSecondary,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
 }
 
 class _AttendanceStatusCard extends StatelessWidget {
@@ -1275,10 +1689,18 @@ class _SecondaryFeatureTile extends StatelessWidget {
         label,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: AppTheme.textPrimary,
+        ),
       ),
-      trailing: const Icon(Icons.chevron_right, size: 18),
-      onTap: () => context.go(route),
+      trailing: Icon(
+        Icons.chevron_right,
+        color: AppTheme.textSecondary,
+        size: 18,
+      ),
+      onTap: () => context.push(route),
     );
   }
 }
@@ -1299,11 +1721,12 @@ class _FeatureButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => context.go(route),
+      onTap: () => context.push(route),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppTheme.cardSurface,
           borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppTheme.divider),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.06),

@@ -146,6 +146,7 @@ class _HandoverScreenState extends State<HandoverScreen>
     final hasContext = (widget.prefillPatientRef ?? '').isNotEmpty;
     return Scaffold(
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.handoverTitle),
         actions: const [LogoutAction()],
         bottom: TabBar(

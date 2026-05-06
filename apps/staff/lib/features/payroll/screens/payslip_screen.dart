@@ -68,6 +68,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFE0F5F6),
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.payrollPayslipTitle),
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,

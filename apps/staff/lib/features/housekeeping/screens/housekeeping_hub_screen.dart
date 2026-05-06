@@ -14,6 +14,7 @@ class HousekeepingHubScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color(0xFFE0F5F6),
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.housekeepingHubTitle),
         actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),

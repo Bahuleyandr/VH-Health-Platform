@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
+import '../../../core/services/patient_api_service.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
@@ -11,6 +12,8 @@ import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
 import '../../../core/widgets/states/success_toast.dart';
+
+String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D'), '');
 
 class AppointmentsScreen extends StatefulWidget {
   const AppointmentsScreen({super.key});
@@ -113,6 +116,427 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     }
   }
 
+  Future<void> _createAppointment() async {
+    final formKey = GlobalKey<FormState>();
+    final patientPhoneCtrl = TextEditingController();
+    final patientNameCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController();
+    final notesCtrl = TextEditingController();
+    final doctorsFuture = ScheduleApiService.getAppointmentDoctors();
+    final today = DateTime.now();
+    var appointmentDate = DateTime(today.year, today.month, today.day);
+    var appointmentTime = TimeOfDay.fromDateTime(
+      DateTime.now().add(const Duration(hours: 1)),
+    );
+    var submitting = false;
+    var lookupMessage = 'Enter phone to check registered patient';
+    var patientLookupBusy = false;
+    var patientNameReadOnly = false;
+    int? resolvedPatientId;
+    int? selectedDoctorId;
+    Timer? lookupDebounce;
+
+    Future<void> lookupPatient(StateSetter setSheetState) async {
+      final phone = patientPhoneCtrl.text.trim();
+      final last10 = _digitsOnly(phone).length >= 10
+          ? _digitsOnly(phone).substring(_digitsOnly(phone).length - 10)
+          : _digitsOnly(phone);
+      if (last10.length < 10) {
+        setSheetState(() {
+          resolvedPatientId = null;
+          patientLookupBusy = false;
+          patientNameReadOnly = false;
+          lookupMessage = 'Enter phone to check registered patient';
+        });
+        return;
+      }
+
+      setSheetState(() {
+        patientLookupBusy = true;
+        resolvedPatientId = null;
+        patientNameReadOnly = false;
+        lookupMessage = 'Checking patient registry...';
+      });
+
+      try {
+        final matches = await PatientApiService.search(phone, limit: 10);
+        final exact = matches.cast<Map<String, dynamic>?>().firstWhere(
+          (patient) =>
+              patient != null &&
+              _digitsOnly(patient['phone']?.toString() ?? '').endsWith(last10),
+          orElse: () => null,
+        );
+        if (exact == null) {
+          setSheetState(() {
+            patientLookupBusy = false;
+            patientNameReadOnly = false;
+            lookupMessage =
+                'New patient - enter name to register while booking';
+          });
+          return;
+        }
+
+        final id = int.tryParse(exact['id']?.toString() ?? '');
+        setSheetState(() {
+          resolvedPatientId = id;
+          patientLookupBusy = false;
+          patientNameReadOnly = true;
+          patientNameCtrl.text = exact['name']?.toString() ?? '';
+          lookupMessage = id == null
+              ? 'Existing patient found'
+              : 'Existing patient found: #$id';
+        });
+      } catch (_) {
+        setSheetState(() {
+          patientLookupBusy = false;
+          patientNameReadOnly = false;
+          lookupMessage =
+              'Could not check registry now; new-patient booking is available';
+        });
+      }
+    }
+
+    try {
+      final created = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final dateLabel = DateFormat('yyyy-MM-dd').format(appointmentDate);
+            final timeLabel =
+                '${appointmentTime.hour.toString().padLeft(2, '0')}:${appointmentTime.minute.toString().padLeft(2, '0')}';
+
+            Future<void> submit() async {
+              if (!formKey.currentState!.validate()) return;
+              if (selectedDoctorId == null) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(
+                    content: Text('Select a doctor'),
+                    backgroundColor: AppTheme.errorRed,
+                  ),
+                );
+                return;
+              }
+              setSheetState(() => submitting = true);
+              try {
+                await ScheduleApiService.createAppointment(
+                  patientId: resolvedPatientId,
+                  patientPhone: patientPhoneCtrl.text.trim(),
+                  patientName: patientNameCtrl.text.trim(),
+                  doctorId: selectedDoctorId!,
+                  appointmentDate: dateLabel,
+                  appointmentTime: timeLabel,
+                  reason: reasonCtrl.text.trim(),
+                  notes: notesCtrl.text.trim().isEmpty
+                      ? null
+                      : notesCtrl.text.trim(),
+                );
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx, true);
+              } catch (e) {
+                if (!ctx.mounted) return;
+                setSheetState(() => submitting = false);
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(
+                    content: Text(e.toString().replaceFirst('Exception: ', '')),
+                    backgroundColor: AppTheme.errorRed,
+                  ),
+                );
+              }
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+              ),
+              child: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Create Appointment',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            tooltip: 'Close',
+                            onPressed: submitting
+                                ? null
+                                : () => Navigator.pop(ctx, false),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: patientPhoneCtrl,
+                        keyboardType: TextInputType.phone,
+                        decoration: InputDecoration(
+                          labelText: 'Patient phone',
+                          helperText: lookupMessage,
+                          suffixIcon: patientLookupBusy
+                              ? const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                )
+                              : const ExcludeSemantics(
+                                  child: Icon(Icons.search_outlined),
+                                ),
+                          prefixIcon: const ExcludeSemantics(
+                            child: Icon(Icons.phone_outlined),
+                          ),
+                        ),
+                        onChanged: (_) {
+                          lookupDebounce?.cancel();
+                          lookupDebounce = Timer(
+                            const Duration(milliseconds: 450),
+                            () {
+                              if (ctx.mounted) lookupPatient(setSheetState);
+                            },
+                          );
+                        },
+                        validator: (value) {
+                          final digits = _digitsOnly(value?.trim() ?? '');
+                          return digits.length < 10
+                              ? 'Enter a valid phone number'
+                              : null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: patientNameCtrl,
+                        readOnly: patientNameReadOnly,
+                        decoration: const InputDecoration(
+                          labelText: 'Patient name',
+                          prefixIcon: ExcludeSemantics(
+                            child: Icon(Icons.person_outline),
+                          ),
+                        ),
+                        validator: (value) {
+                          if (resolvedPatientId != null) return null;
+                          final name = value?.trim() ?? '';
+                          return name.length < 2
+                              ? 'Enter patient name for new patient'
+                              : null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      FutureBuilder<List<Map<String, dynamic>>>(
+                        future: doctorsFuture,
+                        builder: (context, snapshot) {
+                          final doctors = snapshot.data ?? const [];
+                          return DropdownButtonFormField<int>(
+                            initialValue: selectedDoctorId,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Doctor',
+                              prefixIcon: ExcludeSemantics(
+                                child: Icon(Icons.medical_services_outlined),
+                              ),
+                            ),
+                            items: doctors
+                                .map((doctor) {
+                                  final id = int.tryParse(
+                                    doctor['id']?.toString() ?? '',
+                                  );
+                                  final name =
+                                      doctor['name']?.toString() ??
+                                      (id == null ? 'Doctor' : 'Doctor #$id');
+                                  final department =
+                                      doctor['department']?.toString() ?? '';
+                                  final specialization =
+                                      doctor['specialization']?.toString() ??
+                                      '';
+                                  final label = [
+                                    name,
+                                    if (department.isNotEmpty) department,
+                                    if (specialization.isNotEmpty)
+                                      specialization,
+                                  ].join(' - ');
+                                  return id == null
+                                      ? null
+                                      : DropdownMenuItem<int>(
+                                          value: id,
+                                          child: Text(
+                                            label,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        );
+                                })
+                                .whereType<DropdownMenuItem<int>>()
+                                .toList(),
+                            hint: Text(
+                              snapshot.connectionState ==
+                                      ConnectionState.waiting
+                                  ? 'Loading doctors...'
+                                  : snapshot.hasError
+                                  ? 'Could not load doctors'
+                                  : 'Select doctor',
+                            ),
+                            onChanged:
+                                submitting ||
+                                    snapshot.connectionState ==
+                                        ConnectionState.waiting
+                                ? null
+                                : (value) => setSheetState(
+                                    () => selectedDoctorId = value,
+                                  ),
+                            validator: (value) =>
+                                value == null ? 'Select a doctor' : null,
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: submitting
+                                  ? null
+                                  : () async {
+                                      final picked = await showDatePicker(
+                                        context: ctx,
+                                        initialDate: appointmentDate,
+                                        firstDate: DateTime(
+                                          today.year,
+                                          today.month,
+                                          today.day,
+                                        ),
+                                        lastDate: DateTime(
+                                          today.year + 1,
+                                          today.month,
+                                          today.day,
+                                        ),
+                                      );
+                                      if (picked != null) {
+                                        setSheetState(
+                                          () => appointmentDate = picked,
+                                        );
+                                      }
+                                    },
+                              icon: const Icon(Icons.calendar_today_outlined),
+                              label: Text(dateLabel),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: submitting
+                                  ? null
+                                  : () async {
+                                      final picked = await showTimePicker(
+                                        context: ctx,
+                                        initialTime: appointmentTime,
+                                      );
+                                      if (picked != null) {
+                                        setSheetState(
+                                          () => appointmentTime = picked,
+                                        );
+                                      }
+                                    },
+                              icon: const Icon(Icons.schedule_outlined),
+                              label: Text(timeLabel),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: reasonCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Reason',
+                          prefixIcon: ExcludeSemantics(
+                            child: Icon(Icons.subject_outlined),
+                          ),
+                        ),
+                        minLines: 2,
+                        maxLines: 3,
+                        validator: (value) {
+                          final trimmed = value?.trim() ?? '';
+                          return trimmed.length < 3
+                              ? 'Enter at least 3 characters'
+                              : null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: notesCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Notes (optional)',
+                          prefixIcon: ExcludeSemantics(
+                            child: Icon(Icons.notes_outlined),
+                          ),
+                        ),
+                        maxLines: 2,
+                      ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: submitting ? null : submit,
+                          icon: submitting
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.add, color: Colors.white),
+                          label: Text(
+                            submitting ? 'Creating...' : 'Create Appointment',
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryBlue,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      );
+
+      if (created == true && mounted) {
+        SuccessToast.show(context, 'Appointment created successfully');
+        _load();
+      }
+    } finally {
+      lookupDebounce?.cancel();
+      patientPhoneCtrl.dispose();
+      patientNameCtrl.dispose();
+      reasonCtrl.dispose();
+      notesCtrl.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return StaffScaffold(
@@ -123,37 +547,55 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           Container(
             color: Colors.white,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: _statuses.map((s) {
-                  final selected = s == _selectedStatus;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: FilterChip(
-                      label: Text(s.toUpperCase()),
-                      selected: selected,
-                      onSelected: (_) {
-                        setState(() => _selectedStatus = s);
-                        _load();
-                      },
-                      selectedColor: AppTheme.primaryBlue.withValues(
-                        alpha: 0.15,
-                      ),
-                      checkmarkColor: AppTheme.primaryBlue,
-                      labelStyle: TextStyle(
-                        color: selected
-                            ? AppTheme.primaryBlue
-                            : AppTheme.textSecondary,
-                        fontSize: 11,
-                        fontWeight: selected
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                      ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: _statuses.map((s) {
+                        final selected = s == _selectedStatus;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: FilterChip(
+                            label: Text(s.toUpperCase()),
+                            selected: selected,
+                            onSelected: (_) {
+                              setState(() => _selectedStatus = s);
+                              _load();
+                            },
+                            selectedColor: AppTheme.primaryBlue.withValues(
+                              alpha: 0.15,
+                            ),
+                            checkmarkColor: AppTheme.primaryBlue,
+                            labelStyle: TextStyle(
+                              color: selected
+                                  ? AppTheme.primaryBlue
+                                  : AppTheme.textSecondary,
+                              fontSize: 11,
+                              fontWeight: selected
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        );
+                      }).toList(),
                     ),
-                  );
-                }).toList(),
-              ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: _createAppointment,
+                  icon: const Icon(Icons.add, color: Colors.white, size: 18),
+                  label: const Text('New'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryBlue,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(0, 38),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                ),
+              ],
             ),
           ),
 

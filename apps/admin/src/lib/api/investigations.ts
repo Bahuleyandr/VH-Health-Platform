@@ -99,6 +99,19 @@ export function getPendingInvestigations() {
   return getJSON<Investigation[]>(API_ENDPOINTS.investigations.pending);
 }
 
+export function orderInvestigation(data: {
+  patient_id: number;
+  test_name: string;
+  type: string;
+  priority?: string;
+  notes?: string;
+}) {
+  return postJSON<{ investigation: Investigation; patient_name?: string }>(
+    "/api/v1/investigations/order",
+    data
+  );
+}
+
 export function updateInvestigationStatus(id: number, status: string) {
   return putJSON<Investigation>(`/api/v1/investigations/${id}/status`, { status });
 }

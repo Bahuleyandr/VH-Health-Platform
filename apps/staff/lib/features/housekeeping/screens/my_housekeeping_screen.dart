@@ -70,6 +70,7 @@ class _MyHousekeepingScreenState extends State<MyHousekeepingScreen>
     final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.housekeepingMyTitle),
         actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),

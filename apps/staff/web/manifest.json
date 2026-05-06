@@ -1,11 +1,11 @@
 {
-    "name": "vhhealth_staff",
-    "short_name": "vhhealth_staff",
+    "name": "VH Health Staff",
+    "short_name": "VH Staff",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#007A3D",
+    "theme_color": "#007A3D",
+    "description": "VH Health hospital staff workspace.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

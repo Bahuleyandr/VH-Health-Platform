@@ -644,19 +644,49 @@ export class StaffAuthService {
   }
 
   static async getTodayAttendance(staffUid) {
+    const emptyStatus = {
+      check_in_time: null,
+      check_out_time: null,
+      checkInTime: null,
+      checkOutTime: null,
+      type: null,
+      location: null,
+      isCheckedIn: false,
+      status: 'not-checked-in'
+    };
     if (!staffUid) {
-      return { check_in_time: null, check_out_time: null, type: null, location: null };
+      return emptyStatus;
     }
     const result = await query(`
-      SELECT id, staff_id, staff_uid, type, location, check_in_time, check_out_time,
-             attendance_type, attendance_status, minutes_late, notes, created_at, timestamp
-      FROM staff_attendance
-      WHERE staff_uid = $1::uuid
-        AND DATE(timestamp) = CURRENT_DATE
-      ORDER BY timestamp DESC
+      SELECT sa.id, sa.staff_id, sa.staff_uid, sa.type, sa.location,
+             sa.check_in_time, sa.check_out_time, sa.attendance_type,
+             sa.attendance_status, sa.minutes_late, sa.notes, sa.created_at,
+             sa.timestamp, COALESCE(sa.check_in_time, sa.timestamp) AS recorded_at
+      FROM staff_attendance sa
+      LEFT JOIN users u ON u.id = sa.staff_id
+      WHERE (sa.staff_uid = $1::uuid OR u.uid = $1::uuid)
+        AND COALESCE(sa.check_in_time, sa.timestamp) >= CURRENT_DATE
+        AND COALESCE(sa.check_in_time, sa.timestamp) < CURRENT_DATE + INTERVAL '1 day'
+      ORDER BY COALESCE(sa.check_in_time, sa.timestamp) DESC
       LIMIT 1
     `, [staffUid]);
-    return result.rows[0] || { check_in_time: null, check_out_time: null, type: null, location: null };
+    const row = result.rows[0];
+    if (!row) {
+      return emptyStatus;
+    }
+
+    const isCheckedIn = Boolean(row.check_in_time) && !row.check_out_time;
+    return {
+      ...row,
+      checkInTime: row.check_in_time,
+      checkOutTime: row.check_out_time,
+      isCheckedIn,
+      status: isCheckedIn
+        ? 'checked-in'
+        : row.check_out_time
+          ? 'checked-out'
+          : 'not-checked-in'
+    };
   }
 
   /**
@@ -676,31 +706,37 @@ export class StaffAuthService {
     // Date filters are optional; default to last 30 days when both unset so
     // the response stays small even if the client forgets to scope.
     const params = [staffUid];
-    let where = 'WHERE staff_uid = $1::uuid';
+    let where = 'WHERE (sa.staff_uid = $1::uuid OR u.uid = $1::uuid)';
     if (startDate) {
       params.push(startDate);
-      where += ` AND DATE(timestamp) >= $${params.length}::date`;
+      where += ` AND DATE(COALESCE(sa.check_in_time, sa.timestamp)) >= $${params.length}::date`;
     }
     if (endDate) {
       params.push(endDate);
-      where += ` AND DATE(timestamp) <= $${params.length}::date`;
+      where += ` AND DATE(COALESCE(sa.check_in_time, sa.timestamp)) <= $${params.length}::date`;
     }
     if (!startDate && !endDate) {
-      where += " AND timestamp >= NOW() - INTERVAL '30 days'";
+      where += " AND COALESCE(sa.check_in_time, sa.timestamp) >= NOW() - INTERVAL '30 days'";
     }
 
     params.push(safeLimit, offset);
     const items = await query(`
-      SELECT id, staff_id, staff_uid, type, location, check_in_time, check_out_time,
-             attendance_type, attendance_status, minutes_late, notes, created_at, timestamp
-      FROM staff_attendance
+      SELECT sa.id, sa.staff_id, sa.staff_uid, sa.type, sa.location,
+             sa.check_in_time, sa.check_out_time, sa.attendance_type,
+             sa.attendance_status, sa.minutes_late, sa.notes, sa.created_at,
+             sa.timestamp
+      FROM staff_attendance sa
+      LEFT JOIN users u ON u.id = sa.staff_id
       ${where}
-      ORDER BY timestamp DESC
+      ORDER BY COALESCE(sa.check_in_time, sa.timestamp) DESC
       LIMIT $${params.length - 1} OFFSET $${params.length}
     `, params);
 
     const totalRow = await query(
-      `SELECT COUNT(*)::int AS total FROM staff_attendance ${where}`,
+      `SELECT COUNT(*)::int AS total
+       FROM staff_attendance sa
+       LEFT JOIN users u ON u.id = sa.staff_id
+       ${where}`,
       params.slice(0, params.length - 2)
     );
     return {

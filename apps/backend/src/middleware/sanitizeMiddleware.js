@@ -39,8 +39,8 @@ export const sanitizeInvestigationFields = sanitizeBody(
   'notes', 'custom_test_names', 'collection_address', 'collection_landmark'
 );
 
-/** Appointment fields: reason, notes */
-export const sanitizeAppointmentFields = sanitizeBody('reason', 'notes');
+/** Appointment fields: patient_name, reason, notes */
+export const sanitizeAppointmentFields = sanitizeBody('patient_name', 'reason', 'notes');
 
 /** SOS fields: notes, description, address */
 export const sanitizeSosFields = sanitizeBody(

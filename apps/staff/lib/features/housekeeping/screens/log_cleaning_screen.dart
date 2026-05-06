@@ -185,6 +185,7 @@ class _LogCleaningScreenState extends State<LogCleaningScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.housekeepingLogTitle),
         actions: const [LogoutAction()],
         backgroundColor: const Color(0xFF007A64),

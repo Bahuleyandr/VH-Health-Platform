@@ -37,6 +37,7 @@ class _TelemedicineScreenState extends State<TelemedicineScreen> {
     final s = AppStrings.of(context);
     return Scaffold(
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text('${s.telemedicineTitlePrefix} ${widget.patientName}'),
         actions: const [LogoutAction()],
         backgroundColor: theme.colorScheme.primary,

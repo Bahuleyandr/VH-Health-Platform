@@ -201,6 +201,7 @@ class _RaiseRequestScreenState extends State<RaiseRequestScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.housekeepingRaiseTitle),
         actions: const [LogoutAction()],
         backgroundColor: Colors.orange,

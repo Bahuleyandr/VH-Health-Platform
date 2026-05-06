@@ -7,6 +7,19 @@ export function getAppointments<T = unknown>(params?: QueryParams) {
   return getJSON<T>(API_ENDPOINTS.appointments.list, params);
 }
 
+export function bookAppointmentAdmin<T = unknown>(data: {
+  patient_id?: number;
+  patient_phone?: string;
+  patient_name?: string;
+  doctor_id: number;
+  appointment_date: string;
+  appointment_time: string;
+  reason: string;
+  notes?: string;
+}) {
+  return postJSON<T>(API_ENDPOINTS.appointments.book, data);
+}
+
 export function getAppointmentAnalytics<T = unknown>() {
   return getJSON<T>(API_ENDPOINTS.appointments.admin.analytics);
 }
@@ -46,7 +59,11 @@ export function overrideBookAppointment<T = unknown>(data: {
 
 export function resolveAppointmentConflict<T = unknown>(data: {
   conflict_appointments: [number, number];
-  resolution_action: "cancel_first" | "cancel_second" | "reschedule_first" | "reschedule_second";
+  resolution_action:
+    | "cancel_first"
+    | "cancel_second"
+    | "reschedule_first"
+    | "reschedule_second";
   new_time?: string;
 }) {
   return postJSON<T>(API_ENDPOINTS.appointments.admin.resolveConflict, data);
@@ -166,26 +183,45 @@ export interface SlaDashboardResponse {
   summary: SlaSummary;
   sla: SlaMetrics;
   by_status: { status: string; count: string }[];
-  by_department: { department: string; total: string; completed: string; confirmed: string; cancelled: string }[];
+  by_department: {
+    department: string;
+    total: string;
+    completed: string;
+    confirmed: string;
+    cancelled: string;
+  }[];
   pending_confirmation: AppointmentWorkflow[];
   date_range: { from: string; to: string };
 }
 
 export function getAppointmentSlaDashboard(params?: QueryParams) {
-  return getJSON<SlaDashboardResponse>(API_ENDPOINTS.appointments.slaDashboard, params);
+  return getJSON<SlaDashboardResponse>(
+    API_ENDPOINTS.appointments.slaDashboard,
+    params,
+  );
 }
 
 export function getTodayQueue(params?: QueryParams) {
-  return getJSON<AppointmentWorkflow[]>(API_ENDPOINTS.appointments.queue, params);
+  return getJSON<AppointmentWorkflow[]>(
+    API_ENDPOINTS.appointments.queue,
+    params,
+  );
 }
 
 export function getPendingAppointments(params?: QueryParams) {
-  return getJSON<AppointmentWorkflow[]>(API_ENDPOINTS.appointments.pending, params);
+  return getJSON<AppointmentWorkflow[]>(
+    API_ENDPOINTS.appointments.pending,
+    params,
+  );
 }
 
 export function confirmAppointmentAdmin<T = unknown>(
   id: number,
-  data: { confirmation_notes?: string; appointment_date?: string; appointment_time?: string }
+  data: {
+    confirmation_notes?: string;
+    appointment_date?: string;
+    appointment_time?: string;
+  },
 ) {
   return postJSON<T>(`/api/v1/appointments/${id}/confirm`, data);
 }
@@ -194,20 +230,31 @@ export function markNoShowAdmin<T = unknown>(id: number) {
   return postJSON<T>(`/api/v1/appointments/${id}/no-show`, {});
 }
 
-export function completeAppointmentAdmin<T = unknown>(id: number, data?: { notes?: string }) {
+export function completeAppointmentAdmin<T = unknown>(
+  id: number,
+  data?: { notes?: string },
+) {
   return postJSON<T>(`/api/v1/appointments/${id}/complete`, data ?? {});
 }
 
-export function cancelAppointmentAdmin<T = unknown>(id: number, data?: { cancellation_reason?: string }) {
+export function cancelAppointmentAdmin<T = unknown>(
+  id: number,
+  data?: { cancellation_reason?: string },
+) {
   return postJSON<T>(`/api/v1/appointments/${id}/cancel`, data ?? {});
 }
 
 export function getAppointmentDocumentsAdmin(appointmentId: number) {
-  return getJSON<AppointmentDocument[]>(`/api/v1/appointments/${appointmentId}/documents`);
+  return getJSON<AppointmentDocument[]>(
+    `/api/v1/appointments/${appointmentId}/documents`,
+  );
 }
 
 export function getAllAppointmentDocuments(params?: QueryParams) {
-  return getJSON<AppointmentDocument[]>(API_ENDPOINTS.appointments.allDocuments, params);
+  return getJSON<AppointmentDocument[]>(
+    API_ENDPOINTS.appointments.allDocuments,
+    params,
+  );
 }
 
 export function getAppointmentAuditTrail(params?: QueryParams) {
@@ -234,7 +281,9 @@ export interface SlotsResponse {
 }
 
 export function getAvailableSlots(doctor_id: number | string, date: string) {
-  return getJSON<SlotsResponse>(`/api/v1/appointments/slots?doctor_id=${doctor_id}&date=${date}`);
+  return getJSON<SlotsResponse>(
+    `/api/v1/appointments/slots?doctor_id=${doctor_id}&date=${date}`,
+  );
 }
 
 export interface WalkInPayload {

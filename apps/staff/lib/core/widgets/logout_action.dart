@@ -4,6 +4,8 @@ import '../../l10n/app_strings.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 
+export 'navigation_back_action.dart';
+
 /// AppBar logout action — drop into any `AppBar.actions` list to show a
 /// universal logout button on screens that don't wrap with [StaffScaffold].
 ///

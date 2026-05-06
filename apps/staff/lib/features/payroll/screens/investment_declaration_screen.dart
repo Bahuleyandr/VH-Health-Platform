@@ -329,6 +329,7 @@ class _InvestmentDeclarationScreenState
 
     return Scaffold(
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.payrollDeclarationTitle),
         backgroundColor: const Color(0xFF007A64),
         foregroundColor: Colors.white,

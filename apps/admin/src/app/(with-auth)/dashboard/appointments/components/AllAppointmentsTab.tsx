@@ -28,7 +28,7 @@ import {
   type AppointmentsAPIResponse,
 } from "./helpers";
 
-export function AllAppointmentsTab() {
+export function AllAppointmentsTab({ refreshKey = 0 }: { refreshKey?: number }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [data, setData] = useState<AppointmentsAPIResponse | null>(null);
@@ -73,7 +73,7 @@ export function AllAppointmentsTab() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams, sortBy, sortOrder]);
+  }, [refreshKey, searchParams, sortBy, sortOrder]);
 
   const doAction = async (
     id: number,

@@ -139,6 +139,7 @@ class _TheatreScreenState extends State<TheatreScreen>
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
       appBar: AppBar(
+        leading: const NavigationBackAction(),
         title: Text(s.theatreTitle),
         actions: [
           IconButton(

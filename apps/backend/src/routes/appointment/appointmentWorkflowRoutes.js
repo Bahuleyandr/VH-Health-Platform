@@ -21,6 +21,7 @@ const router = express.Router();
 // Queue, pending, slots, walk-in (static paths — must be before /:id)
 router.get('/queue/today', workflowController.getTodayQueue);
 router.get('/pending', workflowController.getPendingAppointments);
+router.get('/doctors/options', workflowController.getDoctorOptions);
 router.get('/slots', workflowController.getAvailableSlots);
 router.post('/walk-in', requiredString('patient_name', 255), validate, workflowController.registerWalkIn);
 
