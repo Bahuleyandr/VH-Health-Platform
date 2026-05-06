@@ -12,6 +12,27 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 import '../../doctor/screens/prescriptions_screen.dart';
 
+Map<String, dynamic> _queueMap(dynamic value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return const <String, dynamic>{};
+}
+
+String _queueText(dynamic value, [String fallback = '']) {
+  final text = value?.toString().trim() ?? '';
+  return text.isEmpty ? fallback : text;
+}
+
+double _queueDouble(dynamic value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+bool _queueBool(dynamic value) {
+  if (value is bool) return value;
+  return value?.toString().toLowerCase() == 'true';
+}
+
 class AppointmentQueueScreen extends StatefulWidget {
   const AppointmentQueueScreen({super.key});
 
@@ -669,7 +690,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
         padding: const EdgeInsets.all(12),
         itemCount: _queue.length,
         itemBuilder: (ctx, i) => _QueueCard(
-          appt: _queue[i] as Map<String, dynamic>,
+          appt: _queueMap(_queue[i]),
           statusColor: _statusColor,
           onConfirm: _showConfirmSheet,
           onNoShow: _markNoShow,
@@ -712,7 +733,7 @@ class _AppointmentQueueScreenState extends State<AppointmentQueueScreen>
         padding: const EdgeInsets.all(12),
         itemCount: _pending.length,
         itemBuilder: (ctx, i) => _PendingCard(
-          appt: _pending[i] as Map<String, dynamic>,
+          appt: _queueMap(_pending[i]),
           onConfirm: _showConfirmSheet,
         ),
       ),
@@ -949,6 +970,15 @@ class _QueueCardState extends State<_QueueCard> {
     final status = (appt['status'] ?? 'SCHEDULED').toString().toUpperCase();
     final statusCol = widget.statusColor(status);
     final tokenNum = appt['token_number'];
+    final patientName = _queueText(
+      appt['patient_name'],
+      AppStrings.of(context).apptQueuePatientFallback,
+    );
+    final patientPhone = _queueText(appt['patient_phone']);
+    final appointmentTime = _queueText(appt['appointment_time']);
+    final doctorName = _queueText(
+      appt['doctor_display_name'] ?? appt['doctor_name'],
+    );
     final theme = Theme.of(context);
 
     return Card(
@@ -986,16 +1016,12 @@ class _QueueCardState extends State<_QueueCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          appt['patient_name'] ??
-                              AppStrings.of(context).apptQueuePatientFallback,
+                          patientName,
                           style: theme.textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        Text(
-                          appt['patient_phone'] ?? '',
-                          style: theme.textTheme.bodySmall,
-                        ),
+                        Text(patientPhone, style: theme.textTheme.bodySmall),
                       ],
                     ),
                   ),
@@ -1024,16 +1050,13 @@ class _QueueCardState extends State<_QueueCard> {
                 children: [
                   Icon(Icons.access_time, size: 14, color: Colors.grey[600]),
                   const SizedBox(width: 4),
-                  Text(
-                    appt['appointment_time'] ?? '',
-                    style: theme.textTheme.bodySmall,
-                  ),
+                  Text(appointmentTime, style: theme.textTheme.bodySmall),
                   const SizedBox(width: 16),
                   Icon(Icons.person, size: 14, color: Colors.grey[600]),
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      appt['doctor_display_name'] ?? appt['doctor_name'] ?? '',
+                      doctorName,
                       style: theme.textTheme.bodySmall,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1132,11 +1155,21 @@ class _PendingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final slaBreached = appt['sla_breached'] == true;
-    final minsWaiting = (appt['minutes_since_booking'] ?? 0.0).toDouble();
+    final slaBreached = _queueBool(appt['sla_breached']);
+    final minsWaiting = _queueDouble(appt['minutes_since_booking']);
     final waitStr = minsWaiting < 60
         ? '${minsWaiting.toInt()} min ago'
         : '${(minsWaiting / 60).toStringAsFixed(1)}h ago';
+    final patientName = _queueText(
+      appt['patient_name'],
+      AppStrings.of(context).apptQueuePatientFallback,
+    );
+    final patientPhone = _queueText(appt['patient_phone']);
+    final appointmentDate = _queueText(
+      appt['appointment_date'],
+    ).split('T').first;
+    final appointmentTime = _queueText(appt['appointment_time']);
+    final doctorName = _queueText(appt['doctor_name']);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -1158,15 +1191,14 @@ class _PendingCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        appt['patient_name'] ??
-                            AppStrings.of(context).apptQueuePatientFallback,
+                        patientName,
                         style: theme.textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        appt['patient_phone'] ?? '',
+                        patientPhone,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: Colors.grey[600],
                         ),
@@ -1218,18 +1250,21 @@ class _PendingCard extends StatelessWidget {
                 Icon(Icons.calendar_today, size: 14, color: Colors.grey[600]),
                 const SizedBox(width: 4),
                 Text(
-                  '${appt['appointment_date']?.toString().split('T').first ?? ''} ${appt['appointment_time'] ?? ''}',
+                  [
+                    appointmentDate,
+                    appointmentTime,
+                  ].where((value) => value.isNotEmpty).join(' '),
                   style: theme.textTheme.bodySmall,
                 ),
               ],
             ),
             const SizedBox(height: 4),
-            if (appt['doctor_name'] != null)
+            if (doctorName.isNotEmpty)
               Row(
                 children: [
                   Icon(Icons.person, size: 14, color: Colors.grey[600]),
                   const SizedBox(width: 4),
-                  Text(appt['doctor_name'], style: theme.textTheme.bodySmall),
+                  Text(doctorName, style: theme.textTheme.bodySmall),
                 ],
               ),
             const SizedBox(height: 10),
