@@ -4,14 +4,6 @@ import logger from '../../logging/logger.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { success, error } from '../../utils/responseHelper.js';
 
-function paginationWithLegacyPage(total, page, limit) {
-  const pagination = buildPagination(total, page, limit);
-  return {
-    ...pagination,
-    currentPage: pagination.page,
-  };
-}
-
 // ────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/logs/audit  — paginated audit logs
 // ────────────────────────────────────────────────────────────────────────────
@@ -70,7 +62,7 @@ export async function getAuditLogs(req, res) {
       logger.warn('[logs] audit_logs table not found or unreadable; returning empty audit logs');
     }
 
-    const pagination = paginationWithLegacyPage(total, listQuery.page, listQuery.limit);
+    const pagination = buildPagination(total, listQuery.page, listQuery.limit);
     success(res, {
       logs: Array.isArray(rows) ? rows : [],
       total,
@@ -145,7 +137,7 @@ export async function getSystemLogs(req, res) {
       logger.warn('[logs] admin_activity_logs table not found; returning empty system logs');
     }
 
-    const pagination = paginationWithLegacyPage(total, listQuery.page, listQuery.limit);
+    const pagination = buildPagination(total, listQuery.page, listQuery.limit);
     success(res, {
       logs: Array.isArray(rows) ? rows : [],
       total,

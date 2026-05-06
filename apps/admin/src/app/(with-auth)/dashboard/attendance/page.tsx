@@ -1,7 +1,8 @@
 // src/app/(with-auth)/dashboard/attendance/page.tsx
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { ManagedTableToolbar } from "@/components/table";
 import { adminService } from "@/services/admin.service";
 
 // Types
@@ -77,6 +78,7 @@ export default function AttendancePage() {
   const [anomalies, setAnomalies] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [department, setDepartment] = useState("");
+  const [search, setSearch] = useState("");
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().slice(0, 10)
   );
@@ -118,6 +120,22 @@ export default function AttendancePage() {
   const lateCount = (analyticsObj?.late as number) ?? lateList.length;
 
   const departments = ["", "Nursing", "Pharmacy", "Administration", "Lab", "Radiology", "OT", "ICU"];
+  const matchesSearch = useCallback((record: AttendanceRecord) => {
+    const term = search.trim().toLowerCase();
+    if (!term) return true;
+    return [
+      record.staff_name,
+      record.name,
+      record.department,
+      record.status,
+      record.staff_id,
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(term));
+  }, [search]);
+  const visibleAbsent = useMemo(() => absentList.filter(matchesSearch), [absentList, matchesSearch]);
+  const visibleLate = useMemo(() => lateList.filter(matchesSearch), [lateList, matchesSearch]);
+  const visibleAnomalies = useMemo(() => anomalies.filter(matchesSearch), [anomalies, matchesSearch]);
 
   return (
     <div className="p-6 space-y-6">
@@ -152,6 +170,21 @@ export default function AttendancePage() {
         </select>
       </div>
 
+      <ManagedTableToolbar
+        search={search}
+        onSearchChange={setSearch}
+        placeholder="Search staff, department, status"
+        countLabel={`${visibleAbsent.length + visibleLate.length + visibleAnomalies.length} matching rows`}
+        savedViewScope="attendance"
+        savedViewState={{ search, department, selectedDate }}
+        onApplySavedView={(view) => {
+          setSearch(String(view.search ?? ""));
+          setDepartment(String(view.department ?? ""));
+          const date = String(view.selectedDate ?? "");
+          if (date) setSelectedDate(date);
+        }}
+      />
+
       {loading ? (
         <div className="flex items-center justify-center py-16">
           <div className="text-center">
@@ -174,11 +207,11 @@ export default function AttendancePage() {
             <h2 className="text-lg font-semibold mb-3">
               Absent Staff — {selectedDate}
             </h2>
-            {absentList.length === 0 ? (
+            {visibleAbsent.length === 0 ? (
               <p className="text-sm text-muted-foreground py-4">No absent staff for this date.</p>
             ) : (
               <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
-                <table className="w-full text-sm">
+                <table className="min-w-[620px] w-full text-sm">
                   <thead className="bg-muted/50">
                     <tr>
                       <th className="text-left px-4 py-3 font-medium">Name</th>
@@ -187,8 +220,8 @@ export default function AttendancePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {absentList.map((r, i) => (
-                      <tr key={i} className="hover:bg-muted/30 transition-colors">
+                    {visibleAbsent.map((r) => (
+                      <tr key={`${r.staff_id ?? r.staff_name ?? r.name}-absent`} className="hover:bg-muted/30 transition-colors">
                         <td className="px-4 py-3 font-medium">
                           {r.staff_name ?? r.name ?? `Staff #${r.staff_id}`}
                         </td>
@@ -207,13 +240,13 @@ export default function AttendancePage() {
           </section>
 
           {/* Late Arrivals */}
-          {lateList.length > 0 && (
+          {visibleLate.length > 0 && (
             <section>
               <h2 className="text-lg font-semibold mb-3">
                 Late Arrivals — {selectedDate}
               </h2>
               <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
-                <table className="w-full text-sm">
+                <table className="min-w-[720px] w-full text-sm">
                   <thead className="bg-muted/50">
                     <tr>
                       <th className="text-left px-4 py-3 font-medium">Name</th>
@@ -223,8 +256,8 @@ export default function AttendancePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {lateList.map((r, i) => (
-                      <tr key={i} className="hover:bg-muted/30 transition-colors">
+                    {visibleLate.map((r) => (
+                      <tr key={`${r.staff_id ?? r.staff_name ?? r.name}-late`} className="hover:bg-muted/30 transition-colors">
                         <td className="px-4 py-3 font-medium">
                           {r.staff_name ?? r.name ?? `Staff #${r.staff_id}`}
                         </td>
@@ -251,11 +284,11 @@ export default function AttendancePage() {
           )}
 
           {/* Anomalies */}
-          {anomalies.length > 0 && (
+          {visibleAnomalies.length > 0 && (
             <section>
               <h2 className="text-lg font-semibold mb-3">Anomalies (Last 30 days)</h2>
               <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
-                <table className="w-full text-sm">
+                <table className="min-w-[620px] w-full text-sm">
                   <thead className="bg-muted/50">
                     <tr>
                       <th className="text-left px-4 py-3 font-medium">Name</th>
@@ -264,8 +297,8 @@ export default function AttendancePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {anomalies.map((r, i) => (
-                      <tr key={i} className="hover:bg-muted/30 transition-colors">
+                    {visibleAnomalies.map((r) => (
+                      <tr key={`${r.staff_id ?? r.staff_name ?? r.name}-anomaly`} className="hover:bg-muted/30 transition-colors">
                         <td className="px-4 py-3 font-medium">
                           {r.staff_name ?? r.name ?? `Staff #${r.staff_id}`}
                         </td>

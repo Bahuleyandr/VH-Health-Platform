@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { fetchAdminAPI } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { ClientSavedViews } from "@/components/table";
 import {
   ArrowDown,
   ArrowUp,
@@ -44,6 +45,14 @@ type SortKey =
 type SortDirection = "asc" | "desc";
 
 const PAGE_SIZE_OPTIONS = [10, 50, 100] as const;
+const DOCTOR_SORT_KEYS: SortKey[] = [
+  "name",
+  "department",
+  "specialization",
+  "consultation_fee",
+  "schedule",
+  "status",
+];
 const collator = new Intl.Collator(undefined, {
   numeric: true,
   sensitivity: "base",
@@ -294,6 +303,22 @@ export function DoctorsTable({
             </div>
 
             <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+              <ClientSavedViews
+                scope="doctors"
+                state={{ searchTerm, sortKey, sortDirection, pageSize }}
+                onApply={(view) => {
+                  setSearchTerm(String(view.searchTerm ?? ""));
+                  if (DOCTOR_SORT_KEYS.includes(view.sortKey as SortKey)) {
+                    setSortKey(view.sortKey as SortKey);
+                  }
+                  setSortDirection(view.sortDirection === "desc" ? "desc" : "asc");
+                  const nextPageSize = Number(view.pageSize);
+                  if (PAGE_SIZE_OPTIONS.includes(nextPageSize as typeof PAGE_SIZE_OPTIONS[number])) {
+                    setPageSize(nextPageSize as typeof PAGE_SIZE_OPTIONS[number]);
+                  }
+                  setPage(1);
+                }}
+              />
               <span>
                 {filteredDoctors.length} of {doctors.length} doctors
               </span>

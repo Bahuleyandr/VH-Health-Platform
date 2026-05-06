@@ -105,10 +105,7 @@ class RadiologyService {
 
     return {
       orders: result,
-      pagination: {
-        ...pagination,
-        pages: pagination.totalPages,
-      },
+      pagination,
     };
   }
 
@@ -172,10 +169,7 @@ class RadiologyService {
 
     return {
       orders: result,
-      pagination: {
-        ...pagination,
-        pages: pagination.totalPages,
-      },
+      pagination,
     };
   }
 

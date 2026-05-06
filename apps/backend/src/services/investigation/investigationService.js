@@ -114,7 +114,7 @@ function flattenRelations(row, fields = {}) {
 }
 
 // Get investigations with filtering
-export const getInvestigations = async (page, limit, filters, userRole, userId) => {
+export const getInvestigations = async (page, limit, filters, userRole, userId, sort = {}) => {
   const offset = (page - 1) * limit;
 
   const where = {};
@@ -132,7 +132,7 @@ export const getInvestigations = async (page, limit, filters, userRole, userId) 
   }
 
   // Apply filters
-  const { patient_id, doctor_id, type, status, date } = filters;
+  const { patient_id, doctor_id, type, status, date, search } = filters;
 
   // Only allow patient_id filter for non-PATIENT roles (replicates original behaviour)
   if (patient_id && userRole !== 'PATIENT') {
@@ -165,8 +165,24 @@ export const getInvestigations = async (page, limit, filters, userRole, userId) 
     end.setDate(end.getDate() + 1);
     where.requested_at = { gte: start, lt: end };
   }
+  if (search) {
+    where.OR = [
+      { test_name: { contains: search, mode: 'insensitive' } },
+      { test_type: { contains: search, mode: 'insensitive' } },
+      { notes: { contains: search, mode: 'insensitive' } },
+    ];
+  }
 
   const relationFields = { specialization: true, doctorPhone: true };
+  const sortFields = {
+    id: { id: sort.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc' },
+    test_name: { test_name: sort.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc' },
+    priority: { priority: sort.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc' },
+    status: { status: sort.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc' },
+    requested_at: { requested_at: sort.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc' },
+    created_at: { created_at: sort.sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc' },
+  };
+  const orderBy = sortFields[sort.sortBy] ?? { requested_at: 'desc' };
   const [rows, totalInvestigations] = await Promise.all([
     prisma.investigations.findMany({
       where,
@@ -174,7 +190,7 @@ export const getInvestigations = async (page, limit, filters, userRole, userId) 
         ...(userRole === 'PATIENT' ? INV_LIST_SELECT_BASE : INV_LIST_SELECT_WITH_RESULTS),
         ...buildRelationsSelect(relationFields),
       },
-      orderBy: { requested_at: 'desc' },
+      orderBy,
       take: limit,
       skip: offset,
     }),

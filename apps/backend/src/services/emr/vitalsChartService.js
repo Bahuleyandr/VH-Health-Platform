@@ -213,10 +213,7 @@ export async function getVitalsChart(patientUid, encounterId, pagination = {}) {
 
   return {
     vitals,
-    pagination: {
-      ...meta,
-      total_pages: meta.totalPages,
-    },
+    pagination: meta,
   };
 }
 

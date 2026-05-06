@@ -104,15 +104,15 @@ export function LogFilters({ onFilterChange, logType }: LogFiltersProps) {
                 Search
               </label>
               <input
-                type="text"
+                type="search"
                 id="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyUp={(e) => e.key === "Enter" && handleApplyFilters()}
                 placeholder={
                   logType === "audit"
-                    ? "User ID, action, details..."
-                    : "Message, service..."
+                    ? "Search by user ID, action, details..."
+                    : "Search by message, service..."
                 }
                 className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
               />

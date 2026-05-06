@@ -4,6 +4,7 @@
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useState, useCallback } from "react";
 import { useDebouncedCallback } from "use-debounce"; // npm install use-debounce
+import { ServerSavedViews } from "@/components/table";
 
 const ROLE_OPTIONS = [
   "ADMIN",
@@ -91,6 +92,7 @@ export function UserFilters() {
           </option>
         ))}
       </select>
+      <ServerSavedViews scope="users" />
     </div>
   );
 }

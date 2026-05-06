@@ -108,10 +108,7 @@ class DietaryService {
 
     return {
       orders: result,
-      pagination: {
-        ...pagination,
-        pages: pagination.totalPages
-      }
+      pagination
     };
   }
 
@@ -198,10 +195,7 @@ class DietaryService {
 
     return {
       orders: result,
-      pagination: {
-        ...pagination,
-        pages: pagination.totalPages
-      }
+      pagination
     };
   }
 
@@ -255,10 +249,7 @@ class DietaryService {
 
     return {
       orders: result,
-      pagination: {
-        ...pagination,
-        pages: pagination.totalPages
-      }
+      pagination
     };
   }
 }

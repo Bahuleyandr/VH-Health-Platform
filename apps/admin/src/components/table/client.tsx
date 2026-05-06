@@ -12,6 +12,7 @@ import {
   ChevronsRight,
   Search,
 } from "lucide-react";
+import { ClientSavedViews, type SavedTableViewState } from "./savedViews";
 
 export type SortDirection = "asc" | "desc";
 export type SortValue = string | number | boolean | Date | null | undefined;
@@ -54,12 +55,18 @@ export function ManagedTableToolbar({
   onSearchChange,
   placeholder,
   countLabel,
+  savedViewScope,
+  savedViewState,
+  onApplySavedView,
   children,
 }: {
   search: string;
   onSearchChange: (value: string) => void;
   placeholder: string;
   countLabel: string;
+  savedViewScope?: string;
+  savedViewState?: SavedTableViewState;
+  onApplySavedView?: (state: SavedTableViewState) => void;
   children?: ReactNode;
 }) {
   return (
@@ -75,6 +82,13 @@ export function ManagedTableToolbar({
           className="w-full rounded-md border border-input bg-background py-2 pl-9 pr-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
         />
       </label>
+      {savedViewScope && savedViewState && onApplySavedView ? (
+        <ClientSavedViews
+          scope={savedViewScope}
+          state={savedViewState}
+          onApply={onApplySavedView}
+        />
+      ) : null}
       {children}
       <div className="whitespace-nowrap text-sm text-muted-foreground">
         {countLabel}

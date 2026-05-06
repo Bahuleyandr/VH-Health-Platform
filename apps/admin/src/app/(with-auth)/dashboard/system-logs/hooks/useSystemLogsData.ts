@@ -21,7 +21,7 @@ type LogsResponse<T> = {
   pagination?: Pagination;
 };
 
-const DEFAULT_ITEMS_PER_PAGE = 20;
+const DEFAULT_ITEMS_PER_PAGE = 10;
 
 export interface SystemLogsData {
   currentTab: string;

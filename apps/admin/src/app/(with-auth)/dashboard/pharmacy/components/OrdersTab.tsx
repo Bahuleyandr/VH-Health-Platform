@@ -1,7 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchAdminAPI, postJSON } from "@/lib/api";
+import {
+  ClientTablePagination,
+  ManagedTableToolbar,
+  SortableTableHeader,
+  compareTableValues,
+  paginateRows,
+  type SortDirection,
+} from "@/components/table";
 import type { PharmacyOrderLifecycle } from "./types";
 import { ActionButton, StatusBadge } from "./shared";
 import { OrderDetailModal } from "./OrderDetailModal";
@@ -19,16 +27,26 @@ function formatRelativeMins(mins: number): string {
 
 // Canonical UPPERCASE lifecycle (post-2026-04-14 backend rename).
 const STATUS_FILTERS = ["", "PENDING", "CONFIRMED", "PREPARING", "READY", "DISPATCHED", "DELIVERED", "CANCELLED"];
+type OrderSortKey = "order_number" | "patient_name" | "status" | "total_cost" | "mins_since_placed";
+const ORDER_SORT_KEYS: OrderSortKey[] = ["order_number", "patient_name", "status", "total_cost", "mins_since_placed"];
+const PAGE_SIZE_OPTIONS = [10, 50, 100];
 
 export function OrdersTab() {
   const [orders, setOrders] = useState<PharmacyOrderLifecycle[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<OrderSortKey>("mins_since_placed");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<PharmacyOrderLifecycle | null>(null);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const params = statusFilter ? `?status=${statusFilter}` : "";
       const r = await fetchAdminAPI<{ data: PharmacyOrderLifecycle[] }>(
@@ -36,8 +54,9 @@ export function OrdersTab() {
       );
       const data = (r as Record<string, unknown>).data ?? r;
       setOrders(Array.isArray(data) ? data : []);
-    } catch {
-      /* empty */
+    } catch (err) {
+      setOrders([]);
+      setError(err instanceof Error ? err.message : "Failed to load pharmacy orders");
     } finally {
       setLoading(false);
     }
@@ -46,6 +65,40 @@ export function OrdersTab() {
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, pageSize]);
+
+  const visibleOrders = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const filtered = term
+      ? orders.filter((order) =>
+          [
+            order.order_number,
+            order.patient_name,
+            order.phone,
+            order.delivery_type,
+            order.status,
+            order.delivery_person,
+          ]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(term)),
+        )
+      : orders;
+
+    return [...filtered].sort((a, b) => {
+      const direction = sortDirection === "asc" ? 1 : -1;
+      return compareTableValues(a[sortKey], b[sortKey]) * direction;
+    });
+  }, [orders, search, sortDirection, sortKey]);
+
+  const pagedOrders = paginateRows(visibleOrders, page, pageSize);
+
+  const handleSort = (key: OrderSortKey) => {
+    setSortDirection((current) => (sortKey === key && current === "asc" ? "desc" : "asc"));
+    setSortKey(key);
+  };
 
   const doAction = async (orderId: number, action: string, body: Record<string, unknown> = {}) => {
     setActionLoading(orderId);
@@ -63,11 +116,38 @@ export function OrdersTab() {
 
   return (
     <div className="space-y-4">
+      <ManagedTableToolbar
+        search={search}
+        onSearchChange={setSearch}
+        placeholder="Search order, patient, phone, status"
+        countLabel={`${visibleOrders.length} of ${orders.length} orders`}
+        savedViewScope="pharmacy-orders"
+        savedViewState={{ search, statusFilter, sortKey, sortDirection, pageSize }}
+        onApplySavedView={(view) => {
+          setSearch(String(view.search ?? ""));
+          setStatusFilter(String(view.statusFilter ?? ""));
+          if (ORDER_SORT_KEYS.includes(view.sortKey as OrderSortKey)) {
+            setSortKey(view.sortKey as OrderSortKey);
+          }
+          setSortDirection(view.sortDirection === "desc" ? "desc" : "asc");
+          const nextPageSize = Number(view.pageSize);
+          if (PAGE_SIZE_OPTIONS.includes(nextPageSize)) setPageSize(nextPageSize);
+          setPage(1);
+        }}
+      >
+        <button onClick={fetchOrders} className="rounded-md border border-input px-3 py-2 text-sm text-primary hover:bg-muted">
+          Refresh
+        </button>
+      </ManagedTableToolbar>
+
       <div className="flex gap-2 flex-wrap">
         {STATUS_FILTERS.map((s) => (
           <button
             key={s}
-            onClick={() => setStatusFilter(s)}
+            onClick={() => {
+              setStatusFilter(s);
+              setPage(1);
+            }}
             className={`px-3 py-1 rounded-full text-sm ${
               statusFilter === s
                 ? "bg-primary text-white"
@@ -77,33 +157,39 @@ export function OrdersTab() {
             {s || "All"}
           </button>
         ))}
-        <button onClick={fetchOrders} className="ml-auto text-sm text-primary hover:underline">
-          ↻ Refresh
-        </button>
       </div>
 
       {loading ? (
         <div className="text-center py-8">Loading orders...</div>
+      ) : error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
       ) : orders.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">No orders found</div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <>
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="min-w-[980px] w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left">
-                <th className="py-2 px-3">Order #</th>
-                <th className="py-2 px-3">Patient</th>
+                <SortableTableHeader label="Order #" sortKey="order_number" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
+                <SortableTableHeader label="Patient" sortKey="patient_name" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
                 <th className="py-2 px-3">Phone</th>
                 <th className="py-2 px-3">Type</th>
-                <th className="py-2 px-3">Total</th>
-                <th className="py-2 px-3">Status</th>
+                <SortableTableHeader label="Total" sortKey="total_cost" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
+                <SortableTableHeader label="Status" sortKey="status" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
                 <th className="py-2 px-3">ETA</th>
-                <th className="py-2 px-3">Time</th>
+                <SortableTableHeader label="Time" sortKey="mins_since_placed" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
                 <th className="py-2 px-3">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {orders.map((o) => (
+              {pagedOrders.rows.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-3 py-8 text-center text-muted-foreground">
+                    No orders match the current filters
+                  </td>
+                </tr>
+              ) : pagedOrders.rows.map((o) => (
                 <tr
                   key={o.id}
                   className={`border-b border-border hover:bg-muted/50 ${
@@ -208,6 +294,15 @@ export function OrdersTab() {
             </tbody>
           </table>
         </div>
+        <ClientTablePagination
+          page={pagedOrders.page}
+          pageSize={pageSize}
+          total={visibleOrders.length}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          itemLabel="orders"
+        />
+        </>
       )}
 
       {selectedOrder && (

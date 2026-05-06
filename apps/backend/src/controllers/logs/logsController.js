@@ -83,7 +83,7 @@ export async function getAuditLogs(req, res) {
     const pagination = buildPagination(total, page, limit);
     success(
       res,
-      { logs: dataResult, total, page, limit, pagination, totalPages: pagination.totalPages },
+      { logs: dataResult, total, page, limit, pagination },
       'Audit logs fetched'
     );
   } catch (err) {
@@ -225,7 +225,7 @@ export async function getSystemLogs(req, res) {
     const pagination = buildPagination(total, page, limit);
     success(
       res,
-      { logs, total, page, limit, pagination, totalPages: pagination.totalPages },
+      { logs, total, page, limit, pagination },
       'System logs fetched'
     );
   } catch (err) {

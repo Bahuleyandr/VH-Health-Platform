@@ -12,6 +12,10 @@ import { success, error } from '../utils/responseHelper.js';
 const router = express.Router();
 logger.info('✅ analyticsRoutes loaded with RBAC protection');
 
+function analyticsUnavailable(res, message) {
+  return error(res, message, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+}
+
 /**
  * ✅ Analytics routes with RBAC protection
  * Accessible to ADMIN and DOCTOR roles
@@ -158,83 +162,7 @@ wrapAutoRBAC(
 
           } catch (err) {
             logger.error('Dashboard Analytics Error:', err);
-            
-            // Fallback with mock data if database tables don't exist
-            const mockAnalytics = {
-              timeframe,
-              userAnalytics: {
-                total_users: 150,
-                new_users: 15,
-                active_users_7d: 45,
-                patients: 100,
-                doctors: 25,
-                staff: 25,
-                daily_active_users: 12
-              },
-              appointmentAnalytics: {
-                total_appointments: 500,
-                recent_appointments: 85,
-                upcoming_appointments: 45,
-                completed_appointments: 420,
-                cancelled_appointments: 35,
-                unique_patients: 95,
-                completion_rate: 92.5
-              },
-              healthRecordAnalytics: {
-                total_records: 300,
-                recent_records: 35,
-                patients_with_records: 78,
-                image_records: 180,
-                pdf_records: 120,
-                avg_file_size: 2048576
-              },
-              investigationAnalytics: {
-                total_investigations: 200,
-                recent_investigations: 25,
-                pending_investigations: 8,
-                completed_investigations: 185,
-                cancelled_investigations: 7,
-                patients_with_investigations: 65,
-                avg_completion_hours: 24.5
-              },
-              pharmacyAnalytics: {
-                total_orders: 120,
-                recent_orders: 18,
-                pending_orders: 3,
-                fulfilled_orders: 110,
-                cancelled_orders: 7,
-                unique_customers: 45,
-                total_revenue: 25000,
-                avg_order_value: 208.33
-              },
-              feedbackAnalytics: {
-                total_feedback: 89,
-                recent_feedback: 12,
-                average_rating: 4.2,
-                positive_feedback: 67,
-                negative_feedback: 8,
-                neutral_feedback: 14,
-                unique_reviewers: 78
-              },
-              sosAnalytics: {
-                total_alerts: 15,
-                recent_alerts: 3,
-                active_alerts: 1,
-                critical_alerts: 2,
-                high_priority_alerts: 5,
-                resolved_alerts: 12,
-                avg_response_time: 8.5
-              },
-              note: 'Mock data - some database tables may not exist',
-              generatedAt: new Date().toISOString(),
-              requestedBy: req.user?.name || 'Unknown'
-            };
-
-            res.json({
-              success: true,
-              data: mockAnalytics,
-              message: 'Dashboard analytics retrieved (with fallback data)'
-            });
+            return analyticsUnavailable(res, 'Dashboard analytics unavailable. No synthetic analytics were returned.');
           }
         }
       ],
@@ -243,7 +171,8 @@ wrapAutoRBAC(
       [
         '/trends',
         async (req, res) => {
-        const { metric = 'users', period = 'daily', days = 30 } = req.query;
+        const { metric = 'users', period = 'daily' } = req.query;
+        const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
   
         try {
             let dateFormat, groupBy;
@@ -321,7 +250,7 @@ wrapAutoRBAC(
             success(res, {
               metric,
               period: groupBy,
-              days: parseInt(days),
+              days,
               trends: trends,
               totalDataPoints: trends.length,
               requestedBy: req.user?.name
@@ -329,31 +258,7 @@ wrapAutoRBAC(
 
           } catch (err) {
             logger.error('Trend Analysis Error:', err);
-            
-            // Fallback with mock trend data
-            const mockTrends = Array.from({ length: Math.min(days, 30) }, (_, i) => {
-              const date = new Date();
-              date.setDate(date.getDate() - i);
-              return {
-                period: date.toISOString().split('T')[0],
-                count: Math.floor(Math.random() * 20) + 5,
-                unique_entities: Math.floor(Math.random() * 15) + 3
-              };
-            });
-
-            res.json({
-              success: true,
-              data: {
-                metric,
-                period: req.query.period || 'daily',
-                days: parseInt(days),
-                trends: mockTrends,
-                totalDataPoints: mockTrends.length,
-                note: 'Mock data - database table may not exist',
-                requestedBy: req.user?.name
-              },
-              message: 'Trend analysis completed (with fallback data)'
-            });
+            return analyticsUnavailable(res, 'Trend analytics unavailable. No synthetic analytics were returned.');
           }
         }
       ],
@@ -402,28 +307,7 @@ wrapAutoRBAC(
 
           } catch (err) {
             logger.error('Department Analytics Error:', err);
-            
-            // Mock department data
-            const mockDepartments = [
-              { department: 'Cardiology', total_doctors: 5, available_doctors: 4, total_appointments: 150, completed_appointments: 140, recent_appointments: 45, avg_consultation_fee: 500, total_revenue: 70000 },
-              { department: 'Orthopedics', total_doctors: 4, available_doctors: 3, total_appointments: 120, completed_appointments: 110, recent_appointments: 35, avg_consultation_fee: 450, total_revenue: 49500 },
-              { department: 'Neurology', total_doctors: 3, available_doctors: 3, total_appointments: 90, completed_appointments: 85, recent_appointments: 25, avg_consultation_fee: 600, total_revenue: 51000 },
-              { department: 'Pediatrics', total_doctors: 6, available_doctors: 5, total_appointments: 200, completed_appointments: 180, recent_appointments: 60, avg_consultation_fee: 350, total_revenue: 63000 },
-              { department: 'General Medicine', total_doctors: 8, available_doctors: 7, total_appointments: 300, completed_appointments: 270, recent_appointments: 90, avg_consultation_fee: 300, total_revenue: 81000 }
-            ];
-
-            res.json({
-              success: true,
-              data: {
-                timeframe,
-                departments: mockDepartments,
-                totalDepartments: mockDepartments.length,
-                note: 'Mock data - database tables may not exist',
-                requestedBy: req.user?.name,
-                generatedAt: new Date().toISOString()
-              },
-              message: 'Department analytics retrieved (with fallback data)'
-            });
+            return analyticsUnavailable(res, 'Department analytics unavailable. No synthetic analytics were returned.');
           }
         }
       ],
@@ -499,46 +383,7 @@ wrapAutoRBAC(
 
           } catch (err) {
             logger.error('Pharmacy Analytics Error:', err);
-            
-            // Mock pharmacy data
-            const mockData = {
-              timeframe,
-              orderStatistics: {
-                total_orders: 120,
-                recent_orders: 35,
-                pending_orders: 5,
-                fulfilled_orders: 110,
-                cancelled_orders: 5,
-                unique_customers: 45,
-                total_revenue: 25000,
-                avg_order_value: 208.33,
-                highest_order_value: 1500
-              },
-              topMedicines: [
-                { medicine_name: 'Paracetamol', total_quantity_sold: 150, order_frequency: 45, medicine_revenue: 1500 },
-                { medicine_name: 'Amoxicillin', total_quantity_sold: 80, order_frequency: 25, medicine_revenue: 2000 },
-                { medicine_name: 'Ibuprofen', total_quantity_sold: 120, order_frequency: 35, medicine_revenue: 1800 }
-              ],
-              dailyRevenue: Array.from({ length: 7 }, (_, i) => {
-                const date = new Date();
-                date.setDate(date.getDate() - i);
-                return {
-                  order_date: date.toISOString().split('T')[0],
-                  daily_orders: Math.floor(Math.random() * 10) + 3,
-                  daily_revenue: Math.floor(Math.random() * 2000) + 500,
-                  unique_customers: Math.floor(Math.random() * 8) + 2
-                };
-              }),
-              note: 'Mock data - pharmacy_orders table may not exist',
-              requestedBy: req.user?.name,
-              generatedAt: new Date().toISOString()
-            };
-
-            res.json({
-              success: true,
-              data: mockData,
-              message: 'Pharmacy analytics retrieved (with fallback data)'
-            });
+            return analyticsUnavailable(res, 'Pharmacy analytics unavailable. No synthetic analytics were returned.');
           }
         }
       ],
@@ -618,48 +463,7 @@ wrapAutoRBAC(
 
           } catch (err) {
             logger.error('Satisfaction Analytics Error:', err);
-            
-            // Mock satisfaction data
-            const mockData = {
-              timeframe,
-              overallSatisfaction: {
-                total_feedback: 89,
-                average_rating: 4.2,
-                five_star: 35,
-                four_star: 32,
-                three_star: 14,
-                two_star: 5,
-                one_star: 3,
-                positive_feedback: 67,
-                negative_feedback: 8,
-                unique_reviewers: 78
-              },
-              departmentRatings: [
-                { department: 'Cardiology', feedback_count: 25, avg_rating: 4.5, positive_count: 22 },
-                { department: 'Orthopedics', feedback_count: 20, avg_rating: 4.3, positive_count: 17 },
-                { department: 'Pediatrics', feedback_count: 30, avg_rating: 4.1, positive_count: 24 },
-                { department: 'General Medicine', feedback_count: 14, avg_rating: 3.9, positive_count: 10 }
-              ],
-              ratingTrends: Array.from({ length: 7 }, (_, i) => {
-                const date = new Date();
-                date.setDate(date.getDate() - i);
-                return {
-                  feedback_date: date.toISOString().split('T')[0],
-                  daily_feedback: Math.floor(Math.random() * 8) + 2,
-                  daily_avg_rating: (Math.random() * 1.5 + 3.5).toFixed(1),
-                  daily_positive: Math.floor(Math.random() * 6) + 1
-                };
-              }),
-              note: 'Mock data - feedback table may not exist',
-              requestedBy: req.user?.name,
-              generatedAt: new Date().toISOString()
-            };
-
-            res.json({
-              success: true,
-              data: mockData,
-              message: 'Patient satisfaction analytics retrieved (with fallback data)'
-            });
+            return analyticsUnavailable(res, 'Patient satisfaction analytics unavailable. No synthetic analytics were returned.');
           }
         }
       ],
@@ -748,35 +552,7 @@ wrapAutoRBAC(
 
           } catch (err) {
             logger.error('Usage Analytics Error:', err);
-            
-            // Mock usage data
-            const mockData = {
-              timeframe,
-              featureUsage: [
-                { feature: 'Appointments', usage_count: 150 },
-                { feature: 'Health Records', usage_count: 89 },
-                { feature: 'Investigations', usage_count: 67 },
-                { feature: 'Pharmacy Orders', usage_count: 45 }
-              ],
-              deviceStatistics: [
-                { device_type: 'Mobile', platform: 'Android', session_count: 120, unique_users: 45 },
-                { device_type: 'Mobile', platform: 'iOS', session_count: 80, unique_users: 35 },
-                { device_type: 'Desktop', platform: 'Web', session_count: 60, unique_users: 25 }
-              ],
-              peakUsageHours: Array.from({ length: 24 }, (_, i) => ({
-                hour_of_day: i,
-                activity_count: Math.floor(Math.random() * 30) + (i >= 9 && i <= 17 ? 20 : 5)
-              })),
-              note: 'Mock data - some tables may not exist',
-              requestedBy: req.user?.name,
-              generatedAt: new Date().toISOString()
-            };
-
-            res.json({
-              success: true,
-              data: mockData,
-              message: 'System usage analytics retrieved (with fallback data)'
-            });
+            return analyticsUnavailable(res, 'System usage analytics unavailable. No synthetic analytics were returned.');
           }
         }
       ],

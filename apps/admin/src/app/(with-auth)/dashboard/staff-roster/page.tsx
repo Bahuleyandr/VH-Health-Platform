@@ -1,7 +1,8 @@
 // src/app/(with-auth)/dashboard/staff-roster/page.tsx
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
+import { ManagedTableToolbar } from "@/components/table";
 import { getStaffByShift, bulkShiftAssignment } from "@/lib/api/staff";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -60,6 +61,7 @@ export default function StaffRosterPage() {
   const [error, setError] = useState<string | null>(null);
   const [shiftData, setShiftData] = useState<ShiftData>({});
   const [weekOffset, setWeekOffset] = useState(0);
+  const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [assigning, setAssigning] = useState(false);
 
@@ -73,6 +75,21 @@ export default function StaffRosterPage() {
 
   const allStaff: StaffMember[] = Object.values(shiftData).flat();
   const uniqueStaff = Array.from(new Map(allStaff.map((s) => [s.id, s])).values());
+  const visibleShiftData = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return shiftData;
+    return Object.fromEntries(
+      Object.entries(shiftData).map(([shift, staff]) => [
+        shift,
+        staff.filter((member) =>
+          [member.name, member.role, member.department, member.shift]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(term)),
+        ),
+      ]),
+    ) as ShiftData;
+  }, [search, shiftData]);
+  const visibleCount = Object.values(visibleShiftData).reduce((sum, staff) => sum + staff.length, 0);
 
   const fetchData = useCallback(async () => {
     try {
@@ -179,9 +196,23 @@ export default function StaffRosterPage() {
         ))}
       </div>
 
+      <ManagedTableToolbar
+        search={search}
+        onSearchChange={setSearch}
+        placeholder="Search staff, role, department"
+        countLabel={`${visibleCount} of ${uniqueStaff.length} staff`}
+        savedViewScope="staff-roster"
+        savedViewState={{ search, weekOffset }}
+        onApplySavedView={(view) => {
+          setSearch(String(view.search ?? ""));
+          const nextWeekOffset = Number(view.weekOffset);
+          if (Number.isFinite(nextWeekOffset)) setWeekOffset(nextWeekOffset);
+        }}
+      />
+
       {/* Shift Sections */}
       {(Object.keys(SHIFT_LABELS) as ShiftType[]).map((shift) => {
-        const staff = shiftData[shift] ?? [];
+        const staff = visibleShiftData[shift] ?? [];
         return (
           <div key={shift} style={{ ...cardStyle, marginBottom: 20 }}>
             <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: SHIFT_BORDER[shift] }}>
@@ -191,7 +222,7 @@ export default function StaffRosterPage() {
               <p style={{ color: "var(--text-secondary, #888)", fontSize: 14 }}>No staff assigned</p>
             ) : (
               <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+                <table style={{ minWidth: 820, width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
                   <thead>
                     <tr>
                       <th style={{ textAlign: "left", padding: "8px 12px", borderBottom: "1px solid var(--border-color, #e2e8f0)", fontWeight: 600 }}>Staff</th>

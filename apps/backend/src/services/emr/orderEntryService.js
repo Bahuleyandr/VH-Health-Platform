@@ -440,10 +440,7 @@ export async function getPatientOrders(patientUid, filters = {}) {
 
   return {
     orders,
-    pagination: {
-      ...pagination,
-      total_pages: pagination.totalPages,
-    },
+    pagination,
   };
 }
 

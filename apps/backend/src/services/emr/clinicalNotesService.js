@@ -293,10 +293,7 @@ export async function getPatientNotes(patientUid, filters = {}) {
 
   return {
     notes,
-    pagination: {
-      ...pagination,
-      total_pages: pagination.totalPages,
-    },
+    pagination,
   };
 }
 

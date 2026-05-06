@@ -25,7 +25,8 @@ export const listInvestigations = async (req, res) => {
       doctor_id: req.query.doctor_id,
       type: req.query.type,
       status: req.query.status,
-      date: req.query.date
+      date: req.query.date,
+      search: listQuery.search,
     };
 
     const result = await investigationService.getInvestigations(
@@ -33,7 +34,11 @@ export const listInvestigations = async (req, res) => {
       listQuery.limit,
       filters,
       userRole,
-      userId
+      userId,
+      {
+        sortBy: listQuery.sortBy,
+        sortOrder: listQuery.sortOrder,
+      }
     );
 
     await logAudit(req, 'investigation-list-view', {

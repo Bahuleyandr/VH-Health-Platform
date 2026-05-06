@@ -133,6 +133,10 @@ jobs:
         working-directory: apps/admin
         run: npm run smoke:routes
 
+      - name: Admin table controls smoke
+        working-directory: apps/admin
+        run: npm run smoke:tables
+
       - name: Patient API smoke
         shell: pwsh
         run: >

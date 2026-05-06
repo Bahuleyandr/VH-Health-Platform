@@ -219,10 +219,7 @@ class BloodBankService {
 
     return {
       requests: result,
-      pagination: {
-        ...pagination,
-        pages: pagination.totalPages
-      }
+      pagination
     };
   }
 }

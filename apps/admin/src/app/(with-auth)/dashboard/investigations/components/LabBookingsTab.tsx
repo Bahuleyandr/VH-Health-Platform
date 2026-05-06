@@ -1,7 +1,15 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { toast } from "react-hot-toast";
+import {
+  ClientTablePagination,
+  ManagedTableToolbar,
+  SortableTableHeader,
+  compareTableValues,
+  paginateRows,
+  type SortDirection,
+} from "@/components/table";
 import {
   getBookingQueue,
   getBookingSLA,
@@ -15,16 +23,27 @@ import {
 } from "@/lib/api/investigations";
 import { Chip, SlaCard, statusColor } from "./helpers";
 
+type BookingSortKey = "booking_number" | "patient_name" | "status" | "final_cost" | "mins_since_booked";
+const BOOKING_SORT_KEYS: BookingSortKey[] = ["booking_number", "patient_name", "status", "final_cost", "mins_since_booked"];
+const PAGE_SIZE_OPTIONS = [10, 50, 100];
+
 export function LabBookingsTab() {
   const [sla, setSla] = useState<BookingSLADashboard | null>(null);
   const [bookings, setBookings] = useState<InvestigationBooking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<BookingSortKey>("mins_since_booked");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const params: Record<string, string> = {};
       if (statusFilter) params.status = statusFilter;
@@ -35,7 +54,9 @@ export function LabBookingsTab() {
       ]);
       setSla(slaData);
       setBookings(Array.isArray(queueData) ? queueData : []);
-    } catch {
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load lab bookings");
+      setBookings([]);
       toast.error("Failed to load lab bookings");
     } finally {
       setLoading(false);
@@ -43,6 +64,7 @@ export function LabBookingsTab() {
   }, [statusFilter, typeFilter]);
 
   useEffect(() => { void fetchData(); }, [fetchData]);
+  useEffect(() => { setPage(1); }, [pageSize, search, statusFilter, typeFilter]);
 
   const handleConfirm = async (id: number) => {
     const notes = prompt("Confirmation notes (optional):");
@@ -169,6 +191,35 @@ export function LabBookingsTab() {
   };
 
   const statuses = ["BOOKED", "CONFIRMED", "DISPATCHED", "COLLECTED", "PROCESSING", "RESULT_READY"];
+  const visibleBookings = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const filtered = term
+      ? bookings.filter((booking) =>
+          [
+            booking.booking_number,
+            booking.patient_name,
+            booking.patient_phone,
+            booking.status,
+            booking.collection_type,
+            booking.test_names?.join(" "),
+            booking.custom_test_names,
+          ]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(term)),
+        )
+      : bookings;
+    return [...filtered].sort((a, b) => {
+      const direction = sortDirection === "asc" ? 1 : -1;
+      return compareTableValues(a[sortKey], b[sortKey]) * direction;
+    });
+  }, [bookings, search, sortDirection, sortKey]);
+
+  const pagedBookings = paginateRows(visibleBookings, page, pageSize);
+
+  const handleSort = (key: BookingSortKey) => {
+    setSortDirection((current) => (sortKey === key && current === "asc" ? "desc" : "asc"));
+    setSortKey(key);
+  };
 
   if (loading) return <p className="text-center py-8 text-muted-foreground">Loading...</p>;
 
@@ -195,6 +246,27 @@ export function LabBookingsTab() {
           </div>
         </div>
       )}
+
+      <ManagedTableToolbar
+        search={search}
+        onSearchChange={setSearch}
+        placeholder="Search booking, patient, phone, test, status"
+        countLabel={`${visibleBookings.length} of ${bookings.length} bookings`}
+        savedViewScope="investigation-bookings"
+        savedViewState={{ search, statusFilter, typeFilter, sortKey, sortDirection, pageSize }}
+        onApplySavedView={(view) => {
+          setSearch(String(view.search ?? ""));
+          setStatusFilter(String(view.statusFilter ?? ""));
+          setTypeFilter(String(view.typeFilter ?? ""));
+          if (BOOKING_SORT_KEYS.includes(view.sortKey as BookingSortKey)) {
+            setSortKey(view.sortKey as BookingSortKey);
+          }
+          setSortDirection(view.sortDirection === "asc" ? "asc" : "desc");
+          const nextPageSize = Number(view.pageSize);
+          if (PAGE_SIZE_OPTIONS.includes(nextPageSize)) setPageSize(nextPageSize);
+          setPage(1);
+        }}
+      />
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center">
@@ -225,28 +297,32 @@ export function LabBookingsTab() {
         </button>
       </div>
 
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
+      )}
+
       {/* Active Bookings Table */}
       <div className="rounded-lg border bg-card overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="min-w-[1050px] w-full text-sm">
           <thead className="border-b bg-muted/50">
             <tr className="text-left">
-              <th className="px-3 py-2">Booking #</th>
-              <th className="px-3 py-2">Patient</th>
+              <SortableTableHeader label="Booking #" sortKey="booking_number" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
+              <SortableTableHeader label="Patient" sortKey="patient_name" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
               <th className="px-3 py-2">Phone</th>
               <th className="px-3 py-2">Tests</th>
               <th className="px-3 py-2">Type</th>
-              <th className="px-3 py-2">Status</th>
+              <SortableTableHeader label="Status" sortKey="status" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
               <th className="px-3 py-2">ETA</th>
-              <th className="px-3 py-2">Time</th>
-              <th className="px-3 py-2">Cost</th>
+              <SortableTableHeader label="Time" sortKey="mins_since_booked" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
+              <SortableTableHeader label="Cost" sortKey="final_cost" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
               <th className="px-3 py-2">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {bookings.length === 0 ? (
+            {visibleBookings.length === 0 ? (
               <tr><td colSpan={10} className="px-3 py-8 text-center text-muted-foreground">No bookings found</td></tr>
             ) : (
-              bookings.map((b) => {
+              pagedBookings.rows.map((b) => {
                 const isBreach = b.sla_breached;
                 const testDisplay = b.test_names?.join(", ") || b.custom_test_names || (b.slip_photo_key ? "📋 Slip" : "—");
                 const mins = b.mins_since_booked ?? 0;
@@ -293,6 +369,14 @@ export function LabBookingsTab() {
           </tbody>
         </table>
       </div>
+      <ClientTablePagination
+        page={pagedBookings.page}
+        pageSize={pageSize}
+        total={visibleBookings.length}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+        itemLabel="bookings"
+      />
     </div>
   );
 }

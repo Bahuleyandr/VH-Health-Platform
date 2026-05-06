@@ -1,7 +1,15 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { fetchAdminAPI, postJSON } from "@/lib/api";
+import {
+  ClientTablePagination,
+  ManagedTableToolbar,
+  SortableTableHeader,
+  compareTableValues,
+  paginateRows,
+  type SortDirection,
+} from "@/components/table";
 import type { Invoice, InvoiceDetail, RecordPaymentPayload } from "@/lib/api";
 import { StatusBadge, INVOICE_STATUS_COLORS, fmt, fmtDate } from "./shared";
 
@@ -9,9 +17,18 @@ import { StatusBadge, INVOICE_STATUS_COLORS, fmt, fmtDate } from "./shared";
 // INVOICES TAB
 // ═══════════════════════════════════════════════════════════════════════════════
 
+type InvoiceSortKey = "invoice_number" | "type" | "total_amount" | "payment_status" | "issued_at";
+const INVOICE_SORT_KEYS: InvoiceSortKey[] = ["invoice_number", "type", "total_amount", "payment_status", "issued_at"];
+const PAGE_SIZE_OPTIONS = [10, 50, 100];
+
 export function InvoicesTab() {
   const [patientUid, setPatientUid] = useState("");
   const [searchInput, setSearchInput] = useState("");
+  const [tableSearch, setTableSearch] = useState("");
+  const [sortKey, setSortKey] = useState<InvoiceSortKey>("issued_at");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceDetail | null>(null);
@@ -53,7 +70,36 @@ export function InvoicesTab() {
 
   const handleSearch = () => {
     setPatientUid(searchInput);
+    setPage(1);
     fetchInvoices(searchInput);
+  };
+
+  const visibleInvoices = useMemo(() => {
+    const term = tableSearch.trim().toLowerCase();
+    const filtered = term
+      ? invoices.filter((invoice) =>
+          [
+            invoice.invoice_number,
+            invoice.type,
+            invoice.payment_status,
+            invoice.total_amount,
+            invoice.issued_at,
+          ]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(term)),
+        )
+      : invoices;
+    return [...filtered].sort((a, b) => {
+      const direction = sortDirection === "asc" ? 1 : -1;
+      return compareTableValues(a[sortKey], b[sortKey]) * direction;
+    });
+  }, [invoices, sortDirection, sortKey, tableSearch]);
+
+  const pagedInvoices = paginateRows(visibleInvoices, page, pageSize);
+
+  const handleSort = (key: typeof sortKey) => {
+    setSortDirection((current) => (sortKey === key && current === "asc" ? "desc" : "asc"));
+    setSortKey(key);
   };
 
   return (
@@ -91,22 +137,54 @@ export function InvoicesTab() {
       )}
 
       {invoices.length > 0 && (
+        <>
+        <ManagedTableToolbar
+          search={tableSearch}
+          onSearchChange={(value) => {
+            setTableSearch(value);
+            setPage(1);
+          }}
+          placeholder="Search invoice, type, status"
+          countLabel={`${visibleInvoices.length} of ${invoices.length} invoices`}
+          savedViewScope="billing-invoices"
+          savedViewState={{ patientUid, tableSearch, sortKey, sortDirection, pageSize }}
+          onApplySavedView={(view) => {
+            const nextPatientUid = String(view.patientUid ?? "");
+            setPatientUid(nextPatientUid);
+            setSearchInput(nextPatientUid);
+            setTableSearch(String(view.tableSearch ?? ""));
+            if (INVOICE_SORT_KEYS.includes(view.sortKey as InvoiceSortKey)) {
+              setSortKey(view.sortKey as InvoiceSortKey);
+            }
+            setSortDirection(view.sortDirection === "asc" ? "asc" : "desc");
+            const nextPageSize = Number(view.pageSize);
+            if (PAGE_SIZE_OPTIONS.includes(nextPageSize)) setPageSize(nextPageSize);
+            setPage(1);
+            if (nextPatientUid) void fetchInvoices(nextPatientUid);
+          }}
+        />
         <div className="overflow-x-auto border border-border rounded-lg">
-          <table className="w-full text-sm">
+          <table className="min-w-[860px] w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left bg-muted/50">
-                <th className="py-2 px-3">Invoice #</th>
-                <th className="py-2 px-3">Type</th>
-                <th className="py-2 px-3">Total</th>
+                <SortableTableHeader label="Invoice #" sortKey="invoice_number" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
+                <SortableTableHeader label="Type" sortKey="type" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
+                <SortableTableHeader label="Total" sortKey="total_amount" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
                 <th className="py-2 px-3">Paid</th>
-                <th className="py-2 px-3">Status</th>
-                <th className="py-2 px-3">Date</th>
+                <SortableTableHeader label="Status" sortKey="payment_status" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
+                <SortableTableHeader label="Date" sortKey="issued_at" activeSort={sortKey} direction={sortDirection} onSort={handleSort} className="px-3 py-2" />
                 <th className="py-2 px-3">Due</th>
                 <th className="py-2 px-3"></th>
               </tr>
             </thead>
             <tbody>
-              {invoices.map((inv) => (
+              {pagedInvoices.rows.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
+                    No invoices match the current filters
+                  </td>
+                </tr>
+              ) : pagedInvoices.rows.map((inv) => (
                 <tr key={inv.id} className="border-b border-border hover:bg-muted/40">
                   <td className="py-2 px-3 font-medium text-primary">
                     {inv.invoice_number}
@@ -136,6 +214,15 @@ export function InvoicesTab() {
             </tbody>
           </table>
         </div>
+        <ClientTablePagination
+          page={pagedInvoices.page}
+          pageSize={pageSize}
+          total={visibleInvoices.length}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          itemLabel="invoices"
+        />
+        </>
       )}
 
       {/* Invoice Detail Modal */}

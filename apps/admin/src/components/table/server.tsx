@@ -14,6 +14,7 @@ import {
   ChevronsRight,
   Search,
 } from "lucide-react";
+import { ServerSavedViews } from "./savedViews";
 
 type SortDirection = "asc" | "desc";
 
@@ -50,11 +51,13 @@ export function ServerTableToolbar({
   search,
   placeholder,
   countLabel,
+  savedViewScope,
   children,
 }: {
   search?: string | null;
   placeholder: string;
   countLabel: string;
+  savedViewScope?: string;
   children?: ReactNode;
 }) {
   const updateQuery = useTableQueryUpdater();
@@ -86,6 +89,7 @@ export function ServerTableToolbar({
         />
       </label>
       {children}
+      <ServerSavedViews scope={savedViewScope} />
       <button
         type="submit"
         className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"

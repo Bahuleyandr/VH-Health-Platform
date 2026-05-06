@@ -32,7 +32,6 @@ export function LogsPagination({
             className="rounded border border-input bg-background px-2 py-1 text-foreground"
           >
             <option value="10">10</option>
-            <option value="20">20</option>
             <option value="50">50</option>
             <option value="100">100</option>
           </select>
@@ -40,6 +39,7 @@ export function LogsPagination({
 
         <button
           type="button"
+          aria-label="Previous page"
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage === 1}
           className={`px-4 py-2 rounded-md font-medium transition-colors ${
@@ -81,6 +81,7 @@ export function LogsPagination({
 
         <button
           type="button"
+          aria-label="Next page"
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage === totalPages}
           className={`px-4 py-2 rounded-md font-medium transition-colors ${
