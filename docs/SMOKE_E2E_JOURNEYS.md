@@ -83,6 +83,35 @@ Covered journeys:
 - Staff messaging send, notification outbox queue check, thread, inbox,
   unread count, and mark-read.
 
+## Staff Role Matrix
+
+Command:
+
+```powershell
+$env:VH_BASE_URL='https://<host>/api/v1'
+$env:VH_API_KEY='<staff smoke API key>'
+$env:VH_STAFF_TEST_PASSWORD='<seeded staff password>'
+.\scripts\smoke-staff-role-workflows.ps1 -IncludeCreates
+```
+
+Covered journeys:
+
+- Real staff login for Nursing, Pharmacy, Lab, Doctor, HR, Admin, Super Admin,
+  and General Staff seeded accounts.
+- Shared app surfaces: profile, attendance, campus config, notifications, and
+  messaging.
+- Role-specific daily surfaces: appointment queue/list, patient search, bed
+  board, pharmacy queue/catalog/SLA, investigation queue/catalog/SLA, HR
+  dashboard/leave/payroll, staff list, and admin DB viewer access checks.
+- Representative create-path checks for walk-in appointment, patient lookup,
+  investigation booking, and prescription creation when `-IncludeCreates` is
+  supplied.
+
+The generated report is `docs/STAFF_ROLE_WORKFLOW_SWEEP.md`. Run with
+`-FailOnFailure:$false` during exploratory pilots if you want a complete report
+even when one role is broken; keep the default failure behavior for release
+gates.
+
 ## Admin
 
 Command:
@@ -138,3 +167,9 @@ Covered journey:
 This remains a Windows/local smoke because GitHub-hosted Windows runners do not
 provide the same disposable Postgres service container setup used by the Linux
 full-stack smoke workflow.
+
+Current caveat: the backend/API staff role matrix is the reliable release gate.
+The Windows Flutter route crawler has been updated for the OP/IP dashboard and
+disables Crashlytics during tests, but the integration harness can still hang
+around the Lab Bookings route. Keep it as a diagnostic smoke until that
+desktop-navigation instability is fixed.

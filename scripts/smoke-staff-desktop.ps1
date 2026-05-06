@@ -12,7 +12,8 @@ param(
   [string]$BaseUrl = $env:VH_BASE_URL,
   [string]$ApiKey = $env:VH_API_KEY,
   [string]$Device = "windows",
-  [string]$StaffDir = (Join-Path $PSScriptRoot "..\apps\staff")
+  [string]$StaffDir = (Join-Path $PSScriptRoot "..\apps\staff"),
+  [bool]$DisableCrashlytics = $true
 )
 
 Set-StrictMode -Version Latest
@@ -32,10 +33,12 @@ if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
 
 Push-Location $StaffDir
 try {
+  $disableCrashlyticsValue = if ($DisableCrashlytics) { "true" } else { "false" }
   flutter test integration_test/staff_desktop_smoke_test.dart `
     -d $Device `
     --dart-define=VH_BASE_URL=$BaseUrl `
-    --dart-define=VH_API_KEY=$ApiKey
+    --dart-define=VH_API_KEY=$ApiKey `
+    --dart-define=VH_DISABLE_CRASHLYTICS=$disableCrashlyticsValue
   if ($LASTEXITCODE -ne 0) {
     throw "Staff desktop smoke failed with exit code $LASTEXITCODE"
   }

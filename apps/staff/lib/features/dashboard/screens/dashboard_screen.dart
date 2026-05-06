@@ -237,7 +237,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final features = RoleFeatures.getFeaturesForRole(_role);
     final dailyFeatures = _dailyFeaturesForRole(features);
     final clinicalServiceTabs = _buildClinicalServiceTabs(features);
-    final moreFeatures = _moreFeaturesForRole(features, dailyFeatures);
+    final promotedIds = clinicalServiceTabs == null
+        ? dailyFeatures.map((feature) => feature.id).toSet()
+        : _clinicalServiceFeatureIdsForRole();
+    final moreFeatures = _moreFeaturesForRole(features, promotedIds);
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundGrey,
@@ -641,17 +644,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   List<DashboardFeature> _moreFeaturesForRole(
     List<DashboardFeature> features,
-    List<DashboardFeature> dailyFeatures,
+    Set<String> promotedIds,
   ) {
-    final dailyIds = dailyFeatures.map((feature) => feature.id).toSet();
     const alreadyPromotedIds = {'attendance', 'schedule', 'messaging'};
     return features
         .where(
           (feature) =>
-              !dailyIds.contains(feature.id) &&
+              !promotedIds.contains(feature.id) &&
               !alreadyPromotedIds.contains(feature.id),
         )
         .toList();
+  }
+
+  Set<String> _clinicalServiceFeatureIdsForRole() {
+    return switch (_role) {
+      StaffRole.nurse => {
+        'appointments',
+        'appointment_queue',
+        'lab_bookings',
+        'nursing_notes',
+        'pharmacy_orders',
+        'investigation_results',
+        'patient_records',
+        'bed_board',
+        'vitals',
+        'dietary',
+        'handover',
+      },
+      StaffRole.doctor => {
+        'appointment_queue',
+        'queue',
+        'appointments',
+        'patient_records',
+        'prescriptions',
+        'investigation_results',
+        'bed_board',
+        'radiology',
+        'theatre',
+        'blood_bank',
+      },
+      StaffRole.admin || StaffRole.superAdmin => {
+        'appointments',
+        'appointment_queue',
+        'patient_records',
+        'pharmacy_orders',
+        'investigations_upload',
+        'investigation_results',
+        'lab_bookings',
+        'bed_board',
+        'dietary',
+        'theatre',
+        'radiology',
+        'blood_bank',
+      },
+      _ => const <String>{},
+    };
   }
 
   Widget? _buildClinicalServiceTabs(List<DashboardFeature> features) {

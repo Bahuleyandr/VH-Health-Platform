@@ -38,7 +38,7 @@ try {
 } catch (error) {
   logger.warn('⚠️ Firebase Admin not initialized:', error.message);
 
-  // Provide mock fallback to avoid breaking imports
+  // Failing stub keeps imports stable without pretending Firebase worked.
   firebaseAdmin = {
     auth: () => ({
       verifyIdToken: () => Promise.reject(new Error('Firebase not configured')),

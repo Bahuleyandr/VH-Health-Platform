@@ -3,7 +3,6 @@
 import { 
   NOTIFICATION_TYPES, 
   NOTIFICATION_PRIORITIES,
-  DEFAULT_TEMPLATES,
   VALID_OPERATIONS,
   NOTIFICATION_LIMITS
 } from '../../config/notificationConfig.js';
@@ -19,6 +18,12 @@ import { normalizePhone } from '../../utils/phoneUtils.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 
+const attachQueryMetadata = (rows, rowCount = rows.length) => {
+  Object.defineProperty(rows, 'rows', { value: rows, enumerable: false });
+  Object.defineProperty(rows, 'rowCount', { value: rowCount, enumerable: false });
+  return rows;
+};
+
 const query = async (sql, params = []) => {
   const normalizedSql = sql.trim();
   const upperSql = normalizedSql.toUpperCase();
@@ -27,11 +32,11 @@ const query = async (sql, params = []) => {
 
   if (isReadQuery) {
     const rows = await prisma.$queryRawUnsafe(normalizedSql, ...params);
-    return { rows, rowCount: Array.isArray(rows) ? rows.length : 0 };
+    return attachQueryMetadata(Array.isArray(rows) ? rows : []);
   }
 
   const rowCount = await prisma.$executeRawUnsafe(normalizedSql, ...params);
-  return { rows: [], rowCount: Number(rowCount) || 0 };
+  return attachQueryMetadata([], Number(rowCount) || 0);
 };
 
 
@@ -173,12 +178,7 @@ export const adminNotificationService = {
       };
     } catch (error) {
       logger.error('Error getting templates:', error.message);
-      // Return default templates if table doesn't exist
-      return {
-        templates: DEFAULT_TEMPLATES,
-        count: DEFAULT_TEMPLATES.length,
-        note: 'Create notification_templates table for custom templates'
-      };
+      throw error;
     }
   },
 
@@ -234,24 +234,7 @@ export const adminNotificationService = {
       };
     } catch (error) {
       logger.error('Error getting delivery stats:', error.message);
-      // Provide mock statistics if delivery log doesn't exist
-      return {
-        overall_metrics: {
-          total_sent: 1250,
-          delivered: 1200,
-          pending_delivery: 50,
-          read_notifications: 890,
-          read_rate: 74.17
-        },
-        failure_analysis: [],
-        engagement_by_role: [
-          { role: 'DOCTOR', notifications_received: 450, notifications_read: 380, read_rate: 84.44, avg_read_time_hours: 2.5 },
-          { role: 'NURSE', notifications_received: 320, notifications_read: 280, read_rate: 87.50, avg_read_time_hours: 1.8 },
-          { role: 'PATIENT', notifications_received: 480, notifications_read: 230, read_rate: 47.92, avg_read_time_hours: 12.5 }
-        ],
-        period_days: days,
-        note: 'Create notification_delivery_log table for detailed delivery tracking'
-      };
+      throw error;
     }
   },
 
@@ -527,7 +510,7 @@ async performBulkOperations(data, user) {
           name, title_template, message_template, type, priority,
           variables, description, is_active, created_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-        RETURNING id, name, title_template, body_template, type, is_active, created_at
+        RETURNING id, name, title_template, message_template, type, priority, variables, description, is_active, created_at
       `, [name, title_template, message_template, type.toUpperCase(), priority.toUpperCase(),
           JSON.stringify(variables), description, is_active]);
       
@@ -536,18 +519,7 @@ async performBulkOperations(data, user) {
       return result[0];
     } catch (error) {
       logger.error('Error creating template:', error.message);
-      // Return simulated template if table doesn't exist
-      return {
-        id: Math.floor(Math.random() * 1000),
-        name: data.name,
-        title_template: data.title_template,
-        message_template: data.message_template,
-        type: data.type.toUpperCase(),
-        priority: (data.priority || NOTIFICATION_PRIORITIES.MEDIUM).toUpperCase(),
-        variables: data.variables || [],
-        created_at: new Date().toISOString(),
-        note: 'Create notification_templates table for persistent templates'
-      };
+      throw error;
     }
   },
 
@@ -563,7 +535,7 @@ async performBulkOperations(data, user) {
       
       // Get template
       const templateResult = await query(
-        'SELECT id, name, title_template, body_template, type, is_active, created_at FROM notification_templates WHERE id = $1 AND is_active = true',
+        'SELECT id, name, title_template, message_template, type, priority, is_active, created_at FROM notification_templates WHERE id = $1 AND is_active = true',
         [template_id]
       );
       

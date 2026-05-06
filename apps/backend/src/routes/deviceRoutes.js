@@ -267,22 +267,10 @@ wrapAutoRBAC(
 
           } catch (err) {
             logger.error('Device Stats Error:', err);
-            
-            // Fallback mock data
-            success(res, {
-              overview: {
-                total_devices: 0,
-                unique_users: 0,
-                active_7_days: 0,
-                active_30_days: 0,
-                new_registrations_7_days: 0
-              },
-              platformDistribution: [],
-              activityTrend: [],
-              note: 'Statistics unavailable - user_devices table may not exist',
-              requestedBy: req.user?.name,
+            return error(res, 'Device statistics unavailable', HTTP_STATUS.INTERNAL_SERVER_ERROR, {
+              source: 'user_devices',
               generatedAt: new Date().toISOString()
-            }, 'Device statistics retrieved (empty - table may not exist)');
+            });
           }
         }
       ],

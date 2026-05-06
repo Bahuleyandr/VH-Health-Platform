@@ -84,6 +84,22 @@ $env:VH_API_KEY='<release-smoke-api-key>'
 .\scripts\smoke-staff-desktop.ps1
 ```
 
+For role-by-role API workflow verification against the deployed backend, run:
+
+```powershell
+$env:VH_BASE_URL='https://<host>/api/v1'
+$env:VH_API_KEY='<release-smoke-api-key>'
+$env:VH_STAFF_TEST_PASSWORD='<seeded staff password>'
+.\scripts\smoke-staff-role-workflows.ps1 -IncludeCreates
+```
+
+Attach `docs/STAFF_ROLE_WORKFLOW_SWEEP.md`, backup evidence, and one restore
+drill record before approving a real production tag.
+
+Production database readiness is tracked in `docs/PRODUCTION_DB_HARDENING.md`.
+The DB is not considered production-safe until a restore drill and alert checks
+have been completed for the target environment.
+
 ## Tagging
 
 Use separate monorepo tags so the workflows do not collide:

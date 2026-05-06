@@ -74,6 +74,11 @@ function fmtDate(iso?: string) {
   }
 }
 
+function stableRowKey(prefix: string, value: unknown, index: number) {
+  const text = value == null ? "" : String(value).trim();
+  return text ? `${prefix}-${text}` : `${prefix}-${index}`;
+}
+
 export default function SosPage() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [perf, setPerf] = useState<Performance | null>(null);
@@ -202,8 +207,8 @@ export default function SosPage() {
               <tr><Th>Name</Th><Th>Kind</Th><Th>Phone</Th><Th>Enabled</Th></tr>
             </thead>
             <tbody>
-              {services.map((s) => (
-                <tr key={s.id ?? s.name ?? Math.random()} className="border-t border-border">
+              {services.map((s, index) => (
+                <tr key={stableRowKey("service", s.id ?? s.name, index)} className="border-t border-border">
                   <Td>{s.name ?? "—"}</Td>
                   <Td>{s.kind ?? "—"}</Td>
                   <Td>{s.phone ?? "—"}</Td>
@@ -225,8 +230,8 @@ export default function SosPage() {
               <tr><Th>When</Th><Th>Severity</Th><Th>Status</Th><Th>Patient</Th><Th>Message</Th></tr>
             </thead>
             <tbody>
-              {alerts.map((a) => (
-                <tr key={a.id ?? Math.random()} className="border-t border-border">
+              {alerts.map((a, index) => (
+                <tr key={stableRowKey("alert", a.id ?? a.created_at ?? a.message, index)} className="border-t border-border">
                   <Td>{fmtDate(a.created_at)}</Td>
                   <Td>{a.severity ?? "—"}</Td>
                   <Td>{a.status ?? "—"}</Td>

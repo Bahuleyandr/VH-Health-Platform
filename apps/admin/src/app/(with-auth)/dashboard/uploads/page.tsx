@@ -66,6 +66,11 @@ function fmtDate(iso?: string) {
   }
 }
 
+function stableRowKey(prefix: string, value: unknown, index: number) {
+  const text = value == null ? "" : String(value).trim();
+  return text ? `${prefix}-${text}` : `${prefix}-${index}`;
+}
+
 export default function UploadsPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [quarantine, setQuarantine] = useState<QuarantinedFile[]>([]);
@@ -161,8 +166,8 @@ export default function UploadsPage() {
               <tr><Th>When</Th><Th>File</Th><Th>Reason</Th><Th>Uploaded by</Th><Th>Size</Th></tr>
             </thead>
             <tbody>
-              {quarantine.map((f) => (
-                <tr key={f.id ?? Math.random()} className="border-t border-border">
+              {quarantine.map((f, index) => (
+                <tr key={stableRowKey("quarantine", f.id ?? f.file_name ?? f.quarantined_at, index)} className="border-t border-border">
                   <Td>{fmtDate(f.quarantined_at)}</Td>
                   <Td>{f.file_name ?? "—"}</Td>
                   <Td>{f.reason ?? "—"}</Td>
@@ -185,8 +190,8 @@ export default function UploadsPage() {
               <tr><Th>When</Th><Th>Actor</Th><Th>Action</Th><Th>Resource</Th></tr>
             </thead>
             <tbody>
-              {hipaa.map((e) => (
-                <tr key={e.id ?? Math.random()} className="border-t border-border">
+              {hipaa.map((e, index) => (
+                <tr key={stableRowKey("hipaa", e.id ?? e.created_at ?? e.resource_id, index)} className="border-t border-border">
                   <Td>{fmtDate(e.created_at)}</Td>
                   <Td>{e.actor ?? "—"}</Td>
                   <Td>{e.action ?? "—"}</Td>

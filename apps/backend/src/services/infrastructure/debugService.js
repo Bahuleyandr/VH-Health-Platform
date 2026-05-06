@@ -165,40 +165,17 @@ export class DebugService {
     };
   }
   
-  // Get recent logs (mock implementation)
+  // Get recent logs
   static async getRecentLogs(level = 'all', limit = 50) {
-    // This would integrate with your logging system
-    // For now, we'll provide a mock structure
-    const mockLogs = [
-      {
-        timestamp: new Date().toISOString(),
-        level: 'info',
-        message: 'Application started successfully',
-        module: 'app'
-      },
-      {
-        timestamp: new Date(Date.now() - 300000).toISOString(),
-        level: 'warn',
-        message: 'High memory usage detected',
-        module: 'monitor'
-      },
-      {
-        timestamp: new Date(Date.now() - 600000).toISOString(),
-        level: 'error',
-        message: 'Database connection timeout',
-        module: 'database'
-      }
-    ];
-    
-    const filteredLogs = level === 'all' 
-      ? mockLogs 
-      : mockLogs.filter(log => log.level === level);
-      
+    const parsedLimit = Math.max(0, parseInt(limit, 10) || 0);
+    logger.warn('Recent logs requested but no log aggregation backend is configured');
+
     return {
-      logs: filteredLogs.slice(0, parseInt(limit)),
-      totalLogs: filteredLogs.length,
-      filter: { level, limit: parseInt(limit) },
-      note: 'This is mock data - integrate with actual logging system'
+      logs: [],
+      totalLogs: 0,
+      filter: { level, limit: parsedLimit },
+      source: 'unconfigured',
+      warning: 'No live log aggregation backend is configured for this endpoint'
     };
   }
   

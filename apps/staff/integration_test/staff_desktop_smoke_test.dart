@@ -94,7 +94,11 @@ void main() {
       finder,
       520,
       maxScrolls: 24,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find.byType(Scrollable).evaluate().isNotEmpty
+          ? find.byType(Scrollable).first
+          : throw StateError(
+              'Expected "$label" but no scrollable surface was available',
+            ),
     );
     await tester.pump(const Duration(milliseconds: 150));
   }
@@ -199,17 +203,22 @@ void main() {
         'Shift Schedule',
         'Appointments',
         'Appt Queue',
-        'Patient Records',
-        'Prescriptions',
-        'Pharmacy',
+        'OP Patient Records',
+        'Pharmacy (OP)',
         'Upload Results',
-        'Lab Results',
-        'Lab Bookings',
+        'Lab Results (OP)',
+        'Lab Bookings (OP)',
+        'IP Services',
+        'Bed Board',
+        'IP Patient Records',
+        'Pharmacy (IP)',
+        'Upload Results',
+        'Lab Results (IP)',
+        'Lab Bookings (IP)',
+        'Dietary',
         'Operating Theatre',
         'Radiology',
-        'Bed Board',
         'Blood Bank',
-        'Dietary',
         'Leave',
         'HR Dashboard',
         'Staff Mgmt',

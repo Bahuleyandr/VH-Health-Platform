@@ -98,6 +98,11 @@ The `Smoke E2E` workflow runs the same `npm run ci:db-guardrails` bundle before
 starting backend/admin smoke tests. This catches table/column drift before the
 UI route crawler and Flutter API smoke scripts start making requests.
 
+For production hosting and restore-readiness checks, use
+`docs/PRODUCTION_DB_HARDENING.md`. Schema correctness is necessary but not
+enough; a production database also needs backup evidence, restore evidence,
+role verification, network policy, and monitoring alerts.
+
 ## Admin Viewer
 
 Super admins can inspect the database from:
