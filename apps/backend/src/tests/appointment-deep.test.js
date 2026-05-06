@@ -35,13 +35,16 @@ function futureDateISO(offsetDays = 90) {
 }
 
 describe('Appointment booking + lifecycle — deep integration', () => {
-  let patientIntId, otherPatientIntId, doctorIntId, adminIntId;
+  let patientIntId, otherPatientIntId, doctorIntId, doctorProfileId, adminIntId;
   let patient, otherPatient, doctor, admin;
   const apptDate = futureDateISO(90);
 
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(
       `DELETE FROM appointments WHERE phone IN ($1, $2)`, PATIENT_PHONE, OTHER_PHONE);
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM doctors WHERE user_id IN (SELECT id FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid))`,
+      PATIENT_UID, OTHER_PATIENT_UID, DOCTOR_UID, ADMIN_UID);
     await prisma.$executeRawUnsafe(
       `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
       PATIENT_UID, OTHER_PATIENT_UID, DOCTOR_UID, ADMIN_UID);
@@ -63,6 +66,13 @@ describe('Appointment booking + lifecycle — deep integration', () => {
        VALUES ($1::uuid, '+919000070003', 'Dr. Appointment Tester', 'DOCTOR', true, NOW())
        RETURNING id`, DOCTOR_UID);
     doctorIntId = d[0].id;
+    const dp = await prisma.$queryRawUnsafe(
+      `INSERT INTO doctors (user_id, name, department, specialty, is_active, is_available, available_days, updated_at)
+       VALUES ($1, 'Dr. Appointment Tester', 'Cardiology', 'Cardiologist', true, true, ARRAY['Mon','Tue'], NOW())
+       RETURNING id`,
+      doctorIntId,
+    );
+    doctorProfileId = dp[0].id;
 
     const a = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
@@ -79,6 +89,8 @@ describe('Appointment booking + lifecycle — deep integration', () => {
   afterAll(async () => {
     await prisma.$executeRawUnsafe(
       `DELETE FROM appointments WHERE phone IN ($1, $2)`, PATIENT_PHONE, OTHER_PHONE).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM doctors WHERE user_id = $1`, doctorIntId).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
       PATIENT_UID, OTHER_PATIENT_UID, DOCTOR_UID, ADMIN_UID).catch(() => {});
@@ -134,6 +146,22 @@ describe('Appointment booking + lifecycle — deep integration', () => {
       expect(row[0].doctor_id).toBe(doctorIntId);
       expect(row[0].patient_id).toBe(patientIntId);
       expect(row[0].appointment_time).toBe('10:00');
+    });
+
+    it('normalizes doctors.id picker values to users.id before writing appointment.doctor_id', async () => {
+      const res = await patient.post('/api/v1/appointments/book').send({
+        patient_id: patientIntId, doctor_id: doctorProfileId,
+        appointment_date: apptDate, appointment_time: '10:30',
+        reason: 'Doctor picker id normalization',
+      });
+      expect(res.statusCode).toBe(201);
+      const a = res.body.data.appointment;
+      expect(a.doctor_id).toBe(doctorIntId);
+      expect(a.doctor_name).toBe('Dr. Appointment Tester');
+
+      const row = await prisma.$queryRawUnsafe(
+        `SELECT doctor_id FROM appointments WHERE id = $1`, a.id);
+      expect(row[0].doctor_id).toBe(doctorIntId);
     });
 
     it('rejects a double-booking on the same doctor/date/time with 409', async () => {

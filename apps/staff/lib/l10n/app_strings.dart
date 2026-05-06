@@ -2606,7 +2606,7 @@ class AppStrings {
       'nursing_notes.tab.add': 'Add Note',
       'nursing_notes.tab.recent': 'Recent Notes',
       'nursing_notes.backend_coming_soon':
-          'Backend integration coming soon. Notes are previewed locally.',
+          'Saved notes are append-only EMR entries. Corrections must be added as addenda.',
       'nursing_notes.patient_phone_label': 'Patient Phone Number',
       'nursing_notes.patient_phone_hint': '+91 XXXXX XXXXX',
       'nursing_notes.phone_required': 'Phone is required',
@@ -4373,7 +4373,7 @@ class AppStrings {
       'nursing_notes.tab.add': 'नोट जोड़ें',
       'nursing_notes.tab.recent': 'हाल के नोट्स',
       'nursing_notes.backend_coming_soon':
-          'बैकएंड एकीकरण जल्द आ रहा है। नोट्स स्थानीय रूप से दिखाए जा रहे हैं।',
+          'सहेजे गए नोट केवल जोड़ने योग्य EMR प्रविष्टियां हैं। सुधार addendum के रूप में जोड़ें।',
       'nursing_notes.patient_phone_label': 'मरीज़ फ़ोन नंबर',
       'nursing_notes.patient_phone_hint': '+91 XXXXX XXXXX',
       'nursing_notes.phone_required': 'फ़ोन आवश्यक है',
@@ -6367,7 +6367,7 @@ class AppStrings {
       'nursing_notes.tab.add': 'குறிப்பு சேர்',
       'nursing_notes.tab.recent': 'சமீபத்திய குறிப்புகள்',
       'nursing_notes.backend_coming_soon':
-          'பின்தள ஒருங்கிணைப்பு விரைவில் வரும். குறிப்புகள் உள்ளூரில் காட்டப்படுகின்றன.',
+          'சேமித்த குறிப்புகள் append-only EMR பதிவுகள். திருத்தங்களை addendum ஆக சேர்க்கவும்.',
       'nursing_notes.patient_phone_label': 'நோயாளி தொலைபேசி எண்',
       'nursing_notes.patient_phone_hint': '+91 XXXXX XXXXX',
       'nursing_notes.phone_required': 'தொலைபேசி தேவை',
@@ -8802,7 +8802,7 @@ class AppStrings {
       'nursing_notes.tab.add': 'గమనిక జోడించు',
       'nursing_notes.tab.recent': 'ఇటీవలి గమనికలు',
       'nursing_notes.backend_coming_soon':
-          'బ్యాకెండ్ ఇంటిగ్రేషన్ త్వరలో వస్తుంది. గమనికలు స్థానికంగా చూపబడుతున్నాయి.',
+          'సేవ్ చేసిన గమనికలు append-only EMR ఎంట్రీలు. సవరణలను addendum గా జోడించండి.',
       'nursing_notes.patient_phone_label': 'రోగి ఫోన్ నంబర్',
       'nursing_notes.patient_phone_hint': '+91 XXXXX XXXXX',
       'nursing_notes.phone_required': 'ఫోన్ అవసరం',

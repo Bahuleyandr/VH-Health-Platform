@@ -9,7 +9,7 @@ import '../../../core/widgets/voice_dictate_button.dart';
 import '../../../l10n/app_strings.dart';
 
 /// Nursing Notes screen — for Nursing Staff to add clinical notes per patient.
-/// TODO: Integrate with backend when /staff/nursing/notes endpoint is available.
+/// Notes are saved to /emr/notes as append-only nursing assessments.
 ///
 /// Optional prefill via route query params: `?patient_uid=&name=&phone=`.
 /// Used by the bed-board's "Add Note" quick action so the nurse doesn't
@@ -79,7 +79,10 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
             child: TabBarView(
               controller: _tabController,
               children: [
-                _AddNoteTab(prefillPhone: widget.prefillPatientPhone),
+                _AddNoteTab(
+                  prefillPatientUid: widget.prefillPatientUid,
+                  prefillPhone: widget.prefillPatientPhone,
+                ),
                 const _RecentNotesTab(),
               ],
             ),
@@ -91,8 +94,9 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
 }
 
 class _AddNoteTab extends StatefulWidget {
+  final String? prefillPatientUid;
   final String? prefillPhone;
-  const _AddNoteTab({this.prefillPhone});
+  const _AddNoteTab({this.prefillPatientUid, this.prefillPhone});
 
   @override
   State<_AddNoteTab> createState() => _AddNoteTabState();
@@ -184,6 +188,8 @@ class _AddNoteTabState extends State<_AddNoteTab> {
     setState(() => _submitting = true);
     try {
       final body = {
+        if ((widget.prefillPatientUid ?? '').isNotEmpty)
+          'patient_uid': widget.prefillPatientUid,
         'phone': _phoneCtrl.text.trim(),
         'note_type': _noteType!,
         'content': _noteCtrl.text.trim(),

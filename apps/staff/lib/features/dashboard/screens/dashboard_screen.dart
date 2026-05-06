@@ -744,6 +744,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'investigation_results': s.dashboardOpLabResults,
               'patient_records': s.dashboardOpPatientRecords,
             },
+            routeOverrides: _serviceContextRoutes('op'),
           ),
         ),
         _ClinicalServiceGroup(
@@ -769,6 +770,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'pharmacy_orders': s.dashboardIpPharmacy,
               'patient_records': s.dashboardIpPatientRecords,
             },
+            routeOverrides: _serviceContextRoutes('ip'),
           ),
         ),
       ],
@@ -790,6 +792,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'patient_records': s.dashboardOpPatientRecords,
               'investigation_results': s.dashboardOpLabResults,
             },
+            routeOverrides: _serviceContextRoutes('op'),
           ),
         ),
         _ClinicalServiceGroup(
@@ -810,6 +813,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'patient_records': s.dashboardIpPatientRecords,
               'investigation_results': s.dashboardIpLabResults,
             },
+            routeOverrides: _serviceContextRoutes('ip'),
           ),
         ),
       ],
@@ -834,6 +838,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'investigation_results': s.dashboardOpLabResults,
               'lab_bookings': s.dashboardOpLabBookings,
             },
+            routeOverrides: _serviceContextRoutes('op'),
           ),
         ),
         _ClinicalServiceGroup(
@@ -859,6 +864,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'investigation_results': s.dashboardIpLabResults,
               'lab_bookings': s.dashboardIpLabBookings,
             },
+            routeOverrides: _serviceContextRoutes('ip'),
           ),
         ),
       ],
@@ -870,6 +876,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     List<DashboardFeature> features,
     List<String> ids, {
     Map<String, String> titleOverrides = const {},
+    Map<String, String> routeOverrides = const {},
   }) {
     final byId = {for (final feature in features) feature.id: feature};
     return [
@@ -878,9 +885,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _ServiceTile.fromFeature(
             byId[id]!,
             title: titleOverrides[id] ?? byId[id]!.title,
+            route: routeOverrides[id] ?? byId[id]!.route,
           ),
     ];
   }
+
+  Map<String, String> _serviceContextRoutes(String context) => {
+    'appointments': '/appointments?context=$context',
+    'appointment_queue': '/appointment-queue?context=$context',
+    'queue': '/queue?context=$context',
+    'patient_records': '/patient-records?context=$context',
+    'prescriptions': '/prescriptions?context=$context',
+    'pharmacy_orders': '/pharmacy?context=$context',
+    'lab_bookings': '/lab-bookings?context=$context',
+    'investigation_results': '/investigations?context=$context',
+    'investigations_upload': '/investigations?context=$context',
+    'nursing_notes': '/nursing-notes?context=$context',
+    'vitals': '/vitals?context=$context',
+    'handover': '/handover?context=$context',
+    'dietary': '/dietary?context=$context',
+  };
 
   Widget _buildFeatureGrid(List<DashboardFeature> features) {
     return LayoutBuilder(
@@ -1481,11 +1505,12 @@ class _ServiceTile {
   factory _ServiceTile.fromFeature(
     DashboardFeature feature, {
     required String title,
+    required String route,
   }) {
     return _ServiceTile(
       icon: feature.icon,
       title: title,
-      route: feature.route,
+      route: route,
       color: feature.color,
     );
   }

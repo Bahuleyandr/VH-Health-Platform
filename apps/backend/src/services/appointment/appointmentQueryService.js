@@ -1,7 +1,7 @@
 // src/services/appointment/appointmentQueryService.js
 // Appointment read paths — every list query uses typed Prisma `include`
 // via the relations declared in migration 084 (appointments.doctor_id →
-// doctors.id, appointments.patient_id → users.id). Column-rename drift
+// users.id, appointments.patient_id → users.id). Column-rename drift
 // on appointments / users / doctors surfaces at query-construction.
 
 import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
@@ -370,11 +370,14 @@ export class AppointmentQueryService {
       const flat = { ...row };
       delete flat[REL_PATIENT];
       delete flat[REL_DOCTOR];
+      flat.patient_name = patient?.name ?? row.patient_name ?? null;
+      flat.patient_phone = patient?.phone ?? row.phone ?? null;
       flat.patient_email = patient?.email ?? null;
       // Old raw SQL used `d.name AS doctor_name_detail` — kept for callers
       // that already branch on that alias. The top-level doctor_name
       // (from the appointments row) stays whatever it was.
-      flat.doctor_name_detail = doctor?.name ?? null;
+      flat.doctor_name = doctor?.name ?? row.doctor_name ?? null;
+      flat.doctor_name_detail = doctor?.name ?? row.doctor_name ?? null;
       flat.doctor_phone = doctor?.phone ?? null;
       flat.doctor_email = doctor?.email ?? null;
       flat.specialty = profile?.specialty ?? null;

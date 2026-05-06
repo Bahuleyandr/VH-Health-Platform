@@ -12,7 +12,7 @@ export class AppointmentService {
       if (requiredRole) where.role = requiredRole;
       return prisma.users.findFirst({
         where,
-        select: { id: true, name: true, role: true },
+        select: { id: true, uid: true, name: true, phone: true, email: true, role: true },
       });
     } catch (error) {
       logger.error('Error validating user:', error);
@@ -32,12 +32,12 @@ export class AppointmentService {
             AND u.role = 'DOCTOR'
             AND u.is_active = true
           UNION ALL
-          SELECT COALESCE(u.id, d.id) AS id,
-                 COALESCE(u.name, d.name) AS name,
+          SELECT u.id AS id,
+                 u.name AS name,
                  'DOCTOR'::text AS role,
                  1 AS sort_order
           FROM doctors d
-          LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
+          JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR' AND u.is_active = true
           WHERE d.is_active = true
             AND (u.id = ${id} OR d.id = ${id})
         ) candidates
@@ -98,11 +98,11 @@ export class AppointmentService {
                 AND u.role = 'DOCTOR'
                 AND u.is_active = true
               UNION ALL
-              SELECT COALESCE(u.id, d.id) AS id,
-                     COALESCE(u.name, d.name) AS name,
+              SELECT u.id AS id,
+                     u.name AS name,
                      1 AS sort_order
               FROM doctors d
-              LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
+              JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR' AND u.is_active = true
               WHERE d.is_active = true
                 AND (u.id = ${parseInt(doctor_id)} OR d.id = ${parseInt(doctor_id)})
             ) candidates
@@ -112,12 +112,18 @@ export class AppointmentService {
         ]);
         const patientPhone = pRows[0]?.phone ?? '';
         const patientName = pRows[0]?.name ?? null;
+        if (!dRows[0]?.id) {
+          const err = new Error('Doctor not found');
+          err.statusCode = 400;
+          throw err;
+        }
+        const resolvedDoctorId = dRows[0].id;
         const doctorName = dRows[0]?.name ?? '';
 
         // Lock conflicting rows
         const conflict = await tx.$queryRaw`
           SELECT id FROM appointments
-          WHERE doctor_id = ${parseInt(doctor_id)}
+          WHERE doctor_id = ${parseInt(resolvedDoctorId)}
             AND DATE(appointment_date) = DATE(${appointment_date}::date)
             AND appointment_time = ${appointment_time}
             AND status NOT IN ('CANCELLED', 'NO_SHOW')
@@ -138,7 +144,7 @@ export class AppointmentService {
             reason, notes, status, created_at, updated_at
           ) VALUES (
             ${patientPhone}, ${parseInt(patient_id)}, ${patientName},
-            ${parseInt(doctor_id)}, ${doctorName},
+            ${parseInt(resolvedDoctorId)}, ${doctorName},
             ${appointment_date}::date, ${appointment_time},
             ${reason ?? null}, ${notes ?? null},
             ${APPOINTMENT_CONFIG.STATUSES.SCHEDULED}, NOW(), NOW()

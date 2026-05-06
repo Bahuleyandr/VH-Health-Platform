@@ -12,22 +12,9 @@ import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../l10n/app_strings.dart';
 import '../../../core/widgets/states/success_toast.dart';
+import '../models/staff_appointment.dart';
 
 String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D'), '');
-
-Map<String, dynamic>? _mapFrom(dynamic value) {
-  if (value is Map<String, dynamic>) return value;
-  if (value is Map) return Map<String, dynamic>.from(value);
-  return null;
-}
-
-String _firstText(Iterable<dynamic> values) {
-  for (final value in values) {
-    final text = value?.toString().trim() ?? '';
-    if (text.isNotEmpty) return text;
-  }
-  return '';
-}
 
 int? _doctorId(Map<String, dynamic> doctor) => int.tryParse(
   (doctor['user_id'] ?? doctor['userId'] ?? doctor['id'])?.toString() ?? '',
@@ -54,25 +41,14 @@ class AppointmentsScreen extends StatefulWidget {
 }
 
 class _AppointmentsScreenState extends State<AppointmentsScreen> {
-  List<dynamic> _appointments = [];
+  List<StaffAppointment> _appointments = [];
   bool _loading = true;
   String? _error;
   String _selectedStatus = 'all';
   String _searchQuery = '';
 
-  List<dynamic> get _filtered {
-    final q = _searchQuery.trim().toLowerCase();
-    if (q.isEmpty) return _appointments;
-    return _appointments.where((a) {
-      final name =
-          (a['patientName']?.toString() ??
-                  a['patient']?['name']?.toString() ??
-                  a['patient_name']?.toString() ??
-                  '')
-              .toLowerCase();
-      return name.contains(q);
-    }).toList();
-  }
+  List<StaffAppointment> get _filtered =>
+      _appointments.where((a) => a.matchesPatientSearch(_searchQuery)).toList();
 
   static const _statuses = [
     'all',
@@ -124,7 +100,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         date: today,
         status: _selectedStatus == 'all' ? null : _selectedStatus,
       );
-      final list = data['appointments'] as List? ?? data['data'] as List? ?? [];
+      final list = StaffAppointment.listFrom(data);
       if (mounted) setState(() => _appointments = list);
     } catch (e) {
       if (mounted) {
@@ -733,7 +709,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                   ? const SkeletonList()
                   : _error != null
                   ? ErrorState(
-                      message: _error!.replaceFirst('Exception: ', ''),
+                      message:
+                          'Could not load appointments.\n${_error!.replaceFirst('Exception: ', '')}',
                       onRetry: _load,
                     )
                   : _filtered.isEmpty
@@ -767,7 +744,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 }
 
 class _AppointmentCard extends StatelessWidget {
-  final dynamic appointment;
+  final StaffAppointment appointment;
   final Function(String) onConfirm;
   final Function(String) onCancel;
 
@@ -779,48 +756,13 @@ class _AppointmentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final appt = _mapFrom(appointment) ?? const <String, dynamic>{};
-    final patient = _mapFrom(appt['patient']);
-    final doctorMap = _mapFrom(appt['doctor']);
-    final id = appt['_id']?.toString() ?? appt['id']?.toString() ?? '';
-    final patientText = _firstText([
-      appt['patientName'],
-      patient?['name'],
-      appt['patient_name'],
-      appt['name'],
-      appt['patient_phone'],
-      appt['phone'],
-    ]);
-    final typeText = _firstText([
-      appt['type'],
-      appt['appointmentType'],
-      appt['reason'],
-    ]);
-    final patientName = patientText.isEmpty ? 'Unknown Patient' : patientText;
-    final type = typeText.isEmpty ? '—' : typeText;
-    final rawDate = _firstText([
-      appt['dateTime'],
-      appt['date_time'],
-      appt['appointment_date'],
-      appt['date'],
-    ]);
-    final time = _firstText([appt['appointment_time'], appt['time']]);
-    final dateTime = [
-      if (rawDate.isNotEmpty) rawDate.split('T').first,
-      if (time.isNotEmpty) time,
-    ].join(' ');
-    final status = appt['status']?.toString() ?? 'scheduled';
-    final doctor = _firstText([
-      appt['doctorName'],
-      appt['doctor_display_name'],
-      appt['doctor_name'],
-      doctorMap?['name'],
-    ]);
-    final department = _firstText([
-      appt['department'],
-      appt['doctor_department'],
-      doctorMap?['department'],
-    ]);
+    final id = appointment.id?.toString() ?? '';
+    final patientName = appointment.patientName;
+    final type = appointment.reasonLabel;
+    final dateTime = appointment.scheduledLabel;
+    final status = appointment.status;
+    final doctor = appointment.doctorName;
+    final department = appointment.department;
 
     final statusColor = switch (status.toLowerCase()) {
       'confirmed' => AppTheme.successGreen,
@@ -875,7 +817,7 @@ class _AppointmentCard extends StatelessWidget {
             if (dateTime.isNotEmpty)
               _InfoRow(Icons.schedule_outlined, dateTime),
 
-            if (status.toLowerCase() == 'scheduled') ...[
+            if (appointment.isScheduled) ...[
               const SizedBox(height: 10),
               const Divider(height: 1),
               const SizedBox(height: 10),

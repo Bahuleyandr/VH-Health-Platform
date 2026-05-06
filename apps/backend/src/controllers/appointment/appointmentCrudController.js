@@ -3,6 +3,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import appointmentService from '../../services/appointment/appointmentService.js';
+import appointmentQueryService from '../../services/appointment/appointmentQueryService.js';
 import appointmentValidationService from '../../services/appointment/appointmentValidationService.js';
 import { checkAppointmentPermission } from '../../utils/appointment/appointmentHelpers.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
@@ -86,10 +87,12 @@ export const createAppointment = async (req, res) => {
 
     // Create the appointment (uses transaction with row-level locking to prevent double-booking)
     const appointment = await appointmentService.createAppointment(appointmentData);
+    const hydratedAppointment =
+      (await appointmentQueryService.getAppointmentById(appointment.id)) || appointment;
 
     success(res, {
-      appointment,
-      patient_name: validation.patient.name ?? resolvedPatient?.name,
+      appointment: hydratedAppointment,
+      patient_name: hydratedAppointment.patient_name ?? validation.patient.name ?? resolvedPatient?.name,
       patient: {
         id: validation.patient.id ?? resolvedPatient?.id,
         uid: validation.patient.uid ?? resolvedPatient?.uid,
@@ -97,7 +100,7 @@ export const createAppointment = async (req, res) => {
         phone: validation.patient.phone ?? resolvedPatient?.phone,
         created: createdNewPatient,
       },
-      doctor_name: validation.doctor.name,
+      doctor_name: hydratedAppointment.doctor_name_detail ?? hydratedAppointment.doctor_name ?? validation.doctor.name,
       booked_by: req.user?.name
     }, APPOINTMENT_CONFIG.MESSAGES.APPOINTMENT_BOOKED, HTTP_STATUS.CREATED);
   } catch (err) {

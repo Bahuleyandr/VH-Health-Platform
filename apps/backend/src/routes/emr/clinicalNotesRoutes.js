@@ -1,12 +1,88 @@
 // src/routes/emr/clinicalNotesRoutes.js
 import express from 'express';
+import prisma from '../../lib/prisma.js';
 import * as clinicalNotesService from '../../services/emr/clinicalNotesService.js';
 import { createDowntimeSnapshot } from '../../services/emr/clinicalTimelineService.js';
 import { publishEvent } from '../../services/events/eventOutboxService.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
+
+const NURSING_NOTE_CODES = new Set([
+  'observation',
+  'medication note',
+  'post-procedure',
+  'intake/output',
+  'patient complaint',
+  'wound care',
+  'shift handover',
+  'emergency note',
+  'other',
+]);
+
+async function resolvePatientUidFromBody(body) {
+  if (body.patient_uid) return body.patient_uid;
+
+  const phone = normalizePhone(body.patient_phone || body.phone);
+  if (!phone) return null;
+
+  const last10 = phone.replace(/\D/g, '').slice(-10);
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid
+       FROM users
+      WHERE role = 'PATIENT'
+        AND (phone = $1 OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $2)
+      ORDER BY CASE WHEN phone = $1 THEN 0 ELSE 1 END, registered_at DESC NULLS LAST
+      LIMIT 1`,
+    phone,
+    `%${last10}`,
+  );
+  return rows[0]?.uid ?? null;
+}
+
+function normalizeNotePayload(body) {
+  const rawType = String(body.note_type || '').trim();
+  const typeKey = rawType.toLowerCase();
+  const priority = String(body.priority || 'normal').trim().toLowerCase();
+  const content = body.content;
+
+  if (
+    rawType === 'nursing_assessment' ||
+    NURSING_NOTE_CODES.has(typeKey)
+  ) {
+    const text =
+      typeof content === 'string'
+        ? content.trim()
+        : String(content?.free_text || content?.plan_of_care || '').trim();
+    return {
+      note_type: 'nursing_assessment',
+      content: {
+        pain_level: body.pain_level ?? content?.pain_level ?? 'Not recorded',
+        mobility: body.mobility ?? content?.mobility ?? 'Not recorded',
+        plan_of_care: text,
+        note_category: rawType || 'Observation',
+        priority,
+        free_text: text,
+      },
+    };
+  }
+
+  if (rawType === 'progress' && typeof content === 'string') {
+    const text = content.trim();
+    return {
+      note_type: 'progress',
+      content: {
+        summary: text,
+        current_status: text,
+        plan: body.plan || 'See progress note',
+      },
+    };
+  }
+
+  return { note_type: rawType, content };
+}
 
 // ===================================================================
 // POST /emr/notes — Create clinical note
@@ -14,10 +90,12 @@ const router = express.Router();
 
 router.post('/notes', async (req, res, next) => {
   try {
-    const { encounter_id, patient_uid, author_role, note_type, content } = req.body;
+    const { encounter_id, author_role } = req.body;
+    const patient_uid = await resolvePatientUidFromBody(req.body);
+    const { note_type, content } = normalizeNotePayload(req.body);
 
     if (!patient_uid || !note_type || !content) {
-      return error(res, 'patient_uid, note_type, and content are required', 400);
+      return error(res, 'patient_uid or patient phone, note_type, and content are required', 400);
     }
 
     const note = await clinicalNotesService.createNote({
@@ -82,6 +160,14 @@ router.post('/notes/:id/addendum', async (req, res, next) => {
     next(err);
   }
 });
+
+router.put('/notes/:id', (_req, res) =>
+  error(res, 'Clinical notes are append-only. Add an addendum instead of editing the original note.', 405)
+);
+
+router.patch('/notes/:id', (_req, res) =>
+  error(res, 'Clinical notes are append-only. Add an addendum instead of editing the original note.', 405)
+);
 
 // ===================================================================
 // POST /emr/notes/:id/sign — Sign a clinical note
