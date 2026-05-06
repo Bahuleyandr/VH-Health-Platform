@@ -34,14 +34,14 @@ export async function dispatch({ userId, title, body, channels = ['push', 'inapp
 
     const res = UUID_RE.test(identifier)
       ? await prisma.$queryRawUnsafe(
-        `SELECT uid, phone, email, name, device_token
+        `SELECT id, uid, phone, email, name, device_token
          FROM users
          WHERE uid = $1::uuid OR phone = $1
          LIMIT 1`,
         identifier
       )
       : await prisma.$queryRawUnsafe(
-        `SELECT uid, phone, email, name, device_token
+        `SELECT id, uid, phone, email, name, device_token
          FROM users
          WHERE phone = $1
          LIMIT 1`,
@@ -102,9 +102,9 @@ export async function dispatch({ userId, title, body, channels = ['push', 'inapp
   if (channels.includes('inapp')) {
     try {
       await prisma.$queryRawUnsafe(
-        `INSERT INTO notifications (phone, title, body, type, created_at, is_read)
-         VALUES ($1, $2, $3, $4, NOW(), false)`,
-        user.phone, title, body, type
+        `INSERT INTO notifications (user_id, uid, phone, title, body, type, created_at, updated_at, is_read)
+         VALUES ($1, $2::uuid, $3, $4, $5, $6, NOW(), NOW(), false)`,
+        user.id, user.uid, user.phone, title, body, type
       );
       results.inapp = 'stored';
     } catch (err) {
