@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="apps/patient/assets/images/logo.png" alt="Venkataeswara Hospitals logo" width="320" />
+</p>
+
 # VH Health Platform
 
 Standalone monorepo for the VH Health hospital platform: backend API, admin
