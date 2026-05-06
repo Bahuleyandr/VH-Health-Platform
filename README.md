@@ -130,6 +130,47 @@ Important DB docs:
 Super admins can inspect the database through the admin dashboard at
 `/dashboard/database`. It is read-only and redacts sensitive-looking values.
 
+## Production Data Hosting Status
+
+Current local and Dalekdefender deployments are suitable for development,
+staging, demos, and internal smoke testing with fake or de-identified data. Do
+not store real patient PHI/PII in this platform until the production data
+hosting checklist below is complete and reviewed.
+
+For production patient data, prefer a managed PostgreSQL service in a private
+network, such as AWS RDS/Aurora, GCP Cloud SQL, Azure Database for PostgreSQL,
+or an equivalently operated private Postgres cluster. The database must not have
+a public IP or direct internet exposure.
+
+Minimum production controls:
+
+- Private database networking only; allow traffic only from the backend,
+  migration job, backup job, and explicitly approved read-only DB browser.
+- Kubernetes `NetworkPolicy` or cloud firewall rules that deny namespace-wide
+  lateral access by default.
+- Encryption at rest backed by KMS or a managed cloud key service.
+- TLS enforced for all database connections.
+- Separate database users for app runtime, migrations, read-only reporting,
+  backups, and emergency administration.
+- Secrets stored in a managed secret store or encrypted Kubernetes secret
+  backend, with documented rotation.
+- Automated backups with point-in-time recovery and scheduled restore tests.
+- Documented RPO/RTO targets and an operator runbook for restore, failover, and
+  incident response.
+- Audit logging for privileged access, schema changes, and sensitive data reads.
+- A PHI/PII logging audit that prevents patient data from leaking into app,
+  job, proxy, or database logs.
+- DB browser access restricted to VPN/Tailscale or equivalent private access,
+  MFA-protected accounts, read-only roles by default, and full access logging.
+- Separate development, staging, and production databases. Real patient data
+  must never be copied into dev or local environments without a formal
+  de-identification process.
+
+Regulatory review is still required before production use. At minimum, assess
+the deployment against the HIPAA Security Rule if handling US ePHI, the India
+Digital Personal Data Protection Act, 2023 for Indian patient data, and the
+hospital's own retention, consent, access-control, and breach-response policies.
+
 ## Smoke Tests
 
 These scripts assume the local backend/admin/Postgres services are already
