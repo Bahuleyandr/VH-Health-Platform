@@ -70,6 +70,26 @@ async function resolvePatientForRecordUpload(req) {
   return created[0].id;
 }
 
+function normalizeOptionalIsoDate(value, fieldName) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const err = new Error(`${fieldName} must be in YYYY-MM-DD format`);
+    err.statusCode = HTTP_STATUS.BAD_REQUEST;
+    throw err;
+  }
+
+  const date = new Date(`${raw}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== raw) {
+    const err = new Error(`${fieldName} is not a valid date`);
+    err.statusCode = HTTP_STATUS.BAD_REQUEST;
+    throw err;
+  }
+
+  return raw;
+}
+
 /**
  * Upload prescription/scan after appointment (staff/doctor)
  * Expects multipart/form-data with file + metadata
@@ -234,6 +254,7 @@ export const uploadPatientRecord = async (req, res) => {
   try {
     const patientId = await resolvePatientForRecordUpload(req);
     const { document_type, title, source_hospital, record_date, notes } = req.body;
+    const normalizedRecordDate = normalizeOptionalIsoDate(record_date, 'record_date');
 
     if (!req.file || !title) return error(res, 'file and title are required', HTTP_STATUS.BAD_REQUEST);
 
@@ -253,12 +274,12 @@ export const uploadPatientRecord = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(`
       INSERT INTO patient_records
         (patient_id, document_type, title, file_key, file_url, file_name, file_size, file_mime, source_hospital, record_date, notes)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::date,$11)
       RETURNING id, patient_id, document_type, title, file_key, file_url, file_name, file_size, file_mime, source_hospital, record_date, notes, created_at
     `,
       patientId, document_type || 'other', title,
       fileKey, fileUrl, req.file.originalname, req.file.size, req.file.mimetype,
-      source_hospital || null, record_date || null, notes || null,
+      source_hospital || null, normalizedRecordDate, notes || null,
     );
 
     success(res, result[0], 'Record uploaded');
