@@ -62,7 +62,7 @@ export async function createWasteLog({ tenantId, ...body }) {
 }
 
 export async function listWasteLogs({ tenantId, from, to, source_dept, limit = 200 }) {
-  const conds = ['tenant_id = $1'];
+  const conds = ['tenant_id = $1::uuid'];
   const args = [tenantOr(tenantId)];
   if (from) { args.push(from); conds.push(`log_date >= $${args.length}::date`); }
   if (to) { args.push(to); conds.push(`log_date <= $${args.length}::date`); }
@@ -81,7 +81,7 @@ export async function monthlyRollup({ tenantId, year }) {
   const y = parseInt(year, 10) || new Date().getFullYear();
   const sql = `
     SELECT * FROM bmw_monthly_rollup
-    WHERE tenant_id = $1
+    WHERE tenant_id = $1::uuid
       AND month_start >= make_date($2::int, 1, 1)
       AND month_start <  make_date(($2::int + 1), 1, 1)
     ORDER BY month_start`;
@@ -100,7 +100,7 @@ export async function annualSummary({ tenantId, year }) {
       SUM(blue_kg)::numeric(10, 2)   AS blue_kg,
       SUM(total_kg)::numeric(10, 2)  AS total_kg
     FROM bmw_waste_log
-    WHERE tenant_id = $1
+    WHERE tenant_id = $1::uuid
       AND log_date >= make_date($2::int, 1, 1)
       AND log_date <  make_date(($2::int + 1), 1, 1)`;
   const rows = await prisma.$queryRawUnsafe(sql, tenantOr(tenantId), y);
