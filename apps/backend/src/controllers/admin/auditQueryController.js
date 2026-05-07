@@ -45,11 +45,11 @@ export const getAuditLogs = async (req, res) => {
       ${where}
       ORDER BY al.created_at DESC
       LIMIT $${idx} OFFSET $${idx + 1}
-    `, params);
+    `, ...params);
 
     const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM audit_log al ${where}`,
-      params.slice(0, -2)
+      ...params.slice(0, -2)
     );
 
     success(res, {

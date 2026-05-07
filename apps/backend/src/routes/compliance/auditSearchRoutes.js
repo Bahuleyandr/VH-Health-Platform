@@ -76,7 +76,7 @@ router.get('/audit/search', async (req, res, next) => {
     // Count total matching rows
     const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) AS total FROM audit_log ${whereClause}`,
-      params
+      ...params
     );
     const total = parseInt(countResult[0].total);
 
@@ -92,7 +92,7 @@ router.get('/audit/search', async (req, res, next) => {
        ${whereClause}
        ORDER BY created_at DESC
        LIMIT $${paramIndex++} OFFSET $${paramIndex++}`,
-      params
+      ...params
     );
 
     return success(res, result, 'Audit logs retrieved', 200, {
