@@ -82,12 +82,16 @@ const navSections: NavSection[] = [
     minRole: "STAFF", // all clinical staff
     items: [
       { name: "Radiology",   href: "/dashboard/radiology" },
+      { name: "Laboratory",  href: "/dashboard/lab" },
       { name: "Dietary",     href: "/dashboard/dietary" },
       { name: "Theatre",     href: "/dashboard/theatre" },
       { name: "OR Board",    href: "/dashboard/or-board" },
+      { name: "Maternity",   href: "/dashboard/maternity" },
       { name: "Blood Bank",  href: "/dashboard/blood-bank" },
       { name: "Quality",     href: "/dashboard/quality" },
       { name: "Referrals",   href: "/dashboard/referral" },
+      { name: "Productivity", href: "/dashboard/productivity" },
+      { name: "Patient Messages", href: "/dashboard/messaging" },
     ],
   },
   {
@@ -114,6 +118,8 @@ const navSections: NavSection[] = [
       { name: "Payroll",         href: "/dashboard/payroll" },
       { name: "Analytics",       href: "/dashboard/analytics" },
       { name: "Operations",      href: "/dashboard/operations" },
+      { name: "Dashboards",      href: "/dashboard/dashboards" },
+      { name: "Insurance",       href: "/dashboard/insurance" },
       { name: "Medical Records", href: "/dashboard/records" },
       { name: "Pharmacy",        href: "/dashboard/pharmacy" },
       { name: "Notifications",   href: "/dashboard/notifications" },

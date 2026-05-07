@@ -1,0 +1,305 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { fetchAdminAPI } from "@/lib/api";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { EmptyState } from "@/components/EmptyState";
+import { fmtINR, STATUS_COLOURS, type Claim } from "./types";
+
+const AGING_COLOURS: Record<string, string> = {
+  fresh: "bg-emerald-100 text-emerald-800",
+  "15-30_days_aging": "bg-amber-100 text-amber-800",
+  "30+_days_aging": "bg-rose-100 text-rose-800",
+  paid: "bg-slate-100 text-slate-700",
+  denied: "bg-rose-200 text-rose-900",
+};
+
+export function ClaimsTab() {
+  const [rows, setRows] = useState<Claim[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [agingFilter, setAgingFilter] = useState("");
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  const fetch = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter) params.set("status", statusFilter);
+      if (agingFilter) params.set("aging_bucket", agingFilter);
+      params.set("limit", "200");
+      const r = await fetchAdminAPI<{ data: Claim[] } | Claim[]>(
+        `/insurance/claims?${params.toString()}`,
+      );
+      const data = (r as { data?: Claim[] }).data ?? (r as Claim[]);
+      setRows(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load claims");
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter, agingFilter]);
+
+  useEffect(() => {
+    fetch();
+  }, [fetch]);
+
+  async function submit(c: Claim) {
+    setBusyId(c.id);
+    setError(null);
+    try {
+      const ref = window.prompt(
+        `TPA reference id for ${c.claim_number} (optional):`,
+        "",
+      );
+      if (ref === null) {
+        setBusyId(null);
+        return;
+      }
+      await fetchAdminAPI(`/insurance/claims/${c.id}/submit`, {
+        method: "POST",
+        body: JSON.stringify({
+          submission_channel: "portal",
+          tpa_reference_id: ref || undefined,
+        }),
+      });
+      await fetch();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Submit failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function decision(c: Claim, decision: "approved" | "denied" | "queried") {
+    setBusyId(c.id);
+    setError(null);
+    try {
+      let body: Record<string, unknown> = { decision };
+      if (decision === "approved") {
+        const amt = window.prompt(
+          `Approved amount for ${c.claim_number}:`,
+          String(c.claimed_amount),
+        );
+        if (amt === null) {
+          setBusyId(null);
+          return;
+        }
+        body = { ...body, approved_amount: Number(amt) };
+      } else if (decision === "denied") {
+        const reason = window.prompt(`Denial reason:`, "");
+        if (reason === null) {
+          setBusyId(null);
+          return;
+        }
+        body = { ...body, denial_reason: reason };
+      }
+      await fetchAdminAPI(`/insurance/claims/${c.id}/decision`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      await fetch();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Record decision failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function recordPayment(c: Claim) {
+    setBusyId(c.id);
+    setError(null);
+    try {
+      const amt = window.prompt(
+        `Paid amount (₹) for ${c.claim_number}:`,
+        String(c.approved_amount ?? c.claimed_amount),
+      );
+      if (amt === null) {
+        setBusyId(null);
+        return;
+      }
+      const ref = window.prompt(`Payment reference (UTR / cheque):`, "");
+      if (ref === null) {
+        setBusyId(null);
+        return;
+      }
+      await fetchAdminAPI(`/insurance/claims/${c.id}/payment`, {
+        method: "POST",
+        body: JSON.stringify({
+          paid_amount: Number(amt),
+          payment_reference: ref || undefined,
+        }),
+      });
+      await fetch();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Record payment failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-3 items-end flex-wrap">
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Status</label>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="border border-border rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="">Any</option>
+            {[
+              "prepared",
+              "submitted",
+              "queried",
+              "approved",
+              "partially_approved",
+              "denied",
+              "paid",
+              "closed",
+              "cancelled",
+            ].map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Aging</label>
+          <select
+            value={agingFilter}
+            onChange={(e) => setAgingFilter(e.target.value)}
+            className="border border-border rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="">Any</option>
+            <option value="fresh">Fresh (≤ 15d)</option>
+            <option value="15-30_days_aging">15–30 days</option>
+            <option value="30+_days_aging">30+ days</option>
+            <option value="paid">Paid</option>
+            <option value="denied">Denied</option>
+          </select>
+        </div>
+        <div className="flex-1" />
+        <button
+          onClick={fetch}
+          className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
+        >
+          Refresh
+        </button>
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <LoadingSpinner />
+      ) : rows.length === 0 ? (
+        <EmptyState title="No claims" description="No claims match these filters." />
+      ) : (
+        <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-xs text-muted-foreground border-b">
+              <tr className="text-left">
+                <th className="px-3 py-2">Claim #</th>
+                <th className="px-3 py-2">Patient</th>
+                <th className="px-3 py-2">Policy</th>
+                <th className="px-3 py-2">Type</th>
+                <th className="px-3 py-2">Claimed ₹</th>
+                <th className="px-3 py-2">Approved ₹</th>
+                <th className="px-3 py-2">Paid ₹</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Aging</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((c) => (
+                <tr key={c.id} className="border-b last:border-0 hover:bg-muted/40">
+                  <td className="px-3 py-2 font-mono text-xs">{c.claim_number}</td>
+                  <td className="px-3 py-2 text-xs font-mono">
+                    {c.patient_uid.slice(0, 8)}
+                  </td>
+                  <td className="px-3 py-2 text-xs">{c.policy_number ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs">{c.claim_type}</td>
+                  <td className="px-3 py-2 font-mono">{fmtINR(c.claimed_amount)}</td>
+                  <td className="px-3 py-2 font-mono">
+                    {c.approved_amount != null ? fmtINR(c.approved_amount) : "—"}
+                  </td>
+                  <td className="px-3 py-2 font-mono">
+                    {c.paid_amount != null ? fmtINR(c.paid_amount) : "—"}
+                  </td>
+                  <td className="px-3 py-2">
+                    <span
+                      className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                        STATUS_COLOURS[c.status] ?? "bg-slate-100"
+                      }`}
+                    >
+                      {c.status}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2">
+                    <span
+                      className={`inline-block px-2 py-0.5 rounded text-xs ${
+                        AGING_COLOURS[c.aging_bucket] ?? ""
+                      }`}
+                    >
+                      {c.aging_bucket}
+                      {c.days_since_submit != null
+                        ? ` · ${Math.round(c.days_since_submit)}d`
+                        : ""}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 space-x-1 text-xs">
+                    {c.status === "prepared" && (
+                      <button
+                        disabled={busyId === c.id}
+                        onClick={() => submit(c)}
+                        className="px-2 py-1 rounded bg-blue-600 text-white disabled:opacity-40"
+                      >
+                        Submit
+                      </button>
+                    )}
+                    {(c.status === "submitted" || c.status === "queried") && (
+                      <>
+                        <button
+                          disabled={busyId === c.id}
+                          onClick={() => decision(c, "approved")}
+                          className="px-2 py-1 rounded bg-emerald-600 text-white disabled:opacity-40"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          disabled={busyId === c.id}
+                          onClick={() => decision(c, "denied")}
+                          className="px-2 py-1 rounded bg-rose-600 text-white disabled:opacity-40"
+                        >
+                          Deny
+                        </button>
+                      </>
+                    )}
+                    {(c.status === "approved" || c.status === "partially_approved") && (
+                      <button
+                        disabled={busyId === c.id}
+                        onClick={() => recordPayment(c)}
+                        className="px-2 py-1 rounded bg-emerald-700 text-white disabled:opacity-40"
+                      >
+                        Record payment
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}

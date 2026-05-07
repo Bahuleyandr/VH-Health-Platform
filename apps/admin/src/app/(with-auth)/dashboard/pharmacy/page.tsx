@@ -16,24 +16,30 @@ import { Suspense, useState } from "react";
 import { OverviewTab } from "./components/OverviewTab";
 import { OrdersTab } from "./components/OrdersTab";
 import { CatalogTab } from "./components/CatalogTab";
+import { ScheduleRegisterTab } from "./components/ScheduleRegisterTab";
+import { ExpiryAlertsTab } from "./components/ExpiryAlertsTab";
+
+type Tab = "overview" | "orders" | "catalog" | "schedule" | "expiry";
 
 function PharmacyContent() {
-  const [tab, setTab] = useState<"overview" | "orders" | "catalog">("overview");
+  const [tab, setTab] = useState<Tab>("overview");
 
   return (
     <div className="p-6">
       <h1 className="text-3xl font-bold text-foreground mb-6">Pharmacy Management</h1>
 
-      <div className="flex gap-1 bg-muted rounded-lg p-1 mb-6">
+      <div className="flex gap-1 bg-muted rounded-lg p-1 mb-6 overflow-x-auto">
         {[
           { key: "overview" as const, label: "📊 Overview" },
           { key: "orders" as const, label: "📦 Orders" },
           { key: "catalog" as const, label: "💊 Catalog" },
+          { key: "schedule" as const, label: "📋 Schedule register" },
+          { key: "expiry" as const, label: "⏰ Expiry alerts" },
         ].map(({ key, label }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
               tab === key ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -45,6 +51,8 @@ function PharmacyContent() {
       {tab === "overview" && <OverviewTab />}
       {tab === "orders" && <OrdersTab />}
       {tab === "catalog" && <CatalogTab />}
+      {tab === "schedule" && <ScheduleRegisterTab />}
+      {tab === "expiry" && <ExpiryAlertsTab />}
     </div>
   );
 }
