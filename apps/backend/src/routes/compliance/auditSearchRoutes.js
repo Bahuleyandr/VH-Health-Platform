@@ -49,12 +49,12 @@ router.get('/audit/search', async (req, res, next) => {
     }
 
     if (date_from) {
-      conditions.push(`created_at >= $${paramIndex++}`);
+      conditions.push(`created_at >= $${paramIndex++}::timestamptz`);
       params.push(date_from);
     }
 
     if (date_to) {
-      conditions.push(`created_at <= $${paramIndex++}`);
+      conditions.push(`created_at <= $${paramIndex++}::timestamptz`);
       params.push(date_to);
     }
 
