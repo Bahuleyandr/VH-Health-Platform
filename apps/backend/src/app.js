@@ -124,6 +124,8 @@ import insuranceClaimsRoutes from './routes/insurance/claimsRoutes.js';
 import maternityRoutes from './routes/maternity/maternityRoutes.js';
 import productivityRoutes from './routes/productivity/productivityRoutes.js';
 import dashboardsRoutes from './routes/dashboards/dashboardsRoutes.js';
+import patientPortalRoutes from './routes/portal/patientPortalRoutes.js';
+import staffMessagingRoutes from './routes/portal/staffMessagingRoutes.js';
 import revenueCycleRoutes from './routes/billing/revenueCycleRoutes.js';
 
 // Quality & Infection Control
@@ -627,6 +629,8 @@ app.use('/api/v1/insurance', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF'
 app.use('/api/v1/maternity', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('MATERNITY_RECORD'), maternityRoutes);
 app.use('/api/v1/productivity', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), productivityRoutes);
 app.use('/api/v1/dashboards', requireRole('ADMIN', 'SUPER_ADMIN'), dashboardsRoutes);
+app.use('/api/v1/portal', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
+app.use('/api/v1/staff-messaging', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BILLING_STAFF'), phiAccessLogger('PATIENT_MESSAGING'), staffMessagingRoutes);
 
 // Quality & Infection Control (route-level role checks)
 app.use('/api/v1/quality', qualityRoutes);

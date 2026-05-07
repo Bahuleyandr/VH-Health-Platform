@@ -1,0 +1,373 @@
+// src/services/portal/patientPortalService.js
+//
+// Sprint 10 — patient self-service surface. Exposes the read-side of
+// billing + lab + the secure messaging inbox, all scoped to the
+// authenticated patient via patient_uid in the JWT.
+//
+// Bill payment is delegated to the existing Sprint-4 paymentLinkService
+// — the patient route lets a patient mint their own UPI link for an
+// invoice they actually own.
+
+import prisma from '../../lib/prisma.js';
+import { AppError } from '../../utils/AppError.js';
+import * as paymentLinkService from '../billing/paymentLinkService.js';
+
+// ── Bills ────────────────────────────────────────────────────────────
+
+export async function listMyBills({ tenantId, patient_uid, status }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const params = [tenantId, String(patient_uid)];
+  let where = `tenant_id = $1::uuid AND patient_uid = $2::uuid`;
+  if (status) {
+    params.push(status);
+    where += ` AND status = $${params.length}`;
+  }
+  return prisma.$queryRawUnsafe(
+    `SELECT id, invoice_number, invoice_date, invoice_type, status,
+            subtotal, gst_total, discount_total, grand_total,
+            amount_paid, amount_due, currency, due_date
+       FROM billing_invoices
+      WHERE ${where}
+      ORDER BY invoice_date DESC, id DESC
+      LIMIT 200`,
+    ...params,
+  );
+}
+
+export async function getMyBill({ tenantId, patient_uid, id }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM billing_invoices
+      WHERE id = $1::int AND tenant_id = $2::uuid AND patient_uid = $3::uuid`,
+    Number(id), tenantId, String(patient_uid),
+  );
+  if (!rows.length) throw AppError.notFound('Bill not found');
+  // Items + payments
+  const items = await prisma.$queryRawUnsafe(
+    `SELECT id, service_code, description, quantity, unit_price,
+            line_total, gst_rate, gst_amount, hsn_sac
+       FROM billing_invoice_items
+      WHERE invoice_id = $1::int
+      ORDER BY id`,
+    rows[0].id,
+  );
+  const payments = await prisma.$queryRawUnsafe(
+    `SELECT id, amount, mode, reference, collected_at, reversed
+       FROM billing_payments
+      WHERE invoice_id = $1::int
+      ORDER BY collected_at DESC`,
+    rows[0].id,
+  );
+  return { invoice: rows[0], items, payments };
+}
+
+/**
+ * Patient-initiated UPI payment link. We re-use Sprint 4 service but
+ * lock the patient to their own invoice/uid; we never accept a body
+ * patient_uid.
+ */
+export async function createSelfPaymentLink({
+  tenantId, patient_uid, invoice_id,
+}) {
+  if (!invoice_id) throw AppError.badRequest('invoice_id is required');
+  // Verify ownership before minting a link.
+  const own = await prisma.$queryRawUnsafe(
+    `SELECT id, amount_due FROM billing_invoices
+      WHERE id = $1::int AND tenant_id = $2::uuid AND patient_uid = $3::uuid`,
+    Number(invoice_id), tenantId, String(patient_uid),
+  );
+  if (!own.length) throw AppError.notFound('Bill not found or not yours');
+  if (Number(own[0].amount_due) <= 0) {
+    throw AppError.badRequest('Bill is already settled');
+  }
+  return paymentLinkService.createPaymentLink({
+    tenantId,
+    invoice_id: Number(invoice_id),
+    patient_uid: String(patient_uid),
+    amount: own[0].amount_due,
+    created_by: patient_uid,
+    notes: 'Patient self-initiated UPI link',
+  });
+}
+
+// ── Lab results ──────────────────────────────────────────────────────
+// Patients only see results that have been signed off (NABH 5.6
+// principle — un-signed values can change).
+
+export async function listMyLabResults({ tenantId, patient_uid, limit = 100 }) {
+  return prisma.$queryRawUnsafe(
+    `SELECT id, test_code, test_name, observation_datetime,
+            value_text, value_numeric, unit, reference_range,
+            abnormal_flag, signed_off_at
+       FROM lab_results
+      WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+        AND signed_off_at IS NOT NULL
+      ORDER BY observation_datetime DESC NULLS LAST, id DESC
+      LIMIT $3::int`,
+    tenantId, String(patient_uid), Number(limit),
+  );
+}
+
+export async function getMyLabResult({ tenantId, patient_uid, id }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM lab_results
+      WHERE id = $1::int AND tenant_id = $2::uuid AND patient_uid = $3::uuid
+        AND signed_off_at IS NOT NULL`,
+    Number(id), tenantId, String(patient_uid),
+  );
+  if (!rows.length) throw AppError.notFound('Lab result not found');
+  return rows[0];
+}
+
+// ── Secure messaging (patient ↔ staff) ──────────────────────────────
+
+export async function listMyThreads({ tenantId, patient_uid, status, limit = 50 }) {
+  const params = [tenantId, String(patient_uid)];
+  let where = `tenant_id = $1::uuid AND patient_uid = $2::uuid`;
+  if (status) {
+    params.push(status);
+    where += ` AND status = $${params.length}`;
+  }
+  params.push(Number(limit));
+  return prisma.$queryRawUnsafe(
+    `SELECT id, subject, category, status, priority,
+            last_message_at, last_message_by, patient_unread_count,
+            assigned_staff_uid, created_at
+       FROM patient_message_threads
+      WHERE ${where}
+      ORDER BY last_message_at DESC NULLS LAST
+      LIMIT $${params.length}::int`,
+    ...params,
+  );
+}
+
+export async function getThread({ tenantId, patient_uid, thread_id, viewer_kind }) {
+  // Staff can fetch any thread in their tenant; patient only their own.
+  const params = [Number(thread_id), tenantId];
+  let where = `id = $1::int AND tenant_id = $2::uuid`;
+  if (viewer_kind === 'patient') {
+    if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+    params.push(String(patient_uid));
+    where += ` AND patient_uid = $${params.length}::uuid`;
+  }
+  const threadRows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM patient_message_threads WHERE ${where}`,
+    ...params,
+  );
+  if (!threadRows.length) throw AppError.notFound('Thread not found');
+
+  const messages = await prisma.$queryRawUnsafe(
+    `SELECT * FROM patient_messages WHERE thread_id = $1::int ORDER BY created_at`,
+    threadRows[0].id,
+  );
+  return { thread: threadRows[0], messages };
+}
+
+export async function startThread({
+  tenantId, patient_uid, subject, category = 'general',
+  body, attachments,
+  related_invoice_id, related_lab_result_id, related_appointment_id,
+}) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  if (!subject) throw AppError.badRequest('subject is required');
+  if (!body) throw AppError.badRequest('body is required');
+
+  const tRows = await prisma.$queryRawUnsafe(
+    `INSERT INTO patient_message_threads
+       (patient_uid, subject, category,
+        related_invoice_id, related_lab_result_id, related_appointment_id,
+        status, last_message_at, last_message_by, staff_unread_count,
+        created_by, tenant_id)
+     VALUES ($1::uuid, $2, $3,
+             $4::int, $5::int, $6::int,
+             'awaiting_staff', NOW(), 'patient', 1,
+             $1::uuid, $7::uuid)
+     RETURNING *`,
+    String(patient_uid), String(subject), category,
+    related_invoice_id ? Number(related_invoice_id) : null,
+    related_lab_result_id ? Number(related_lab_result_id) : null,
+    related_appointment_id ? Number(related_appointment_id) : null,
+    tenantId,
+  );
+
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO patient_messages
+       (thread_id, sender_kind, sender_uid, body, attachments, tenant_id)
+     VALUES ($1::int, 'patient', $2::uuid, $3, $4::jsonb, $5::uuid)`,
+    tRows[0].id, String(patient_uid), String(body),
+    JSON.stringify(attachments || []),
+    tenantId,
+  );
+
+  return tRows[0];
+}
+
+/**
+ * Append a message to an existing thread. sender_kind drives the
+ * unread-counter and last-message bookkeeping.
+ */
+export async function appendMessage({
+  tenantId, thread_id, sender_kind, sender_uid, sender_name,
+  body, attachments, patient_uid,
+}) {
+  if (!thread_id) throw AppError.badRequest('thread_id is required');
+  if (!body) throw AppError.badRequest('body is required');
+  if (!['patient', 'staff', 'system'].includes(sender_kind)) {
+    throw AppError.badRequest('sender_kind must be patient | staff | system');
+  }
+
+  // Verify access for patient senders.
+  const owner = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid FROM patient_message_threads
+      WHERE id = $1::int AND tenant_id = $2::uuid`,
+    Number(thread_id), tenantId,
+  );
+  if (!owner.length) throw AppError.notFound('Thread not found');
+  if (sender_kind === 'patient' && String(owner[0].patient_uid) !== String(patient_uid)) {
+    throw AppError.forbidden('Not your thread');
+  }
+
+  const msgRows = await prisma.$queryRawUnsafe(
+    `INSERT INTO patient_messages
+       (thread_id, sender_kind, sender_uid, sender_name, body, attachments, tenant_id)
+     VALUES ($1::int, $2, $3::uuid, $4, $5, $6::jsonb, $7::uuid)
+     RETURNING *`,
+    Number(thread_id), sender_kind,
+    sender_uid ? String(sender_uid) : null,
+    sender_name || null, String(body),
+    JSON.stringify(attachments || []),
+    tenantId,
+  );
+
+  // Update thread bookkeeping. If patient wrote, staff has unread; if
+  // staff wrote, patient has unread. Either way last_message_*
+  // updates and status flips to "awaiting_<other>".
+  if (sender_kind === 'patient') {
+    await prisma.$executeRawUnsafe(
+      `UPDATE patient_message_threads
+          SET last_message_at = NOW(), last_message_by = 'patient',
+              staff_unread_count = staff_unread_count + 1,
+              status = CASE WHEN status = 'closed' THEN status ELSE 'awaiting_staff' END,
+              updated_at = NOW()
+        WHERE id = $1::int`,
+      Number(thread_id),
+    );
+  } else if (sender_kind === 'staff') {
+    await prisma.$executeRawUnsafe(
+      `UPDATE patient_message_threads
+          SET last_message_at = NOW(), last_message_by = 'staff',
+              patient_unread_count = patient_unread_count + 1,
+              status = CASE WHEN status = 'closed' THEN status ELSE 'awaiting_patient' END,
+              updated_at = NOW()
+        WHERE id = $1::int`,
+      Number(thread_id),
+    );
+  } else {
+    await prisma.$executeRawUnsafe(
+      `UPDATE patient_message_threads
+          SET last_message_at = NOW(), last_message_by = 'system', updated_at = NOW()
+        WHERE id = $1::int`,
+      Number(thread_id),
+    );
+  }
+  return msgRows[0];
+}
+
+export async function markThreadRead({
+  tenantId, thread_id, reader_kind, patient_uid,
+}) {
+  if (!['patient', 'staff'].includes(reader_kind)) {
+    throw AppError.badRequest('reader_kind must be patient | staff');
+  }
+  // Verify ownership for patients.
+  if (reader_kind === 'patient') {
+    const own = await prisma.$queryRawUnsafe(
+      `SELECT 1 FROM patient_message_threads
+        WHERE id = $1::int AND tenant_id = $2::uuid AND patient_uid = $3::uuid`,
+      Number(thread_id), tenantId, String(patient_uid),
+    );
+    if (!own.length) throw AppError.notFound('Thread not found');
+  }
+  if (reader_kind === 'patient') {
+    await prisma.$executeRawUnsafe(
+      `UPDATE patient_messages
+          SET read_by_patient_at = COALESCE(read_by_patient_at, NOW())
+        WHERE thread_id = $1::int`,
+      Number(thread_id),
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE patient_message_threads SET patient_unread_count = 0, updated_at = NOW()
+        WHERE id = $1::int`,
+      Number(thread_id),
+    );
+  } else {
+    await prisma.$executeRawUnsafe(
+      `UPDATE patient_messages
+          SET read_by_staff_at = COALESCE(read_by_staff_at, NOW())
+        WHERE thread_id = $1::int`,
+      Number(thread_id),
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE patient_message_threads SET staff_unread_count = 0, updated_at = NOW()
+        WHERE id = $1::int`,
+      Number(thread_id),
+    );
+  }
+  return { ok: true };
+}
+
+// ── Staff inbox view ────────────────────────────────────────────────
+
+export async function listStaffInbox({
+  tenantId, status, priority, assigned_staff_uid, limit = 100,
+}) {
+  const params = [tenantId];
+  const conds = [`tenant_id = $1::uuid`];
+  if (status) { params.push(status); conds.push(`status = $${params.length}`); }
+  if (priority) { params.push(priority); conds.push(`priority = $${params.length}`); }
+  if (assigned_staff_uid) {
+    params.push(String(assigned_staff_uid));
+    conds.push(`assigned_staff_uid = $${params.length}::uuid`);
+  }
+  params.push(Number(limit));
+  return prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, subject, category, status, priority,
+            last_message_at, last_message_by, staff_unread_count,
+            assigned_staff_uid, created_at
+       FROM patient_message_threads
+      WHERE ${conds.join(' AND ')}
+      ORDER BY priority = 'urgent' DESC, last_message_at DESC NULLS LAST
+      LIMIT $${params.length}::int`,
+    ...params,
+  );
+}
+
+export async function assignThread({
+  tenantId, thread_id, assigned_staff_uid,
+}) {
+  await prisma.$executeRawUnsafe(
+    `UPDATE patient_message_threads
+        SET assigned_staff_uid = $1::uuid, updated_at = NOW()
+      WHERE id = $2::int AND tenant_id = $3::uuid`,
+    assigned_staff_uid ? String(assigned_staff_uid) : null,
+    Number(thread_id), tenantId,
+  );
+  return { ok: true };
+}
+
+export async function setThreadStatus({
+  tenantId, thread_id, status, priority,
+}) {
+  const sets = [];
+  const params = [];
+  if (status) { params.push(status); sets.push(`status = $${params.length}`); }
+  if (priority) { params.push(priority); sets.push(`priority = $${params.length}`); }
+  if (!sets.length) return { ok: true };
+  params.push(Number(thread_id));
+  params.push(tenantId);
+  await prisma.$executeRawUnsafe(
+    `UPDATE patient_message_threads SET ${sets.join(', ')}, updated_at = NOW()
+      WHERE id = $${params.length - 1}::int AND tenant_id = $${params.length}::uuid`,
+    ...params,
+  );
+  return { ok: true };
+}
