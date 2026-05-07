@@ -11,6 +11,7 @@
 import { Router } from 'express';
 import logger from '../../logging/logger.js';
 import * as billing from '../../services/billing/billingV2Service.js';
+import * as payLinks from '../../services/billing/paymentLinkService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 
@@ -42,6 +43,11 @@ function requireStaffOrAdmin(req, res, next) {
 function requireAdmin(req, res, next) {
   if (!isAdmin(req.user?.role)) return error(res, 'Admin role required', 403);
   next();
+}
+
+function tenantOf(req) {
+  return req?.user?.tenantId || req?.tenant?.id ||
+    '00000000-0000-4000-8000-000000000001';
 }
 
 // ── Service master ────────────────────────────────────────────────────
@@ -162,6 +168,70 @@ router.get('/reports/outstanding', requireStaffOrAdmin, wrap(async (req) =>
     department: req.query.department,
     limit: req.query.limit || 100,
   }),
+));
+
+// ── Payment links (UPI / gateway) ─────────────────────────────────────
+// Sprint 4. Cashier creates a link, fans it out via WhatsApp/email,
+// then either marks paid manually (UPI) or the gateway webhook flips
+// status (when wired). Existing collectPayment is reused so invoice
+// totals and daily-collection rollups stay consistent.
+
+router.post('/payment-links', requireStaffOrAdmin, wrap(async (req) =>
+  payLinks.createPaymentLink({
+    tenantId: tenantOf(req),
+    created_by: req.user?.uid,
+    ...req.body,
+  }),
+));
+
+router.get('/payment-links', requireStaffOrAdmin, wrap(async (req) =>
+  payLinks.listPaymentLinks({
+    tenantId: tenantOf(req),
+    patient_uid: req.query.patient_uid,
+    status: req.query.status,
+    invoice_id: req.query.invoice_id,
+    limit: req.query.limit || 100,
+  }),
+));
+
+router.get('/payment-links/:token', requireStaffOrAdmin, wrap(async (req) =>
+  payLinks.getPaymentLink({
+    tenantId: tenantOf(req),
+    link_token: req.params.token,
+  }),
+));
+
+router.post('/payment-links/:token/send', requireStaffOrAdmin, wrap(async (req) =>
+  payLinks.sendPaymentLink({
+    tenantId: tenantOf(req),
+    link_token: req.params.token,
+    channels: req.body.channels,
+    patient_phone: req.body.patient_phone,
+    patient_email: req.body.patient_email,
+    hospital_short_url_base: req.body.hospital_short_url_base,
+  }),
+));
+
+router.post('/payment-links/:token/mark-paid', requireStaffOrAdmin, wrap(async (req) =>
+  payLinks.markPaymentLinkPaid({
+    tenantId: tenantOf(req),
+    link_token: req.params.token,
+    paid_via: req.body.paid_via,
+    paid_reference: req.body.paid_reference,
+    performed_by: req.user?.uid,
+  }),
+));
+
+router.post('/payment-links/:token/cancel', requireStaffOrAdmin, wrap(async (req) =>
+  payLinks.cancelPaymentLink({
+    tenantId: tenantOf(req),
+    link_token: req.params.token,
+    reason: req.body.reason,
+  }),
+));
+
+router.post('/payment-links/run-expire-stale', requireAdmin, wrap(async () =>
+  payLinks.expireStaleLinks(),
 ));
 
 export default router;
