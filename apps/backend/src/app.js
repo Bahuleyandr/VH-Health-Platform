@@ -126,6 +126,7 @@ import productivityRoutes from './routes/productivity/productivityRoutes.js';
 import dashboardsRoutes from './routes/dashboards/dashboardsRoutes.js';
 import patientPortalRoutes from './routes/portal/patientPortalRoutes.js';
 import staffMessagingRoutes from './routes/portal/staffMessagingRoutes.js';
+import dischargeRoutes from './routes/discharge/dischargeRoutes.js';
 import revenueCycleRoutes from './routes/billing/revenueCycleRoutes.js';
 
 // Quality & Infection Control
@@ -631,6 +632,7 @@ app.use('/api/v1/productivity', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'N
 app.use('/api/v1/dashboards', requireRole('ADMIN', 'SUPER_ADMIN'), dashboardsRoutes);
 app.use('/api/v1/portal', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
 app.use('/api/v1/staff-messaging', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BILLING_STAFF'), phiAccessLogger('PATIENT_MESSAGING'), staffMessagingRoutes);
+app.use('/api/v1/discharge-summaries', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('DISCHARGE_SUMMARY'), dischargeRoutes);
 
 // Quality & Infection Control (route-level role checks)
 app.use('/api/v1/quality', qualityRoutes);

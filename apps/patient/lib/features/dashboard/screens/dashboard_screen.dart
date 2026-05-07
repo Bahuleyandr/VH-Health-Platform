@@ -480,6 +480,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
         color: const Color(0xFFFFD54F),
         onTap: (ctx) => _openFeature(ctx, '/health-points'),
       ),
+      // Patient self-service portal — Sprint 10. SVG assets not yet
+      // designed; falls back to the Lucide icon glyph.
+      FeatureIconData(
+        icon: LucideIcons.receipt,
+        label: 'Bills',
+        color: const Color(0xFFB3E5FC),
+        description:
+            'View hospital bills, see what is due, and pay via UPI',
+        onTap: (ctx) => _openFeature(ctx, '/portal/bills'),
+      ),
+      FeatureIconData(
+        icon: LucideIcons.testTube,
+        label: 'Lab Results',
+        color: const Color(0xFF80DEEA),
+        description: 'View signed-off lab results with reference ranges',
+        onTap: (ctx) => _openFeature(ctx, '/portal/lab-results'),
+      ),
+      FeatureIconData(
+        icon: LucideIcons.messageSquare,
+        label: 'Messages',
+        color: const Color(0xFFFFE082),
+        description: 'Secure messages with your hospital care team',
+        onTap: (ctx) => _openFeature(ctx, '/portal/messages'),
+      ),
     ];
   }
 

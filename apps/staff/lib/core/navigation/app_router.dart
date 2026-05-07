@@ -75,6 +75,7 @@ import '../../features/dietary/screens/dietary_screen.dart';
 import '../../features/theatre/screens/theatre_screen.dart';
 import '../../features/productivity/screens/calculators_screen.dart';
 import '../../features/productivity/screens/order_sets_screen.dart';
+import '../../features/maternity/screens/maternity_screen.dart';
 import '../../features/maternity/screens/partograph_entry_screen.dart';
 import '../../features/maternity/screens/partograph_view_screen.dart';
 
@@ -520,6 +521,12 @@ final GoRouter appRouter = GoRouter(
         ),
 
         // Maternity (Sprint 7)
+        GoRoute(
+          path: '/maternity',
+          name: 'maternity',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: MaternityScreen()),
+        ),
         GoRoute(
           path: '/maternity/partograph/:laborId',
           name: 'partograph-entry',

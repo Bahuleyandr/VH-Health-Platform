@@ -92,6 +92,7 @@ const navSections: NavSection[] = [
       { name: "Referrals",   href: "/dashboard/referral" },
       { name: "Productivity", href: "/dashboard/productivity" },
       { name: "Patient Messages", href: "/dashboard/messaging" },
+      { name: "Discharge Summaries", href: "/dashboard/discharge-summaries" },
     ],
   },
   {

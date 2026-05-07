@@ -4,6 +4,7 @@ import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
+import '../../productivity/widgets/smart_phrase_field.dart';
 
 /// EMR Clinical Notes screen — tabbed view for SOAP, Progress, and Procedure notes.
 class ClinicalNotesScreen extends StatefulWidget {
@@ -753,6 +754,10 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     );
   }
 
+  // Long-form note field with smart-phrase expansion. Type a dot-phrase
+  // (`.dmreview`) followed by space and the body expands inline. The
+  // existing form sheets don't validate these fields, so swapping
+  // TextFormField → SmartPhraseField is a clean drop-in.
   Widget _buildTextArea(
     TextEditingController controller,
     String label,
@@ -760,16 +765,16 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: TextFormField(
+      child: SmartPhraseField(
         controller: controller,
+        minLines: 3,
+        maxLines: 6,
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
           border: const OutlineInputBorder(),
           alignLabelWithHint: true,
         ),
-        maxLines: 4,
-        minLines: 3,
       ),
     );
   }

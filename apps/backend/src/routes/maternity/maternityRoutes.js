@@ -6,6 +6,7 @@
 import { Router } from 'express';
 import logger from '../../logging/logger.js';
 import * as mat from '../../services/maternity/maternityService.js';
+import * as immun from '../../services/maternity/immunisationService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 
@@ -166,6 +167,46 @@ router.get('/postnatal-visits/delivery/:deliveryId', requireStaffOrAdmin, wrap(a
   mat.listPostnatalVisits({
     tenantId: tenantOf(req),
     delivery_id: req.params.deliveryId,
+  }),
+));
+
+// ── Newborn immunisations (Sprint 7 follow-through) ─────────────────
+router.get('/immunisations/catalogue', requireStaffOrAdmin, wrap(async (req) =>
+  immun.listCatalogue({
+    tenantId: tenantOf(req),
+    includeInactive: req.query.includeInactive === 'true',
+  }),
+));
+
+router.post('/newborns/:id/immunisations/seed', requireStaffOrAdmin, wrap(async (req) =>
+  immun.seedScheduleForNewborn({
+    tenantId: tenantOf(req),
+    newborn_id: req.params.id,
+  }),
+));
+
+router.get('/newborns/:id/immunisations', requireStaffOrAdmin, wrap(async (req) =>
+  immun.getScheduleForNewborn({
+    tenantId: tenantOf(req),
+    newborn_id: req.params.id,
+  }),
+));
+
+router.patch('/immunisations/:id/record', requireStaffOrAdmin, wrap(async (req) =>
+  immun.recordDose({
+    tenantId: tenantOf(req),
+    immunisation_id: req.params.id,
+    given_by: req.user?.uid,
+    ...req.body,
+  }),
+));
+
+router.get('/immunisations/due', requireStaffOrAdmin, wrap(async (req) =>
+  immun.listDueOrOverdue({
+    tenantId: tenantOf(req),
+    from_date: req.query.from,
+    to_date: req.query.to,
+    limit: req.query.limit,
   }),
 ));
 
