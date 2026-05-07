@@ -6,7 +6,8 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -44,6 +45,10 @@ interface PartographEntry {
   on_action_line: boolean | null;
 }
 
+function unwrap<T>(r: unknown): T {
+  return ((r as { data?: T }).data ?? r) as T;
+}
+
 function fmtTs(s: string | null): string {
   if (!s) return "—";
   return new Date(s).toLocaleString();
@@ -61,22 +66,16 @@ function PartographDrilldown({
   laborId: number;
   onClose: () => void;
 }) {
-  const [rows, setRows] = useState<PartographEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await fetchAdminAPI<
-          { data: PartographEntry[] } | PartographEntry[]
-        >(`/maternity/partograph/labor/${laborId}`);
-        const data = (r as { data?: PartographEntry[] }).data ?? (r as PartographEntry[]);
-        setRows(Array.isArray(data) ? data : []);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [laborId]);
+  const { data: rows = [], isLoading } = useQuery<PartographEntry[]>({
+    queryKey: ["maternity", "partograph", laborId],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<unknown>(
+        `/maternity/partograph/labor/${laborId}`,
+      );
+      const data = unwrap<PartographEntry[]>(r);
+      return Array.isArray(data) ? data : [];
+    },
+  });
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
@@ -91,7 +90,7 @@ function PartographDrilldown({
           </button>
         </div>
         <div className="p-4">
-          {loading ? (
+          {isLoading ? (
             <LoadingSpinner />
           ) : rows.length === 0 ? (
             <EmptyState
@@ -165,32 +164,19 @@ function PartographDrilldown({
 }
 
 export default function MaternityPage() {
-  const [rows, setRows] = useState<ActiveLabor[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [drilldown, setDrilldown] = useState<number | null>(null);
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await fetchAdminAPI<{ data: ActiveLabor[] } | ActiveLabor[]>(
+  const { data: rows = [], error, isLoading, refetch } = useQuery<ActiveLabor[]>({
+    queryKey: ["maternity", "labor-admissions", "active"],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<unknown>(
         "/maternity/labor-admissions/active?limit=50",
       );
-      const data = (r as { data?: ActiveLabor[] }).data ?? (r as ActiveLabor[]);
-      setRows(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load labour board");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetch();
-    const i = setInterval(fetch, 60_000);
-    return () => clearInterval(i);
-  }, [fetch]);
+      const data = unwrap<ActiveLabor[]>(r);
+      return Array.isArray(data) ? data : [];
+    },
+    refetchInterval: 60_000,
+  });
 
   return (
     <div className="p-6 space-y-6">
@@ -202,7 +188,7 @@ export default function MaternityPage() {
           </p>
         </div>
         <button
-          onClick={fetch}
+          onClick={() => refetch()}
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
@@ -211,11 +197,11 @@ export default function MaternityPage() {
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {error}
+          {error instanceof Error ? error.message : "Failed to load labour board"}
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
         <EmptyState

@@ -1,6 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -23,48 +27,36 @@ const SEVERITY_COLOURS: Record<string, string> = {
   info: "bg-slate-100 text-slate-700",
 };
 
-export function ExpiryAlertsTab() {
-  const [rows, setRows] = useState<ExpiryAlert[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [scanning, setScanning] = useState(false);
+function unwrap<T>(r: unknown): T {
+  return ((r as { data?: T }).data ?? r) as T;
+}
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await fetchAdminAPI<{ data: ExpiryAlert[] } | ExpiryAlert[]>(
+export function ExpiryAlertsTab() {
+  const qc = useQueryClient();
+
+  const { data: rows = [], error, isLoading } = useQuery<ExpiryAlert[]>({
+    queryKey: ["pharmacy", "expiry-alerts"],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<unknown>(
         "/pharmacy/inventory/v2/expiry-alerts?limit=300",
       );
-      const data = (r as { data?: ExpiryAlert[] }).data ?? (r as ExpiryAlert[]);
-      setRows(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load expiry alerts");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      const data = unwrap<ExpiryAlert[]>(r);
+      return Array.isArray(data) ? data : [];
+    },
+  });
 
-  async function runScan() {
-    setScanning(true);
-    setError(null);
-    try {
-      await fetchAdminAPI("/pharmacy/inventory/v2/expiry-scan", { method: "POST" });
-      await fetch();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Scan failed");
-    } finally {
-      setScanning(false);
-    }
-  }
-
-  useEffect(() => {
-    fetch();
-  }, [fetch]);
+  const scanMut = useMutation({
+    mutationFn: () =>
+      fetchAdminAPI("/pharmacy/inventory/v2/expiry-scan", { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["pharmacy", "expiry-alerts"] }),
+  });
 
   const expired = rows.filter((r) => r.severity === "expired").length;
   const critical = rows.filter((r) => r.severity === "critical").length;
   const warning = rows.filter((r) => r.severity === "warning").length;
+  const errMsg = (error ?? scanMut.error)
+    ? (error ?? scanMut.error)!.toString()
+    : null;
 
   return (
     <div className="space-y-4">
@@ -77,14 +69,14 @@ export function ExpiryAlertsTab() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={runScan}
-            disabled={scanning}
+            onClick={() => scanMut.mutate()}
+            disabled={scanMut.isPending}
             className="px-3 py-2 rounded-md border text-sm hover:bg-muted disabled:opacity-40"
           >
-            {scanning ? "Scanning…" : "Run scan"}
+            {scanMut.isPending ? "Scanning…" : "Run scan"}
           </button>
           <button
-            onClick={fetch}
+            onClick={() => qc.invalidateQueries({ queryKey: ["pharmacy", "expiry-alerts"] })}
             className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
           >
             Refresh
@@ -111,13 +103,13 @@ export function ExpiryAlertsTab() {
         </div>
       </div>
 
-      {error && (
+      {errMsg && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {error}
+          {errMsg}
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
         <EmptyState title="All clear" description="No batches expiring soon." />

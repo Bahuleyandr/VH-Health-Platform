@@ -1,43 +1,39 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
 import { fmtINR, fmtDate, type InsurancePolicy } from "./types";
 
+function unwrap<T>(r: unknown): T {
+  return ((r as { data?: T }).data ?? r) as T;
+}
+
 export function PoliciesTab() {
   const [patientUid, setPatientUid] = useState("");
-  const [rows, setRows] = useState<InsurancePolicy[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [submittedUid, setSubmittedUid] = useState("");
 
-  const fetch = useCallback(async () => {
-    if (!patientUid) {
-      setRows([]);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await fetchAdminAPI<{ data: InsurancePolicy[] } | InsurancePolicy[]>(
-        `/insurance/policies/patient/${encodeURIComponent(patientUid)}`,
+  const { data: rows = [], error, isLoading } = useQuery<InsurancePolicy[]>({
+    queryKey: ["insurance", "policies", "patient", submittedUid],
+    queryFn: async () => {
+      if (!submittedUid) return [];
+      const r = await fetchAdminAPI<unknown>(
+        `/insurance/policies/patient/${encodeURIComponent(submittedUid)}`,
       );
-      const data = (r as { data?: InsurancePolicy[] }).data ?? (r as InsurancePolicy[]);
-      setRows(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load policies");
-    } finally {
-      setLoading(false);
-    }
-  }, [patientUid]);
+      const data = unwrap<InsurancePolicy[]>(r);
+      return Array.isArray(data) ? data : [];
+    },
+    enabled: !!submittedUid,
+  });
 
   return (
     <div className="space-y-4">
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          fetch();
+          setSubmittedUid(patientUid.trim());
         }}
         className="flex gap-3 items-end flex-wrap"
       >
@@ -62,17 +58,17 @@ export function PoliciesTab() {
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {error}
+          {error instanceof Error ? error.message : "Failed to load policies"}
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
         <EmptyState
-          title={patientUid ? "No policies on file" : "Enter a patient UID"}
+          title={submittedUid ? "No policies on file" : "Enter a patient UID"}
           description={
-            patientUid
+            submittedUid
               ? "This patient has no insurance policies recorded."
               : "Look up policies for a patient by UID."
           }

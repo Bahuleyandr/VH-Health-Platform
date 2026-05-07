@@ -9,8 +9,30 @@
 // invoice they actually own.
 
 import prisma from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import * as paymentLinkService from '../billing/paymentLinkService.js';
+import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
+
+// Fetch active FCM tokens for a patient. Returns [] when the patient
+// has no registered devices — caller should treat the missing notif
+// as best-effort, not a hard error.
+async function fcmTokensForPatient(patient_uid) {
+  if (!patient_uid) return [];
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT fcm_token FROM user_devices
+        WHERE user_uid = $1::uuid
+          AND fcm_token IS NOT NULL
+          AND fcm_token <> ''`,
+      String(patient_uid),
+    );
+    return rows.map((r) => r.fcm_token);
+  } catch (err) {
+    logger.warn('fcmTokensForPatient failed', { error: err.message });
+    return [];
+  }
+}
 
 // ── Bills ────────────────────────────────────────────────────────────
 
@@ -23,12 +45,15 @@ export async function listMyBills({ tenantId, patient_uid, status }) {
     where += ` AND status = $${params.length}`;
   }
   return prisma.$queryRawUnsafe(
-    `SELECT id, invoice_number, invoice_date, invoice_type, status,
-            subtotal, gst_total, discount_total, grand_total,
-            amount_paid, amount_due, currency, due_date
+    `SELECT id, invoice_number, issued_at, created_at, invoice_type, status,
+            subtotal,
+            (cgst_amount + sgst_amount + igst_amount) AS gst_total,
+            discount_amount AS discount_total,
+            total_amount AS grand_total,
+            amount_paid, amount_due
        FROM billing_invoices
       WHERE ${where}
-      ORDER BY invoice_date DESC, id DESC
+      ORDER BY COALESCE(issued_at, created_at) DESC, id DESC
       LIMIT 200`,
     ...params,
   );
@@ -41,10 +66,13 @@ export async function getMyBill({ tenantId, patient_uid, id }) {
     Number(id), tenantId, String(patient_uid),
   );
   if (!rows.length) throw AppError.notFound('Bill not found');
-  // Items + payments
+  // Items + payments. Real DB column names: cgst_amount + sgst_amount +
+  // igst_amount (no single gst_amount). Sum + alias for the patient UI.
   const items = await prisma.$queryRawUnsafe(
     `SELECT id, service_code, description, quantity, unit_price,
-            line_total, gst_rate, gst_amount, hsn_sac
+            line_total, gst_rate,
+            (cgst_amount + sgst_amount + igst_amount) AS gst_amount,
+            hsn_sac
        FROM billing_invoice_items
       WHERE invoice_id = $1::int
       ORDER BY id`,
@@ -261,6 +289,38 @@ export async function appendMessage({
         WHERE id = $1::int`,
       Number(thread_id),
     );
+    // Push notify the patient (best-effort, never blocks the reply).
+    Promise.resolve()
+      .then(async () => {
+        const patientUid = owner[0].patient_uid;
+        const tokens = await fcmTokensForPatient(patientUid);
+        if (!tokens.length) return;
+        // Fetch the thread subject to give the notification context
+        // beyond "New message" — patients triage from the lock screen.
+        const t = await prisma.$queryRawUnsafe(
+          `SELECT subject FROM patient_message_threads WHERE id = $1::int`,
+          Number(thread_id),
+        );
+        const subject = t[0]?.subject || 'New message';
+        const preview = String(body).slice(0, 120);
+        return sendPushNotification({
+          tokens,
+          title: subject,
+          body: sender_name ? `${sender_name}: ${preview}` : preview,
+          userId: String(patientUid),
+          data: {
+            type: 'patient_message',
+            thread_id: String(thread_id),
+            deep_link: `/portal/messages/${thread_id}`,
+          },
+        });
+      })
+      .catch((err) => {
+        logger.warn('patient message push failed', {
+          error: err.message,
+          thread_id,
+        });
+      });
   } else {
     await prisma.$executeRawUnsafe(
       `UPDATE patient_message_threads

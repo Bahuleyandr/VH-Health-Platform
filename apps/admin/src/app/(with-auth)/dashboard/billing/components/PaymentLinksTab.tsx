@@ -2,7 +2,12 @@
 
 // Sprint 4 — UPI payment links list, send + mark-paid + cancel actions.
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -34,6 +39,10 @@ const STATUS_COLOURS: Record<string, string> = {
   cancelled: "bg-rose-100 text-rose-800",
 };
 
+function unwrap<T>(r: unknown): T {
+  return ((r as { data?: T }).data ?? r) as T;
+}
+
 function fmtINR(n: number | string | null | undefined): string {
   const num = Number(n ?? 0);
   return new Intl.NumberFormat("en-IN", {
@@ -49,93 +58,81 @@ function fmtDate(s: string | null): string {
 }
 
 export function PaymentLinksTab() {
-  const [rows, setRows] = useState<PaymentLink[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("");
-  const [busyToken, setBusyToken] = useState<string | null>(null);
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const { data: rows = [], error, isLoading } = useQuery<PaymentLink[]>({
+    queryKey: ["billing", "payment-links", { statusFilter }],
+    queryFn: async () => {
       const params = new URLSearchParams({ limit: "200" });
       if (statusFilter) params.set("status", statusFilter);
-      const r = await fetchAdminAPI<{ data: PaymentLink[] } | PaymentLink[]>(
+      const r = await fetchAdminAPI<unknown>(
         `/billing/v2/payment-links?${params.toString()}`,
       );
-      const data = (r as { data?: PaymentLink[] }).data ?? (r as PaymentLink[]);
-      setRows(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load payment links");
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter]);
+      const data = unwrap<PaymentLink[]>(r);
+      return Array.isArray(data) ? data : [];
+    },
+  });
 
-  useEffect(() => {
-    fetch();
-  }, [fetch]);
+  const sendMut = useMutation({
+    mutationFn: async (vars: { link: PaymentLink; phone: string }) =>
+      fetchAdminAPI(`/billing/v2/payment-links/${vars.link.link_token}/send`, {
+        method: "POST",
+        body: JSON.stringify({
+          channels: ["whatsapp"],
+          patient_phone: vars.phone,
+        }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["billing", "payment-links"] }),
+  });
 
-  async function send(link: PaymentLink) {
+  const paidMut = useMutation({
+    mutationFn: async (vars: { link: PaymentLink; ref: string }) =>
+      fetchAdminAPI(
+        `/billing/v2/payment-links/${vars.link.link_token}/mark-paid`,
+        {
+          method: "POST",
+          body: JSON.stringify({ paid_via: "upi", paid_reference: vars.ref }),
+        },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["billing", "payment-links"] }),
+  });
+
+  const cancelMut = useMutation({
+    mutationFn: async (vars: { link: PaymentLink; reason: string }) =>
+      fetchAdminAPI(
+        `/billing/v2/payment-links/${vars.link.link_token}/cancel`,
+        {
+          method: "POST",
+          body: JSON.stringify({ reason: vars.reason }),
+        },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["billing", "payment-links"] }),
+  });
+
+  function send(link: PaymentLink) {
     const phone = window.prompt("Patient WhatsApp phone (with country code):", "");
     if (!phone) return;
-    setBusyToken(link.link_token);
-    setError(null);
-    try {
-      await fetchAdminAPI(`/billing/v2/payment-links/${link.link_token}/send`, {
-        method: "POST",
-        body: JSON.stringify({ channels: ["whatsapp"], patient_phone: phone }),
-      });
-      await fetch();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Send failed");
-    } finally {
-      setBusyToken(null);
-    }
+    sendMut.mutate({ link, phone });
   }
-
-  async function markPaid(link: PaymentLink) {
+  function markPaid(link: PaymentLink) {
     const ref = window.prompt("UPI reference (UTR):", "");
     if (ref === null) return;
-    setBusyToken(link.link_token);
-    setError(null);
-    try {
-      await fetchAdminAPI(`/billing/v2/payment-links/${link.link_token}/mark-paid`, {
-        method: "POST",
-        body: JSON.stringify({ paid_via: "upi", paid_reference: ref }),
-      });
-      await fetch();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Mark paid failed");
-    } finally {
-      setBusyToken(null);
-    }
+    paidMut.mutate({ link, ref });
   }
-
-  async function cancel(link: PaymentLink) {
+  function cancel(link: PaymentLink) {
     const reason = window.prompt("Cancellation reason:", "");
     if (reason === null) return;
-    setBusyToken(link.link_token);
-    setError(null);
-    try {
-      await fetchAdminAPI(`/billing/v2/payment-links/${link.link_token}/cancel`, {
-        method: "POST",
-        body: JSON.stringify({ reason }),
-      });
-      await fetch();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Cancel failed");
-    } finally {
-      setBusyToken(null);
-    }
+    cancelMut.mutate({ link, reason });
+  }
+  function copyLink(link: PaymentLink) {
+    if (link.upi_deep_link) navigator.clipboard?.writeText(link.upi_deep_link);
   }
 
-  function copyLink(link: PaymentLink) {
-    const url = link.upi_deep_link;
-    if (!url) return;
-    navigator.clipboard?.writeText(url);
-  }
+  const errMsg = (error ?? sendMut.error ?? paidMut.error ?? cancelMut.error)
+    ? (error ?? sendMut.error ?? paidMut.error ?? cancelMut.error)!.toString()
+    : null;
+  const busy = sendMut.isPending || paidMut.isPending || cancelMut.isPending;
 
   return (
     <div className="space-y-4">
@@ -157,20 +154,20 @@ export function PaymentLinksTab() {
         </div>
         <div className="flex-1" />
         <button
-          onClick={fetch}
+          onClick={() => qc.invalidateQueries({ queryKey: ["billing", "payment-links"] })}
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
         </button>
       </div>
 
-      {error && (
+      {errMsg && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {error}
+          {errMsg}
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
         <EmptyState
@@ -236,21 +233,21 @@ export function PaymentLinksTab() {
                     {(r.status === "created" || r.status === "sent") && (
                       <>
                         <button
-                          disabled={busyToken === r.link_token}
+                          disabled={busy}
                           onClick={() => send(r)}
                           className="px-2 py-1 rounded bg-blue-600 text-white disabled:opacity-40"
                         >
                           Send WA
                         </button>
                         <button
-                          disabled={busyToken === r.link_token}
+                          disabled={busy}
                           onClick={() => markPaid(r)}
                           className="px-2 py-1 rounded bg-emerald-600 text-white disabled:opacity-40"
                         >
                           Mark paid
                         </button>
                         <button
-                          disabled={busyToken === r.link_token}
+                          disabled={busy}
                           onClick={() => cancel(r)}
                           className="px-2 py-1 rounded bg-rose-600 text-white disabled:opacity-40"
                         >

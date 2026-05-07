@@ -3,12 +3,15 @@
 // Lab admin page — Sprint 3. Two tabs:
 //   1. Pathologist worklist (results pending sign-off)
 //   2. Critical alerts (NABH 5.6 acknowledgement workflow)
-//
-// Hits /api/v1/lab/pathologist/pending and /api/v1/lab/alerts/critical.
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -44,6 +47,10 @@ interface CriticalAlert {
   read_back_method: string | null;
 }
 
+function unwrap<T>(r: unknown): T {
+  return ((r as { data?: T }).data ?? r) as T;
+}
+
 function fmtTs(s: string | null): string {
   if (!s) return "—";
   const d = new Date(s);
@@ -57,51 +64,29 @@ function ageHours(s: string): number {
 }
 
 function PathologistWorklist() {
-  const [rows, setRows] = useState<PendingResult[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [signing, setSigning] = useState(false);
   const [signedByName, setSignedByName] = useState("");
   const [signedByReg, setSignedByReg] = useState("");
 
-  const fetchPending = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await fetchAdminAPI<{ data: PendingResult[] } | PendingResult[]>(
+  const { data: rows = [], error, isLoading } = useQuery<PendingResult[]>({
+    queryKey: ["lab", "pathologist", "pending"],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<unknown>(
         "/lab/pathologist/pending?limit=200",
       );
-      const data = (r as { data?: PendingResult[] }).data ?? (r as PendingResult[]);
-      setRows(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load worklist");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      const data = unwrap<PendingResult[]>(r);
+      return Array.isArray(data) ? data : [];
+    },
+  });
 
-  useEffect(() => {
-    fetchPending();
-  }, [fetchPending]);
-
-  function toggle(id: number) {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelected(next);
-  }
-
-  async function signOff(decision: "verified" | "rejected") {
-    if (selected.size === 0) return;
-    if (!signedByName) {
-      setError("Pathologist name is required for sign-off");
-      return;
-    }
-    setSigning(true);
-    setError(null);
-    try {
-      await fetchAdminAPI("/lab/pathologist/signoff", {
+  const signMutation = useMutation({
+    mutationFn: async (decision: "verified" | "rejected") => {
+      if (selected.size === 0) throw new Error("Nothing selected");
+      if (!signedByName) {
+        throw new Error("Pathologist name is required for sign-off");
+      }
+      return fetchAdminAPI("/lab/pathologist/signoff", {
         method: "POST",
         body: JSON.stringify({
           result_ids: Array.from(selected),
@@ -110,14 +95,29 @@ function PathologistWorklist() {
           signed_off_by_reg: signedByReg,
         }),
       });
+    },
+    onSuccess: () => {
       setSelected(new Set());
-      await fetchPending();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-off failed");
-    } finally {
-      setSigning(false);
-    }
+      qc.invalidateQueries({ queryKey: ["lab", "pathologist", "pending"] });
+    },
+  });
+
+  function toggle(id: number) {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
   }
+
+  const errorMessage = error
+    ? error instanceof Error
+      ? error.message
+      : String(error)
+    : signMutation.error
+      ? signMutation.error instanceof Error
+        ? signMutation.error.message
+        : String(signMutation.error)
+      : null;
 
   return (
     <div className="space-y-4">
@@ -145,35 +145,35 @@ function PathologistWorklist() {
           />
         </div>
         <button
-          onClick={() => signOff("verified")}
-          disabled={selected.size === 0 || signing}
+          onClick={() => signMutation.mutate("verified")}
+          disabled={selected.size === 0 || signMutation.isPending}
           className="px-3 py-2 rounded-md bg-emerald-600 text-white text-sm disabled:opacity-40"
         >
-          {signing ? "Signing…" : `Verify (${selected.size})`}
+          {signMutation.isPending ? "Signing…" : `Verify (${selected.size})`}
         </button>
         <button
-          onClick={() => signOff("rejected")}
-          disabled={selected.size === 0 || signing}
+          onClick={() => signMutation.mutate("rejected")}
+          disabled={selected.size === 0 || signMutation.isPending}
           className="px-3 py-2 rounded-md bg-rose-600 text-white text-sm disabled:opacity-40"
         >
           Reject
         </button>
         <div className="flex-1" />
         <button
-          onClick={fetchPending}
+          onClick={() => qc.invalidateQueries({ queryKey: ["lab", "pathologist", "pending"] })}
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
         </button>
       </div>
 
-      {error && (
+      {errorMessage && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {error}
+          {errorMessage}
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
         <EmptyState title="Inbox zero" description="No results pending sign-off." />
@@ -247,62 +247,52 @@ function PathologistWorklist() {
 }
 
 function CriticalAlerts() {
-  const [rows, setRows] = useState<CriticalAlert[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [acking, setAcking] = useState<number | null>(null);
+  const qc = useQueryClient();
   const [readBack, setReadBack] = useState<{ name: string; method: string }>({
     name: "",
     method: "phone",
   });
 
-  const fetchAlerts = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await fetchAdminAPI<{ data: CriticalAlert[] } | CriticalAlert[]>(
-        "/lab/alerts/critical?limit=100",
-      );
-      const data = (r as { data?: CriticalAlert[] }).data ?? (r as CriticalAlert[]);
-      setRows(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load alerts");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const { data: rows = [], error, isLoading } = useQuery<CriticalAlert[]>({
+    queryKey: ["lab", "alerts", "critical"],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<unknown>("/lab/alerts/critical?limit=100");
+      const data = unwrap<CriticalAlert[]>(r);
+      return Array.isArray(data) ? data : [];
+    },
+    refetchInterval: 60_000,
+  });
 
-  useEffect(() => {
-    fetchAlerts();
-    const i = setInterval(fetchAlerts, 60_000);
-    return () => clearInterval(i);
-  }, [fetchAlerts]);
-
-  async function acknowledge(id: number) {
-    if (!readBack.name) {
-      setError("Acknowledger name is required for read-back");
-      return;
-    }
-    setAcking(id);
-    setError(null);
-    try {
-      await fetchAdminAPI(`/lab/alerts/critical/${id}/ack`, {
+  const ackMutation = useMutation({
+    mutationFn: async (id: number) => {
+      if (!readBack.name) {
+        throw new Error("Acknowledger name is required for read-back");
+      }
+      return fetchAdminAPI(`/lab/alerts/critical/${id}/ack`, {
         method: "POST",
         body: JSON.stringify({
           acknowledged_by_name: readBack.name,
           read_back_method: readBack.method,
         }),
       });
-      await fetchAlerts();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Acknowledge failed");
-    } finally {
-      setAcking(null);
-    }
-  }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lab", "alerts", "critical"] });
+    },
+  });
 
   const open = rows.filter((r) => !r.acknowledged_at);
   const closed = rows.filter((r) => r.acknowledged_at);
+
+  const errorMessage = error
+    ? error instanceof Error
+      ? error.message
+      : String(error)
+    : ackMutation.error
+      ? ackMutation.error instanceof Error
+        ? ackMutation.error.message
+        : String(ackMutation.error)
+      : null;
 
   return (
     <div className="space-y-4">
@@ -332,20 +322,20 @@ function CriticalAlerts() {
         </div>
         <div className="flex-1" />
         <button
-          onClick={fetchAlerts}
+          onClick={() => qc.invalidateQueries({ queryKey: ["lab", "alerts", "critical"] })}
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
         </button>
       </div>
 
-      {error && (
+      {errorMessage && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {error}
+          {errorMessage}
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <LoadingSpinner />
       ) : (
         <>
@@ -404,11 +394,11 @@ function CriticalAlerts() {
                           </td>
                           <td className="px-3 py-2">
                             <button
-                              onClick={() => acknowledge(r.id)}
-                              disabled={acking === r.id}
+                              onClick={() => ackMutation.mutate(r.id)}
+                              disabled={ackMutation.isPending}
                               className="px-2 py-1 rounded text-xs bg-emerald-600 text-white disabled:opacity-40"
                             >
-                              {acking === r.id ? "…" : "Acknowledge"}
+                              {ackMutation.isPending ? "…" : "Acknowledge"}
                             </button>
                           </td>
                         </tr>

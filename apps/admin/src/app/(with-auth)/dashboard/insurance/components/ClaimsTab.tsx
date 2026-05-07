@@ -1,6 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -14,131 +19,122 @@ const AGING_COLOURS: Record<string, string> = {
   denied: "bg-rose-200 text-rose-900",
 };
 
+function unwrap<T>(r: unknown): T {
+  return ((r as { data?: T }).data ?? r) as T;
+}
+
 export function ClaimsTab() {
-  const [rows, setRows] = useState<Claim[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("");
   const [agingFilter, setAgingFilter] = useState("");
-  const [busyId, setBusyId] = useState<number | null>(null);
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const { data: rows = [], error, isLoading } = useQuery<Claim[]>({
+    queryKey: ["insurance", "claims", { statusFilter, agingFilter }],
+    queryFn: async () => {
       const params = new URLSearchParams();
       if (statusFilter) params.set("status", statusFilter);
       if (agingFilter) params.set("aging_bucket", agingFilter);
       params.set("limit", "200");
-      const r = await fetchAdminAPI<{ data: Claim[] } | Claim[]>(
+      const r = await fetchAdminAPI<unknown>(
         `/insurance/claims?${params.toString()}`,
       );
-      const data = (r as { data?: Claim[] }).data ?? (r as Claim[]);
-      setRows(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load claims");
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, agingFilter]);
+      const data = unwrap<Claim[]>(r);
+      return Array.isArray(data) ? data : [];
+    },
+  });
 
-  useEffect(() => {
-    fetch();
-  }, [fetch]);
-
-  async function submit(c: Claim) {
-    setBusyId(c.id);
-    setError(null);
-    try {
-      const ref = window.prompt(
-        `TPA reference id for ${c.claim_number} (optional):`,
-        "",
-      );
-      if (ref === null) {
-        setBusyId(null);
-        return;
-      }
-      await fetchAdminAPI(`/insurance/claims/${c.id}/submit`, {
+  const submitMut = useMutation({
+    mutationFn: async (vars: { c: Claim; ref: string }) =>
+      fetchAdminAPI(`/insurance/claims/${vars.c.id}/submit`, {
         method: "POST",
         body: JSON.stringify({
           submission_channel: "portal",
-          tpa_reference_id: ref || undefined,
+          tpa_reference_id: vars.ref || undefined,
         }),
-      });
-      await fetch();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Submit failed");
-    } finally {
-      setBusyId(null);
-    }
-  }
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["insurance", "claims"] }),
+  });
 
-  async function decision(c: Claim, decision: "approved" | "denied" | "queried") {
-    setBusyId(c.id);
-    setError(null);
-    try {
-      let body: Record<string, unknown> = { decision };
-      if (decision === "approved") {
-        const amt = window.prompt(
-          `Approved amount for ${c.claim_number}:`,
-          String(c.claimed_amount),
-        );
-        if (amt === null) {
-          setBusyId(null);
-          return;
-        }
-        body = { ...body, approved_amount: Number(amt) };
-      } else if (decision === "denied") {
-        const reason = window.prompt(`Denial reason:`, "");
-        if (reason === null) {
-          setBusyId(null);
-          return;
-        }
-        body = { ...body, denial_reason: reason };
-      }
-      await fetchAdminAPI(`/insurance/claims/${c.id}/decision`, {
+  const decisionMut = useMutation({
+    mutationFn: async (vars: {
+      c: Claim;
+      decision: "approved" | "denied" | "queried";
+      approved_amount?: number;
+      denial_reason?: string;
+    }) => {
+      const body: Record<string, unknown> = { decision: vars.decision };
+      if (vars.approved_amount != null) body.approved_amount = vars.approved_amount;
+      if (vars.denial_reason != null) body.denial_reason = vars.denial_reason;
+      return fetchAdminAPI(`/insurance/claims/${vars.c.id}/decision`, {
         method: "POST",
         body: JSON.stringify(body),
       });
-      await fetch();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Record decision failed");
-    } finally {
-      setBusyId(null);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["insurance", "claims"] }),
+  });
+
+  const paymentMut = useMutation({
+    mutationFn: async (vars: {
+      c: Claim;
+      paid_amount: number;
+      payment_reference: string;
+    }) =>
+      fetchAdminAPI(`/insurance/claims/${vars.c.id}/payment`, {
+        method: "POST",
+        body: JSON.stringify({
+          paid_amount: vars.paid_amount,
+          payment_reference: vars.payment_reference || undefined,
+        }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["insurance", "claims"] }),
+  });
+
+  function submit(c: Claim) {
+    const ref = window.prompt(
+      `TPA reference id for ${c.claim_number} (optional):`,
+      "",
+    );
+    if (ref === null) return;
+    submitMut.mutate({ c, ref });
+  }
+
+  function decision(c: Claim, decision: "approved" | "denied" | "queried") {
+    if (decision === "approved") {
+      const amt = window.prompt(
+        `Approved amount for ${c.claim_number}:`,
+        String(c.claimed_amount),
+      );
+      if (amt === null) return;
+      decisionMut.mutate({ c, decision, approved_amount: Number(amt) });
+    } else if (decision === "denied") {
+      const reason = window.prompt(`Denial reason:`, "");
+      if (reason === null) return;
+      decisionMut.mutate({ c, decision, denial_reason: reason });
+    } else {
+      decisionMut.mutate({ c, decision });
     }
   }
 
-  async function recordPayment(c: Claim) {
-    setBusyId(c.id);
-    setError(null);
-    try {
-      const amt = window.prompt(
-        `Paid amount (₹) for ${c.claim_number}:`,
-        String(c.approved_amount ?? c.claimed_amount),
-      );
-      if (amt === null) {
-        setBusyId(null);
-        return;
-      }
-      const ref = window.prompt(`Payment reference (UTR / cheque):`, "");
-      if (ref === null) {
-        setBusyId(null);
-        return;
-      }
-      await fetchAdminAPI(`/insurance/claims/${c.id}/payment`, {
-        method: "POST",
-        body: JSON.stringify({
-          paid_amount: Number(amt),
-          payment_reference: ref || undefined,
-        }),
-      });
-      await fetch();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Record payment failed");
-    } finally {
-      setBusyId(null);
-    }
+  function recordPayment(c: Claim) {
+    const amt = window.prompt(
+      `Paid amount (₹) for ${c.claim_number}:`,
+      String(c.approved_amount ?? c.claimed_amount),
+    );
+    if (amt === null) return;
+    const ref = window.prompt(`Payment reference (UTR / cheque):`, "");
+    if (ref === null) return;
+    paymentMut.mutate({
+      c,
+      paid_amount: Number(amt),
+      payment_reference: ref,
+    });
   }
+
+  const errMsg = (error ?? submitMut.error ?? decisionMut.error ?? paymentMut.error)
+    ? (error ?? submitMut.error ?? decisionMut.error ?? paymentMut.error)!.toString()
+    : null;
+  const busy =
+    submitMut.isPending || decisionMut.isPending || paymentMut.isPending;
 
   return (
     <div className="space-y-4">
@@ -185,20 +181,20 @@ export function ClaimsTab() {
         </div>
         <div className="flex-1" />
         <button
-          onClick={fetch}
+          onClick={() => qc.invalidateQueries({ queryKey: ["insurance", "claims"] })}
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
         </button>
       </div>
 
-      {error && (
+      {errMsg && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {error}
+          {errMsg}
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
         <EmptyState title="No claims" description="No claims match these filters." />
@@ -259,7 +255,7 @@ export function ClaimsTab() {
                   <td className="px-3 py-2 space-x-1 text-xs">
                     {c.status === "prepared" && (
                       <button
-                        disabled={busyId === c.id}
+                        disabled={busy}
                         onClick={() => submit(c)}
                         className="px-2 py-1 rounded bg-blue-600 text-white disabled:opacity-40"
                       >
@@ -269,14 +265,14 @@ export function ClaimsTab() {
                     {(c.status === "submitted" || c.status === "queried") && (
                       <>
                         <button
-                          disabled={busyId === c.id}
+                          disabled={busy}
                           onClick={() => decision(c, "approved")}
                           className="px-2 py-1 rounded bg-emerald-600 text-white disabled:opacity-40"
                         >
                           Approve
                         </button>
                         <button
-                          disabled={busyId === c.id}
+                          disabled={busy}
                           onClick={() => decision(c, "denied")}
                           className="px-2 py-1 rounded bg-rose-600 text-white disabled:opacity-40"
                         >
@@ -286,7 +282,7 @@ export function ClaimsTab() {
                     )}
                     {(c.status === "approved" || c.status === "partially_approved") && (
                       <button
-                        disabled={busyId === c.id}
+                        disabled={busy}
                         onClick={() => recordPayment(c)}
                         className="px-2 py-1 rounded bg-emerald-700 text-white disabled:opacity-40"
                       >

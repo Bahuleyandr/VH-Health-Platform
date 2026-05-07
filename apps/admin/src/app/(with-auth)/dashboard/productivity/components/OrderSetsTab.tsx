@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -39,53 +40,39 @@ const KIND_COLOURS: Record<string, string> = {
   monitor: "bg-fuchsia-100 text-fuchsia-800",
 };
 
+function unwrap<T>(r: unknown): T {
+  return ((r as { data?: T }).data ?? r) as T;
+}
+
 export function OrderSetsTab() {
-  const [rows, setRows] = useState<OrderSetSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [specialty, setSpecialty] = useState("");
   const [open, setOpen] = useState<number | null>(null);
-  const [detail, setDetail] = useState<OrderSetDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const { data: rows = [], error, isLoading } = useQuery<OrderSetSummary[]>({
+    queryKey: ["productivity", "order-sets", { q, specialty }],
+    queryFn: async () => {
       const params = new URLSearchParams({ limit: "200" });
       if (q) params.set("q", q);
       if (specialty) params.set("specialty", specialty);
-      const r = await fetchAdminAPI<{ data: OrderSetSummary[] } | OrderSetSummary[]>(
+      const r = await fetchAdminAPI<unknown>(
         `/productivity/order-sets?${params.toString()}`,
       );
-      const data = (r as { data?: OrderSetSummary[] }).data ?? (r as OrderSetSummary[]);
-      setRows(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load order sets");
-    } finally {
-      setLoading(false);
-    }
-  }, [q, specialty]);
+      const data = unwrap<OrderSetSummary[]>(r);
+      return Array.isArray(data) ? data : [];
+    },
+  });
 
-  useEffect(() => {
-    fetch();
-  }, [fetch]);
-
-  async function openDetail(id: number) {
-    setOpen(id);
-    setDetail(null);
-    setDetailLoading(true);
-    try {
-      const r = await fetchAdminAPI<{ data: OrderSetDetail } | OrderSetDetail>(
-        `/productivity/order-sets/${id}`,
-      );
-      const data = (r as { data?: OrderSetDetail }).data ?? (r as OrderSetDetail);
-      setDetail(data);
-    } finally {
-      setDetailLoading(false);
-    }
-  }
+  const { data: detail, isLoading: detailLoading } = useQuery<OrderSetDetail | null>({
+    queryKey: ["productivity", "order-sets", "detail", open],
+    queryFn: async () => {
+      if (open === null) return null;
+      const r = await fetchAdminAPI<unknown>(`/productivity/order-sets/${open}`);
+      return unwrap<OrderSetDetail>(r);
+    },
+    enabled: open !== null,
+  });
 
   return (
     <div className="space-y-4">
@@ -117,7 +104,7 @@ export function OrderSetsTab() {
           />
         </div>
         <button
-          onClick={fetch}
+          onClick={() => qc.invalidateQueries({ queryKey: ["productivity", "order-sets"] })}
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
@@ -126,11 +113,11 @@ export function OrderSetsTab() {
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {error}
+          {error instanceof Error ? error.message : "Failed to load order sets"}
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
         <EmptyState title="No order sets" description="Try clearing the filter." />
@@ -139,7 +126,7 @@ export function OrderSetsTab() {
           {rows.map((s) => (
             <button
               key={s.id}
-              onClick={() => openDetail(s.id)}
+              onClick={() => setOpen(s.id)}
               className="text-left bg-white rounded-lg border shadow-sm p-4 hover:bg-muted/30"
             >
               <div className="flex items-start justify-between">

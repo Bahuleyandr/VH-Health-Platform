@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -19,36 +20,29 @@ interface Phrase {
   created_at: string;
 }
 
+function unwrap<T>(r: unknown): T {
+  return ((r as { data?: T }).data ?? r) as T;
+}
+
 export function SmartPhrasesTab() {
-  const [rows, setRows] = useState<Phrase[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [specialty, setSpecialty] = useState("");
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const { data: rows = [], error, isLoading } = useQuery<Phrase[]>({
+    queryKey: ["productivity", "phrases", { q, specialty }],
+    queryFn: async () => {
       const params = new URLSearchParams();
       if (q) params.set("q", q);
       if (specialty) params.set("specialty", specialty);
       params.set("limit", "200");
-      const r = await fetchAdminAPI<{ data: Phrase[] } | Phrase[]>(
+      const r = await fetchAdminAPI<unknown>(
         `/productivity/phrases?${params.toString()}`,
       );
-      const data = (r as { data?: Phrase[] }).data ?? (r as Phrase[]);
-      setRows(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load phrases");
-    } finally {
-      setLoading(false);
-    }
-  }, [q, specialty]);
-
-  useEffect(() => {
-    fetch();
-  }, [fetch]);
+      const data = unwrap<Phrase[]>(r);
+      return Array.isArray(data) ? data : [];
+    },
+  });
 
   return (
     <div className="space-y-4">
@@ -82,7 +76,7 @@ export function SmartPhrasesTab() {
           />
         </div>
         <button
-          onClick={fetch}
+          onClick={() => qc.invalidateQueries({ queryKey: ["productivity", "phrases"] })}
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
@@ -91,11 +85,11 @@ export function SmartPhrasesTab() {
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {error}
+          {error instanceof Error ? error.message : "Failed to load phrases"}
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
         <EmptyState title="No smart phrases" description="Try clearing the filter." />

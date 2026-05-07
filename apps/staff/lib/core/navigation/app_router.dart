@@ -76,6 +76,7 @@ import '../../features/theatre/screens/theatre_screen.dart';
 import '../../features/productivity/screens/calculators_screen.dart';
 import '../../features/productivity/screens/order_sets_screen.dart';
 import '../../features/maternity/screens/partograph_entry_screen.dart';
+import '../../features/maternity/screens/partograph_view_screen.dart';
 
 // Radiology
 import '../../features/radiology/screens/radiology_screen.dart';
@@ -524,6 +525,17 @@ final GoRouter appRouter = GoRouter(
           name: 'partograph-entry',
           pageBuilder: (context, state) => NoTransitionPage(
             child: PartographEntryScreen(
+              laborAdmissionId: int.parse(
+                state.pathParameters['laborId']!,
+              ),
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/maternity/labor/:laborId/chart',
+          name: 'partograph-chart',
+          pageBuilder: (context, state) => NoTransitionPage(
+            child: PartographViewScreen(
               laborAdmissionId: int.parse(
                 state.pathParameters['laborId']!,
               ),

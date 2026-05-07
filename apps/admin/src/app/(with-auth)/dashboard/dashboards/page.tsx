@@ -1,14 +1,11 @@
 // src/app/(with-auth)/dashboard/dashboards/page.tsx
 //
-// Metabase dashboard picker — Sprint 9. Lists embeddable dashboards
-// the admin portal exposes, mints a signed JWT URL, and renders the
-// Metabase iframe inline. Falls through gracefully when an embed
-// isn't configured (METABASE_URL / METABASE_EMBED_SECRET / per-
-// dashboard env id missing).
+// Metabase dashboard picker — Sprint 9.
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 
@@ -19,58 +16,49 @@ interface DashboardEntry {
   available: boolean;
 }
 
+function unwrap<T>(r: unknown): T {
+  return ((r as { data?: T }).data ?? r) as T;
+}
+
 export default function DashboardsPage() {
-  const [list, setList] = useState<DashboardEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [embedUrl, setEmbedUrl] = useState<string | null>(null);
-  const [embedLoading, setEmbedLoading] = useState(false);
 
-  const fetchList = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await fetchAdminAPI<{ data: DashboardEntry[] } | DashboardEntry[]>(
-        "/dashboards/embed/list",
-      );
-      const data =
-        (r as { data?: DashboardEntry[] }).data ?? (r as DashboardEntry[]);
-      setList(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load dashboards");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const {
+    data: list = [],
+    error: listError,
+    isLoading,
+  } = useQuery<DashboardEntry[]>({
+    queryKey: ["dashboards", "embed-list"],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<unknown>("/dashboards/embed/list");
+      const data = unwrap<DashboardEntry[]>(r);
+      return Array.isArray(data) ? data : [];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
 
-  useEffect(() => {
-    fetchList();
-  }, [fetchList]);
+  const embedMutation = useMutation({
+    mutationFn: async (key: string) => {
+      const r = await fetchAdminAPI<unknown>("/dashboards/embed/url", {
+        method: "POST",
+        body: JSON.stringify({ key, ttlSeconds: 1800 }),
+      });
+      return unwrap<{ url: string }>(r);
+    },
+    onSuccess: (res) => {
+      setEmbedUrl(res?.url ?? null);
+    },
+    onError: () => setEmbedUrl(null),
+  });
 
-  async function open(d: DashboardEntry) {
+  function open(d: DashboardEntry) {
     setOpenKey(d.key);
     setEmbedUrl(null);
-    setEmbedLoading(true);
-    setError(null);
-    try {
-      const r = await fetchAdminAPI<
-        | { data: { url: string } }
-        | { url: string }
-      >("/dashboards/embed/url", {
-        method: "POST",
-        body: JSON.stringify({ key: d.key, ttlSeconds: 1800 }),
-      });
-      const url =
-        (r as { data?: { url: string } }).data?.url ??
-        (r as { url?: string }).url;
-      setEmbedUrl(url ?? null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Embed URL failed");
-    } finally {
-      setEmbedLoading(false);
-    }
+    embedMutation.mutate(d.key);
   }
+
+  const error = listError ?? embedMutation.error;
 
   return (
     <div className="p-6 space-y-6">
@@ -88,11 +76,11 @@ export default function DashboardsPage() {
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {error}
+          {error instanceof Error ? error.message : "Failed to load"}
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <LoadingSpinner />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -135,7 +123,7 @@ export default function DashboardsPage() {
               ✕ close
             </button>
           </div>
-          {embedLoading ? (
+          {embedMutation.isPending ? (
             <div className="p-8">
               <LoadingSpinner />
             </div>

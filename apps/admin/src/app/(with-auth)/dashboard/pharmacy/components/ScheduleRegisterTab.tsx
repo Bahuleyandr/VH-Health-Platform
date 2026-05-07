@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -27,43 +28,36 @@ const SCHEDULE_COLOURS: Record<string, string> = {
   X: "bg-rose-200 text-rose-900",
 };
 
+function unwrap<T>(r: unknown): T {
+  return ((r as { data?: T }).data ?? r) as T;
+}
+
 function fmtTs(s: string | null): string {
   if (!s) return "—";
   return new Date(s).toLocaleString();
 }
 
 export function ScheduleRegisterTab() {
+  const qc = useQueryClient();
   const [scheduleClass, setScheduleClass] = useState<string>("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [rows, setRows] = useState<ScheduleEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const { data: rows = [], error, isLoading } = useQuery<ScheduleEntry[]>({
+    queryKey: ["pharmacy", "schedule-register", { scheduleClass, from, to }],
+    queryFn: async () => {
       const params = new URLSearchParams();
       if (scheduleClass) params.set("schedule_class", scheduleClass);
       if (from) params.set("from", from);
       if (to) params.set("to", to);
       params.set("limit", "300");
-      const r = await fetchAdminAPI<{ data: ScheduleEntry[] } | ScheduleEntry[]>(
+      const r = await fetchAdminAPI<unknown>(
         `/pharmacy/inventory/v2/schedule-register?${params.toString()}`,
       );
-      const data = (r as { data?: ScheduleEntry[] }).data ?? (r as ScheduleEntry[]);
-      setRows(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load register");
-    } finally {
-      setLoading(false);
-    }
-  }, [scheduleClass, from, to]);
-
-  useEffect(() => {
-    fetch();
-  }, [fetch]);
+      const data = unwrap<ScheduleEntry[]>(r);
+      return Array.isArray(data) ? data : [];
+    },
+  });
 
   return (
     <div className="space-y-4">
@@ -105,7 +99,7 @@ export function ScheduleRegisterTab() {
           />
         </div>
         <button
-          onClick={fetch}
+          onClick={() => qc.invalidateQueries({ queryKey: ["pharmacy", "schedule-register"] })}
           className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
         >
           Refresh
@@ -114,11 +108,11 @@ export function ScheduleRegisterTab() {
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {error}
+          {error instanceof Error ? error.message : "Failed to load register"}
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <LoadingSpinner />
       ) : rows.length === 0 ? (
         <EmptyState

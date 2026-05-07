@@ -15,9 +15,9 @@ class _Bill {
   _Bill.fromJson(Map<String, dynamic> j)
     : id = j['id'] as int,
       number = j['invoice_number']?.toString(),
-      date = j['invoice_date']?.toString(),
+      date = (j['issued_at'] ?? j['created_at'])?.toString(),
       type = j['invoice_type']?.toString() ?? 'OP',
-      status = j['status']?.toString() ?? 'draft',
+      status = (j['status']?.toString() ?? 'DRAFT').toUpperCase(),
       total = _toDouble(j['grand_total']),
       paid = _toDouble(j['amount_paid']),
       due = _toDouble(j['amount_due']);
@@ -37,13 +37,19 @@ double _toDouble(dynamic v) =>
 
 String _inr(double n) => '₹${n.toStringAsFixed(0)}';
 
+String _fmtDate(String? iso) {
+  if (iso == null || iso.isEmpty) return '';
+  // ISO timestamps from the backend: take the date portion.
+  return iso.split('T').first;
+}
+
 const _statusColours = <String, Color>{
-  'draft': Color(0xFF94A3B8),
-  'issued': Color(0xFF3B82F6),
-  'paid': Color(0xFF10B981),
-  'partially_paid': Color(0xFF34D399),
-  'void': Color(0xFFEF4444),
-  'refunded': Color(0xFFF59E0B),
+  'DRAFT': Color(0xFF94A3B8),
+  'ISSUED': Color(0xFF3B82F6),
+  'PAID': Color(0xFF10B981),
+  'PARTIAL': Color(0xFF34D399),
+  'VOID': Color(0xFFEF4444),
+  'REFUNDED': Color(0xFFF59E0B),
 };
 
 class BillsScreen extends StatefulWidget {
@@ -175,7 +181,7 @@ class _BillCard extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                '${bill.type} · ${bill.date ?? ''}',
+                '${bill.type} · ${_fmtDate(bill.date)}',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.outline,
                 ),
