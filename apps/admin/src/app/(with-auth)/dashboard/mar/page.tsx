@@ -1,0 +1,458 @@
+// src/app/(with-auth)/dashboard/mar/page.tsx
+//
+// Sprint 14 — Medication Administration Record with 5-rights + barcode.
+// Backend (services/clinical/marService.js + routes/clinical/clinicalRoutes
+// /mar/*) was already shipped. This is the medication-round screen
+// nurses use at the bedside.
+//
+// Workflow:
+//   1. Pick a patient from the "due now" list
+//   2. Scan / enter the patient wristband barcode (5R: right patient)
+//   3. Scan / enter the drug strip barcode (5R: right drug, dose)
+//   4. Backend's /mar/:id/administer-with-scan validates all 5 rights
+//      and records the administration. Mismatch ⇒ rejected with
+//      override_reason required.
+//
+// In a real deployment a USB barcode scanner enters the value into
+// the focused input. Here we fall back to manual entry.
+
+"use client";
+
+import { useState } from "react";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { fetchAdminAPI } from "@/lib/api";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { EmptyState } from "@/components/EmptyState";
+
+interface MarDose {
+  id: number;
+  patient_uid: string;
+  prescription_id: number | null;
+  medication_name: string;
+  dose: string | null;
+  dosage: string | null;
+  route: string | null;
+  scheduled_time: string | null;
+  status: "scheduled" | "administered" | "missed" | "held" | "refused";
+  administered_at: string | null;
+  notes: string | null;
+}
+
+interface RightsResult {
+  all_rights_passed: boolean;
+  rights_passed: Record<string, boolean>;
+  failures?: string[];
+}
+
+function unwrapList<T>(r: unknown): T[] {
+  const data = (r as { data?: unknown }).data ?? r;
+  if (Array.isArray(data)) return data as T[];
+  for (const k of ["doses", "rows", "items"]) {
+    const inner = (data as Record<string, unknown>)?.[k];
+    if (Array.isArray(inner)) return inner as T[];
+  }
+  return [];
+}
+
+function unwrap<T>(r: unknown): T {
+  return ((r as { data?: T }).data ?? r) as T;
+}
+
+function fmtTime(s: string | null): string {
+  if (!s) return "—";
+  return new Date(s).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function minsLate(scheduled: string | null): number | null {
+  if (!scheduled) return null;
+  const diff = Date.now() - new Date(scheduled).getTime();
+  return Math.round(diff / 60000);
+}
+
+export default function MarPage() {
+  const qc = useQueryClient();
+  const [windowMins, setWindowMins] = useState(60);
+  const [scanning, setScanning] = useState<MarDose | null>(null);
+
+  const { data: due = [], error, isLoading } = useQuery<MarDose[]>({
+    queryKey: ["mar", "due", windowMins],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<unknown>(
+        `/clinical/mar/due?within_minutes=${windowMins}&limit=200`,
+      );
+      return unwrapList<MarDose>(r);
+    },
+    refetchInterval: 30_000,
+  });
+
+  const { data: overdue = [] } = useQuery<MarDose[]>({
+    queryKey: ["mar", "overdue"],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<unknown>(
+        "/clinical/mar/overdue?limit=100",
+      );
+      return unwrapList<MarDose>(r);
+    },
+    refetchInterval: 30_000,
+  });
+
+  const errMsg = error?.toString();
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex items-end justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">
+            Medication Administration
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            5-rights + barcode bedside flow. Auto-refreshes every 30s.
+          </p>
+        </div>
+        <div className="flex gap-2 items-end">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">
+              Due window
+            </label>
+            <select
+              value={windowMins}
+              onChange={(e) => setWindowMins(Number(e.target.value))}
+              className="border border-border rounded-lg px-3 py-2 text-sm"
+            >
+              <option value={30}>Next 30 min</option>
+              <option value={60}>Next 1 hour</option>
+              <option value={120}>Next 2 hours</option>
+              <option value={240}>Next 4 hours</option>
+            </select>
+          </div>
+          <button
+            onClick={() => qc.invalidateQueries({ queryKey: ["mar"] })}
+            className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {errMsg && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          {errMsg}
+        </div>
+      )}
+
+      {/* Headline */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="bg-white rounded-lg border shadow-sm p-3">
+          <p className="text-xs text-muted-foreground">Due in window</p>
+          <p className="text-xl font-semibold mt-1">{due.length}</p>
+        </div>
+        <div
+          className={`bg-white rounded-lg border shadow-sm p-3 ${
+            overdue.length > 0 ? "border-rose-300" : ""
+          }`}
+        >
+          <p className="text-xs text-muted-foreground">Overdue</p>
+          <p
+            className={`text-xl font-semibold mt-1 ${
+              overdue.length > 0 ? "text-rose-700" : ""
+            }`}
+          >
+            {overdue.length}
+          </p>
+        </div>
+        <div className="bg-white rounded-lg border shadow-sm p-3">
+          <p className="text-xs text-muted-foreground">Total to round</p>
+          <p className="text-xl font-semibold mt-1">
+            {due.length + overdue.length}
+          </p>
+        </div>
+      </div>
+
+      {/* Overdue list (top — most urgent) */}
+      {overdue.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold text-rose-700 mb-2">
+            Overdue ({overdue.length})
+          </h2>
+          <DoseList rows={overdue} onScan={(d) => setScanning(d)} overdue />
+        </section>
+      )}
+
+      {/* Due list */}
+      <section>
+        <h2 className="text-sm font-semibold mb-2">
+          Due in next {windowMins} min ({due.length})
+        </h2>
+        {isLoading ? (
+          <LoadingSpinner />
+        ) : due.length === 0 ? (
+          <EmptyState
+            title="Nothing due"
+            description="No medications scheduled in this window."
+          />
+        ) : (
+          <DoseList rows={due} onScan={(d) => setScanning(d)} />
+        )}
+      </section>
+
+      {scanning && (
+        <ScanModal
+          dose={scanning}
+          onClose={() => setScanning(null)}
+          onSaved={() => {
+            setScanning(null);
+            qc.invalidateQueries({ queryKey: ["mar"] });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function DoseList({
+  rows, onScan, overdue,
+}: {
+  rows: MarDose[];
+  onScan: (d: MarDose) => void;
+  overdue?: boolean;
+}) {
+  return (
+    <div className="bg-white rounded-lg border shadow-sm overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead className="text-xs text-muted-foreground border-b">
+          <tr className="text-left">
+            <th className="px-3 py-2">Scheduled</th>
+            <th className="px-3 py-2">Patient</th>
+            <th className="px-3 py-2">Medication</th>
+            <th className="px-3 py-2">Dose</th>
+            <th className="px-3 py-2">Route</th>
+            <th className="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((d) => {
+            const late = minsLate(d.scheduled_time);
+            return (
+              <tr
+                key={d.id}
+                className={`border-b last:border-0 ${
+                  overdue ? "bg-rose-50/50" : "hover:bg-muted/30"
+                }`}
+              >
+                <td className="px-3 py-2 text-xs">
+                  <div>{fmtTime(d.scheduled_time)}</div>
+                  {late != null && late > 0 && (
+                    <div className="text-rose-700 font-semibold">
+                      +{late}m late
+                    </div>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-xs font-mono">
+                  {d.patient_uid.slice(0, 8)}
+                </td>
+                <td className="px-3 py-2 font-medium">{d.medication_name}</td>
+                <td className="px-3 py-2 text-xs">
+                  {d.dose ?? d.dosage ?? "—"}
+                </td>
+                <td className="px-3 py-2 text-xs">{d.route ?? "—"}</td>
+                <td className="px-3 py-2">
+                  <button
+                    onClick={() => onScan(d)}
+                    className="px-2 py-1 rounded bg-blue-600 text-white text-xs"
+                  >
+                    Administer →
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ScanModal({
+  dose, onClose, onSaved,
+}: {
+  dose: MarDose;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [patientBarcode, setPatientBarcode] = useState("");
+  const [drugBarcode, setDrugBarcode] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
+  const [verifyResult, setVerifyResult] = useState<RightsResult | null>(null);
+
+  const verifyMut = useMutation({
+    mutationFn: async () => {
+      const r = await fetchAdminAPI<unknown>("/clinical/mar/verify", {
+        method: "POST",
+        body: JSON.stringify({
+          mar_id: dose.id,
+          scanned_patient_uid: patientBarcode,
+          scanned_barcode: drugBarcode,
+        }),
+      });
+      return unwrap<RightsResult>(r);
+    },
+    onSuccess: (data) => setVerifyResult(data),
+  });
+
+  const administerMut = useMutation({
+    mutationFn: async () =>
+      fetchAdminAPI(`/clinical/mar/${dose.id}/administer-with-scan`, {
+        method: "POST",
+        body: JSON.stringify({
+          scanned_patient_uid: patientBarcode,
+          scanned_barcode: drugBarcode,
+          override_reason: overrideReason || undefined,
+        }),
+      }),
+    onSuccess: onSaved,
+  });
+
+  const errMsg = (verifyMut.error ?? administerMut.error)?.toString();
+  const allRightsPassed = verifyResult?.all_rights_passed === true;
+  const canAdministerWithoutOverride = allRightsPassed;
+  const canAdministerWithOverride =
+    verifyResult && !allRightsPassed && overrideReason.length >= 10;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4 overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-lg w-full max-w-lg">
+        <div className="p-4 border-b">
+          <h2 className="text-lg font-semibold">5-Rights Check</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            <strong>{dose.medication_name}</strong> · {dose.dose ?? dose.dosage}
+            {dose.route && ` · ${dose.route}`} · scheduled {fmtTime(dose.scheduled_time)}
+          </p>
+          <p className="text-xs text-muted-foreground font-mono mt-1">
+            Patient {dose.patient_uid.slice(0, 8)}
+          </p>
+        </div>
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">
+              1️⃣ Scan patient wristband (UID)
+            </label>
+            <input
+              autoFocus
+              value={patientBarcode}
+              onChange={(e) => {
+                setPatientBarcode(e.target.value);
+                setVerifyResult(null);
+              }}
+              placeholder="11111111-1111-…"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">
+              2️⃣ Scan drug barcode
+            </label>
+            <input
+              value={drugBarcode}
+              onChange={(e) => {
+                setDrugBarcode(e.target.value);
+                setVerifyResult(null);
+              }}
+              placeholder="GTIN / drug strip code"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono"
+            />
+          </div>
+
+          <button
+            onClick={() => verifyMut.mutate()}
+            disabled={verifyMut.isPending || !patientBarcode || !drugBarcode}
+            className="w-full px-3 py-2 rounded-md border text-sm hover:bg-muted disabled:opacity-40"
+          >
+            {verifyMut.isPending ? "Checking…" : "Verify 5 rights"}
+          </button>
+
+          {verifyResult && (
+            <div
+              className={`rounded-lg border p-3 ${
+                allRightsPassed
+                  ? "bg-emerald-50 border-emerald-300"
+                  : "bg-rose-50 border-rose-300"
+              }`}
+            >
+              <p className="text-sm font-semibold mb-2">
+                {allRightsPassed ? "✓ All 5 rights passed" : "✗ Rights check FAILED"}
+              </p>
+              <ul className="text-xs space-y-1">
+                {Object.entries(verifyResult.rights_passed).map(([k, ok]) => (
+                  <li key={k} className="flex items-center gap-2">
+                    <span className={ok ? "text-emerald-700" : "text-rose-700"}>
+                      {ok ? "✓" : "✗"}
+                    </span>
+                    <span>{k.replace(/_/g, " ")}</span>
+                  </li>
+                ))}
+              </ul>
+              {verifyResult.failures && verifyResult.failures.length > 0 && (
+                <div className="mt-2 text-xs text-rose-800">
+                  <p className="font-semibold">Failures:</p>
+                  <ul className="list-disc list-inside">
+                    {verifyResult.failures.map((f, i) => (
+                      <li key={i}>{f}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {verifyResult && !allRightsPassed && (
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">
+                Override reason (≥10 chars, audited)
+              </label>
+              <textarea
+                value={overrideReason}
+                onChange={(e) => setOverrideReason(e.target.value)}
+                rows={2}
+                className="w-full border border-rose-300 rounded-lg px-3 py-2 text-sm"
+                placeholder="e.g. Drug strip damaged but verified visually with witness Dr. X"
+              />
+            </div>
+          )}
+
+          {errMsg && <p className="text-xs text-destructive">{errMsg}</p>}
+        </div>
+        <div className="p-4 border-t flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-3 py-2 rounded-md border text-sm hover:bg-muted"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => administerMut.mutate()}
+            disabled={
+              administerMut.isPending ||
+              (!canAdministerWithoutOverride && !canAdministerWithOverride)
+            }
+            className={`px-3 py-2 rounded-md text-white text-sm disabled:opacity-40 ${
+              allRightsPassed ? "bg-emerald-600" : "bg-rose-600"
+            }`}
+          >
+            {administerMut.isPending
+              ? "Recording…"
+              : allRightsPassed
+                ? "Administer"
+                : "Administer with override"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
