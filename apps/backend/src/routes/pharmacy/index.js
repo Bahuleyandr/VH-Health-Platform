@@ -4,6 +4,7 @@ import * as pharmacyOrderController from '../../controllers/pharmacy/pharmacyOrd
 import logger from '../../logging/logger.js';
 import adminRoutes from './adminRoutes.js';
 import inventoryRoutes from './inventoryRoutes.js';
+import inventoryV2Routes from './inventoryV2Routes.js';
 import medicationRoutes from './medicationRoutes.js';
 import orderRoutes from './orderRoutes.js';
 
@@ -41,6 +42,7 @@ wrapRoutesWithValidation(
 router.use('/orders', orderRoutes);
 router.use('/medications', medicationRoutes);
 router.use('/inventory', inventoryRoutes);
+router.use('/inventory/v2', inventoryV2Routes);
 router.use('/admin', adminRoutes);
 
 // Re-route some paths for backward compatibility
