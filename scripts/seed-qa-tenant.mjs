@@ -44,7 +44,7 @@ const guard = () => {
 
 async function getOrCreateUnicodePatient(client) {
   const phone = '+919900000091';
-  const existing = await client.query('SELECT id, uid FROM users WHERE phone = $1', [phone]);
+  const existing = await client.query('SELECT id, uid, phone FROM users WHERE phone = $1', [phone]);
   if (existing.rowCount) return existing.rows[0];
 
   const inserted = await client.query(
@@ -52,7 +52,7 @@ async function getOrCreateUnicodePatient(client) {
                         allergies, medical_history, profile_completed_at, updated_at)
      VALUES ($1, $2, $3, 'PATIENT', TRUE, 'active', 'O+', 'Penicillin',
              $4, NOW(), NOW())
-     RETURNING id, uid`,
+     RETURNING id, uid, phone`,
     [
       phone,
       'காமாட்சி தேவி 🩺',
@@ -63,17 +63,16 @@ async function getOrCreateUnicodePatient(client) {
   return inserted.rows[0];
 }
 
-async function ensureMultiYearAppointments(client, patientUid) {
-  // Pick any seeded doctor (DOCTOR role) so the FK to users.uid is valid.
+async function ensureMultiYearAppointments(client, patient) {
   const doctor = await client.query(
-    `SELECT id, uid FROM users WHERE role = 'DOCTOR' AND is_active = TRUE
+    `SELECT id FROM users WHERE role = 'DOCTOR' AND is_active = TRUE
       ORDER BY id LIMIT 1`
   );
   if (!doctor.rowCount) {
     console.warn('[seed-qa-tenant] no DOCTOR user found, skipping multi-year appointments');
     return 0;
   }
-  const doctorRow = doctor.rows[0];
+  const doctorId = doctor.rows[0].id;
 
   const slots = [
     { date: '2024-12-31', time: '23:55', notes: 'qa_seed_year_boundary_2024' },
@@ -89,23 +88,21 @@ async function ensureMultiYearAppointments(client, patientUid) {
           AND appointment_date = $2
           AND notes = $3
         LIMIT 1`,
-      [patientUid, slot.date, slot.notes]
+      [patient.id, slot.date, slot.notes]
     );
     if (exists.rowCount) continue;
 
     try {
       await client.query(
         `INSERT INTO appointments
-           (patient_id, doctor_id, appointment_date, appointment_time, status,
-            notes, created_at, updated_at)
-         VALUES ($1::uuid, $2::uuid, $3::date, $4::time, 'pending',
-                 $5, NOW(), NOW())`,
-        [patientUid, doctorRow.uid, slot.date, slot.time, slot.notes]
+           (patient_id, doctor_id, phone, appointment_date, appointment_time,
+            status, notes, created_at, updated_at)
+         VALUES ($1, $2, $3, $4::date, $5::time, 'pending',
+                 $6, NOW(), NOW())`,
+        [patient.id, doctorId, patient.phone, slot.date, slot.time, slot.notes]
       );
       inserted += 1;
     } catch (err) {
-      // Schema in this column may be int vs uuid-typed; QA edge-case seed
-      // is best-effort and shouldn't block the orchestrator.
       console.warn(`[seed-qa-tenant] appointment ${slot.date} skipped: ${err.message}`);
     }
   }
@@ -140,7 +137,7 @@ async function main() {
   await client.connect();
   try {
     const patient = await getOrCreateUnicodePatient(client);
-    const apptCount = await ensureMultiYearAppointments(client, patient.uid);
+    const apptCount = await ensureMultiYearAppointments(client, patient);
     const longCreated = await ensureLongStringPatient(client);
     console.log(
       `[seed-qa-tenant] ${QA_TAG}: unicode_patient_uid=${patient.uid} ` +

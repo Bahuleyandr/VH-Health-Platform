@@ -28,9 +28,10 @@ actual: |
 artifacts:
   - "(orchestrator was running directly; raw output captured in this finding's body)"
 confidence: high
-status: open
+status: in-fix
 first_seen_run: 2026-05-07-bootstrap-001
-linked_issues: []
+linked_issues:
+  - "branch: qa-fix/2026-05-07-prisma-db-push-fails-on-housekeeping-sequence"
 ---
 
 ## Symptom
@@ -137,3 +138,68 @@ The underlying table for model `housekeeping_log_number_seq` does not exist.
 ## Re-observations
 
 (none yet — first sighting on run `2026-05-07-bootstrap-001`)
+
+## Fix attempt — `qa-fix/2026-05-07-prisma-db-push-fails-on-housekeeping-sequence`
+
+Picked **option 1** from the plausible fixes above: pre-create the
+forward-referenced sequences inside the same `psql` schema-bootstrap
+block that already does `DROP SCHEMA / CREATE SCHEMA / CREATE EXTENSION
+pgcrypto / CREATE SEQUENCE _migrations_id_seq`.
+
+### Diff
+
+`apps/backend/scripts/ensure-test-db.mjs` (`syncSchema()` block):
+
+```diff
+     CREATE SCHEMA public;
+     CREATE EXTENSION IF NOT EXISTS pgcrypto;
+     CREATE SEQUENCE IF NOT EXISTS _migrations_id_seq;
++    -- Sequences referenced by dbgenerated() defaults in schema.prisma but
++    -- created by hybrid SQL migrations (145). prisma db push validates the
++    -- defaults before migrations run, so pre-create them here. Migration
++    -- 145 uses IF NOT EXISTS, so re-running it remains a no-op.
++    CREATE SEQUENCE IF NOT EXISTS housekeeping_log_number_seq;
++    CREATE SEQUENCE IF NOT EXISTS housekeeping_request_number_seq;
+```
+
+Migration `145_staff_operational_workflow_tables.sql` already uses
+`CREATE SEQUENCE IF NOT EXISTS`, so it remains a no-op when re-run on
+top of pre-created sequences. No production migration path is altered.
+
+### Other changes on the same branch
+
+This branch bundles three downstream blockers that were only
+discoverable once `prisma db push` got past the housekeeping
+sequences. Each was a separate stop in the same orchestrator pass —
+documented in companion findings or here directly:
+
+- `apps/backend/prisma/schema.prisma` — drop the `@default(dbgenerated(...))`
+  on `maternity_apgar_scores.total_score` (column reference in DEFAULT
+  is rejected by Postgres). See companion finding
+  `2026-05-07-prisma-db-push-column-ref-in-apgar-default`.
+- `scripts/qa-reset.mjs` — `qa_writer` `GRANT CREATE ON SCHEMA public`
+  + re-grant of CRUD/sequence privileges after the comprehensive seed,
+  because `DROP DATABASE / CREATE DATABASE` wipes per-DB grants and
+  the QA tenant seed needs `CREATE TABLE qa_seed_meta`.
+- `scripts/seed-qa-tenant.mjs` — `appointments.patient_id Int?` per
+  Phase 0.5 conventions: switch from passing the UUID `patient.uid`
+  to the integer `patient.id`, drop `::uuid` casts, fetch
+  `doctor.id`, and pass `patient.phone` to satisfy the NOT NULL
+  `appointments.phone` column.
+
+These four changes together let the **reset** stage of
+`scripts/qa-orchestrator.mjs` complete cleanly. Bundled per
+`docs/qa/MODES.md` because the orchestrator pass is one indivisible
+gate — fixing only one wouldn't validate.
+
+### Validation
+
+- `qa-runs/2026-05-08-final-013/summary.json` — reset stage in
+  isolation: `passed=true`, 32.0s, 1 stage.
+- `qa-runs/2026-05-08-final-014/summary.json` — admin/patient/staff/
+  clinical smokes via `--skip-reset`: `passed=true`, 10.9s, 4 stages.
+
+The split into two phases is forced by a separate, real platform
+bug (`2026-05-08-backend-circuit-breaker-trips-during-qa-reset-schema-drop`)
+— not by anything in this fix. Combined, the two runs prove all 5
+stages of the orchestrator pass on the fixed branch.

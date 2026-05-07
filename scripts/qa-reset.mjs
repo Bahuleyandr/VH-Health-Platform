@@ -188,6 +188,38 @@ function gitSha() {
   return r.status === 0 ? r.stdout.trim() : 'unknown';
 }
 
+async function grantQaWriterPrivs() {
+  // Connect as postgres (the URL the comprehensive seed used) to issue GRANTs.
+  const postgresUrl = process.env.DATABASE_URL.replace(
+    /\/\/qa_writer(:[^@]*)?@/,
+    '//postgres@'
+  );
+  const client = new pg.Client({ connectionString: postgresUrl });
+  await client.connect();
+  try {
+    await client.query(`GRANT USAGE, CREATE ON SCHEMA public TO ${QA_ROLE}`);
+    await client.query(
+      `GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+         ON ALL TABLES IN SCHEMA public TO ${QA_ROLE}`
+    );
+    await client.query(
+      `GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${QA_ROLE}`
+    );
+    // Future tables/sequences created by the postgres role auto-grant to qa_writer.
+    await client.query(
+      `ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+         GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${QA_ROLE}`
+    );
+    await client.query(
+      `ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+         GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${QA_ROLE}`
+    );
+    log(`granted CRUD + sequence privileges to ${QA_ROLE} on public`);
+  } finally {
+    await client.end();
+  }
+}
+
 async function ensureQaSeedMetaTable(client) {
   await client.query(`
     CREATE TABLE IF NOT EXISTS qa_seed_meta (
@@ -252,6 +284,11 @@ async function main() {
         },
       }
     );
+
+    // The DB was dropped+recreated by the bootstrap step, so any prior
+    // GRANTs to qa_writer were wiped. Re-grant CRUD on the public schema
+    // before the QA tenant seed runs (it connects as qa_writer).
+    await grantQaWriterPrivs();
 
     // QA tenant seed runs as qa_writer (whatever the orchestrator was given).
     runScript('qa tenant seed', path.join(__dirname, 'seed-qa-tenant.mjs'));
