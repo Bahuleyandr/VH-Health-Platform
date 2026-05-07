@@ -146,12 +146,27 @@ async function getMetadata() {
   }
 
   const checksByTable = new Map();
+  const xorPairsByTable = new Map();
   for (const row of checks.rows) {
     if (!checksByTable.has(row.table_name)) checksByTable.set(row.table_name, []);
     checksByTable.get(row.table_name).push(row.definition);
+    const xor = detectXorPair(row.definition);
+    if (xor && !xorPairsByTable.has(row.table_name)) {
+      xorPairsByTable.set(row.table_name, xor);
+    }
   }
 
-  return { columnsByTable, fkByTableColumn, checksByTable };
+  return { columnsByTable, fkByTableColumn, checksByTable, xorPairsByTable };
+}
+
+function detectXorPair(definition) {
+  // Mutually-exclusive pair: exactly one of (A, B) must be NOT NULL.
+  // Matches `(A IS NOT NULL AND B IS NULL) OR (A IS NULL AND B IS NOT NULL)`
+  // regardless of how many parens pg_get_constraintdef wraps each clause in.
+  const stripped = definition.replace(/[()]/g, ' ').replace(/\s+/g, ' ');
+  const re = /([a-z_][a-z0-9_]*)\s+IS\s+NOT\s+NULL\s+AND\s+([a-z_][a-z0-9_]*)\s+IS\s+NULL\s+OR\s+\1\s+IS\s+NULL\s+AND\s+\2\s+IS\s+NOT\s+NULL/i;
+  const match = stripped.match(re);
+  return match ? [match[1], match[2]] : null;
 }
 
 function checkedValue(checksByTable, table, column) {
@@ -218,8 +233,17 @@ function semanticValue(column, table, index, ctx, maxLength) {
   if (name.includes('description') || name.includes('reason') || name.includes('notes') || name.includes('body')) {
     return text(`Synthetic local test data for ${table}.${column.column_name}`);
   }
-  if (name.includes('date')) return new Date('2026-05-04T00:00:00.000Z');
-  if (name.includes('time')) return new Date('2026-05-04T09:00:00.000Z');
+  if (name.includes('date')) {
+    if (column.udt_name === 'date' || column.udt_name === 'timestamp' || column.udt_name === 'timestamptz') {
+      return new Date('2026-05-04T00:00:00.000Z');
+    }
+  }
+  if (name.includes('time')) {
+    if (column.udt_name === 'time' || column.udt_name === 'timetz') return '09:00:00';
+    if (column.udt_name === 'timestamp' || column.udt_name === 'timestamptz') {
+      return new Date('2026-05-04T09:00:00.000Z');
+    }
+  }
   if (name.includes('lat')) return 13.02936;
   if (name.includes('lng') || name.includes('lon')) return 80.24409;
   if (name.includes('amount') || name.includes('cost') || name.includes('rate') || name.includes('score')) return 1;
@@ -261,7 +285,12 @@ async function fkValue(fk, ctx) {
 
 async function rowForTable(table, columns, metadata, ctx, index, relaxed = false) {
   const row = {};
+  // For XOR check constraints (e.g. billing_refunds.chk_refund_target requires
+  // exactly one of invoice_id/advance_id to be NOT NULL), drop the second
+  // column so the kept column carries the value.
+  const xorSkip = metadata.xorPairsByTable?.get(table)?.[1] ?? null;
   for (const column of columns) {
+    if (column.column_name === xorSkip) continue;
     const hasDefault = column.column_default !== null;
     const isGenerated = column.is_identity === 'YES' || column.is_generated !== 'NEVER';
     if (isGenerated) continue;
