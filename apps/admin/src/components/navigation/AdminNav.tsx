@@ -93,6 +93,8 @@ const navSections: NavSection[] = [
       { name: "Productivity", href: "/dashboard/productivity" },
       { name: "Patient Messages", href: "/dashboard/messaging" },
       { name: "Discharge Summaries", href: "/dashboard/discharge-summaries" },
+      { name: "Beds",                href: "/dashboard/beds" },
+      { name: "Immunisations",       href: "/dashboard/immunisations" },
     ],
   },
   {
@@ -130,6 +132,7 @@ const navSections: NavSection[] = [
       { name: "System Settings", href: "/dashboard/settings" },
       { name: "System Audit",    href: "/dashboard/system-audit" },
       { name: "Audit Logs",      href: "/dashboard/audit" },
+      { name: "Audit Explorer",  href: "/dashboard/audit-explorer" },
       { name: "Integrations",    href: "/dashboard/integrations" },
     ],
   },
