@@ -147,6 +147,7 @@ import pcpndtRoutes from './routes/compliance/pcpndtRoutes.js';
 import bmwAndDrugReturnRoutes from './routes/compliance/bmwAndDrugReturnRoutes.js';
 import icuRoutes from './routes/clinical/icuRoutes.js';
 import deathCertificationRoutes from './routes/clinical/deathCertificationRoutes.js';
+import dialysisRoutes from './routes/clinical/dialysisRoutes.js';
 import bloodBankRoutes from './routes/bloodbank/bloodBankRoutes.js';
 
 // Inter-staff messaging
@@ -632,6 +633,7 @@ app.use('/api/v1/pcpndt', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING
 app.use('/api/v1/icu', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'ICU_STAFF'), phiAccessLogger('ICU'), icuRoutes);
 app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN', 'PHARMACIST', 'NURSING_STAFF', 'COMPLIANCE_OFFICER'), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);
 app.use('/api/v1/death-certification', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('DEATH_CERTIFICATION'), deathCertificationRoutes);
+app.use('/api/v1/dialysis', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'DIALYSIS_TECHNICIAN'), phiAccessLogger('DIALYSIS'), dialysisRoutes);
 
 // Blood Bank
 app.use('/api/v1/blood-bank', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BLOOD_BANK_STAFF'), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);

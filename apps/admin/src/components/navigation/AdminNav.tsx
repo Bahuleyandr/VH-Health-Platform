@@ -100,6 +100,7 @@ const navSections: NavSection[] = [
       { name: "Nursing Assessments", href: "/dashboard/nursing-assessments" },
       { name: "Beds",                href: "/dashboard/beds" },
       { name: "ICU Command Centre",  href: "/dashboard/icu" },
+      { name: "Dialysis Unit",       href: "/dashboard/dialysis" },
       { name: "Immunisations",       href: "/dashboard/immunisations" },
     ],
   },
