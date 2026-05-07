@@ -41,12 +41,20 @@ node_modules/
 .cache_ggshield
 
 # Local Claude Code session config (per-developer launch.json + agents).
-# If team-shared agents/slash commands are ever added, carve them out
-# explicitly with `!.claude/agents/` etc.
-.claude/
+# Most of .claude/ is gitignored, but team-shared skills carve out
+# explicit exceptions. Note the intermediate directories must be
+# un-excluded first or git won't descend into them.
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/vh-health-qa/
 
 # Playwright / test runner artifacts (screenshots, .last-run.json, etc.)
 test-results/
 
 # Backend local object-storage emulator output
 apps/backend/storage/
+
+# QA harness run artifacts (raw stdout/stderr, JSON traces). Findings live
+# under docs/qa-findings/ and ARE committed.
+qa-runs/

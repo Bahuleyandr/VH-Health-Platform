@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "vh-health/qa-finding",
+  "title": "VH Health QA Finding",
+  "description": "Schema for a single agent-discovered QA finding. The finding is materialized as Markdown under docs/qa-findings/<date>-<slug>.md. The frontmatter of that Markdown file MUST validate against this schema. Free-form prose (root cause hypothesis, retrospective notes) goes in the Markdown body.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "run_id",
+    "started_at",
+    "finished_at",
+    "git_sha",
+    "seed_version",
+    "base_url",
+    "tenant_id",
+    "scenario",
+    "command",
+    "exit_code",
+    "severity",
+    "area",
+    "repro_steps",
+    "expected",
+    "actual",
+    "confidence",
+    "status"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique finding identifier; conventionally <date>-<slug>, e.g. 2026-05-07-admin-proxy-staff-401.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9-]+$"
+    },
+    "run_id": {
+      "type": "string",
+      "description": "Orchestrator run id this finding came out of (matches qa-runs/<run_id>/)."
+    },
+    "started_at": { "type": "string", "format": "date-time" },
+    "finished_at": { "type": "string", "format": "date-time" },
+    "git_sha": {
+      "type": "string",
+      "description": "Repo SHA at the time of the run.",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "seed_version": {
+      "type": "string",
+      "description": "16-char hash of the seeder source files at run time, taken from qa_seed_meta.seed_version."
+    },
+    "base_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "The HTTP base of the system under test (e.g. http://127.0.0.1:5206 for local smoke env, or https://vh-api.dalekdefender for the live deploy)."
+    },
+    "tenant_id": {
+      "type": "string",
+      "description": "Tenant UUID under which the scenario ran (defaults to 00000000-0000-4000-8000-000000000001)."
+    },
+    "scenario": {
+      "type": "string",
+      "description": "Short human label for what the agent was trying to do, e.g. 'patient books appointment under unicode name'."
+    },
+    "command": {
+      "type": "string",
+      "description": "The exact shell command the harness executed, copy-pasteable."
+    },
+    "exit_code": {
+      "type": "integer",
+      "description": "Exit code of the failing command. 0 is allowed when the failure was content-based (e.g. a 200 response that contained a wrong field)."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low", "info"],
+      "description": "Triage severity. critical: data loss / PHI exposure / auth bypass. high: workflow blocker. medium: UX friction or workaround exists. low: cosmetic. info: observation, no action required."
+    },
+    "area": {
+      "type": "string",
+      "enum": [
+        "auth",
+        "admin",
+        "patient",
+        "staff",
+        "clinical-safety",
+        "billing",
+        "messaging",
+        "notifications",
+        "infra",
+        "schema",
+        "ui",
+        "other"
+      ],
+      "description": "Functional area for routing to the right reviewer."
+    },
+    "repro_steps": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Ordered, copy-pasteable reproduction steps. Include env vars, curl commands, or PowerShell invocations as needed."
+    },
+    "expected": {
+      "type": "string",
+      "description": "What the harness expected to happen."
+    },
+    "actual": {
+      "type": "string",
+      "description": "What actually happened (HTTP status, error body, stack trace excerpt)."
+    },
+    "artifacts": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Paths (relative to repo root) of supporting artifacts under qa-runs/<run_id>/."
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "description": "How confident the finding is a real bug vs an env / test issue. Low-confidence findings should still be filed but flagged for triage."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["open", "in-fix", "fixed", "wont-fix", "duplicate", "false-positive"],
+      "default": "open"
+    },
+    "linked_issues": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "GitHub issue or PR URLs."
+    },
+    "first_seen_run": {
+      "type": "string",
+      "description": "run_id where this finding was first observed; identical to run_id on the first writeup, may differ on duplicates."
+    }
+  }
+}
