@@ -1,0 +1,311 @@
+// src/services/lab/labResultsService.js
+//
+// Sprint 3 — Lab results ingestion + critical alerts + pathologist
+// worklist. Persists ORU^R01 messages from analyzers into lab_results,
+// fires critical alerts based on lab_critical_thresholds, and exposes
+// the pathologist sign-off workflow.
+
+import prisma from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
+import { parseHL7 } from '../hl7/hl7Parser.js';
+import { AppError } from '../../utils/AppError.js';
+
+function asNumericOrNull(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Parse an HL7 ORU^R01 message and persist its OBX rows into
+ * lab_results. Returns the created result rows + any critical alerts
+ * that fired.
+ *
+ * Maps each OBX to a lab_results row. Looks up the patient by
+ * `patient_uid` (preferred) or by phone via PID-13 fallback.
+ *
+ * The booking_id linkage is best-effort: ORC-2 (placer order number)
+ * is used as a key; if it matches an investigation_bookings.id we
+ * link, otherwise we leave booking_id null and rely on patient_uid.
+ *
+ * Critical detection runs synchronously after persist; we don't fan
+ * out notifications here (notification fan-out is the alert
+ * consumer's job — see lab_critical_alerts subscribers).
+ */
+export async function ingestOruMessage(message, { tenantId, source }) {
+  if (!message) throw AppError.badRequest('HL7 message is required');
+  const parsed = parseHL7(message);
+  if (!parsed.msh) throw AppError.badRequest('Missing MSH segment');
+  const messageType = parsed.msh.messageType || '';
+  if (!messageType.startsWith('ORU')) {
+    throw AppError.badRequest(`Expected ORU message, got ${messageType}`);
+  }
+
+  const messageControlId = parsed.msh.messageControlId || null;
+  const sendingApp = parsed.msh.sendingApp || source || null;
+
+  // Patient identification — PID
+  const patientUid = parsed.pid?.patientId || parsed.pid?.uid;
+  if (!patientUid) throw AppError.badRequest('Missing patient identifier (PID-3)');
+  const patientName = parsed.pid?.name || null;
+
+  // Order linkage — ORC-2 (placer order number) → investigation_bookings
+  let bookingId = null;
+  const placerOrderId = parsed.orc?.placerOrderNumber;
+  if (placerOrderId && /^\d+$/.test(String(placerOrderId))) {
+    const matches = await prisma.$queryRawUnsafe(
+      `SELECT id FROM investigation_bookings WHERE id = $1::int LIMIT 1`,
+      Number(placerOrderId),
+    );
+    if (matches.length) bookingId = matches[0].id;
+  }
+
+  const obxRows = parsed.obx || [];
+  if (!obxRows.length) {
+    return { results: [], alerts: [], message: 'No OBX segments — nothing persisted' };
+  }
+
+  const results = [];
+  for (const obx of obxRows) {
+    const numeric = asNumericOrNull(obx.value);
+    const r = await prisma.$queryRawUnsafe(
+      `INSERT INTO lab_results
+        (tenant_id, booking_id, patient_uid, patient_name,
+         hl7_message_id, hl7_segment_index,
+         loinc_code, test_code, test_name,
+         value_text, value_numeric, unit, reference_range,
+         abnormal_flag, status, performed_by_lab, performed_at, raw_obx)
+       VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10,
+               $11, $12, $13, $14, $15, $16, $17, $18)
+       RETURNING *`,
+      tenantId,
+      bookingId,
+      patientUid,
+      patientName,
+      messageControlId,
+      obx.setId ? Number(obx.setId) : null,
+      obx.observationIdentifier?.code || null,
+      obx.observationIdentifier?.localCode || obx.observationIdentifier?.code || 'UNKNOWN',
+      obx.observationIdentifier?.text || obx.observationIdentifier?.localText || 'Unknown analyte',
+      obx.value || null,
+      numeric,
+      obx.units || null,
+      obx.referenceRange || null,
+      obx.abnormalFlags || null,
+      obx.observationResultStatus === 'F' ? 'final' : 'preliminary',
+      sendingApp,
+      obx.observationDateTime || null,
+      obx.raw || null,
+    );
+    results.push(r[0]);
+  }
+
+  // Critical detection
+  const alerts = await detectCriticalsForResults({ tenantId, results });
+
+  logger.info(`[lab] Ingested ORU ${messageControlId}: ${results.length} results, ${alerts.length} criticals`);
+  return { results, alerts, messageControlId, bookingId };
+}
+
+/**
+ * For each result row, look up the matching threshold (preferring
+ * LOINC, falling back to test_code) and create a critical alert if
+ * the value is out of bounds. Marks the lab_results row is_critical.
+ */
+export async function detectCriticalsForResults({ tenantId, results }) {
+  const alerts = [];
+  for (const r of results) {
+    if (r.value_numeric == null) continue;
+
+    const ths = await prisma.$queryRawUnsafe(
+      `SELECT critical_low, critical_high, test_name
+         FROM lab_critical_thresholds
+        WHERE tenant_id = $1::uuid
+          AND is_active = true
+          AND (
+            (loinc_code IS NOT NULL AND loinc_code = $2) OR
+            (loinc_code IS NULL AND test_code = $3)
+          )
+        LIMIT 1`,
+      tenantId, r.loinc_code, r.test_code,
+    );
+    if (!ths.length) continue;
+    const { critical_low: lo, critical_high: hi } = ths[0];
+    let breachedSide = null;
+    let breachedValue = null;
+    const v = Number(r.value_numeric);
+    if (lo != null && v < Number(lo)) {
+      breachedSide = 'low';
+      breachedValue = Number(lo);
+    } else if (hi != null && v > Number(hi)) {
+      breachedSide = 'high';
+      breachedValue = Number(hi);
+    }
+    if (!breachedSide) continue;
+
+    // Mark the result + create the alert.
+    await prisma.$executeRawUnsafe(
+      `UPDATE lab_results SET is_critical = true, updated_at = NOW() WHERE id = $1::int`,
+      r.id,
+    );
+
+    const alert = await prisma.$queryRawUnsafe(
+      `INSERT INTO lab_critical_alerts
+        (tenant_id, result_id, patient_uid, test_name, value_text,
+         value_numeric, unit, threshold_breached, threshold_value)
+       VALUES ($1::uuid, $2::int, $3::uuid, $4, $5, $6::numeric, $7, $8, $9::numeric)
+       RETURNING *`,
+      tenantId, r.id, r.patient_uid, r.test_name, r.value_text,
+      v, r.unit, breachedSide, breachedValue,
+    );
+    alerts.push(alert[0]);
+  }
+  return alerts;
+}
+
+// ── Manual entry path (when an analyzer doesn't speak HL7) ────────────
+
+export async function recordResultManual({ tenantId, performed_by, result }) {
+  const fields = [
+    'booking_id', 'patient_uid', 'patient_name', 'loinc_code',
+    'test_code', 'test_name', 'value_text', 'unit', 'reference_range',
+    'abnormal_flag', 'status', 'comments',
+  ];
+  for (const f of ['patient_uid', 'test_code', 'test_name']) {
+    if (!result[f]) throw AppError.badRequest(`${f} is required`);
+  }
+  const values = fields.map((f) => result[f] ?? null);
+  const numeric = asNumericOrNull(result.value_text);
+  values.push(numeric, performed_by ? String(performed_by) : null, tenantId);
+
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO lab_results
+      (booking_id, patient_uid, patient_name, loinc_code, test_code,
+       test_name, value_text, unit, reference_range, abnormal_flag,
+       status, comments, value_numeric, performed_by_lab, tenant_id)
+     VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+             $13::numeric, $14, $15::uuid)
+     RETURNING *`,
+    ...values,
+  );
+  const created = rows[0];
+  const alerts = await detectCriticalsForResults({ tenantId, results: [created] });
+  return { result: created, alerts };
+}
+
+// ── Pathologist worklist ──────────────────────────────────────────────
+
+export async function listPendingSignOff({ tenantId, limit = 100 }) {
+  return prisma.$queryRawUnsafe(
+    `SELECT id, booking_id, patient_uid, patient_name, test_code, test_name,
+            value_text, unit, reference_range, abnormal_flag, is_critical,
+            received_at, status
+       FROM lab_results
+      WHERE tenant_id = $1::uuid
+        AND signed_off_at IS NULL
+        AND status IN ('preliminary', 'final')
+      ORDER BY is_critical DESC, received_at ASC
+      LIMIT $2::int`,
+    tenantId, Number(limit),
+  );
+}
+
+export async function signOffResults({
+  tenantId, signed_off_by, signed_off_by_name, signed_off_by_reg,
+  result_ids, decision = 'verified', comments, booking_id, patient_uid,
+}) {
+  if (!Array.isArray(result_ids) || !result_ids.length) {
+    throw AppError.badRequest('result_ids[] is required');
+  }
+  if (!signed_off_by) throw AppError.badRequest('signed_off_by is required');
+
+  // Verify ownership: all results must belong to the tenant.
+  const ids = result_ids.map(Number).filter(Boolean);
+  const owned = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, booking_id FROM lab_results
+      WHERE id = ANY($1::int[]) AND tenant_id = $2::uuid`,
+    ids, tenantId,
+  );
+  if (owned.length !== ids.length) {
+    throw AppError.badRequest('Some result_ids are not in this tenant');
+  }
+
+  // Insert sign-off record.
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO lab_pathologist_signoffs
+      (tenant_id, booking_id, patient_uid, result_ids, signed_off_by,
+       signed_off_by_name, signed_off_by_reg, decision, comments)
+     VALUES ($1::uuid, $2, $3::uuid, $4::int[], $5::uuid, $6, $7, $8, $9)
+     RETURNING *`,
+    tenantId,
+    booking_id ? Number(booking_id) : null,
+    patient_uid || owned[0].patient_uid,
+    ids, String(signed_off_by), signed_off_by_name || null,
+    signed_off_by_reg || null, decision, comments || null,
+  );
+
+  // Stamp signed_off on the result rows.
+  await prisma.$executeRawUnsafe(
+    `UPDATE lab_results
+        SET signed_off_at = NOW(),
+            signed_off_by = $1::uuid,
+            status = CASE WHEN $2 = 'verified' THEN 'final' ELSE status END,
+            updated_at = NOW()
+      WHERE id = ANY($3::int[]) AND tenant_id = $4::uuid`,
+    String(signed_off_by), decision, ids, tenantId,
+  );
+
+  return rows[0];
+}
+
+// ── Critical-alert acknowledgement workflow ───────────────────────────
+
+export async function listOpenCriticalAlerts({ tenantId, limit = 50 }) {
+  return prisma.$queryRawUnsafe(
+    `SELECT id, result_id, patient_uid, test_name, value_text,
+            value_numeric, unit, threshold_breached, threshold_value, fired_at
+       FROM lab_critical_alerts
+      WHERE tenant_id = $1::uuid AND acknowledged_at IS NULL
+      ORDER BY fired_at DESC
+      LIMIT $2::int`,
+    tenantId, Number(limit),
+  );
+}
+
+export async function acknowledgeAlert(alertId, {
+  acknowledged_by, acknowledged_by_name, read_back_method, notes,
+}) {
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE lab_critical_alerts
+        SET acknowledged_at = NOW(),
+            acknowledged_by = $1::uuid,
+            acknowledged_by_name = $2,
+            read_back_method = $3,
+            notes = COALESCE($4, notes)
+      WHERE id = $5::int AND acknowledged_at IS NULL
+      RETURNING *`,
+    String(acknowledged_by), acknowledged_by_name || null,
+    read_back_method || null, notes || null, Number(alertId),
+  );
+  if (!rows.length) throw AppError.notFound('Alert not found or already acknowledged');
+  return rows[0];
+}
+
+export async function getResultsForBooking({ tenantId, booking_id }) {
+  return prisma.$queryRawUnsafe(
+    `SELECT * FROM lab_results
+      WHERE tenant_id = $1::uuid AND booking_id = $2::int
+      ORDER BY received_at ASC, hl7_segment_index ASC`,
+    tenantId, Number(booking_id),
+  );
+}
+
+export async function getResultsForPatient({ tenantId, patient_uid, limit = 200 }) {
+  return prisma.$queryRawUnsafe(
+    `SELECT * FROM lab_results
+      WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+      ORDER BY received_at DESC
+      LIMIT $3::int`,
+    tenantId, String(patient_uid), Number(limit),
+  );
+}
