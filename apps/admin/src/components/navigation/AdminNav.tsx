@@ -83,6 +83,8 @@ const navSections: NavSection[] = [
     items: [
       { name: "Radiology",   href: "/dashboard/radiology" },
       { name: "Laboratory",  href: "/dashboard/lab" },
+      { name: "Microbiology", href: "/dashboard/microbiology" },
+      { name: "Anesthesia chart", href: "/dashboard/anesthesia-chart" },
       { name: "Dietary",     href: "/dashboard/dietary" },
       { name: "Theatre",     href: "/dashboard/theatre" },
       { name: "OR Board",    href: "/dashboard/or-board" },
