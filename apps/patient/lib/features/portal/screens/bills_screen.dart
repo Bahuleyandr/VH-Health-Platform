@@ -18,7 +18,7 @@ class _Bill {
       date = (j['issued_at'] ?? j['created_at'])?.toString(),
       type = j['invoice_type']?.toString() ?? 'OP',
       status = (j['status']?.toString() ?? 'DRAFT').toUpperCase(),
-      total = _toDouble(j['grand_total']),
+      total = _toDouble(j['total_amount']),
       paid = _toDouble(j['amount_paid']),
       due = _toDouble(j['amount_due']);
 

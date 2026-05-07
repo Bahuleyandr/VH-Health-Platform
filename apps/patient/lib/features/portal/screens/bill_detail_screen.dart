@@ -165,7 +165,11 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
   }
 
   Widget _summaryCard(ThemeData theme, double due, bool hasDue) {
-    final inv = _invoice ?? {};
+    final inv = _invoice ?? <String, dynamic>{};
+    final discount = _toDouble(inv['discount_amount']);
+    final igst = _toDouble(inv['igst_amount']);
+    final cgst = _toDouble(inv['cgst_amount']);
+    final sgst = _toDouble(inv['sgst_amount']);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -175,13 +179,20 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
             Text('Summary', style: theme.textTheme.titleMedium),
             const SizedBox(height: 12),
             _row('Subtotal', _inr(_toDouble(inv['subtotal']))),
-            _row('GST', _inr(_toDouble(inv['gst_total']))),
-            if (_toDouble(inv['discount_total']) > 0)
-              _row('Discount', '− ${_inr(_toDouble(inv['discount_total']))}'),
+            // Indian GST: intra-state shows CGST + SGST equal halves;
+            // inter-state shows a single IGST line. We render whichever
+            // variant has a non-zero amount.
+            if (igst > 0)
+              _row('IGST', _inr(igst))
+            else if (cgst > 0 || sgst > 0) ...[
+              _row('CGST', _inr(cgst)),
+              _row('SGST', _inr(sgst)),
+            ],
+            if (discount > 0) _row('Discount', '− ${_inr(discount)}'),
             const Divider(height: 24),
             _row(
               'Total',
-              _inr(_toDouble(inv['grand_total'])),
+              _inr(_toDouble(inv['total_amount'])),
               bold: true,
             ),
             _row('Paid', _inr(_toDouble(inv['amount_paid']))),

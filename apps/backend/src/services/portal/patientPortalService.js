@@ -46,11 +46,8 @@ export async function listMyBills({ tenantId, patient_uid, status }) {
   }
   return prisma.$queryRawUnsafe(
     `SELECT id, invoice_number, issued_at, created_at, invoice_type, status,
-            subtotal,
-            (cgst_amount + sgst_amount + igst_amount) AS gst_total,
-            discount_amount AS discount_total,
-            total_amount AS grand_total,
-            amount_paid, amount_due
+            subtotal, cgst_amount, sgst_amount, igst_amount,
+            discount_amount, total_amount, amount_paid, amount_due
        FROM billing_invoices
       WHERE ${where}
       ORDER BY COALESCE(issued_at, created_at) DESC, id DESC
@@ -61,17 +58,18 @@ export async function listMyBills({ tenantId, patient_uid, status }) {
 
 export async function getMyBill({ tenantId, patient_uid, id }) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM billing_invoices
+    `SELECT id, invoice_number, issued_at, created_at, invoice_type, status,
+            subtotal, cgst_amount, sgst_amount, igst_amount,
+            discount_amount, discount_reason, total_amount, amount_paid,
+            amount_due, patient_uid, patient_state, hospital_state, tenant_id
+       FROM billing_invoices
       WHERE id = $1::int AND tenant_id = $2::uuid AND patient_uid = $3::uuid`,
     Number(id), tenantId, String(patient_uid),
   );
   if (!rows.length) throw AppError.notFound('Bill not found');
-  // Items + payments. Real DB column names: cgst_amount + sgst_amount +
-  // igst_amount (no single gst_amount). Sum + alias for the patient UI.
   const items = await prisma.$queryRawUnsafe(
-    `SELECT id, service_code, description, quantity, unit_price,
-            line_total, gst_rate,
-            (cgst_amount + sgst_amount + igst_amount) AS gst_amount,
+    `SELECT id, service_code, description, quantity, unit_price, gst_rate,
+            line_subtotal, cgst_amount, sgst_amount, igst_amount, line_total,
             hsn_sac
        FROM billing_invoice_items
       WHERE invoice_id = $1::int
