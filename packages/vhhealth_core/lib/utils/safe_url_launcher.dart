@@ -16,6 +16,11 @@ class SafeUrlLauncher {
     'mailto',
     'geo',
     'sms',
+    // UPI deep links (NPCI URI spec) — used by the patient bill-pay
+    // flow to hand off to PhonePe / GPay / Paytm with the amount
+    // pre-filled. The link is generated server-side by our own
+    // payment-link service, so the scheme is trusted.
+    'upi',
   };
 
   /// Launch a URL after validating its scheme is safe.

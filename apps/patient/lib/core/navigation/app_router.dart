@@ -35,6 +35,11 @@ import 'package:vhhealth/features/family/screens/family_screen.dart';
 import 'package:vhhealth/features/medications/screens/medication_reminders_screen.dart';
 import 'package:vhhealth/features/abdm/screens/abdm_screen.dart';
 import 'package:vhhealth/features/gamification/screens/health_points_screen.dart';
+import 'package:vhhealth/features/portal/screens/bills_screen.dart';
+import 'package:vhhealth/features/portal/screens/bill_detail_screen.dart';
+import 'package:vhhealth/features/portal/screens/lab_results_screen.dart';
+import 'package:vhhealth/features/portal/screens/messages_screen.dart';
+import 'package:vhhealth/features/portal/screens/message_thread_screen.dart';
 import 'package:vhhealth/core/widgets/main_scaffold_go_router.dart';
 
 class AppRouter {
@@ -301,6 +306,32 @@ class AppRouter {
       GoRoute(
         path: '/pharmacy',
         builder: (context, state) => PharmacyScreen(phone: _phone(context)),
+      ),
+
+      // Patient self-service portal (Sprint 10)
+      GoRoute(
+        path: '/portal/bills',
+        builder: (context, state) => const BillsScreen(),
+      ),
+      GoRoute(
+        path: '/portal/bills/:id',
+        builder: (context, state) => BillDetailScreen(
+          invoiceId: int.parse(state.pathParameters['id']!),
+        ),
+      ),
+      GoRoute(
+        path: '/portal/lab-results',
+        builder: (context, state) => const LabResultsScreen(),
+      ),
+      GoRoute(
+        path: '/portal/messages',
+        builder: (context, state) => const MessagesScreen(),
+      ),
+      GoRoute(
+        path: '/portal/messages/:id',
+        builder: (context, state) => MessageThreadScreen(
+          threadId: int.parse(state.pathParameters['id']!),
+        ),
       ),
       GoRoute(
         path: '/investigations',

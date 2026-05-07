@@ -73,6 +73,9 @@ import '../../features/dietary/screens/dietary_screen.dart';
 
 // Theatre
 import '../../features/theatre/screens/theatre_screen.dart';
+import '../../features/productivity/screens/calculators_screen.dart';
+import '../../features/productivity/screens/order_sets_screen.dart';
+import '../../features/maternity/screens/partograph_entry_screen.dart';
 
 // Radiology
 import '../../features/radiology/screens/radiology_screen.dart';
@@ -492,6 +495,40 @@ final GoRouter appRouter = GoRouter(
           name: 'theatre',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: TheatreScreen()),
+        ),
+
+        // Doctor productivity (Sprint 8)
+        GoRoute(
+          path: '/calculators',
+          name: 'calculators',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: CalculatorsScreen()),
+        ),
+        GoRoute(
+          path: '/order-sets',
+          name: 'order-sets',
+          pageBuilder: (context, state) {
+            final extra = state.extra as Map<String, dynamic>?;
+            return NoTransitionPage(
+              child: OrderSetsScreen(
+                encounterId: extra?['encounter_id'] as int?,
+                patientUid: extra?['patient_uid'] as String?,
+              ),
+            );
+          },
+        ),
+
+        // Maternity (Sprint 7)
+        GoRoute(
+          path: '/maternity/partograph/:laborId',
+          name: 'partograph-entry',
+          pageBuilder: (context, state) => NoTransitionPage(
+            child: PartographEntryScreen(
+              laborAdmissionId: int.parse(
+                state.pathParameters['laborId']!,
+              ),
+            ),
+          ),
         ),
 
         // Radiology
