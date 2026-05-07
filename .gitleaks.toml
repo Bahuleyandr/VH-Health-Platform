@@ -38,6 +38,11 @@ paths = [
 regexes = [
   '''test-api-key''',
   '''test-jwt-secret-for-ci-must-be-at-least-32-chars''',
+  # Local-only QA harness Postgres credentials. The qa_writer role exists
+  # only on the dev cluster at 127.0.0.1:55432 with a local-only password,
+  # documented in docs/qa-findings/_baseline.md and required verbatim by
+  # scripts/qa-reset.mjs and the QA findings' repro steps.
+  '''qa_writer:qa_writer_local''',
   '''PLACEHOLDER_REPLACE_WITH_KUBESEAL_CIPHERTEXT''',
   # Legacy placeholder used in base/ sealed-secret examples before standardisation.
   # Kept here so the git history of the migration commit doesn't trip the range scan.
