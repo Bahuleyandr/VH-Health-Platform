@@ -144,6 +144,7 @@ import orBoardRoutes from './routes/theatre/orBoardRoutes.js';
 import anesthesiaChartRoutes from './routes/theatre/anesthesiaChartRoutes.js';
 import microbiologyRoutes from './routes/lab/microbiologyRoutes.js';
 import pcpndtRoutes from './routes/compliance/pcpndtRoutes.js';
+import bmwAndDrugReturnRoutes from './routes/compliance/bmwAndDrugReturnRoutes.js';
 import icuRoutes from './routes/clinical/icuRoutes.js';
 import bloodBankRoutes from './routes/bloodbank/bloodBankRoutes.js';
 
@@ -628,6 +629,7 @@ app.use('/api/v1/anesthesia', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NUR
 app.use('/api/v1/microbiology', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF'), phiAccessLogger('MICROBIOLOGY'), microbiologyRoutes);
 app.use('/api/v1/pcpndt', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RADIOLOGIST'), phiAccessLogger('PCPNDT'), pcpndtRoutes);
 app.use('/api/v1/icu', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'ICU_STAFF'), phiAccessLogger('ICU'), icuRoutes);
+app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN', 'PHARMACIST', 'NURSING_STAFF', 'COMPLIANCE_OFFICER'), phiAccessLogger('COMPLIANCE_BMW_DRUG_RETURNS'), bmwAndDrugReturnRoutes);
 
 // Blood Bank
 app.use('/api/v1/blood-bank', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BLOOD_BANK_STAFF'), phiAccessLogger('BLOOD_BANK'), bloodBankRoutes);
