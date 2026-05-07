@@ -169,7 +169,12 @@ provide the same disposable Postgres service container setup used by the Linux
 full-stack smoke workflow.
 
 Current caveat: the backend/API staff role matrix is the reliable release gate.
-The Windows Flutter route crawler has been updated for the OP/IP dashboard and
-disables Crashlytics during tests, but the integration harness can still hang
-around the Lab Bookings route. Keep it as a diagnostic smoke until that
-desktop-navigation instability is fixed.
+The Windows Flutter route crawler is now phase-aware (bottom nav, always-
+visible quick actions, OP/IP service tabs, More tools) and re-selects the
+correct OP/IP service tab before every tile tap, so the previously-hanging
+Lab Bookings (IP) probe finds its label cleanly. Each tile probe is wrapped
+in a 45-second deadline so a hung screen reports the offending label clearly
+instead of consuming the 8-minute suite budget. See
+`docs/STAFF_ROLE_WORKFLOW_SWEEP.md` for the root-cause writeup. The desktop
+smoke remains a diagnostic until the harness is re-run end-to-end against a
+fresh Dalekdefender deploy.

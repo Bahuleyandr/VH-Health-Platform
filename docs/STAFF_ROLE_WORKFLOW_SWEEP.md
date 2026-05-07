@@ -156,12 +156,36 @@ This is a live contract smoke for the seeded staff accounts. It verifies login, 
 ## Desktop App Smoke Note
 
 The live API role matrix above passed for all eight seeded roles and includes
-representative create paths. The Windows Flutter desktop route smoke is still
-not reliable enough to use as a release gate: after updating it for the OP/IP
-dashboard labels and disabling Crashlytics in test mode, `flutter test -d
-windows` still times out around the Lab Bookings route in the integration test
-harness. Treat that as a follow-up desktop harness/app-navigation issue, not as
-a backend endpoint failure.
+representative create paths. The Windows Flutter desktop route smoke remains a
+diagnostic, not a release gate, but the previous Lab Bookings hang has now
+been mapped to a harness bug rather than the screen itself.
+
+Root cause: `_buildClinicalServiceTabs` in `apps/staff/lib/features/dashboard/
+screens/dashboard_screen.dart` renders the OP and IP service tabs through an
+`AnimatedSwitcher`, so only the selected tab's tile set is mounted in the
+widget tree. The previous integration harness iterated through a flat list of
+labels and called `goHome` between each; that reset `_clinicalServiceTabIndex`
+to OP, leaving every IP-only label (`Lab Bookings (IP)`, `Bed Board`, `Operating
+Theatre`, `Radiology`, `Blood Bank`, `Dietary`, `IP Patient Records`,
+`Pharmacy (IP)`, `Lab Results (IP)`, plus the IP-side `Upload Results`)
+unfindable, so `scrollUntilVisible` chewed up the suite-level 8-minute budget
+trying to scroll the dashboard.
+
+Fix landed in `integration_test/staff_desktop_smoke_test.dart`:
+
+- The label list is now grouped into four phases — bottom nav, always-visible
+  quick actions, OP/IP service tabs, and More tools — instead of one flat
+  loop.
+- A new `selectServiceTab(tabLabel)` helper taps the OP/IP tab button before
+  every tile probe, defensively re-selecting on every iteration so a
+  `goHome` cannot mask an IP-only label.
+- A `probeWithDeadline(label, body)` wrapper enforces a 45-second per-step
+  deadline so a single screen that hangs (typically a screen issuing a
+  network call without a timeout) reports the offending label clearly
+  instead of silently consuming the suite budget.
+
+Re-running the desktop smoke against a fresh Dalekdefender deploy is still
+the verification step before promoting it back to release-gate status.
 
 ## Run Command
 

@@ -7,6 +7,13 @@ import 'package:vhhealth_staff/main.dart' as app;
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
+  // Per-step deadline. If a single tile / tab takes longer than this the
+  // harness fails fast at that label instead of consuming the whole 8-minute
+  // suite budget — tells us *which* route hung. The dashboard route
+  // navigation itself should settle in well under 30 s; values above ~45 s
+  // mean the screen is making a network call without a timeout.
+  const stepDeadline = Duration(seconds: 45);
+
   Future<void> pumpFor(WidgetTester tester, Duration duration) async {
     const tick = Duration(milliseconds: 250);
     var elapsed = Duration.zero;
@@ -90,15 +97,18 @@ void main() {
       return;
     }
 
+    final scrollables = find.byType(Scrollable);
+    if (scrollables.evaluate().isEmpty) {
+      throw StateError(
+        'Expected "$label" but no scrollable surface was available',
+      );
+    }
+
     await tester.scrollUntilVisible(
       finder,
       520,
       maxScrolls: 24,
-      scrollable: find.byType(Scrollable).evaluate().isNotEmpty
-          ? find.byType(Scrollable).first
-          : throw StateError(
-              'Expected "$label" but no scrollable surface was available',
-            ),
+      scrollable: scrollables.first,
     );
     await tester.pump(const Duration(milliseconds: 150));
   }
@@ -138,14 +148,6 @@ void main() {
     await pumpFor(tester, const Duration(milliseconds: 600));
   }
 
-  Future<void> tapDashboardItem(WidgetTester tester, String label) async {
-    final finder = find.text(label);
-    if (finder.evaluate().isEmpty) {
-      await expandMoreTools(tester);
-    }
-    await tapVisibleText(tester, label);
-  }
-
   Future<void> goHome(WidgetTester tester) async {
     final home = find.text('Home');
     if (home.evaluate().isNotEmpty) {
@@ -154,6 +156,46 @@ void main() {
     }
     await waitFor(tester, find.text('Daily Work'));
     await waitFor(tester, find.text('More tools'));
+  }
+
+  /// Selects an OP/IP service tab on the dashboard. The tab strip lives in
+  /// `_buildClinicalServiceTabs` and uses an `AnimatedSwitcher` so only the
+  /// selected group's tiles exist in the tree — without explicitly
+  /// re-selecting before each tile lookup the test will fail to find any
+  /// IP-only label after a goHome resets `_clinicalServiceTabIndex`.
+  ///
+  /// Tapping the already-selected tab is a cheap no-op, so callers can
+  /// invoke this defensively before every tile tap.
+  Future<void> selectServiceTab(WidgetTester tester, String tabLabel) async {
+    final tab = find.text(tabLabel);
+    await scrollToText(tester, tabLabel);
+    await waitFor(
+      tester,
+      tab,
+      timeout: const Duration(seconds: 6),
+      reason: 'Expected "$tabLabel" tab to be present',
+    );
+    await tester.ensureVisible(tab.first);
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.tap(tab.first);
+    // AnimatedSwitcher animates for 180 ms; pump a generous slice so the
+    // outgoing tile set is fully unmounted before we look for tiles in the
+    // incoming group.
+    await pumpFor(tester, const Duration(milliseconds: 600));
+  }
+
+  /// Wraps a single dashboard-tile probe in a deadline so a single hung
+  /// route (e.g. a Lab Bookings fetch waiting on a slow API) reports the
+  /// label cleanly instead of burning the suite-level 8-minute budget.
+  Future<void> probeWithDeadline(
+    String label,
+    Future<void> Function() body,
+  ) async {
+    try {
+      await body().timeout(stepDeadline);
+    } on Exception catch (e) {
+      fail('Step "$label" exceeded ${stepDeadline.inSeconds} s deadline: $e');
+    }
   }
 
   testWidgets(
@@ -191,49 +233,86 @@ void main() {
       await waitFor(tester, find.text('More tools'));
       expectCleanScreen(tester, 'dashboard after login');
 
-      final bottomNavLabels = ['Messages', 'Settings', 'Profile'];
+      // Phase 1 — bottom nav (Messages / Settings / Profile bottom buttons).
+      const bottomNavLabels = ['Messages', 'Settings', 'Profile'];
       for (final label in bottomNavLabels) {
-        await tapVisibleText(tester, label);
-        expectCleanScreen(tester, 'bottom nav "$label"');
-        await goHome(tester);
+        await probeWithDeadline(label, () async {
+          await tapVisibleText(tester, label);
+          expectCleanScreen(tester, 'bottom nav "$label"');
+          await goHome(tester);
+        });
       }
 
-      final featureLabels = [
-        'Check In/Out',
-        'Shift Schedule',
-        'Appointments',
-        'Appt Queue',
-        'OP Patient Records',
-        'Pharmacy (OP)',
-        'Upload Results',
-        'Lab Results (OP)',
-        'Lab Bookings (OP)',
-        'IP Services',
-        'Bed Board',
-        'IP Patient Records',
-        'Pharmacy (IP)',
-        'Upload Results',
-        'Lab Results (IP)',
-        'Lab Bookings (IP)',
-        'Dietary',
-        'Operating Theatre',
-        'Radiology',
-        'Blood Bank',
+      // Phase 2 — always-visible quick actions (above the OP/IP tabs and
+      // not part of any service tab or More tools sheet).
+      const alwaysVisibleLabels = ['Check In/Out', 'Shift Schedule'];
+      for (final label in alwaysVisibleLabels) {
+        await probeWithDeadline(label, () async {
+          await goHome(tester);
+          await tapVisibleText(tester, label);
+          expectCleanScreen(tester, 'quick action "$label"');
+        });
+      }
+
+      // Phase 3 — clinical service tabs (OP and IP). The dashboard renders
+      // only the selected tab's tiles; the test re-selects the right tab
+      // before each tile tap so a goHome that reset
+      // `_clinicalServiceTabIndex` doesn't mask an IP-only label.
+      const clinicalTabs = <String, List<String>>{
+        'OP Services': [
+          'Appointments',
+          'Appt Queue',
+          'OP Patient Records',
+          'Pharmacy (OP)',
+          'Upload Results',
+          'Lab Results (OP)',
+          'Lab Bookings (OP)',
+        ],
+        'IP Services': [
+          'Bed Board',
+          'IP Patient Records',
+          'Pharmacy (IP)',
+          'Upload Results',
+          'Lab Results (IP)',
+          'Lab Bookings (IP)',
+          'Dietary',
+          'Operating Theatre',
+          'Radiology',
+          'Blood Bank',
+        ],
+      };
+
+      for (final entry in clinicalTabs.entries) {
+        final tabLabel = entry.key;
+        for (final tileLabel in entry.value) {
+          await probeWithDeadline('$tabLabel → $tileLabel', () async {
+            await goHome(tester);
+            await selectServiceTab(tester, tabLabel);
+            await tapVisibleText(tester, tileLabel);
+            expectCleanScreen(
+              tester,
+              'clinical tile "$tileLabel" via "$tabLabel"',
+            );
+          });
+        }
+      }
+
+      // Phase 4 — More tools section (HR, Tasks, Directory, Performance, Leave).
+      const moreToolsLabels = [
         'Leave',
         'HR Dashboard',
         'Staff Mgmt',
         'Performance',
         'My Tasks',
         'Staff Directory',
-        'Messages',
-        'Profile',
-        'Settings',
       ];
-
-      for (final label in featureLabels) {
-        await goHome(tester);
-        await tapDashboardItem(tester, label);
-        expectCleanScreen(tester, 'dashboard feature "$label"');
+      for (final label in moreToolsLabels) {
+        await probeWithDeadline(label, () async {
+          await goHome(tester);
+          await expandMoreTools(tester);
+          await tapVisibleText(tester, label);
+          expectCleanScreen(tester, 'more tools "$label"');
+        });
       }
     },
     timeout: const Timeout(Duration(minutes: 8)),
