@@ -122,6 +122,7 @@ import billingV2Routes from './routes/billing/billingV2Routes.js';
 import labRoutes from './routes/lab/labRoutes.js';
 import insuranceClaimsRoutes from './routes/insurance/claimsRoutes.js';
 import maternityRoutes from './routes/maternity/maternityRoutes.js';
+import productivityRoutes from './routes/productivity/productivityRoutes.js';
 import revenueCycleRoutes from './routes/billing/revenueCycleRoutes.js';
 
 // Quality & Infection Control
@@ -623,6 +624,7 @@ app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 
 app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF'), phiAccessLogger('LAB_RESULT'), labRoutes);
 app.use('/api/v1/insurance', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), insuranceClaimsRoutes);
 app.use('/api/v1/maternity', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('MATERNITY_RECORD'), maternityRoutes);
+app.use('/api/v1/productivity', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), productivityRoutes);
 
 // Quality & Infection Control (route-level role checks)
 app.use('/api/v1/quality', qualityRoutes);
