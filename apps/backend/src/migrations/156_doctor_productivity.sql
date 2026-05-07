@@ -121,7 +121,7 @@ CREATE INDEX IF NOT EXISTS idx_clinical_order_set_items_set
 
 -- Seed common emergency/IP order sets.
 INSERT INTO clinical_order_sets (code, title, specialty, condition_codes, description)
-SELECT v.code, v.title, v.spec, v.codes, v.desc
+SELECT v.code, v.title, v.spec, v.codes, v.descr
 FROM (VALUES
   ('ORDERSET-PNEUMONIA-IP', 'Community-acquired pneumonia (IP, adult)',
    'general_medicine', ARRAY['J18.9'],
@@ -138,7 +138,7 @@ FROM (VALUES
   ('ORDERSET-LSCS-PREOP', 'LSCS pre-operative bundle',
    'obg', ARRAY['O82'],
    'Pre-op for elective LSCS: NPO, group + cross 1 unit, antacid, prophylactic IV antibiotic, urinary catheter.')
-) AS v(code, title, spec, codes, desc)
+) AS v(code, title, spec, codes, descr)
 WHERE NOT EXISTS (SELECT 1 FROM clinical_order_sets WHERE code = v.code);
 
 -- Seed items for ORDERSET-PNEUMONIA-IP

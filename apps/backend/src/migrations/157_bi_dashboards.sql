@@ -68,7 +68,7 @@ WHERE appointment_date >= CURRENT_DATE - INTERVAL '30 days'
 GROUP BY doctor_id, doctor_name;
 
 -- ── 4. Payer mix (monthly) ─────────────────────────────────────────
--- Rolls up insurance claims (Sprint 5) by month + claim type.
+-- Rolls up TPA claims (Sprint 5) by month + claim type.
 CREATE OR REPLACE VIEW bi_payer_mix_monthly AS
 SELECT
   DATE_TRUNC('month', c.created_at)::date AS month,
@@ -79,7 +79,7 @@ SELECT
   SUM(c.claimed_amount) AS total_claimed,
   SUM(COALESCE(c.approved_amount, 0)) AS total_approved,
   SUM(COALESCE(c.paid_amount, 0))     AS total_paid
-FROM insurance_claims c
+FROM tpa_claims c
 GROUP BY DATE_TRUNC('month', c.created_at)::date, c.claim_type, c.status;
 
 -- ── 5. Lab TAT (turn-around time) summary ──────────────────────────
@@ -117,14 +117,14 @@ SELECT
   (SELECT COUNT(*)::int FROM ot_schedules WHERE scheduled_date = CURRENT_DATE
                                               AND status NOT IN ('cancelled')) AS or_cases_today,
   -- Lab criticals
-  (SELECT COUNT(*)::int FROM lab_critical_alerts WHERE status NOT IN ('acknowledged','resolved','closed')) AS open_critical_alerts,
+  (SELECT COUNT(*)::int FROM lab_critical_alerts WHERE acknowledged_at IS NULL) AS open_critical_alerts,
   -- Billing
   (SELECT COALESCE(SUM(amount), 0) FROM billing_payments
     WHERE collected_at::date = CURRENT_DATE AND reversed = false) AS collections_today,
   -- Insurance
   (SELECT COUNT(*)::int FROM insurance_preauth
     WHERE status = 'submitted') AS preauth_pending,
-  (SELECT COUNT(*)::int FROM insurance_claims
+  (SELECT COUNT(*)::int FROM tpa_claims
     WHERE status IN ('submitted','queried')) AS claims_outstanding;
 
 -- ── 7. Read-only role for Metabase ─────────────────────────────────

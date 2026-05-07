@@ -259,10 +259,10 @@ export async function createClaim({
   const claimAmt = Number(claimed_amount ?? (Number(total_billed) - Number(patient_copay) - Number(non_payable_amount)));
   if (claimAmt <= 0) throw AppError.badRequest('claimed_amount must be > 0');
 
-  const claim_number = await nextSeq('insurance_claim_counter', 'CL', tenantId);
+  const claim_number = await nextSeq('tpa_claim_counter', 'CL', tenantId);
 
   const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO insurance_claims
+    `INSERT INTO tpa_claims
        (claim_number, policy_id, preauth_id, invoice_id, patient_uid,
         admission_id, claim_type, total_billed, patient_copay,
         non_payable_amount, claimed_amount, notes, created_by, tenant_id)
@@ -285,7 +285,7 @@ export async function createClaim({
 
 export async function getClaim({ tenantId, id }) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM insurance_claims WHERE id = $1::int AND tenant_id = $2::uuid`,
+    `SELECT * FROM tpa_claims WHERE id = $1::int AND tenant_id = $2::uuid`,
     Number(id), tenantId,
   );
   if (!rows.length) throw AppError.notFound('Claim not found');
@@ -300,7 +300,7 @@ export async function submitClaim({
     throw AppError.badRequest(`Claim in ${cl.status} cannot be submitted`);
   }
   await prisma.$executeRawUnsafe(
-    `UPDATE insurance_claims
+    `UPDATE tpa_claims
         SET status = 'submitted', submitted_at = NOW(),
             submitted_by = $1::uuid, submission_channel = $2,
             tpa_reference_id = COALESCE($3, tpa_reference_id),
@@ -325,7 +325,7 @@ export async function recordClaimDecision({
   if (!allowed.includes(decision)) throw AppError.badRequest('Invalid decision');
 
   await prisma.$executeRawUnsafe(
-    `UPDATE insurance_claims
+    `UPDATE tpa_claims
         SET status = $1,
             approved_amount = COALESCE($2::numeric, approved_amount),
             denial_reason = CASE WHEN $1 = 'denied' THEN $3 ELSE denial_reason END,
@@ -339,7 +339,7 @@ export async function recordClaimDecision({
 
   // Drop a correspondence row for the audit trail.
   await prisma.$executeRawUnsafe(
-    `INSERT INTO insurance_claim_correspondence
+    `INSERT INTO tpa_claim_correspondence
        (claim_id, direction, channel, subject, body, recorded_by)
      VALUES ($1::int, 'inbound', 'portal',
              $2, $3, $4::uuid)`,
@@ -367,7 +367,7 @@ export async function recordClaimPayment({
     throw AppError.badRequest('paid_amount must be > 0');
   }
   await prisma.$executeRawUnsafe(
-    `UPDATE insurance_claims
+    `UPDATE tpa_claims
         SET status = 'paid', paid_amount = $1::numeric,
             payment_reference = $2, paid_at = COALESCE($3::timestamptz, NOW()),
             updated_at = NOW()
@@ -377,7 +377,7 @@ export async function recordClaimPayment({
   );
 
   await prisma.$executeRawUnsafe(
-    `INSERT INTO insurance_claim_correspondence
+    `INSERT INTO tpa_claim_correspondence
        (claim_id, direction, channel, subject, body, recorded_by)
      VALUES ($1::int, 'inbound', 'portal',
              $2, $3, $4::uuid)`,
@@ -404,7 +404,7 @@ export async function listClaims({
   if (aging_bucket) { params.push(aging_bucket); where.push(`aging_bucket = $${params.length}`); }
   params.push(Number(limit));
   return prisma.$queryRawUnsafe(
-    `SELECT * FROM insurance_claims_aging
+    `SELECT * FROM tpa_claims_aging
       WHERE ${where.join(' AND ')}
       ORDER BY days_since_submit DESC NULLS LAST
       LIMIT $${params.length}::int`,
@@ -425,7 +425,7 @@ export async function attachDocument({
   if (!file_url) throw AppError.badRequest('file_url is required');
 
   const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO insurance_claim_documents
+    `INSERT INTO tpa_claim_documents
        (claim_id, preauth_id, doc_type, file_name, file_url,
         file_size_bytes, mime_type, uploaded_by, notes)
      VALUES ($1::int, $2::int, $3, $4, $5,
@@ -453,7 +453,7 @@ export async function logCorrespondence({
     throw AppError.badRequest('direction must be inbound or outbound');
   }
   const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO insurance_claim_correspondence
+    `INSERT INTO tpa_claim_correspondence
        (claim_id, preauth_id, direction, channel, subject, body,
         attachments, recorded_by)
      VALUES ($1::int, $2::int, $3, $4, $5, $6, $7::jsonb, $8::uuid)
@@ -470,11 +470,11 @@ export async function logCorrespondence({
 export async function getClaimBundle({ tenantId, id }) {
   const claim = await getClaim({ tenantId, id });
   const docs = await prisma.$queryRawUnsafe(
-    `SELECT * FROM insurance_claim_documents WHERE claim_id = $1::int ORDER BY uploaded_at DESC`,
+    `SELECT * FROM tpa_claim_documents WHERE claim_id = $1::int ORDER BY uploaded_at DESC`,
     claim.id,
   );
   const corr = await prisma.$queryRawUnsafe(
-    `SELECT * FROM insurance_claim_correspondence WHERE claim_id = $1::int ORDER BY recorded_at DESC`,
+    `SELECT * FROM tpa_claim_correspondence WHERE claim_id = $1::int ORDER BY recorded_at DESC`,
     claim.id,
   );
   return { claim, documents: docs, correspondence: corr };

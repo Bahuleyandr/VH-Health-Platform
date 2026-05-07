@@ -152,7 +152,7 @@ CREATE INDEX IF NOT EXISTS idx_insurance_preauth_resp_preauth
   ON insurance_preauth_responses(preauth_id, decided_at DESC);
 
 -- ── 4. Final claims (cashless + reimbursement) ───────────────────────
-CREATE TABLE IF NOT EXISTS insurance_claims (
+CREATE TABLE IF NOT EXISTS tpa_claims (
   id                  SERIAL PRIMARY KEY,
   claim_number        VARCHAR(80) UNIQUE NOT NULL,   -- our internal; e.g. CL-2526-00042
   policy_id           INTEGER NOT NULL REFERENCES insurance_policies(id) ON DELETE RESTRICT,
@@ -190,17 +190,17 @@ CREATE TABLE IF NOT EXISTS insurance_claims (
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_insurance_claims_patient
-  ON insurance_claims(patient_uid, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_insurance_claims_admission
-  ON insurance_claims(admission_id) WHERE admission_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_insurance_claims_status
-  ON insurance_claims(status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_insurance_claims_outstanding
-  ON insurance_claims(tenant_id, status)
+CREATE INDEX IF NOT EXISTS idx_tpa_claims_patient
+  ON tpa_claims(patient_uid, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tpa_claims_admission
+  ON tpa_claims(admission_id) WHERE admission_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tpa_claims_status
+  ON tpa_claims(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tpa_claims_outstanding
+  ON tpa_claims(tenant_id, status)
   WHERE status IN ('submitted', 'queried', 'approved', 'partially_approved');
 
-CREATE TABLE IF NOT EXISTS insurance_claim_counter (
+CREATE TABLE IF NOT EXISTS tpa_claim_counter (
   tenant_id    UUID NOT NULL,
   fiscal_year  VARCHAR(10) NOT NULL,
   next_value   INTEGER NOT NULL DEFAULT 1,
@@ -210,9 +210,9 @@ CREATE TABLE IF NOT EXISTS insurance_claim_counter (
 -- ── 5. Claim documents ───────────────────────────────────────────────
 -- Discharge summary, OT notes, investigations, ID proof, signed form,
 -- final bill, etc. Stored in R2 / S3; we keep the URL + metadata.
-CREATE TABLE IF NOT EXISTS insurance_claim_documents (
+CREATE TABLE IF NOT EXISTS tpa_claim_documents (
   id                  SERIAL PRIMARY KEY,
-  claim_id            INTEGER REFERENCES insurance_claims(id) ON DELETE CASCADE,
+  claim_id            INTEGER REFERENCES tpa_claims(id) ON DELETE CASCADE,
   preauth_id          INTEGER REFERENCES insurance_preauth(id) ON DELETE CASCADE,
   doc_type            VARCHAR(40) NOT NULL,          -- discharge_summary / ot_notes / final_bill / id_proof / lab_report / radiology / signed_form / other
   file_name           VARCHAR(255) NOT NULL,
@@ -228,16 +228,16 @@ CREATE TABLE IF NOT EXISTS insurance_claim_documents (
 );
 
 CREATE INDEX IF NOT EXISTS idx_claim_docs_claim
-  ON insurance_claim_documents(claim_id) WHERE claim_id IS NOT NULL;
+  ON tpa_claim_documents(claim_id) WHERE claim_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_claim_docs_preauth
-  ON insurance_claim_documents(preauth_id) WHERE preauth_id IS NOT NULL;
+  ON tpa_claim_documents(preauth_id) WHERE preauth_id IS NOT NULL;
 
 -- ── 6. Correspondence log (inbound + outbound) ───────────────────────
 -- Every email / portal note / phone call / letter logged so the
 -- coordinator has a paper trail when TPAs play games.
-CREATE TABLE IF NOT EXISTS insurance_claim_correspondence (
+CREATE TABLE IF NOT EXISTS tpa_claim_correspondence (
   id                  SERIAL PRIMARY KEY,
-  claim_id            INTEGER REFERENCES insurance_claims(id) ON DELETE CASCADE,
+  claim_id            INTEGER REFERENCES tpa_claims(id) ON DELETE CASCADE,
   preauth_id          INTEGER REFERENCES insurance_preauth(id) ON DELETE CASCADE,
   direction           VARCHAR(10) NOT NULL CHECK (direction IN ('inbound', 'outbound')),
   channel             VARCHAR(20) NOT NULL,          -- email / portal / phone / letter / fax
@@ -252,12 +252,12 @@ CREATE TABLE IF NOT EXISTS insurance_claim_correspondence (
 );
 
 CREATE INDEX IF NOT EXISTS idx_claim_corr_claim
-  ON insurance_claim_correspondence(claim_id, recorded_at DESC) WHERE claim_id IS NOT NULL;
+  ON tpa_claim_correspondence(claim_id, recorded_at DESC) WHERE claim_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_claim_corr_preauth
-  ON insurance_claim_correspondence(preauth_id, recorded_at DESC) WHERE preauth_id IS NOT NULL;
+  ON tpa_claim_correspondence(preauth_id, recorded_at DESC) WHERE preauth_id IS NOT NULL;
 
 -- ── 7. Claim aging view — for the coordinator dashboard ─────────────
-CREATE OR REPLACE VIEW insurance_claims_aging AS
+CREATE OR REPLACE VIEW tpa_claims_aging AS
 SELECT
   c.id, c.claim_number, c.patient_uid, c.claim_type,
   c.status, c.claimed_amount, c.approved_amount, c.paid_amount,
@@ -272,7 +272,7 @@ SELECT
   END AS aging_bucket,
   p.policy_number, p.payer_id, p.tpa_id,
   c.tenant_id
-FROM insurance_claims c
+FROM tpa_claims c
 JOIN insurance_policies p ON p.id = c.policy_id;
 
 COMMIT;
