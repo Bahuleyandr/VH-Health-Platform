@@ -118,6 +118,7 @@ import sessionRoutes from './routes/sessionRoutes.js';
 
 // Billing & Invoicing
 import billingRoutes from './routes/billing/billingRoutes.js';
+import billingV2Routes from './routes/billing/billingV2Routes.js';
 import revenueCycleRoutes from './routes/billing/revenueCycleRoutes.js';
 
 // Quality & Infection Control
@@ -612,6 +613,7 @@ app.use('/api/v1/blood-bank', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NUR
 
 // Billing & Invoicing (mount-level role gate + route-level checks for mutations)
 app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BILLING_STAFF', 'PATIENT'), billingRoutes);
+app.use('/api/v1/billing/v2', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'NURSING_STAFF', 'DOCTOR'), billingV2Routes);
 app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), revenueCycleRoutes);
 
 // Quality & Infection Control (route-level role checks)
