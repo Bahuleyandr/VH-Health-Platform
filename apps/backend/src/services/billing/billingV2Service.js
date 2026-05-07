@@ -26,7 +26,7 @@ const VALID_REFUND_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'PAID'];
 // Helpers
 // ───────────────────────────────────────────────────────────────────────
 
-function fiscalYearOf(date = new Date()) {
+export function fiscalYearOf(date = new Date()) {
   // Indian FY: Apr 1 → Mar 31. Apr-Dec returns the calendar year;
   // Jan-Mar returns previous calendar year.
   const month = date.getUTCMonth() + 1;
@@ -45,7 +45,7 @@ function toFixed2(n) {
  * evenly between CGST + SGST. Otherwise it's a single IGST line. State
  * is compared case-insensitively after trim.
  */
-function splitGst({ subtotal, gstRate, patientState, hospitalState }) {
+export function splitGst({ subtotal, gstRate, patientState, hospitalState }) {
   const taxable = toFixed2(subtotal);
   const taxAmount = toFixed2((taxable * Number(gstRate || 0)) / 100);
   const sameState = (patientState || '').trim().toLowerCase() ===

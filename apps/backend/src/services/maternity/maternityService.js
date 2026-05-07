@@ -236,7 +236,7 @@ export async function listActiveLaborAdmissions({ tenantId, limit = 50 }) {
  * If the actual reading is at or below the expected dilation for the
  * given elapsed time, flag alert/action.
  */
-function computePartographAlerts({ activePhaseStartedAt, recordedAt, dilationCm }) {
+export function computePartographAlerts({ activePhaseStartedAt, recordedAt, dilationCm }) {
   if (!activePhaseStartedAt || !recordedAt || dilationCm == null) {
     return { on_alert_line: null, on_action_line: null };
   }
