@@ -95,6 +95,7 @@ const navSections: NavSection[] = [
       { name: "Discharge Summaries", href: "/dashboard/discharge-summaries" },
       { name: "ED Tracker",          href: "/dashboard/ed-tracker" },
       { name: "MAR (5-rights)",      href: "/dashboard/mar" },
+      { name: "Nursing Assessments", href: "/dashboard/nursing-assessments" },
       { name: "Beds",                href: "/dashboard/beds" },
       { name: "Immunisations",       href: "/dashboard/immunisations" },
     ],
