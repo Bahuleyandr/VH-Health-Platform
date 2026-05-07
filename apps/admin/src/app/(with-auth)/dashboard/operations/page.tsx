@@ -1,12 +1,11 @@
 // src/app/(with-auth)/dashboard/operations/page.tsx
 //
-// Daily Operations Snapshot — Sprint 9. Single-screen morning-huddle
-// view that hits the bi_daily_ops_snapshot view via
+// Daily Operations Snapshot — Sprint 9. Hits bi_daily_ops_snapshot via
 // GET /api/v1/dashboards/snapshot/daily-ops. Auto-refreshes every 60s.
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { MetricCard } from "@/components/MetricCard";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
@@ -23,6 +22,10 @@ interface DailyOpsSnapshot {
   claims_outstanding: number;
 }
 
+function unwrap<T>(r: unknown): T {
+  return ((r as { data?: T }).data ?? r) as T;
+}
+
 function fmtINR(n: number | string | null | undefined): string {
   const num = Number(n ?? 0);
   if (!Number.isFinite(num)) return "₹0";
@@ -34,32 +37,20 @@ function fmtINR(n: number | string | null | undefined): string {
 }
 
 export default function OperationsPage() {
-  const [snapshot, setSnapshot] = useState<DailyOpsSnapshot | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-
-  const fetchSnapshot = useCallback(async () => {
-    setError(null);
-    try {
-      const r = await fetchAdminAPI<{ data: DailyOpsSnapshot } | DailyOpsSnapshot>(
-        "/dashboards/snapshot/daily-ops",
-      );
-      const data = (r as { data?: DailyOpsSnapshot }).data ?? (r as DailyOpsSnapshot);
-      setSnapshot(data);
-      setLastUpdated(new Date());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load snapshot");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchSnapshot();
-    const interval = setInterval(fetchSnapshot, 60_000);
-    return () => clearInterval(interval);
-  }, [fetchSnapshot]);
+  const {
+    data: snapshot,
+    error,
+    isLoading,
+    refetch,
+    dataUpdatedAt,
+  } = useQuery<DailyOpsSnapshot>({
+    queryKey: ["dashboards", "daily-ops"],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<unknown>("/dashboards/snapshot/daily-ops");
+      return unwrap<DailyOpsSnapshot>(r);
+    },
+    refetchInterval: 60_000,
+  });
 
   return (
     <div className="p-6 space-y-6">
@@ -71,13 +62,13 @@ export default function OperationsPage() {
           </p>
         </div>
         <div className="text-xs text-muted-foreground">
-          {lastUpdated ? (
-            <>Updated {lastUpdated.toLocaleTimeString()}</>
+          {dataUpdatedAt ? (
+            <>Updated {new Date(dataUpdatedAt).toLocaleTimeString()}</>
           ) : (
             <>—</>
           )}
           <button
-            onClick={fetchSnapshot}
+            onClick={() => refetch()}
             className="ml-3 px-3 py-1.5 rounded-md border text-foreground hover:bg-muted text-xs"
           >
             Refresh now
@@ -87,11 +78,11 @@ export default function OperationsPage() {
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {error}
+          {error instanceof Error ? error.message : "Failed to load snapshot"}
         </div>
       )}
 
-      {loading && !snapshot ? (
+      {isLoading && !snapshot ? (
         <LoadingSpinner />
       ) : snapshot ? (
         <>

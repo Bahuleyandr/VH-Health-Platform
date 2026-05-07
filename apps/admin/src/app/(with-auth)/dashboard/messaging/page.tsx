@@ -6,7 +6,12 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -61,100 +66,97 @@ const STATUS_COLOURS: Record<string, string> = {
   closed: "bg-slate-200 text-slate-600",
 };
 
+function unwrap<T>(r: unknown): T {
+  return ((r as { data?: T }).data ?? r) as T;
+}
+
 function fmtTs(s: string | null): string {
   if (!s) return "—";
   return new Date(s).toLocaleString();
 }
 
 export default function MessagingPage() {
-  const [threads, setThreads] = useState<ThreadSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
   const [statusFilter, setStatusFilter] = useState("awaiting_staff");
   const [priorityFilter, setPriorityFilter] = useState("");
   const [open, setOpen] = useState<number | null>(null);
-  const [detail, setDetail] = useState<ThreadDetail | null>(null);
   const [reply, setReply] = useState("");
-  const [posting, setPosting] = useState(false);
 
-  const fetchThreads = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  // Inbox query — auto-refresh every 60s.
+  const {
+    data: threads = [],
+    error: inboxError,
+    isLoading: inboxLoading,
+  } = useQuery<ThreadSummary[]>({
+    queryKey: ["staff-messaging", "inbox", { statusFilter, priorityFilter }],
+    queryFn: async () => {
       const params = new URLSearchParams({ limit: "100" });
       if (statusFilter) params.set("status", statusFilter);
       if (priorityFilter) params.set("priority", priorityFilter);
-      const r = await fetchAdminAPI<{ data: ThreadSummary[] } | ThreadSummary[]>(
+      const r = await fetchAdminAPI<unknown>(
         `/staff-messaging/inbox?${params.toString()}`,
       );
-      const data = (r as { data?: ThreadSummary[] }).data ?? (r as ThreadSummary[]);
-      setThreads(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load inbox");
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, priorityFilter]);
+      const data = unwrap<ThreadSummary[]>(r);
+      return Array.isArray(data) ? data : [];
+    },
+    refetchInterval: 60_000,
+  });
 
-  useEffect(() => {
-    fetchThreads();
-    const i = setInterval(fetchThreads, 60_000);
-    return () => clearInterval(i);
-  }, [fetchThreads]);
-
-  const fetchDetail = useCallback(async (id: number) => {
-    setDetail(null);
-    try {
-      const r = await fetchAdminAPI<{ data: ThreadDetail } | ThreadDetail>(
-        `/staff-messaging/threads/${id}`,
+  // Detail query for the open thread.
+  const {
+    data: detail,
+    isLoading: detailLoading,
+  } = useQuery<ThreadDetail | null>({
+    queryKey: ["staff-messaging", "thread", open],
+    queryFn: async () => {
+      if (open === null) return null;
+      const r = await fetchAdminAPI<unknown>(
+        `/staff-messaging/threads/${open}`,
       );
-      const data = (r as { data?: ThreadDetail }).data ?? (r as ThreadDetail);
-      setDetail(data);
-      // Mark read on view.
-      await fetchAdminAPI(`/staff-messaging/threads/${id}/read`, {
-        method: "POST",
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load thread");
-    }
-  }, []);
+      return unwrap<ThreadDetail>(r);
+    },
+    enabled: open !== null,
+  });
 
+  // Side-effect: mark read on view (one-shot, fire-and-forget).
   useEffect(() => {
-    if (open !== null) fetchDetail(open);
-  }, [open, fetchDetail]);
-
-  async function postReply() {
-    if (!open || !reply.trim()) return;
-    setPosting(true);
-    setError(null);
-    try {
-      await fetchAdminAPI(`/staff-messaging/threads/${open}/reply`, {
+    if (open === null) return;
+    (async () => {
+      await fetchAdminAPI(`/staff-messaging/threads/${open}/read`, {
         method: "POST",
-        body: JSON.stringify({ body: reply.trim() }),
-      });
-      setReply("");
-      await fetchDetail(open);
-      await fetchThreads();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Reply failed");
-    } finally {
-      setPosting(false);
-    }
-  }
+      }).catch(() => {});
+      qc.invalidateQueries({ queryKey: ["staff-messaging", "inbox"] });
+    })();
+  }, [open, qc]);
 
-  async function setStatus(status: string) {
-    if (!open) return;
-    try {
-      await fetchAdminAPI(`/staff-messaging/threads/${open}/status`, {
+  const replyMutation = useMutation({
+    mutationFn: async (body: string) => {
+      if (open === null) throw new Error("No thread open");
+      return fetchAdminAPI(`/staff-messaging/threads/${open}/reply`, {
+        method: "POST",
+        body: JSON.stringify({ body }),
+      });
+    },
+    onSuccess: () => {
+      setReply("");
+      qc.invalidateQueries({ queryKey: ["staff-messaging", "thread", open] });
+      qc.invalidateQueries({ queryKey: ["staff-messaging", "inbox"] });
+    },
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: async (status: string) => {
+      if (open === null) throw new Error("No thread open");
+      return fetchAdminAPI(`/staff-messaging/threads/${open}/status`, {
         method: "POST",
         body: JSON.stringify({ status }),
       });
-      await fetchDetail(open);
-      await fetchThreads();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Status change failed");
-    }
-  }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["staff-messaging", "thread", open] });
+      qc.invalidateQueries({ queryKey: ["staff-messaging", "inbox"] });
+    },
+  });
 
   const counts = useMemo(() => {
     const byStatus = threads.reduce<Record<string, number>>((acc, t) => {
@@ -163,6 +165,8 @@ export default function MessagingPage() {
     }, {});
     return byStatus;
   }, [threads]);
+
+  const error = inboxError ?? replyMutation.error ?? statusMutation.error;
 
   return (
     <div className="p-6 grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-6 h-[calc(100vh-100px)]">
@@ -215,11 +219,11 @@ export default function MessagingPage() {
 
         {error && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive mb-2">
-            {error}
+            {error instanceof Error ? error.message : String(error)}
           </div>
         )}
 
-        {loading ? (
+        {inboxLoading ? (
           <LoadingSpinner />
         ) : threads.length === 0 ? (
           <EmptyState
@@ -281,7 +285,7 @@ export default function MessagingPage() {
               compact
             />
           </div>
-        ) : !detail ? (
+        ) : detailLoading || !detail ? (
           <LoadingSpinner />
         ) : (
           <>
@@ -296,14 +300,16 @@ export default function MessagingPage() {
                 </div>
                 <div className="flex gap-1 flex-wrap">
                   <button
-                    onClick={() => setStatus("resolved")}
-                    className="px-2 py-1 rounded border text-xs hover:bg-muted"
+                    onClick={() => statusMutation.mutate("resolved")}
+                    disabled={statusMutation.isPending}
+                    className="px-2 py-1 rounded border text-xs hover:bg-muted disabled:opacity-40"
                   >
                     Resolve
                   </button>
                   <button
-                    onClick={() => setStatus("closed")}
-                    className="px-2 py-1 rounded border text-xs hover:bg-muted"
+                    onClick={() => statusMutation.mutate("closed")}
+                    disabled={statusMutation.isPending}
+                    className="px-2 py-1 rounded border text-xs hover:bg-muted disabled:opacity-40"
                   >
                     Close
                   </button>
@@ -367,11 +373,11 @@ export default function MessagingPage() {
               />
               <div className="mt-2 flex justify-end">
                 <button
-                  onClick={postReply}
-                  disabled={!reply.trim() || posting}
+                  onClick={() => reply.trim() && replyMutation.mutate(reply.trim())}
+                  disabled={!reply.trim() || replyMutation.isPending}
                   className="px-4 py-2 rounded-md bg-foreground text-background text-sm disabled:opacity-40"
                 >
-                  {posting ? "Sending…" : "Send"}
+                  {replyMutation.isPending ? "Sending…" : "Send"}
                 </button>
               </div>
             </div>

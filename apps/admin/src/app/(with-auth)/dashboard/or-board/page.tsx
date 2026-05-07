@@ -4,12 +4,11 @@
 // surgical cases. Shows scheduled cases per room with checklist
 // progress, WHO 3-phase safety status, intra/postop note counts and
 // open complication alerts. Auto-refreshes every 60s.
-//
-// Hits GET /api/v1/theatre/board (orBoardService.getOrBoard).
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { fetchAdminAPI } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { EmptyState } from "@/components/EmptyState";
@@ -66,6 +65,10 @@ const STATUS_COLOURS: Record<OrBoardCase["status"], string> = {
   cancelled: "bg-rose-100 text-rose-800",
 };
 
+function unwrap<T>(r: unknown): T {
+  return ((r as { data?: T }).data ?? r) as T;
+}
+
 function todayIso(): string {
   return new Date().toISOString().split("T")[0]!;
 }
@@ -85,58 +88,43 @@ function PhaseDot({ done }: { done: boolean | null }) {
 
 function fmtTime(t: string | null): string {
   if (!t) return "—";
-  // Postgres TIME comes through as "08:30:00"; show only HH:MM.
   return t.slice(0, 5);
 }
 
 export default function OrBoardPage() {
   const [date, setDate] = useState<string>(todayIso());
   const [room, setRoom] = useState<string>("");
-  const [board, setBoard] = useState<OrBoardResponse | null>(null);
-  const [rooms, setRooms] = useState<OrRoom[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const fetchRooms = useCallback(async () => {
-    try {
-      const r = await fetchAdminAPI<{ data: OrRoom[] } | OrRoom[]>("/theatre/rooms");
-      const data = (r as { data?: OrRoom[] }).data ?? (r as OrRoom[]);
-      setRooms(Array.isArray(data) ? data : []);
-    } catch {
-      // Non-fatal — board still works without the room filter.
-    }
-  }, []);
+  const { data: rooms = [] } = useQuery<OrRoom[]>({
+    queryKey: ["theatre", "rooms"],
+    queryFn: async () => {
+      const r = await fetchAdminAPI<unknown>("/theatre/rooms");
+      const arr = unwrap<OrRoom[]>(r);
+      return Array.isArray(arr) ? arr : [];
+    },
+    staleTime: 5 * 60 * 1000, // rooms change rarely
+  });
 
-  const fetchBoard = useCallback(async () => {
-    setError(null);
-    try {
+  const {
+    data: board,
+    error,
+    isLoading,
+    refetch,
+    dataUpdatedAt,
+  } = useQuery<OrBoardResponse>({
+    queryKey: ["theatre", "board", { date, room }],
+    queryFn: async () => {
       const params = new URLSearchParams({ date });
       if (room) params.set("ot_room", room);
-      const r = await fetchAdminAPI<{ data: OrBoardResponse } | OrBoardResponse>(
+      const r = await fetchAdminAPI<unknown>(
         `/theatre/board?${params.toString()}`,
       );
-      const data = (r as { data?: OrBoardResponse }).data ?? (r as OrBoardResponse);
-      setBoard(data);
-      setLastUpdated(new Date());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load OR board");
-    } finally {
-      setLoading(false);
-    }
-  }, [date, room]);
+      return unwrap<OrBoardResponse>(r);
+    },
+    refetchInterval: 60_000,
+  });
 
-  useEffect(() => {
-    fetchRooms();
-  }, [fetchRooms]);
-
-  useEffect(() => {
-    fetchBoard();
-    const interval = setInterval(fetchBoard, 60_000);
-    return () => clearInterval(interval);
-  }, [fetchBoard]);
-
-  // Group cases by room so the table reads room-by-room.
+  // Group cases by room.
   const grouped = useMemo(() => {
     if (!board) return [] as Array<{ room: string; cases: OrBoardCase[] }>;
     const m = new Map<string, OrBoardCase[]>();
@@ -177,9 +165,9 @@ export default function OrBoardPage() {
           </p>
         </div>
         <div className="text-xs text-muted-foreground">
-          {lastUpdated ? <>Updated {lastUpdated.toLocaleTimeString()}</> : <>—</>}
+          {dataUpdatedAt ? <>Updated {new Date(dataUpdatedAt).toLocaleTimeString()}</> : <>—</>}
           <button
-            onClick={fetchBoard}
+            onClick={() => refetch()}
             className="ml-3 px-3 py-1.5 rounded-md border text-foreground hover:bg-muted text-xs"
           >
             Refresh now
@@ -223,7 +211,7 @@ export default function OrBoardPage() {
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {error}
+          {error instanceof Error ? error.message : "Failed to load OR board"}
         </div>
       )}
 
@@ -262,7 +250,7 @@ export default function OrBoardPage() {
       )}
 
       {/* Board */}
-      {loading && !board ? (
+      {isLoading && !board ? (
         <LoadingSpinner />
       ) : board && board.cases.length === 0 ? (
         <EmptyState
