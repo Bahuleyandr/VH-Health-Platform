@@ -405,21 +405,60 @@ class BillingService {
   }
 
   /**
-   * Update insurance claim status
+   * Update insurance claim status. The 4th arg may be a plain string
+   * (legacy: rejection_reason text) OR an options object with
+   * { documents, payment_reference, actor_uid } so callers can persist
+   * partial-approval caps and payment evidence. Both shapes are accepted
+   * for backward compat.
    */
-  async updateClaimStatus(claimId, status, approvedAmount = null, reason = null) {
+  async updateClaimStatus(claimId, status, approvedAmount = null, reasonOrOpts = null) {
     if (!claimId) throw AppError.badRequest('Claim ID is required');
     if (!status || !VALID_CLAIM_STATUSES.includes(status)) {
       throw AppError.badRequest(`Invalid status. Must be one of: ${VALID_CLAIM_STATUSES.join(', ')}`);
     }
 
+    const opts = (reasonOrOpts && typeof reasonOrOpts === 'object')
+      ? reasonOrOpts
+      : { documents: undefined, payment_reference: undefined, actor_uid: null, _legacyReason: reasonOrOpts };
+    const reason = opts._legacyReason ?? opts.rejection_reason ?? null;
+    const documentsPatch = opts.documents;
+    const paymentReference = opts.payment_reference ?? null;
+
     const existing = await prisma.insurance_claims.findUnique({
       where: { id: claimId },
-      select: { id: true },
+      select: { id: true, documents: true, status: true },
     });
     if (!existing) throw AppError.notFound('Insurance claim not found');
 
-    const reviewedAt = ['approved', 'partially_approved', 'rejected'].includes(status)
+    // Merge partial-approval caps and other structured payload bits into
+    // the existing `documents` jsonb instead of overwriting. Caller can
+    // pass `documents: null` to explicitly clear. See finding
+    // 2026-05-08-tpa-insurance-claim-billing-claim-update-drops-fields.
+    let mergedDocuments = existing.documents ?? null;
+    if (documentsPatch !== undefined) {
+      if (documentsPatch === null) {
+        mergedDocuments = null;
+      } else if (typeof documentsPatch === 'object' && !Array.isArray(documentsPatch)) {
+        mergedDocuments = { ...(existing.documents ?? {}), ...documentsPatch };
+      } else {
+        mergedDocuments = documentsPatch;
+      }
+    }
+    // Stamp the payment reference + actor inside `documents` so we have an
+    // audit trail without a separate column. Real ledger linkage can be
+    // wired through payment_transactions in a follow-up.
+    if (status === 'paid' && paymentReference) {
+      mergedDocuments = {
+        ...(typeof mergedDocuments === 'object' && mergedDocuments !== null ? mergedDocuments : {}),
+        payment: {
+          reference: paymentReference,
+          recorded_by: opts.actor_uid ?? null,
+          recorded_at: new Date().toISOString(),
+        },
+      };
+    }
+
+    const reviewedAt = ['approved', 'partially_approved', 'rejected', 'paid'].includes(status)
       ? new Date()
       : null;
     const now = new Date();
@@ -430,6 +469,7 @@ class BillingService {
         status,
         approved_amount: approvedAmount ?? null,
         rejection_reason: reason ?? null,
+        documents: mergedDocuments,
         reviewed_at: reviewedAt,
         updated_at: now,
       },
