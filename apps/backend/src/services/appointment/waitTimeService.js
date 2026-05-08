@@ -1,18 +1,41 @@
 // src/services/appointment/waitTimeService.js
 // Migrated from raw pg to Prisma ORM
+//
+// `appointments` does NOT have `started_at` / `completed_at` columns —
+// status transitions are tracked in `appointment_status_history` (see
+// appointmentWorkflowController.js comment: "no confirmed_by, no
+// confirmation_notes, no no_show_at, no completed_at"). Average
+// consult duration is therefore computed from the audit-log timestamps
+// of the IN_PROGRESS → COMPLETED transitions for a doctor on the given
+// date.
 
 import prisma from '../../lib/prisma.js';
 
 export async function estimateWaitTime(doctorId, date) {
   const rows = await prisma.$queryRaw`
+    WITH today_appts AS (
+      SELECT id, status
+      FROM appointments
+      WHERE doctor_id = ${parseInt(doctorId)}
+        AND DATE(appointment_date) = ${date}::date
+    ),
+    consult_durations AS (
+      SELECT a.id,
+             MIN(h.created_at) FILTER (WHERE h.to_status = 'IN_PROGRESS') AS started_at,
+             MIN(h.created_at) FILTER (WHERE h.to_status = 'COMPLETED')   AS completed_at
+      FROM today_appts a
+      JOIN appointment_status_history h ON h.appointment_id = a.id
+      WHERE a.status = 'COMPLETED'
+      GROUP BY a.id
+    )
     SELECT
-      COUNT(*) FILTER (WHERE status IN ('CONFIRMED', 'SCHEDULED'))::int AS waiting,
-      COUNT(*) FILTER (WHERE status = 'IN_PROGRESS')::int               AS in_progress,
-      AVG(
-        EXTRACT(EPOCH FROM (completed_at - started_at)) / 60
-      ) FILTER (WHERE status = 'COMPLETED' AND completed_at IS NOT NULL) AS avg_consult_minutes
-    FROM appointments
-    WHERE doctor_id = ${parseInt(doctorId)} AND DATE(appointment_date) = ${date}::date
+      (SELECT COUNT(*)::int FROM today_appts WHERE status IN ('CONFIRMED', 'SCHEDULED')) AS waiting,
+      (SELECT COUNT(*)::int FROM today_appts WHERE status = 'IN_PROGRESS')               AS in_progress,
+      (
+        SELECT AVG(EXTRACT(EPOCH FROM (completed_at - started_at)) / 60)
+        FROM consult_durations
+        WHERE started_at IS NOT NULL AND completed_at IS NOT NULL
+      ) AS avg_consult_minutes
   `;
 
   const stats = rows[0];
@@ -84,14 +107,26 @@ export async function getWaitingQueueForDoctor(doctorId, date) {
         AND DATE(appointment_date) = ${date}::date
         AND status IN ('CONFIRMED', 'SCHEDULED')
     ),
-    consult AS (
-      SELECT
-        COUNT(*) FILTER (WHERE status = 'IN_PROGRESS')::int AS in_progress,
-        AVG(EXTRACT(EPOCH FROM (completed_at - started_at)) / 60)
-          FILTER (WHERE status = 'COMPLETED' AND completed_at IS NOT NULL) AS avg_min
+    completed_today AS (
+      SELECT id
       FROM appointments
       WHERE doctor_id = ${parseInt(doctorId)}
         AND DATE(appointment_date) = ${date}::date
+        AND status = 'COMPLETED'
+    ),
+    consult_durations AS (
+      SELECT a.id,
+             MIN(h.created_at) FILTER (WHERE h.to_status = 'IN_PROGRESS') AS started_at,
+             MIN(h.created_at) FILTER (WHERE h.to_status = 'COMPLETED')   AS completed_at
+      FROM completed_today a
+      JOIN appointment_status_history h ON h.appointment_id = a.id
+      GROUP BY a.id
+    ),
+    consult AS (
+      SELECT
+        AVG(EXTRACT(EPOCH FROM (completed_at - started_at)) / 60) AS avg_min
+      FROM consult_durations
+      WHERE started_at IS NOT NULL AND completed_at IS NOT NULL
     )
     SELECT w.id, w.patient_id, w.token_number,
            (SELECT COUNT(*) FROM waiting w2 WHERE w2.token_number < w.token_number)::int AS position,
