@@ -584,6 +584,12 @@ function syncSchema() {
     CREATE SCHEMA public;
     CREATE EXTENSION IF NOT EXISTS pgcrypto;
     CREATE SEQUENCE IF NOT EXISTS _migrations_id_seq;
+    -- Sequences referenced by dbgenerated() defaults in schema.prisma but
+    -- created by hybrid SQL migrations (145). prisma db push validates the
+    -- defaults before migrations run, so pre-create them here. Migration
+    -- 145 uses IF NOT EXISTS, so re-running it remains a no-op.
+    CREATE SEQUENCE IF NOT EXISTS housekeeping_log_number_seq;
+    CREATE SEQUENCE IF NOT EXISTS housekeeping_request_number_seq;
   `);
   ensurePgvectorExtension();
 

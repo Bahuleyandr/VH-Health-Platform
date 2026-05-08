@@ -218,7 +218,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           JOIN users d ON doc.user_id = d.id
           JOIN departments dept ON doc.department_id = dept.id
           ${whereClause}
-        `, params);
+        `, ...params);
 
         const totalCount = parseInt(countResult[0].count);
 

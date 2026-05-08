@@ -24,7 +24,13 @@ try {
 
   await client.query('CREATE EXTENSION IF NOT EXISTS vector');
   await client.query('CREATE SEQUENCE IF NOT EXISTS _migrations_id_seq');
-  console.log('pgvector extension and Prisma bootstrap sequence are ready.');
+  // schema.prisma references these sequences in @default(dbgenerated())
+  // expressions; prisma db push validates the defaults before raw
+  // migrations run, so they must exist beforehand. Migration 145 uses
+  // CREATE SEQUENCE IF NOT EXISTS, so it remains a no-op when re-run.
+  await client.query('CREATE SEQUENCE IF NOT EXISTS housekeeping_log_number_seq');
+  await client.query('CREATE SEQUENCE IF NOT EXISTS housekeeping_request_number_seq');
+  console.log('pgvector extension and Prisma bootstrap sequences are ready.');
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;

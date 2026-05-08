@@ -16,14 +16,32 @@ if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
-// Define log format (includes metadata so extra args are not silently dropped)
-const logFormat = format.printf(({ timestamp, level, message, ...meta }) => {
+// Define log format (includes metadata so extra args are not silently dropped).
+// Inline Error instances explicitly so stack/message survive — JSON.stringify
+// drops both on plain Error objects, which is how `logger.error('foo', err)`
+// silently swallowed the underlying Postgres exception in the smoke pipeline.
+const logFormat = format.printf(({ timestamp, level, message, stack, ...meta }) => {
+  for (const k of Object.keys(meta)) {
+    const v = meta[k];
+    if (v instanceof Error) {
+      meta[k] = { message: v.message, code: v.code, stack: v.stack };
+    }
+  }
   const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
-  return `[${timestamp}] ${level}: ${message}${metaStr}`;
+  const stackStr = stack ? `\n${stack}` : '';
+  return `[${timestamp}] ${level}: ${message}${metaStr}${stackStr}`;
 });
 
 const isTest = process.env.NODE_ENV === 'test';
 const isProduction = process.env.NODE_ENV === 'production';
+
+// In test mode, still surface ERROR-level logs to the console — Jest unit
+// tests stay quiet (almost nothing logs at error level under happy paths)
+// but the smoke E2E pipeline can see backend exceptions instead of getting a
+// generic "Failed to fetch ..." with no stack. File transports stay silent
+// to keep the logs/ dir clean across test runs.
+const consoleSilent = false;
+const fileTransportsSilent = isTest;
 
 // Structured (JSON) output for production log aggregators (CloudWatch/Loki/
 // Datadog). Opt-in via LOG_FORMAT=json or enabled by default in production so
@@ -37,12 +55,12 @@ const fileFormat = useJson
 // Create Winston logger instance
 const logger = createLogger({
   level: isTest ? 'error' : 'debug',
-  silent: isTest,
   format: format.combine(format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }), logFormat),
   transports: [
-    // Console logger with color
+    // Console logger with color. In test, the parent logger's `level: 'error'`
+    // already filters out info/debug noise, so we keep this transport on.
     new transports.Console({
-      silent: isTest,
+      silent: consoleSilent,
       format: format.combine(
         format.colorize(),
         format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
@@ -55,12 +73,12 @@ const logger = createLogger({
       filename: path.join(logsDir, 'error.log'),
       level: 'error',
       format: fileFormat,
-      silent: isTest
+      silent: fileTransportsSilent
     }),
     new transports.File({
       filename: path.join(logsDir, 'combined.log'),
       format: fileFormat,
-      silent: isTest
+      silent: fileTransportsSilent
     }),
 
     // Daily rotated .gz compressed logs
@@ -72,7 +90,7 @@ const logger = createLogger({
       maxSize: '20m',
       maxFiles: '90d', // retain logs for 90 days
       format: fileFormat,
-      silent: isTest
+      silent: fileTransportsSilent
     })
   ]
 });

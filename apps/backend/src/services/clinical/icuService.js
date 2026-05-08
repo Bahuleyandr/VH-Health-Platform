@@ -53,7 +53,7 @@ export async function createAdmission({ tenantId, ...body }) {
 }
 
 export async function listAdmissions({ tenantId, status, unit_code, limit = 100 }) {
-  const conds = ['tenant_id = $1'];
+  const conds = ['tenant_id = $1::uuid'];
   const args = [tenantOr(tenantId)];
   if (status) { args.push(status); conds.push(`status = $${args.length}`); }
   if (unit_code) { args.push(unit_code); conds.push(`unit_code = $${args.length}`); }
@@ -70,7 +70,7 @@ export async function listAdmissions({ tenantId, status, unit_code, limit = 100 
 
 export async function getAdmission({ tenantId, id }) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM icu_admissions WHERE id = $1 AND tenant_id = $2`,
+    `SELECT * FROM icu_admissions WHERE id = $1 AND tenant_id = $2::uuid`,
     parseInt(id, 10), tenantOr(tenantId));
   const row = unwrap(rows);
   if (!row) throw AppError.notFound('ICU admission not found');
@@ -85,7 +85,7 @@ export async function updateAdmissionCodeStatus({ tenantId, id, code_status, set
     UPDATE icu_admissions
     SET code_status = $1, code_status_set_at = NOW(), code_status_set_by = $2,
         updated_at = NOW()
-    WHERE id = $3 AND tenant_id = $4
+    WHERE id = $3 AND tenant_id = $4::uuid
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
     code_status, set_by || null, parseInt(id, 10), tenantOr(tenantId));
@@ -104,7 +104,7 @@ export async function dischargeAdmission({ tenantId, id, disposition, outcome_no
         discharge_disposition = $1,
         outcome_notes = $2,
         updated_at = NOW()
-    WHERE id = $3 AND tenant_id = $4
+    WHERE id = $3 AND tenant_id = $4::uuid
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
     disposition, outcome_notes || null, parseInt(id, 10), tenantOr(tenantId));
@@ -379,7 +379,7 @@ export async function getBundle({ icu_admission_id, bundle_date }) {
 export async function bundle30dCompliance({ tenantId }) {
   const sql = `
     SELECT * FROM icu_bundle_30d
-    WHERE tenant_id = $1
+    WHERE tenant_id = $1::uuid
     ORDER BY bundle_date DESC`;
   return prisma.$queryRawUnsafe(sql, tenantOr(tenantId));
 }

@@ -44,6 +44,23 @@ const ALLOWED_PATH_PREFIXES = [
   "api/v1/abdm",
   "api/v1/radiology",
   "api/v1/quality",
+  "api/v1/dashboards",
+  "api/v1/death-certification",
+  "api/v1/anesthesia",
+  "api/v1/clinical",
+  "api/v1/dialysis",
+  "api/v1/icu",
+  "api/v1/lab",
+  "api/v1/microbiology",
+  "api/v1/nursing-assessments",
+  "api/v1/pmjay",
+  "api/v1/discharge-summaries",
+  "api/v1/insurance",
+  "api/v1/maternity",
+  "api/v1/pcpndt",
+  "api/v1/pharmacy-orders",
+  "api/v1/productivity",
+  "api/v1/staff-messaging",
 ];
 
 // Headers that must not be forwarded by proxies

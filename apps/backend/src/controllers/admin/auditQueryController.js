@@ -22,8 +22,8 @@ export const getAuditLogs = async (req, res) => {
     if (method)                         { conditions.push(`al.method = $${idx++}`); params.push(method.toUpperCase()); }
     if (status_code)                    { conditions.push(`al.status_code = $${idx++}`); params.push(parseInt(status_code)); }
     if (successFilter !== undefined)    { conditions.push(`al.success = $${idx++}`); params.push(successFilter === 'true'); }
-    if (from)                           { conditions.push(`al.created_at >= $${idx++}`); params.push(from); }
-    if (to)                             { conditions.push(`al.created_at <= $${idx++}`); params.push(to); }
+    if (from)                           { conditions.push(`al.created_at >= $${idx++}::timestamptz`); params.push(from); }
+    if (to)                             { conditions.push(`al.created_at <= $${idx++}::timestamptz`); params.push(to); }
     if (search) {
       conditions.push(`(al.path ILIKE $${idx} OR al.action ILIKE $${idx} OR al.user_name ILIKE $${idx})`);
       params.push(`%${search}%`);
@@ -45,11 +45,11 @@ export const getAuditLogs = async (req, res) => {
       ${where}
       ORDER BY al.created_at DESC
       LIMIT $${idx} OFFSET $${idx + 1}
-    `, params);
+    `, ...params);
 
     const countResult = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM audit_log al ${where}`,
-      params.slice(0, -2)
+      ...params.slice(0, -2)
     );
 
     success(res, {

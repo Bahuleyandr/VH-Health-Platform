@@ -145,7 +145,7 @@ export const getAttendanceHistory = async (staffId, { startDate, endDate, page, 
     ),
     prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM staff_attendance ${whereClause}`,
-      params
+      ...params
     )
   ]);
   

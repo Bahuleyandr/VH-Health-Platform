@@ -28,7 +28,15 @@ const files = walk('src');
 // The `[` must start the second positional arg — we approximate with a look
 // for `(...),\s*\[` on the same logical line. Template-literal `...\``
 // variants are safe; only `$queryRawUnsafe`/`$executeRawUnsafe` are risky.
+//
+// We also flag the dynamic form `.$queryRawUnsafe(sql, params)` where the
+// second-and-only positional arg is a bare identifier whose name implies an
+// array (`params`, `values`, `args`, or any name ending in `Params`/`Values`/
+// `Args` — case insensitive). The audit controller bug (auditQueryController.js
+// 2026-05-07) hid behind this exact form: the named array bound as a single
+// value, every $2+ placeholder went unbound, audit-explorer 500'd in CI smoke.
 let offenders = 0;
+const ARRAY_NAME_RE = /^(params|values|args|[a-z][a-zA-Z0-9_]*(?:Params|Values|Args))$/;
 for (const file of files) {
   const src = readFileSync(file, 'utf8');
   // Walk each `$queryRawUnsafe(` / `$executeRawUnsafe(` occurrence and check
@@ -40,12 +48,13 @@ for (const file of files) {
     let depth = 1;
     let i = m.index + m[0].length;
     let firstArgEnd = -1;
+    let closeParen = -1;
     while (i < src.length && depth > 0) {
       const c = src[i];
       if (c === '(') depth++;
       else if (c === ')') {
         depth--;
-        if (depth === 0) break;
+        if (depth === 0) { closeParen = i; break; }
       } else if (c === ',' && depth === 1 && firstArgEnd === -1) {
         firstArgEnd = i;
       }
@@ -59,7 +68,28 @@ for (const file of files) {
       const lineNumber = src.slice(0, m.index).split('\n').length;
       console.error(`✗ ${file}:${lineNumber} — prisma.${m[1]}(sql, [array]) — use spread (...args)`);
       offenders++;
+      continue;
     }
+    // Bare-identifier check: extract the second positional arg as the slice
+    // from `j` to the next top-level comma or the close paren.
+    let depth2 = 0;
+    let secondArgEnd = closeParen;
+    for (let k = j; k < closeParen; k++) {
+      const c = src[k];
+      if (c === '(' || c === '[' || c === '{') depth2++;
+      else if (c === ')' || c === ']' || c === '}') depth2--;
+      else if (c === ',' && depth2 === 0) { secondArgEnd = k; break; }
+    }
+    const secondArg = src.slice(j, secondArgEnd).trim();
+    // Only flag when the second arg is the SOLE remaining arg AND a bare
+    // array-shaped identifier — not a spread, not a function call, not a
+    // member access (those are intentional / safe call shapes).
+    if (secondArgEnd !== closeParen) continue;
+    if (secondArg.startsWith('...')) continue;
+    if (!ARRAY_NAME_RE.test(secondArg)) continue;
+    const lineNumber = src.slice(0, m.index).split('\n').length;
+    console.error(`✗ ${file}:${lineNumber} — prisma.${m[1]}(sql, ${secondArg}) — bare array-shaped identifier; use spread (...${secondArg})`);
+    offenders++;
   }
 }
 
