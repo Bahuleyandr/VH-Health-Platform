@@ -26,6 +26,10 @@ router.post('/bulk-import', bulkImportValidation, UserController.bulkImportUsers
 // List Users with Advanced Filtering
 router.get('/', searchValidation, UserController.listUsers);
 
+// Authenticated user's own profile. MUST come before /:identifier so
+// `/users/me` doesn't get matched as identifier="me" → UUID cast 500.
+router.get('/me', UserController.getMe);
+
 // Get User by ID/UID
 router.get('/:identifier', userIdValidation, UserController.getUserById);
 

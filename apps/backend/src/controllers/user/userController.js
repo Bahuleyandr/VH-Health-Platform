@@ -56,6 +56,28 @@ export class UserController {
     }
   }
   
+  // Get the currently-authenticated user's own profile. Distinct from
+  // `getUserById('me')` which would slam 'me' into a UUID cast and 500.
+  // See finding 2026-05-08-pediatric-opd-patient-users-me-500.
+  static async getMe(req, res) {
+    try {
+      // Prefer uid for a UUID lookup; fall back to numeric id when the
+      // token only carries an int (rare, but happens for legacy sessions).
+      const identifier = req.user?.uid || (req.user?.id != null ? String(req.user.id) : null);
+      if (!identifier) {
+        return error(res, 'Authenticated user has no uid or id', HTTP_STATUS.UNAUTHORIZED);
+      }
+      const user = await UserService.getUserById(identifier, req.user?.role);
+      if (!user) {
+        return error(res, 'User not found', HTTP_STATUS.NOT_FOUND);
+      }
+      success(res, { user }, 'User retrieved successfully');
+    } catch (err) {
+      logger.error('Get Me Controller Error:', err);
+      error(res, 'Failed to retrieve user', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    }
+  }
+
   // Get user by ID/UID
   static async getUserById(req, res) {
     try {
