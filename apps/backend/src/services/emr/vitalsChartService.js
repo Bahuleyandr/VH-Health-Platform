@@ -52,18 +52,64 @@ const IO_SELECT = {
   recorded_at: true,
 };
 
+// Normalize encounter_id to the schema's `Int?` shape. Accepts:
+//   - undefined / null    → null (orphan vitals — see route-level orphan note)
+//   - integer             → as-is
+//   - numeric string `"2"`→ parseInt
+//   - anything else       → 400 with a helpful message (callers were
+//     previously silently 500ing on `"ENC-…"` strings via Prisma).
+// See finding 2026-05-08-inpatient-admission-nurse-vitals-encounter-id-int-vs-string
+// and 2026-05-08-pediatric-opd-nurse-encounter-id-type-mismatch.
+function normalizeEncounterId(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (typeof raw === 'number' && Number.isInteger(raw)) return raw;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (/^\d+$/.test(trimmed)) return parseInt(trimmed, 10);
+    throw AppError.badRequest(
+      `encounter_id must be an integer or numeric string, got "${trimmed}". Resolve the platform visit_no/token to its integer id before posting vitals.`,
+    );
+  }
+  throw AppError.badRequest('encounter_id must be an integer or numeric string');
+}
+
+// Strip Postgres-incompatible NUL bytes (U+0000) from any free-text we
+// store. The swarm hit this as a UTF8 22021 from somewhere in the
+// sanitiser/body-parser chain when notes were combined with encounter_id;
+// rather than chase the root cause, defensively strip here so no 500
+// reaches the client. See finding
+// 2026-05-08-emergency-walk-in-nurse-vitals-notes-utf8-nul.
+function stripNul(s) {
+  if (s == null || typeof s !== 'string') return s;
+  return s.indexOf('\u0000') === -1 ? s : s.replace(/\u0000/g, '');
+}
+
+// Convert a temperature value to Celsius, given the unit hint. Default unit
+// is `C` to match the threshold table; explicit `F` triggers conversion.
+// See finding 2026-05-08-walk-in-opd-doctor-vitals-temp-ambiguity.
+function toCelsius(value, unit) {
+  if (value === undefined || value === null) return value;
+  const u = String(unit ?? 'C').trim().toUpperCase();
+  if (u === 'F' || u === 'FAHRENHEIT') return ((value - 32) * 5) / 9;
+  return value;
+}
+
 export async function recordVitals(data) {
   const {
     patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp, temperature,
-    spo2, respiratory_rate, blood_glucose, pain_score, weight_kg, height_cm,
-    gcs_score, supplemental_o2, o2_flow_rate, consciousness, notes, recorded_by,
+    temperature_unit, spo2, respiratory_rate, blood_glucose, pain_score, weight_kg,
+    height_cm, gcs_score, supplemental_o2, o2_flow_rate, consciousness, notes,
+    recorded_by,
   } = data;
 
   if (!patient_uid || !recorded_by) {
     throw AppError.badRequest('patient_uid and recorded_by are required');
   }
 
-  const vitalValues = [heart_rate, systolic_bp, diastolic_bp, temperature, spo2,
+  const normalizedEncounterId = normalizeEncounterId(encounter_id);
+  const normalizedTemperature = toCelsius(temperature, temperature_unit);
+
+  const vitalValues = [heart_rate, systolic_bp, diastolic_bp, normalizedTemperature, spo2,
     respiratory_rate, blood_glucose, pain_score, weight_kg, height_cm, gcs_score];
   if (vitalValues.every((v) => v === undefined || v === null)) {
     throw AppError.badRequest('At least one vital sign measurement is required');
@@ -82,11 +128,11 @@ export async function recordVitals(data) {
   const record = await prisma.vitals_chart.create({
     data: {
       patient_uid,
-      encounter_id: encounter_id ?? null,
+      encounter_id: normalizedEncounterId,
       heart_rate: heart_rate ?? null,
       systolic_bp: systolic_bp ?? null,
       diastolic_bp: diastolic_bp ?? null,
-      temperature: temperature ?? null,
+      temperature: normalizedTemperature ?? null,
       spo2: spo2 ?? null,
       respiratory_rate: respiratory_rate ?? null,
       blood_glucose: blood_glucose ?? null,
@@ -97,7 +143,7 @@ export async function recordVitals(data) {
       supplemental_o2: supplemental_o2 ?? false,
       o2_flow_rate: o2_flow_rate ?? null,
       consciousness: consciousness ?? null,
-      notes: notes ?? null,
+      notes: stripNul(notes ?? null),
       recorded_by,
     },
     select: VITAL_SELECT,
