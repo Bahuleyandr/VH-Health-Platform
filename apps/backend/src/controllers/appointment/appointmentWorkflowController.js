@@ -532,12 +532,17 @@ export const registerWalkIn = async (req, res) => {
       }
 
       // Atomic token number — MAX-based to dodge race conditions inside the txn.
-      // token_number is varchar(20), not int, so cast before the arithmetic.
+      // `appointments.token_number` is `integer` per the live schema; the
+      // previous comment + NULLIF/regex guard treated it as varchar and the
+      // `NULLIF(integer_col, '')` cast errored every walk-in with
+      // `invalid input syntax for type integer: ""`. See finding
+      // 2026-05-08-inpatient-admission-receptionist-walkin-token-cast-500.
       const tokenResult = await tx.$queryRawUnsafe(
-        `SELECT COALESCE(MAX(NULLIF(token_number, '')::int), 0) + 1 AS next_token
+        `SELECT COALESCE(MAX(token_number), 0) + 1 AS next_token
          FROM appointments
-         WHERE DATE(appointment_date) = CURRENT_DATE AND confirmed_at IS NOT NULL
-           AND token_number ~ '^[0-9]+$'`,
+         WHERE DATE(appointment_date) = CURRENT_DATE
+           AND confirmed_at IS NOT NULL
+           AND token_number IS NOT NULL`,
       );
       const tokenNumber = String(parseInt(tokenResult[0].next_token));
 
