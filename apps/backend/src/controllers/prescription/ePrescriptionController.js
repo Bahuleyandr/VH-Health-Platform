@@ -309,13 +309,19 @@ export const createPrescription = async (req, res) => {
     // Get creator (staff user) from auth context
     const created_by = req.user?.id || req.user?.userId || null;
 
-    // Insert prescription
+    // Insert prescription.
+    // RETURNING list must reference real columns on `e_prescriptions`. The
+    // table has `clinical_notes` (not `notes`) and has no `patient_uid` /
+    // `doctor_uid` columns — those are joined in via `users.uid` when needed.
+    // See finding 2026-05-08-inpatient-admission-doctor-prescription-create-500.
     const insertResult = await prisma.$queryRawUnsafe(
       `INSERT INTO e_prescriptions
         (appointment_id, patient_id, doctor_id, diagnosis, clinical_notes, medications,
          follow_up_date, follow_up_notes, vitals, handwritten_photo_key, created_by)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::date, $8, $9::jsonb, $10, $11)
-       RETURNING id, appointment_id, patient_id, doctor_id, patient_uid, doctor_uid, medications, notes, status, created_at, prescription_number, diagnosis, clinical_notes, vitals, follow_up_date, follow_up_notes, pdf_key, handwritten_photo_key`,
+       RETURNING id, appointment_id, patient_id, doctor_id, medications, status, created_at,
+                 prescription_number, diagnosis, clinical_notes, vitals,
+                 follow_up_date, follow_up_notes, pdf_key, handwritten_photo_key`,
       appointmentId || null,
       patientId,
       doctorId,
@@ -566,13 +572,21 @@ export const getMyPrescriptions = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 export const getAllPrescriptions = async (req, res) => {
   try {
-    const { doctor_id, from_date, to_date, status, page = 1, limit = 50 } = req.query;
+    const { doctor_id, phone, from_date, to_date, status, page = 1, limit = 50 } = req.query;
     const params = [];
     let where = 'WHERE 1=1';
 
     if (doctor_id) {
       params.push(doctor_id);
       where += ` AND ep.doctor_id = $${params.length}`;
+    }
+    // Phone filter — scope to one patient via the joined users row.
+    // Without this branch the param was silently ignored and the query
+    // returned every patient's prescriptions (PHI leak; finding
+    // 2026-05-08-walk-in-opd-pharmacy-prescription-phone-filter-leaks-all-patients).
+    if (phone) {
+      params.push(phone);
+      where += ` AND p.phone = $${params.length}`;
     }
     if (from_date) {
       params.push(from_date);
