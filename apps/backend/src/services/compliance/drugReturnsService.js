@@ -68,7 +68,7 @@ export async function createBatch({ tenantId, ...body }) {
 
 export async function getBatch({ tenantId, id }) {
   const headRows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM drug_return_batches WHERE id = $1 AND tenant_id = $2`,
+    `SELECT * FROM drug_return_batches WHERE id = $1 AND tenant_id = $2::uuid`,
     parseInt(id, 10), tenantOr(tenantId));
   const head = unwrap(headRows);
   if (!head) throw AppError.notFound('Drug return batch not found');
@@ -80,7 +80,7 @@ export async function getBatch({ tenantId, id }) {
 }
 
 export async function listBatches({ tenantId, status, reason, limit = 100 }) {
-  const conds = ['tenant_id = $1'];
+  const conds = ['tenant_id = $1::uuid'];
   const args = [tenantOr(tenantId)];
   if (status) { args.push(status); conds.push(`status = $${args.length}`); }
   if (reason) { args.push(reason); conds.push(`reason = $${args.length}`); }
@@ -106,7 +106,7 @@ export async function addLine({ tenantId, batch_id, ...body }) {
 
   // Confirm batch belongs to tenant + is still mutable.
   const headRows = await prisma.$queryRawUnsafe(
-    `SELECT id, status FROM drug_return_batches WHERE id = $1 AND tenant_id = $2`,
+    `SELECT id, status FROM drug_return_batches WHERE id = $1 AND tenant_id = $2::uuid`,
     parseInt(batch_id, 10), tenantOr(tenantId));
   const head = unwrap(headRows);
   if (!head) throw AppError.notFound('Batch not found');
@@ -143,7 +143,7 @@ export async function addLine({ tenantId, batch_id, ...body }) {
 
 export async function transition({ tenantId, id, to_status, set_by, ack_reference_no, disposition_method, quarantine_location }) {
   const headRows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM drug_return_batches WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+    `SELECT * FROM drug_return_batches WHERE id = $1 AND tenant_id = $2::uuid FOR UPDATE`,
     parseInt(id, 10), tenantOr(tenantId));
   const head = unwrap(headRows);
   if (!head) throw AppError.notFound('Batch not found');
@@ -194,7 +194,7 @@ export async function transition({ tenantId, id, to_status, set_by, ack_referenc
   const sql = `
     UPDATE drug_return_batches
     SET status = $3, updated_at = NOW() ${extra}
-    WHERE id = $1 AND tenant_id = $2
+    WHERE id = $1 AND tenant_id = $2::uuid
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql, ...args);
   return unwrap(rows);

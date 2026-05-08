@@ -115,7 +115,7 @@ export async function createDeathRecord({ tenantId, ...body }) {
 }
 
 export async function listDeathRecords({ tenantId, status, from, to, is_medicolegal, limit = 100 }) {
-  const conds = ['tenant_id = $1'];
+  const conds = ['tenant_id = $1::uuid'];
   const args = [tenantOr(tenantId)];
   if (status) { args.push(status); conds.push(`status = $${args.length}`); }
   if (from) { args.push(from); conds.push(`date_of_death >= $${args.length}::date`); }
@@ -135,7 +135,7 @@ export async function listDeathRecords({ tenantId, status, from, to, is_medicole
 
 export async function getDeathRecord({ tenantId, id }) {
   const recRows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM death_records WHERE id = $1 AND tenant_id = $2`,
+    `SELECT * FROM death_records WHERE id = $1 AND tenant_id = $2::uuid`,
     parseInt(id, 10), tenantOr(tenantId));
   const rec = unwrap(recRows);
   if (!rec) throw AppError.notFound('Death record not found');
@@ -148,7 +148,7 @@ export async function getDeathRecord({ tenantId, id }) {
 
 export async function transition({ tenantId, id, to_status, certified_by, certifier_name, registration_no, ack_no }) {
   const recRows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM death_records WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+    `SELECT * FROM death_records WHERE id = $1 AND tenant_id = $2::uuid FOR UPDATE`,
     parseInt(id, 10), tenantOr(tenantId));
   const rec = unwrap(recRows);
   if (!rec) throw AppError.notFound('Death record not found');
@@ -179,7 +179,7 @@ export async function transition({ tenantId, id, to_status, certified_by, certif
           certifier_registration_no = $4,
           certified_at = NOW(),
           updated_at = NOW()
-      WHERE id = $5 AND tenant_id = $6
+      WHERE id = $5 AND tenant_id = $6::uuid
       RETURNING *`;
     const rows = await prisma.$queryRawUnsafe(sql,
       serial, certified_by, certifier_name, registration_no,
@@ -195,7 +195,7 @@ export async function transition({ tenantId, id, to_status, certified_by, certif
           registrar_acknowledgement_no = $1,
           registered_at = NOW(),
           updated_at = NOW()
-      WHERE id = $2 AND tenant_id = $3
+      WHERE id = $2 AND tenant_id = $3::uuid
       RETURNING *`;
     const rows = await prisma.$queryRawUnsafe(sql, ack_no, rec.id, tenantOr(tenantId));
     return unwrap(rows);
@@ -205,7 +205,7 @@ export async function transition({ tenantId, id, to_status, certified_by, certif
   const sql = `
     UPDATE death_records
     SET status = $1, updated_at = NOW()
-    WHERE id = $2 AND tenant_id = $3
+    WHERE id = $2 AND tenant_id = $3::uuid
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql, to_status, rec.id, tenantOr(tenantId));
   return unwrap(rows);
@@ -218,7 +218,7 @@ export async function recordBodyRelease({ tenantId, id, ...body }) {
   // Block release if medicolegal AND no police clearance recorded.
   const recRows = await prisma.$queryRawUnsafe(
     `SELECT id, is_medicolegal, police_clearance_at FROM death_records
-     WHERE id = $1 AND tenant_id = $2`,
+     WHERE id = $1 AND tenant_id = $2::uuid`,
     parseInt(id, 10), tenantOr(tenantId));
   const rec = unwrap(recRows);
   if (!rec) throw AppError.notFound('Death record not found');
@@ -235,7 +235,7 @@ export async function recordBodyRelease({ tenantId, id, ...body }) {
         body_release_witnessed_by = $4,
         body_release_method = COALESCE($5, 'family'),
         updated_at = NOW()
-    WHERE id = $6 AND tenant_id = $7
+    WHERE id = $6 AND tenant_id = $7::uuid
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
     body.body_released_to_name, body.body_released_to_relation,
@@ -253,7 +253,7 @@ export async function recordPoliceClearance({ tenantId, id, fir_no, station }) {
         police_fir_no = COALESCE($1, police_fir_no),
         police_station = COALESCE($2, police_station),
         updated_at = NOW()
-    WHERE id = $3 AND tenant_id = $4
+    WHERE id = $3 AND tenant_id = $4::uuid
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
     fir_no || null, station || null,
@@ -270,7 +270,7 @@ export async function upsertReview({ tenantId, death_record_id, ...body }) {
 
   // Confirm parent belongs to tenant.
   const drRows = await prisma.$queryRawUnsafe(
-    `SELECT id FROM death_records WHERE id = $1 AND tenant_id = $2`,
+    `SELECT id FROM death_records WHERE id = $1 AND tenant_id = $2::uuid`,
     parseInt(death_record_id, 10), tenantOr(tenantId));
   if (!unwrap(drRows)) throw AppError.notFound('Parent death record not found');
 
@@ -362,7 +362,7 @@ export async function finaliseReview({ tenantId, id, finalised_by }) {
         finalised_by = $1,
         finalised_at = NOW(),
         updated_at = NOW()
-    WHERE id = $2 AND tenant_id = $3
+    WHERE id = $2 AND tenant_id = $3::uuid
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
     finalised_by || null, parseInt(id, 10), tenantOr(tenantId));
@@ -372,7 +372,7 @@ export async function finaliseReview({ tenantId, id, finalised_by }) {
 }
 
 export async function summary30d({ tenantId }) {
-  const sql = `SELECT * FROM mortality_30d_summary WHERE tenant_id = $1`;
+  const sql = `SELECT * FROM mortality_30d_summary WHERE tenant_id = $1::uuid`;
   const rows = await prisma.$queryRawUnsafe(sql, tenantOr(tenantId));
   return unwrap(rows) || {
     total_deaths: 0, registered_count: 0, medicolegal_count: 0,

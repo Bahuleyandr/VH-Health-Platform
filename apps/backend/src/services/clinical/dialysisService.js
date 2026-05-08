@@ -85,7 +85,7 @@ export async function enrolPatient({ tenantId, ...body }) {
 }
 
 export async function listPatients({ tenantId, status, limit = 200 }) {
-  const conds = ['tenant_id = $1'];
+  const conds = ['tenant_id = $1::uuid'];
   const args = [tenantOr(tenantId)];
   if (status) { args.push(status); conds.push(`status = $${args.length}`); }
   const lim = Math.min(parseInt(limit, 10) || 200, 1000);
@@ -99,7 +99,7 @@ export async function listPatients({ tenantId, status, limit = 200 }) {
 
 export async function getPatient({ tenantId, id }) {
   const patRows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM dialysis_patients WHERE id = $1 AND tenant_id = $2`,
+    `SELECT * FROM dialysis_patients WHERE id = $1 AND tenant_id = $2::uuid`,
     parseInt(id, 10), tenantOr(tenantId));
   const pat = unwrap(patRows);
   if (!pat) throw AppError.notFound('Dialysis patient not found');
@@ -127,7 +127,7 @@ export async function updateDryWeight({ tenantId, id, dry_weight_kg }) {
   const sql = `
     UPDATE dialysis_patients
     SET dry_weight_kg = $1, dry_weight_set_at = NOW(), updated_at = NOW()
-    WHERE id = $2 AND tenant_id = $3
+    WHERE id = $2 AND tenant_id = $3::uuid
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
     Number(dry_weight_kg), parseInt(id, 10), tenantOr(tenantId));
@@ -220,7 +220,7 @@ export async function scheduleSession({ tenantId, ...body }) {
 
 export async function startSession({ tenantId, id, ...body }) {
   const sessRows = await prisma.$queryRawUnsafe(
-    `SELECT status FROM dialysis_sessions WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+    `SELECT status FROM dialysis_sessions WHERE id = $1 AND tenant_id = $2::uuid FOR UPDATE`,
     parseInt(id, 10), tenantOr(tenantId));
   const sess = unwrap(sessRows);
   if (!sess) throw AppError.notFound('Session not found');
@@ -238,7 +238,7 @@ export async function startSession({ tenantId, id, ...body }) {
         pre_pulse = $4,
         pre_temp_c = $5,
         updated_at = NOW()
-    WHERE id = $6 AND tenant_id = $7
+    WHERE id = $6 AND tenant_id = $7::uuid
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
     body.pre_weight_kg || null, body.pre_bp_systolic || null,
@@ -250,7 +250,7 @@ export async function startSession({ tenantId, id, ...body }) {
 
 export async function completeSession({ tenantId, id, ...body }) {
   const sessRows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM dialysis_sessions WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+    `SELECT * FROM dialysis_sessions WHERE id = $1 AND tenant_id = $2::uuid FOR UPDATE`,
     parseInt(id, 10), tenantOr(tenantId));
   const sess = unwrap(sessRows);
   if (!sess) throw AppError.notFound('Session not found');
@@ -291,7 +291,7 @@ export async function completeSession({ tenantId, id, ...body }) {
         early_termination_reason = $17,
         notes = $18,
         updated_at = NOW()
-    WHERE id = $19 AND tenant_id = $20
+    WHERE id = $19 AND tenant_id = $20::uuid
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
     durationMin,
@@ -310,7 +310,7 @@ export async function completeSession({ tenantId, id, ...body }) {
 export async function cancelSession({ tenantId, id, reason, mark_no_show }) {
   const target = mark_no_show ? 'no_show' : 'cancelled';
   const sessRows = await prisma.$queryRawUnsafe(
-    `SELECT status FROM dialysis_sessions WHERE id = $1 AND tenant_id = $2`,
+    `SELECT status FROM dialysis_sessions WHERE id = $1 AND tenant_id = $2::uuid`,
     parseInt(id, 10), tenantOr(tenantId));
   const sess = unwrap(sessRows);
   if (!sess) throw AppError.notFound('Session not found');
@@ -321,7 +321,7 @@ export async function cancelSession({ tenantId, id, reason, mark_no_show }) {
     UPDATE dialysis_sessions
     SET status = $1, notes = COALESCE(notes, '') || COALESCE($2, ''),
         updated_at = NOW()
-    WHERE id = $3 AND tenant_id = $4
+    WHERE id = $3 AND tenant_id = $4::uuid
     RETURNING *`;
   const note = reason ? `\n[${target}] ${reason}` : null;
   const rows = await prisma.$queryRawUnsafe(sql, target, note,
@@ -330,7 +330,7 @@ export async function cancelSession({ tenantId, id, reason, mark_no_show }) {
 }
 
 export async function listSessions({ tenantId, date, status, dialysis_patient_id, limit = 200 }) {
-  const conds = ['tenant_id = $1'];
+  const conds = ['tenant_id = $1::uuid'];
   const args = [tenantOr(tenantId)];
   if (date) { args.push(date); conds.push(`session_date = $${args.length}::date`); }
   if (status) { args.push(status); conds.push(`status = $${args.length}`); }
@@ -348,7 +348,7 @@ export async function listSessions({ tenantId, date, status, dialysis_patient_id
 }
 
 export async function todayBoard({ tenantId }) {
-  const sql = `SELECT * FROM dialysis_today WHERE tenant_id = $1 ORDER BY scheduled_start_at`;
+  const sql = `SELECT * FROM dialysis_today WHERE tenant_id = $1::uuid ORDER BY scheduled_start_at`;
   return prisma.$queryRawUnsafe(sql, tenantOr(tenantId));
 }
 
