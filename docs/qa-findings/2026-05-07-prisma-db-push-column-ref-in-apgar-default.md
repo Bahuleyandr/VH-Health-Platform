@@ -40,10 +40,13 @@ actual: |
 artifacts:
   - "qa-runs/2026-05-07-fix-housekeeping-001/reset/{stdout,stderr}.txt"
 confidence: high
-status: in-fix
+status: fixed
 first_seen_run: 2026-05-07-fix-housekeeping-001
+fixed_at: 2026-05-08T02:55:00Z
+fixed_in_sha: 77fdc6b965fc42b5d8c08a5bf48b3d0c6d5d65a7
 linked_issues:
-  - "branch: qa-fix/2026-05-07-prisma-db-push-fails-on-housekeeping-sequence"
+  - "branch: qa-fix/2026-05-07-prisma-db-push-fails-on-housekeeping-sequence (merged, deleted)"
+  - "PR: #65"
 ---
 
 ## Symptom
