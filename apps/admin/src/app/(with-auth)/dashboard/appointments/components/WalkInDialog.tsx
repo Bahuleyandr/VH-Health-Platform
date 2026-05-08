@@ -13,6 +13,11 @@ interface DoctorOption {
   specialization?: string;
 }
 
+interface DepartmentOption {
+  id?: number;
+  name: string;
+}
+
 export function WalkInDialog({
   onClose,
   onSuccess,
@@ -30,10 +35,13 @@ export function WalkInDialog({
 
   // Doctor dropdown — was a free-form number input before, which let
   // operators paste random ints (including negatives) and had no way to
-  // know who the assigned doctor actually was.
+  // know who the assigned doctor actually was. The /doctors endpoint
+  // paginates at 10 by default which silently hid half the roster — pass
+  // limit=200 so a hospital with 100+ consultants still gets the full
+  // list. See finding 2026-05-08-walk-in-opd-receptionist-walkin-dialog-doctor-dropdown-truncated-at-10.
   const { data: doctorsResp } = useQuery({
-    queryKey: ["doctors"],
-    queryFn: () => fetchAdminAPI<unknown>("/doctors"),
+    queryKey: ["doctors", { limit: 200 }],
+    queryFn: () => fetchAdminAPI<unknown>("/doctors?limit=200"),
   });
   const doctorsList: DoctorOption[] = (() => {
     const raw = doctorsResp as Record<string, unknown> | unknown[] | undefined;
@@ -44,10 +52,35 @@ export function WalkInDialog({
     return [];
   })();
 
+  // Department dropdown — the field used to be a free-text input which
+  // let operators silently store misspellings ("Gen Medicine", "general
+  // med") that broke department-grouped reporting. Bind to the canonical
+  // /departments list. See finding
+  // 2026-05-08-walk-in-opd-receptionist-walkin-dialog-department-is-free-text.
+  const { data: departmentsResp } = useQuery({
+    queryKey: ["departments", { limit: 200 }],
+    queryFn: () => fetchAdminAPI<unknown>("/departments?limit=200"),
+  });
+  const departmentsList: DepartmentOption[] = (() => {
+    const raw = departmentsResp as Record<string, unknown> | unknown[] | undefined;
+    if (Array.isArray(raw)) return raw as DepartmentOption[];
+    if (raw && typeof raw === "object") {
+      const wrapper = raw as { departments?: unknown; data?: unknown };
+      if (Array.isArray(wrapper.departments)) return wrapper.departments as DepartmentOption[];
+      if (Array.isArray(wrapper.data)) return wrapper.data as DepartmentOption[];
+    }
+    return [];
+  })();
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!patientPhone && !patientName) {
-      toast.error("Patient phone or name required");
+    // Backend requires patient_phone OR patient_id — name alone is not enough.
+    // Previously the guard only fired when BOTH were empty, so a name-only
+    // submit travelled to the backend and bounced back with the raw API
+    // contract message. See finding
+    // 2026-05-08-walk-in-opd-receptionist-walkin-dialog-misleading-validation.
+    if (!patientPhone) {
+      toast.error("Mobile number is required");
       return;
     }
     setSubmitting(true);
@@ -108,8 +141,18 @@ export function WalkInDialog({
           </div>
           <div>
             <label className="text-sm font-medium">Department</label>
-            <input type="text" value={department} onChange={e => setDepartment(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="e.g. General Medicine" />
+            <select
+              value={department}
+              onChange={e => setDepartment(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1 bg-white"
+            >
+              <option value="">— Select department —</option>
+              {departmentsList.map((d, idx) => (
+                <option key={d.id ?? `dept-${idx}-${d.name}`} value={d.name}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="text-sm font-medium">Appointment Time (optional)</label>
