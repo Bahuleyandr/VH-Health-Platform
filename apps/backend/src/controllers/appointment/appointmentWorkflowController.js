@@ -581,8 +581,25 @@ export const registerWalkIn = async (req, res) => {
 
     success(res, result, `Walk-in registered. Token #${result.token_number}`);
   } catch (err) {
-    logger.error('Walk-in Registration Error:', err);
-    error(res, 'Failed to register walk-in', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    // Surface a stable error code so dashboards/alerts can group these and
+    // pass the requestId so support can correlate to server logs. Body
+    // never echoes err.message (per CLAUDE.md security checklist).
+    // See finding 2026-05-08-inpatient-admission-receptionist-walkin-generic-error.
+    logger.error('Walk-in Registration Error:', {
+      requestId: req.id,
+      err: err?.message,
+      code: err?.code,
+      stack: err?.stack,
+    });
+    if (err?.statusCode && err.statusCode >= 400 && err.statusCode < 500) {
+      return error(res, err.message || 'Walk-in rejected', err.statusCode, {
+        code: err.code || 'WALK_IN_REJECTED',
+      });
+    }
+    error(res, 'Failed to register walk-in', HTTP_STATUS.INTERNAL_SERVER_ERROR, {
+      code: 'WALK_IN_FAILED',
+      requestId: req.id,
+    });
   } finally {
     // No client to release — Prisma's $transaction handles that itself.
   }
