@@ -566,13 +566,21 @@ export const getMyPrescriptions = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 export const getAllPrescriptions = async (req, res) => {
   try {
-    const { doctor_id, from_date, to_date, status, page = 1, limit = 50 } = req.query;
+    const { doctor_id, phone, from_date, to_date, status, page = 1, limit = 50 } = req.query;
     const params = [];
     let where = 'WHERE 1=1';
 
     if (doctor_id) {
       params.push(doctor_id);
       where += ` AND ep.doctor_id = $${params.length}`;
+    }
+    // Phone filter — scope to one patient via the joined users row.
+    // Without this branch the param was silently ignored and the query
+    // returned every patient's prescriptions (PHI leak; finding
+    // 2026-05-08-walk-in-opd-pharmacy-prescription-phone-filter-leaks-all-patients).
+    if (phone) {
+      params.push(phone);
+      where += ` AND p.phone = $${params.length}`;
     }
     if (from_date) {
       params.push(from_date);
