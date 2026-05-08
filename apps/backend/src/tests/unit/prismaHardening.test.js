@@ -109,6 +109,74 @@ describe('src/lib/prisma.js hardening', () => {
       expect(rows).toEqual([{ ok: true }]);
       expect(prismaModule.circuitBreakerStatus().consecutiveFailures).toBe(0);
     });
+
+    // Regression test for docs/qa-findings/2026-05-08-backend-circuit-
+    // breaker-trips-during-qa-reset-schema-drop.md.
+    //
+    // During qa-reset's `DROP SCHEMA public CASCADE` window, any in-flight
+    // backend query hits a partially-rebuilt schema and surfaces Postgres
+    // 42P01 (relation does not exist). Those errors are not infra failures
+    // — they're known-bad queries against a transient schema state — and
+    // must not count toward the breaker's failure budget, otherwise a
+    // brief migration window latches the breaker open for 30s after the
+    // schema is healthy again.
+    it('does not count Postgres 42P01 (undefined_table) toward breaker budget', async () => {
+      const prisma = prismaModule.default;
+      const primaryStub = await getPrimaryStub(prismaModule);
+
+      const schemaErr = Object.assign(new Error('relation "users" does not exist'), {
+        meta: { code: '42P01' },
+      });
+      primaryStub.$queryRawUnsafe = jest.fn(() => Promise.reject(schemaErr));
+
+      // Ten such errors — far above the threshold — must not open the breaker.
+      for (let i = 0; i < 10; i += 1) {
+        await expect(prisma.$queryRawUnsafe('SELECT 1 FROM users')).rejects.toBe(schemaErr);
+      }
+
+      const status = prismaModule.circuitBreakerStatus();
+      expect(status.open).toBe(false);
+      expect(status.consecutiveFailures).toBe(0);
+    });
+
+    it('also ignores 3F000 (invalid_schema_name) and err.code fallback', async () => {
+      const prisma = prismaModule.default;
+      const primaryStub = await getPrimaryStub(prismaModule);
+
+      // Some Prisma errors surface SQLSTATE on err.code rather than err.meta.code.
+      const schemaErr = Object.assign(new Error('schema "public" does not exist'), {
+        code: '3F000',
+      });
+      primaryStub.$queryRawUnsafe = jest.fn(() => Promise.reject(schemaErr));
+
+      for (let i = 0; i < 10; i += 1) {
+        await expect(prisma.$queryRawUnsafe('SELECT 1')).rejects.toBe(schemaErr);
+      }
+
+      expect(prismaModule.circuitBreakerStatus().consecutiveFailures).toBe(0);
+    });
+
+    it('mixed ignored and infra failures: only infra failures count', async () => {
+      const prisma = prismaModule.default;
+      const primaryStub = await getPrimaryStub(prismaModule);
+
+      const schemaErr = Object.assign(new Error('no table'), { meta: { code: '42P01' } });
+      const infraErr = new Error('connection refused');
+
+      primaryStub.$queryRawUnsafe = jest.fn()
+        .mockRejectedValueOnce(schemaErr)
+        .mockRejectedValueOnce(infraErr)
+        .mockRejectedValueOnce(schemaErr)
+        .mockRejectedValueOnce(infraErr);
+
+      for (let i = 0; i < 4; i += 1) {
+        await expect(prisma.$queryRawUnsafe('q')).rejects.toThrow();
+      }
+
+      // Only the two infra failures should count.
+      expect(prismaModule.circuitBreakerStatus().consecutiveFailures).toBe(2);
+      expect(prismaModule.circuitBreakerStatus().open).toBe(false);
+    });
   });
 
   // ── setTenant RLS helper ─────────────────────────────────────────────

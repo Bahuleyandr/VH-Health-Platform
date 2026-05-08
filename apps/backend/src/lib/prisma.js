@@ -54,6 +54,50 @@ const WRAPPED_METHODS = new Set([
   '$transaction',
 ]);
 
+// Postgres SQLSTATE codes that are NOT infrastructure failures and must
+// not count toward the circuit breaker's consecutive-failure budget.
+//
+// The breaker exists to protect the connection pool from sustained infra
+// outages (DB down, network partition, pool exhaustion). Schema-shape
+// errors — "relation does not exist", "schema does not exist", etc. — are
+// known-bad queries: the driver is healthy, the query just doesn't match
+// the current schema. They occur in three real-world windows:
+//
+//   1. QA harness `DROP SCHEMA public CASCADE` during qa-reset (any
+//      in-flight cron / health probe / request hits a partially-rebuilt
+//      schema — see docs/qa-findings/2026-05-08-backend-circuit-breaker-
+//      trips-during-qa-reset-schema-drop.md).
+//   2. Planned production migrations that briefly DROP/RENAME a hot table.
+//   3. Stale in-flight queries against a table that has been migrated away.
+//
+// Counting them latches the breaker open for 30s after the schema is
+// already healthy, turning a brief migration window into a hard outage.
+// Per-route handlers already deal with these via `err.meta.code === '42P01'`
+// fallbacks (see routes/user/familyRoutes.js, controllers/investigation/*).
+//
+// SQLSTATE references: https://www.postgresql.org/docs/current/errcodes-appendix.html
+const BREAKER_IGNORED_PG_ERROR_CODES = new Set([
+  '42P01', // undefined_table — relation does not exist
+  '42P02', // undefined_parameter
+  '42703', // undefined_column
+  '42704', // undefined_object (function, type, etc.)
+  '3D000', // invalid_catalog_name — database does not exist
+  '3F000', // invalid_schema_name — schema does not exist
+]);
+
+/**
+ * Returns true if `err` is a Postgres known-bad-query error that the
+ * circuit breaker should ignore (re-thrown to the caller, but not counted
+ * as a failure). Pulls the SQLSTATE from the two places Prisma surfaces it:
+ *   - PrismaClientKnownRequestError → err.meta.code (e.g. '42P01')
+ *   - Wrapped-error fallback        → err.code (raw pg error)
+ */
+function isIgnoredBreakerError(err) {
+  if (!err || typeof err !== 'object') return false;
+  const code = err?.meta?.code || err?.code;
+  return typeof code === 'string' && BREAKER_IGNORED_PG_ERROR_CODES.has(code);
+}
+
 let consecutiveFailures = 0;
 let circuitOpen = false;
 let circuitOpenedAt = null;
@@ -100,6 +144,15 @@ function wrapWithCircuitBreaker(fn, methodName, tag) {
       consecutiveFailures = 0;
       return result;
     } catch (err) {
+      // Known-bad-query errors (relation/schema not found, undefined column,
+      // etc.) are not infrastructure failures — the driver is healthy, the
+      // query just doesn't match the current schema. Re-throw so the caller
+      // can handle it, but don't count it toward the breaker budget.
+      // Without this, a brief migration window or qa-reset DROP SCHEMA can
+      // latch the breaker open for 30s after the schema is already healthy.
+      if (isIgnoredBreakerError(err)) {
+        throw err;
+      }
       consecutiveFailures += 1;
       if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
         circuitOpen = true;
