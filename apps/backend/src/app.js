@@ -49,6 +49,7 @@ import appointmentRoutes from './routes/appointment/index.js';
 import totpRoutes from './routes/auth/totpRoutes.js';
 import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
 import { bedRouter, wardRouter } from './routes/bed/bedRoutes.js';
+import edRoutesForClinicalStaff from './routes/admin/edRoutes.js';
 import auditSearchRoutes from './routes/compliance/auditSearchRoutes.js';
 import breachRoutes from './routes/compliance/breachRoutes.js';
 import complianceIndicatorsRoutes from './routes/compliance/indicatorsRoutes.js';
@@ -503,6 +504,19 @@ app.use('/api/v1/staff', staffRoutes);
 app.use('/api/v1/beds', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedRouter);
 app.use('/api/v1/beds', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedManagementRoutes);
 app.use('/api/v1/wards', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), wardRouter);
+
+// Emergency department triage — parallel mount at /api/v1/ed for clinical
+// staff (NURSING_STAFF in particular). The legacy /api/v1/admin/ed/*
+// routes still exist and remain admin-gated for the analytics/reporting
+// surface, but the actual triage workflow is a nursing task and must
+// not require an ADMIN/SUPER_ADMIN token. See finding
+// 2026-05-08-emergency-walk-in-nurse-triage-rbac-blocks-nurses.
+app.use(
+  '/api/v1/ed',
+  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'ER_STAFF', 'MEDICAL_RECORDS'),
+  phiAccessLogger('ER_TRIAGE'),
+  edRoutesForClinicalStaff,
+);
 
 // FHIR R4 interoperability — restricted to clinical staff (exposes PHI)
 app.use('/api/v1/fhir', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'MEDICAL_RECORDS'), phiAccessLogger('FHIR_RESOURCE'), fhirRoutes);
