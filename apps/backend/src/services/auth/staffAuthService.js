@@ -559,12 +559,17 @@ export class StaffAuthService {
   }
 
   static generateAccessToken(staff) {
-    return generateToken({ uid: staff.uid, role: staff.role }, SECURITY_CONFIG.jwt.staffAccessExpiry);
+    // `id` is the int DB id (users.id). jwtMiddleware surfaces it as
+    // `req.user.id` and downstream IDOR checks (appointments.doctor_id ===
+    // req.user.id, etc.) compare against integer FK columns. Without this
+    // claim, every doctor IDOR check returns 403 — see finding
+    // 2026-05-08-walk-in-opd-doctor-idor-check-always-fails-for-staff-jwt.
+    return generateToken({ id: staff.id, uid: staff.uid, role: staff.role }, SECURITY_CONFIG.jwt.staffAccessExpiry);
   }
 
   static generateRefreshToken(staff) {
     // Refresh tokens get a longer expiry (30 days)
-    return generateToken({ uid: staff.uid, role: staff.role, type: 'refresh' }, '30d');
+    return generateToken({ id: staff.id, uid: staff.uid, role: staff.role, type: 'refresh' }, '30d');
   }
 
   static generateDeviceToken() {
