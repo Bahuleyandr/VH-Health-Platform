@@ -37,7 +37,31 @@ export const createAppointmentValidators = [
     .trim()
     .isLength({ min: 2, max: 255 })
     .withMessage('Patient name must be 2-255 characters'),
-  body('doctor_id').isInt({ min: 1 }).withMessage('Doctor ID must be a valid integer'),
+  // doctor_id is required for OPD/clinical visits but optional for lab-only,
+  // radiology-only, pathology-only walk-ins where the patient never sees a
+  // consultant. See finding 2026-05-08-lab-walk-in-receptionist-book-requires-doctor.
+  body('doctor_id')
+    .if((value, { req }) => {
+      const dept = String(req.body?.department || '').toUpperCase();
+      const visitType = String(req.body?.visit_type || '').toUpperCase();
+      const labOnlyDept = ['LAB', 'LABORATORY', 'PATHOLOGY', 'RADIOLOGY', 'IMAGING'].includes(dept);
+      const labOnlyVisit = ['LAB_ONLY', 'RADIOLOGY_ONLY', 'INVESTIGATION'].includes(visitType);
+      // If neither suggests lab/radiology-only, require doctor_id.
+      return !(labOnlyDept || labOnlyVisit);
+    })
+    .isInt({ min: 1 })
+    .withMessage('Doctor ID must be a valid integer'),
+  body('doctor_id')
+    .if((value, { req }) => {
+      const dept = String(req.body?.department || '').toUpperCase();
+      const visitType = String(req.body?.visit_type || '').toUpperCase();
+      const labOnlyDept = ['LAB', 'LABORATORY', 'PATHOLOGY', 'RADIOLOGY', 'IMAGING'].includes(dept);
+      const labOnlyVisit = ['LAB_ONLY', 'RADIOLOGY_ONLY', 'INVESTIGATION'].includes(visitType);
+      return labOnlyDept || labOnlyVisit;
+    })
+    .optional({ values: 'falsy' })
+    .isInt({ min: 1 })
+    .withMessage('Doctor ID, when provided, must be a valid integer'),
   body('appointment_date')
     .custom((value) => {
       let appointmentDate;

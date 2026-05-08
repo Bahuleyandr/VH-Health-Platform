@@ -1,6 +1,7 @@
 // src/controllers/prescription/ePrescriptionController.js
 // E-Prescription system — structured prescription entry, PDF generation, auto-pharmacy order
 
+import { randomUUID } from 'node:crypto';
 import PDFDocument from 'pdfkit';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
@@ -465,7 +466,14 @@ export const getPrescriptionSafety = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 export const getPrescription = async (req, res) => {
   try {
-    const { id } = req.params;
+    // `e_prescriptions.id` is an `integer` column. node-postgres types the
+    // raw `req.params.id` string as `text` and Postgres rejects the
+    // comparison with the int column → swallowed 500. Coerce here.
+    // See finding 2026-05-08-walk-in-opd-doctor-prescription-get-by-id-fails.
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return error(res, 'Invalid prescription id', HTTP_STATUS.BAD_REQUEST);
+    }
     const result = await prisma.$queryRawUnsafe(
       `SELECT ep.*,
               p.name AS patient_name, p.phone AS patient_phone, p.gender AS patient_gender, p.birthday AS patient_birthday,
@@ -631,7 +639,12 @@ export const getAllPrescriptions = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 export const orderPharmacyFromPrescription = async (req, res) => {
   try {
-    const { id } = req.params;
+    // Same string→int coercion as getPrescription. See finding
+    // 2026-05-08-walk-in-opd-doctor-prescription-get-by-id-fails.
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return error(res, 'Invalid prescription id', HTTP_STATUS.BAD_REQUEST);
+    }
     const { delivery_type = 'delivery', delivery_address, delivery_phone } = req.body;
 
     // Fetch prescription
@@ -677,12 +690,22 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       });
     }
 
-    // Create pharmacy order
+    // Create pharmacy order.
+    // Three drift fixes per finding 2026-05-08-pediatric-opd-pharmacy-order-from-rx-500:
+    //   1. `updated_at` is NOT NULL with no default — insert NOW().
+    //   2. `order_number` has a DB default in main schema but absent in the
+    //      under-migrated swarm tenant DB. Generate it explicitly so the
+    //      INSERT succeeds either way (RETURNING then surfaces it).
+    //   3. Status default + downstream state machine are UPPERCASE
+    //      (`PENDING`); lowercase `pending` was rejected by transitions in
+    //      pharmacyOrderController and broke confirm/dispatch flows.
     const phone = delivery_phone || rx.patient_phone;
+    const orderNumber = `PO-${randomUUID().replace(/-/g, '')}`;
     const orderResult = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_orders
-        (phone, patient_id, patient_name, order_note, delivery_type, delivery_address, delivery_phone, items_list, total_amount, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, 'pending')
+        (phone, patient_id, patient_name, order_note, delivery_type, delivery_address, delivery_phone,
+         items_list, total_amount, status, order_number, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, 'PENDING', $10, NOW())
        RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at, order_number, delivery_type`,
       phone,
       rx.patient_id,
@@ -693,6 +716,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       delivery_phone || phone,
       JSON.stringify(itemsList),
       totalCost,
+      orderNumber,
     );
     const pharmacyOrder = orderResult[0];
 
@@ -726,7 +750,12 @@ export const orderPharmacyFromPrescription = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 export const downloadPrescriptionPDF = async (req, res) => {
   try {
-    const { id } = req.params;
+    // Same string→int coercion as getPrescription. See finding
+    // 2026-05-08-walk-in-opd-doctor-prescription-get-by-id-fails.
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return error(res, 'Invalid prescription id', HTTP_STATUS.BAD_REQUEST);
+    }
     const result = await prisma.$queryRawUnsafe('SELECT pdf_key FROM e_prescriptions WHERE id=$1', id);
     if (result.length === 0 || !result[0].pdf_key) {
       return error(res, 'PDF not found', HTTP_STATUS.NOT_FOUND);

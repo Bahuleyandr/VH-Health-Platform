@@ -78,8 +78,18 @@ export async function addDiagnosis(data) {
     icd10Description = icdRow?.description ?? null;
   }
 
-  // Verify encounter exists if provided. admissions.encounter_id is uuid.
-  if (encounter_id) {
+  // Verify encounter exists if provided. `admissions.encounter_id` is a
+  // UUID string. Reject ints up-front with a 400 so callers get a clean
+  // error envelope instead of a Prisma stack trace echoed in the body
+  // (info-disclosure). See finding
+  // 2026-05-08-emergency-walk-in-doctor-diagnosis-encounter-id-prisma-500
+  // and 2026-05-08-walk-in-opd-doctor-diagnosis-encounter-id-type-mismatch.
+  if (encounter_id !== undefined && encounter_id !== null && encounter_id !== '') {
+    if (typeof encounter_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(encounter_id)) {
+      throw AppError.badRequest(
+        'encounter_id must be a UUID. For OPD visits without an admission, pass null; for IPD, look up admissions.encounter_id.',
+      );
+    }
     const enc = await prisma.admissions.findFirst({
       where: { encounter_id },
       select: { id: true },

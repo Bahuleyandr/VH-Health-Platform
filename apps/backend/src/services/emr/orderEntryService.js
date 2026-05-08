@@ -113,13 +113,18 @@ export async function createOrder(data) {
     encounter_id,
     patient_uid,
     order_type,
-    priority = 'routine',
     details,
     ordered_by,
     start_date,
     end_date,
     notes,
   } = data;
+
+  // Clinicians write priority in upper case ("STAT" / "URGENT") — that's
+  // the universal medical convention. Lower-case server-side before
+  // validation so the universal form doesn't error out.
+  // See finding 2026-05-08-emergency-walk-in-doctor-priority-case-sensitive.
+  const priority = String(data.priority ?? 'routine').toLowerCase();
 
   if (!patient_uid || !order_type || !details || !ordered_by) {
     throw AppError.badRequest('patient_uid, order_type, details, and ordered_by are required');
@@ -130,7 +135,20 @@ export async function createOrder(data) {
   }
 
   if (!VALID_PRIORITIES.includes(priority)) {
-    throw AppError.badRequest(`Invalid priority: ${priority}. Must be one of: ${VALID_PRIORITIES.join(', ')}`);
+    throw AppError.badRequest(`Invalid priority: ${data.priority}. Must be one of: ${VALID_PRIORITIES.join(', ')} (case-insensitive)`);
+  }
+
+  // `clinical_orders.encounter_id` is `Uuid?` — silently dropping non-UUID
+  // ints makes orders orphaned from their visit (audit + reassessment
+  // pivot lost). Reject up-front with a 400 so the caller knows to look
+  // up the admission's UUID encounter or pass null. See finding
+  // 2026-05-08-emergency-walk-in-doctor-orders-encounter-id-silently-dropped.
+  if (encounter_id !== undefined && encounter_id !== null && encounter_id !== '') {
+    if (typeof encounter_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(encounter_id)) {
+      throw AppError.badRequest(
+        'encounter_id must be a UUID. Pass null for OPD visits without an admission, or look up admissions.encounter_id for IPD orders.',
+      );
+    }
   }
 
   // Run CDS safety checks

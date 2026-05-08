@@ -85,6 +85,46 @@ export const createAppointment = async (req, res) => {
       return error(res, validation.errors.join(', '), HTTP_STATUS.BAD_REQUEST);
     }
 
+    // Duplicate-detection guard: if this patient already has a SCHEDULED
+    // appointment with the same doctor on the same date, surface a 409 with
+    // the existing id unless the caller explicitly opts in via
+    // `confirm_duplicate: true`. Receptionists can still book a second slot
+    // (re-attempt after no-show, mid-day re-evaluation, etc.) but must
+    // acknowledge it. See finding
+    // 2026-05-08-follow-up-opd-receptionist-duplicate-appt-no-warning.
+    if (
+      appointmentData.patient_id &&
+      appointmentData.doctor_id &&
+      appointmentData.appointment_date &&
+      req.body.confirm_duplicate !== true
+    ) {
+      const existing = await prisma.$queryRawUnsafe(
+        `SELECT id, status, appointment_time
+           FROM appointments
+          WHERE patient_id = $1
+            AND doctor_id = $2
+            AND DATE(appointment_date) = $3::date
+            AND status IN ('SCHEDULED', 'CONFIRMED')
+          LIMIT 1`,
+        appointmentData.patient_id,
+        appointmentData.doctor_id,
+        appointmentData.appointment_date,
+      );
+      if (existing.length > 0) {
+        return error(
+          res,
+          'This patient already has an appointment with this doctor today. Pass `confirm_duplicate: true` to book a second slot.',
+          HTTP_STATUS.CONFLICT,
+          {
+            code: 'DUPLICATE_APPOINTMENT_SAME_DAY',
+            existing_appointment_id: existing[0].id,
+            existing_appointment_status: existing[0].status,
+            existing_appointment_time: existing[0].appointment_time,
+          },
+        );
+      }
+    }
+
     // Create the appointment (uses transaction with row-level locking to prevent double-booking)
     const appointment = await appointmentService.createAppointment(appointmentData);
     const hydratedAppointment =
@@ -118,6 +158,21 @@ export const createAppointment = async (req, res) => {
 export const updateAppointment = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Reject status updates explicitly — the previous handler silently
+    // dropped `status` from the patch and returned 200, which made callers
+    // believe the visit was closed when nothing changed. State transitions
+    // belong on the dedicated sub-resources. See finding
+    // 2026-05-08-follow-up-opd-doctor-status-update-silently-ignored.
+    if (req.body.status !== undefined) {
+      return error(
+        res,
+        'Status updates are not accepted on PUT /appointments/:id. Use POST /appointments/:id/{confirm|complete|cancel|no-show} or PUT /appointments/:id/status.',
+        HTTP_STATUS.BAD_REQUEST,
+        { code: 'STATUS_UPDATE_NOT_ALLOWED_HERE' },
+      );
+    }
+
     const updateData = {
       appointment_date: req.body.appointment_date,
       appointment_time: req.body.appointment_time,

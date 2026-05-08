@@ -74,13 +74,19 @@ export async function validatePrescriptionSafety(patientId, medications) {
     }
 
   } catch (err) {
-    // Safety check failure should NOT block prescription — log and return safe
-    logger.error('Prescription safety check failed (allowing prescription):', err.message);
-    warnings.push({
+    // Fail CLOSED on safety-check failure. Returning safe:true silently
+    // allowed an allergy/dup-Rx lookup to be bypassed by triggering the
+    // bug — a clinical-safety failure (CLAUDE.md: "Never return fake
+    // success data in catch blocks"). The override path remains available
+    // for cases where manual review has cleared the patient — callers
+    // can pass an `override: { reason }` payload to createPrescription.
+    // See finding 2026-05-08-pediatric-opd-doctor-cds-swallows-errors.
+    logger.error('Prescription safety check failed (blocking prescription pending manual override):', err.message);
+    blockers.push({
       type: 'SAFETY_CHECK_ERROR',
-      message: 'Automated safety check failed — manual review recommended',
+      message: 'Automated safety check failed — manual review and override required before prescribing.',
     });
-    return { safe: true, warnings, blockers };
+    return { safe: false, warnings, blockers };
   }
 
   return {

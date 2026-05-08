@@ -25,19 +25,35 @@ const PROFILE_FIELDS_IN_SCHEMA = [
   'birthday',
   'anniversary',
   'address',
-  'profile_picture'
+  'profile_picture',
+  // Phase 0.5: clinical PHI fields the users table actually has.
+  // Previously omitted here, so updateUser silently dropped them while
+  // returning HTTP 200 — see finding
+  // 2026-05-08-walk-in-opd-receptionist-blood-group-silently-dropped.
+  'blood_group',
+  'allergies',
+  'medical_history',
+  'emergency_contact'
 ];
 const PROFILE_DATE_FIELDS = new Set(['birthday', 'anniversary']);
+const PROFILE_JSON_FIELDS = new Set(['emergency_contact']);
 
 function coerceProfileField(field, value) {
-  if (!PROFILE_DATE_FIELDS.has(field) || value === null || value === undefined) {
-    return value;
+  if (PROFILE_DATE_FIELDS.has(field)) {
+    if (value === null || value === undefined) return value;
+    if (value instanceof Date) return value;
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return new Date(`${value}T00:00:00.000Z`);
+    }
+    return new Date(value);
   }
-  if (value instanceof Date) return value;
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return new Date(`${value}T00:00:00.000Z`);
+  if (PROFILE_JSON_FIELDS.has(field)) {
+    if (value === null || value === undefined) return value;
+    // Pre-stringify JSON so the raw-SQL ::jsonb cast has a text payload
+    // to coerce. If the caller passed a string we trust it's already JSON.
+    return typeof value === 'string' ? value : JSON.stringify(value);
   }
-  return new Date(value);
+  return value;
 }
 
 function mapUserSummary(user) {
@@ -209,6 +225,7 @@ export class UserService {
       role,
       status,
       department,
+      phone,
     } = filters;
     const { page, limit, offset, search, sortBy, sortOrder } = parseListQuery(filters, {
       defaultLimit: USER_CONFIG.DEFAULT_PAGE_SIZE,
@@ -222,6 +239,22 @@ export class UserService {
 
     if (role) {
       conditions.push(Prisma.sql`u.role = ${role.toUpperCase()}`);
+    }
+
+    // Receptionist duplicate-detection lookup. Match both the E.164 form
+    // (`+91…`) and the bare 10-digit national form so callers can pass
+    // either. Previously this param was silently dropped — see finding
+    // 2026-05-08-follow-up-opd-receptionist-users-phone-filter-ignored.
+    if (phone) {
+      const trimmed = String(phone).trim();
+      const normalized = normalizePhone(trimmed);
+      const national = normalized?.startsWith('+91')
+        ? normalized.slice(3)
+        : trimmed.replace(/[^\d]/g, '');
+      const candidates = [trimmed];
+      if (normalized && !candidates.includes(normalized)) candidates.push(normalized);
+      if (national && !candidates.includes(national)) candidates.push(national);
+      conditions.push(Prisma.sql`u.phone IN (${Prisma.join(candidates)})`);
     }
 
     if (search) {
@@ -321,13 +354,15 @@ export class UserService {
       identifierCondition = Prisma.sql`u.uid = ${id}::uuid`;
     }
 
+    // `u.*` already exposes the real `emergency_contact / blood_group /
+    // allergies` columns. The dead `insurance_details` /
+    // `preferred_hospital` names don't exist on the table but some clients
+    // still expect them in the payload; keep the hardcoded NULL casts only
+    // for those two so we don't break the response shape.
     const result = await prisma.$queryRaw`
       SELECT
         u.*,
         COALESCE(u.updated_at, u.registered_at) AS last_login,
-        NULL::jsonb AS emergency_contact,
-        NULL::text AS blood_group,
-        NULL::text AS allergies,
         NULL::jsonb AS insurance_details,
         NULL::text AS preferred_hospital,
         d.department AS doctor_department,
@@ -356,31 +391,22 @@ export class UserService {
       throw new Error('User not found');
     }
 
-    const allowedFields = [
-      'name',
-      'email',
-      'gender',
-      'birthday',
-      'anniversary',
-      'address',
-      'emergency_contact',
-      'profile_picture',
-      'blood_group',
-      'allergies',
-      'insurance_details',
-      'preferred_hospital'
-    ];
+    // Single source of truth: only fields confirmed present on `users`. Two
+    // dead names (`insurance_details`, `preferred_hospital`) were previously
+    // listed and silently dropped — they don't exist on the table.
+    const allowedFields = PROFILE_FIELDS_IN_SCHEMA;
 
     const setClauses = [];
 
     for (const field of allowedFields) {
-      if (updateData[field] !== undefined && PROFILE_FIELDS_IN_SCHEMA.includes(field)) {
-        const value = coerceProfileField(field, updateData[field]);
-        setClauses.push(
-          PROFILE_DATE_FIELDS.has(field)
-            ? Prisma.sql`${Prisma.raw(field)} = ${value}::date`
-            : Prisma.sql`${Prisma.raw(field)} = ${value}`
-        );
+      if (updateData[field] === undefined) continue;
+      const value = coerceProfileField(field, updateData[field]);
+      if (PROFILE_DATE_FIELDS.has(field)) {
+        setClauses.push(Prisma.sql`${Prisma.raw(field)} = ${value}::date`);
+      } else if (PROFILE_JSON_FIELDS.has(field)) {
+        setClauses.push(Prisma.sql`${Prisma.raw(field)} = ${value}::jsonb`);
+      } else {
+        setClauses.push(Prisma.sql`${Prisma.raw(field)} = ${value}`);
       }
     }
 

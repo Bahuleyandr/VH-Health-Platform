@@ -50,9 +50,19 @@ export const orderInvestigation = async (req, res) => {
       return error(res, 'Access denied: Doctor privileges required to order investigations', 403);
     }
     
+    // Accept the alias field names the admin UI + several callers use:
+    // investigation_name → test_name, investigation_type → type,
+    // clinical_notes → notes. Lowercase priority so STAT/URGENT/ROUTINE all
+    // hit the validator. See finding
+    // 2026-05-08-obstetric-anc-doctor-investigations-all-500.
+    const body = req.body || {};
     const orderData = {
-      ...req.body,
-      orderedBy: requestedBy
+      ...body,
+      test_name: body.test_name ?? body.investigation_name ?? body.testName,
+      type: body.type ?? body.investigation_type ?? body.investigationType,
+      notes: body.notes ?? body.clinical_notes ?? body.clinicalNotes,
+      priority: body.priority ? String(body.priority).toUpperCase() : body.priority,
+      orderedBy: requestedBy,
     };
 
     const result = await orderService.createInvestigationOrder(orderData);
@@ -90,8 +100,15 @@ export const orderInvestigation = async (req, res) => {
       return error(res, 'Invalid investigation type', 400);
     } else if (err.message === 'INVALID_PRIORITY') {
       return error(res, 'Invalid priority level', 400);
+    } else if (err.message === 'MISSING_REQUIRED_FIELDS') {
+      return error(
+        res,
+        'Required fields missing — patient_id (or patient_phone), test_name, and type are mandatory.',
+        400,
+        { code: 'MISSING_REQUIRED_FIELDS' },
+      );
     }
-    
+
     error(res, 'Failed to order investigation', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };

@@ -332,27 +332,91 @@ export const dispatchOrder = async (req, res) => {
 
 export const markDelivered = async (req, res) => {
   try {
-    const { id } = req.params;
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE pharmacy_orders SET status='DELIVERED', delivered_at=NOW(),
-         delivery_tracking_active=FALSE, updated_at=NOW()
-       WHERE id=$1 AND status='DISPATCHED'
-       RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount,
-         delivered_at, created_at, updated_at`,
-      parseInt(id)
-    );
+    const orderId = parseInt(req.params.id);
+    if (!Number.isInteger(orderId)) {
+      return error(res, 'Invalid order id', HTTP_STATUS.BAD_REQUEST);
+    }
 
-    if (!result.length) {
+    // Pull items_list + linked prescription up-front so we can do the
+    // stock decrement + Rx fulfilment hook in the same transaction.
+    // Findings: 2026-05-08-walk-in-opd-pharmacy-dispense-no-stock-decrement,
+    // 2026-05-08-walk-in-opd-pharmacy-prescription-not-fulfilled-after-dispense.
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.$queryRawUnsafe(
+        `UPDATE pharmacy_orders SET status='DELIVERED', delivered_at=NOW(),
+           delivery_tracking_active=FALSE, updated_at=NOW()
+         WHERE id=$1 AND status='DISPATCHED'
+         RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount,
+           items_list, delivered_at, created_at, updated_at`,
+        orderId,
+      );
+      if (!updated.length) return null;
+      const order = updated[0];
+
+      // Decrement stock for each catalog item that resolved to a row.
+      // Items with no catalog_id and no name match are skipped (kept loose
+      // so legacy free-text orders don't 500). Aggregate per catalog_id so
+      // duplicates in the items_list don't double-skip a single UPDATE.
+      const items = Array.isArray(order.items_list) ? order.items_list : [];
+      const decrementByCatalog = new Map();
+      for (const item of items) {
+        const qty = Number(item?.qty ?? item?.quantity ?? 0);
+        if (!Number.isFinite(qty) || qty <= 0) continue;
+        let catalogId = item?.catalog_id ? parseInt(item.catalog_id, 10) : null;
+        if (!catalogId && item?.name) {
+          const match = await tx.$queryRawUnsafe(
+            'SELECT id FROM pharmacy_catalog WHERE name ILIKE $1 LIMIT 1',
+            item.name,
+          );
+          if (match.length) catalogId = match[0].id;
+        }
+        if (!catalogId) continue;
+        decrementByCatalog.set(catalogId, (decrementByCatalog.get(catalogId) ?? 0) + qty);
+      }
+      for (const [catalogId, qty] of decrementByCatalog.entries()) {
+        await tx.$queryRawUnsafe(
+          `UPDATE pharmacy_catalog
+              SET stock_quantity = GREATEST(COALESCE(stock_quantity, 0) - $1, 0),
+                  updated_at = NOW()
+            WHERE id = $2`,
+          qty, catalogId,
+        );
+      }
+
+      // Mirror the dispense onto the linked e_prescriptions row so the same
+      // Rx can't be dispensed twice. Best-effort: pharmacy_order_id is not
+      // always set (legacy paths) — skip silently if no link.
+      await tx.$executeRawUnsafe(
+        `UPDATE e_prescriptions
+            SET status = 'fulfilled',
+                pharmacy_opted = TRUE,
+                pharmacy_order_id = COALESCE(pharmacy_order_id, $1),
+                updated_at = NOW()
+          WHERE pharmacy_order_id = $1
+             OR (pharmacy_order_id IS NULL AND id IN (
+                   SELECT ep.id FROM e_prescriptions ep
+                   WHERE ep.patient_id = $2
+                     AND ep.status IN ('active', 'pharmacy_linked')
+                   ORDER BY ep.created_at DESC LIMIT 1
+                 ))`,
+        orderId, order.patient_id ?? null,
+      );
+
+      // History row last so it lands inside the same tx.
+      await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role)
+         VALUES ($1, 'DISPATCHED', 'DELIVERED', $2, 'pharmacist')`,
+        orderId, req.user?.id ?? null,
+      );
+
+      return order;
+    });
+
+    if (!result) {
       return error(res, 'Order not found or wrong status', HTTP_STATUS.BAD_REQUEST);
     }
 
-    await prisma.$queryRawUnsafe(
-      `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role)
-       VALUES ($1, 'DISPATCHED', 'DELIVERED', $2, 'pharmacist')`,
-      parseInt(id), req.user?.id
-    );
-
-    success(res, result[0], 'Delivered');
+    success(res, result, 'Delivered');
   } catch (err) {
     logger.error('Mark delivered error:', err);
     error(res, 'Failed to update order', HTTP_STATUS.INTERNAL_SERVER_ERROR);

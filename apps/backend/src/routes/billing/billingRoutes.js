@@ -236,8 +236,18 @@ router.get('/insurance/claims', async (req, res, next) => {
  */
 router.put('/insurance/claim/:id', paramId(), validate, async (req, res, next) => {
   try {
-    if (!isStaff(req.user?.role) && !isAdmin(req.user?.role)) {
-      return error(res, 'Only staff or admin can update claim status', 403);
+    // Tighter role gate. Marking a TPA claim "paid" is a financial event
+    // and must not be reachable by NURSING_STAFF / DOCTOR / generic staff
+    // tokens (the previous isStaff() let any staff token through). See
+    // finding 2026-05-08-tpa-insurance-claim-billing-claim-paid-without-payment-record.
+    const role = String(req.user?.role || '').toUpperCase();
+    const ALLOWED = new Set([
+      'ADMIN', 'SUPER_ADMIN',
+      'BILLING_STAFF', 'BILLING_INCHARGE',
+      'FINANCE_INCHARGE', 'TPA_DESK',
+    ]);
+    if (!ALLOWED.has(role)) {
+      return error(res, 'Insurance claim updates are restricted to billing/admin roles', 403);
     }
 
     const claimId = parseInt(req.params.id, 10);
@@ -245,13 +255,29 @@ router.put('/insurance/claim/:id', paramId(), validate, async (req, res, next) =
       return error(res, 'Invalid claim ID', 400);
     }
 
-    const { status, approved_amount, reason } = req.body;
+    const { status, approved_amount, reason, rejection_reason, documents, payment_reference } = req.body;
+
+    // Settling a claim must carry payment evidence. Block "paid" without a
+    // payment_reference (UTR / cheque / NEFT id). See same finding above —
+    // financial-control failure.
+    if (status === 'paid' && !payment_reference) {
+      return error(
+        res,
+        'A payment_reference (UTR / cheque / NEFT id) is required to mark a claim paid.',
+        400,
+        { code: 'PAYMENT_REFERENCE_REQUIRED' },
+      );
+    }
 
     const claim = await billingService.updateClaimStatus(
       claimId,
       status,
       approved_amount,
-      reason
+      // Allow either `reason` or the more explicit `rejection_reason` body
+      // field — previously the field was silently dropped. See finding
+      // 2026-05-08-tpa-insurance-claim-billing-claim-update-drops-fields.
+      rejection_reason ?? reason,
+      { documents, payment_reference, actor_uid: req.user?.uid ?? null },
     );
 
     return success(res, claim, 'Insurance claim updated successfully');
