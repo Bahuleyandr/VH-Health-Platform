@@ -163,6 +163,23 @@ async function admitPatient(data) {
   const resolvedAttendingDoctor = attending_doctor ?? erVisit?.attending_doctor_uid ?? null;
   const erArrivalAt = erVisit?.arrival_at ?? null;
 
+  // Bed-allocation gate (migration 171). Strict-with-emergency-exception:
+  // an admission MUST have a bed_id, except for emergency admits with
+  // emergent priority where bed allocation may lag behind clinical
+  // urgency. Day-care admissions always require a bed AND that bed must
+  // be in the day_care pool (beds.bed_type='day_care'). See finding
+  // 2026-05-08-emergency-walk-in-doctor-admit-without-bed-allowed.
+  const isEmergencyExceptionEligible = admission_type === 'emergency' && priority === 'emergent';
+  const bedlessAdmit = bed_id === undefined || bed_id === null;
+  if (bedlessAdmit && !isEmergencyExceptionEligible) {
+    throw AppError.badRequest(
+      `bed_id is required for ${admission_type} admissions. Bedless admit is only allowed for admission_type='emergency' with priority='emergent'.`,
+    );
+  }
+  if (admission_type === 'day_care' && bedlessAdmit) {
+    throw AppError.badRequest('Day-care admissions require a bed_id at admit time (no emergency bedless exception).');
+  }
+
   const consent = await prisma.patient_consents.findFirst({
     where: { patient_uid, consent_type: 'treatment', status: 'active' },
     select: { id: true },
@@ -212,6 +229,10 @@ async function admitPatient(data) {
         // ER linkage (migration 170). Both stay null on non-ER admissions.
         from_er_visit_id: erVisit?.id ?? null,
         er_arrival_at: erArrivalAt,
+        // Bed-allocation tracker (migration 171). Stamped only when the
+        // emergency exception fires; cleared (left as historical) once a
+        // bed is assigned via assignBedToAdmission.
+        bed_pending_since: bedlessAdmit ? new Date() : null,
       },
       select: ADMISSION_RETURNING_SELECT,
     });
@@ -238,11 +259,21 @@ async function admitPatient(data) {
       // Prisma typed methods can't issue row locks, so we keep the SELECT
       // raw inside the transaction; the subsequent UPDATE is typed.
       const bedRows = await tx.$queryRaw`
-        SELECT id, status, bed_number FROM beds WHERE id = ${bed_id} FOR UPDATE
+        SELECT id, status, bed_number, bed_type FROM beds WHERE id = ${bed_id} FOR UPDATE
       `;
       if (!bedRows.length) throw AppError.notFound('Bed not found');
       if (bedRows[0].status !== 'available') {
         throw AppError.badRequest(`Bed ${bedRows[0].bed_number} is not available (current status: ${bedRows[0].status})`);
+      }
+      // Bed-pool match (migration 171). Day-care admissions must allocate
+      // a bed from the day_care pool; conversely a day_care bay can only
+      // host a day_care admission. Other bed_types stay loose for now
+      // (general/icu/private/etc. can mix until a tighter pool model lands).
+      if (admission_type === 'day_care' && bedRows[0].bed_type !== 'day_care') {
+        throw AppError.badRequest(`Day-care admission requires a day_care bed; bed ${bedRows[0].bed_number} is ${bedRows[0].bed_type ?? 'general'}.`);
+      }
+      if (bedRows[0].bed_type === 'day_care' && admission_type !== 'day_care') {
+        throw AppError.badRequest(`Bed ${bedRows[0].bed_number} is in the day_care pool; ${admission_type} admissions cannot allocate it.`);
       }
 
       await tx.beds.update({
@@ -287,10 +318,127 @@ async function admitPatient(data) {
 
     if (erVisit) {
       logger.info(`Patient ${patient_uid} admitted from ER visit #${erVisit.id} — admission #${admission.id}, encounter ${admission.encounter_id}`);
+    } else if (bedlessAdmit) {
+      logger.warn(`Patient ${patient_uid} admitted bedless (emergency exception) — admission #${admission.id}; allocate a bed via /admissions/:id/assign-bed`);
     } else {
       logger.info(`Patient ${patient_uid} admitted — admission #${admission.id}, encounter ${admission.encounter_id}`);
     }
     return admission;
+  });
+}
+
+/**
+ * Assign a bed to an admission that was created bedless under the
+ * emergency exception. Writes a bed_transfers row (from_bed_id=null →
+ * to_bed_id=N) so the audit trail captures when the bed actually
+ * arrived. The admission's bed_pending_since stays as a historical
+ * anchor — query (NOW() - bed_pending_since) on bed_transfers.created_at
+ * minus admissions.bed_pending_since to get the door-to-bed metric.
+ *
+ * Migration 171. See finding
+ * 2026-05-08-emergency-walk-in-doctor-admit-without-bed-allowed.
+ *
+ * @param {number} admissionId
+ * @param {number} bedId
+ * @param {string} assignedBy  uid of the staff member allocating the bed
+ * @returns {Object} updated admission
+ */
+async function assignBedToAdmission(admissionId, bedId, assignedBy) {
+  if (!admissionId) throw AppError.badRequest('admissionId is required');
+  if (!bedId) throw AppError.badRequest('bedId is required');
+  if (!assignedBy) throw AppError.badRequest('assignedBy is required');
+
+  return prisma.$transaction(async (tx) => {
+    const admRows = await tx.$queryRaw`
+      SELECT id, patient_uid, status, bed_id, admission_type, ward, bed_pending_since
+      FROM admissions WHERE id = ${admissionId} FOR UPDATE
+    `;
+    if (!admRows.length) throw AppError.notFound('Admission not found');
+    const admission = admRows[0];
+    if (admission.status !== 'admitted') {
+      throw AppError.badRequest(`Cannot assign bed — admission is ${admission.status}, not admitted`);
+    }
+    if (admission.bed_id) {
+      throw AppError.conflict(`Admission already has bed ${admission.bed_id} — use /admissions/:id/transfer to move beds`);
+    }
+
+    const bedRows = await tx.$queryRaw`
+      SELECT id, status, bed_number, bed_type, ward_name FROM beds WHERE id = ${bedId} FOR UPDATE
+    `;
+    if (!bedRows.length) throw AppError.notFound('Bed not found');
+    if (bedRows[0].status !== 'available') {
+      throw AppError.badRequest(`Bed ${bedRows[0].bed_number} is not available (current status: ${bedRows[0].status})`);
+    }
+    if (admission.admission_type === 'day_care' && bedRows[0].bed_type !== 'day_care') {
+      throw AppError.badRequest(`Day-care admission requires a day_care bed; bed ${bedRows[0].bed_number} is ${bedRows[0].bed_type ?? 'general'}.`);
+    }
+    if (bedRows[0].bed_type === 'day_care' && admission.admission_type !== 'day_care') {
+      throw AppError.badRequest(`Bed ${bedRows[0].bed_number} is in the day_care pool; ${admission.admission_type} admissions cannot allocate it.`);
+    }
+
+    const patientUser = await tx.users.findUnique({
+      where: { uid: admission.patient_uid },
+      select: { id: true, name: true },
+    });
+
+    await tx.beds.update({
+      where: { id: bedId },
+      data: {
+        status: 'occupied',
+        patient_id: patientUser?.id ?? null,
+        patient_name: patientUser?.name ?? null,
+        patient_uid: admission.patient_uid,
+        admitted_at: new Date(),
+        assigned_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
+
+    const updatedAdmission = await tx.admissions.update({
+      where: { id: admissionId },
+      data: {
+        bed_id: bedId,
+        bed_number: bedRows[0].bed_number,
+        ward: bedRows[0].ward_name ?? admission.ward,
+        updated_at: new Date(),
+        // bed_pending_since deliberately preserved as the historical
+        // anchor for SLA reports.
+      },
+      select: ADMISSION_RETURNING_SELECT,
+    });
+
+    await tx.bed_transfers.create({
+      data: {
+        patient_uid: admission.patient_uid,
+        admission_id: admissionId,
+        from_bed_id: null,
+        to_bed_id: bedId,
+        reason: 'Bed allocated to bedless emergency admission',
+        transferred_by: assignedBy,
+      },
+    });
+
+    await tx.audit_logs.create({
+      data: {
+        uid: assignedBy,
+        action: 'ASSIGN_BED_TO_ADMISSION',
+        resource: 'admission',
+        resource_id: String(admissionId),
+        metadata: {
+          bed_id: bedId,
+          bed_number: bedRows[0].bed_number,
+          bed_type: bedRows[0].bed_type,
+          bed_pending_since: admission.bed_pending_since,
+          door_to_bed_minutes: admission.bed_pending_since
+            ? Math.round((Date.now() - new Date(admission.bed_pending_since).getTime()) / 60000)
+            : null,
+        },
+        ip_address: null,
+      },
+    });
+
+    logger.info(`Bed ${bedRows[0].bed_number} (id=${bedId}) assigned to admission #${admissionId} (was bedless since ${admission.bed_pending_since})`);
+    return updatedAdmission;
   });
 }
 
@@ -931,6 +1079,7 @@ async function getAdmissionStats(dateFrom, dateTo) {
 
 export default {
   admitPatient,
+  assignBedToAdmission,
   dischargePatient,
   transferPatient,
   getActiveAdmissions,
