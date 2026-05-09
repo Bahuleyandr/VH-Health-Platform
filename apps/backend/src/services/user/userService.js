@@ -33,7 +33,12 @@ const PROFILE_FIELDS_IN_SCHEMA = [
   'blood_group',
   'allergies',
   'medical_history',
-  'emergency_contact'
+  'emergency_contact',
+  // E-9 — guardian fields for paediatric / minor patients (migration 189).
+  // Walk-in registration sets them; later updates flow through here.
+  'guardian_name',
+  'guardian_phone',
+  'guardian_relationship'
 ];
 const PROFILE_DATE_FIELDS = new Set(['birthday', 'anniversary']);
 const PROFILE_JSON_FIELDS = new Set(['emergency_contact']);

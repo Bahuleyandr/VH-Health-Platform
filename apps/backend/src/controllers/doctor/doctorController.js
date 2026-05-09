@@ -42,6 +42,9 @@ export const doctorController = {
         department: req.query.department,
         departmentId,
         available: req.query.available === undefined ? undefined : req.query.available === 'true',
+        // E-9 — paeds OPD age filter. ?ageRange=paediatric returns
+        // paediatricians plus general practitioners flagged as 'all'.
+        ageRange: req.query.ageRange || req.query.age_range || null,
         search: listQuery.search
       };
 
