@@ -11,6 +11,8 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { generateDischargeSummary } from './dischargeSummaryGenerator.js';
+import billingService from '../billing/billingService.js';
 
 
 const VALID_STATUS_TRANSITIONS = {
@@ -463,6 +465,323 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy) {
   });
 }
 
+// Default consult types opened at mark-for-discharge. Extend in
+// migration data or via configurable seed if more roles need to be
+// pinged in future (pharmacist counselling, social worker, etc.).
+const DEFAULT_DISCHARGE_CONSULTS = ['dietary', 'physiotherapy'];
+
+/**
+ * Compute the attending-doctors snapshot from clinical_notes authored
+ * during the admission. Each round / progress note records its author,
+ * so the doctors who actually saw the patient are the union of those
+ * authors. Returns a JSON-serializable array of:
+ *   { uid, name, designation, first_seen_at, last_seen_at, note_count }
+ *
+ * Best-effort: if the notes table is empty or join fails, returns an
+ * empty array so the discharge cascade doesn't block on it.
+ */
+async function buildAttendingDoctorsSnapshot(encounterId) {
+  if (!encounterId) return [];
+  try {
+    const rows = await prisma.$queryRaw`
+      SELECT cn.author_uid AS uid,
+             u.name AS name,
+             d.specialty AS designation,
+             MIN(cn.created_at) AS first_seen_at,
+             MAX(cn.created_at) AS last_seen_at,
+             COUNT(cn.id)::int AS note_count
+        FROM clinical_notes cn
+        LEFT JOIN users u ON u.uid = cn.author_uid
+        LEFT JOIN doctors d ON d.user_id = u.id
+       WHERE cn.encounter_id = ${encounterId}
+         AND cn.author_uid IS NOT NULL
+         AND cn.author_role IN ('DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT')
+       GROUP BY cn.author_uid, u.name, d.specialty
+       ORDER BY MIN(cn.created_at) ASC
+    `;
+    return rows.map((r) => ({
+      uid: r.uid,
+      name: r.name ?? null,
+      designation: r.designation ?? null,
+      first_seen_at: r.first_seen_at,
+      last_seen_at: r.last_seen_at,
+      note_count: r.note_count,
+    }));
+  } catch (err) {
+    logger.warn(`buildAttendingDoctorsSnapshot failed for encounter=${encounterId}: ${err.message}`);
+    return [];
+  }
+}
+
+/**
+ * Mark an admission for discharge. This is the FIRST step of the
+ * discharge cascade. The actual dischargePatient (T4 = patient left
+ * the hospital) happens later via the existing /discharge endpoint
+ * once the summary is signed and drugs are dispensed.
+ *
+ * Atomic side effects (single transaction):
+ *   1. Stamp admissions.discharge_initiated_at (T0)
+ *   2. Stamp admissions.billing_closed_at (soft freeze — no new items
+ *      should be added; cashier UI shows "billing closed")
+ *   3. Open default discharge consults (dietary, physiotherapy) so
+ *      those roles are pinged. T0→completed_at is the efficiency
+ *      marker for each consult.
+ *   4. If admission has insurance_info or any active insurance_claim
+ *      for this patient, open a placeholder final claim
+ *      (stage='final', amount=0; TPA desk fills in actual amount
+ *      from the closed bill).
+ *   5. Audit log entry.
+ *
+ * After the transaction commits, generateDischargeSummary is invoked
+ * to produce the draft summary. The attending_doctors_snapshot is
+ * stitched into the saved clinical_notes content as a separate update
+ * so the snapshot reflects every doctor who entered notes during the
+ * admission, not just the admitting consultant.
+ *
+ * Per project decision 2026-05-09. Architectural item D2.
+ *
+ * @param {number} admissionId
+ * @param {string} requestedBy uid of the staff member marking discharge
+ * @returns {{ admission: Object, summary: Object|null, consults: Array, finalClaim: Object|null, attending_doctors: Array }}
+ */
+async function markForDischarge(admissionId, requestedBy) {
+  if (!admissionId) throw AppError.badRequest('admissionId is required');
+  if (!requestedBy) throw AppError.badRequest('requestedBy is required');
+
+  // Phase 1: tx-bounded state changes (stamp markers, open consults,
+  // open final claim placeholder if applicable). Generation of the
+  // draft summary happens AFTER this commits because it can call out
+  // to the LLM and take seconds.
+  const phase1 = await prisma.$transaction(async (tx) => {
+    const admRows = await tx.$queryRaw`
+      SELECT id, patient_uid, status, encounter_id, insurance_info,
+             discharge_initiated_at, billing_closed_at
+        FROM admissions WHERE id = ${admissionId} FOR UPDATE
+    `;
+    if (!admRows.length) throw AppError.notFound('Admission not found');
+    const admission = admRows[0];
+
+    if (!['admitted', 'transferred'].includes(admission.status)) {
+      throw AppError.badRequest(`Cannot mark for discharge — admission is ${admission.status}`);
+    }
+    if (admission.discharge_initiated_at) {
+      throw AppError.conflict(`Admission already marked for discharge at ${admission.discharge_initiated_at.toISOString?.() ?? admission.discharge_initiated_at}`);
+    }
+
+    const now = new Date();
+    const updated = await tx.admissions.update({
+      where: { id: admissionId },
+      data: {
+        discharge_initiated_at: now,
+        billing_closed_at: now,
+        updated_at: now,
+      },
+      select: ADMISSION_RETURNING_SELECT,
+    });
+
+    // Open default consults — one per consult_type. UNIQUE
+    // (admission_id, consult_type) prevents duplicates if this
+    // function is somehow called twice.
+    const consults = await Promise.all(
+      DEFAULT_DISCHARGE_CONSULTS.map((consultType) =>
+        tx.discharge_consults.upsert({
+          where: { admission_id_consult_type: { admission_id: admissionId, consult_type: consultType } },
+          create: {
+            admission_id: admissionId,
+            patient_uid: admission.patient_uid,
+            consult_type: consultType,
+            requested_at: now,
+            requested_by: requestedBy,
+          },
+          update: {},
+        }),
+      ),
+    );
+
+    // Best-effort TPA final-claim placeholder. Find the most recent
+    // open claim for this patient on this admission's tenant (claim
+    // table is per-tenant), open a child with stage='final', amount=0
+    // — TPA desk fills in actual amount once the bill is closed.
+    let finalClaim = null;
+    const hasInsurance =
+      admission.insurance_info != null
+      || (await tx.insurance_claims.count({ where: { patient_uid: admission.patient_uid, status: { not: 'paid' } } })) > 0;
+    if (hasInsurance) {
+      try {
+        const parent = await tx.insurance_claims.findFirst({
+          where: { patient_uid: admission.patient_uid, stage: { in: ['preauth', 'enhancement'] } },
+          orderBy: [{ submitted_at: 'desc' }],
+        });
+        if (parent) {
+          const existingFinal = await tx.insurance_claims.count({
+            where: { parent_claim_id: parent.id, stage: 'final' },
+          });
+          const finalNumber = `${parent.claim_number}-F${existingFinal + 1}`;
+          finalClaim = await tx.insurance_claims.create({
+            data: {
+              claim_number: finalNumber,
+              patient_uid: parent.patient_uid,
+              invoice_id: parent.invoice_id,
+              insurance_provider: parent.insurance_provider,
+              policy_number: parent.policy_number,
+              claim_amount: 0, // placeholder — TPA desk updates with consolidated bill total
+              status: 'submitted',
+              stage: 'final',
+              parent_claim_id: parent.id,
+              documents: { final: { opened_by: requestedBy, opened_at: now.toISOString(), trigger: 'discharge_initiated' } },
+              submitted_at: now,
+              updated_at: now,
+            },
+          });
+        } else {
+          logger.warn(`markForDischarge: insurance flagged but no parent claim found for patient ${admission.patient_uid}; skipping final claim`);
+        }
+      } catch (e) {
+        logger.warn(`markForDischarge: final claim creation failed (continuing): ${e.message}`);
+      }
+    }
+
+    await tx.audit_logs.create({
+      data: {
+        uid: requestedBy,
+        action: 'MARK_FOR_DISCHARGE',
+        resource: 'admission',
+        resource_id: String(admissionId),
+        metadata: {
+          patient_uid: admission.patient_uid,
+          consults_opened: consults.map((c) => c.consult_type),
+          final_claim_id: finalClaim?.id ?? null,
+          billing_closed_at: now.toISOString(),
+        },
+        ip_address: null,
+      },
+    });
+
+    return { admission: updated, encounter_id: admission.encounter_id, patient_uid: admission.patient_uid, consults, finalClaim };
+  });
+
+  // Phase 2: generate the draft summary (outside the txn — LLM call).
+  // If this fails, T0 is already stamped + consults opened — the doctor
+  // can manually generate via the existing /discharge-summary/generate
+  // endpoint. We surface the failure in the response so the caller knows
+  // the cascade partially succeeded.
+  let summary = null;
+  let attendingDoctors = [];
+  try {
+    summary = await generateDischargeSummary(admissionId, requestedBy, null);
+    attendingDoctors = await buildAttendingDoctorsSnapshot(phase1.encounter_id);
+
+    // Stitch the attending-doctors snapshot into the just-created
+    // clinical_notes draft so the summary header reflects every doctor
+    // who saw the patient. Best-effort — if the find fails, the
+    // snapshot is still on the response and can be re-applied later.
+    if (attendingDoctors.length > 0) {
+      const note = await prisma.clinical_notes.findFirst({
+        where: { encounter_id: phase1.encounter_id, note_type: 'discharge', is_addendum: false },
+        orderBy: [{ version: 'desc' }, { id: 'desc' }],
+        select: { id: true, content: true, is_signed: true },
+      });
+      if (note && !note.is_signed) {
+        const baseContent = (note.content && typeof note.content === 'object' && !Array.isArray(note.content))
+          ? note.content
+          : {};
+        await prisma.clinical_notes.update({
+          where: { id: note.id },
+          data: {
+            content: { ...baseContent, attending_doctors_snapshot: attendingDoctors },
+            updated_at: new Date(),
+          },
+        });
+      }
+    }
+  } catch (err) {
+    logger.warn(`markForDischarge: draft summary generation failed for admission=${admissionId}: ${err.message}`);
+  }
+
+  logPhiAccess({
+    userId: requestedBy,
+    patientId: phase1.patient_uid,
+    recordType: 'admission',
+    action: 'MARK_FOR_DISCHARGE',
+  });
+
+  logger.info(`Admission ${admissionId} marked for discharge by ${requestedBy} — consults: ${phase1.consults.map((c) => c.consult_type).join(', ')}, final claim: ${phase1.finalClaim?.claim_number ?? 'none'}`);
+
+  return {
+    admission: phase1.admission,
+    summary,
+    consults: phase1.consults,
+    finalClaim: phase1.finalClaim,
+    attending_doctors: attendingDoctors,
+  };
+}
+
+/**
+ * Log a discharge consult as completed. Used by the dietician /
+ * physiotherapy / etc. roles to record that they've seen the patient
+ * and given the relevant advice. T0 → completed_at is the efficiency
+ * marker for each consult type. Architectural item D2.
+ */
+async function completeDischargeConsult(admissionId, consultType, completedBy, notes = null) {
+  if (!admissionId) throw AppError.badRequest('admissionId is required');
+  if (!consultType) throw AppError.badRequest('consultType is required');
+  if (!completedBy) throw AppError.badRequest('completedBy is required');
+
+  const updated = await prisma.discharge_consults.update({
+    where: { admission_id_consult_type: { admission_id: admissionId, consult_type: consultType } },
+    data: {
+      completed_at: new Date(),
+      completed_by: completedBy,
+      notes: notes ?? null,
+      updated_at: new Date(),
+    },
+  });
+
+  await prisma.audit_logs.create({
+    data: {
+      uid: completedBy,
+      action: 'COMPLETE_DISCHARGE_CONSULT',
+      resource: 'discharge_consult',
+      resource_id: String(updated.id),
+      metadata: { admission_id: admissionId, consult_type: consultType },
+      ip_address: null,
+    },
+  });
+
+  logger.info(`Discharge consult ${consultType} completed for admission ${admissionId} by ${completedBy}`);
+  return updated;
+}
+
+/**
+ * Stamp admissions.discharge_drugs_dispensed_at = T3. Called by the
+ * pharmacy module when discharge takeaway drugs are dispensed.
+ * Architectural item D2.
+ */
+async function markDischargeDrugsDispensed(admissionId, dispensedBy) {
+  if (!admissionId) throw AppError.badRequest('admissionId is required');
+  if (!dispensedBy) throw AppError.badRequest('dispensedBy is required');
+
+  const updated = await prisma.admissions.update({
+    where: { id: admissionId },
+    data: { discharge_drugs_dispensed_at: new Date(), updated_at: new Date() },
+    select: ADMISSION_RETURNING_SELECT,
+  });
+
+  await prisma.audit_logs.create({
+    data: {
+      uid: dispensedBy,
+      action: 'MARK_DISCHARGE_DRUGS_DISPENSED',
+      resource: 'admission',
+      resource_id: String(admissionId),
+      metadata: { dispensed_at: new Date().toISOString() },
+      ip_address: null,
+    },
+  });
+
+  logger.info(`Discharge drugs dispensed for admission ${admissionId} by ${dispensedBy}`);
+  return updated;
+}
+
 async function dischargePatient(admissionId, dischargeData, dischargedBy) {
   const { discharge_type, discharge_summary, override_readiness_gate } = dischargeData || {};
 
@@ -474,8 +793,12 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
 
   return prisma.$transaction(async (tx) => {
     // FOR UPDATE lock on the admission to serialise concurrent state changes.
+    // Pull the discharge-cascade markers + encounter_id so the readiness
+    // gate (D2) can check summary-signed / drugs-dispensed without a
+    // second query.
     const admRows = await tx.$queryRaw`
-      SELECT id, patient_uid, bed_id, status, admitted_at
+      SELECT id, patient_uid, bed_id, status, admitted_at, encounter_id,
+             discharge_initiated_at, summary_signed_at, discharge_drugs_dispensed_at
       FROM admissions WHERE id = ${admissionId} FOR UPDATE
     `;
     if (!admRows.length) throw AppError.notFound('Admission not found');
@@ -496,8 +819,41 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
     const READINESS_GATED_TYPES = new Set(['home', 'transfer', 'aor']);
     if (READINESS_GATED_TYPES.has(discharge_type) && override_readiness_gate !== true) {
       const blockers = [];
-      if (!discharge_summary || !String(discharge_summary).trim()) {
-        blockers.push({ type: 'SUMMARY_MISSING', message: 'discharge_summary must be present and signed before discharge.' });
+      // Discharge cascade gates (D2). Require:
+      //   - mark-for-discharge already happened (T0 stamped)
+      //   - signed summary (T2)
+      //   - takeaway drugs dispensed (T3)
+      // discharge_summary text in dischargeData is allowed as the
+      // legacy free-text path; if the admission has a clinical_notes
+      // discharge note that's signed, that satisfies the summary gate.
+      if (!admission.discharge_initiated_at) {
+        blockers.push({
+          type: 'NOT_MARKED_FOR_DISCHARGE',
+          message: 'Admission has not been marked for discharge yet. Call POST /admissions/:id/mark-for-discharge first to open the cascade.',
+        });
+      }
+      if (!admission.summary_signed_at) {
+        const signedNote = await tx.clinical_notes.findFirst({
+          where: {
+            encounter_id: admission.encounter_id ?? undefined,
+            note_type: 'discharge',
+            is_addendum: false,
+            is_signed: true,
+          },
+          select: { id: true },
+        });
+        if (!signedNote && (!discharge_summary || !String(discharge_summary).trim())) {
+          blockers.push({
+            type: 'SUMMARY_NOT_SIGNED',
+            message: 'Discharge summary must be signed by the doctor before final discharge.',
+          });
+        }
+      }
+      if (!admission.discharge_drugs_dispensed_at) {
+        blockers.push({
+          type: 'DRUGS_NOT_DISPENSED',
+          message: 'Discharge takeaway drugs must be dispensed before final discharge. Call POST /admissions/:id/mark-drugs-dispensed when pharmacy hands over.',
+        });
       }
       try {
         const unpaid = await tx.$queryRawUnsafe(
@@ -1125,6 +1481,10 @@ async function getAdmissionStats(dateFrom, dateTo) {
 export default {
   admitPatient,
   assignBedToAdmission,
+  // Discharge cascade (D2): mark → consults → drugs → final discharge.
+  markForDischarge,
+  completeDischargeConsult,
+  markDischargeDrugsDispensed,
   dischargePatient,
   transferPatient,
   getActiveAdmissions,

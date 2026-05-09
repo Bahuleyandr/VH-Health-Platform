@@ -84,6 +84,67 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
+// POST /:id/mark-for-discharge — Open the discharge cascade (D2).
+// Architectural item D2. Stamps T0 = discharge_initiated_at, closes
+// billing (soft), opens dietary + physiotherapy consults, generates
+// the draft discharge summary, opens a placeholder TPA final claim
+// if insurance applies. Idempotent — fails 409 if already marked.
+// ---------------------------------------------------------------------------
+router.post(
+  '/:id/mark-for-discharge',
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+    const requestedBy = req.user?.uid;
+    const result = await admissionService.markForDischarge(admissionId, requestedBy);
+    success(res, result, 'Admission marked for discharge — draft summary generated, consults opened', HTTP_STATUS.CREATED);
+  })
+);
+
+// ---------------------------------------------------------------------------
+// POST /:id/consults/:consultType/complete — Log a discharge consult
+// completion (dietician, physio, etc.). T0→completed_at is the
+// efficiency marker for that consult type. Architectural item D2.
+// ---------------------------------------------------------------------------
+router.post(
+  '/:id/consults/:consultType/complete',
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+    const consultType = String(req.params.consultType || '').trim().toLowerCase();
+    if (!consultType) {
+      return error(res, 'consultType param is required', HTTP_STATUS.BAD_REQUEST);
+    }
+    const completedBy = req.user?.uid;
+    const notes = req.body?.notes ?? null;
+    const updated = await admissionService.completeDischargeConsult(admissionId, consultType, completedBy, notes);
+    success(res, { consult: updated }, `${consultType} consult logged as complete`);
+  })
+);
+
+// ---------------------------------------------------------------------------
+// POST /:id/mark-drugs-dispensed — Stamp T3 = discharge_drugs_dispensed_at.
+// Called by the pharmacy module when discharge takeaway drugs are handed
+// over. Architectural item D2.
+// ---------------------------------------------------------------------------
+router.post(
+  '/:id/mark-drugs-dispensed',
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+    const dispensedBy = req.user?.uid;
+    const updated = await admissionService.markDischargeDrugsDispensed(admissionId, dispensedBy);
+    success(res, { admission: updated }, 'Discharge drugs marked as dispensed');
+  })
+);
+
+// ---------------------------------------------------------------------------
 // POST /:id/discharge — Discharge a patient
 // ---------------------------------------------------------------------------
 router.post(
