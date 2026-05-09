@@ -364,8 +364,17 @@ model admissions {
   reason                String?
   reason_for_admission  String?
   discharge_disposition String?
+  // ER linkage. When a patient is admitted from the emergency department,
+  // from_er_visit_id points back at emergency_visits.id; er_arrival_at is
+  // the original door-time so SLA / door-to-bed reports don't need a join.
+  // Migration 170. See finding
+  // 2026-05-08-emergency-walk-in-doctor-admit-no-er-visit-linkage.
+  from_er_visit_id      Int?
+  er_arrival_at         DateTime?         @db.Timestamptz(6)
+  emergency_visit       emergency_visits? @relation("AdmissionFromErVisit", fields: [from_er_visit_id], references: [id], onDelete: SetNull)
 
   @@index([status, ward, admitted_at(sort: Desc)], map: "idx_admissions_status_ward_admitted")
+  @@index([from_er_visit_id], map: "idx_admissions_from_er_visit")
 }
 
 model advance_deductions {
@@ -4224,6 +4233,8 @@ model emergency_visits {
   tenants              tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   mlc_records          mlc_records[]
   triage_assessments   triage_assessments[]
+  // Back-relation for admissions.from_er_visit_id (migration 170).
+  admissions           admissions[]         @relation("AdmissionFromErVisit")
 
   @@unique([tenant_id, visit_number])
   @@index([tenant_id, status, arrival_at(sort: Desc)], map: "idx_ed_visits_tenant_status")
