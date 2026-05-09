@@ -9419,11 +9419,50 @@ model lab_results {
   signed_off_by       String?               @db.Uuid
   comments            String?
   raw_obx             String?
+  // Panel grouping (architectural item A5 / migration 175). Multiple
+  // analytes from the same panel entry session share a panel_id;
+  // panel_code is the template (CBC | LIPID | RFT | THYROID …) so
+  // reports + trend queries can group by it.
+  panel_id              String?              @db.Uuid
+  panel_code            String?              @db.VarChar(50)
+  reference_range_low   Decimal?             @db.Decimal(15, 4)
+  reference_range_high  Decimal?             @db.Decimal(15, 4)
   created_at          DateTime              @default(now()) @db.Timestamptz(6)
   updated_at          DateTime              @default(now()) @db.Timestamptz(6)
   lab_critical_alerts lab_critical_alerts[]
 
   @@index([patient_uid, received_at(sort: Desc)], map: "idx_lab_results_patient")
+  @@index([panel_id], map: "idx_lab_results_panel")
+  @@index([patient_uid, test_code, performed_at(sort: Desc)], map: "idx_lab_results_patient_test")
+  @@index([patient_uid, panel_code, performed_at(sort: Desc)], map: "idx_lab_results_panel_code")
+}
+
+// Tenant-configurable normal ranges with sex + age applicability
+// (architectural item A5 / migration 175). Lookup picks the most
+// specific match. Critical thresholds co-located so a single read
+// returns normal + critical bounds for a test.
+model lab_reference_ranges {
+  id              Int      @id @default(autoincrement())
+  tenant_id       String   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  test_code       String   @db.VarChar(50)
+  loinc_code      String?  @db.VarChar(20)
+  test_name       String   @db.VarChar(255)
+  unit            String   @db.VarChar(40)
+  range_low       Decimal? @db.Decimal(15, 4)
+  range_high      Decimal? @db.Decimal(15, 4)
+  critical_low    Decimal? @db.Decimal(15, 4)
+  critical_high   Decimal? @db.Decimal(15, 4)
+  sex             String?  @db.VarChar(10)
+  age_band_min_y  Int?     @db.SmallInt
+  age_band_max_y  Int?     @db.SmallInt
+  notes           String?
+  is_active       Boolean  @default(true)
+  source          String?  @db.VarChar(80)
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([tenant_id, test_code, is_active])
+  @@index([tenant_id, loinc_code, is_active])
 }
 
 model maternity_anc_visits {
