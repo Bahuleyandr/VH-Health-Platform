@@ -6,6 +6,7 @@
 import { Router } from 'express';
 import logger from '../../logging/logger.js';
 import * as claims from '../../services/insurance/claimsService.js';
+import * as capsService from '../../services/insurance/claimCapsService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 
@@ -152,6 +153,37 @@ router.post('/claims/:id/payment', requireStaffOrAdmin, wrap(async (req) =>
     paid_at: req.body.paid_at,
     recorded_by: req.user?.uid,
   }),
+));
+
+// ── A11 — per-category claim caps (migration 178) ───────────────────
+// Replaces the unstructured documents.caps jsonb merged in batch 9.
+
+router.get('/claims/:id/caps', requireStaffOrAdmin, wrap(async (req) =>
+  capsService.getClaimCaps(req.params.id),
+));
+
+// Bulk upsert. Body: { caps: [{ category, max_amount, currency?, source?, notes? }, ...] }
+router.post('/claims/:id/caps', requireStaffOrAdmin, wrap(async (req) =>
+  capsService.setClaimCaps({
+    claimId: req.params.id,
+    caps: req.body.caps,
+    actorUid: req.user?.uid,
+  }),
+));
+
+router.delete('/claims/:id/caps/:category', requireStaffOrAdmin, wrap(async (req) =>
+  capsService.deleteCap({
+    claimId: req.params.id,
+    category: req.params.category,
+    actorUid: req.user?.uid,
+  }),
+));
+
+// Cap-application preview. Body: { lines: [{ category, amount }, ...] }.
+// Pure read-side — useful for the biller to dry-run an invoice against
+// the live caps before posting.
+router.post('/claims/:id/caps/apply', requireStaffOrAdmin, wrap(async (req) =>
+  capsService.applyCapsToInvoiceLines(req.params.id, req.body.lines || []),
 ));
 
 // ── Documents + correspondence ──────────────────────────────────────

@@ -4955,12 +4955,35 @@ model insurance_claims {
   child_claims                       insurance_claims[]                   @relation("InsuranceClaimEnhancement")
   clinical_ai_appeal_letters         clinical_ai_appeal_letters[]
   clinical_ai_payer_variance_reviews clinical_ai_payer_variance_reviews[]
+  // A11 — per-category caps (migration 178). Structured equivalent of
+  // the jsonb caps merged into documents by batch 9.
+  insurance_claim_caps               insurance_claim_caps[]
 
   @@index([patient_uid])
   @@index([status])
   @@index([submitted_at])
   @@index([parent_claim_id])
   @@index([stage])
+}
+
+// A11 — structured per-category caps for TPA / insurance claims
+// (migration 178).
+model insurance_claim_caps {
+  id          Int       @id @default(autoincrement())
+  claim_id    Int
+  category    String    @db.VarChar(60)
+  max_amount  Decimal   @db.Decimal(10, 2)
+  currency    String    @default("INR") @db.VarChar(3)
+  source      String    @default("tpa_preauth") @db.VarChar(40)
+  notes       String?
+  created_by  String    @db.Uuid
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime  @default(now()) @db.Timestamptz(6)
+  insurance_claim insurance_claims @relation(fields: [claim_id], references: [id], onDelete: Cascade)
+
+  @@unique([claim_id, category])
+  @@index([claim_id], map: "idx_insurance_claim_caps_claim")
+  @@index([category, claim_id], map: "idx_insurance_claim_caps_category")
 }
 
 model intake_output {
