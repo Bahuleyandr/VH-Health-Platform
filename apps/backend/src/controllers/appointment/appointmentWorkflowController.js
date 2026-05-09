@@ -520,6 +520,46 @@ export const getAvailableSlots = async (req, res) => {
  * $transaction so it stops crashing with `client.release is not a function`
  * (the rest of the codebase moved to Prisma in batch 26+).
  */
+// E-2 — Department → routing prefix used in human-readable visit_no.
+// Compose visit_no as `${PREFIX}-YYYYMMDD-${padded_token}`. Routing
+// pathways (ER triage, lab worklist filters, paeds doctor list) key
+// off the prefix, so it must be deterministic and case-insensitive.
+const DEPT_PREFIX_MAP = {
+  emergency: 'EMER', emer: 'EMER', er: 'EMER', ed: 'EMER',
+  laboratory: 'LAB', lab: 'LAB',
+  radiology: 'RAD', rad: 'RAD',
+  pharmacy: 'PHARM',
+  paediatrics: 'PAEDS', pediatrics: 'PAEDS', paeds: 'PAEDS', peds: 'PAEDS',
+  obgyn: 'ANC', obstetrics: 'ANC', anc: 'ANC',
+  icu: 'ICU', ccu: 'ICU',
+  cardiology: 'CARD',
+  orthopaedics: 'ORTHO', orthopedics: 'ORTHO',
+  gastroenterology: 'GASTRO',
+  // General medicine / OPD fallback
+  general: 'OPD', 'general medicine': 'OPD', medicine: 'OPD', opd: 'OPD',
+};
+
+export function deptPrefix(department) {
+  if (!department) return 'OPD';
+  const key = String(department).trim().toLowerCase();
+  if (DEPT_PREFIX_MAP[key]) return DEPT_PREFIX_MAP[key];
+  // Loose substring fallback so unseeded departments still get a sensible prefix.
+  for (const [k, v] of Object.entries(DEPT_PREFIX_MAP)) {
+    if (key.includes(k)) return v;
+  }
+  // Last resort: first 4 letters uppercased.
+  return key.replace(/[^a-z]/g, '').slice(0, 4).toUpperCase() || 'OPD';
+}
+
+export function composeVisitNo({ department, date, tokenNumber }) {
+  const d = date instanceof Date ? date : new Date(date || Date.now());
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const padded = String(parseInt(tokenNumber, 10) || 0).padStart(3, '0');
+  return `${deptPrefix(department)}-${yyyy}${mm}${dd}-${padded}`;
+}
+
 export const registerWalkIn = async (req, res) => {
   try {
     // appointments.created_by is uuid; appointment_status_history.changed_by is int.
@@ -604,18 +644,22 @@ export const registerWalkIn = async (req, res) => {
         }
       }
 
-      // Atomic token number — MAX-based to dodge race conditions inside the txn.
-      // `appointments.token_number` is `integer` per the live schema; the
-      // previous comment + NULLIF/regex guard treated it as varchar and the
-      // `NULLIF(integer_col, '')` cast errored every walk-in with
-      // `invalid input syntax for type integer: ""`. See finding
-      // 2026-05-08-inpatient-admission-receptionist-walkin-token-cast-500.
+      // Atomic token number — scoped by (date, department). A global-per-day
+      // counter would mean the EMER walk-in and the OPD walk-in compete for
+      // the same #8, but the receptionist on the ER counter expects
+      // EMER-prefix tokens. E-2 fix. Findings:
+      //   2026-05-08-emergency-walk-in-receptionist-token-not-dept-scoped
+      //   2026-05-08-emergency-walk-in-receptionist-visit-no-format
+      //   2026-05-08-lab-walk-in-receptionist-no-dept-scoped-visit-no
+      //   2026-05-08-dynamic-acute-abdomen-receptionist-walkin-token-not-dept-scoped
       const tokenResult = await tx.$queryRawUnsafe(
         `SELECT COALESCE(MAX(token_number), 0) + 1 AS next_token
          FROM appointments
          WHERE DATE(appointment_date) = CURRENT_DATE
            AND confirmed_at IS NOT NULL
-           AND token_number IS NOT NULL`,
+           AND token_number IS NOT NULL
+           AND COALESCE(department, '') = COALESCE($1, '')`,
+        department || null,
       );
       const tokenNumber = String(parseInt(tokenResult[0].next_token));
 
@@ -649,16 +693,24 @@ export const registerWalkIn = async (req, res) => {
         staffId,
       );
 
+      // E-2 — composite visit_no surfaced in the response so the ER
+      // triage / lab worklist / paeds list can route by prefix.
+      const visitNo = composeVisitNo({
+        department,
+        date: appt.appointment_date || new Date(),
+        tokenNumber,
+      });
       return {
         ...appt,
         token_number: tokenNumber,
+        visit_no: visitNo,
         returning_patient: returningPatient,
         prior_visit_count: priorVisitCount,
         last_visit_at: lastVisitAt,
       };
     });
 
-    success(res, result, `Walk-in registered. Token #${result.token_number}`);
+    success(res, result, `Walk-in registered. Visit ${result.visit_no}`);
   } catch (err) {
     // Surface a stable error code so dashboards/alerts can group these and
     // pass the requestId so support can correlate to server logs. Body
