@@ -27,6 +27,13 @@ export function WalkInDialog({
 }) {
   const [patientPhone, setPatientPhone] = useState("");
   const [patientName, setPatientName] = useState("");
+  // Demographics — DOB / gender / address let us register a complete
+  // patient record on first contact instead of forcing the doctor to
+  // re-collect at consult. See finding
+  // 2026-05-08-walk-in-opd-receptionist-walkin-dialog-missing-demographics.
+  const [patientDob, setPatientDob] = useState("");
+  const [patientGender, setPatientGender] = useState("");
+  const [patientAddress, setPatientAddress] = useState("");
   const [doctorId, setDoctorId] = useState("");
   const [department, setDepartment] = useState("");
   const [reason, setReason] = useState("");
@@ -88,6 +95,9 @@ export function WalkInDialog({
       const payload: Record<string, string | number | undefined> = {
         patient_phone: patientPhone || undefined,
         patient_name: patientName || undefined,
+        patient_birthday: patientDob || undefined,
+        patient_gender: patientGender || undefined,
+        patient_address: patientAddress || undefined,
         department: department || undefined,
         reason: reason || "Walk-in consultation",
         appointment_time: time || "Walk-in",
@@ -121,6 +131,28 @@ export function WalkInDialog({
             <label className="text-sm font-medium">Patient Name</label>
             <input type="text" value={patientName} onChange={e => setPatientName(e.target.value)}
               className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="Full name" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium">DOB</label>
+              <input type="date" value={patientDob} onChange={e => setPatientDob(e.target.value)}
+                className="w-full border rounded px-3 py-2 text-sm mt-1" />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Gender</label>
+              <select value={patientGender} onChange={e => setPatientGender(e.target.value)}
+                className="w-full border rounded px-3 py-2 text-sm mt-1 bg-white">
+                <option value="">— Select —</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="text-sm font-medium">Address (optional)</label>
+            <input type="text" value={patientAddress} onChange={e => setPatientAddress(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="Street, area, city" />
           </div>
           <div>
             <label className="text-sm font-medium">Doctor (optional)</label>

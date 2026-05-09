@@ -499,6 +499,7 @@ export const registerWalkIn = async (req, res) => {
     const staffId = req.user?.id;
     const {
       patient_name, patient_phone, patient_id,
+      patient_birthday, patient_gender, patient_address,
       doctor_id, department,
       reason, notes,
       appointment_time
@@ -547,11 +548,28 @@ export const registerWalkIn = async (req, res) => {
           lastVisitAt = priors[0]?.last ?? null;
         } else {
           // updated_at is NOT NULL with no default — pass it explicitly.
+          // Demographics (birthday/gender/address) are stored on the
+          // initial create so the doctor doesn't have to re-collect them
+          // at consult. See finding
+          // 2026-05-08-walk-in-opd-receptionist-walkin-dialog-missing-demographics.
+          const birthday = patient_birthday && /^\d{4}-\d{2}-\d{2}$/.test(patient_birthday)
+            ? patient_birthday
+            : null;
+          const gender = ['male', 'female', 'other', 'M', 'F', 'O'].includes(String(patient_gender ?? ''))
+            ? String(patient_gender).toLowerCase().slice(0, 1) === 'm' ? 'male'
+            : String(patient_gender).toLowerCase().slice(0, 1) === 'f' ? 'female'
+            : String(patient_gender).toLowerCase().startsWith('o') ? 'other'
+            : null
+            : null;
+          const address = patient_address ? String(patient_address).trim().slice(0, 500) : null;
           const newUser = await tx.$queryRawUnsafe(
-            `INSERT INTO users (phone, name, role, updated_at)
-             VALUES ($1, $2, 'PATIENT', NOW()) RETURNING id`,
+            `INSERT INTO users (phone, name, birthday, gender, address, role, updated_at)
+             VALUES ($1, $2, $3::date, $4, $5, 'PATIENT', NOW()) RETURNING id`,
             patient_phone,
             patient_name || 'Walk-in Patient',
+            birthday,
+            gender,
+            address,
           );
           patientId = newUser[0].id;
           returningPatient = false;

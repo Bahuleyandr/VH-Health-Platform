@@ -18,7 +18,12 @@ const VALID_STATUS_TRANSITIONS = {
   transferred: ['admitted', 'discharged', 'lama', 'expired'],
 };
 
-const VALID_ADMISSION_TYPES = ['elective', 'emergency', 'transfer_in'];
+// `day_care` covers same-day surgical (cataract, dialysis-access creation,
+// minor laparoscopic, etc.) — admit in morning, discharge same evening.
+// Previously had to be miscoded as `elective`, breaking package billing
+// and the day-care discharge template. See finding
+// 2026-05-08-surgical-day-care-admission-no-day-care-type.
+const VALID_ADMISSION_TYPES = ['elective', 'emergency', 'transfer_in', 'day_care'];
 const VALID_PRIORITIES = ['routine', 'urgent', 'emergent'];
 const VALID_CODE_STATUSES = ['full_code', 'dnr', 'dni', 'comfort_care'];
 const VALID_DISCHARGE_TYPES = ['home', 'transfer', 'lama', 'expired', 'aor'];
@@ -187,7 +192,7 @@ async function admitPatient(data) {
 }
 
 async function dischargePatient(admissionId, dischargeData, dischargedBy) {
-  const { discharge_type, discharge_summary } = dischargeData || {};
+  const { discharge_type, discharge_summary, override_readiness_gate } = dischargeData || {};
 
   if (!discharge_type) throw AppError.badRequest('discharge_type is required');
   if (!VALID_DISCHARGE_TYPES.includes(discharge_type)) {
@@ -207,6 +212,72 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
     const allowedFrom = VALID_STATUS_TRANSITIONS[admission.status];
     if (!allowedFrom || !allowedFrom.includes('discharged')) {
       throw AppError.invalidTransition(admission.status, 'discharged', allowedFrom || []);
+    }
+
+    // Discharge readiness gate. `lama` (left against medical advice) and
+    // `expired` (deceased) bypass the gate by definition; planned home
+    // discharges must clear (a) discharge_summary present, (b) no
+    // unpaid invoice for this admission, (c) no still-pending lab/imaging
+    // results. Explicit `override_readiness_gate: true` lets the
+    // discharge counter override (with audit). See finding
+    // 2026-05-08-tpa-insurance-claim-discharge-no-readiness-gate.
+    const READINESS_GATED_TYPES = new Set(['home', 'transfer', 'aor']);
+    if (READINESS_GATED_TYPES.has(discharge_type) && override_readiness_gate !== true) {
+      const blockers = [];
+      if (!discharge_summary || !String(discharge_summary).trim()) {
+        blockers.push({ type: 'SUMMARY_MISSING', message: 'discharge_summary must be present and signed before discharge.' });
+      }
+      try {
+        const unpaid = await tx.$queryRawUnsafe(
+          `SELECT id, invoice_number, COALESCE(total_amount, 0) - COALESCE(paid_amount, 0) AS balance
+             FROM invoices
+            WHERE admission_id = $1
+              AND COALESCE(status, '') NOT IN ('paid', 'written_off', 'cancelled')
+              AND COALESCE(total_amount, 0) > COALESCE(paid_amount, 0)
+            LIMIT 5`,
+          admissionId,
+        );
+        if (unpaid.length > 0) {
+          blockers.push({
+            type: 'UNPAID_INVOICE',
+            message: `Outstanding invoice(s) on this admission: ${unpaid.map((i) => `${i.invoice_number} (₹${i.balance})`).join(', ')}.`,
+            invoices: unpaid,
+          });
+        }
+      } catch (e) {
+        // The invoices table may carry slightly different column names in
+        // some deploys (paid_amount vs payments rollup). Don't fail the
+        // gate on a query error — log and continue with the rest. The
+        // override path remains for cases where this query simply can't
+        // run.
+        logger.warn(`Discharge readiness: invoice check skipped (${e.message})`);
+      }
+      try {
+        const pendingResults = await tx.$queryRawUnsafe(
+          `SELECT id FROM investigations
+            WHERE patient_id = (SELECT patient_id FROM admissions WHERE id = $1)
+              AND COALESCE(status, '') NOT IN ('COMPLETED', 'CANCELLED', 'completed', 'cancelled')
+              AND created_at >= (SELECT admitted_at FROM admissions WHERE id = $1)
+            LIMIT 5`,
+          admissionId,
+        );
+        if (pendingResults.length > 0) {
+          blockers.push({
+            type: 'PENDING_RESULTS',
+            message: `${pendingResults.length} pending lab/imaging result(s) tied to this admission. Review or cancel before discharge.`,
+            count: pendingResults.length,
+          });
+        }
+      } catch (e) {
+        logger.warn(`Discharge readiness: pending-results check skipped (${e.message})`);
+      }
+
+      if (blockers.length > 0) {
+        const err = AppError.badRequest('Discharge blocked — readiness gate not met. Pass `override_readiness_gate: true` with a reason in discharge_summary to override.');
+        err.code = 'DISCHARGE_NOT_READY';
+        err.details = { blockers };
+        throw err;
+      }
     }
 
     const losDays = computeLos(admission.admitted_at, new Date());

@@ -14,9 +14,10 @@ router.post('/vitals', async (req, res, next) => {
   try {
     const {
       patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp,
-      temperature, spo2, respiratory_rate, blood_glucose, pain_score,
-      weight_kg, height_cm, gcs_score, supplemental_o2, o2_flow_rate,
-      consciousness, notes,
+      temperature, temperature_unit, spo2, respiratory_rate, blood_glucose,
+      pain_score, weight_kg, height_cm, gcs_score, supplemental_o2,
+      o2_flow_rate, consciousness, notes,
+      fhr, fundal_height_cm,
     } = req.body;
 
     if (!patient_uid) {
@@ -30,6 +31,7 @@ router.post('/vitals', async (req, res, next) => {
       systolic_bp,
       diastolic_bp,
       temperature,
+      temperature_unit,
       spo2,
       respiratory_rate,
       blood_glucose,
@@ -41,6 +43,8 @@ router.post('/vitals', async (req, res, next) => {
       o2_flow_rate,
       consciousness,
       notes,
+      fhr,
+      fundal_height_cm,
       recorded_by: req.user.uid,
     });
 

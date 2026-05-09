@@ -255,7 +255,10 @@ router.put('/insurance/claim/:id', paramId(), validate, async (req, res, next) =
       return error(res, 'Invalid claim ID', 400);
     }
 
-    const { status, approved_amount, reason, rejection_reason, documents, payment_reference } = req.body;
+    const {
+      status, approved_amount, reason, rejection_reason, documents, payment_reference,
+      non_payable_amount, disallowed_reason,
+    } = req.body;
 
     // Settling a claim must carry payment evidence. Block "paid" without a
     // payment_reference (UTR / cheque / NEFT id). See same finding above —
@@ -276,8 +279,14 @@ router.put('/insurance/claim/:id', paramId(), validate, async (req, res, next) =
       // Allow either `reason` or the more explicit `rejection_reason` body
       // field — previously the field was silently dropped. See finding
       // 2026-05-08-tpa-insurance-claim-billing-claim-update-drops-fields.
-      rejection_reason ?? reason,
-      { documents, payment_reference, actor_uid: req.user?.uid ?? null },
+      {
+        rejection_reason: rejection_reason ?? reason,
+        documents,
+        payment_reference,
+        non_payable_amount,
+        disallowed_reason,
+        actor_uid: req.user?.uid ?? null,
+      },
     );
 
     return success(res, claim, 'Insurance claim updated successfully');
@@ -289,5 +298,55 @@ router.put('/insurance/claim/:id', paramId(), validate, async (req, res, next) =
     next(err);
   }
 });
+
+/**
+ * POST /billing/insurance/claim/:id/enhancement
+ * Open an enhancement claim against an existing preauth — used mid-stay
+ * when the patient's plan exceeds the approved length-of-stay or extra
+ * complications add cost. See finding
+ * 2026-05-08-tpa-insurance-claim-doctor-enhancement-workflow-absent.
+ */
+router.post(
+  '/insurance/claim/:id/enhancement',
+  paramId(),
+  requiredNumber('enhancement_amount', { min: 0 }),
+  validate,
+  async (req, res, next) => {
+    try {
+      // Same RBAC as the parent update — clinical role can request, billing
+      // role can update status downstream.
+      const role = String(req.user?.role || '').toUpperCase();
+      const ALLOWED = new Set([
+        'ADMIN', 'SUPER_ADMIN',
+        'DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR',
+        'BILLING_STAFF', 'BILLING_INCHARGE',
+        'FINANCE_INCHARGE', 'TPA_DESK',
+      ]);
+      if (!ALLOWED.has(role)) {
+        return error(res, 'Enhancement requests are restricted to clinical or billing roles', 403);
+      }
+
+      const parentClaimId = parseInt(req.params.id, 10);
+      if (isNaN(parentClaimId)) {
+        return error(res, 'Invalid claim ID', 400);
+      }
+
+      const { enhancement_amount, justification } = req.body;
+      const created = await billingService.createEnhancementClaim({
+        parentClaimId,
+        enhancementAmount: enhancement_amount,
+        justification: justification ?? null,
+        actorUid: req.user?.uid ?? null,
+      });
+      return success(res, created, 'Enhancement claim opened', 201);
+    } catch (err) {
+      if (err.isOperational) {
+        return error(res, err.message, err.statusCode);
+      }
+      logger.error('Failed to open enhancement claim:', { error: err.message });
+      next(err);
+    }
+  },
+);
 
 export default router;
