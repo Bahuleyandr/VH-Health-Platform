@@ -506,6 +506,18 @@ export async function saveDischargeSummary(admissionId, summary, savedBy, savedB
     });
   }
 
+  // Denormalize first-edit timestamp on the admission (T1) — only stamp
+  // if not already set. Lets efficiency dashboards compute T1−T0 without
+  // joining clinical_notes. Migration 173. Best-effort.
+  try {
+    await prisma.admissions.updateMany({
+      where: { id: admissionId, summary_first_edit_at: null },
+      data: { summary_first_edit_at: new Date(), updated_at: new Date() },
+    });
+  } catch (e) {
+    logger.warn(`saveDischargeSummary: failed to denormalize summary_first_edit_at on admission ${admissionId}: ${e.message}`);
+  }
+
   await publishEvent({
     eventType: 'clinical_document.discharge_summary.saved',
     aggregateType: 'clinical_note',
@@ -588,6 +600,19 @@ export async function signDischargeSummary(admissionId, doctorUid) {
           updated_at: signedAt,
         },
       });
+    }
+
+    // Denormalize the sign timestamp onto the admission row so
+    // discharge-cascade readiness checks (D2) and efficiency dashboards
+    // (T0→T2) can read it without a clinical_notes join. Migration 173.
+    // Best-effort — admission row may not exist in legacy/test data.
+    try {
+      await tx.admissions.update({
+        where: { id: admissionId },
+        data: { summary_signed_at: signedAt, updated_at: signedAt },
+      });
+    } catch (e) {
+      logger.warn(`signDischargeSummary: failed to denormalize summary_signed_at on admission ${admissionId}: ${e.message}`);
     }
 
     await tx.audit_logs.create({
