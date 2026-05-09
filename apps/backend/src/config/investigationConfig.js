@@ -8,8 +8,12 @@ export const INVESTIGATION_TYPES = {
   ENDOSCOPY: 'ENDOSCOPY'
 };
 
-// Investigation status
+// Investigation status. Includes REQUESTED as the initial state callers use
+// when ordering — previously REQUESTED was outside the enum so the order
+// service rejected fresh orders that hadn't yet been scheduled. See finding
+// 2026-05-08-walk-in-opd-doctor-investigation-status-requested-not-in-enum.
 export const INVESTIGATION_STATUS = {
+  REQUESTED: 'REQUESTED',
   PENDING: 'PENDING',
   SCHEDULED: 'SCHEDULED',
   IN_PROGRESS: 'IN_PROGRESS',

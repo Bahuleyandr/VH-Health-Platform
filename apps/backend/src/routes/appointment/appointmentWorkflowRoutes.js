@@ -43,6 +43,8 @@ router.post('/:id/confirm', paramId(), validate, workflowController.confirmAppoi
 router.post('/:id/no-show', paramId(), validate, workflowController.markNoShow);
 router.post('/:id/complete', paramId(), validate, workflowController.completeAppointment);
 router.post('/:id/cancel', paramId(), validate, workflowController.cancelAppointment);
+// OPD→IPD bridge: doctor flips this on a visit; admission counter sees it.
+router.post('/:id/advise-admission', paramId(), validate, workflowController.adviseForAdmission);
 router.get('/:id/history', workflowController.getAppointmentHistory);
 router.get('/:appointment_id/documents', docController.getAppointmentDocuments);
 

@@ -172,7 +172,7 @@ export class DoctorService {
   async getAllDoctors(filters = {}) {
     try {
       const schema = await this.getDoctorSchema();
-      const { department, available } = filters;
+      const { department, departmentId, available } = filters;
       const listQuery = parseListQuery(filters, {
         defaultLimit: DOCTOR_CONFIG.PAGINATION.DEFAULT_LIMIT,
         maxLimit: 100,
@@ -185,6 +185,15 @@ export class DoctorService {
       if (department && schema.department) {
         params.push(department.toUpperCase());
         where.push(`UPPER(d.department) = $${params.length}`);
+      }
+
+      // Numeric department FK filter — resolves the id to its name via the
+      // departments table so callers using either convention get the same
+      // result. See finding
+      // 2026-05-08-walk-in-opd-receptionist-doctors-filter-ignores-departmentid.
+      if (departmentId && schema.department) {
+        params.push(departmentId);
+        where.push(`UPPER(d.department) = (SELECT UPPER(name) FROM departments WHERE id = $${params.length} LIMIT 1)`);
       }
 
       if (available !== undefined && schema.isAvailable) {

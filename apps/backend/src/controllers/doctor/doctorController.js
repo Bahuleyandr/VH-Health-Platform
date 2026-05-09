@@ -27,21 +27,32 @@ export const doctorController = {
         defaultSortBy: 'name',
         defaultSortOrder: 'ASC',
       });
+      // Accept both `department` (free-text name) and `departmentId` (numeric
+      // FK) so callers using either convention get the filter applied. The
+      // previous implementation silently ignored departmentId, so receptionist
+      // dropdowns showed every doctor in the system. See finding
+      // 2026-05-08-walk-in-opd-receptionist-doctors-filter-ignores-departmentid.
+      const departmentIdRaw = req.query.departmentId ?? req.query.department_id;
+      const departmentId = departmentIdRaw != null && /^\d+$/.test(String(departmentIdRaw))
+        ? parseInt(departmentIdRaw, 10)
+        : null;
       const filters = {
         page: listQuery.page,
         limit: listQuery.limit,
         department: req.query.department,
+        departmentId,
         available: req.query.available === undefined ? undefined : req.query.available === 'true',
         search: listQuery.search
       };
-      
+
       const result = await doctorService.getAllDoctors(filters);
-      
+
       success(res, {
         doctors: result.doctors,
         pagination: buildPagination(result.total, result.page, result.limit),
         filters: {
           department: filters.department || null,
+          departmentId: filters.departmentId || null,
           available: filters.available || null,
           search: filters.search || null
         },

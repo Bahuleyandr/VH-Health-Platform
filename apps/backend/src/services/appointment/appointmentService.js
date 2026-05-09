@@ -162,7 +162,7 @@ export class AppointmentService {
   }
 
   async updateAppointment(id, updateData) {
-    const { appointment_date, appointment_time, reason, notes } = updateData;
+    const { appointment_date, appointment_time, reason, notes, visit_type } = updateData;
     try {
       const rows = await prisma.$queryRaw`
         UPDATE appointments SET
@@ -170,10 +170,11 @@ export class AppointmentService {
           appointment_time = COALESCE(${appointment_time ?? null}, appointment_time),
           reason           = COALESCE(${reason ?? null}, reason),
           notes            = COALESCE(${notes ?? null}, notes),
+          visit_type       = COALESCE(${visit_type ?? null}, visit_type),
           updated_at       = NOW()
         WHERE id = ${parseInt(id)}
         RETURNING id, uid, phone, patient_name, doctor_name, appointment_date,
-          appointment_time, status, notes, created_at, updated_at
+          appointment_time, status, notes, visit_type, created_at, updated_at
       `;
       return rows[0];
     } catch (error) {

@@ -177,7 +177,11 @@ export const updateAppointment = async (req, res) => {
       appointment_date: req.body.appointment_date,
       appointment_time: req.body.appointment_time,
       reason: req.body.reason,
-      notes: req.body.notes
+      notes: req.body.notes,
+      // visit_type is a first-class field for new vs follow-up vs review.
+      // Migration 169 added the column. See finding
+      // 2026-05-08-follow-up-opd-doctor-no-visit-type-flag.
+      visit_type: req.body.visit_type,
     };
 
     // P1 IDOR: Verify the authenticated user owns/can access this appointment
