@@ -700,10 +700,44 @@ export const registerWalkIn = async (req, res) => {
         date: appt.appointment_date || new Date(),
         tokenNumber,
       });
+
+      // E-3 — Emergency walk-ins also need an emergency_visits row so the
+      // ED queue, triage workflow, MLC flow, and bed-allocation queries
+      // (which all read from emergency_visits, not appointments) have
+      // somewhere to write to. Without this, the receptionist creates an
+      // appointment row, the ED nurse can't find a matching visit_id, and
+      // the whole ER pipeline goes through paper handover. Finding:
+      // 2026-05-08-emergency-walk-in-nurse-emer-walkin-no-ed-visit.
+      let erVisit = null;
+      if (deptPrefix(department) === 'EMER') {
+        // Pull the patient_uid for the FK. Walk-ins create users by
+        // phone earlier in this txn, so the lookup is reliable.
+        const patientRow = await tx.$queryRawUnsafe(
+          'SELECT uid FROM users WHERE id = $1 LIMIT 1',
+          patientId,
+        );
+        const patientUid = patientRow[0]?.uid ?? null;
+        const tenantId = req.user?.tenantId ?? '00000000-0000-4000-8000-000000000001';
+        const erRows = await tx.$queryRawUnsafe(
+          `INSERT INTO emergency_visits
+             (tenant_id, visit_number, patient_uid, arrival_mode,
+              chief_complaint, status, created_by)
+           VALUES ($1::uuid, $2, $3::uuid, 'walk_in', $4, 'arriving', $5::uuid)
+           ON CONFLICT (tenant_id, visit_number) DO NOTHING
+           RETURNING id, visit_number, patient_uid, arrival_at, status`,
+          tenantId, visitNo, patientUid,
+          reason || 'Walk-in registration',
+          staffUid,
+        );
+        erVisit = erRows[0] || null;
+      }
+
       return {
         ...appt,
         token_number: tokenNumber,
         visit_no: visitNo,
+        er_visit_id: erVisit?.id ?? null,
+        er_visit_number: erVisit?.visit_number ?? null,
         returning_patient: returningPatient,
         prior_visit_count: priorVisitCount,
         last_visit_at: lastVisitAt,
