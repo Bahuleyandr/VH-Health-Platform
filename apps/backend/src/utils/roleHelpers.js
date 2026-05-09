@@ -126,6 +126,21 @@ export const isIntegrationAdmin = (role) => role === ROLES.INTEGRATION_ADMIN;
 export const isWebhookClient = (role) => role === ROLES.WEBHOOK_CLIENT;
 export const isAiGovernanceAdmin = (role) => role === ROLES.AI_GOVERNANCE_ADMIN;
 export const isDataProtectionOfficer = (role) => role === ROLES.DATA_PROTECTION_OFFICER;
+// B-3 — pathologist tier. Only these roles can sign off lab results
+// to flip status='final'. LAB_STAFF (techs) can record + flag for
+// signoff but not finalise — that's the audit boundary the regulator
+// expects. ADMIN/SUPER_ADMIN keep an override path for late
+// corrections, with the existing audit trail capturing it.
+// Uses string literals because PATHOLOGIST / LAB_INCHARGE /
+// SUPER_ADMIN aren't on the ROLES enum yet (declared in userConfig.js;
+// adding them to ROLES is a separate cleanup PR).
+export const PATHOLOGIST_SIGN_ROLES = [
+  'PATHOLOGIST',
+  'LAB_INCHARGE',
+  ROLES.ADMIN,
+  'SUPER_ADMIN',
+];
+export const canSignOffLabResults = (role) => PATHOLOGIST_SIGN_ROLES.includes(role);
 
 export const canViewMedicalData = (role) => isClinical(role) || isAdmin(role) || isMedicalRecords(role);
 export const canViewDischargeSummary = (role) => DISCHARGE_SUMMARY_VIEW_ROLES.includes(role);
