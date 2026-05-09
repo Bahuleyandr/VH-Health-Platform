@@ -464,9 +464,22 @@ export const getInvestigationsByUID = async (req, res) => {
 
 export const getTestCatalog = async (req, res) => {
   try {
-    const { category } = req.query;
-    const where = category ? 'WHERE category=$1 AND is_active=TRUE' : 'WHERE is_active=TRUE';
-    const params = category ? [category] : [];
+    // E-6 — `search` query param now actually filters (case-insensitive
+    // match against name + code). Previous behaviour silently ignored
+    // it and returned the full roster. Finding:
+    // 2026-05-08-emergency-walk-in-doctor-catalog-no-ecg-free-text-bypass.
+    const { category, search } = req.query;
+    const conds = ['is_active=TRUE'];
+    const params = [];
+    if (category) {
+      params.push(category);
+      conds.push(`category=$${params.length}`);
+    }
+    if (search && String(search).trim()) {
+      params.push(`%${String(search).trim()}%`);
+      conds.push(`(name ILIKE $${params.length} OR COALESCE(code,'') ILIKE $${params.length})`);
+    }
+    const where = `WHERE ${conds.join(' AND ')}`;
     const result = await prisma.$queryRawUnsafe(
       `SELECT id, name, code, category, description, normal_range, unit,
               default_cost, home_collection_surcharge, turnaround_hours,

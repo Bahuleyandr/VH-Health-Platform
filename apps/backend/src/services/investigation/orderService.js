@@ -33,7 +33,7 @@ const INVESTIGATION_SELECT = {
 
 export const createInvestigationOrder = async (orderData) => {
   const {
-    patient_id, doctor_uid, test_name, type,
+    patient_id, doctor_uid, test_name, test_code, type,
     priority = 'NORMAL', notes, orderedBy,
   } = orderData;
 
@@ -55,6 +55,38 @@ export const createInvestigationOrder = async (orderData) => {
   });
   if (!patient) throw new Error('PATIENT_NOT_FOUND');
 
+  // E-6 — validate test_code against the catalog when supplied.
+  // Free-text test_name is still accepted (lots of legitimate cases:
+  // ad-hoc imaging requests, custom panels), but if a code IS passed,
+  // it must exist in investigation_test_catalog. Stops "ECG12" + a
+  // lookalike "ECG-12" from competing as separate codes for the
+  // same test. Finding:
+  // 2026-05-08-emergency-walk-in-doctor-catalog-no-ecg-free-text-bypass.
+  let resolvedTestCode = null;
+  if (test_code && String(test_code).trim()) {
+    try {
+      const catalog = await prisma.$queryRawUnsafe(
+        `SELECT id, name FROM investigation_test_catalog
+          WHERE is_active = TRUE AND LOWER(code) = LOWER($1) LIMIT 1`,
+        String(test_code).trim(),
+      );
+      if (!catalog.length) {
+        const e = new Error('UNKNOWN_TEST_CODE');
+        e.code = 'UNKNOWN_TEST_CODE';
+        e.details = { provided: test_code };
+        throw e;
+      }
+      resolvedTestCode = String(test_code).trim();
+    } catch (err) {
+      // Catalog table missing (under-migrated tenant) → fall through
+      // and accept the order without code validation.
+      if (err?.code !== 'UNKNOWN_TEST_CODE' && err?.meta?.code !== '42P01') {
+        throw err;
+      }
+      if (err?.code === 'UNKNOWN_TEST_CODE') throw err;
+    }
+  }
+
   const requesterUuid = doctor_uid || orderedBy;
   const now = new Date();
 
@@ -63,6 +95,7 @@ export const createInvestigationOrder = async (orderData) => {
       phone: patient.phone || 'unknown',
       patient_id: parseInt(patient_id),
       test_name,
+      test_code: resolvedTestCode,
       test_type: type.toUpperCase(),
       status: 'REQUESTED',
       priority: priority.toUpperCase(),
