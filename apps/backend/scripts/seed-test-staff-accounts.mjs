@@ -36,6 +36,12 @@ const ACCOUNTS = [
   { emp: 'EMP-1006', name: 'Test Admin',               role: 'ADMIN',          phone: '+919999990006', dept: 'Administration',      designation: 'Administrator',   position: 'Administrator' },
   { emp: 'EMP-1007', name: 'Test Super Admin',         role: 'SUPER_ADMIN',    phone: '+919999990007', dept: 'Administration',      designation: 'Super Admin',     position: 'Super Admin' },
   { emp: 'EMP-1008', name: 'Test General Staff',       role: 'GENERAL_STAFF',  phone: '+919999990008', dept: 'Operations',          designation: 'Staff',           position: 'Staff' },
+  // C-4 — RECEPTIONIST seed. Front-desk role with restricted permissions
+  // (per userConfig.js: can manage GENERAL_STAFF only, not clinical roles).
+  // Walk-in registration is the highest-volume daily workflow at a small
+  // hospital — testing as ADMIN masks RECEPTIONIST-specific RBAC failures.
+  // Finding: 2026-05-08-walk-in-opd-receptionist-no-receptionist-role-seeded.
+  { emp: 'EMP-1009', name: 'Test Receptionist',        role: 'RECEPTIONIST',   phone: '+919999990009', dept: 'Reception',           designation: 'Receptionist',    position: 'Front Desk' },
 ];
 
 async function main() {
