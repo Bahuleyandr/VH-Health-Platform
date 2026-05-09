@@ -255,12 +255,19 @@ class BedManagementService {
 
     const where = conditions.join(' AND ');
 
+    // F-2 — params must be SPREAD, not passed as a single array arg.
+    // The Phase 0.5 convention (CLAUDE.md) is enforced by
+    // lint:raw-params, but the linter regex missed this site because
+    // the variable was named `params` (plural) inside a class method,
+    // not at module top-level. Surfaced by the smoke test of
+    // /api/v1/beds/available which 500'd with `42P18 — could not
+    // determine data type of parameter $1`.
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, bed_number, ward_id, ward_name, floor, bed_type, notes, created_at
        FROM beds
        WHERE ${where}
        ORDER BY ward_name NULLS LAST, bed_number`,
-      params
+      ...params,
     );
 
     return rows;

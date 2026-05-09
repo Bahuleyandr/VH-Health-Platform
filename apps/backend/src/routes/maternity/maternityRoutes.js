@@ -215,7 +215,7 @@ router.get('/immunisations/due', requireStaffOrAdmin, wrap(async (req) =>
 // GET /api/v1/maternity/ga?lmp=YYYY-MM-DD&onDate=YYYY-MM-DD?
 // Stateless GA computation. Receptionist + walk-in form use this.
 router.get('/ga', requireStaffOrAdmin, (req, res) => {
-  const ga = svc.computeGestationalAge(req.query.lmp, req.query.onDate || null);
+  const ga = mat.computeGestationalAge(req.query.lmp, req.query.onDate || null);
   if (!ga) return error(res, 'lmp is required and must be a valid past date', 400);
   return success(res, ga);
 });
