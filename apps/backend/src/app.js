@@ -146,6 +146,7 @@ import orBoardRoutes from './routes/theatre/orBoardRoutes.js';
 import anesthesiaChartRoutes from './routes/theatre/anesthesiaChartRoutes.js';
 import microbiologyRoutes from './routes/lab/microbiologyRoutes.js';
 import labPanelRoutes from './routes/lab/labPanelRoutes.js';
+import paediatricImmunisationRoutes from './routes/paediatric/paediatricImmunisationRoutes.js';
 import pcpndtRoutes from './routes/compliance/pcpndtRoutes.js';
 import bmwAndDrugReturnRoutes from './routes/compliance/bmwAndDrugReturnRoutes.js';
 import icuRoutes from './routes/clinical/icuRoutes.js';
@@ -682,6 +683,9 @@ app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_ST
 app.use('/api/v1/insurance', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), insuranceClaimsRoutes);
 app.use('/api/v1/pmjay', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), pmjayRoutes);
 app.use('/api/v1/maternity', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('MATERNITY_RECORD'), maternityRoutes);
+// A10 — paediatric immunisation tracking. Receptionists need write access
+// to seed a returning child's schedule; doctors + nurses to record doses.
+app.use('/api/v1/paediatric', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RECEPTIONIST'), phiAccessLogger('PAEDIATRIC_IMMUNISATION'), paediatricImmunisationRoutes);
 app.use('/api/v1/productivity', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), productivityRoutes);
 app.use('/api/v1/dashboards', requireRole('ADMIN', 'SUPER_ADMIN'), dashboardsRoutes);
 app.use('/api/v1/portal', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
