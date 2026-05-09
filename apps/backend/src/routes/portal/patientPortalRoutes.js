@@ -69,6 +69,15 @@ router.post('/bills/:id/payment-link', requirePatient, wrap(async (req) =>
   }),
 ));
 
+// ── B-6 — patient-side discharge PDF ────────────────────────────────
+router.get('/discharge/:admissionId/pdf', requirePatient, wrap(async (req) =>
+  portal.getMyDischargePdfUrl({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+    admission_id: req.params.admissionId,
+  }),
+));
+
 // ── B-5 — TPA / insurance claims (read-only) ────────────────────────
 router.get('/tpa/claims', requirePatient, wrap(async (req) =>
   portal.listMyClaims({

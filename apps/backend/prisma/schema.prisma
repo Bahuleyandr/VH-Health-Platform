@@ -391,6 +391,10 @@ model admissions {
   emergency_consent_bypass_at     DateTime? @db.Timestamptz(6)
   emergency_consent_bypass_by     String?   @db.Uuid
   emergency_consent_bypass_reason String?
+  // B-6 — discharge summary PDF persistence (migration 183). NULL
+  // until the post-signoff persisted-PDF path runs the first time;
+  // thereafter, the R2 object key for the immutable snapshot.
+  discharge_pdf_key               String?   @db.VarChar(255)
   // Discharge cascade lifecycle markers (migration 173). T0..T4.
   // discharged_at (existing) is T4 = patient physically left.
   discharge_initiated_at        DateTime? @db.Timestamptz(6)

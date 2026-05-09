@@ -119,6 +119,27 @@ export async function createSelfPaymentLink({
 // Patients only see results that have been signed off (NABH 5.6
 // principle — un-signed values can change).
 
+// ── B-6 — patient-side discharge PDF ─────────────────────────────────
+
+export async function getMyDischargePdfUrl({ tenantId, patient_uid, admission_id }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const id = Number(admission_id);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw AppError.badRequest('admission_id must be a positive integer');
+  }
+  // IDOR: confirm the admission belongs to this patient before ever
+  // touching the PDF generator. We never trust admission_id alone.
+  const adRows = await prisma.$queryRawUnsafe(
+    `SELECT id FROM admissions
+      WHERE id = $1::int AND patient_uid = $2::uuid`,
+    id, String(patient_uid),
+  );
+  if (!adRows.length) throw AppError.notFound('Admission not found');
+
+  const { getOrGenerateDischargePdfUrl } = await import('../documents/clinicalPdfGenerator.js');
+  return getOrGenerateDischargePdfUrl(id);
+}
+
 // ── B-5 — patient-app TPA breakdown ──────────────────────────────────
 //
 // Patient self-service view of insurance claim status. Joins the

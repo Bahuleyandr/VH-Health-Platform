@@ -76,6 +76,42 @@ router.get(
 );
 
 /**
+ * B-6 — GET /discharge-summary/:admissionId/pdf/persisted
+ *
+ * Idempotent persisted-PDF path. Returns the immutable post-signoff
+ * snapshot's signed URL. Generates + uploads to R2 on first call;
+ * thereafter just returns the signed URL for the existing key.
+ * Refuses (409 SUMMARY_NOT_SIGNED) if the summary isn't signed yet —
+ * the legal record is the signed version, not the draft.
+ */
+router.get(
+  '/discharge-summary/:admissionId/pdf/persisted',
+  wrapAsync(async (req, res) => {
+    const { admissionId } = req.params;
+    logPhiAccess({
+      userId: req.user?.uid,
+      patientId: `admission-${admissionId}`,
+      recordType: 'discharge_summary_pdf_persisted',
+      action: 'EXPORT',
+      ip: req.ip,
+      requestId: req.id,
+    });
+    const { getOrGenerateDischargePdfUrl } = await import('../../services/documents/clinicalPdfGenerator.js');
+    try {
+      const result = await getOrGenerateDischargePdfUrl(admissionId);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      const status = err.statusCode || 500;
+      res.status(status).json({
+        success: false,
+        message: err.message,
+        code: err.code,
+      });
+    }
+  })
+);
+
+/**
  * GET /lab-report/:investigationId/pdf — Download lab report PDF
  */
 router.get(

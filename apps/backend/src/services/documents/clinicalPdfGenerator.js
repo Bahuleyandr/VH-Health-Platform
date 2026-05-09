@@ -137,6 +137,69 @@ export async function generateDischargeSummaryPDF(admissionId) {
 }
 
 // =============================================================================
+// B-6 — DISCHARGE PDF PERSISTENCE
+// =============================================================================
+//
+// generateDischargeSummaryPDF above is the live-preview path —
+// regenerates from current chart state on every call. For the legal
+// record we want an immutable snapshot uploaded once after signoff.
+//
+// getOrGenerateDischargePdfUrl:
+//   - Returns the signed R2 URL if discharge_pdf_key is already set.
+//   - Otherwise, refuses if the summary isn't signed yet
+//     (admissions.summary_signed_at IS NULL).
+//   - Generates the PDF, uploads to R2, stamps the key on the
+//     admissions row, returns the signed URL.
+//
+// Idempotent — multiple concurrent first-time calls might race the
+// upload; the last writer wins on the key column. Acceptable: the
+// content is identical because both reads see the same signed
+// snapshot, and R2 garbage-collection sweeps abandoned objects.
+
+export async function getOrGenerateDischargePdfUrl(admissionId) {
+  const id = Number(admissionId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error('admissionId must be a positive integer');
+  }
+  const adRows = await prisma.$queryRawUnsafe(
+    `SELECT id, summary_signed_at, discharge_pdf_key
+       FROM admissions WHERE id = $1`,
+    id,
+  );
+  if (!adRows.length) {
+    const e = new Error('Admission not found'); e.statusCode = 404; throw e;
+  }
+  const ad = adRows[0];
+  if (!ad.summary_signed_at) {
+    const e = new Error('Discharge summary must be signed before the PDF can be persisted');
+    e.statusCode = 409; e.code = 'SUMMARY_NOT_SIGNED'; throw e;
+  }
+
+  // Lazy-import the R2 helper so a deployment without R2 envs still
+  // boots — same pattern other services use.
+  const { uploadFileToR2, getSignedFileUrl } = await import('../../utils/r2Storage.js');
+
+  if (ad.discharge_pdf_key) {
+    try {
+      const signed = await getSignedFileUrl(ad.discharge_pdf_key, 3600);
+      return { key: ad.discharge_pdf_key, url: signed, generated: false };
+    } catch (e) {
+      logger.warn(`Persisted discharge PDF key resolved but signed URL failed: ${e.message}; regenerating`);
+    }
+  }
+
+  const buffer = await generateDischargeSummaryPDF(id);
+  const key = `discharge-summaries/${id}/${Date.now()}-discharge-summary.pdf`;
+  await uploadFileToR2(buffer, key, 'application/pdf');
+  await prisma.$executeRawUnsafe(
+    `UPDATE admissions SET discharge_pdf_key = $1, updated_at = NOW() WHERE id = $2`,
+    key, id,
+  );
+  const url = await getSignedFileUrl(key, 3600);
+  return { key, url, generated: true };
+}
+
+// =============================================================================
 // LAB REPORT PDF
 // =============================================================================
 
