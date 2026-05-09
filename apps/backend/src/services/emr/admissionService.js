@@ -33,6 +33,8 @@ const VALID_ADMISSION_TYPES = ['elective', 'emergency', 'transfer_in', 'day_care
 const VALID_PRIORITIES = ['routine', 'urgent', 'emergent'];
 const VALID_CODE_STATUSES = ['full_code', 'dnr', 'dni', 'comfort_care'];
 const VALID_DISCHARGE_TYPES = ['home', 'transfer', 'lama', 'expired', 'aor'];
+// Mirrors the CHECK on admissions.room_category (migration 177).
+const VALID_ROOM_CATEGORIES = ['general', 'semi_private', 'private', 'deluxe', 'icu', 'day_care'];
 
 // Columns returned by the pre-batch-55 `RETURNING` clause. Mirrored as
 // a Prisma `select` so the public response shape is unchanged.
@@ -54,6 +56,10 @@ const ADMISSION_RETURNING_SELECT = {
   // payloads can render "Admitted from ER #..." continuity context.
   from_er_visit_id: true,
   er_arrival_at: true,
+  // Agreed room category (migration 177). Surfaced everywhere so
+  // billing / TPA / patient-app UIs can read directly off the
+  // admission row.
+  room_category: true,
 };
 
 // Map ESI/ATS triage acuity onto admissions.priority. Used when the admit
@@ -104,6 +110,11 @@ async function admitPatient(data) {
     // departure_at=NOW()) in the same transaction. Migration 170. See
     // finding 2026-05-08-emergency-walk-in-doctor-admit-no-er-visit-linkage.
     from_er_visit_id,
+    // Agreed room category at admit time (migration 177). Drives
+    // tariff + TPA pre-auth, independent of the actually-assigned bed.
+    // Falls back to the joined bed's bed_type when omitted. See finding
+    // 2026-05-08-inpatient-admission-admission-no-semiprivate-room-category.
+    room_category: roomCategoryArg,
   } = data;
 
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
@@ -117,6 +128,10 @@ async function admitPatient(data) {
   }
   if (!VALID_CODE_STATUSES.includes(code_status)) {
     throw AppError.badRequest(`Invalid code_status: ${code_status}`);
+  }
+  if (roomCategoryArg !== undefined && roomCategoryArg !== null && roomCategoryArg !== '' &&
+      !VALID_ROOM_CATEGORIES.includes(roomCategoryArg)) {
+    throw AppError.badRequest(`Invalid room_category: ${roomCategoryArg}. Must be one of: ${VALID_ROOM_CATEGORIES.join(', ')}`);
   }
 
   // ER-linkage validation. Resolve the ER visit up-front so we can also
@@ -186,6 +201,24 @@ async function admitPatient(data) {
     throw AppError.badRequest('Day-care admissions require a bed_id at admit time (no emergency bedless exception).');
   }
 
+  // Resolve room_category. Caller-supplied wins; otherwise fall back to
+  // the joined bed.bed_type (when a bed is assigned and its type is in
+  // the valid set), otherwise null. Day-care admissions get 'day_care'
+  // as a final fallback so billing always has a category. Migration 177.
+  let resolvedRoomCategory = roomCategoryArg && roomCategoryArg !== '' ? roomCategoryArg : null;
+  if (!resolvedRoomCategory && bed_id) {
+    const bedRow = await prisma.beds.findUnique({
+      where: { id: Number(bed_id) },
+      select: { bed_type: true },
+    });
+    if (bedRow?.bed_type && VALID_ROOM_CATEGORIES.includes(bedRow.bed_type)) {
+      resolvedRoomCategory = bedRow.bed_type;
+    }
+  }
+  if (!resolvedRoomCategory && admission_type === 'day_care') {
+    resolvedRoomCategory = 'day_care';
+  }
+
   const consent = await prisma.patient_consents.findFirst({
     where: { patient_uid, consent_type: 'treatment', status: 'active' },
     select: { id: true },
@@ -239,6 +272,8 @@ async function admitPatient(data) {
         // emergency exception fires; cleared (left as historical) once a
         // bed is assigned via assignBedToAdmission.
         bed_pending_since: bedlessAdmit ? new Date() : null,
+        // Agreed room category (migration 177). Drives tariff + TPA pre-auth.
+        room_category: resolvedRoomCategory,
       },
       select: ADMISSION_RETURNING_SELECT,
     });
