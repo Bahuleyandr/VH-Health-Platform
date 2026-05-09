@@ -44,7 +44,27 @@ const ADMISSION_RETURNING_SELECT = {
   code_status: true,
   created_at: true,
   updated_at: true,
+  // ER linkage (migration 170). Surfaced so the admissions detail/list
+  // payloads can render "Admitted from ER #..." continuity context.
+  from_er_visit_id: true,
+  er_arrival_at: true,
 };
+
+// Map ESI/ATS triage acuity onto admissions.priority. Used when the admit
+// caller didn't pass `priority` explicitly but did link an ER visit.
+// Conservative mapping: anything resus/level-1/level-2 → emergent;
+// level-3 / "urgent" → urgent; everything else → routine.
+function mapTriagePriorityToAdmissionPriority(triagePriority) {
+  if (!triagePriority) return null;
+  const t = String(triagePriority).toLowerCase();
+  if (['esi_1', 'esi_2', 'ats_1', 'ats_2', 'resus', 'emergent'].includes(t)) {
+    return 'emergent';
+  }
+  if (['esi_3', 'ats_3', 'urgent'].includes(t)) {
+    return 'urgent';
+  }
+  return 'routine';
+}
 
 // Compute days-since-admission when actual LOS not persisted
 function computeLos(admittedAt, dischargedAt) {
@@ -61,31 +81,87 @@ async function admitPatient(data) {
     department,
     ward,
     bed_id,
-    chief_complaint,
+    chief_complaint: chiefComplaintArg,
     admitting_diagnosis,
     admission_type = 'elective',
-    priority = 'routine',
+    priority: priorityArg,
     insurance_info,
     emergency_contact,
     allergies = [],
     code_status = 'full_code',
     expected_los_days,
     created_by,
+    // ER linkage. When set, the admission is treated as a continuation of
+    // the named ER visit — chief_complaint / priority / attending doctor
+    // carry over from the ER chart unless the caller passed explicit
+    // values, and the ER visit is closed (disposition='admitted',
+    // departure_at=NOW()) in the same transaction. Migration 170. See
+    // finding 2026-05-08-emergency-walk-in-doctor-admit-no-er-visit-linkage.
+    from_er_visit_id,
   } = data;
 
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   if (!admitting_doctor) throw AppError.badRequest('admitting_doctor is required');
-  if (!chief_complaint) throw AppError.badRequest('chief_complaint is required');
   if (!created_by) throw AppError.badRequest('created_by is required');
   if (!VALID_ADMISSION_TYPES.includes(admission_type)) {
     throw AppError.badRequest(`Invalid admission_type: ${admission_type}`);
   }
-  if (!VALID_PRIORITIES.includes(priority)) {
-    throw AppError.badRequest(`Invalid priority: ${priority}`);
+  if (priorityArg !== undefined && priorityArg !== null && !VALID_PRIORITIES.includes(priorityArg)) {
+    throw AppError.badRequest(`Invalid priority: ${priorityArg}`);
   }
   if (!VALID_CODE_STATUSES.includes(code_status)) {
     throw AppError.badRequest(`Invalid code_status: ${code_status}`);
   }
+
+  // ER-linkage validation. Resolve the ER visit up-front so we can also
+  // use it to fill in chief_complaint / priority / attending_doctor if
+  // the caller left them empty.
+  let erVisit = null;
+  if (from_er_visit_id !== undefined && from_er_visit_id !== null && from_er_visit_id !== '') {
+    const erVisitId = Number.parseInt(from_er_visit_id, 10);
+    if (!Number.isInteger(erVisitId) || erVisitId <= 0) {
+      throw AppError.badRequest('from_er_visit_id must be a positive integer');
+    }
+    erVisit = await prisma.emergency_visits.findUnique({
+      where: { id: erVisitId },
+      select: {
+        id: true,
+        patient_uid: true,
+        status: true,
+        disposition: true,
+        chief_complaint: true,
+        triage_priority: true,
+        attending_doctor_uid: true,
+        arrival_at: true,
+      },
+    });
+    if (!erVisit) throw AppError.notFound('Linked ER visit not found');
+    if (erVisit.patient_uid && erVisit.patient_uid !== patient_uid) {
+      throw AppError.badRequest('ER visit patient_uid does not match this admission');
+    }
+    const TERMINAL_DISPOSITIONS = new Set(['admitted', 'discharged', 'lama', 'expired']);
+    if (erVisit.disposition && TERMINAL_DISPOSITIONS.has(erVisit.disposition)) {
+      throw AppError.conflict(
+        `ER visit ${erVisit.id} is already ${erVisit.disposition} — cannot re-admit from a closed encounter`,
+      );
+    }
+  }
+
+  // Carry-over: explicit caller values win; otherwise inherit from the ER
+  // chart. ER bed is intentionally NOT carried — ER and ward bed pools
+  // are separate by project decision (2026-05-09).
+  const chief_complaint = chiefComplaintArg ?? erVisit?.chief_complaint ?? null;
+  if (!chief_complaint) {
+    throw AppError.badRequest('chief_complaint is required (and was not present on the linked ER visit)');
+  }
+  const priority = priorityArg
+    ?? mapTriagePriorityToAdmissionPriority(erVisit?.triage_priority)
+    ?? 'routine';
+  if (!VALID_PRIORITIES.includes(priority)) {
+    throw AppError.badRequest(`Invalid priority: ${priority}`);
+  }
+  const resolvedAttendingDoctor = attending_doctor ?? erVisit?.attending_doctor_uid ?? null;
+  const erArrivalAt = erVisit?.arrival_at ?? null;
 
   const consent = await prisma.patient_consents.findFirst({
     where: { patient_uid, consent_type: 'treatment', status: 'active' },
@@ -117,7 +193,7 @@ async function admitPatient(data) {
       data: {
         patient_uid,
         admitting_doctor,
-        attending_doctor: attending_doctor ?? null,
+        attending_doctor: resolvedAttendingDoctor,
         department: department ?? null,
         ward: ward ?? null,
         bed_id: bed_id ?? null,
@@ -133,9 +209,29 @@ async function admitPatient(data) {
         expected_los_days: expected_los_days ?? null,
         created_by,
         admitted_at: new Date(),
+        // ER linkage (migration 170). Both stay null on non-ER admissions.
+        from_er_visit_id: erVisit?.id ?? null,
+        er_arrival_at: erArrivalAt,
       },
       select: ADMISSION_RETURNING_SELECT,
     });
+
+    // Close the ER chart on successful admission. Single open clinical
+    // encounter, even though billing stays separate (ER + ward have
+    // distinct price tiers). See finding
+    // 2026-05-08-emergency-walk-in-doctor-admit-no-er-visit-linkage.
+    if (erVisit) {
+      await tx.emergency_visits.update({
+        where: { id: erVisit.id },
+        data: {
+          disposition: 'admitted',
+          disposition_at: new Date(),
+          departure_at: new Date(),
+          status: erVisit.status === 'arriving' ? erVisit.status : 'in_treatment',
+          updated_at: new Date(),
+        },
+      });
+    }
 
     if (bed_id) {
       // FOR UPDATE lock on the bed row to serialise concurrent admits.
@@ -181,12 +277,19 @@ async function admitPatient(data) {
         resource_id: String(admission.id),
         metadata: {
           patient_uid, admission_type, priority, department, ward, bed_id,
+          from_er_visit_id: erVisit?.id ?? null,
+          er_chief_complaint_inherited: erVisit && !chiefComplaintArg ? true : false,
+          er_attending_doctor_inherited: erVisit && !attending_doctor ? true : false,
         },
         ip_address: null,
       },
     });
 
-    logger.info(`Patient ${patient_uid} admitted — admission #${admission.id}, encounter ${admission.encounter_id}`);
+    if (erVisit) {
+      logger.info(`Patient ${patient_uid} admitted from ER visit #${erVisit.id} — admission #${admission.id}, encounter ${admission.encounter_id}`);
+    } else {
+      logger.info(`Patient ${patient_uid} admitted — admission #${admission.id}, encounter ${admission.encounter_id}`);
+    }
     return admission;
   });
 }
