@@ -40,6 +40,9 @@ import { runPausedWorkflowSweep } from '../services/ai/workflowResumeScheduler.j
 // Webhook delivery dispatcher — Phase A3 PR2 of the structural audit.
 import { dispatchPendingDeliveries } from '../services/integrations/webhookDeliveryService.js';
 
+// Visit-status reaper — A8. Flips stale SCHEDULED appointments to MISSED.
+import { reapStaleScheduledVisits } from '../services/appointment/appointmentReaperService.js';
+
 // Notifications
 import { verifyLatestBackup } from './backupVerification.js';
 import { runCanaryChecks } from './canaryHealthCheck.js';
@@ -108,6 +111,15 @@ cron.schedule('*/5 * * * *', withJobLock('retry-failed-notifications', retryFail
 
 // ⚠️ Every 30 minutes - Escalate stuck orders (appointments, pharmacy, investigations)
 cron.schedule('*/30 * * * *', withJobLock('escalate-stuck-orders', escalateStuckOrders));
+
+// 🪦 Every 15 minutes — A8 visit-status reaper. Flip SCHEDULED
+// appointments whose slot is more than 60 min past to MISSED, with
+// a system-attributed appointment_status_history row. Doesn't touch
+// admin_override=true rows. Default grace is 60 min; tune via the
+// service entrypoint.
+cron.schedule('*/15 * * * *', withJobLock('reap-stale-visits', async () => {
+  await reapStaleScheduledVisits();
+}));
 
 // 🗓️ Daily at 09:00 - Send in-app investigation report notifications
 cron.schedule('0 9 * * *', withJobLock('investigation-notifications', sendInvestigationNotifications));
