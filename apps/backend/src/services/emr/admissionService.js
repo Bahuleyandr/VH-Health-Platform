@@ -276,14 +276,23 @@ async function admitPatient(data) {
         throw AppError.badRequest(`Bed ${bedRows[0].bed_number} is in the day_care pool; ${admission_type} admissions cannot allocate it.`);
       }
 
+      // Bed back-linking. Migration 172. expected_discharge computed from
+      // admitted_at + expected_los_days where available. See finding
+      // 2026-05-08-inpatient-admission-admission-bed-not-back-linked.
+      const expectedDischarge = expected_los_days
+        ? new Date(Date.now() + expected_los_days * 86400000)
+        : null;
       await tx.beds.update({
         where: { id: bed_id },
         data: {
           status: 'occupied',
           patient_id: patientIntId,
           patient_name: patientName,
+          patient_uid,
+          admission_id: admission.id,
           admitted_at: new Date(),
           assigned_at: new Date(),
+          expected_discharge: expectedDischarge,
           updated_at: new Date(),
         },
       });
@@ -381,6 +390,16 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy) {
       select: { id: true, name: true },
     });
 
+    // Pull expected_los_days off the admission so we can populate
+    // beds.expected_discharge here too. Migration 172.
+    const admDetail = await tx.admissions.findUnique({
+      where: { id: admissionId },
+      select: { expected_los_days: true, admitted_at: true },
+    });
+    const expectedDischarge = admDetail?.expected_los_days
+      ? new Date((admDetail.admitted_at?.getTime() ?? Date.now()) + admDetail.expected_los_days * 86400000)
+      : null;
+
     await tx.beds.update({
       where: { id: bedId },
       data: {
@@ -388,8 +407,10 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy) {
         patient_id: patientUser?.id ?? null,
         patient_name: patientUser?.name ?? null,
         patient_uid: admission.patient_uid,
+        admission_id: admissionId,
         admitted_at: new Date(),
         assigned_at: new Date(),
+        expected_discharge: expectedDischarge,
         updated_at: new Date(),
       },
     });
@@ -554,13 +575,18 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
         SELECT id, status FROM beds WHERE id = ${admission.bed_id} FOR UPDATE
       `;
       if (bedCheck.length && bedCheck[0].status === 'occupied') {
+        // Clear ALL denormalized back-link fields on the bed so the
+        // bed-board view shows a genuinely free bed. Migration 172.
         await tx.beds.update({
           where: { id: admission.bed_id },
           data: {
             status: 'available',
             patient_id: null,
             patient_name: null,
+            patient_uid: null,
+            admission_id: null,
             admitted_at: null,
+            expected_discharge: null,
             updated_at: new Date(),
           },
         });
@@ -648,6 +674,10 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
     const patientIntId = patientUser?.id ?? null;
     const patientName = patientUser?.name ?? null;
 
+    // Bed back-linking on transfer. Clear from-bed fully (it's free for
+    // the next patient), and snapshot the admission onto the to-bed.
+    // Migration 172. Patients freely move between bed categories
+    // mid-admission per project decision (2026-05-09); no category gate.
     if (fromBedId) {
       await tx.beds.update({
         where: { id: fromBedId },
@@ -655,11 +685,23 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
           status: 'available',
           patient_id: null,
           patient_name: null,
+          patient_uid: null,
+          admission_id: null,
           admitted_at: null,
+          expected_discharge: null,
           updated_at: new Date(),
         },
       });
     }
+
+    // Pull expected_los_days off the admission so the new bed reflects it.
+    const admDetail = await tx.admissions.findUnique({
+      where: { id: admissionId },
+      select: { expected_los_days: true, admitted_at: true },
+    });
+    const expectedDischarge = admDetail?.expected_los_days
+      ? new Date((admDetail.admitted_at?.getTime() ?? Date.now()) + admDetail.expected_los_days * 86400000)
+      : null;
 
     await tx.beds.update({
       where: { id: toBedId },
@@ -667,8 +709,11 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
         status: 'occupied',
         patient_id: patientIntId,
         patient_name: patientName,
+        patient_uid: admission.patient_uid,
+        admission_id: admissionId,
         admitted_at: new Date(),
         assigned_at: new Date(),
+        expected_discharge: expectedDischarge,
         updated_at: new Date(),
       },
     });

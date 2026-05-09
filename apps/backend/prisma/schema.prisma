@@ -872,12 +872,18 @@ model beds {
   ward_name          String?   @db.VarChar(255)
   floor              Int?
   bed_type           String?   @default("general") @db.VarChar(50)
+  // Denormalized back-link to the active admission. Populated on admit /
+  // assign-bed / transfer; cleared on discharge / transfer-out.
+  // Migration 172. See finding
+  // 2026-05-08-inpatient-admission-admission-bed-not-back-linked.
+  admission_id       Int?
   users              users?    @relation(fields: [patient_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   wards              wards?    @relation(fields: [ward_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([patient_id], map: "idx_beds_patient_id")
   @@index([status], map: "idx_beds_status")
   @@index([ward_id], map: "idx_beds_ward_id")
+  @@index([admission_id], map: "idx_beds_admission")
 }
 
 model blood_banks {
