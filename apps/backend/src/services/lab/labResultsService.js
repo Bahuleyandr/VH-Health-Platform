@@ -160,6 +160,50 @@ export async function detectCriticalsForResults({ tenantId, results }) {
       v, r.unit, breachedSide, breachedValue,
     );
     alerts.push(alert[0]);
+
+    // E-5 — push the critical alert to the ordering doctor (and any
+    // other staff who should know). Best-effort; failure here doesn't
+    // abort the result write because the alert row itself is the
+    // canonical record. Finding:
+    // 2026-05-08-emergency-walk-in-lab-tech-critical-alert-no-push.
+    try {
+      const { default: outbox } = await import('../../utils/notifications/notificationOutbox.js');
+      const recipients = await prisma.$queryRawUnsafe(
+        `SELECT DISTINCT u.id, u.phone, u.name
+           FROM users u
+          WHERE u.uid IN (
+                  SELECT DISTINCT requested_by FROM investigations
+                   WHERE patient_uid = $1::uuid
+                     AND status NOT IN ('CANCELLED')
+                  UNION
+                  SELECT DISTINCT attending_doctor FROM admissions
+                   WHERE patient_uid = $1::uuid
+                     AND status IN ('admitted', 'transferred')
+                )
+            AND u.phone IS NOT NULL
+          LIMIT 5`,
+        r.patient_uid,
+      );
+      for (const recipient of recipients) {
+        await outbox.queue({
+          type: 'lab_critical_alert',
+          recipientId: recipient.id,
+          recipientPhone: recipient.phone,
+          title: `CRITICAL lab: ${r.test_name}`,
+          body: `${r.test_name} = ${r.value_text}${r.unit ? ' ' + r.unit : ''} (threshold ${breachedSide} ${breachedValue}). Patient: ${r.patient_uid}.`,
+          data: {
+            result_id: r.id,
+            alert_id: alert[0].id,
+            patient_uid: r.patient_uid,
+            breachedSide,
+            value: v,
+            threshold: breachedValue,
+          },
+        }).catch((e) => logger.warn(`Critical lab alert notify failed: ${e.message}`));
+      }
+    } catch (e) {
+      logger.warn(`Critical lab alert push hook failed: ${e?.message}`);
+    }
   }
   return alerts;
 }
@@ -329,5 +373,33 @@ export async function getResultsForPatient({ tenantId, patient_uid, limit = 200 
       ORDER BY received_at DESC
       LIMIT $3::int`,
     tenantId, String(patient_uid), Number(limit),
+  );
+}
+
+/**
+ * E-5 — IPD lab worklist. Pending lab orders for currently-admitted
+ * patients only. Joins investigations -> admissions(active) so the
+ * lab tech sees only inpatients, not the OPD walk-ins. Finding:
+ * 2026-05-08-inpatient-admission-lab-tech-ipd-orders-not-on-worklist.
+ */
+export async function listIpdLabWorklist({ tenantId, limit = 100 } = {}) {
+  const lim = Math.max(1, Math.min(500, Number(limit) || 100));
+  return prisma.$queryRawUnsafe(
+    `SELECT i.id, i.test_name, i.test_type, i.status, i.priority,
+            i.requested_at, i.created_at,
+            u.name AS patient_name, u.phone AS patient_phone, u.uid AS patient_uid,
+            a.id AS admission_id, a.ward, a.bed_number, a.room_category,
+            a.attending_doctor
+       FROM investigations i
+       JOIN users u ON u.id = i.patient_id
+       JOIN admissions a ON a.patient_uid = u.uid
+            AND a.status IN ('admitted', 'transferred')
+      WHERE i.status NOT IN ('COMPLETED', 'CANCELLED')
+      ORDER BY
+        CASE i.priority WHEN 'URGENT' THEN 1 WHEN 'HIGH' THEN 2
+                       WHEN 'NORMAL' THEN 3 ELSE 4 END,
+        i.requested_at ASC
+      LIMIT $1::int`,
+    lim,
   );
 }

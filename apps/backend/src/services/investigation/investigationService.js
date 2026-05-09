@@ -507,38 +507,74 @@ export const updateStatus = async (id, status, notes, userId) => {
   }
 };
 
-// Add investigation results
+// Add investigation results.
+//
+// E-5 — versioning. Migration 185 added previous_results (JSONB) and
+// result_version (INTEGER). On a re-submit, the existing results are
+// pushed into previous_results before being overwritten, and
+// result_version is bumped. The API surface stays the same; auditors
+// can walk previous_results to recover any prior version. Finding:
+// 2026-05-08-lab-walk-in-lab-tech-results-overwrite-no-history.
 export const addResults = async (id, resultData, userId) => {
-  // Only the columns that exist on investigations (per migrations 008/009):
-  // results, interpretation, status, completed_at, updated_at. technician_notes
-  // and reviewed_by are not modelled yet — drop them from the update rather
-  // than adding placeholder columns.
   const { results, interpretation } = resultData;
   void userId;
 
-  const data = {
-    results,
-    status: 'COMPLETED',
-    completed_at: new Date(),
-  };
-  if (interpretation != null) data.interpretation = interpretation;
+  const investId = parseInt(id, 10);
+  if (!Number.isInteger(investId)) return null;
 
+  // Snapshot prior state into previous_results before overwriting.
+  // Use a transaction so a partial fail leaves the row intact.
   try {
-    return await prisma.investigations.update({
-      where: { id: parseInt(id) },
-      data,
-      select: {
-        id: true,
-        patient_id: true,
-        requested_by: true,
-        test_name: true,
-        test_type: true,
-        status: true,
-        results: true,
-        interpretation: true,
-        completed_at: true,
-        updated_at: true,
-      },
+    return await prisma.$transaction(async (tx) => {
+      const existing = await tx.investigations.findUnique({
+        where: { id: investId },
+        select: {
+          id: true, results: true, interpretation: true,
+          status: true, completed_at: true,
+          previous_results: true, result_version: true,
+        },
+      });
+      if (!existing) return null;
+
+      const now = new Date();
+      const isReSubmit = existing.results !== null && existing.results !== undefined;
+
+      let priorHistory = Array.isArray(existing.previous_results) ? existing.previous_results : [];
+      if (isReSubmit) {
+        priorHistory = [
+          ...priorHistory,
+          {
+            results: existing.results,
+            interpretation: existing.interpretation ?? null,
+            status: existing.status ?? null,
+            completed_at: existing.completed_at ?? null,
+            superseded_at: now.toISOString(),
+            superseded_by: userId ?? null,
+            version: existing.result_version ?? 1,
+          },
+        ];
+      }
+
+      const data = {
+        results,
+        status: 'COMPLETED',
+        completed_at: now,
+        previous_results: priorHistory.length ? priorHistory : null,
+        result_version: (existing.result_version ?? 1) + (isReSubmit ? 1 : 0),
+      };
+      if (interpretation != null) data.interpretation = interpretation;
+
+      return tx.investigations.update({
+        where: { id: investId },
+        data,
+        select: {
+          id: true, patient_id: true, requested_by: true,
+          test_name: true, test_type: true, status: true,
+          results: true, interpretation: true,
+          completed_at: true, updated_at: true,
+          previous_results: true, result_version: true,
+        },
+      });
     });
   } catch (err) {
     if (err?.code === 'P2025') return null;

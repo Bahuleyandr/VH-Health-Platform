@@ -75,6 +75,14 @@ router.get('/results/patient/:patientUid', requireStaffOrAdmin, wrap(async (req)
   }),
 ));
 
+// ── IPD lab worklist (E-5) ──────────────────────────────────────────
+router.get('/worklist/ipd', requireStaffOrAdmin, wrap(async (req) =>
+  lab.listIpdLabWorklist({
+    tenantId: tenantOf(req),
+    limit: req.query.limit,
+  }),
+));
+
 // ── Pathologist worklist + sign-off ──────────────────────────────────
 router.get('/pathologist/pending', requireStaffOrAdmin, wrap(async (req) =>
   lab.listPendingSignOff({
