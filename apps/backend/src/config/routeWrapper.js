@@ -10,8 +10,13 @@ import { ROUTE_RATE_PROFILES, ROUTE_AUDIT_DISABLED } from './routeWrapperSetting
 /**
  * Wraps an async route handler so that thrown errors are caught and forwarded
  * to Express's error handler instead of crashing the process.
+ *
+ * Exported so route modules that hand-build router.METHOD(...) calls (rather
+ * than going through wrapAutoRBAC / wrapRoutes) can use it directly. The
+ * IPD support / paeds immunisation / bed inspection routes (architectural
+ * items A4 / A10 / D1) all rely on this export.
  */
-function wrapAsync(fn) {
+export function wrapAsync(fn) {
   if (typeof fn !== 'function') return fn;
   // Only wrap if the function looks async (has 2-3 params like a route handler)
   if (fn.length > 3) return fn; // error handler middleware, skip
