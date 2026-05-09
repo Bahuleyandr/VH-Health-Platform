@@ -60,6 +60,12 @@ const ADMISSION_RETURNING_SELECT = {
   // billing / TPA / patient-app UIs can read directly off the
   // admission row.
   room_category: true,
+  // Emergency consent bypass (migration 182). Surfaced so the
+  // post-stabilisation consent-capture worklist can render the flag
+  // without an extra fetch.
+  emergency_consent_bypass_at: true,
+  emergency_consent_bypass_by: true,
+  emergency_consent_bypass_reason: true,
 };
 
 // Map ESI/ATS triage acuity onto admissions.priority. Used when the admit
@@ -219,12 +225,36 @@ async function admitPatient(data) {
     resolvedRoomCategory = 'day_care';
   }
 
+  // B-4 — emergency consent bypass (migration 182). Implied-consent
+  // doctrine permits life-saving admission without prior written
+  // consent. Bypass fires only when admission_type='emergency' AND
+  // priority='emergent' (matches the admit-without-bed exception
+  // criterion from A2). Caller must supply emergency_consent_bypass_reason
+  // — the chart needs to record WHY consent was bypassed.
+  // Findings:
+  //   2026-05-08-emergency-walk-in-admission-emergency-blocked-by-consent
+  //   2026-05-08-inpatient-admission-doctor-emergency-admit-blocked-by-treatment-consent.
+  const isEmergencyConsentBypassEligible = admission_type === 'emergency' && priority === 'emergent';
+  let emergencyBypass = null;
   const consent = await prisma.patient_consents.findFirst({
     where: { patient_uid, consent_type: 'treatment', status: 'active' },
     select: { id: true },
   });
   if (!consent) {
-    throw AppError.forbidden('Active treatment consent required before admission', 'CONSENT_REQUIRED');
+    if (!isEmergencyConsentBypassEligible) {
+      throw AppError.forbidden('Active treatment consent required before admission', 'CONSENT_REQUIRED');
+    }
+    const reason = data.emergency_consent_bypass_reason
+      || 'Implied consent — emergent clinical condition; written consent to be captured post-stabilisation';
+    emergencyBypass = {
+      at: new Date(),
+      by: data.emergency_consent_bypass_by || created_by,
+      reason,
+    };
+    logger.warn(
+      `Emergency consent bypass fired for admission of patient_uid=${patient_uid} ` +
+      `by=${emergencyBypass.by} reason="${reason.slice(0, 80)}"`,
+    );
   }
 
   const existingAdmission = await prisma.admissions.findFirst({
@@ -274,9 +304,35 @@ async function admitPatient(data) {
         bed_pending_since: bedlessAdmit ? new Date() : null,
         // Agreed room category (migration 177). Drives tariff + TPA pre-auth.
         room_category: resolvedRoomCategory,
+        // B-4 — emergency consent bypass tracking (migration 182).
+        emergency_consent_bypass_at: emergencyBypass?.at ?? null,
+        emergency_consent_bypass_by: emergencyBypass?.by ?? null,
+        emergency_consent_bypass_reason: emergencyBypass?.reason ?? null,
       },
       select: ADMISSION_RETURNING_SELECT,
     });
+
+    // B-4 — audit row when consent was bypassed. The admissions row
+    // itself records WHEN/WHO/WHY, but a separate audit_log entry
+    // makes the bypass visible in compliance dashboards.
+    if (emergencyBypass) {
+      await tx.audit_logs.create({
+        data: {
+          uid: emergencyBypass.by,
+          action: 'EMERGENCY_CONSENT_BYPASS',
+          resource: 'admissions',
+          resource_id: String(admission.id),
+          metadata: {
+            patient_uid,
+            admission_id: admission.id,
+            admission_type,
+            priority,
+            reason: emergencyBypass.reason,
+          },
+          ip_address: null,
+        },
+      });
+    }
 
     // Close the ER chart on successful admission. Single open clinical
     // encounter, even though billing stays separate (ER + ward have
