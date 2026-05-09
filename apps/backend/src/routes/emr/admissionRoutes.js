@@ -62,6 +62,28 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
+// POST /:id/assign-bed — Allocate a bed to a previously bedless admission
+// (the emergency exception path). Migration 171.
+// Finding: 2026-05-08-emergency-walk-in-doctor-admit-without-bed-allowed.
+// ---------------------------------------------------------------------------
+router.post(
+  '/:id/assign-bed',
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+    const bedId = req.body?.bed_id !== undefined ? parseInt(req.body.bed_id, 10) : NaN;
+    if (isNaN(bedId)) {
+      return error(res, 'bed_id is required (integer)', HTTP_STATUS.BAD_REQUEST);
+    }
+    const assignedBy = req.user?.uid;
+    const admission = await admissionService.assignBedToAdmission(admissionId, bedId, assignedBy);
+    success(res, { admission }, 'Bed assigned to admission');
+  })
+);
+
+// ---------------------------------------------------------------------------
 // POST /:id/discharge — Discharge a patient
 // ---------------------------------------------------------------------------
 router.post(

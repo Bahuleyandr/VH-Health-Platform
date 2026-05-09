@@ -371,10 +371,18 @@ model admissions {
   // 2026-05-08-emergency-walk-in-doctor-admit-no-er-visit-linkage.
   from_er_visit_id      Int?
   er_arrival_at         DateTime?         @db.Timestamptz(6)
+  // Bedless-emergency tracker. Set when an admission is created without
+  // a bed under the emergency exception (admission_type='emergency' AND
+  // priority='emergent'). Migration 171. Once a bed is assigned later
+  // via /admissions/:id/assign-bed, the bed_transfers row carries the
+  // assignment timestamp; bed_pending_since stays as the historical
+  // anchor for SLA / door-to-bed reports.
+  bed_pending_since     DateTime?         @db.Timestamptz(6)
   emergency_visit       emergency_visits? @relation("AdmissionFromErVisit", fields: [from_er_visit_id], references: [id], onDelete: SetNull)
 
   @@index([status, ward, admitted_at(sort: Desc)], map: "idx_admissions_status_ward_admitted")
   @@index([from_er_visit_id], map: "idx_admissions_from_er_visit")
+  @@index([bed_pending_since], map: "idx_admissions_bed_pending")
 }
 
 model advance_deductions {
