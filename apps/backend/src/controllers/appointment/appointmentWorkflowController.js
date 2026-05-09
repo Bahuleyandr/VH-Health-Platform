@@ -570,7 +570,12 @@ export const registerWalkIn = async (req, res) => {
       patient_birthday, patient_gender, patient_address,
       doctor_id, department,
       reason, notes,
-      appointment_time
+      appointment_time,
+      // E-9 — guardian fields for paediatric / minor walk-ins. Migration 189.
+      // Captured at registration so the chart links to the legal-consent
+      // contact. Finding:
+      // 2026-05-08-pediatric-opd-receptionist-no-guardian-model.
+      guardian_name, guardian_phone, guardian_relationship,
     } = req.body;
 
     if (!patient_phone && !patient_id) {
@@ -630,14 +635,27 @@ export const registerWalkIn = async (req, res) => {
             : null
             : null;
           const address = patient_address ? String(patient_address).trim().slice(0, 500) : null;
+          // E-9 — guardian fields persisted at registration for paeds.
+          // Validate relationship enum lazily (free text is fine for
+          // 'sister' / 'aunt' etc. that aren't in the canonical set).
+          const validRel = ['mother', 'father', 'grandparent', 'legal_guardian', 'spouse', 'sibling', 'other'];
+          const guardianRel = guardian_relationship && validRel.includes(String(guardian_relationship).toLowerCase())
+            ? String(guardian_relationship).toLowerCase()
+            : (guardian_relationship ? String(guardian_relationship).slice(0, 40) : null);
           const newUser = await tx.$queryRawUnsafe(
-            `INSERT INTO users (phone, name, birthday, gender, address, role, updated_at)
-             VALUES ($1, $2, $3::date, $4, $5, 'PATIENT', NOW()) RETURNING id`,
+            `INSERT INTO users (phone, name, birthday, gender, address, role,
+                                guardian_name, guardian_phone, guardian_relationship,
+                                updated_at)
+             VALUES ($1, $2, $3::date, $4, $5, 'PATIENT', $6, $7, $8, NOW())
+             RETURNING id`,
             patient_phone,
             patient_name || 'Walk-in Patient',
             birthday,
             gender,
             address,
+            guardian_name ? String(guardian_name).trim().slice(0, 160) : null,
+            guardian_phone ? String(guardian_phone).trim().slice(0, 20) : null,
+            guardianRel,
           );
           patientId = newUser[0].id;
           returningPatient = false;

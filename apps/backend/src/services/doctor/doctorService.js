@@ -172,7 +172,7 @@ export class DoctorService {
   async getAllDoctors(filters = {}) {
     try {
       const schema = await this.getDoctorSchema();
-      const { department, departmentId, available } = filters;
+      const { department, departmentId, available, ageRange } = filters;
       const listQuery = parseListQuery(filters, {
         defaultLimit: DOCTOR_CONFIG.PAGINATION.DEFAULT_LIMIT,
         maxLimit: 100,
@@ -199,6 +199,15 @@ export class DoctorService {
       if (available !== undefined && schema.isAvailable) {
         params.push(available);
         where.push(`d.is_available = $${params.length}`);
+      }
+
+      // E-9 — age_range filter (paediatric / adult / all). Migration 189.
+      // ?ageRange=paediatric returns paediatricians + 'all' doctors so a
+      // paeds-OPD receptionist sees the right roster. Finding:
+      // 2026-05-08-pediatric-opd-receptionist-doctor-list-no-age-filter.
+      if (ageRange && ['paediatric', 'adult', 'all'].includes(ageRange)) {
+        params.push(ageRange);
+        where.push(`(COALESCE(d.age_range, 'all') = $${params.length} OR COALESCE(d.age_range, 'all') = 'all')`);
       }
 
       if (listQuery.search) {
