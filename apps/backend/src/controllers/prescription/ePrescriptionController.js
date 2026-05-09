@@ -310,22 +310,36 @@ export const createPrescription = async (req, res) => {
     // Get creator (staff user) from auth context
     const created_by = req.user?.id || req.user?.userId || null;
 
+    // Resolve patient_uid + doctor_uid for the dedicated UUID columns
+    // (added in migration 176). The patient app's Rx-list filter and
+    // pharmacy lookups join by uid, not the int id — leaving these null
+    // made every walk-in's prescriptions invisible in the patient app.
+    // See finding 2026-05-08-walk-in-opd-doctor-prescription-uid-fields-null.
+    const [patientRow, doctorRow] = await Promise.all([
+      prisma.$queryRawUnsafe('SELECT uid FROM users WHERE id=$1', patientId),
+      prisma.$queryRawUnsafe('SELECT uid FROM users WHERE id=$1', doctorId),
+    ]);
+    const patientUid = patientRow?.[0]?.uid ?? null;
+    const doctorUid = doctorRow?.[0]?.uid ?? null;
+
     // Insert prescription.
-    // RETURNING list must reference real columns on `e_prescriptions`. The
-    // table has `clinical_notes` (not `notes`) and has no `patient_uid` /
-    // `doctor_uid` columns — those are joined in via `users.uid` when needed.
-    // See finding 2026-05-08-inpatient-admission-doctor-prescription-create-500.
+    // The table has `clinical_notes` (not `notes`); patient_uid + doctor_uid
+    // are populated explicitly so downstream uid-based lookups work.
     const insertResult = await prisma.$queryRawUnsafe(
       `INSERT INTO e_prescriptions
-        (appointment_id, patient_id, doctor_id, diagnosis, clinical_notes, medications,
+        (appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
+         diagnosis, clinical_notes, medications,
          follow_up_date, follow_up_notes, vitals, handwritten_photo_key, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::date, $8, $9::jsonb, $10, $11)
-       RETURNING id, appointment_id, patient_id, doctor_id, medications, status, created_at,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::date, $10, $11::jsonb, $12, $13)
+       RETURNING id, appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
+                 medications, status, created_at,
                  prescription_number, diagnosis, clinical_notes, vitals,
                  follow_up_date, follow_up_notes, pdf_key, handwritten_photo_key`,
       appointmentId || null,
       patientId,
       doctorId,
+      patientUid,
+      doctorUid,
       diagnosis || null,
       clinical_notes || null,
       JSON.stringify(medications),
