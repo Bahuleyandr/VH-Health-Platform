@@ -384,6 +384,13 @@ model admissions {
   // their preferred category to free up. See finding
   // 2026-05-08-inpatient-admission-admission-no-semiprivate-room-category.
   room_category         String?           @db.VarChar(40)
+  // B-4 — emergency consent bypass tracking (migration 182). Set when
+  // admitPatient fires under emergency + emergent priority and the
+  // active-treatment-consent check is overridden by implied-consent
+  // doctrine. Powers the post-stabilisation consent-capture worklist.
+  emergency_consent_bypass_at     DateTime? @db.Timestamptz(6)
+  emergency_consent_bypass_by     String?   @db.Uuid
+  emergency_consent_bypass_reason String?
   // Discharge cascade lifecycle markers (migration 173). T0..T4.
   // discharged_at (existing) is T4 = patient physically left.
   discharge_initiated_at        DateTime? @db.Timestamptz(6)
