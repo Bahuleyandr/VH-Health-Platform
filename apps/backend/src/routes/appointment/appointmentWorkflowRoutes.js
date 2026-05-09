@@ -20,6 +20,13 @@ const router = express.Router();
 
 // Queue, pending, slots, walk-in (static paths — must be before /:id)
 router.get('/queue/today', workflowController.getTodayQueue);
+// A9 — doctor's "my queue" alias. Pulls doctor_id from JWT instead of
+// requiring the caller to thread it. Matches the /notifications/my
+// pattern from PHI-mitigation guidance.
+router.get('/queue/today/mine', (req, _res, next) => {
+  req.params.scope = 'mine';
+  return workflowController.getTodayQueue(req, _res, next);
+});
 router.get('/pending', workflowController.getPendingAppointments);
 router.get('/doctors/options', workflowController.getDoctorOptions);
 router.get('/slots', workflowController.getAvailableSlots);
