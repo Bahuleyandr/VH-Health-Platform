@@ -69,6 +69,23 @@ router.post('/bills/:id/payment-link', requirePatient, wrap(async (req) =>
   }),
 ));
 
+// ── B-5 — TPA / insurance claims (read-only) ────────────────────────
+router.get('/tpa/claims', requirePatient, wrap(async (req) =>
+  portal.listMyClaims({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+    status: req.query.status || null,
+  }),
+));
+
+router.get('/tpa/claims/:id', requirePatient, wrap(async (req) =>
+  portal.getMyClaim({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+    id: req.params.id,
+  }),
+));
+
 // ── Lab results ─────────────────────────────────────────────────────
 router.get('/lab-results', requirePatient, wrap(async (req) =>
   portal.listMyLabResults({

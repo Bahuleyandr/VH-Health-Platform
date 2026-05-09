@@ -119,6 +119,99 @@ export async function createSelfPaymentLink({
 // Patients only see results that have been signed off (NABH 5.6
 // principle — un-signed values can change).
 
+// ── B-5 — patient-app TPA breakdown ──────────────────────────────────
+//
+// Patient self-service view of insurance claim status. Joins the
+// claim with its A11 caps so the breakdown shows what the TPA
+// approved per category, what the hospital billed, and what's left
+// for the patient to pay. Read-only — claim creation stays on the
+// staff path.
+
+export async function listMyClaims({ tenantId, patient_uid, status = null }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const params = [tenantId, String(patient_uid)];
+  let where = 'tenant_id = $1::uuid AND patient_uid = $2::uuid';
+  if (status) {
+    params.push(status);
+    where += ` AND status = $${params.length}`;
+  }
+  return prisma.$queryRawUnsafe(
+    `SELECT id, claim_number, insurance_provider, policy_number,
+            claim_amount, approved_amount, non_payable_amount,
+            status, stage, submitted_at, reviewed_at,
+            invoice_id
+       FROM insurance_claims
+      WHERE ${where}
+      ORDER BY submitted_at DESC, id DESC
+      LIMIT 100`,
+    ...params,
+  );
+}
+
+export async function getMyClaim({ tenantId, patient_uid, id }) {
+  const claimRows = await prisma.$queryRawUnsafe(
+    `SELECT id, claim_number, patient_uid, invoice_id,
+            insurance_provider, policy_number,
+            claim_amount, approved_amount, non_payable_amount,
+            disallowed_reason, status, stage,
+            submitted_at, reviewed_at, rejection_reason,
+            created_at, updated_at
+       FROM insurance_claims
+      WHERE id = $1::int AND tenant_id = $2::uuid AND patient_uid = $3::uuid`,
+    Number(id), tenantId, String(patient_uid),
+  );
+  if (!claimRows.length) throw AppError.notFound('Claim not found');
+  const claim = claimRows[0];
+
+  // Per-category caps from A11 (migration 178). Patient sees what the
+  // TPA approved per bucket so the breakdown is auditable, not just a
+  // single approved_amount aggregate.
+  const caps = await prisma.$queryRawUnsafe(
+    `SELECT category, max_amount, currency, source
+       FROM insurance_claim_caps
+      WHERE claim_id = $1::int
+      ORDER BY category`,
+    Number(id),
+  );
+
+  // Linked invoice line totals per category (when invoice is linked).
+  // The patient_responsibility is the gap: hospital_billed - tpa_approved.
+  let invoiceLines = [];
+  let invoiceTotal = 0;
+  if (claim.invoice_id) {
+    const lines = await prisma.$queryRawUnsafe(
+      `SELECT category, SUM(line_total)::numeric AS total
+         FROM billing_invoice_items
+        WHERE invoice_id = $1::int
+        GROUP BY category
+        ORDER BY category`,
+      Number(claim.invoice_id),
+    );
+    invoiceLines = lines;
+    invoiceTotal = lines.reduce((sum, l) => sum + Number(l.total || 0), 0);
+  }
+
+  const claimAmount = Number(claim.claim_amount || 0);
+  const approvedAmount = Number(claim.approved_amount || 0);
+  const patientResponsibility = Math.max(0, claimAmount - approvedAmount);
+
+  return {
+    claim,
+    caps,
+    invoice_breakdown: {
+      invoice_id: claim.invoice_id,
+      lines: invoiceLines,
+      total: invoiceTotal,
+    },
+    summary: {
+      hospital_billed: claimAmount,
+      tpa_approved: approvedAmount,
+      patient_responsibility: patientResponsibility,
+      currency: 'INR',
+    },
+  };
+}
+
 export async function listMyLabResults({ tenantId, patient_uid, limit = 100 }) {
   return prisma.$queryRawUnsafe(
     `SELECT id, test_code, test_name, observation_datetime,
