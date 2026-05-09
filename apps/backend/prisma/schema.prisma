@@ -378,6 +378,12 @@ model admissions {
   // assignment timestamp; bed_pending_since stays as the historical
   // anchor for SLA / door-to-bed reports.
   bed_pending_since     DateTime?         @db.Timestamptz(6)
+  // Agreed-room-category at admit time (migration 177). Tariff +
+  // TPA pre-auth use this, NOT the assigned bed's bed_type, because
+  // the patient is billed at the agreed rate even while waiting for
+  // their preferred category to free up. See finding
+  // 2026-05-08-inpatient-admission-admission-no-semiprivate-room-category.
+  room_category         String?           @db.VarChar(40)
   // Discharge cascade lifecycle markers (migration 173). T0..T4.
   // discharged_at (existing) is T4 = patient physically left.
   discharge_initiated_at        DateTime? @db.Timestamptz(6)
@@ -394,6 +400,7 @@ model admissions {
   @@index([status, ward, admitted_at(sort: Desc)], map: "idx_admissions_status_ward_admitted")
   @@index([from_er_visit_id], map: "idx_admissions_from_er_visit")
   @@index([bed_pending_since], map: "idx_admissions_bed_pending")
+  @@index([room_category], map: "idx_admissions_room_category")
   @@index([discharge_initiated_at], map: "idx_admissions_discharge_initiated")
   @@index([billing_closed_at], map: "idx_admissions_billing_closed")
 }
