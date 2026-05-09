@@ -8,6 +8,37 @@ import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 const VALID_MODALITIES = ['xray', 'ct', 'mri', 'ultrasound', 'mammography', 'fluoroscopy'];
 const VALID_PRIORITIES = ['routine', 'urgent', 'stat'];
 
+// E-8 — modality + priority aliases. The legacy contract was case-
+// sensitive against bare lowercase values, but doctors + downstream
+// platforms emit uppercase / abbreviation forms (USG / X-RAY / STAT).
+// Coerce here so the API doesn't 400-loop on case-only mismatches.
+// Finding: 2026-05-08-dynamic-acute-abdomen-doctor-radiology-order-contract-mismatch.
+const MODALITY_ALIASES = {
+  usg: 'ultrasound', us: 'ultrasound', sonography: 'ultrasound',
+  ekg: 'xray', // pathological — caller meant something else; let validator reject
+  'x-ray': 'xray', xr: 'xray',
+  mr: 'mri',
+  mammo: 'mammography', mg: 'mammography',
+  fluoro: 'fluoroscopy',
+};
+const PRIORITY_ALIASES = {
+  emergency: 'stat', emergent: 'stat',
+  high: 'urgent',
+  normal: 'routine', low: 'routine',
+};
+function normaliseModality(raw) {
+  if (!raw) return raw;
+  const k = String(raw).trim().toLowerCase().replace(/\s+/g, '_');
+  if (VALID_MODALITIES.includes(k)) return k;
+  return MODALITY_ALIASES[k] || k;
+}
+function normalisePriority(raw) {
+  if (!raw) return raw;
+  const k = String(raw).trim().toLowerCase();
+  if (VALID_PRIORITIES.includes(k)) return k;
+  return PRIORITY_ALIASES[k] || k;
+}
+
 // Canonical columns for radiology_orders. The real schema has:
 // `report (text)`, `report_completed_at`, `radiologist (uuid)`, `notes`.
 // It does NOT have `findings`, `impression`, `images`, `reported_by`, `reported_at` —
@@ -26,19 +57,35 @@ function requireIntId(id) {
 class RadiologyService {
 
   async createOrder(data) {
-    const {
-      patient_uid, encounter_id, modality, body_part,
-      clinical_indication, priority = 'routine', ordered_by, notes,
-    } = data;
+    // E-8 — accept legacy field aliases so a caller emitting the
+    // platform-conventional names (clinical_notes, doctor_id) doesn't
+    // 400-loop. Same for modality/priority case + abbrev coercion.
+    const patient_uid = data.patient_uid;
+    const encounter_id = data.encounter_id;
+    const body_part = data.body_part;
+    const clinical_indication = data.clinical_indication ?? data.clinical_notes ?? null;
+    const ordered_by = data.ordered_by ?? data.doctor_id ?? null;
+    const notes = data.notes ?? null;
+    const modality = normaliseModality(data.modality);
+    const priority = normalisePriority(data.priority || 'routine');
 
     if (!patient_uid || !modality || !body_part || !clinical_indication || !ordered_by) {
-      throw AppError.badRequest('Missing required fields: patient_uid, modality, body_part, clinical_indication, ordered_by');
+      throw AppError.badRequest(
+        'Missing required fields: patient_uid, modality, body_part, ' +
+        'clinical_indication (or clinical_notes), ordered_by (or doctor_id)',
+      );
     }
     if (!VALID_MODALITIES.includes(modality)) {
-      throw AppError.badRequest(`Invalid modality. Must be one of: ${VALID_MODALITIES.join(', ')}`);
+      throw AppError.badRequest(
+        `Invalid modality "${data.modality}". Must be one of: ${VALID_MODALITIES.join(', ')} ` +
+        `(aliases accepted: USG/US/sonography, X-ray/XR, MR, mammo/MG, fluoro)`,
+      );
     }
     if (!VALID_PRIORITIES.includes(priority)) {
-      throw AppError.badRequest(`Invalid priority. Must be one of: ${VALID_PRIORITIES.join(', ')}`);
+      throw AppError.badRequest(
+        `Invalid priority "${data.priority}". Must be one of: ${VALID_PRIORITIES.join(', ')} ` +
+        `(aliases accepted: emergency/emergent->stat, high->urgent, normal/low->routine)`,
+      );
     }
 
     const result = await prisma.$queryRawUnsafe(
@@ -117,10 +164,20 @@ class RadiologyService {
     }
 
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM radiology_orders WHERE id = $1`, requireIntId(id));
+      `SELECT id, status, report_signed_off_at FROM radiology_orders WHERE id = $1`, requireIntId(id));
     if (existing.length === 0) throw AppError.notFound('Radiology order not found');
     if (existing[0].status === 'cancelled') {
       throw AppError.badRequest('Cannot submit report for a cancelled order');
+    }
+    // E-8 — signoff lock. Once signed off, the report is immutable
+    // (medico-legal record). Caller wanting to amend must use the
+    // future addendum path (out of scope here). Finding:
+    // 2026-05-08-dynamic-acute-abdomen-radiology-tech-report-overwrite-after-signoff.
+    if (existing[0].report_signed_off_at) {
+      throw AppError.conflict(
+        `Report has been signed off at ${existing[0].report_signed_off_at.toISOString?.() ?? existing[0].report_signed_off_at} — overwrites are not permitted. Issue an addendum instead.`,
+        'REPORT_SIGNED_OFF',
+      );
     }
 
     // Compose a full-report blob that captures the structured sections the old
@@ -179,6 +236,69 @@ class RadiologyService {
        FROM radiology_orders
        WHERE id = $1`, requireIntId(id));
     if (result.length === 0) throw AppError.notFound('Radiology order not found');
+    return result[0];
+  }
+
+  // E-8 — acquisition state. The radiology tech marks an order
+  // 'acquired' once images are captured + uploaded; the radiologist
+  // then reads. Status flow:
+  //   ordered -> acquired -> in_progress (radiologist reading) -> completed
+  // Tech identity (acquired_by) stays distinct from radiologist
+  // identity. Finding:
+  // 2026-05-08-dynamic-acute-abdomen-radiology-tech-no-acquisition-state-no-tech-attribution.
+  async markAcquired(id, { tech_uid, tech_name }) {
+    if (!tech_uid) throw AppError.badRequest('tech_uid is required');
+    const existing = await prisma.$queryRawUnsafe(
+      `SELECT id, status FROM radiology_orders WHERE id = $1`, requireIntId(id));
+    if (existing.length === 0) throw AppError.notFound('Radiology order not found');
+    if (existing[0].status === 'cancelled') {
+      throw AppError.badRequest('Cannot acquire a cancelled order');
+    }
+    if (existing[0].status === 'completed') {
+      throw AppError.badRequest('Cannot acquire — order is already completed');
+    }
+    const result = await prisma.$queryRawUnsafe(
+      `UPDATE radiology_orders
+          SET status = 'acquired',
+              acquired_at = NOW(),
+              acquired_by = $1::uuid,
+              acquired_by_name = $2,
+              tech_uid = COALESCE(tech_uid, $1::uuid),
+              tech_name = COALESCE(tech_name, $2),
+              updated_at = NOW()
+        WHERE id = $3
+        RETURNING ${RAD_RETURNING}, acquired_at, acquired_by, acquired_by_name, tech_uid, tech_name`,
+      tech_uid, tech_name || null, requireIntId(id),
+    );
+    logger.info('Radiology order acquired', { orderId: id, tech_uid });
+    return result[0];
+  }
+
+  // E-8 — radiologist sign-off lock. After signoff, the report is
+  // medico-legally immutable. submitReport refuses overwrites once
+  // report_signed_off_at is set.
+  async signOffReport(id, { signed_off_by }) {
+    if (!signed_off_by) throw AppError.badRequest('signed_off_by is required');
+    const existing = await prisma.$queryRawUnsafe(
+      `SELECT id, status, report_completed_at, report_signed_off_at
+         FROM radiology_orders WHERE id = $1`, requireIntId(id));
+    if (existing.length === 0) throw AppError.notFound('Radiology order not found');
+    if (!existing[0].report_completed_at) {
+      throw AppError.badRequest('Cannot sign off — report has not been submitted yet');
+    }
+    if (existing[0].report_signed_off_at) {
+      throw AppError.conflict('Report is already signed off', 'REPORT_SIGNED_OFF');
+    }
+    const result = await prisma.$queryRawUnsafe(
+      `UPDATE radiology_orders
+          SET report_signed_off_at = NOW(),
+              report_signed_off_by = $1::uuid,
+              updated_at = NOW()
+        WHERE id = $2
+        RETURNING ${RAD_RETURNING}, report_signed_off_at, report_signed_off_by`,
+      signed_off_by, requireIntId(id),
+    );
+    logger.info('Radiology report signed off', { orderId: id, signed_off_by });
     return result[0];
   }
 

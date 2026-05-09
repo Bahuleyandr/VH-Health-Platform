@@ -98,6 +98,41 @@ router.put('/:id/report', paramId(), validate, async (req, res, next) => {
 });
 
 /**
+ * E-8 — POST /radiology/:id/acquire
+ * Mark order acquired (tech captures images). Body: { tech_name? }.
+ */
+router.post('/:id/acquire', paramId(), validate, async (req, res, next) => {
+  try {
+    const result = await radiologyService.markAcquired(parseInt(req.params.id, 10), {
+      tech_uid: req.user?.uid,
+      tech_name: req.body.tech_name || req.user?.name,
+    });
+    return success(res, result, 'Radiology order acquired');
+  } catch (err) {
+    if (err.isOperational) return error(res, err.message, err.statusCode);
+    logger.error('Failed to mark acquired:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
+ * E-8 — POST /radiology/:id/sign-off
+ * Radiologist signs off the report (locks it from further edits).
+ */
+router.post('/:id/sign-off', paramId(), validate, async (req, res, next) => {
+  try {
+    const result = await radiologyService.signOffReport(parseInt(req.params.id, 10), {
+      signed_off_by: req.user?.uid,
+    });
+    return success(res, result, 'Radiology report signed off');
+  } catch (err) {
+    if (err.isOperational) return error(res, err.message, err.statusCode);
+    logger.error('Failed to sign off report:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
  * GET /radiology/patient/:uid
  * Get radiology history for a patient
  */
