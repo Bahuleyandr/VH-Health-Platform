@@ -382,6 +382,55 @@ export class AppointmentQueryService {
       flat.doctor_email = doctor?.email ?? null;
       flat.specialty = profile?.specialty ?? null;
       flat.department = profile?.department ?? null;
+
+      // E-10 — completed-visit clinical summary. Patient app calling
+      // GET /appointments/:id on a COMPLETED visit previously got an
+      // empty shell with no notes / prescriptions / diagnoses to read.
+      // Join them inline so the response is self-contained. Finding:
+      // 2026-05-08-follow-up-opd-patient-completed-visit-empty-shell.
+      if (flat.status === 'COMPLETED' && patient?.uid) {
+        try {
+          const [notes, prescriptions, diagnoses] = await Promise.all([
+            prisma.$queryRawUnsafe(
+              `SELECT id, note_type, content, author_role, created_at
+                 FROM clinical_notes
+                WHERE patient_uid = $1::uuid
+                  AND created_at >= ($2::timestamp - INTERVAL '6 hours')
+                ORDER BY created_at ASC`,
+              patient.uid, flat.created_at,
+            ),
+            prisma.$queryRawUnsafe(
+              `SELECT id, prescription_number, diagnosis, medications, follow_up_date,
+                      follow_up_notes, created_at
+                 FROM e_prescriptions
+                WHERE patient_uid = $1::uuid
+                  AND created_at >= ($2::timestamp - INTERVAL '6 hours')
+                ORDER BY created_at ASC
+                LIMIT 5`,
+              patient.uid, flat.created_at,
+            ),
+            prisma.$queryRawUnsafe(
+              `SELECT id, icd10_code, icd10_description, description, diagnosis_type,
+                      severity, onset_date, created_at
+                 FROM diagnoses
+                WHERE patient_uid = $1::uuid
+                  AND created_at >= ($2::timestamp - INTERVAL '6 hours')
+                ORDER BY created_at ASC`,
+              patient.uid, flat.created_at,
+            ),
+          ]);
+          flat.clinical_summary = {
+            notes,
+            prescriptions,
+            diagnoses,
+            empty: notes.length === 0 && prescriptions.length === 0 && diagnoses.length === 0,
+          };
+        } catch (e) {
+          logger.warn('Clinical summary join failed:', e?.message);
+          flat.clinical_summary = null;
+        }
+      }
+
       return flat;
     } catch (error) {
       logger.error('Error getting appointment by ID:', error);

@@ -570,13 +570,27 @@ export const registerWalkIn = async (req, res) => {
       patient_birthday, patient_gender, patient_address,
       doctor_id, department,
       reason, notes,
-      appointment_time,
+      // E-10 — accept both `time` and `appointment_time` so phone-booked
+      // follow-ups don't have their slot time silently replaced by the
+      // 'Walk-in' literal. Finding:
+      // 2026-05-08-follow-up-opd-receptionist-walkin-ignores-time.
+      // Plus visit_type so the doctor list / billing can branch on
+      // NEW vs FOLLOW_UP. Finding:
+      // 2026-05-08-follow-up-opd-doctor-no-visit-type-flag.
+      appointment_time, time, visit_type, parent_appointment_id,
       // E-9 — guardian fields for paediatric / minor walk-ins. Migration 189.
       // Captured at registration so the chart links to the legal-consent
       // contact. Finding:
       // 2026-05-08-pediatric-opd-receptionist-no-guardian-model.
       guardian_name, guardian_phone, guardian_relationship,
     } = req.body;
+    // Resolved time honours either field; falls back to 'Walk-in' only
+    // when nothing was supplied.
+    const resolvedTime = appointment_time || time || 'Walk-in';
+    const VALID_VISIT_TYPES = new Set(['NEW', 'FOLLOW_UP', 'EMERGENCY', 'TELE']);
+    const resolvedVisitType = visit_type && VALID_VISIT_TYPES.has(String(visit_type).toUpperCase())
+      ? String(visit_type).toUpperCase()
+      : null;
 
     if (!patient_phone && !patient_id) {
       return error(res, 'patient_phone or patient_id is required', HTTP_STATUS.BAD_REQUEST);
@@ -683,22 +697,29 @@ export const registerWalkIn = async (req, res) => {
 
       // appointments has no `confirmed_by` column. created_by is uuid.
       // phone, appointment_date, appointment_time, updated_at are NOT NULL.
+      // E-10 — visit_type + parent_appointment_id captured at walk-in time
+      // (migration 190).
       const apptRows = await tx.$queryRawUnsafe(
         `INSERT INTO appointments
            (patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
-            status, confirmed_at, token_number, department, created_by, updated_at)
-         VALUES ($1, $2, NOW(), $3, $4, $5, $6, 'CONFIRMED', NOW(), $7, $8, $9::uuid, NOW())
+            status, confirmed_at, token_number, department, created_by, updated_at,
+            visit_type, parent_appointment_id)
+         VALUES ($1, $2, NOW(), $3, $4, $5, $6, 'CONFIRMED', NOW(), $7, $8, $9::uuid, NOW(),
+                 $10, $11)
          RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
-                   status, confirmed_at, token_number, department, created_at`,
+                   status, confirmed_at, token_number, department, created_at,
+                   visit_type, parent_appointment_id`,
         patientId,
         doctor_id || null,
-        appointment_time || 'Walk-in',
+        resolvedTime,
         patient_phone || '',
         reason || 'Walk-in consultation',
         notes || null,
         tokenNumber,
         department || null,
         staffUid,
+        resolvedVisitType,
+        parent_appointment_id ? parseInt(parent_appointment_id, 10) || null : null,
       );
       const appt = apptRows[0];
 
