@@ -2,6 +2,90 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 /**
+ * Per-dose mg/kg ceilings for common paediatric drugs. Names matched
+ * case-insensitive substring against the medication name. Conservative
+ * limits — production should pull from a curated drug master rather than
+ * this seed list. See finding
+ * 2026-05-08-pediatric-opd-doctor-no-weight-based-dose-check.
+ */
+const PAEDIATRIC_MG_PER_KG = {
+  paracetamol: 15,        // 10–15 mg/kg/dose, 60 mg/kg/day max
+  acetaminophen: 15,
+  ibuprofen: 10,          // 5–10 mg/kg/dose, 40 mg/kg/day max
+  amoxicillin: 25,        // 20–40 mg/kg/dose
+  azithromycin: 10,
+  cefixime: 8,
+  ciprofloxacin: 15,
+  ondansetron: 0.15,      // 0.1–0.15 mg/kg/dose
+  cetirizine: 5,          // total mg, age-dependent — flag aggressive overdose
+};
+
+const DOSE_VALUE_RX = /(-?\d+(?:\.\d+)?)\s*(mg|mcg|µg|g|ml)\b/i;
+
+function parseDoseToMg(doseString) {
+  if (!doseString || typeof doseString !== 'string') return null;
+  const m = doseString.match(DOSE_VALUE_RX);
+  if (!m) return null;
+  const value = Number.parseFloat(m[1]);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const unit = m[2].toLowerCase();
+  if (unit === 'mg') return value;
+  if (unit === 'g') return value * 1000;
+  if (unit === 'mcg' || unit === 'µg') return value / 1000;
+  // ml is liquid volume — can't convert without a strength (e.g. "125 mg/5 ml").
+  // Skip ml-only doses; the caller can add concentration to the medication
+  // payload to enable more accurate checks.
+  return null;
+}
+
+function findMgPerKg(medName) {
+  const name = String(medName || '').toLowerCase();
+  for (const [drug, mgPerKg] of Object.entries(PAEDIATRIC_MG_PER_KG)) {
+    if (name.includes(drug)) return { drug, mgPerKg };
+  }
+  return null;
+}
+
+/**
+ * Best-effort patient context lookup for paediatric weight-based dosing.
+ * Reads age (DOB) + most-recent recorded weight. Returns null if either
+ * piece is missing — the dose check then silently skips for this patient
+ * rather than 500'ing or false-flagging.
+ */
+async function loadPaediatricContext(patientId) {
+  if (!patientId) return null;
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT
+         CASE WHEN birthday IS NOT NULL THEN
+           DATE_PART('year', AGE(NOW()::date, birthday))::int
+         ELSE NULL END AS age_years
+       FROM users WHERE id = $1 LIMIT 1`,
+      patientId,
+    );
+    const ageYears = rows[0]?.age_years ?? null;
+    if (ageYears === null || ageYears >= 12) return null; // Not paediatric
+    // Most recent recorded weight from vitals_chart (joined via patient_uid).
+    // This won't fire for patients we never recorded vitals on; that's OK,
+    // dose check just skips silently in that case.
+    const weightRows = await prisma.$queryRawUnsafe(
+      `SELECT vc.weight_kg
+         FROM vitals_chart vc
+         JOIN users u ON u.uid = vc.patient_uid
+        WHERE u.id = $1 AND vc.weight_kg IS NOT NULL
+        ORDER BY vc.recorded_at DESC NULLS LAST LIMIT 1`,
+      patientId,
+    );
+    const weightKg = weightRows[0]?.weight_kg ? Number(weightRows[0].weight_kg) : null;
+    if (!Number.isFinite(weightKg) || weightKg <= 0) return null;
+    return { ageYears, weightKg };
+  } catch (err) {
+    logger.warn(`prescriptionSafetyCheck: paediatric context lookup failed for patient=${patientId}: ${err.message}`);
+    return null;
+  }
+}
+
+/**
  * Validate a prescription against patient allergies and active medications.
  * Call before saving any new prescription.
  * @param {number} patientId
@@ -68,6 +152,37 @@ export async function validatePrescriptionSafety(patientId, medications) {
             type: 'DUPLICATE_MEDICATION',
             medication: med.name || med.medication_name,
             message: `"${med.name || med.medication_name}" is already actively prescribed to this patient`,
+          });
+        }
+      }
+    }
+
+    // 3. Paediatric weight-based dose sanity check. Only fires for patients
+    //    under 12 with a recorded weight; only checks drugs in the seed
+    //    PAEDIATRIC_MG_PER_KG table. Anything outside that scope is
+    //    silently skipped (no false positives, no false-confidence
+    //    "all checked"). See finding
+    //    2026-05-08-pediatric-opd-doctor-no-weight-based-dose-check.
+    const paedCtx = await loadPaediatricContext(patientId);
+    if (paedCtx) {
+      for (const med of medications) {
+        const medName = med.name || med.medication_name || '';
+        const mapping = findMgPerKg(medName);
+        if (!mapping) continue;
+        const doseMg = parseDoseToMg(med.dose || med.dosage || '');
+        if (doseMg === null) continue;
+        const expectedMaxMg = mapping.mgPerKg * paedCtx.weightKg * 1.2; // 20% headroom
+        if (doseMg > expectedMaxMg) {
+          const ratio = (doseMg / (mapping.mgPerKg * paedCtx.weightKg)).toFixed(2);
+          warnings.push({
+            type: 'PAEDIATRIC_DOSE_HIGH',
+            medication: medName,
+            patient_weight_kg: paedCtx.weightKg,
+            patient_age_years: paedCtx.ageYears,
+            entered_dose_mg: doseMg,
+            expected_max_per_dose_mg: Number(expectedMaxMg.toFixed(2)),
+            mg_per_kg_reference: mapping.mgPerKg,
+            message: `${medName} ${doseMg}mg in a ${paedCtx.weightKg}kg ${paedCtx.ageYears}y patient is ${ratio}x the recommended ${mapping.mgPerKg}mg/kg per-dose ceiling. Confirm or override.`,
           });
         }
       }

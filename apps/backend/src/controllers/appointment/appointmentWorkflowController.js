@@ -499,6 +499,7 @@ export const registerWalkIn = async (req, res) => {
     const staffId = req.user?.id;
     const {
       patient_name, patient_phone, patient_id,
+      patient_birthday, patient_gender, patient_address,
       doctor_id, department,
       reason, notes,
       appointment_time
@@ -510,8 +511,26 @@ export const registerWalkIn = async (req, res) => {
 
     const result = await prisma.$transaction(async (tx) => {
       // Resolve patient — look up by phone or patient_id, or create minimal record.
+      // `returning_patient` is set when a phone match found an existing row so
+      // the admin UI can banner "Returning patient — last visit on …" and the
+      // receptionist doesn't accidentally create a duplicate. See finding
+      // 2026-05-08-follow-up-opd-receptionist-walkin-no-returning-patient-banner.
       let patientId = patient_id ? parseInt(patient_id) : null;
-      if (!patientId && patient_phone) {
+      let returningPatient = false;
+      let priorVisitCount = 0;
+      let lastVisitAt = null;
+      if (patient_id && patientId) {
+        // Caller already had a patient_id — count their prior visits so the UI
+        // can still show context.
+        const priors = await tx.$queryRawUnsafe(
+          `SELECT COUNT(*)::int AS count, MAX(created_at) AS last
+             FROM appointments WHERE patient_id = $1`,
+          patientId,
+        );
+        priorVisitCount = priors[0]?.count ?? 0;
+        lastVisitAt = priors[0]?.last ?? null;
+        returningPatient = priorVisitCount > 0;
+      } else if (!patientId && patient_phone) {
         const existing = await tx.$queryRawUnsafe(
           `SELECT id FROM users WHERE phone = $1 OR phone = $2 LIMIT 1`,
           patient_phone,
@@ -519,15 +538,41 @@ export const registerWalkIn = async (req, res) => {
         );
         if (existing.length > 0) {
           patientId = existing[0].id;
+          returningPatient = true;
+          const priors = await tx.$queryRawUnsafe(
+            `SELECT COUNT(*)::int AS count, MAX(created_at) AS last
+               FROM appointments WHERE patient_id = $1`,
+            patientId,
+          );
+          priorVisitCount = priors[0]?.count ?? 0;
+          lastVisitAt = priors[0]?.last ?? null;
         } else {
           // updated_at is NOT NULL with no default — pass it explicitly.
+          // Demographics (birthday/gender/address) are stored on the
+          // initial create so the doctor doesn't have to re-collect them
+          // at consult. See finding
+          // 2026-05-08-walk-in-opd-receptionist-walkin-dialog-missing-demographics.
+          const birthday = patient_birthday && /^\d{4}-\d{2}-\d{2}$/.test(patient_birthday)
+            ? patient_birthday
+            : null;
+          const gender = ['male', 'female', 'other', 'M', 'F', 'O'].includes(String(patient_gender ?? ''))
+            ? String(patient_gender).toLowerCase().slice(0, 1) === 'm' ? 'male'
+            : String(patient_gender).toLowerCase().slice(0, 1) === 'f' ? 'female'
+            : String(patient_gender).toLowerCase().startsWith('o') ? 'other'
+            : null
+            : null;
+          const address = patient_address ? String(patient_address).trim().slice(0, 500) : null;
           const newUser = await tx.$queryRawUnsafe(
-            `INSERT INTO users (phone, name, role, updated_at)
-             VALUES ($1, $2, 'PATIENT', NOW()) RETURNING id`,
+            `INSERT INTO users (phone, name, birthday, gender, address, role, updated_at)
+             VALUES ($1, $2, $3::date, $4, $5, 'PATIENT', NOW()) RETURNING id`,
             patient_phone,
             patient_name || 'Walk-in Patient',
+            birthday,
+            gender,
+            address,
           );
           patientId = newUser[0].id;
+          returningPatient = false;
         }
       }
 
@@ -576,7 +621,13 @@ export const registerWalkIn = async (req, res) => {
         staffId,
       );
 
-      return { ...appt, token_number: tokenNumber };
+      return {
+        ...appt,
+        token_number: tokenNumber,
+        returning_patient: returningPatient,
+        prior_visit_count: priorVisitCount,
+        last_visit_at: lastVisitAt,
+      };
     });
 
     success(res, result, `Walk-in registered. Token #${result.token_number}`);
@@ -602,6 +653,46 @@ export const registerWalkIn = async (req, res) => {
     });
   } finally {
     // No client to release — Prisma's $transaction handles that itself.
+  }
+};
+
+/**
+ * Advise an appointment for inpatient admission — the OPD→IPD bridge.
+ * A doctor flips this on a visit; the admission counter sees it in their
+ * queue (`GET /appointments?advised_for_admission=true`). Migration 169
+ * added the columns. See finding
+ * 2026-05-08-inpatient-admission-receptionist-no-advise-admission-workflow.
+ */
+export const adviseForAdmission = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) {
+      return error(res, 'Invalid appointment id', HTTP_STATUS.BAD_REQUEST);
+    }
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim() : null;
+    const advisedBy = req.user?.uid ?? null;
+
+    const rows = await prisma.$queryRawUnsafe(
+      `UPDATE appointments
+          SET advised_for_admission_at = NOW(),
+              advised_for_admission_by = $1::uuid,
+              advised_for_admission_note = $2,
+              updated_at = NOW()
+        WHERE id = $3
+        RETURNING id, uid, patient_id, doctor_id, advised_for_admission_at,
+                  advised_for_admission_by, advised_for_admission_note, status`,
+      advisedBy, note, id,
+    );
+    if (!rows.length) {
+      return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
+    }
+    success(res, rows[0], 'Patient advised for admission — admission counter notified');
+  } catch (err) {
+    logger.error('adviseForAdmission error:', { requestId: req.id, err: err?.message, stack: err?.stack });
+    error(res, 'Failed to advise for admission', HTTP_STATUS.INTERNAL_SERVER_ERROR, {
+      code: 'ADVISE_ADMISSION_FAILED',
+      requestId: req.id,
+    });
   }
 };
 

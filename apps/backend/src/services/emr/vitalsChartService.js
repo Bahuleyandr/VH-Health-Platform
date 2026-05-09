@@ -35,6 +35,10 @@ const VITAL_SELECT = {
   supplemental_o2: true,
   o2_flow_rate: true,
   consciousness: true,
+  // OB-specific fields added in migration 169. See finding
+  // 2026-05-08-obstetric-anc-nurse-no-fhr-fundal-fields.
+  fhr: true,
+  fundal_height_cm: true,
   notes: true,
   recorded_by: true,
   recorded_at: true,
@@ -99,6 +103,7 @@ export async function recordVitals(data) {
     patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp, temperature,
     temperature_unit, spo2, respiratory_rate, blood_glucose, pain_score, weight_kg,
     height_cm, gcs_score, supplemental_o2, o2_flow_rate, consciousness, notes,
+    fhr, fundal_height_cm,
     recorded_by,
   } = data;
 
@@ -110,9 +115,17 @@ export async function recordVitals(data) {
   const normalizedTemperature = toCelsius(temperature, temperature_unit);
 
   const vitalValues = [heart_rate, systolic_bp, diastolic_bp, normalizedTemperature, spo2,
-    respiratory_rate, blood_glucose, pain_score, weight_kg, height_cm, gcs_score];
+    respiratory_rate, blood_glucose, pain_score, weight_kg, height_cm, gcs_score,
+    fhr, fundal_height_cm];
   if (vitalValues.every((v) => v === undefined || v === null)) {
     throw AppError.badRequest('At least one vital sign measurement is required');
+  }
+
+  if (fhr !== undefined && fhr !== null && (Number(fhr) < 60 || Number(fhr) > 220)) {
+    throw AppError.badRequest('fhr (fetal heart rate) must be between 60 and 220 bpm');
+  }
+  if (fundal_height_cm !== undefined && fundal_height_cm !== null && (Number(fundal_height_cm) < 0 || Number(fundal_height_cm) > 50)) {
+    throw AppError.badRequest('fundal_height_cm must be between 0 and 50 cm');
   }
 
   if (pain_score !== undefined && pain_score !== null && (pain_score < 0 || pain_score > 10)) {
@@ -143,6 +156,10 @@ export async function recordVitals(data) {
       supplemental_o2: supplemental_o2 ?? false,
       o2_flow_rate: o2_flow_rate ?? null,
       consciousness: consciousness ?? null,
+      // OB-specific fields. See finding
+      // 2026-05-08-obstetric-anc-nurse-no-fhr-fundal-fields.
+      fhr: fhr ?? null,
+      fundal_height_cm: fundal_height_cm ?? null,
       notes: stripNul(notes ?? null),
       recorded_by,
     },

@@ -9,7 +9,20 @@ import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 const VALID_INVOICE_TYPES = ['consultation', 'investigation', 'pharmacy', 'procedure', 'room_charge'];
 const VALID_PAYMENT_METHODS = ['cash', 'card', 'upi', 'insurance', 'cheque'];
 const VALID_PAYMENT_STATUSES = ['pending', 'partial', 'paid', 'refunded', 'written_off'];
-const VALID_CLAIM_STATUSES = ['submitted', 'under_review', 'approved', 'partially_approved', 'rejected', 'paid'];
+// `settled_partial` (TPA settled less than approved, with a disallowed
+// amount the patient owes) and `settled_full` (clean settle) are both
+// post-`paid` end-states. `partially_approved` is the in-between state
+// after preauth comes back with caps. See finding
+// 2026-05-08-tpa-insurance-claim-billing-no-settled-partial-state.
+const VALID_CLAIM_STATUSES = [
+  'submitted', 'under_review', 'approved', 'partially_approved',
+  'rejected', 'paid', 'settled_partial', 'settled_full',
+];
+
+// `preauth` (initial submission), `enhancement` (mid-stay top-up), `final`
+// (discharge claim). Helps the TPA desk + downstream reports tell apart
+// the lifecycle stages of a single admission's claims.
+const VALID_CLAIM_STAGES = ['preauth', 'enhancement', 'final'];
 
 class BillingService {
 
@@ -423,6 +436,10 @@ class BillingService {
     const reason = opts._legacyReason ?? opts.rejection_reason ?? null;
     const documentsPatch = opts.documents;
     const paymentReference = opts.payment_reference ?? null;
+    // Settled-partial fields. See finding
+    // 2026-05-08-tpa-insurance-claim-billing-no-settled-partial-state.
+    const nonPayableAmount = opts.non_payable_amount ?? null;
+    const disallowedReason = opts.disallowed_reason ?? null;
 
     const existing = await prisma.insurance_claims.findUnique({
       where: { id: claimId },
@@ -458,7 +475,7 @@ class BillingService {
       };
     }
 
-    const reviewedAt = ['approved', 'partially_approved', 'rejected', 'paid'].includes(status)
+    const reviewedAt = ['approved', 'partially_approved', 'rejected', 'paid', 'settled_partial', 'settled_full'].includes(status)
       ? new Date()
       : null;
     const now = new Date();
@@ -469,6 +486,8 @@ class BillingService {
         status,
         approved_amount: approvedAmount ?? null,
         rejection_reason: reason ?? null,
+        non_payable_amount: nonPayableAmount,
+        disallowed_reason: disallowedReason,
         documents: mergedDocuments,
         reviewed_at: reviewedAt,
         updated_at: now,
@@ -477,6 +496,62 @@ class BillingService {
 
     logger.info(`Insurance claim ${claimId} updated to status: ${status}`);
     return updated;
+  }
+
+  /**
+   * Open an enhancement claim — a child claim referencing the original
+   * preauth. Used mid-stay when the patient's plan extends past the
+   * approved length-of-stay or when complications add cost. See finding
+   * 2026-05-08-tpa-insurance-claim-doctor-enhancement-workflow-absent.
+   *
+   * @param {Object} args
+   * @param {number} args.parentClaimId  Original preauth claim id
+   * @param {number} args.enhancementAmount  Additional amount being requested
+   * @param {string} [args.justification]  Clinical reason for enhancement
+   * @param {string} [args.actorUid]
+   * @returns {Object} new child claim row
+   */
+  async createEnhancementClaim({ parentClaimId, enhancementAmount, justification = null, actorUid = null }) {
+    if (!parentClaimId) throw AppError.badRequest('parentClaimId is required');
+    const amount = Number(enhancementAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw AppError.badRequest('enhancementAmount must be a positive number');
+    }
+
+    const parent = await prisma.insurance_claims.findUnique({
+      where: { id: parentClaimId },
+    });
+    if (!parent) throw AppError.notFound('Parent insurance claim not found');
+
+    // Reuse the parent's claim_number prefix + a `-E<n>` suffix so the
+    // lineage is readable. The unique constraint on claim_number forces
+    // us to count existing children to allocate the next E-suffix.
+    const existingEnhancements = await prisma.insurance_claims.count({
+      where: { parent_claim_id: parentClaimId, stage: 'enhancement' },
+    });
+    const enhancementClaimNumber = `${parent.claim_number}-E${existingEnhancements + 1}`;
+
+    const created = await prisma.insurance_claims.create({
+      data: {
+        claim_number: enhancementClaimNumber,
+        patient_uid: parent.patient_uid,
+        invoice_id: parent.invoice_id,
+        insurance_provider: parent.insurance_provider,
+        policy_number: parent.policy_number,
+        claim_amount: amount,
+        status: 'submitted',
+        stage: 'enhancement',
+        parent_claim_id: parentClaimId,
+        documents: justification
+          ? { enhancement: { justification, requested_by: actorUid, requested_at: new Date().toISOString() } }
+          : null,
+        submitted_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
+
+    logger.info(`Enhancement claim ${created.claim_number} (id=${created.id}) opened against parent claim ${parentClaimId} for ${amount}`);
+    return created;
   }
 
   /**
