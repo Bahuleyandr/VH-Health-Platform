@@ -63,6 +63,20 @@ async function rollbackBestEffort() {
  * pod ran on a broken schema for an unknown number of restarts).
  */
 export async function runMigrations({ migrationsDir = DEFAULT_MIGRATIONS_DIR } = {}) {
+  // F-2 — bound how long the runner waits on a relation lock. Without
+  // this, an orphan idle-in-transaction connection (audit_log,
+  // workflow_resume, etc.) holding a row lock on a table the migration
+  // wants to ALTER causes the runner to hang indefinitely. With a
+  // 15s lock_timeout, the runner bails fast and surfaces a clear
+  // error so the operator can pg_terminate_backend() the orphan and
+  // restart. Hit twice during the 2026-05-09 deploy of E batch.
+  try {
+    await prisma.$executeRawUnsafe("SET lock_timeout = '15s'");
+    await prisma.$executeRawUnsafe("SET statement_timeout = '120s'");
+  } catch (err) {
+    logger.warn(`runMigrations: could not set lock/statement timeouts (${err?.message}); continuing with defaults`);
+  }
+
   // Create migrations tracking table. DDL → $executeRawUnsafe.
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS _migrations (
