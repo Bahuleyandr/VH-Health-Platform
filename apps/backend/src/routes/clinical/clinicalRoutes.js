@@ -101,11 +101,22 @@ router.post('/mar/schedule', requiredUUID('patient_uid'), validate, async (req, 
   try {
     const { patient_uid, prescription_id, medications } = req.body;
 
-    if (!patient_uid || !medications) {
-      return error(res, 'patient_uid and medications are required', 400);
+    if (!patient_uid) {
+      return error(res, 'patient_uid is required', 400);
     }
 
-    const records = await marService.scheduleMedications(patient_uid, prescription_id, medications);
+    // E-4 — MAR can be pre-staged on admission with no medications yet,
+    // so the nurse has a frame to chart against once the doctor's first
+    // prescription lands. Empty medications[] returns an empty MAR list
+    // (the chart frame already exists conceptually — the API just confirms
+    // there are no scheduled doses yet). Finding:
+    // 2026-05-08-inpatient-admission-nurse-mar-chicken-and-egg.
+    const meds = Array.isArray(medications) ? medications : [];
+    if (meds.length === 0) {
+      return success(res, [], 'MAR ready (no medications scheduled yet)', 201);
+    }
+
+    const records = await marService.scheduleMedications(patient_uid, prescription_id, meds);
     return success(res, records, 'Medications scheduled', 201);
   } catch (err) {
     next(err);

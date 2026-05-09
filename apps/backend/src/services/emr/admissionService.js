@@ -225,6 +225,28 @@ async function admitPatient(data) {
     resolvedRoomCategory = 'day_care';
   }
 
+  // E-4 — ICU tier RBAC. Admitting to an ICU/CCU bed requires a higher
+  // privilege tier than general-ward admission. Caller's role is passed
+  // via data.actor_role (admit endpoint forwards req.user.role). The
+  // standard NURSING_STAFF (ward nurse) cannot allocate ICU beds; only
+  // ICU_NURSE / DOCTOR / ADMIN tiers can. See finding:
+  // 2026-05-08-emergency-walk-in-admission-no-icu-rbac-tier.
+  const isIcuTarget = resolvedRoomCategory === 'icu';
+  if (isIcuTarget) {
+    const ICU_ALLOCATE_ROLES = new Set([
+      'DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR',
+      'ADMIN', 'SUPER_ADMIN',
+      'ICU_NURSE', 'ICU_INCHARGE',
+    ]);
+    const actorRole = data.actor_role || data.created_by_role || null;
+    if (actorRole && !ICU_ALLOCATE_ROLES.has(actorRole)) {
+      throw AppError.forbidden(
+        `ICU bed allocation requires DOCTOR / ICU_NURSE / ADMIN tier (got role=${actorRole})`,
+        'ICU_TIER_REQUIRED',
+      );
+    }
+  }
+
   // B-4 — emergency consent bypass (migration 182). Implied-consent
   // doctrine permits life-saving admission without prior written
   // consent. Bypass fires only when admission_type='emergency' AND
