@@ -379,6 +379,72 @@ export async function recordFetalKick({
   return rows[0];
 }
 
+/**
+ * E-12 — prior-orders timeline for a pregnancy. Returns active /
+ * recent investigations + e_prescriptions tied to the patient
+ * (across the pregnancy window) so the OB can see "Anomaly USG —
+ * done 18w" and "Iron+folate — currently active" before re-ordering.
+ * Finding: 2026-05-08-obstetric-anc-doctor-no-prior-orders-surfaced.
+ */
+export async function listPriorOrdersForPregnancy({ tenantId, pregnancy_id }) {
+  const id = Number.parseInt(pregnancy_id, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw AppError.badRequest('pregnancy_id must be a positive integer');
+  }
+  // Resolve patient_uid + LMP from the pregnancy to scope the join.
+  const pregRows = await prisma.$queryRawUnsafe(
+    `SELECT patient_uid, lmp_date, created_at
+       FROM maternity_pregnancies
+      WHERE id = $1::int`,
+    id,
+  );
+  if (!pregRows.length) throw AppError.notFound(`Pregnancy ${id} not found`);
+  const { patient_uid, lmp_date, created_at } = pregRows[0];
+  const since = lmp_date || created_at;
+
+  const [investigations, prescriptions] = await Promise.all([
+    prisma.$queryRawUnsafe(
+      `SELECT i.id, i.test_name, i.test_code, i.test_type, i.status,
+              i.priority, i.requested_at, i.completed_at, i.result_summary,
+              i.result_uploaded_at
+         FROM investigations i
+         JOIN users u ON u.id = i.patient_id
+        WHERE u.uid = $1::uuid
+          AND i.created_at >= $2::timestamptz
+        ORDER BY i.requested_at DESC
+        LIMIT 50`,
+      patient_uid, since,
+    ),
+    prisma.$queryRawUnsafe(
+      `SELECT id, prescription_number, diagnosis, medications, status,
+              created_at, follow_up_date
+         FROM e_prescriptions
+        WHERE patient_uid = $1::uuid
+          AND created_at >= $2::timestamptz
+        ORDER BY created_at DESC
+        LIMIT 50`,
+      patient_uid, since,
+    ),
+  ]);
+
+  // Bucket investigations by test_code so the UI can show "CBC: 4
+  // prior, last 24w" instead of repeating each.
+  const investigationsByCode = {};
+  for (const inv of investigations) {
+    const k = inv.test_code || inv.test_name || 'OTHER';
+    if (!investigationsByCode[k]) investigationsByCode[k] = [];
+    investigationsByCode[k].push(inv);
+  }
+  return {
+    pregnancy_id: id,
+    patient_uid,
+    since,
+    investigations,
+    investigations_by_code: investigationsByCode,
+    prescriptions,
+  };
+}
+
 export async function listFetalKicks({ tenantId, pregnancy_id, fromDate = null, toDate = null }) {
   const id = Number.parseInt(pregnancy_id, 10);
   if (!Number.isInteger(id) || id <= 0) {

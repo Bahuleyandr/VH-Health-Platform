@@ -261,6 +261,14 @@ router.get('/supplements/pregnancy/:pregnancyId', requireStaffOrAdmin, wrap(asyn
   }),
 ));
 
+// E-12 — prior-orders timeline for a pregnancy
+router.get('/pregnancies/:id/prior-orders', requireStaffOrAdmin, wrap(async (req) =>
+  mat.listPriorOrdersForPregnancy({
+    tenantId: tenantOf(req),
+    pregnancy_id: req.params.id,
+  }),
+));
+
 // Fetal kick log
 router.post('/fetal-kicks', requireStaffOrAdmin, wrap(async (req) =>
   mat.recordFetalKick({

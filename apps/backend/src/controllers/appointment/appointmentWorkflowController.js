@@ -583,6 +583,12 @@ export const registerWalkIn = async (req, res) => {
       // contact. Finding:
       // 2026-05-08-pediatric-opd-receptionist-no-guardian-model.
       guardian_name, guardian_phone, guardian_relationship,
+      // E-12 — ANC fields captured at walk-in. When department routes
+      // to ANC, lmp_date / edd_date / gravida / parity / blood_group
+      // are written into a maternity_pregnancies row alongside the
+      // appointment. Finding:
+      // 2026-05-08-obstetric-anc-receptionist-walkin-drops-anc-fields.
+      lmp_date, edd_date, gravida, parity, living_children, abortions,
     } = req.body;
     // Resolved time honours either field; falls back to 'Walk-in' only
     // when nothing was supplied.
@@ -739,6 +745,45 @@ export const registerWalkIn = async (req, res) => {
         date: appt.appointment_date || new Date(),
         tokenNumber,
       });
+
+      // E-12 — ANC walk-ins also need a maternity_pregnancies row so
+      // the OB doctor's chart open + the new prior-orders endpoint
+      // have a pregnancy_id to attach to. Skipped if lmp_date is
+      // missing (walk-in might just be a routine OBGYN consult).
+      if (deptPrefix(department) === 'ANC' && lmp_date) {
+        const patientRow = await tx.$queryRawUnsafe(
+          'SELECT uid FROM users WHERE id = $1 LIMIT 1', patientId,
+        );
+        const patientUid = patientRow[0]?.uid;
+        if (patientUid) {
+          // Idempotent: don't double-insert if an ongoing pregnancy
+          // already exists for this patient.
+          const existingPreg = await tx.$queryRawUnsafe(
+            `SELECT id FROM maternity_pregnancies
+              WHERE patient_uid = $1::uuid AND status = 'ongoing' LIMIT 1`,
+            patientUid,
+          );
+          if (!existingPreg.length) {
+            const computedEdd = edd_date || (lmp_date
+              ? new Date(new Date(lmp_date).getTime() + 280 * 86400 * 1000).toISOString().slice(0, 10)
+              : null);
+            await tx.$queryRawUnsafe(
+              `INSERT INTO maternity_pregnancies
+                 (patient_uid, lmp_date, edd_date, edd_method,
+                  gravida, parity, living_children, abortions,
+                  booking_status, booking_visit_date, status, created_by)
+               VALUES ($1::uuid, $2::date, $3::date, 'lmp',
+                       $4, $5, $6, $7, 'booked', CURRENT_DATE, 'ongoing', $8::uuid)`,
+              patientUid, lmp_date, computedEdd,
+              parseInt(gravida, 10) || 1,
+              parseInt(parity, 10) || 0,
+              parseInt(living_children, 10) || 0,
+              parseInt(abortions, 10) || 0,
+              staffUid,
+            );
+          }
+        }
+      }
 
       // E-3 — Emergency walk-ins also need an emergency_visits row so the
       // ED queue, triage workflow, MLC flow, and bed-allocation queries
