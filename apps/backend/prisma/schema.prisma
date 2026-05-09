@@ -387,6 +387,9 @@ model admissions {
   discharge_drugs_dispensed_at  DateTime? @db.Timestamptz(6)
   emergency_visit       emergency_visits? @relation("AdmissionFromErVisit", fields: [from_er_visit_id], references: [id], onDelete: SetNull)
   discharge_consults    discharge_consults[]
+  // IPD support subsystem (migration 174).
+  advance_deposits      advance_deposits[]
+  attendant_passes      attendant_passes[]
 
   @@index([status, ward, admitted_at(sort: Desc)], map: "idx_admissions_status_ward_admitted")
   @@index([from_er_visit_id], map: "idx_admissions_from_er_visit")
@@ -8494,15 +8497,128 @@ model vitals_chart {
 }
 
 model wards {
-  id            Int          @id @default(autoincrement())
-  name          String       @db.VarChar(100)
-  floor         Int?         @default(1)
-  department_id Int?
-  total_beds    Int?         @default(0)
-  created_at    DateTime?    @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime?    @default(now()) @db.Timestamptz(6)
-  beds          beds[]
-  departments   departments? @relation(fields: [department_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                             Int            @id @default(autoincrement())
+  name                           String         @db.VarChar(100)
+  floor                          Int?           @default(1)
+  department_id                  Int?
+  total_beds                     Int?           @default(0)
+  // Attendant-pass color + screening level snapshot for the IPD support
+  // subsystem (migration 174). Per project decision 2026-05-09: deluxe /
+  // ICU get distinctive colours + relaxed screening; general wards keep a
+  // generic colour + standard/strict screening.
+  attendant_pass_color           String?        @db.VarChar(20)
+  attendant_pass_screening_level String?        @default("standard") @db.VarChar(20)
+  created_at                     DateTime?      @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime?      @default(now()) @db.Timestamptz(6)
+  beds                           beds[]
+  departments                    departments?   @relation(fields: [department_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ward_indents                   ward_indents[]
+}
+
+// IPD support subsystem (migration 174). Per project decision 2026-05-09.
+//
+// advance_deposits — money collected against an admission's eventual
+// final bill. Receipt series RCT-YYYYMM-NNNN, distinct from invoices.
+// Refunds are sibling negative-amount rows pointing at parent_deposit_id
+// so the trail is auditable.
+model advance_deposits {
+  id                 Int                @id @default(autoincrement())
+  admission_id       Int
+  patient_uid        String             @db.Uuid
+  receipt_number     String             @unique @db.VarChar(40)
+  amount             Decimal            @db.Decimal(10, 2)
+  parent_deposit_id  Int?
+  payment_method     String             @db.VarChar(40)
+  payment_reference  String?
+  purpose            String             @default("admission_advance") @db.VarChar(40)
+  is_refund          Boolean            @default(false)
+  notes              String?
+  collected_by       String             @db.Uuid
+  collected_at       DateTime           @default(now()) @db.Timestamptz(6)
+  tenant_id          String             @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime           @default(now()) @db.Timestamptz(6)
+  admission          admissions         @relation(fields: [admission_id], references: [id], onDelete: Cascade)
+  parent             advance_deposits?  @relation("AdvanceDepositRefund", fields: [parent_deposit_id], references: [id], onDelete: SetNull)
+  refunds            advance_deposits[] @relation("AdvanceDepositRefund")
+
+  @@index([admission_id])
+  @@index([patient_uid])
+  @@index([parent_deposit_id])
+}
+
+// attendant_passes — 2 per admission, auto-issued at admit. Pass color
+// snapshotted from ward at issue time. Expires at discharge.
+model attendant_passes {
+  id                    Int        @id @default(autoincrement())
+  admission_id          Int
+  patient_uid           String     @db.Uuid
+  pass_number           String     @unique @db.VarChar(40)
+  pass_index            Int
+  patient_name_snapshot String?    @db.VarChar(255)
+  pass_color            String?    @db.VarChar(20)
+  ward_at_issue         String?    @db.VarChar(80)
+  screening_level       String?    @db.VarChar(20)
+  status                String     @default("active") @db.VarChar(20)
+  expires_at            DateTime?  @db.Timestamptz(6)
+  issued_by             String     @db.Uuid
+  issued_at             DateTime   @default(now()) @db.Timestamptz(6)
+  revoked_by            String?    @db.Uuid
+  revoked_at            DateTime?  @db.Timestamptz(6)
+  revocation_reason     String?
+  notes                 String?
+  tenant_id             String     @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  created_at            DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime   @default(now()) @db.Timestamptz(6)
+  admission             admissions @relation(fields: [admission_id], references: [id], onDelete: Cascade)
+
+  @@unique([admission_id, pass_index])
+  @@index([admission_id])
+}
+
+// ward_indents — pharmacy/stores → ward consumables flow.
+// State machine: requested → approved → issued → received (rejected as terminal).
+model ward_indents {
+  id                Int                  @id @default(autoincrement())
+  indent_number     String               @unique @db.VarChar(40)
+  ward_id           Int?
+  ward_name         String?              @db.VarChar(80)
+  indent_type       String               @default("pharmacy") @db.VarChar(40)
+  status            String               @default("requested") @db.VarChar(20)
+  requested_by      String               @db.Uuid
+  requested_at      DateTime             @default(now()) @db.Timestamptz(6)
+  approved_by       String?              @db.Uuid
+  approved_at       DateTime?            @db.Timestamptz(6)
+  issued_by         String?              @db.Uuid
+  issued_at         DateTime?            @db.Timestamptz(6)
+  received_by       String?              @db.Uuid
+  received_at       DateTime?            @db.Timestamptz(6)
+  rejection_reason  String?
+  notes             String?
+  tenant_id         String               @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  created_at        DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime             @default(now()) @db.Timestamptz(6)
+  ward              wards?               @relation(fields: [ward_id], references: [id], onDelete: SetNull)
+  items             ward_indent_items[]
+
+  @@index([ward_id, status, requested_at(sort: Desc)])
+}
+
+model ward_indent_items {
+  id                  Int          @id @default(autoincrement())
+  ward_indent_id      Int
+  pharmacy_catalog_id Int?
+  item_name           String       @db.VarChar(255)
+  quantity_requested  Decimal      @db.Decimal(10, 2)
+  quantity_issued     Decimal?     @db.Decimal(10, 2)
+  unit                String?      @db.VarChar(20)
+  unit_price          Decimal?     @db.Decimal(10, 2)
+  notes               String?
+  created_at          DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime     @default(now()) @db.Timestamptz(6)
+  indent              ward_indents @relation(fields: [ward_indent_id], references: [id], onDelete: Cascade)
+
+  @@index([ward_indent_id])
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

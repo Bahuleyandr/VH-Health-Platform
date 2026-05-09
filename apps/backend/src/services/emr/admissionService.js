@@ -13,6 +13,10 @@ import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { generateDischargeSummary } from './dischargeSummaryGenerator.js';
 import billingService from '../billing/billingService.js';
+import {
+  issueDefaultAttendantPasses,
+  expireAttendantPassesForAdmission,
+} from '../ipd/ipdSupportService.js';
 
 
 const VALID_STATUS_TRANSITIONS = {
@@ -334,6 +338,35 @@ async function admitPatient(data) {
     } else {
       logger.info(`Patient ${patient_uid} admitted — admission #${admission.id}, encounter ${admission.encounter_id}`);
     }
+
+    // Auto-issue 2 attendant passes (architectural item A4 / migration
+    // 174). Per project decision 2026-05-09. Pass color snapshotted
+    // from the ward at issue. Best-effort — if pass issuance fails,
+    // log a warning but don't fail the whole admission.
+    try {
+      // Look up the ward row by name (ward is a string here, not a FK
+      // on admissions). Best-effort — returns null if ward isn't found
+      // or wasn't specified, which is fine — pass issuance falls back
+      // to default color/screening.
+      const wardRow = ward
+        ? await tx.wards.findFirst({
+            where: { name: ward },
+            select: { id: true, name: true },
+          })
+        : null;
+      const passes = await issueDefaultAttendantPasses(tx, {
+        admissionId: admission.id,
+        patientUid: patient_uid,
+        patientName,
+        wardId: wardRow?.id ?? null,
+        wardName: wardRow?.name ?? ward ?? null,
+        issuedBy: created_by,
+      });
+      logger.info(`Issued ${passes.length} attendant passes for admission #${admission.id}`);
+    } catch (e) {
+      logger.warn(`admitPatient: attendant-pass issuance failed for admission ${admission.id}: ${e.message}`);
+    }
+
     return admission;
   });
 }
@@ -960,6 +993,18 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
           },
         });
       }
+    }
+
+    // Expire any still-active attendant passes for this admission
+    // (architectural item A4 / migration 174). Best-effort — log if it
+    // fails but don't fail the discharge.
+    try {
+      const expired = await expireAttendantPassesForAdmission(tx, admissionId);
+      if (expired.count > 0) {
+        logger.info(`Expired ${expired.count} attendant pass(es) for admission #${admissionId}`);
+      }
+    } catch (e) {
+      logger.warn(`dischargePatient: attendant-pass expiry failed for admission ${admissionId}: ${e.message}`);
     }
 
     await tx.audit_logs.create({
