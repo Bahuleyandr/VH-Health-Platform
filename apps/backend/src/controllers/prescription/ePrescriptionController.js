@@ -505,6 +505,22 @@ export const getPrescription = async (req, res) => {
 
     const rx = result[0];
 
+    // B-2 IDOR check. Patient-role callers may only read their own
+    // prescriptions; staff (DOCTOR / NURSING / PHARMACY / ADMIN) read
+    // any. The role helpers normalise across the role enum so a single
+    // isStaff()-or-isAdmin() gate suffices. Scoped here rather than in
+    // routing because the route-level RBAC already allows PATIENT (and
+    // we need PATIENT to reach /:id for their OWN script).
+    const role = String(req.user?.role || '').toUpperCase();
+    const isPrivileged = ['ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF',
+      'PHARMACY_STAFF', 'PHARMACY_INCHARGE', 'BILLING_STAFF'].includes(role);
+    if (!isPrivileged) {
+      const callerId = req.user?.id ?? req.user?.userId;
+      if (!callerId || String(rx.patient_id) !== String(callerId)) {
+        return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
+      }
+    }
+
     // Sign URLs
     if (rx.pdf_key) {
       try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key); } catch (e) { logger.warn('Signed URL generation failed for PDF:', e.message); }

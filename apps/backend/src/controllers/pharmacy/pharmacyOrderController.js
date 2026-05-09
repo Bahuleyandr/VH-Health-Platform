@@ -423,6 +423,121 @@ export const markDelivered = async (req, res) => {
   }
 };
 
+/**
+ * B-2 — counter-dispense flow. The patient walks up to the pharmacy
+ * with their Rx, the pharmacist confirms + hands it over on the spot.
+ * No CONFIRMED -> PREPARING -> DISPATCHED -> DELIVERED chain — that's
+ * for delivery orders. From PENDING (or CONFIRMED) directly to
+ * DISPENSED, with the same stock-decrement + Rx-fulfilment hooks
+ * markDelivered runs. Required: delivery_type='counter' on the order
+ * (else use the delivery flow).
+ */
+export const markCounterDispensed = async (req, res) => {
+  try {
+    const orderId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(orderId)) {
+      return error(res, 'Invalid order id', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      // Pull state + delivery_type up-front so the wrong-flow guard
+      // returns a clean 400 instead of an empty UPDATE result.
+      const existing = await tx.$queryRawUnsafe(
+        `SELECT id, status, delivery_type, items_list, patient_id
+           FROM pharmacy_orders WHERE id=$1`,
+        orderId,
+      );
+      if (!existing.length) return { error: 'NOT_FOUND' };
+      const order = existing[0];
+      if (order.delivery_type !== 'counter') {
+        return { error: 'WRONG_FLOW' };
+      }
+      if (!['PENDING', 'CONFIRMED'].includes(order.status)) {
+        return { error: 'WRONG_STATUS', status: order.status };
+      }
+
+      // dispensed_by is UUID FK → users.uid (not the int id). Use the
+      // JWT's uid claim, not the integer id used elsewhere in this
+      // controller for confirmed_by/changed_by (those are int FKs).
+      const updated = await tx.$queryRawUnsafe(
+        `UPDATE pharmacy_orders
+            SET status='DISPENSED', dispensed_by=$2::uuid, dispensed_at=NOW(),
+                delivery_tracking_active=FALSE, updated_at=NOW()
+          WHERE id=$1
+          RETURNING id, uid, patient_id, patient_name, status, order_note,
+                    total_amount, items_list, dispensed_at, created_at,
+                    updated_at, order_number, delivery_type`,
+        orderId, req.user?.uid ?? null,
+      );
+      const out = updated[0];
+
+      // Same stock-decrement aggregator as markDelivered.
+      const items = Array.isArray(out.items_list) ? out.items_list : [];
+      const decByCatalog = new Map();
+      for (const item of items) {
+        const qty = Number(item?.qty ?? item?.quantity ?? 0);
+        if (!Number.isFinite(qty) || qty <= 0) continue;
+        let catalogId = item?.catalog_id ? parseInt(item.catalog_id, 10) : null;
+        if (!catalogId && item?.name) {
+          const match = await tx.$queryRawUnsafe(
+            'SELECT id FROM pharmacy_catalog WHERE name ILIKE $1 LIMIT 1',
+            item.name,
+          );
+          if (match.length) catalogId = match[0].id;
+        }
+        if (!catalogId) continue;
+        decByCatalog.set(catalogId, (decByCatalog.get(catalogId) ?? 0) + qty);
+      }
+      for (const [catalogId, qty] of decByCatalog.entries()) {
+        await tx.$queryRawUnsafe(
+          `UPDATE pharmacy_catalog
+              SET stock_quantity = GREATEST(COALESCE(stock_quantity, 0) - $1, 0),
+                  updated_at = NOW()
+            WHERE id = $2`,
+          qty, catalogId,
+        );
+      }
+
+      // Rx fulfilment, identical to markDelivered.
+      await tx.$executeRawUnsafe(
+        `UPDATE e_prescriptions
+            SET status = 'fulfilled',
+                pharmacy_opted = TRUE,
+                pharmacy_order_id = COALESCE(pharmacy_order_id, $1),
+                updated_at = NOW()
+          WHERE pharmacy_order_id = $1
+             OR (pharmacy_order_id IS NULL AND id IN (
+                   SELECT ep.id FROM e_prescriptions ep
+                   WHERE ep.patient_id = $2
+                     AND ep.status IN ('active', 'pharmacy_linked')
+                   ORDER BY ep.created_at DESC LIMIT 1
+                 ))`,
+        orderId, out.patient_id ?? null,
+      );
+
+      await tx.$queryRawUnsafe(
+        `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role, notes)
+         VALUES ($1, $2, 'DISPENSED', $3, 'pharmacist', 'Counter dispense')`,
+        orderId, order.status, req.user?.id ?? null,
+      );
+
+      return { ok: out };
+    });
+
+    if (result.error === 'NOT_FOUND') return error(res, 'Order not found', HTTP_STATUS.NOT_FOUND);
+    if (result.error === 'WRONG_FLOW') {
+      return error(res, 'Order is not a counter order — use the delivery flow', HTTP_STATUS.BAD_REQUEST);
+    }
+    if (result.error === 'WRONG_STATUS') {
+      return error(res, `Cannot dispense from status=${result.status}; expected PENDING or CONFIRMED`, HTTP_STATUS.BAD_REQUEST);
+    }
+    success(res, result.ok, 'Counter dispense complete');
+  } catch (err) {
+    logger.error('Counter dispense error:', err);
+    error(res, 'Failed to dispense order', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
 export const cancelOrder = async (req, res) => {
   try {
     const { id } = req.params;
