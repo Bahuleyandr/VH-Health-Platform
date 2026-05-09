@@ -191,6 +191,34 @@ export async function updateServiceMaster(id, patch) {
 // Invoice lifecycle
 // ───────────────────────────────────────────────────────────────────────
 
+/**
+ * Hard billing-close enforcement (B-1). Once D2's discharge cascade
+ * stamps `admissions.billing_closed_at`, any further write against
+ * that admission's invoices is a 409 Conflict. This guards every
+ * write path: createDraftInvoice, addInvoiceItem, removeInvoiceItem,
+ * applyDiscount, voidInvoice, etc. Read paths stay unchanged.
+ *
+ * Companion to D2 (migration 173) — D2 set the flag, B-1 enforces it.
+ * Finding pattern: closed-admission invoice writes corrupt the
+ * settled balance and ripple through TPA reconciliation.
+ */
+async function assertAdmissionBillingOpen(admissionId) {
+  if (admissionId == null || admissionId === '') return;
+  const id = Number(admissionId);
+  if (!Number.isInteger(id) || id <= 0) return;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT billing_closed_at FROM admissions WHERE id = $1::int`,
+    id,
+  );
+  if (rows.length && rows[0].billing_closed_at) {
+    throw AppError.conflict(
+      `Billing is closed for admission ${id} (closed at ${rows[0].billing_closed_at.toISOString?.() ?? rows[0].billing_closed_at}). ` +
+      'Reopen the admission via the discharge cascade before further invoice writes.',
+      'BILLING_CLOSED',
+    );
+  }
+}
+
 export async function createDraftInvoice({
   patient_uid, patient_name, patient_phone, admission_id, doctor_uid,
   department, invoice_type = 'OP', patient_state, hospital_state,
@@ -200,6 +228,8 @@ export async function createDraftInvoice({
   if (!VALID_INVOICE_TYPES.includes(invoice_type)) {
     throw AppError.badRequest(`Invalid invoice_type. Allowed: ${VALID_INVOICE_TYPES.join(', ')}`);
   }
+  // B-1: enforce billing close before creating against a closed admission.
+  await assertAdmissionBillingOpen(admission_id);
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO billing_invoices
       (patient_uid, patient_name, patient_phone, admission_id, doctor_uid,
@@ -250,15 +280,18 @@ export async function addInvoiceItem(invoiceId, {
   if (!resolved.description) throw AppError.badRequest('description (or valid service_code) is required');
   if (resolved.unit_price == null) throw AppError.badRequest('unit_price is required for ad-hoc lines');
 
-  // Read the parent invoice for state-pair (governs CGST+SGST vs IGST).
+  // Read the parent invoice for state-pair (governs CGST+SGST vs IGST)
+  // and admission_id for the billing-close enforcement (B-1).
   const invs = await prisma.$queryRawUnsafe(
-    `SELECT status, patient_state, hospital_state FROM billing_invoices WHERE id = $1::int`,
+    `SELECT status, patient_state, hospital_state, admission_id
+       FROM billing_invoices WHERE id = $1::int`,
     Number(invoiceId),
   );
   if (!invs.length) throw AppError.notFound('Invoice not found');
   if (invs[0].status !== 'DRAFT') {
     throw AppError.badRequest('Cannot add items to an issued/voided invoice');
   }
+  await assertAdmissionBillingOpen(invs[0].admission_id);
 
   const qty = Number(quantity) || 1;
   const price = Number(resolved.unit_price);
@@ -289,12 +322,13 @@ export async function addInvoiceItem(invoiceId, {
 
 export async function removeInvoiceItem(invoiceId, itemId) {
   const inv = await prisma.$queryRawUnsafe(
-    `SELECT status FROM billing_invoices WHERE id = $1::int`, Number(invoiceId),
+    `SELECT status, admission_id FROM billing_invoices WHERE id = $1::int`, Number(invoiceId),
   );
   if (!inv.length) throw AppError.notFound('Invoice not found');
   if (inv[0].status !== 'DRAFT') {
     throw AppError.badRequest('Cannot remove items from an issued/voided invoice');
   }
+  await assertAdmissionBillingOpen(inv[0].admission_id);
   await prisma.$executeRawUnsafe(
     `DELETE FROM billing_invoice_items WHERE invoice_id = $1::int AND id = $2::int`,
     Number(invoiceId), Number(itemId),
@@ -305,11 +339,12 @@ export async function removeInvoiceItem(invoiceId, itemId) {
 export async function applyDiscount(invoiceId, { amount, reason, approved_by }) {
   if (Number(amount) < 0) throw AppError.badRequest('Discount cannot be negative');
   const inv = await prisma.$queryRawUnsafe(
-    `SELECT status, total_amount FROM billing_invoices WHERE id = $1::int`,
+    `SELECT status, total_amount, admission_id FROM billing_invoices WHERE id = $1::int`,
     Number(invoiceId),
   );
   if (!inv.length) throw AppError.notFound('Invoice not found');
   if (inv[0].status === 'VOID') throw AppError.badRequest('Cannot discount a void invoice');
+  await assertAdmissionBillingOpen(inv[0].admission_id);
 
   await prisma.$executeRawUnsafe(
     `UPDATE billing_invoices
