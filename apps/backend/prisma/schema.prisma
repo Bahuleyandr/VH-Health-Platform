@@ -5285,6 +5285,13 @@ model investigations {
   patient_uid                              String?                             @db.Uuid
   investigation_type                       String?                             @db.VarChar(100)
   results                                  Json?
+  // E-5 — result versioning (migration 185). previous_results holds
+  // an array of prior snapshots; result_version increments on each
+  // re-submit. collected_at + collected_by track the COLLECTED state.
+  previous_results                         Json?
+  result_version                           Int                                 @default(1)
+  collected_at                             DateTime?                           @db.Timestamptz(6)
+  collected_by                             String?                             @db.Uuid
   result_summary                           String?
   interpretation                           String?
   conclusion                               String?

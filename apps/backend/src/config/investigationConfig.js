@@ -8,14 +8,24 @@ export const INVESTIGATION_TYPES = {
   ENDOSCOPY: 'ENDOSCOPY'
 };
 
-// Investigation status. Includes REQUESTED as the initial state callers use
-// when ordering — previously REQUESTED was outside the enum so the order
-// service rejected fresh orders that hadn't yet been scheduled. See finding
-// 2026-05-08-walk-in-opd-doctor-investigation-status-requested-not-in-enum.
+// Investigation status.
+//
+// Lifecycle: REQUESTED -> SCHEDULED -> COLLECTED -> IN_PROGRESS
+// -> COMPLETED. PENDING is the legacy alias for the doctor-side view.
+// CANCELLED is terminal from any state. COLLECTED slots between
+// SCHEDULED and IN_PROGRESS so a phlebotomist can mark sample-drawn
+// without claiming "running on the analyser" (E-5).
+//
+// REQUESTED is included so the DB default matches the validator —
+// previously fresh orders failed the enum check
+// (2026-05-08-walk-in-opd-doctor-investigation-status-requested-not-in-enum).
+// COLLECTED added per
+// 2026-05-08-lab-walk-in-lab-tech-status-enum-mismatch.
 export const INVESTIGATION_STATUS = {
   REQUESTED: 'REQUESTED',
   PENDING: 'PENDING',
   SCHEDULED: 'SCHEDULED',
+  COLLECTED: 'COLLECTED',
   IN_PROGRESS: 'IN_PROGRESS',
   COMPLETED: 'COMPLETED',
   CANCELLED: 'CANCELLED'
