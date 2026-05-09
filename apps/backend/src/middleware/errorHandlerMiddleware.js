@@ -62,13 +62,18 @@ export const errorHandlerMiddleware = (err, req, res, _next) => {
   // 6. Create the response body — never leak internal error details in production.
   // sanitizeErrorMessage replaces raw err.message with a generic 5xx line in
   // production and scrubs leak-pattern matches on any status.
-  const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+  // F-1 — stack only included when NODE_ENV=development AND opt-in via
+  // EXPOSE_DEV_STACK=true. Plain non-prod (e.g. NODE_ENV=test on the
+  // swarm tenant) was previously leaking dev filesystem paths in 500
+  // responses. Finding:
+  // 2026-05-08-emergency-walk-in-admission-beds-available-prisma-leak.
+  const isDev = (process.env.NODE_ENV || '').toLowerCase() === 'development';
+  const exposeStack = isDev && process.env.EXPOSE_DEV_STACK === 'true';
   const errorResponse = {
     success: false,
     message: sanitizeErrorMessage(err.message, statusCode, { context: req.originalUrl }),
     ...(req.id && { requestId: req.id }),
-    // Only include the stack in development for security reasons
-    ...(!isProduction && { stack }),
+    ...(exposeStack && { stack }),
   };
 
   // 7. Send the final response

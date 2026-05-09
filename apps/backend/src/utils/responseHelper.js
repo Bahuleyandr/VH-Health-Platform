@@ -18,7 +18,12 @@ export const LEAK_PATTERNS = [
   /\n\s{4}at\s/,          // stack frames: "    at Object.<anonymous>"
   /^Error:/i,             // raw Error.toString()
   /SequelizeError|PrismaClient|prisma|pg_|ECONNREFUSED|ETIMEDOUT|ENOTFOUND/i,
-  /\/(home|root|usr|opt)\//, // absolute filesystem paths
+  /\/(home|root|usr|opt)\//,        // absolute Unix filesystem paths
+  // F-1 — also catch Windows developer machine paths (`D:\Dev\...`,
+  // `C:\Users\foo\...`). Finding:
+  // 2026-05-08-emergency-walk-in-admission-beds-available-prisma-leak.
+  /[A-Z]:\\(Users|Dev|Projects|Program Files)\\/i,
+  /\bnode_modules[\\\/]@?prisma/i,
   /\bsyntax error\b/i,
   /\bunexpected token\b/i,
   /\bconnection refused\b/i,
@@ -61,7 +66,23 @@ export function sanitizeErrorMessage(message, statusCode, opts = {}) {
   const raw = typeof message === 'string' ? message : String(message ?? '');
   const safe = opts.safe === true;
 
-  if (!IS_PROD) return raw || (statusCode >= 500 ? GENERIC_5XX : GENERIC_4XX);
+  // F-1 — even in non-prod, scrub messages that match leak patterns
+  // (stack frames, Prisma internals, filesystem paths). Devs can still
+  // see the full stack in the structured server log; only the response
+  // body gets the generic message. Prevents the leaked Prisma stack +
+  // dev filesystem path from surfacing on test deployments where the
+  // tenant runs without NODE_ENV=production.
+  if (!IS_PROD) {
+    if (raw && LEAK_PATTERNS.some((re) => re.test(raw))) {
+      logger.warn('responseHelper: scrubbed leaky error message (non-prod)', {
+        original: raw,
+        statusCode,
+        context: opts.context,
+      });
+      return statusCode >= 500 ? GENERIC_5XX : GENERIC_4XX;
+    }
+    return raw || (statusCode >= 500 ? GENERIC_5XX : GENERIC_4XX);
+  }
 
   // In production: never leak for 5xx unless explicitly safe.
   if (statusCode >= 500 && !safe) {
