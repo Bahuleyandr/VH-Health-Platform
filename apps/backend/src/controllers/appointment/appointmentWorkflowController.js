@@ -323,14 +323,33 @@ export const cancelAppointment = async (req, res) => {
 };
 
 /**
- * Get today's appointment queue for staff (sorted by token then time)
+ * Get today's appointment queue for staff (sorted by token then time).
+ *
+ * A9 — accepts an explicit `doctor_id` (parsed to int — string binding
+ * against the integer column previously 500'd) or, when called via the
+ * /queue/today/mine alias, derives the doctor id from the JWT.
  */
 export const getTodayQueue = async (req, res) => {
   try {
-    const { doctor_id, department } = req.query;
+    const { department } = req.query;
+    // doctor_id source order: explicit query param -> JWT (mine alias).
+    // parseInt the param so raw SQL doesn't bind a string against an
+    // integer column. Finding:
+    // 2026-05-08-follow-up-opd-receptionist-queue-today-doctor-filter-500.
+    let doctorId = null;
+    if (req.params?.scope === 'mine') {
+      doctorId = req.user?.id ?? null;
+    } else if (req.query.doctor_id !== undefined && req.query.doctor_id !== '') {
+      const parsed = Number.parseInt(req.query.doctor_id, 10);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        return error(res, 'doctor_id must be a positive integer', HTTP_STATUS.BAD_REQUEST);
+      }
+      doctorId = parsed;
+    }
+
     let where = `WHERE DATE(a.appointment_date) = CURRENT_DATE AND a.status NOT IN ('CANCELLED')`;
     const params = [];
-    if (doctor_id) { params.push(doctor_id); where += ` AND a.doctor_id=$${params.length}`; }
+    if (doctorId !== null) { params.push(doctorId); where += ` AND a.doctor_id=$${params.length}`; }
     if (department) { params.push(department); where += ` AND a.department=$${params.length}`; }
 
     const result = await prisma.$queryRawUnsafe(`
@@ -364,7 +383,16 @@ export const getPendingAppointments = async (req, res) => {
     const params = [];
     if (from_date) { params.push(from_date); where += ` AND DATE(a.appointment_date) >= $${params.length}`; }
     if (to_date) { params.push(to_date); where += ` AND DATE(a.appointment_date) <= $${params.length}`; }
-    if (doctor_id) { params.push(doctor_id); where += ` AND a.doctor_id=$${params.length}`; }
+    // Same parseInt guard as getTodayQueue — string binding against the
+    // integer doctor_id column 500'd in production.
+    if (doctor_id !== undefined && doctor_id !== '') {
+      const parsed = Number.parseInt(doctor_id, 10);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        return error(res, 'doctor_id must be a positive integer', HTTP_STATUS.BAD_REQUEST);
+      }
+      params.push(parsed);
+      where += ` AND a.doctor_id=$${params.length}`;
+    }
 
     const result = await prisma.$queryRawUnsafe(`
       SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date, a.appointment_time,
