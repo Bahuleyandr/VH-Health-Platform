@@ -97,6 +97,29 @@ router.get('/news2/patient/:patientUid', async (req, res, next) => {
  * POST /clinical/mar/schedule
  * Schedule medications for a patient.
  */
+// E-10 — discoverability alias for the existing POST /api/v1/emr/notes
+// path. Doctors searching for "where do I file a progress note?" hit
+// /consultations, /visits, /progress-notes — none of which existed.
+// This alias delegates to clinicalNotesService.createNote so the path
+// people expect actually works. Finding:
+// 2026-05-08-follow-up-opd-doctor-no-progress-note-api.
+router.post('/progress-notes', async (req, res, next) => {
+  try {
+    const { default: clinicalNotesService } = await import('../../services/emr/clinicalNotesService.js');
+    const note = await clinicalNotesService.createNote({
+      encounter_id: req.body.encounter_id || req.body.appointment_id || null,
+      patient_uid: req.body.patient_uid,
+      author_uid: req.user?.uid,
+      author_role: req.body.author_role || req.user?.role,
+      note_type: req.body.note_type || 'progress',
+      content: req.body.content || req.body.note || req.body.body,
+    });
+    return success(res, note, 'Progress note filed', 201);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/mar/schedule', requiredUUID('patient_uid'), validate, async (req, res, next) => {
   try {
     const { patient_uid, prescription_id, medications } = req.body;

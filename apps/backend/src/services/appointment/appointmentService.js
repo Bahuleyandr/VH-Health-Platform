@@ -185,9 +185,12 @@ export class AppointmentService {
 
   async updateAppointmentStatus(id, status, notes = null, _updatedBy = null) {
     try {
-      // Use $queryRawUnsafe with explicit ::text cast so NULL params have a known type.
-      // Prisma can't infer `$2 IS NOT NULL` on a bare tagged-template null (42P18).
-      const rows = await prisma.$queryRawUnsafe(
+      // E-10 — RETURNING from the appointments row alone returned NULL for
+      // patient_name when the row's denormalized patient_name was never
+      // populated (walk-in paths don't write it). Fetch via a join after
+      // the UPDATE so the response always carries the canonical user name.
+      // Finding: 2026-05-08-follow-up-opd-doctor-status-update-loses-patient-name.
+      await prisma.$executeRawUnsafe(
         `UPDATE appointments SET
            status     = $1,
            notes      = CASE
@@ -196,10 +199,21 @@ export class AppointmentService {
                           ELSE notes
                         END,
            updated_at = NOW()
-         WHERE id = $3
-         RETURNING id, uid, phone, patient_id, doctor_id, patient_name, doctor_name,
-           appointment_date, appointment_time, status, notes, created_at, updated_at`,
-        status, notes ?? null, parseInt(id)
+         WHERE id = $3`,
+        status, notes ?? null, parseInt(id),
+      );
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT a.id, a.uid, a.phone, a.patient_id, a.doctor_id,
+                COALESCE(NULLIF(a.patient_name, ''), p.name) AS patient_name,
+                COALESCE(NULLIF(a.doctor_name, ''), d.name) AS doctor_name,
+                a.appointment_date, a.appointment_time, a.status, a.notes,
+                a.created_at, a.updated_at, a.visit_type
+           FROM appointments a
+           LEFT JOIN users p ON p.id = a.patient_id
+           LEFT JOIN users d ON d.id = a.doctor_id
+          WHERE a.id = $1
+          LIMIT 1`,
+        parseInt(id),
       );
       return rows[0];
     } catch (error) {
