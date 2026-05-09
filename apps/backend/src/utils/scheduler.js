@@ -43,6 +43,9 @@ import { dispatchPendingDeliveries } from '../services/integrations/webhookDeliv
 // Visit-status reaper — A8. Flips stale SCHEDULED appointments to MISSED.
 import { reapStaleScheduledVisits } from '../services/appointment/appointmentReaperService.js';
 
+// Bed inspection sweeper — D1. Marks stale pending inspections as expired.
+import { expireStaleInspections } from '../services/bed/bedInspectionService.js';
+
 // Notifications
 import { verifyLatestBackup } from './backupVerification.js';
 import { runCanaryChecks } from './canaryHealthCheck.js';
@@ -119,6 +122,13 @@ cron.schedule('*/30 * * * *', withJobLock('escalate-stuck-orders', escalateStuck
 // service entrypoint.
 cron.schedule('*/15 * * * *', withJobLock('reap-stale-visits', async () => {
   await reapStaleScheduledVisits();
+}));
+
+// 🛏️ Every hour — D1 bed-inspection sweeper. Marks pending bed
+// inspections that have outlived their expires_at as 'expired' so
+// the receptionist UI doesn't keep showing stale shortlists.
+cron.schedule('0 * * * *', withJobLock('expire-bed-inspections', async () => {
+  await expireStaleInspections();
 }));
 
 // 🗓️ Daily at 09:00 - Send in-app investigation report notifications

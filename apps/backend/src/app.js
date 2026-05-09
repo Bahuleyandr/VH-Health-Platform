@@ -49,6 +49,7 @@ import appointmentRoutes from './routes/appointment/index.js';
 import totpRoutes from './routes/auth/totpRoutes.js';
 import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
 import { bedRouter, wardRouter } from './routes/bed/bedRoutes.js';
+import bedInspectionRoutes from './routes/bed/bedInspectionRoutes.js';
 import edRoutesForClinicalStaff from './routes/admin/edRoutes.js';
 import ipdSupportRoutes from './routes/ipd/ipdSupportRoutes.js';
 import auditSearchRoutes from './routes/compliance/auditSearchRoutes.js';
@@ -507,6 +508,9 @@ app.use('/api/v1/staff', staffRoutes);
 app.use('/api/v1/beds', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedRouter);
 app.use('/api/v1/beds', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedManagementRoutes);
 app.use('/api/v1/wards', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), wardRouter);
+// D1 — bed inspection / consumer-choice flow. Receptionists need full
+// access; admission officers + nursing also; admin for audit.
+app.use('/api/v1/bed-inspections', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RECEPTIONIST', 'ADMISSION_OFFICER'), bedInspectionRoutes);
 
 // Emergency department triage — parallel mount at /api/v1/ed for clinical
 // staff (NURSING_STAFF in particular). The legacy /api/v1/admin/ed/*
