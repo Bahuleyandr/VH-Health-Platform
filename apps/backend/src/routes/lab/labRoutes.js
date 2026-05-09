@@ -83,10 +83,23 @@ router.get('/pathologist/pending', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.post('/pathologist/signoff', requireStaffOrAdmin, wrap(async (req) =>
+// B-3 — pathologist tier gate. Route-layer requireRole + the
+// service-level canSignOffLabResults() form a defence-in-depth pair so
+// neither can be bypassed alone (route forgets, service stays safe;
+// internal call bypasses route, role is still required).
+function requirePathologistTier(req, res, next) {
+  const role = req.user?.role;
+  if (!['PATHOLOGIST', 'LAB_INCHARGE', 'ADMIN', 'SUPER_ADMIN'].includes(role)) {
+    return error(res, 'Lab signoff requires pathologist tier', 403);
+  }
+  next();
+}
+
+router.post('/pathologist/signoff', requirePathologistTier, wrap(async (req) =>
   lab.signOffResults({
     tenantId: tenantOf(req),
     signed_off_by: req.user?.uid,
+    signed_off_by_role: req.user?.role,
     signed_off_by_name: req.body.signed_off_by_name || req.user?.name,
     signed_off_by_reg: req.body.signed_off_by_reg,
     result_ids: req.body.result_ids,

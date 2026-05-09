@@ -9,6 +9,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { parseHL7 } from '../hl7/hl7Parser.js';
 import { AppError } from '../../utils/AppError.js';
+import { canSignOffLabResults } from '../../utils/roleHelpers.js';
 
 function asNumericOrNull(value) {
   if (value == null || value === '') return null;
@@ -174,8 +175,18 @@ export async function recordResultManual({ tenantId, performed_by, result }) {
   for (const f of ['patient_uid', 'test_code', 'test_name']) {
     if (!result[f]) throw AppError.badRequest(`${f} is required`);
   }
-  const values = fields.map((f) => result[f] ?? null);
-  const numeric = asNumericOrNull(result.value_text);
+  // B-3 — lab techs cannot finalise a result by setting status='final'
+  // in the manual-entry payload. The signoff path is the only way to
+  // flip the status, and that path checks pathologist tier. The caller-
+  // supplied status is downgraded to 'preliminary' here. Findings:
+  // 2026-05-08-inpatient-admission-lab-tech-results-final-without-verification
+  // 2026-05-08-inpatient-admission-lab-tech-signoff-no-pathologist-tier-check
+  const sanitised = { ...result };
+  if (sanitised.status === 'final' || sanitised.status === 'corrected') {
+    sanitised.status = 'preliminary';
+  }
+  const values = fields.map((f) => sanitised[f] ?? null);
+  const numeric = asNumericOrNull(sanitised.value_text);
   values.push(numeric, performed_by ? String(performed_by) : null, tenantId);
 
   const rows = await prisma.$queryRawUnsafe(
@@ -211,13 +222,24 @@ export async function listPendingSignOff({ tenantId, limit = 100 }) {
 }
 
 export async function signOffResults({
-  tenantId, signed_off_by, signed_off_by_name, signed_off_by_reg,
-  result_ids, decision = 'verified', comments, booking_id, patient_uid,
+  tenantId, signed_off_by, signed_off_by_role, signed_off_by_name,
+  signed_off_by_reg, result_ids, decision = 'verified', comments,
+  booking_id, patient_uid,
 }) {
   if (!Array.isArray(result_ids) || !result_ids.length) {
     throw AppError.badRequest('result_ids[] is required');
   }
   if (!signed_off_by) throw AppError.badRequest('signed_off_by is required');
+  // B-3 — pathologist tier check. The route layer also checks but the
+  // service guards independently in case a future caller bypasses the
+  // route (cron, internal script). Findings:
+  // 2026-05-08-inpatient-admission-lab-tech-signoff-no-pathologist-tier-check.
+  if (!canSignOffLabResults(signed_off_by_role)) {
+    throw AppError.forbidden(
+      `Lab signoff requires pathologist tier (got role=${signed_off_by_role || 'unknown'})`,
+      'PATHOLOGIST_REQUIRED',
+    );
+  }
 
   // Verify ownership: all results must belong to the tenant.
   const ids = result_ids.map(Number).filter(Boolean);
