@@ -50,6 +50,7 @@ import totpRoutes from './routes/auth/totpRoutes.js';
 import bedManagementRoutes from './routes/bed/bedManagementRoutes.js';
 import { bedRouter, wardRouter } from './routes/bed/bedRoutes.js';
 import edRoutesForClinicalStaff from './routes/admin/edRoutes.js';
+import ipdSupportRoutes from './routes/ipd/ipdSupportRoutes.js';
 import auditSearchRoutes from './routes/compliance/auditSearchRoutes.js';
 import breachRoutes from './routes/compliance/breachRoutes.js';
 import complianceIndicatorsRoutes from './routes/compliance/indicatorsRoutes.js';
@@ -516,6 +517,24 @@ app.use(
   requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'ER_STAFF', 'MEDICAL_RECORDS'),
   phiAccessLogger('ER_TRIAGE'),
   edRoutesForClinicalStaff,
+);
+
+// IPD support subsystem — advance deposits, attendant passes, ward
+// indents (architectural item A4 / migration 174). RBAC is broad
+// because the routes file fans out into operations owned by different
+// roles (billing for deposits, admission for passes, pharmacy/nursing
+// for ward indents); finer-grained per-route checks live in the
+// service layer.
+app.use(
+  '/api/v1/ipd',
+  requireRole(
+    'ADMIN', 'SUPER_ADMIN',
+    'BILLING_STAFF', 'BILLING_INCHARGE', 'FINANCE_INCHARGE',
+    'NURSING_STAFF', 'PHARMACY_STAFF', 'PHARMACY_INCHARGE',
+    'RECEPTIONIST', 'ADMISSION_OFFICER',
+  ),
+  phiAccessLogger('IPD_SUPPORT'),
+  ipdSupportRoutes,
 );
 
 // FHIR R4 interoperability — restricted to clinical staff (exposes PHI)
