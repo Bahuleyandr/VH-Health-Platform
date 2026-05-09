@@ -42,6 +42,24 @@ const ACCOUNTS = [
   // hospital — testing as ADMIN masks RECEPTIONIST-specific RBAC failures.
   // Finding: 2026-05-08-walk-in-opd-receptionist-no-receptionist-role-seeded.
   { emp: 'EMP-1009', name: 'Test Receptionist',        role: 'RECEPTIONIST',   phone: '+919999990009', dept: 'Reception',           designation: 'Receptionist',    position: 'Front Desk' },
+  // E-13 — OBGYN doctor seed for the obstetric-anc journey. The
+  // generic Test Doctor is in General Medicine; the ANC + delivery
+  // workflows expect a specialty='Obstetrics' doctor in the roster
+  // for the receptionist's department-filtered dropdown.
+  // Finding: 2026-05-08-obstetric-anc-receptionist-no-obgyn-doctor-seeded.
+  { emp: 'EMP-1010', name: 'Test OBGYN Doctor',        role: 'DOCTOR',         phone: '+919999990010', dept: 'OBGYN',               designation: 'Consultant',      position: 'OBGYN Consultant' },
+  // E-13 — Test Pharmacist Incharge for verifying / dispensing
+  // medication orders (separate from the EMP-1002 PHARMACY_STAFF
+  // role, which represents a regular counter pharmacist).
+  { emp: 'EMP-1011', name: 'Test Pharmacy Incharge',   role: 'PHARMACY_INCHARGE', phone: '+919999990011', dept: 'Pharmacy',         designation: 'Pharmacy Incharge', position: 'Pharmacy Incharge' },
+  // E-13 — Test paediatrician for paeds-OPD workflow.
+  { emp: 'EMP-1012', name: 'Test Paediatrician',       role: 'DOCTOR',         phone: '+919999990012', dept: 'Paediatrics',         designation: 'Consultant',      position: 'Paediatrician' },
+  // E-13 — Test pathologist (signs off lab results — B-3 tier).
+  { emp: 'EMP-1013', name: 'Test Pathologist',         role: 'PATHOLOGIST',    phone: '+919999990013', dept: 'Laboratory',          designation: 'Pathologist',     position: 'Lab Director' },
+  // E-13 — Test radiologist (signs off radiology reports — E-8 lock).
+  { emp: 'EMP-1014', name: 'Test Radiologist',         role: 'RADIOLOGIST',    phone: '+919999990014', dept: 'Radiology',           designation: 'Radiologist',     position: 'Radiology Consultant' },
+  // E-13 — Test ICU Nurse (E-4 ICU tier RBAC).
+  { emp: 'EMP-1015', name: 'Test ICU Nurse',           role: 'ICU_NURSE',      phone: '+919999990015', dept: 'ICU',                 designation: 'ICU Nurse',       position: 'ICU Nurse' },
 ];
 
 async function main() {
