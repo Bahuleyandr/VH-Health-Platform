@@ -52,6 +52,8 @@ wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
     ['/:id/preparing', [], pharmacyOrderController.markPreparing],
     ['/:id/dispatch', [], pharmacyOrderController.dispatchOrder],
     ['/:id/delivered', [], pharmacyOrderController.markDelivered],
+    // B-2: counter-dispense — short-circuit lifecycle for walk-in customers.
+    ['/:id/dispense-counter', [], pharmacyOrderController.markCounterDispensed],
     ['/:id/cancel', [], pharmacyOrderController.cancelOrder]
   ]
 });
