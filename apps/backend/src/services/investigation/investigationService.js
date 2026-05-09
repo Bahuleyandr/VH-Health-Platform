@@ -555,26 +555,92 @@ export const addResults = async (id, resultData, userId) => {
         ];
       }
 
+      // E-11 — derive a patient-facing result_summary string from the
+      // structured results JSON. Best-effort: handles per-analyte
+      // {value, unit, normal_range, flag} shapes plus generic top-level
+      // {value, unit} payloads. Renders "Test: value unit (normal range)
+      // [FLAG]" lines so the patient app has something readable when the
+      // doctor hasn't typed an interpretation yet. Finding:
+      // 2026-05-08-lab-walk-in-patient-results-summary-empty.
+      let resultSummary = null;
+      try {
+        if (results && typeof results === 'object') {
+          const lines = [];
+          const visit = (obj, label = '') => {
+            if (!obj || typeof obj !== 'object') return;
+            if (obj.value !== undefined || obj.result !== undefined) {
+              const v = obj.value ?? obj.result;
+              const unit = obj.unit ? ` ${obj.unit}` : '';
+              const range = obj.normal_range || obj.reference_range
+                ? ` (normal: ${obj.normal_range || obj.reference_range})`
+                : '';
+              const flag = obj.abnormal_flag || obj.flag;
+              const flagStr = flag && flag !== 'N' ? ` [${flag}]` : '';
+              lines.push(`${label || 'Result'}: ${v}${unit}${range}${flagStr}`);
+              return;
+            }
+            for (const [k, child] of Object.entries(obj)) {
+              if (child && typeof child === 'object') visit(child, k);
+            }
+          };
+          visit(results);
+          if (lines.length) resultSummary = lines.slice(0, 20).join('\n');
+        }
+      } catch (e) {
+        // Summary is best-effort; never block result write on it.
+      }
+
       const data = {
         results,
         status: 'COMPLETED',
         completed_at: now,
+        result_uploaded_at: now,
+        result_summary: resultSummary,
         previous_results: priorHistory.length ? priorHistory : null,
         result_version: (existing.result_version ?? 1) + (isReSubmit ? 1 : 0),
       };
       if (interpretation != null) data.interpretation = interpretation;
 
-      return tx.investigations.update({
+      const updated = await tx.investigations.update({
         where: { id: investId },
         data,
         select: {
           id: true, patient_id: true, requested_by: true,
           test_name: true, test_type: true, status: true,
-          results: true, interpretation: true,
+          results: true, interpretation: true, result_summary: true,
           completed_at: true, updated_at: true,
           previous_results: true, result_version: true,
         },
       });
+
+      // E-11 — patient + ordering doctor notification on COMPLETED.
+      // Queues outbox rows so SMS / push / inapp can dispatch async.
+      // Best-effort; queue failures don't roll back the result write.
+      // Finding: 2026-05-08-lab-walk-in-patient-no-result-notification.
+      try {
+        const { default: outbox } = await import('../../utils/notifications/notificationOutbox.js');
+        const ctx = await tx.$queryRawUnsafe(
+          `SELECT i.patient_id, u.name AS patient_name, u.phone AS patient_phone
+             FROM investigations i
+             LEFT JOIN users u ON u.id = i.patient_id
+            WHERE i.id = $1::int`,
+          investId,
+        );
+        const c = ctx[0];
+        if (c?.patient_phone) {
+          await outbox.queue({
+            type: 'lab_result_ready',
+            recipientId: c.patient_id,
+            recipientPhone: c.patient_phone,
+            title: 'Lab result is ready',
+            body: `Hi ${c.patient_name || ''}, your ${updated.test_name} result is ready. Open the app to view.`,
+            data: { investigation_id: updated.id, test_name: updated.test_name },
+          }).catch(() => {});
+        }
+      } catch (e) {
+        // Notification dispatch is best-effort.
+      }
+      return updated;
     });
   } catch (err) {
     if (err?.code === 'P2025') return null;
