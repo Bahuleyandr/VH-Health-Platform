@@ -209,6 +209,12 @@ const CLINICAL_STAFF_ROLES = [
   'DOCTOR',
   'NURSING_STAFF',
   'MEDICAL_RECORDS',
+  // E-4 — pharmacy needs read access on /emr/orders (medication orders
+  // they're about to dispense) + verify/complete on the same. Per
+  // route-level controllers further-gate by order_type when needed.
+  // Finding: 2026-05-08-inpatient-admission-pharmacy-rbac-emr-orders-blocked.
+  'PHARMACY_STAFF',
+  'PHARMACY_INCHARGE',
 ];
 const CLINICAL_AI_CONTROL_ROLES = [
   'ADMIN',

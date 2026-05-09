@@ -24,6 +24,12 @@ export async function createAdmission({ tenantId, ...body }) {
   if (!body.patient_uid) throw AppError.badRequest('patient_uid required');
   if (!body.unit_code) throw AppError.badRequest('unit_code required');
 
+  // E-4 — uuid columns (patient_uid, admitting_doctor_uid,
+  // code_status_set_by, tenant_id) need explicit ::uuid casts. node-pg
+  // types raw strings as `text` and Postgres rejects the comparison.
+  // Findings:
+  //   2026-05-08-emergency-walk-in-doctor-icu-admission-uuid-cast
+  //   2026-05-08-emergency-walk-in-nurse-icu-flowsheet-uuid-cast
   const sql = `
     INSERT INTO icu_admissions
       (patient_uid, admission_id, unit_code, bed_no,
@@ -31,9 +37,11 @@ export async function createAdmission({ tenantId, ...body }) {
        primary_diagnosis, reason_for_icu,
        apache_ii_score, apache_ii_at, sofa_score,
        predicted_mortality_pct, expected_los_days,
-       code_status, code_status_set_at, code_status_set_by, tenant_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            $11, $12, $13, COALESCE($14, 'full_code'), $15, $16, $17)
+       code_status, code_status_set_at, code_status_set_by, tenant_id,
+       monitoring_interval_minutes, npo_from, fasting_until, pre_op_status)
+    VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6, $7, $8, $9, $10,
+            $11, $12, $13, COALESCE($14, 'full_code'), $15, $16::uuid, $17::uuid,
+            $18, $19::timestamptz, $20::timestamptz, $21)
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
     body.patient_uid, body.admission_id || null,
@@ -48,7 +56,12 @@ export async function createAdmission({ tenantId, ...body }) {
     body.code_status || null,
     body.code_status ? new Date() : null,
     body.code_status_set_by || null,
-    tenantOr(tenantId));
+    tenantOr(tenantId),
+    // E-4 ICU monitoring + fasting fields (migration 184).
+    body.monitoring_interval_minutes ?? 60,
+    body.npo_from || null,
+    body.fasting_until || null,
+    body.pre_op_status || null);
   return unwrap(rows);
 }
 
@@ -152,7 +165,7 @@ export async function logFlowsheet({ tenantId, icu_admission_id, ...body }) {
             $36, $37, $38,
             $39, $40, $41, $42,
             $43, $44,
-            $45, $46, $47)
+            $45::uuid, $46, $47::uuid)
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
     parseInt(icu_admission_id, 10), body.recorded_at || null,
@@ -256,7 +269,7 @@ export async function recordAssessment({ tenantId, icu_admission_id, assessment_
             $6, $7, $8, $9, $10,
             $11, $12, $13, $14, $15, $16, $17,
             $18, $19, $20, $21, $22,
-            $23, $24, $25)
+            $23, $24::uuid, $25::uuid)
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
     parseInt(icu_admission_id, 10), body.recorded_at || null, assessment_kind,
@@ -329,7 +342,7 @@ export async function upsertBundle({ tenantId, icu_admission_id, bundle_date, ..
     VALUES ($1, $2::date,
             $3, $4, $5, $6, $7, $8, $9,
             $10, $11, $12, $13, $14, $15, $16, $17,
-            $18, $19, $20, $21, $22)
+            $18, $19, $20::uuid, $21, $22::uuid)
     ON CONFLICT (icu_admission_id, bundle_date)
     DO UPDATE SET
       a_awakening_done            = EXCLUDED.a_awakening_done,

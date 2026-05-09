@@ -54,6 +54,10 @@ router.post(
     const data = {
       ...req.body,
       created_by: req.user?.uid,
+      // E-4 — actor_role threaded so admitPatient can enforce the ICU
+      // tier check. Without this, NURSING_STAFF (ward nurse) could
+      // allocate ICU beds.
+      actor_role: req.user?.role,
     };
 
     const admission = await admissionService.admitPatient(data);
