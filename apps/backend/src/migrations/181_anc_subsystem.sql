@@ -67,9 +67,15 @@ CREATE TABLE IF NOT EXISTS maternity_supplements (
 
 CREATE INDEX IF NOT EXISTS idx_anc_supplements_pregnancy
   ON maternity_supplements(pregnancy_id);
+-- Partial index for "still active" supplements. Postgres requires
+-- IMMUTABLE functions in index predicates, so CURRENT_DATE can't sit
+-- here. Restrict to end_date IS NULL (the common case — open-ended
+-- supplements). Time-bound courses (end_date set) are still findable
+-- by the broader idx_anc_supplements_pregnancy index plus the
+-- per-row filter in service.listSupplements({activeOnly:true}).
 CREATE INDEX IF NOT EXISTS idx_anc_supplements_active
   ON maternity_supplements(pregnancy_id, supplement)
-  WHERE end_date IS NULL OR end_date >= CURRENT_DATE;
+  WHERE end_date IS NULL;
 
 -- ── 3. Fetal kick counts (daily log) ────────────────────────────────
 -- Patient self-records once per day from ~28 weeks. Standard alert is
