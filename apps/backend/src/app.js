@@ -145,6 +145,7 @@ import theatreRoutes from './routes/theatre/theatreRoutes.js';
 import orBoardRoutes from './routes/theatre/orBoardRoutes.js';
 import anesthesiaChartRoutes from './routes/theatre/anesthesiaChartRoutes.js';
 import microbiologyRoutes from './routes/lab/microbiologyRoutes.js';
+import labPanelRoutes from './routes/lab/labPanelRoutes.js';
 import pcpndtRoutes from './routes/compliance/pcpndtRoutes.js';
 import bmwAndDrugReturnRoutes from './routes/compliance/bmwAndDrugReturnRoutes.js';
 import icuRoutes from './routes/clinical/icuRoutes.js';
@@ -676,6 +677,8 @@ app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSIN
 app.use('/api/v1/billing/v2', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'NURSING_STAFF', 'DOCTOR'), billingV2Routes);
 app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), revenueCycleRoutes);
 app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF'), phiAccessLogger('LAB_RESULT'), labRoutes);
+// A5 — structured panel entry + reference-range admin (sibling router under same /lab prefix).
+app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF'), phiAccessLogger('LAB_RESULT'), labPanelRoutes);
 app.use('/api/v1/insurance', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), insuranceClaimsRoutes);
 app.use('/api/v1/pmjay', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), pmjayRoutes);
 app.use('/api/v1/maternity', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('MATERNITY_RECORD'), maternityRoutes);
