@@ -210,4 +210,73 @@ router.get('/immunisations/due', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
+// ── A7 — ANC operational helpers (migration 181) ────────────────────
+
+// GET /api/v1/maternity/ga?lmp=YYYY-MM-DD&onDate=YYYY-MM-DD?
+// Stateless GA computation. Receptionist + walk-in form use this.
+router.get('/ga', requireStaffOrAdmin, (req, res) => {
+  const ga = svc.computeGestationalAge(req.query.lmp, req.query.onDate || null);
+  if (!ga) return error(res, 'lmp is required and must be a valid past date', 400);
+  return success(res, ga);
+});
+
+// Active pregnancy lookup for the patient app + walk-in form.
+router.get('/pregnancies/active/:patientUid', requireStaffOrAdmin, wrap(async (req) =>
+  mat.getActivePregnancyForPatient({
+    tenantId: tenantOf(req),
+    patient_uid: req.params.patientUid,
+  }),
+));
+
+// ANC timeline (visits + supplements + recent kicks) per pregnancy.
+router.get('/pregnancies/:id/timeline', requireStaffOrAdmin, wrap(async (req) =>
+  mat.getAncTimelineForPregnancy({
+    tenantId: tenantOf(req),
+    pregnancy_id: req.params.id,
+  }),
+));
+
+// Patient-flavored timeline: resolves the active pregnancy first.
+router.get('/timeline/patient/:patientUid', requireStaffOrAdmin, wrap(async (req) =>
+  mat.getAncTimelineForPatient({
+    tenantId: tenantOf(req),
+    patient_uid: req.params.patientUid,
+  }),
+));
+
+// Supplements
+router.post('/supplements', requireStaffOrAdmin, wrap(async (req) =>
+  mat.recordSupplement({
+    tenantId: tenantOf(req),
+    prescribed_by: req.user?.uid,
+    ...req.body,
+  }),
+));
+
+router.get('/supplements/pregnancy/:pregnancyId', requireStaffOrAdmin, wrap(async (req) =>
+  mat.listSupplements({
+    tenantId: tenantOf(req),
+    pregnancy_id: req.params.pregnancyId,
+    activeOnly: req.query.activeOnly === 'true',
+  }),
+));
+
+// Fetal kick log
+router.post('/fetal-kicks', requireStaffOrAdmin, wrap(async (req) =>
+  mat.recordFetalKick({
+    tenantId: tenantOf(req),
+    recorded_by: req.body.recorded_by ?? req.user?.uid,
+    ...req.body,
+  }),
+));
+
+router.get('/fetal-kicks/pregnancy/:pregnancyId', requireStaffOrAdmin, wrap(async (req) =>
+  mat.listFetalKicks({
+    tenantId: tenantOf(req),
+    pregnancy_id: req.params.pregnancyId,
+    fromDate: req.query.from || null,
+    toDate: req.query.to || null,
+  }),
+));
+
 export default router;
