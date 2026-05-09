@@ -27,6 +27,32 @@ function computeEdd(lmpDate) {
   return edd.toISOString().split('T')[0];
 }
 
+/**
+ * Gestational age (in weeks + days) on a given date, computed from LMP.
+ * Returns { weeks, days, total_days, label } or null if inputs invalid.
+ *
+ * label is "GA 32+4" — the format obstetricians actually use, where
+ * 32 is full weeks and 4 is residual days. Migration 181 / A7.
+ */
+export function computeGestationalAge(lmpDate, onDate = null) {
+  if (!lmpDate) return null;
+  const lmp = new Date(lmpDate);
+  if (Number.isNaN(lmp.getTime())) return null;
+  const reference = onDate ? new Date(onDate) : new Date();
+  if (Number.isNaN(reference.getTime())) return null;
+  const diffMs = reference.getTime() - lmp.getTime();
+  if (diffMs < 0) return null;
+  const totalDays = Math.floor(diffMs / 86400000);
+  const weeks = Math.floor(totalDays / 7);
+  const days = totalDays % 7;
+  return {
+    weeks,
+    days,
+    total_days: totalDays,
+    label: `GA ${weeks}+${days}`,
+  };
+}
+
 export async function createPregnancy({
   tenantId, patient_uid, pregnancy_number = 1,
   lmp_date, edd_date, edd_method,
@@ -116,16 +142,27 @@ export async function recordAncVisit({
   if (!pregnancy_id) throw AppError.badRequest('pregnancy_id is required');
   if (!visit_date) throw AppError.badRequest('visit_date is required');
 
+  // Auto-assign visit_number per pregnancy (migration 181). The "ANC
+  // visit #4" label is collapsed onto a single COALESCE/MAX +1 path
+  // so recordAncVisit doesn't need a separate counter table.
+  const nextNumberRow = await prisma.$queryRawUnsafe(
+    `SELECT COALESCE(MAX(visit_number), 0) + 1 AS next_number
+       FROM maternity_anc_visits
+      WHERE pregnancy_id = $1::int`,
+    Number(pregnancy_id),
+  );
+  const nextNumber = Number(nextNumberRow?.[0]?.next_number) || 1;
+
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO maternity_anc_visits
-       (pregnancy_id, visit_date, gestational_age_weeks,
+       (pregnancy_id, visit_date, visit_number, gestational_age_weeks,
         weight_kg, bp_systolic, bp_diastolic, pulse_bpm,
         fundal_height_cm, fetal_heart_rate_bpm, fetal_movements_felt,
         presentation, edema, pallor,
         hb_gm_dl, urine_albumin, urine_sugar,
         iron_folic_acid_given, calcium_given, tt_dose,
         next_visit_date, notes, recorded_by, tenant_id)
-     VALUES ($1::int, $2::date, $3::numeric,
+     VALUES ($1::int, $2::date, $24::int, $3::numeric,
              $4::numeric, $5::int, $6::int, $7::int,
              $8::int, $9::int, $10,
              $11, $12, $13,
@@ -148,8 +185,219 @@ export async function recordAncVisit({
     !!iron_folic_acid_given, !!calcium_given, tt_dose || null,
     next_visit_date || null, notes || null,
     recorded_by ? String(recorded_by) : null, tenantId,
+    nextNumber,
   );
   return rows[0];
+}
+
+// ── A7 — ANC operational helpers (migration 181) ────────────────────
+
+/**
+ * The ongoing pregnancy for a patient, if any. Returns null otherwise.
+ * Used by the patient app's ANC timeline tile and the OPD walk-in
+ * form to skip the "is this patient pregnant?" question on returnees.
+ */
+export async function getActivePregnancyForPatient({ tenantId, patient_uid }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, pregnancy_number, lmp_date, edd_date, edd_method,
+            gravida, parity, living_children, abortions, blood_group, rh_factor,
+            booking_status, booking_visit_date, high_risk, high_risk_reasons,
+            status, notes, created_at
+       FROM maternity_pregnancies
+      WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND status = 'ongoing'
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    tenantId, patient_uid,
+  );
+  if (!rows.length) return null;
+  const p = rows[0];
+  // Decorate with computed GA so callers don't have to repeat the math.
+  const ga = computeGestationalAge(p.lmp_date);
+  return { ...p, gestational_age: ga };
+}
+
+/**
+ * ANC timeline for a pregnancy: visits + supplements + recent kick
+ * counts in one payload. The doctor's chart open hits this; the
+ * patient app's timeline tile hits the patient-flavored variant
+ * which calls this after resolving the active pregnancy.
+ */
+export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
+  const id = Number.parseInt(pregnancy_id, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw AppError.badRequest('pregnancy_id must be a positive integer');
+  }
+  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const [pregnancy, visits, supplements, kicks] = await Promise.all([
+    prisma.$queryRawUnsafe(
+      `SELECT id, patient_uid, lmp_date, edd_date, gravida, parity,
+              high_risk, high_risk_reasons, status
+         FROM maternity_pregnancies
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      id, tid,
+    ),
+    prisma.$queryRawUnsafe(
+      `SELECT id, visit_date, visit_number, gestational_age_weeks,
+              weight_kg, bp_systolic, bp_diastolic, fundal_height_cm,
+              fetal_heart_rate_bpm, hb_gm_dl, urine_albumin,
+              iron_folic_acid_given, calcium_given, tt_dose,
+              next_visit_date, notes
+         FROM maternity_anc_visits
+        WHERE pregnancy_id = $1::int
+        ORDER BY visit_date DESC, id DESC`,
+      id,
+    ),
+    prisma.$queryRawUnsafe(
+      `SELECT id, supplement, dose, frequency, route, start_date,
+              end_date, reminder_enabled, notes, prescribed_by, created_at
+         FROM maternity_supplements
+        WHERE pregnancy_id = $1::int
+        ORDER BY start_date DESC`,
+      id,
+    ),
+    prisma.$queryRawUnsafe(
+      `SELECT id, log_date, kick_count, observation_window_minutes,
+              low_count_flag, notes
+         FROM maternity_fetal_kicks
+        WHERE pregnancy_id = $1::int
+        ORDER BY log_date DESC
+        LIMIT 30`,
+      id,
+    ),
+  ]);
+  if (!pregnancy.length) throw AppError.notFound(`Pregnancy ${id} not found`);
+  const p = pregnancy[0];
+  return {
+    pregnancy: { ...p, gestational_age: computeGestationalAge(p.lmp_date) },
+    visits,
+    supplements,
+    fetal_kicks: kicks,
+  };
+}
+
+/**
+ * Convenience: timeline for the patient's active pregnancy.
+ * Returns null if no ongoing pregnancy exists.
+ */
+export async function getAncTimelineForPatient({ tenantId, patient_uid }) {
+  const active = await getActivePregnancyForPatient({ tenantId, patient_uid });
+  if (!active) return null;
+  return getAncTimelineForPregnancy({ tenantId, pregnancy_id: active.id });
+}
+
+const VALID_SUPPLEMENTS = new Set([
+  'iron', 'folic_acid', 'calcium', 'vitamin_d', 'b_complex', 'other',
+]);
+const VALID_FREQUENCIES = new Set([
+  'once_daily', 'twice_daily', 'thrice_daily', 'weekly', 'as_needed',
+]);
+
+export async function recordSupplement({
+  tenantId, pregnancy_id, supplement, dose, frequency, route, start_date,
+  end_date, reminder_enabled, notes, prescribed_by,
+}) {
+  if (!pregnancy_id) throw AppError.badRequest('pregnancy_id is required');
+  if (!supplement || !VALID_SUPPLEMENTS.has(supplement)) {
+    throw AppError.badRequest(`Invalid supplement: ${supplement}. Must be one of: ${[...VALID_SUPPLEMENTS].join(', ')}`);
+  }
+  if (frequency && !VALID_FREQUENCIES.has(frequency)) {
+    throw AppError.badRequest(`Invalid frequency: ${frequency}`);
+  }
+  if (!prescribed_by) throw AppError.badRequest('prescribed_by is required');
+
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO maternity_supplements
+       (pregnancy_id, supplement, dose, frequency, route, start_date,
+        end_date, reminder_enabled, notes, prescribed_by, tenant_id)
+     VALUES ($1::int, $2, $3, $4, $5, $6::date, $7::date, $8, $9, $10::uuid, $11::uuid)
+     RETURNING *`,
+    Number(pregnancy_id), supplement, dose || null,
+    frequency || 'once_daily', route || 'oral',
+    start_date || new Date().toISOString().slice(0, 10),
+    end_date || null, reminder_enabled !== false, notes || null,
+    String(prescribed_by), tenantId,
+  );
+  return rows[0];
+}
+
+export async function listSupplements({ tenantId, pregnancy_id, activeOnly = false }) {
+  const id = Number.parseInt(pregnancy_id, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw AppError.badRequest('pregnancy_id must be a positive integer');
+  }
+  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const baseSql = `
+    SELECT id, supplement, dose, frequency, route, start_date, end_date,
+           reminder_enabled, notes, prescribed_by, created_at, updated_at
+      FROM maternity_supplements
+     WHERE tenant_id = $1::uuid AND pregnancy_id = $2::int`;
+  const sql = activeOnly
+    ? `${baseSql} AND (end_date IS NULL OR end_date >= CURRENT_DATE) ORDER BY start_date DESC`
+    : `${baseSql} ORDER BY start_date DESC`;
+  return prisma.$queryRawUnsafe(sql, tid, id);
+}
+
+/**
+ * Daily fetal kick log. Computes low_count_flag against the standard
+ * 10-kicks-in-12h threshold (scaled if observation window differs).
+ * UPSERT on (pregnancy_id, log_date) so a patient editing today's
+ * count doesn't create duplicates.
+ */
+export async function recordFetalKick({
+  tenantId, pregnancy_id, log_date, kick_count,
+  observation_window_minutes, notes, recorded_by,
+}) {
+  if (!pregnancy_id) throw AppError.badRequest('pregnancy_id is required');
+  const count = Number.parseInt(kick_count, 10);
+  if (!Number.isInteger(count) || count < 0 || count > 999) {
+    throw AppError.badRequest('kick_count must be 0..999');
+  }
+  const window = Math.max(60, Math.min(1440, Number(observation_window_minutes) || 720));
+  // Standard threshold scaled to the observation window.
+  const threshold = Math.ceil(10 * (window / 720));
+  const lowFlag = count < threshold;
+  const day = log_date || new Date().toISOString().slice(0, 10);
+
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO maternity_fetal_kicks
+       (pregnancy_id, log_date, kick_count, observation_window_minutes,
+        low_count_flag, notes, recorded_by, tenant_id)
+     VALUES ($1::int, $2::date, $3::int, $4::int, $5, $6, $7::uuid, $8::uuid)
+     ON CONFLICT (pregnancy_id, log_date)
+     DO UPDATE SET kick_count = EXCLUDED.kick_count,
+                   observation_window_minutes = EXCLUDED.observation_window_minutes,
+                   low_count_flag = EXCLUDED.low_count_flag,
+                   notes = COALESCE(EXCLUDED.notes, maternity_fetal_kicks.notes),
+                   updated_at = NOW()
+     RETURNING *`,
+    Number(pregnancy_id), day, count, window, lowFlag,
+    notes || null,
+    recorded_by ? String(recorded_by) : null,
+    tenantId,
+  );
+  return rows[0];
+}
+
+export async function listFetalKicks({ tenantId, pregnancy_id, fromDate = null, toDate = null }) {
+  const id = Number.parseInt(pregnancy_id, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw AppError.badRequest('pregnancy_id must be a positive integer');
+  }
+  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const params = [tid, id];
+  let dateClause = '';
+  if (fromDate) { params.push(fromDate); dateClause += ` AND log_date >= $${params.length}::date`; }
+  if (toDate) { params.push(toDate); dateClause += ` AND log_date <= $${params.length}::date`; }
+  return prisma.$queryRawUnsafe(
+    `SELECT id, log_date, kick_count, observation_window_minutes,
+            low_count_flag, notes, recorded_by, created_at
+       FROM maternity_fetal_kicks
+      WHERE tenant_id = $1::uuid AND pregnancy_id = $2::int${dateClause}
+      ORDER BY log_date DESC
+      LIMIT 90`,
+    ...params,
+  );
 }
 
 export async function listAncVisits({ tenantId, pregnancy_id }) {
