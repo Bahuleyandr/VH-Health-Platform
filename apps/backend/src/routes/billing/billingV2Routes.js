@@ -16,6 +16,7 @@ import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 
 const router = Router();
+const BILLING_V2_EXTRA_STAFF_ROLES = ['SUPER_ADMIN', 'FINANCE_INCHARGE', 'BILLING_INCHARGE'];
 
 // Wrap each handler with try/catch + AppError → response so route
 // definitions stay terse.
@@ -34,7 +35,8 @@ function wrap(handler) {
 }
 
 function requireStaffOrAdmin(req, res, next) {
-  if (!isStaff(req.user?.role) && !isAdmin(req.user?.role)) {
+  const role = String(req.user?.role || '').trim().toUpperCase();
+  if (!isStaff(role) && !isAdmin(role) && !BILLING_V2_EXTRA_STAFF_ROLES.includes(role)) {
     return error(res, 'Staff or admin role required', 403);
   }
   next();
@@ -90,7 +92,11 @@ router.delete('/invoices/:id/items/:itemId', requireStaffOrAdmin, wrap(async (re
 ));
 
 router.post('/invoices/:id/discount', requireStaffOrAdmin, wrap(async (req) =>
-  billing.applyDiscount(req.params.id, { ...req.body, approved_by: req.user?.uid }),
+  billing.applyDiscount(req.params.id, {
+    ...req.body,
+    approved_by: req.user?.uid,
+    approved_by_role: req.user?.role,
+  }),
 ));
 
 router.post('/invoices/:id/issue', requireStaffOrAdmin, wrap(async (req) =>

@@ -685,7 +685,7 @@ app.use('/api/v1/blood-bank', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NUR
 
 // Billing & Invoicing (mount-level role gate + route-level checks for mutations)
 app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BILLING_STAFF', 'PATIENT'), billingRoutes);
-app.use('/api/v1/billing/v2', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'NURSING_STAFF', 'DOCTOR'), billingV2Routes);
+app.use('/api/v1/billing/v2', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'BILLING_INCHARGE', 'FINANCE_INCHARGE', 'NURSING_STAFF', 'DOCTOR'), billingV2Routes);
 app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), revenueCycleRoutes);
 app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF'), phiAccessLogger('LAB_RESULT'), labRoutes);
 // A5 — structured panel entry + reference-range admin (sibling router under same /lab prefix).
