@@ -560,6 +560,48 @@ export function composeVisitNo({ department, date, tokenNumber }) {
   return `${deptPrefix(department)}-${yyyy}${mm}${dd}-${padded}`;
 }
 
+function parsePositiveInt(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const text = String(value).trim();
+  if (!/^\d+$/.test(text)) return null;
+  const parsed = parseInt(text, 10);
+  return parsed > 0 ? parsed : null;
+}
+
+async function resolveWalkInDepartment(tx, { department, departmentId, doctorId }) {
+  const departmentText = department === null || department === undefined
+    ? ''
+    : String(department).trim();
+  const numericDepartmentId = parsePositiveInt(departmentId) ?? parsePositiveInt(departmentText);
+
+  if (departmentText && !numericDepartmentId) {
+    return departmentText.slice(0, 100);
+  }
+
+  if (numericDepartmentId) {
+    const rows = await tx.$queryRawUnsafe(
+      'SELECT name FROM departments WHERE id = $1 LIMIT 1',
+      numericDepartmentId,
+    );
+    if (rows[0]?.name) return String(rows[0].name).trim().slice(0, 100);
+  }
+
+  const numericDoctorId = parsePositiveInt(doctorId);
+  if (numericDoctorId) {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT COALESCE(dept.name, doc.department) AS department
+         FROM doctors doc
+         LEFT JOIN departments dept ON dept.id = doc.department_id
+        WHERE doc.id = $1 OR doc.user_id = $1
+        LIMIT 1`,
+      numericDoctorId,
+    );
+    if (rows[0]?.department) return String(rows[0].department).trim().slice(0, 100);
+  }
+
+  return null;
+}
+
 export const registerWalkIn = async (req, res) => {
   try {
     // appointments.created_by is uuid; appointment_status_history.changed_by is int.
@@ -568,7 +610,7 @@ export const registerWalkIn = async (req, res) => {
     const {
       patient_name, patient_phone, patient_id,
       patient_birthday, patient_gender, patient_address,
-      doctor_id, department,
+      doctor_id, department, department_id, departmentId,
       reason, notes,
       // E-10 — accept both `time` and `appointment_time` so phone-booked
       // follow-ups don't have their slot time silently replaced by the
@@ -603,6 +645,12 @@ export const registerWalkIn = async (req, res) => {
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      const appointmentDepartment = await resolveWalkInDepartment(tx, {
+        department,
+        departmentId: department_id ?? departmentId,
+        doctorId: doctor_id,
+      });
+
       // Resolve patient — look up by phone or patient_id, or create minimal record.
       // `returning_patient` is set when a phone match found an existing row so
       // the admin UI can banner "Returning patient — last visit on …" and the
@@ -691,13 +739,14 @@ export const registerWalkIn = async (req, res) => {
       //   2026-05-08-lab-walk-in-receptionist-no-dept-scoped-visit-no
       //   2026-05-08-dynamic-acute-abdomen-receptionist-walkin-token-not-dept-scoped
       const tokenResult = await tx.$queryRawUnsafe(
-        `SELECT COALESCE(MAX(token_number), 0) + 1 AS next_token
+        `SELECT COALESCE(MAX(NULLIF(token_number, '')::int), 0) + 1 AS next_token
          FROM appointments
          WHERE DATE(appointment_date) = CURRENT_DATE
            AND confirmed_at IS NOT NULL
            AND token_number IS NOT NULL
-           AND COALESCE(department, '') = COALESCE($1, '')`,
-        department || null,
+           AND token_number ~ '^[0-9]+$'
+           AND COALESCE(department, '') = COALESCE($1::text, '')`,
+        appointmentDepartment || null,
       );
       const tokenNumber = String(parseInt(tokenResult[0].next_token));
 
@@ -722,7 +771,7 @@ export const registerWalkIn = async (req, res) => {
         reason || 'Walk-in consultation',
         notes || null,
         tokenNumber,
-        department || null,
+        appointmentDepartment,
         staffUid,
         resolvedVisitType,
         parent_appointment_id ? parseInt(parent_appointment_id, 10) || null : null,
@@ -741,7 +790,7 @@ export const registerWalkIn = async (req, res) => {
       // E-2 — composite visit_no surfaced in the response so the ER
       // triage / lab worklist / paeds list can route by prefix.
       const visitNo = composeVisitNo({
-        department,
+        department: appointmentDepartment,
         date: appt.appointment_date || new Date(),
         tokenNumber,
       });
@@ -750,7 +799,7 @@ export const registerWalkIn = async (req, res) => {
       // the OB doctor's chart open + the new prior-orders endpoint
       // have a pregnancy_id to attach to. Skipped if lmp_date is
       // missing (walk-in might just be a routine OBGYN consult).
-      if (deptPrefix(department) === 'ANC' && lmp_date) {
+      if (deptPrefix(appointmentDepartment) === 'ANC' && lmp_date) {
         const patientRow = await tx.$queryRawUnsafe(
           'SELECT uid FROM users WHERE id = $1 LIMIT 1', patientId,
         );
@@ -793,7 +842,7 @@ export const registerWalkIn = async (req, res) => {
       // the whole ER pipeline goes through paper handover. Finding:
       // 2026-05-08-emergency-walk-in-nurse-emer-walkin-no-ed-visit.
       let erVisit = null;
-      if (deptPrefix(department) === 'EMER') {
+      if (deptPrefix(appointmentDepartment) === 'EMER') {
         // Pull the patient_uid for the FK. Walk-ins create users by
         // phone earlier in this txn, so the lookup is reliable.
         const patientRow = await tx.$queryRawUnsafe(
