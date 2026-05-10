@@ -1,12 +1,16 @@
 // src/routes/portal/patientPortalRoutes.js
 //
 // Sprint 10 — patient self-service surface. Mounted at
-// /api/v1/portal/* with PATIENT-role gating. Every endpoint scopes to
+// /api/v1/portal/* and /api/v1/patient/* with PATIENT-role gating.
+// Every endpoint scopes to
 // req.user.uid; we never trust a body-provided patient_uid.
 //
 // Bill payment, lab results, secure messaging.
 
 import { Router } from 'express';
+import { getPatientAppointments } from '../../controllers/appointment/appointmentListController.js';
+import { getMyPrescriptions } from '../../controllers/prescription/ePrescriptionController.js';
+import { getHealthRecordsByPhone } from '../../controllers/record/patientRecordController.js';
 import logger from '../../logging/logger.js';
 import * as maternity from '../../services/maternity/maternityService.js';
 import * as portal from '../../services/portal/patientPortalService.js';
@@ -54,6 +58,27 @@ async function requireActivePregnancy(req) {
   if (!active) throw AppError.notFound('Active pregnancy not found');
   return active;
 }
+
+function useAuthenticatedPatientId(req, res, next) {
+  const patientId = req.user?.id || req.user?.userId;
+  if (!patientId) return error(res, 'Patient ID missing from token', 401);
+  req.params.patient_id = String(patientId);
+  next();
+}
+
+function useAuthenticatedPatientPhone(req, res, next) {
+  if (!req.user?.phone) return error(res, 'Phone not available in token', 400);
+  req.params.phone = req.user.phone;
+  next();
+}
+
+// ── Standard patient mobile contract ─────────────────────────────────
+router.get('/appointments', requirePatient, useAuthenticatedPatientId, getPatientAppointments);
+
+router.get('/records', requirePatient, useAuthenticatedPatientPhone, getHealthRecordsByPhone);
+
+router.get('/prescriptions', requirePatient, getMyPrescriptions);
+
 
 // ── Bills ────────────────────────────────────────────────────────────
 router.get('/bills', requirePatient, wrap(async (req) =>
