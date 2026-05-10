@@ -147,12 +147,14 @@ describe('splitStatements', () => {
 const executeRawUnsafeMock = jest.fn();
 const queryRawUnsafeMock = jest.fn();
 const disconnectMock = jest.fn();
+const transactionMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
     $executeRawUnsafe: executeRawUnsafeMock,
     $queryRawUnsafe: queryRawUnsafeMock,
     $disconnect: disconnectMock,
+    $transaction: transactionMock,
   },
 }));
 
@@ -172,10 +174,12 @@ beforeEach(() => {
   executeRawUnsafeMock.mockReset();
   queryRawUnsafeMock.mockReset();
   disconnectMock.mockReset();
+  transactionMock.mockReset();
   // Default: tracker is empty (no migrations applied yet).
   queryRawUnsafeMock.mockResolvedValue([]);
   // Default: every executeRawUnsafe call resolves successfully.
   executeRawUnsafeMock.mockResolvedValue(0);
+  transactionMock.mockImplementation(async (cb) => cb({ $executeRawUnsafe: executeRawUnsafeMock }));
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-runMigrations-'));
 });
 
@@ -200,12 +204,13 @@ COMMIT;`,
     await runMigrations({ migrationsDir: tmpDir });
 
     const calls = executeRawUnsafeMock.mock.calls.map((c) => c[0]);
-    // Calls = bootstrap CREATE TABLE _migrations + 5 statements + 1 INSERT INTO _migrations.
-    expect(calls).toContain('BEGIN');
+    // BEGIN/COMMIT wrappers in migration files are skipped inside the
+    // outer Prisma transaction so all DDL runs on one connection.
+    expect(calls).not.toContain('BEGIN');
     expect(calls).toContain('CREATE TABLE _test_x (id int)');
     expect(calls).toContain('INSERT INTO _test_x VALUES (1)');
     expect(calls).toContain('INSERT INTO _test_x VALUES (2)');
-    expect(calls).toContain('COMMIT');
+    expect(calls).not.toContain('COMMIT');
 
     // Tracker INSERT carries the file name as the bind param.
     const trackerInsert = executeRawUnsafeMock.mock.calls.find(
@@ -213,6 +218,7 @@ COMMIT;`,
     );
     expect(trackerInsert).toBeDefined();
     expect(trackerInsert[1]).toBe(file);
+    expect(transactionMock).toHaveBeenCalledTimes(1);
   });
 
   it('exercises the dollar-quote splitter via a function-body migration', async () => {
@@ -287,7 +293,7 @@ SELECT _test_f();`,
 
   it('handles a multi-statement file whose statement count matches what the splitter returns', async () => {
     // Direct sanity check: the runner's call count for non-tracker, non-bootstrap
-    // calls should equal splitStatements(file).length.
+    // calls should equal splitStatements(file).length minus transaction wrappers.
     const sql = `BEGIN;
 CREATE TABLE _test_count (id int);
 CREATE INDEX _test_count_idx ON _test_count(id);
@@ -301,12 +307,15 @@ COMMIT;`;
     await runMigrations({ migrationsDir: tmpDir });
 
     const calls = executeRawUnsafeMock.mock.calls.map((c) => c[0]).filter(Boolean);
-    // Bootstrap CREATE TABLE _migrations + 5 split statements + 1 INSERT INTO _migrations = 7.
-    // Filter to non-bootstrap, non-tracker calls and count.
+    // Filter to real migration statements and count.
     const stmtCalls = calls.filter(
-      (s) => !s.includes('CREATE TABLE IF NOT EXISTS _migrations') && !s.includes('INSERT INTO _migrations'),
+      (s) => !s.includes('CREATE TABLE IF NOT EXISTS _migrations') &&
+        !s.includes('INSERT INTO _migrations') &&
+        !s.startsWith('SET ') &&
+        s !== 'BEGIN' &&
+        s !== 'COMMIT',
     );
-    expect(stmtCalls).toHaveLength(5);
+    expect(stmtCalls).toHaveLength(3);
   });
 
   it('skips the optional pgvector migration in non-production when pgvector is unavailable', async () => {
@@ -340,6 +349,7 @@ COMMIT;`;
     expect(calls).toContainEqual(expect.stringContaining('CREATE TABLE IF NOT EXISTS _migrations'));
     expect(calls).not.toContain('CREATE EXTENSION IF NOT EXISTS vector');
     expect(calls).not.toContain('CREATE TABLE _test_vector (embedding vector(1536))');
+    expect(transactionMock).not.toHaveBeenCalled();
     expect(
       calls.some((sql) => typeof sql === 'string' && sql.includes('INSERT INTO _migrations')),
     ).toBe(false);

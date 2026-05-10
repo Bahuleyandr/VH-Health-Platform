@@ -9,6 +9,10 @@ import { splitStatements } from './splitStatements.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_MIGRATIONS_DIR = path.resolve(__dirname, '../../migrations');
 const OPTIONAL_PGVECTOR_MIGRATION = '113_knowledge_base_foundation.sql';
+const MIGRATION_TRANSACTION_OPTIONS = {
+  maxWait: 15_000,
+  timeout: 300_000,
+};
 
 function canSkipOptionalPgvectorMigration() {
   return process.env.NODE_ENV !== 'production' && process.env.REQUIRE_PGVECTOR !== 'true';
@@ -35,6 +39,117 @@ async function rollbackBestEffort() {
   } catch {
     // The failed statement may not have left an open transaction on this connection.
   }
+}
+
+function stripSqlComments(sql) {
+  let body = '';
+  let i = 0;
+  let mode = 'normal';
+
+  while (i < sql.length) {
+    const ch = sql[i];
+    const next = i + 1 < sql.length ? sql[i + 1] : '';
+
+    if (mode === 'line_comment') {
+      if (ch === '\n') {
+        body += ch;
+        mode = 'normal';
+      }
+      i += 1;
+      continue;
+    }
+
+    if (mode === 'block_comment') {
+      if (ch === '*' && next === '/') {
+        mode = 'normal';
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (mode === 'single_quote') {
+      body += ch;
+      if (ch === "'") {
+        if (next === "'") {
+          body += next;
+          i += 2;
+          continue;
+        }
+        mode = 'normal';
+      }
+      i += 1;
+      continue;
+    }
+
+    if (mode === 'double_quote') {
+      body += ch;
+      if (ch === '"') {
+        if (next === '"') {
+          body += next;
+          i += 2;
+          continue;
+        }
+        mode = 'normal';
+      }
+      i += 1;
+      continue;
+    }
+
+    if (ch === '-' && next === '-') {
+      mode = 'line_comment';
+      i += 2;
+      continue;
+    }
+
+    if (ch === '/' && next === '*') {
+      mode = 'block_comment';
+      i += 2;
+      continue;
+    }
+
+    if (ch === "'") mode = 'single_quote';
+    if (ch === '"') mode = 'double_quote';
+
+    body += ch;
+    i += 1;
+  }
+
+  return body;
+}
+
+function isTransactionBoundaryStatement(stmt) {
+  const normalized = stripSqlComments(stmt).trim().replace(/\s+/g, ' ').toUpperCase();
+  return /^(BEGIN|START TRANSACTION)( WORK| TRANSACTION)?$/.test(normalized) ||
+    /^(COMMIT|END)( WORK)?$/.test(normalized) ||
+    /^ROLLBACK( WORK)?$/.test(normalized);
+}
+
+function statementPreview(stmt) {
+  return stripSqlComments(stmt).replace(/\s+/g, ' ').trim().slice(0, 180);
+}
+
+async function executeMigrationFile(file, statements) {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET LOCAL lock_timeout = '15s'");
+    await tx.$executeRawUnsafe("SET LOCAL statement_timeout = '120s'");
+
+    for (let index = 0; index < statements.length; index += 1) {
+      const stmt = statements[index];
+      if (isTransactionBoundaryStatement(stmt)) continue;
+
+      try {
+        await tx.$executeRawUnsafe(stmt);
+      } catch (err) {
+        err.migrationStatementIndex = index + 1;
+        err.migrationStatementPreview = statementPreview(stmt);
+        throw err;
+      }
+    }
+
+    await tx.$executeRawUnsafe('INSERT INTO _migrations (name) VALUES ($1)', file);
+  }, MIGRATION_TRANSACTION_OPTIONS);
 }
 
 /**
@@ -129,10 +244,7 @@ export async function runMigrations({ migrationsDir = DEFAULT_MIGRATIONS_DIR } =
     logger.info(`Running migration: ${file} (${statements.length} statement${statements.length === 1 ? '' : 's'})`);
 
     try {
-      for (const stmt of statements) {
-        await prisma.$executeRawUnsafe(stmt);
-      }
-      await prisma.$executeRawUnsafe('INSERT INTO _migrations (name) VALUES ($1)', file);
+      await executeMigrationFile(file, statements);
       ran += 1;
       logger.info(`✅ Migration completed: ${file}`);
     } catch (err) {
@@ -151,6 +263,8 @@ export async function runMigrations({ migrationsDir = DEFAULT_MIGRATIONS_DIR } =
         error: err?.message,
         code: err?.code,
         statements_attempted: statements.length,
+        statement_index: err?.migrationStatementIndex,
+        statement_preview: err?.migrationStatementPreview,
       });
       // Re-throw so the caller can surface a fatal startup error.
       // Do NOT swallow — a half-applied schema is far worse than a crash.
