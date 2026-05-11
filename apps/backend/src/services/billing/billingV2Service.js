@@ -130,6 +130,40 @@ async function recomputeInvoiceTotals(invoiceId) {
   return { subtotal, cgst, sgst, igst, discount, total, paid, due };
 }
 
+async function recomputeInvoicePaymentState(invoiceId) {
+  const normalizedInvoiceId = Number(invoiceId);
+  const aggr = await prisma.$queryRawUnsafe(
+    `SELECT (
+            SELECT COALESCE(SUM(amount), 0)::numeric
+              FROM billing_payments
+             WHERE invoice_id = $1::int AND reversed = false
+          ) + (
+            SELECT COALESCE(SUM(amount), 0)::numeric
+              FROM billing_advance_settlements
+             WHERE invoice_id = $1::int
+          ) AS paid`,
+    normalizedInvoiceId,
+  );
+  const paid = Number(aggr[0].paid);
+  const inv = await prisma.$queryRawUnsafe(
+    `SELECT total_amount FROM billing_invoices WHERE id = $1::int`,
+    normalizedInvoiceId,
+  );
+  if (!inv.length) throw AppError.notFound('Invoice not found');
+  const total = Number(inv[0].total_amount);
+  const due = toFixed2(total - paid);
+  let status = 'PARTIAL';
+  if (due <= 0.005) status = 'PAID';
+  else if (paid <= 0.005) status = 'ISSUED';
+  await prisma.$executeRawUnsafe(
+    `UPDATE billing_invoices
+        SET amount_paid = $1::numeric, amount_due = $2::numeric, status = $3, updated_at = NOW()
+      WHERE id = $4::int`,
+    paid, due, status, normalizedInvoiceId,
+  );
+  return { paid, due, status };
+}
+
 // ───────────────────────────────────────────────────────────────────────
 // Service master
 // ───────────────────────────────────────────────────────────────────────
@@ -497,29 +531,7 @@ export async function collectPayment({
   );
 
   if (invoice_id) {
-    // Update parent invoice paid/due/status.
-    const aggr = await prisma.$queryRawUnsafe(
-      `SELECT COALESCE(SUM(amount), 0)::numeric AS paid
-         FROM billing_payments
-        WHERE invoice_id = $1::int AND reversed = false`,
-      Number(invoice_id),
-    );
-    const paid = Number(aggr[0].paid);
-    const inv = await prisma.$queryRawUnsafe(
-      `SELECT total_amount FROM billing_invoices WHERE id = $1::int`,
-      Number(invoice_id),
-    );
-    const total = Number(inv[0].total_amount);
-    const due = toFixed2(total - paid);
-    let status = 'PARTIAL';
-    if (due <= 0.005) status = 'PAID';
-    else if (paid <= 0.005) status = 'ISSUED';
-    await prisma.$executeRawUnsafe(
-      `UPDATE billing_invoices
-          SET amount_paid = $1::numeric, amount_due = $2::numeric, status = $3, updated_at = NOW()
-        WHERE id = $4::int`,
-      paid, due, status, Number(invoice_id),
-    );
+    await recomputeInvoicePaymentState(invoice_id);
   }
   return rows[0];
 }
@@ -537,28 +549,7 @@ export async function reversePayment(paymentId, { reversed_by, reason }) {
   if (!rows.length) throw AppError.notFound('Payment not found or already reversed');
   // Recompute parent invoice if attached.
   if (rows[0].invoice_id) {
-    const aggr = await prisma.$queryRawUnsafe(
-      `SELECT COALESCE(SUM(amount), 0)::numeric AS paid
-         FROM billing_payments
-        WHERE invoice_id = $1::int AND reversed = false`,
-      Number(rows[0].invoice_id),
-    );
-    const paid = Number(aggr[0].paid);
-    const inv = await prisma.$queryRawUnsafe(
-      `SELECT total_amount FROM billing_invoices WHERE id = $1::int`,
-      Number(rows[0].invoice_id),
-    );
-    const total = Number(inv[0].total_amount);
-    const due = toFixed2(total - paid);
-    let status = 'PARTIAL';
-    if (due <= 0.005) status = 'PAID';
-    else if (paid <= 0.005) status = 'ISSUED';
-    await prisma.$executeRawUnsafe(
-      `UPDATE billing_invoices
-          SET amount_paid = $1::numeric, amount_due = $2::numeric, status = $3, updated_at = NOW()
-        WHERE id = $4::int`,
-      paid, due, status, Number(rows[0].invoice_id),
-    );
+    await recomputeInvoicePaymentState(rows[0].invoice_id);
   }
   return rows[0];
 }
