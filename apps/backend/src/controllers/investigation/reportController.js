@@ -108,7 +108,7 @@ export const exportToExcel = async (req, res) => {
   try {
     const userRole = req.user?.role?.toUpperCase();
     // Only staff can export to Excel
-    const allowedRoles = ['DOCTOR', 'NURSE', 'LAB_TECHNICIAN', 'RADIOLOGIST', 'ADMIN'];
+    const allowedRoles = ['DOCTOR', 'NURSE', 'LAB_STAFF', 'LAB_TECHNICIAN', 'RADIOLOGIST', 'ADMIN'];
     if (!allowedRoles.includes(userRole)) {
       return error(res, 'Access denied: Staff privileges required', 403);
     }
@@ -195,7 +195,7 @@ export const emailReport = async (req, res) => {
     const sentBy = req.user?.uid;
     
     // Check permissions
-    const allowedRoles = ['DOCTOR', 'LAB_TECHNICIAN', 'RADIOLOGIST', 'ADMIN'];
+    const allowedRoles = ['DOCTOR', 'LAB_STAFF', 'LAB_TECHNICIAN', 'RADIOLOGIST', 'ADMIN'];
     if (!allowedRoles.includes(userRole)) {
       return error(res, 'Access denied: Medical staff privileges required', 403);
     }

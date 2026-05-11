@@ -12,7 +12,7 @@ async function sendUrgentAlert(investigation, patientName) {
   try {
     const staffResult = await prisma.$queryRawUnsafe(
       `SELECT id, device_token, name FROM users
-       WHERE role IN ('NURSE', 'NURSING_STAFF', 'TECHNICIAN', 'LAB_TECHNICIAN', 'LAB', 'RECEPTIONIST', 'RADIOLOGIST')
+       WHERE role IN ('NURSE', 'NURSING_STAFF', 'TECHNICIAN', 'LAB_STAFF', 'LAB_TECHNICIAN', 'LAB', 'RECEPTIONIST', 'RADIOLOGIST')
          AND device_token IS NOT NULL`
     );
 

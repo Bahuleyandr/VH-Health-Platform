@@ -125,7 +125,7 @@ export const assignToTechnician = async (req, res) => {
     const assignedBy = req.user?.uid;
     
     // Check permissions
-    const allowedRoles = ['LAB_TECHNICIAN', 'RADIOLOGIST', 'ADMIN'];
+    const allowedRoles = ['LAB_STAFF', 'LAB_TECHNICIAN', 'RADIOLOGIST', 'ADMIN'];
     if (!allowedRoles.includes(userRole)) {
       return error(res, 'Access denied: Lab supervisor privileges required', 403);
     }
@@ -172,7 +172,7 @@ export const scheduleInvestigations = async (req, res) => {
     const scheduledBy = req.user?.uid;
     
     // Check permissions
-    const allowedRoles = ['RECEPTIONIST', 'NURSE', 'LAB_TECHNICIAN', 'ADMIN'];
+    const allowedRoles = ['RECEPTIONIST', 'NURSE', 'LAB_STAFF', 'LAB_TECHNICIAN', 'ADMIN'];
     if (!allowedRoles.includes(userRole)) {
       return error(res, 'Access denied: Staff privileges required', 403);
     }
