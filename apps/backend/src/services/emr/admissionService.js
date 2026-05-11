@@ -12,7 +12,6 @@ import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { generateDischargeSummary } from './dischargeSummaryGenerator.js';
-import billingService from '../billing/billingService.js';
 import {
   issueDefaultAttendantPasses,
   expireAttendantPassesForAdmission,
@@ -1003,11 +1002,11 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
       }
       try {
         const unpaid = await tx.$queryRawUnsafe(
-          `SELECT id, invoice_number, COALESCE(total_amount, 0) - COALESCE(paid_amount, 0) AS balance
-             FROM invoices
+          `SELECT id, invoice_number, amount_due AS balance
+             FROM billing_invoices
             WHERE admission_id = $1
-              AND COALESCE(status, '') NOT IN ('paid', 'written_off', 'cancelled')
-              AND COALESCE(total_amount, 0) > COALESCE(paid_amount, 0)
+              AND COALESCE(status, '') NOT IN ('PAID', 'VOID', 'paid', 'written_off', 'cancelled')
+              AND COALESCE(amount_due, 0) > 0
             LIMIT 5`,
           admissionId,
         );
@@ -1019,9 +1018,9 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
           });
         }
       } catch (e) {
-        // The invoices table may carry slightly different column names in
-        // some deploys (paid_amount vs payments rollup). Don't fail the
-        // gate on a query error — log and continue with the rest. The
+        // Billing schema may carry slightly different column names in some
+        // deploys. Don't fail the gate on a query error — log and continue
+        // with the rest. The
         // override path remains for cases where this query simply can't
         // run.
         logger.warn(`Discharge readiness: invoice check skipped (${e.message})`);
@@ -1029,11 +1028,12 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
       try {
         const pendingResults = await tx.$queryRawUnsafe(
           `SELECT id FROM investigations
-            WHERE patient_id = (SELECT patient_id FROM admissions WHERE id = $1)
+            WHERE patient_uid = $1::uuid
               AND COALESCE(status, '') NOT IN ('COMPLETED', 'CANCELLED', 'completed', 'cancelled')
-              AND created_at >= (SELECT admitted_at FROM admissions WHERE id = $1)
+              AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)
             LIMIT 5`,
-          admissionId,
+          admission.patient_uid,
+          admission.admitted_at,
         );
         if (pendingResults.length > 0) {
           blockers.push({
@@ -1072,17 +1072,17 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
     });
 
     if (admission.bed_id) {
-      // FOR UPDATE lock on the bed row before flipping it back to available.
+      // FOR UPDATE lock on the bed row before handing it to housekeeping.
       const bedCheck = await tx.$queryRaw`
-        SELECT id, status FROM beds WHERE id = ${admission.bed_id} FOR UPDATE
+        SELECT id, status, bed_number, ward_name FROM beds WHERE id = ${admission.bed_id} FOR UPDATE
       `;
       if (bedCheck.length && bedCheck[0].status === 'occupied') {
         // Clear ALL denormalized back-link fields on the bed so the
-        // bed-board view shows a genuinely free bed. Migration 172.
+        // bed-board view shows a bed awaiting turnover. Migration 172.
         await tx.beds.update({
           where: { id: admission.bed_id },
           data: {
-            status: 'available',
+            status: 'cleaning',
             patient_id: null,
             patient_name: null,
             patient_uid: null,
@@ -1105,6 +1105,29 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
             transferred_by: dischargedBy,
           },
         });
+
+        const requester = await tx.users.findUnique({
+          where: { uid: dischargedBy },
+          select: { id: true, uid: true },
+        });
+        if (requester) {
+          const bedLabel = [bedCheck[0].ward_name, bedCheck[0].bed_number].filter(Boolean).join(' / ')
+            || `Bed ${admission.bed_id}`;
+          await tx.housekeeping_requests.create({
+            data: {
+              requester_id: requester.id,
+              requester_uid: requester.uid,
+              location_text: bedLabel,
+              request_type: 'cleaning',
+              urgency: 'high',
+              description: `Discharge cleaning required for ${bedLabel} after admission #${admission.id}.`,
+              status: 'open',
+              updated_at: new Date(),
+            },
+          });
+        } else {
+          logger.warn(`dischargePatient: housekeeping request skipped; no users row for ${dischargedBy}`);
+        }
       }
     }
 

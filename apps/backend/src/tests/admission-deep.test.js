@@ -246,6 +246,15 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
     });
 
     it('discharges, releases the bed, and records audit', async () => {
+      await prisma.$executeRawUnsafe(
+        `UPDATE admissions
+            SET discharge_initiated_at = NOW(),
+                summary_signed_at = NOW(),
+                discharge_drugs_dispensed_at = NOW()
+          WHERE id = $1`,
+        admissionId,
+      );
+
       const res = await admin.post(`/api/v1/emr/${admissionId}/discharge`).send({
         discharge_type: 'home',
         discharge_summary: { notes: 'Follow up in 2 weeks' },
@@ -256,8 +265,21 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
 
       // Bed released
       const bedB = await prisma.$queryRawUnsafe(`SELECT status, patient_id FROM beds WHERE id = $1`, bed2Id);
-      expect(bedB[0].status).toBe('available');
+      expect(bedB[0].status).toBe('cleaning');
       expect(bedB[0].patient_id).toBeNull();
+
+      const housekeeping = await prisma.$queryRawUnsafe(
+        `SELECT status, request_type, urgency
+           FROM housekeeping_requests
+          WHERE description LIKE $1`,
+        `%admission #${admissionId}%`,
+      );
+      expect(housekeeping.length).toBe(1);
+      expect(housekeeping[0]).toMatchObject({
+        status: 'open',
+        request_type: 'cleaning',
+        urgency: 'high',
+      });
 
       // Admission row shows discharged state
       const adm = await prisma.$queryRawUnsafe(
