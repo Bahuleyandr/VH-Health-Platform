@@ -315,12 +315,27 @@ export const createPrescription = async (req, res) => {
     // pharmacy lookups join by uid, not the int id — leaving these null
     // made every walk-in's prescriptions invisible in the patient app.
     // See finding 2026-05-08-walk-in-opd-doctor-prescription-uid-fields-null.
+    //
+    // Pre-flight existence check: discharge-takeaway rx is created from
+    // the discharge desk with patient/doctor ids that may not exist
+    // (e.g. doctor id passed from the doctors table rather than users).
+    // Surface that as a clean 404 — without this, the downstream INSERT
+    // still succeeded with null uids but the patient app could never
+    // see the prescription, and any clinical-context probe (PDF, follow-
+    // up notification) silently degraded. Finding:
+    //   2026-05-10-surgical-day-care-discharge-prescription-create-500.
     const [patientRow, doctorRow] = await Promise.all([
       prisma.$queryRawUnsafe('SELECT uid FROM users WHERE id=$1', patientId),
       prisma.$queryRawUnsafe('SELECT uid FROM users WHERE id=$1', doctorId),
     ]);
-    const patientUid = patientRow?.[0]?.uid ?? null;
-    const doctorUid = doctorRow?.[0]?.uid ?? null;
+    if (!patientRow?.length) {
+      return error(res, `Patient ${patientId} not found`, HTTP_STATUS.NOT_FOUND);
+    }
+    if (!doctorRow?.length) {
+      return error(res, `Doctor ${doctorId} not found`, HTTP_STATUS.NOT_FOUND);
+    }
+    const patientUid = patientRow[0].uid ?? null;
+    const doctorUid = doctorRow[0].uid ?? null;
 
     // Insert prescription.
     // The table has `clinical_notes` (not `notes`); patient_uid + doctor_uid
@@ -406,7 +421,19 @@ export const createPrescription = async (req, res) => {
 
     success(res, prescription, `Prescription ${prescription.prescription_number} created`, HTTP_STATUS.CREATED);
   } catch (err) {
-    logger.error('Create e-prescription error:', err);
+    // Log enough context to actually diagnose the next swarm 500. The
+    // previous catch logged the bare Error and surfaced a generic
+    // "Failed to create prescription" — every subsequent tick filed
+    // an opaque finding (see 2026-05-10-surgical-day-care-discharge-
+    // prescription-create-500). Now: log err.code, err.meta (Prisma's
+    // FK/unique-constraint diagnostics), and err.stack so the
+    // operations log carries the actual fault.
+    logger.error('Create e-prescription error', {
+      message: err?.message,
+      code: err?.code,
+      meta: err?.meta,
+      stack: err?.stack,
+    });
     error(res, 'Failed to create prescription', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
