@@ -882,6 +882,132 @@ export const getOrderDetail = async (req, res) => {
   }
 };
 
+/**
+ * GET /pharmacy/orders/:id/label
+ *
+ * Returns the dispense label as JSON so the staff/patient app can render
+ * it (with paediatric weight, measuring-cup instructions, and dosing
+ * schedule) or hand off to the receipt printer. Available once the order
+ * has been DISPENSED or DELIVERED; the stored `dispense_label` snapshot
+ * is the source of truth, with a freshly-computed fallback so legacy
+ * orders that pre-date column 201 still produce a label.
+ *
+ * Closes:
+ *   2026-05-09-pediatric-opd-pharmacy-no-label-endpoint
+ *   2026-05-09-walk-in-opd-pharmacy-no-label-endpoint (delivery flow shares the endpoint)
+ */
+export const getDispenseLabel = async (req, res) => {
+  try {
+    const orderId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(orderId)) {
+      return error(res, 'Invalid order id', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT po.id, po.uid, po.patient_id, po.patient_name, po.patient_phone, po.phone,
+              po.order_number, po.status, po.delivery_type, po.total_amount,
+              po.payment_status, po.payment_mode, po.amount_collected,
+              po.partial_dispense, po.partial_reason, po.receipt_delivery,
+              po.payment_metadata, po.dispense_label, po.items_list,
+              po.confirmation_notes, po.dispensed_at, po.delivered_at,
+              po.created_at,
+              u.birthday AS patient_birthday,
+              (SELECT vc.weight_kg FROM vitals_chart vc
+                 JOIN users vu ON vu.uid = vc.patient_uid
+                WHERE vu.id = po.patient_id AND vc.weight_kg IS NOT NULL
+                ORDER BY vc.recorded_at DESC NULLS LAST LIMIT 1) AS latest_weight_kg,
+              (SELECT array_agg(DISTINCT pa.allergy_name)
+                 FROM patient_allergies pa
+                WHERE pa.patient_id = po.patient_id AND pa.is_active = TRUE) AS allergies
+         FROM pharmacy_orders po
+         LEFT JOIN users u ON u.id = po.patient_id
+        WHERE po.id = $1`,
+      orderId,
+    );
+    if (!rows.length) return error(res, 'Order not found', HTTP_STATUS.NOT_FOUND);
+    const o = rows[0];
+
+    if (!['DISPENSED', 'DELIVERED'].includes(o.status)) {
+      return error(
+        res,
+        `Label not available until order is dispensed (current status: ${o.status})`,
+        HTTP_STATUS.BAD_REQUEST,
+      );
+    }
+
+    // Prefer the stored snapshot — that's what the pharmacist actually
+    // saw at dispense time. Fall back to a derived label from items_list
+    // for legacy orders that pre-date column 201.
+    const storedLabel = o.dispense_label && typeof o.dispense_label === 'object'
+      ? o.dispense_label
+      : null;
+    const items = Array.isArray(o.items_list) ? o.items_list : [];
+
+    const ageYears = (() => {
+      if (!o.patient_birthday) return null;
+      const dob = new Date(o.patient_birthday);
+      if (Number.isNaN(dob.getTime())) return null;
+      const diffMs = Date.now() - dob.getTime();
+      return Math.floor(diffMs / (1000 * 60 * 60 * 24 * 365.25));
+    })();
+    const weightKg = o.latest_weight_kg != null ? Number(o.latest_weight_kg) : null;
+
+    const labelItems = (storedLabel?.items ?? items).map((i) => ({
+      name: i.name || i.medication_name || null,
+      strength: i.strength ?? null,
+      dose: i.dose ?? i.prescribed_dose ?? null,
+      frequency: i.frequency ?? null,
+      duration: i.duration ?? null,
+      route: i.route ?? null,
+      dispensed_qty: i.dispensed_qty ?? i.qty ?? null,
+      dispensed_quantity_ml: i.dispensed_quantity_ml ?? null,
+      child_weight_kg: i.child_weight_kg ?? null,
+      label_instruction: i.label_instruction ?? i.instructions ?? null,
+    }));
+
+    const label = {
+      order_number: o.order_number,
+      order_id: o.id,
+      patient: {
+        name: o.patient_name,
+        phone: o.patient_phone || o.phone,
+        age_years: ageYears,
+        weight_kg: weightKg,
+        allergies: Array.isArray(o.allergies) ? o.allergies : [],
+      },
+      items: labelItems,
+      partial_dispense: o.partial_dispense ?? false,
+      partial_reason: o.partial_reason ?? null,
+      payment: {
+        status: o.payment_status,
+        mode: o.payment_mode,
+        amount_collected: o.amount_collected != null ? Number(o.amount_collected) : null,
+        total_amount: o.total_amount != null ? Number(o.total_amount) : null,
+        metadata: o.payment_metadata ?? null,
+      },
+      receipt_delivery: o.receipt_delivery,
+      confirmation_notes: o.confirmation_notes,
+      dispensed_at: o.dispensed_at ?? o.delivered_at ?? null,
+      // Paediatric measuring-cup helper. The dispensing pharmacist usually
+      // writes "2.5 ml = ½ tsp" by hand; surface a stock conversion when
+      // the label has any ml-based instruction so the patient/staff app
+      // can render the same hint in print.
+      measuring_guide: labelItems.some((i) =>
+        (i.dispensed_quantity_ml ?? null) != null ||
+        /\d+\s*ml\b/i.test(String(i.dose ?? '')) ||
+        /\d+\s*ml\b/i.test(String(i.label_instruction ?? '')),
+      )
+        ? { '5_ml': '1 teaspoon', '2_5_ml': '½ teaspoon', '15_ml': '1 tablespoon' }
+        : null,
+    };
+
+    success(res, label, 'Dispense label');
+  } catch (err) {
+    logger.error('Get dispense label error:', err);
+    error(res, 'Failed to fetch label', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // CATALOG ENDPOINTS
 // ═══════════════════════════════════════════════════════════════════════════════
