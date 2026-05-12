@@ -20,9 +20,14 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
+      // AppError-shaped errors are intentionally surfaced (badRequest /
+      // notFound / forbidden carry safe, caller-targeted messages).
+      // Anything else is logged server-side and returned as a generic
+      // 500 — raw `err.message` from Prisma / pg leaks SQL fragments,
+      // bind-parameter shapes, and schema details. Security checklist.
       if (err.statusCode) return error(res, err.message, err.statusCode);
       logger.error('icu route error:', err);
-      return error(res, err.message || 'ICU error', 500);
+      return error(res, 'An internal server error occurred. Please try again later.', 500);
     }
   };
 }
