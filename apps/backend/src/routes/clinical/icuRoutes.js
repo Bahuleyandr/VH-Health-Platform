@@ -20,9 +20,14 @@ function wrap(handler) {
       if (res.headersSent) return;
       return success(res, data);
     } catch (err) {
+      // AppError-shaped errors are intentionally surfaced (badRequest /
+      // notFound / forbidden carry safe, caller-targeted messages).
+      // Anything else is logged server-side and returned as a generic
+      // 500 — raw `err.message` from Prisma / pg leaks SQL fragments,
+      // bind-parameter shapes, and schema details. Security checklist.
       if (err.statusCode) return error(res, err.message, err.statusCode);
       logger.error('icu route error:', err);
-      return error(res, err.message || 'ICU error', 500);
+      return error(res, 'An internal server error occurred. Please try again later.', 500);
     }
   };
 }
@@ -53,6 +58,12 @@ router.patch('/admissions/:id/code-status', requireStaffOrAdmin, wrap(async (req
   icu.updateAdmissionCodeStatus({
     tenantId: tenantOf(req), id: req.params.id,
     code_status: req.body.code_status, set_by: req.user?.uid,
+  })));
+
+router.patch('/admissions/:id/monitoring-interval', requireStaffOrAdmin, wrap(async (req) =>
+  icu.updateMonitoringInterval({
+    tenantId: tenantOf(req), id: req.params.id,
+    monitoring_interval_minutes: req.body.monitoring_interval_minutes,
   })));
 
 router.post('/admissions/:id/discharge', requireStaffOrAdmin, wrap(async (req) =>

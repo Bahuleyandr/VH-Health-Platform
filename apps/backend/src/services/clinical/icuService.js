@@ -87,7 +87,56 @@ export async function getAdmission({ tenantId, id }) {
     parseInt(id, 10), tenantOr(tenantId));
   const row = unwrap(rows);
   if (!row) throw AppError.notFound('ICU admission not found');
-  return row;
+  return withNextVitalsDue(row);
+}
+
+// Materialise next-vitals-due time off the monitoring cadence + the
+// most recent flowsheet entry. Cheap one-row probe — bedside tablets
+// can poll the admission detail to drive a countdown / overdue badge
+// without a separate /schedule endpoint. Bedside compliance with the
+// 15-min protocol is the clinical motivation (NSTEMI rescue-PCI
+// window). The interval lives on the admission so the doctor / charge
+// nurse can change it via PATCH /admissions/:id/monitoring-interval.
+async function withNextVitalsDue(adm) {
+  if (!adm || !adm.monitoring_interval_minutes) return adm;
+  const last = await prisma.$queryRawUnsafe(
+    `SELECT recorded_at FROM icu_flowsheet_entries
+     WHERE icu_admission_id = $1
+     ORDER BY recorded_at DESC LIMIT 1`,
+    adm.id);
+  const lastRow = unwrap(last);
+  const interval = adm.monitoring_interval_minutes;
+  const anchor = lastRow?.recorded_at
+    ? new Date(lastRow.recorded_at)
+    : (adm.admitted_at ? new Date(adm.admitted_at) : new Date());
+  const nextDue = new Date(anchor.getTime() + interval * 60_000);
+  return {
+    ...adm,
+    last_vitals_recorded_at: lastRow?.recorded_at ?? null,
+    next_vitals_due_at: nextDue.toISOString(),
+    vitals_overdue: nextDue.getTime() < Date.now(),
+  };
+}
+
+const VALID_MONITORING_INTERVALS = [5, 10, 15, 30, 60, 120, 240, 480];
+
+export async function updateMonitoringInterval({ tenantId, id, monitoring_interval_minutes }) {
+  const minutes = parseInt(monitoring_interval_minutes, 10);
+  if (!VALID_MONITORING_INTERVALS.includes(minutes)) {
+    throw AppError.badRequest(
+      `monitoring_interval_minutes must be one of ${VALID_MONITORING_INTERVALS.join(', ')}`);
+  }
+  const sql = `
+    UPDATE icu_admissions
+    SET monitoring_interval_minutes = $1,
+        updated_at = NOW()
+    WHERE id = $2 AND tenant_id = $3::uuid
+    RETURNING *`;
+  const rows = await prisma.$queryRawUnsafe(sql,
+    minutes, parseInt(id, 10), tenantOr(tenantId));
+  const row = unwrap(rows);
+  if (!row) throw AppError.notFound('ICU admission not found');
+  return withNextVitalsDue(row);
 }
 
 export async function updateAdmissionCodeStatus({ tenantId, id, code_status, set_by }) {
