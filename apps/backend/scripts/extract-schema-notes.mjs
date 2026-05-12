@@ -6,9 +6,15 @@
 // `///` doc-comments are preserved by `prisma db pull`; plain `//` comments
 // are stripped, so we capture them here before regenerating the schema.
 //
-// One-shot extractor — run once before `prisma db pull` rewrites the file.
+// Use case: before running `prisma db pull` to regenerate schema.prisma,
+// run this script to lift any newly-added `//` design comments into
+// SCHEMA_NOTES.md so the rationale survives the pull.
+//
+// Safety: refuses to overwrite a non-empty SCHEMA_NOTES.md unless --force
+// is passed. The notes file accumulates across regenerations; running this
+// on a freshly-pulled (comment-less) schema would otherwise wipe history.
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -16,6 +22,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const backendRoot = resolve(__dirname, '..');
 const schemaPath = join(backendRoot, 'prisma', 'schema.prisma');
 const notesPath = join(backendRoot, 'prisma', 'SCHEMA_NOTES.md');
+
+const force = process.argv.includes('--force');
 
 const src = readFileSync(schemaPath, 'utf8').split(/\r?\n/);
 
@@ -100,5 +108,21 @@ for (const key of modelOrder) {
   }
 }
 
+const totalComments = [...buckets.values()].reduce((a, b) => a + b.length, 0);
+
+if (existsSync(notesPath) && !force) {
+  const existing = readFileSync(notesPath, 'utf8');
+  const existingComments = (existing.match(/^> /gm) || []).length;
+  if (existingComments > totalComments) {
+    console.error(
+      `Refusing to overwrite ${notesPath}: existing file has ${existingComments} comment lines, ` +
+      `but the current schema.prisma only yields ${totalComments}. ` +
+      `This usually means the schema was already regenerated via prisma db pull (which strips // comments). ` +
+      `Pass --force to overwrite anyway.`,
+    );
+    process.exit(1);
+  }
+}
+
 writeFileSync(notesPath, md);
-console.log(`Wrote ${notesPath} — ${buckets.size} block(s), ${[...buckets.values()].reduce((a, b) => a + b.length, 0)} comment line(s).`);
+console.log(`Wrote ${notesPath} — ${buckets.size} block(s), ${totalComments} comment line(s).`);
