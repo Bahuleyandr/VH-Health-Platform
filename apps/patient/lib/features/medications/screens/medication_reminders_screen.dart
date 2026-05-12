@@ -17,6 +17,11 @@ class _Reminder {
   final bool isActive;
   final String? notes;
 
+  /// Origin of the reminder. `medication_reminder` rows are owned by
+  /// the patient; `anc_supplement` rows are doctor-managed projections
+  /// from `maternity_supplements` and are read-only on this screen.
+  final String source;
+
   _Reminder({
     required this.id,
     required this.medicationName,
@@ -27,11 +32,14 @@ class _Reminder {
     this.endDate,
     required this.isActive,
     this.notes,
+    this.source = 'medication_reminder',
   });
+
+  bool get isReadOnly => source == 'anc_supplement';
 
   factory _Reminder.fromJson(Map<String, dynamic> json) {
     return _Reminder(
-      id: json['id'] as int,
+      id: (json['id'] as num).toInt(),
       medicationName: json['medication_name'] as String? ?? '',
       dosage: json['dosage'] as String? ?? '',
       frequency: json['frequency'] as String? ?? '',
@@ -44,6 +52,7 @@ class _Reminder {
       endDate: json['end_date']?.toString().split('T').first,
       isActive: json['is_active'] as bool? ?? true,
       notes: json['notes'] as String?,
+      source: json['source'] as String? ?? 'medication_reminder',
     );
   }
 }
@@ -300,24 +309,52 @@ class _ReminderCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text(
-                    reminder.medicationName,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: reminder.isActive
-                          ? null
-                          : theme.colorScheme.onSurfaceVariant,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        reminder.medicationName,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: reminder.isActive
+                              ? null
+                              : theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      if (reminder.isReadOnly)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.secondaryContainer,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'ANC supplement',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onSecondaryContainer,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-                Switch.adaptive(
-                  value: reminder.isActive,
-                  onChanged: (_) => onToggle(),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, size: 20),
-                  onPressed: onDelete,
-                  tooltip: 'Delete',
-                ),
+                if (!reminder.isReadOnly) ...[
+                  Switch.adaptive(
+                    value: reminder.isActive,
+                    onChanged: (_) => onToggle(),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 20),
+                    onPressed: onDelete,
+                    tooltip: 'Delete',
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 4),
