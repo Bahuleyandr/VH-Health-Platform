@@ -583,51 +583,26 @@ function syncSchema() {
     DROP SCHEMA IF EXISTS public CASCADE;
     CREATE SCHEMA public;
     CREATE EXTENSION IF NOT EXISTS pgcrypto;
-    CREATE SEQUENCE IF NOT EXISTS _migrations_id_seq;
-    -- Sequences referenced by dbgenerated() defaults in schema.prisma but
-    -- created by hybrid SQL migrations (145). prisma db push validates the
-    -- defaults before migrations run, so pre-create them here. Migration
-    -- 145 uses IF NOT EXISTS, so re-running it remains a no-op.
-    CREATE SEQUENCE IF NOT EXISTS housekeeping_log_number_seq;
-    CREATE SEQUENCE IF NOT EXISTS housekeeping_request_number_seq;
   `);
   ensurePgvectorExtension();
 
-  // Drop RLS policies first — `prisma db push --accept-data-loss` wants to drop
-  // tenant_id columns (not in schema.prisma) and fails when policies depend on
-  // them. Migration 075 re-applies policies after all migrations run.
-  psql(database, `
-    DO $$
-    DECLARE t text;
-    BEGIN
-      FOR t IN SELECT tablename FROM pg_policies WHERE policyname = 'tenant_isolation'
-      LOOP
-        EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
-        EXECUTE format('ALTER TABLE %I DISABLE ROW LEVEL SECURITY', t);
-      END LOOP;
-    END
-    $$;
-  `);
-
-  console.log('Syncing Prisma schema into local test database');
-  run(
-    process.execPath,
-    [
-      path.join(backendRoot, 'node_modules', 'prisma', 'build', 'index.js'),
-      'db',
-      'push',
-      '--skip-generate',
-      '--accept-data-loss',
-    ],
-    { env: { DATABASE_URL: databaseUrl } }
-  );
-
-  ensureCompatibilityTables();
-
-  console.log('Applying hybrid SQL migrations and local seeds');
+  // Raw SQL migrations (000_baseline.sql + 001+) are the source of truth.
+  // `prisma db push` was removed because the post-migration DB contains
+  // GENERATED columns and other features Prisma cannot emit declaratively;
+  // pushing the regenerated schema.prisma against the empty DB fails
+  // before any rows exist.
+  console.log('Applying raw SQL migrations and local seeds');
   run(process.execPath, [path.join(backendRoot, 'scripts', 'ci-setup-db.mjs')], {
     env: { DATABASE_URL: databaseUrl },
   });
+
+  // Legacy compatibility shims for tables/columns some test suites still
+  // depend on but that the migration set doesn't fully cover. Runs after
+  // migrations so referenced base tables (departments, users,
+  // pharmacy_orders, …) exist. All statements use IF NOT EXISTS so this
+  // is idempotent — and largely a no-op now that baseline.sql captures
+  // the fully migrated schema.
+  ensureCompatibilityTables();
 }
 
 try {

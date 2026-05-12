@@ -91,14 +91,25 @@ jobs:
       - name: Enable pgvector extension
         run: npm run db:ensure-pgvector
 
-      - name: Apply Prisma schema
-        run: npx prisma db push --skip-generate --accept-data-loss
-
-      - name: Schema drift check (column-level via prisma db pull)
-        run: node scripts/check-schema-drift.mjs
-
+      # Raw SQL migrations are the canonical source of truth for the DB
+      # schema. `src/migrations/000_baseline.sql` bootstraps the public
+      # schema (pg_dump of a clean QA DB); 001+ apply the deltas. The
+      # previous `prisma db push --accept-data-loss` step was removed
+      # because the post-migration DB contains features (GENERATED
+      # columns, column-reference DEFAULTs, sequence-referencing
+      # defaults) that Prisma cannot recreate declaratively — so push
+      # would fail against the committed schema.prisma.
       - name: Apply raw migrations + seed lookup data
         run: node scripts/ci-setup-db.mjs
+
+      # `check-schema-drift.mjs` runs `prisma db pull` against the fully
+      # migrated DB and diffs the result against `prisma/schema.prisma`.
+      # With raw migrations now canonical, drift fires when a migration
+      # changes the DB but the committed schema.prisma was not
+      # regenerated — exactly the bug the previous CI ordering was
+      # missing for the 40+ tables Prisma never modelled.
+      - name: Schema drift check (column-level via prisma db pull)
+        run: node scripts/check-schema-drift.mjs
 
       - name: DB contract check
         run: npm run db:contracts

@@ -1,0 +1,109 @@
+# schema.prisma — design notes
+
+Comments captured from `prisma/schema.prisma` before regenerating it with
+`prisma db pull`. Prisma strips `//` lines on pull (it preserves only `///`
+doc comments). This file holds the rationale behind columns, migrations,
+and design decisions that would otherwise be lost.
+
+_Keyed by Prisma model name. `__top_level__` holds comments outside any model._
+
+## Top-level
+
+- L4983: `// A11 — structured per-category caps for TPA / insurance claims`
+- L4984: `// (migration 178).`
+- L8574: `// IPD support subsystem (migration 174). Per project decision 2026-05-09.`
+- L8575: `//`
+- L8576: `// advance_deposits — money collected against an admission's eventual`
+- L8577: `// final bill. Receipt series RCT-YYYYMM-NNNN, distinct from invoices.`
+- L8578: `// Refunds are sibling negative-amount rows pointing at parent_deposit_id`
+- L8579: `// so the trail is auditable.`
+- L8606: `// attendant_passes — 2 per admission, auto-issued at admit. Pass color`
+- L8607: `// snapshotted from ward at issue time. Expires at discharge.`
+- L8635: `// ward_indents — pharmacy/stores → ward consumables flow.`
+- L8636: `// State machine: requested → approved → issued → received (rejected as terminal).`
+- L9496: `// Tenant-configurable normal ranges with sex + age applicability`
+- L9497: `// (architectural item A5 / migration 175). Lookup picks the most`
+- L9498: `// specific match. Critical thresholds co-located so a single read`
+- L9499: `// returns normal + critical bounds for a test.`
+
+## model:admissions
+
+> ER linkage. When a patient is admitted from the emergency department,
+> from_er_visit_id points back at emergency_visits.id; er_arrival_at is
+> the original door-time so SLA / door-to-bed reports don't need a join.
+> Migration 170. See finding
+> 2026-05-08-emergency-walk-in-doctor-admit-no-er-visit-linkage.
+
+> Bedless-emergency tracker. Set when an admission is created without
+> a bed under the emergency exception (admission_type='emergency' AND
+> priority='emergent'). Migration 171. Once a bed is assigned later
+> via /admissions/:id/assign-bed, the bed_transfers row carries the
+> assignment timestamp; bed_pending_since stays as the historical
+> anchor for SLA / door-to-bed reports.
+
+> Agreed-room-category at admit time (migration 177). Tariff +
+> TPA pre-auth use this, NOT the assigned bed's bed_type, because
+> the patient is billed at the agreed rate even while waiting for
+> their preferred category to free up. See finding
+> 2026-05-08-inpatient-admission-admission-no-semiprivate-room-category.
+
+> B-4 — emergency consent bypass tracking (migration 182). Set when
+> admitPatient fires under emergency + emergent priority and the
+> active-treatment-consent check is overridden by implied-consent
+> doctrine. Powers the post-stabilisation consent-capture worklist.
+
+> B-6 — discharge summary PDF persistence (migration 183). NULL
+> until the post-signoff persisted-PDF path runs the first time;
+> thereafter, the R2 object key for the immutable snapshot.
+
+> Discharge cascade lifecycle markers (migration 173). T0..T4.
+> discharged_at (existing) is T4 = patient physically left.
+
+> IPD support subsystem (migration 174).
+
+## model:beds
+
+> Denormalized back-link to the active admission. Populated on admit /
+> assign-bed / transfer; cleared on discharge / transfer-out.
+> Migration 172. See finding
+> 2026-05-08-inpatient-admission-admission-bed-not-back-linked.
+
+## model:doctors
+
+> E-9 — paediatric / adult / all (migration 189). Powers the
+> /doctors?ageRange=paediatric filter on the paeds OPD list.
+
+## model:emergency_visits
+
+> Back-relation for admissions.from_er_visit_id (migration 170).
+
+## model:insurance_claims
+
+> A11 — per-category caps (migration 178). Structured equivalent of
+> the jsonb caps merged into documents by batch 9.
+
+## model:investigations
+
+> E-5 — result versioning (migration 185). previous_results holds
+> an array of prior snapshots; result_version increments on each
+> re-submit. collected_at + collected_by track the COLLECTED state.
+
+## model:users
+
+> E-9 — guardian fields for paediatric / minor patients (migration 189).
+> Captured at walk-in registration; updatable via PUT /users/:uid.
+
+## model:wards
+
+> Attendant-pass color + screening level snapshot for the IPD support
+> subsystem (migration 174). Per project decision 2026-05-09: deluxe /
+> ICU get distinctive colours + relaxed screening; general wards keep a
+> generic colour + standard/strict screening.
+
+## model:lab_results
+
+> Panel grouping (architectural item A5 / migration 175). Multiple
+> analytes from the same panel entry session share a panel_id;
+> panel_code is the template (CBC | LIPID | RFT | THYROID …) so
+> reports + trend queries can group by it.
+
