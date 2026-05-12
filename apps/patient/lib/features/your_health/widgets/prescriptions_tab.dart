@@ -5,7 +5,6 @@ import 'package:vhhealth/core/utils/document_opener.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
-import 'package:vhhealth/core/widgets/offline_banner.dart';
 import 'package:vhhealth/features/your_health/widgets/prescription_countdown_widget.dart';
 
 class PrescriptionsTab extends StatefulWidget {
@@ -21,7 +20,6 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
   List<dynamic> _prescriptions = [];
   bool _isLoading = true;
   String? _error;
-  String? _staleLabel;
 
   @override
   void initState() {
@@ -30,30 +28,27 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
   }
 
   Future<void> _fetchPrescriptions() async {
+    // Direct ApiClient.get bypasses the ApiClient.cachedGet wrapper
+    // whose ConnectivityService.isOnline gate was falsely tripping on
+    // an otherwise-online device — the same session calls /prescriptions
+    // /patient/my from dashboard polling without issue. cachedGet's
+    // offline-first behaviour wasn't earning its keep here (no useful
+    // cache available, and the false-offline error masked a working
+    // prescription). Finding
+    // 2026-05-10-walk-in-opd-patient-prescriptions-false-offline.
     if (!mounted) return;
     setState(() {
       _isLoading = true;
       _error = null;
     });
     try {
-      final result = await ApiClient.cachedGet('/prescriptions/patient/my');
+      final response = await ApiClient.get('/prescriptions/patient/my');
       if (!mounted) return;
-      _staleLabel = result.staleLabel;
-      if (result.isSuccess) {
-        setState(() => _prescriptions = result.dataAsList());
+      if (response.isSuccess) {
+        setState(() => _prescriptions = response.dataAsList());
       } else {
-        setState(() => _error = result.message ?? 'Failed');
+        setState(() => _error = response.message ?? 'Failed');
       }
-      // Listen for fresh data from background refresh
-      result.onFresh?.then((fresh) {
-        if (!mounted) return;
-        if (fresh.isSuccess) {
-          setState(() {
-            _staleLabel = null;
-            _prescriptions = fresh.dataAsList();
-          });
-        }
-      });
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -109,135 +104,117 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
         ),
       );
     }
-    return Column(
-      children: [
-        OfflineBanner(staleLabel: _staleLabel),
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: _fetchPrescriptions,
-            child: ListView.builder(
-              padding: const EdgeInsets.all(12),
-              itemCount: _prescriptions.length,
-              itemBuilder: (_, i) {
-                final rx = _prescriptions[i];
-                final meds = rx['medications'] as List? ?? [];
-                final createdAt = rx['created_at'] != null
-                    ? DateFormat(
-                        'dd MMM yyyy',
-                      ).format(DateTime.parse(rx['created_at']).toLocal())
-                    : '';
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: () => _showPrescriptionDetail(rx),
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Row(
-                        children: [
-                          // Countdown ring replaces the default avatar when we can
-                          // derive a duration from the prescription data; otherwise
-                          // we fall back to the standard medication icon.
-                          Builder(
-                            builder: (_) {
-                              final rxMap = Map<String, dynamic>.from(
-                                rx as Map,
-                              );
-                              final days =
-                                  PrescriptionCountdown.parseDurationDays(
-                                    rxMap,
-                                  );
-                              final startStr =
-                                  rxMap['created_at'] ?? rxMap['issued_at'];
-                              DateTime? start;
-                              if (startStr != null) {
-                                try {
-                                  start = DateTime.parse(
-                                    startStr.toString(),
-                                  ).toLocal();
-                                } catch (_) {}
-                              }
-                              if (days != null && start != null) {
-                                return PrescriptionCountdown(
-                                  startDate: start,
-                                  durationDays: days,
-                                );
-                              }
-                              return CircleAvatar(
-                                backgroundColor: cs.primary.withValues(
-                                  alpha: 0.1,
-                                ),
-                                child: Icon(
-                                  Icons.medication,
-                                  color: cs.primary,
-                                  size: 22,
-                                ),
-                              );
-                            },
+    return RefreshIndicator(
+      onRefresh: _fetchPrescriptions,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(12),
+        itemCount: _prescriptions.length,
+        itemBuilder: (_, i) {
+          final rx = _prescriptions[i];
+          final meds = rx['medications'] as List? ?? [];
+          final createdAt = rx['created_at'] != null
+              ? DateFormat(
+                  'dd MMM yyyy',
+                ).format(DateTime.parse(rx['created_at']).toLocal())
+              : '';
+          return Card(
+            margin: const EdgeInsets.only(bottom: 10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => _showPrescriptionDetail(rx),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    // Countdown ring replaces the default avatar when we can
+                    // derive a duration from the prescription data; otherwise
+                    // we fall back to the standard medication icon.
+                    Builder(
+                      builder: (_) {
+                        final rxMap = Map<String, dynamic>.from(rx as Map);
+                        final days = PrescriptionCountdown.parseDurationDays(
+                          rxMap,
+                        );
+                        final startStr =
+                            rxMap['created_at'] ?? rxMap['issued_at'];
+                        DateTime? start;
+                        if (startStr != null) {
+                          try {
+                            start = DateTime.parse(
+                              startStr.toString(),
+                            ).toLocal();
+                          } catch (_) {}
+                        }
+                        if (days != null && start != null) {
+                          return PrescriptionCountdown(
+                            startDate: start,
+                            durationDays: days,
+                          );
+                        }
+                        return CircleAvatar(
+                          backgroundColor: cs.primary.withValues(alpha: 0.1),
+                          child: Icon(
+                            Icons.medication,
+                            color: cs.primary,
+                            size: 22,
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  rx['prescription_number'] ?? '',
-                                  style: theme.textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Dr. ${rx['doctor_name'] ?? ''} • ${rx['doctor_specialization'] ?? ''}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: cs.onSurfaceVariant,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '${meds.length} medicines • $createdAt',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: cs.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            rx['prescription_number'] ?? '',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                          if (rx['pharmacy_opted'] == true)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.green.shade50,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Text(
-                                'Ordered',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.green,
-                                ),
-                              ),
-                            )
-                          else
-                            Icon(
-                              Icons.chevron_right,
+                          const SizedBox(height: 2),
+                          Text(
+                            'Dr. ${rx['doctor_name'] ?? ''} • ${rx['doctor_specialization'] ?? ''}',
+                            style: TextStyle(
+                              fontSize: 12,
                               color: cs.onSurfaceVariant,
                             ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${meds.length} medicines • $createdAt',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                  ),
-                );
-              },
+                    if (rx['pharmacy_opted'] == true)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          'Ordered',
+                          style: TextStyle(fontSize: 10, color: Colors.green),
+                        ),
+                      )
+                    else
+                      Icon(Icons.chevron_right, color: cs.onSurfaceVariant),
+                  ],
+                ),
+              ),
             ),
-          ),
-        ),
-      ],
+          );
+        },
+      ),
     );
   }
 

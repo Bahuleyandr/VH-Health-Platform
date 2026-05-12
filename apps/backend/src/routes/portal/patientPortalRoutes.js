@@ -80,6 +80,27 @@ router.get('/records', requirePatient, useAuthenticatedPatientPhone, getHealthRe
 
 router.get('/prescriptions', requirePatient, getMyPrescriptions);
 
+// Patient-facing Rx PDF — returns a JSON envelope with a signed R2
+// URL. Lazily regenerates the PDF if pdf_key is null (R2 outage at
+// create time would otherwise leave it permanently un-downloadable).
+// Finding 2026-05-10-pediatric-opd-patient-weight-based-rx-pdf-missing.
+router.get('/prescriptions/:id/pdf', requirePatient, wrap(async (req) => {
+  const result = await portal.getOrGenerateMyPrescriptionPdfUrl({
+    patient_uid: patientUidOf(req),
+    prescription_id: req.params.id,
+  });
+  logPhiAccess({
+    userId: req.user?.uid,
+    userRole: req.user?.role,
+    patientId: req.user?.uid,
+    recordType: 'e_prescription_pdf',
+    action: 'EXPORT',
+    ip: req.ip,
+    requestId: req.id,
+  });
+  return result;
+}));
+
 
 // ── Bills ────────────────────────────────────────────────────────────
 router.get('/bills', requirePatient, wrap(async (req) =>

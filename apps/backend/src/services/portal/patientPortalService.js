@@ -119,6 +119,110 @@ export async function createSelfPaymentLink({
 // Patients only see results that have been signed off (NABH 5.6
 // principle — un-signed values can change).
 
+// ── Patient-side Rx PDF (download prescription) ──────────────────────
+//
+// e_prescriptions.pdf_key is stamped at create-time by
+// ePrescriptionController.generatePrescriptionPDF, but the upload to
+// R2 is best-effort and silently swallows R2 outages — leaving pdf_key
+// null forever for that row. Patients hitting "Download" on a
+// prescription with pdf_key null currently get a 404 from the staff
+// downloadPrescriptionPDF endpoint. This service:
+//   - Verifies the prescription belongs to the authenticated patient
+//   - Returns the existing signed URL if pdf_key is set
+//   - Otherwise regenerates the PDF, uploads, stamps pdf_key, returns
+// Finding 2026-05-10-pediatric-opd-patient-weight-based-rx-pdf-missing.
+export async function getOrGenerateMyPrescriptionPdfUrl({ patient_uid, prescription_id }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const id = Number(prescription_id);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw AppError.badRequest('prescription id must be a positive integer');
+  }
+
+  // IDOR: patient_uid join. Prescriptions created via legacy paths
+  // may have patient_uid null but patient_id set; fall back to a
+  // uid→id lookup so those still resolve.
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT ep.id, ep.pdf_key, ep.patient_id, ep.patient_uid,
+            ep.prescription_number
+       FROM e_prescriptions ep
+      WHERE ep.id = $1::int
+        AND (
+          ep.patient_uid = $2::uuid
+          OR ep.patient_id = (SELECT id FROM users WHERE uid = $2::uuid LIMIT 1)
+        )`,
+    id, String(patient_uid),
+  );
+  if (!rows.length) throw AppError.notFound('Prescription not found');
+  const rx = rows[0];
+
+  const { uploadFileToR2, getSignedFileUrl } = await import('../../utils/r2Storage.js');
+
+  if (rx.pdf_key) {
+    try {
+      const url = await getSignedFileUrl(rx.pdf_key, 3600);
+      return { key: rx.pdf_key, url, generated: false };
+    } catch (e) {
+      logger.warn(`Persisted Rx PDF key resolved but signed URL failed: ${e.message}; regenerating`);
+    }
+  }
+
+  // Lazy regeneration. We reach into the controller's
+  // generatePrescriptionPDF helper rather than duplicating layout.
+  // The helper is a pure renderer over (prescription, patient,
+  // doctor) — no res handle required.
+  const { generatePrescriptionPDFBuffer } = await import('../prescription/prescriptionPdfHelper.js');
+  const detail = await prisma.$queryRawUnsafe(
+    `SELECT ep.id, ep.appointment_id, ep.patient_id, ep.doctor_id,
+            ep.prescription_number, ep.diagnosis, ep.clinical_notes,
+            ep.medications, ep.vitals, ep.follow_up_date,
+            ep.follow_up_notes, ep.created_at,
+            p.name AS patient_name, p.phone AS patient_phone,
+            p.gender AS patient_gender, p.birthday AS patient_birthday,
+            d.name AS doctor_name, doc.specialty AS doctor_specialization
+       FROM e_prescriptions ep
+       LEFT JOIN users p ON p.id = ep.patient_id
+       LEFT JOIN users d ON d.id = ep.doctor_id
+       LEFT JOIN doctors doc ON doc.user_id = ep.doctor_id
+      WHERE ep.id = $1::int`,
+    id,
+  );
+  if (!detail.length) throw AppError.notFound('Prescription detail not found');
+  const row = detail[0];
+
+  const buffer = await generatePrescriptionPDFBuffer(
+    {
+      id: row.id,
+      prescription_number: row.prescription_number,
+      diagnosis: row.diagnosis,
+      clinical_notes: row.clinical_notes,
+      medications: row.medications,
+      vitals: row.vitals,
+      follow_up_date: row.follow_up_date,
+      follow_up_notes: row.follow_up_notes,
+      created_at: row.created_at,
+    },
+    {
+      name: row.patient_name,
+      phone: row.patient_phone,
+      gender: row.patient_gender,
+      birthday: row.patient_birthday,
+    },
+    {
+      name: row.doctor_name,
+      specialization: row.doctor_specialization,
+    },
+  );
+
+  const key = `prescriptions/pdf/${row.prescription_number || `rx-${row.id}-${Date.now()}`}.pdf`;
+  await uploadFileToR2(buffer, key, 'application/pdf');
+  await prisma.$executeRawUnsafe(
+    `UPDATE e_prescriptions SET pdf_key = $1, updated_at = NOW() WHERE id = $2::int`,
+    key, id,
+  );
+  const url = await getSignedFileUrl(key, 3600);
+  return { key, url, generated: true };
+}
+
 // ── Patient-side invoice PDF (download bill) ─────────────────────────
 //
 // /portal/bills/:id renders the invoice + line items + payments to
