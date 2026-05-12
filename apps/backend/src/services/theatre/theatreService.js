@@ -25,6 +25,61 @@ function requireIntId(id) {
   return n;
 }
 
+function normalizeMarkedSide(value) {
+  if (value == null) return null;
+  const side = String(value).trim().toLowerCase().replace(/[_-]+/g, ' ');
+  if (!side) return null;
+  if (['right', 'right eye', 'rt', 'r', 'od'].includes(side)) return 'right';
+  if (['left', 'left eye', 'lt', 'l', 'os'].includes(side)) return 'left';
+  if (['bilateral', 'both', 'both eyes', 'ou'].includes(side)) return 'bilateral';
+  return null;
+}
+
+function inferProcedureSide(schedule) {
+  const text = `${schedule?.procedure_name || ''} ${schedule?.procedure_code || ''}`.toLowerCase();
+  if (!text.trim()) return null;
+  if (/\b(bilateral|both eyes|ou)\b/.test(text)) return 'bilateral';
+
+  const hasRight = /\bright\b|\bright[-_\s]?eye\b|\brt\b|\br\/e\b|\bod\b/.test(text);
+  const hasLeft = /\bleft\b|\bleft[-_\s]?eye\b|\blt\b|\bl\/e\b|\bos\b/.test(text);
+
+  if (hasRight && !hasLeft) return 'right';
+  if (hasLeft && !hasRight) return 'left';
+  return null;
+}
+
+function assertOtReadySiteMark(checklist, schedule) {
+  if (!checklist || typeof checklist !== 'object' || Array.isArray(checklist) || checklist.ot_ready !== true) return;
+
+  if (checklist.site_marked !== true) {
+    throw AppError.badRequest(
+      'Cannot set OT-ready until the surgical site mark is confirmed',
+      'SURGICAL_SITE_MARK_REQUIRED'
+    );
+  }
+
+  const expectedSide = inferProcedureSide(schedule);
+  if (!expectedSide || expectedSide === 'bilateral') return;
+
+  const markedSide = normalizeMarkedSide(
+    checklist.site_marked_eye ?? checklist.site_marked_side ?? checklist.site_marked_laterality
+  );
+  if (!markedSide) {
+    throw AppError.badRequest(
+      'Cannot set OT-ready until the marked surgical side is documented',
+      'SURGICAL_SITE_SIDE_REQUIRED',
+      { expectedSide }
+    );
+  }
+  if (markedSide !== expectedSide) {
+    throw AppError.badRequest(
+      'Marked surgical side does not match the scheduled procedure',
+      'SURGICAL_SITE_SIDE_MISMATCH',
+      { expectedSide, markedSide }
+    );
+  }
+}
+
 class TheatreService {
   async scheduleSurgery(data) {
     const {
@@ -107,11 +162,12 @@ class TheatreService {
 
   async completeChecklist(id, checklist) {
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM ot_schedules WHERE id = $1`, requireIntId(id));
+      `SELECT id, status, procedure_name, procedure_code FROM ot_schedules WHERE id = $1`, requireIntId(id));
     if (existing.length === 0) throw AppError.notFound('OT schedule not found');
     if (['completed', 'cancelled'].includes(existing[0].status)) {
       throw AppError.badRequest('Cannot update checklist for a completed or cancelled surgery');
     }
+    assertOtReadySiteMark(checklist, existing[0]);
 
     const result = await prisma.$queryRawUnsafe(
       `UPDATE ot_schedules SET pre_op_checklist = $1::jsonb, updated_at = NOW()
