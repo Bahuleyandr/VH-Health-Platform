@@ -120,33 +120,86 @@ router.get('/denials', async (req, res) => {
   }
 });
 
-/** GET /ar-aging — accounts receivable aging from open invoices. */
+/**
+ * GET /ar-aging — accounts receivable aging across both invoice tables.
+ *
+ * Unifies the legacy `invoices` surface (OPD/walk-in path, schema 5333)
+ * with `billing_invoices` (Sprint 4+ IPD billing, schema 8903 — used
+ * by every cashless TPA admission). Without the v2 side, IPD
+ * receivables awaiting TPA settlement — the bulk of cashless volume,
+ * 30-90 day pay cycles — are invisible to finance. See finding
+ * 2026-05-09-tpa-insurance-claim-billing-ar-aging-blind-to-ipd.
+ *
+ * `source` ('legacy'|'v2') on each row disambiguates the two
+ * SERIAL ids (both start at 1). `insurer_name` + `claim_reference`
+ * are populated only on v2 rows that have a linked tpa_claims row.
+ */
 router.get('/ar-aging', async (req, res) => {
   try {
     const limit = parseLimit(req.query.limit, 25, 100);
-    const baseWhere = `
-      payment_status NOT IN ('paid', 'cancelled')
-      AND (total_amount - COALESCE(paid_amount, 0)) > 0
+
+    // Normalised open-invoice CTE: legacy `invoices`
+    // (total_amount/paid_amount/payment_status/due_date) UNIONed with
+    // `billing_invoices` (total_amount/amount_paid/status/no-due_date,
+    // plus tpa_claims+policies+payers join for the insurer side).
+    const baseCte = `
+      WITH base AS (
+        SELECT
+          'legacy'::text AS source,
+          i.id::int AS id,
+          i.invoice_number,
+          i.patient_uid,
+          u.name AS patient_name,
+          i.type AS invoice_type,
+          i.total_amount::numeric AS total_amount,
+          COALESCE(i.paid_amount, 0)::numeric AS paid_amount,
+          (i.total_amount - COALESCE(i.paid_amount, 0))::numeric AS outstanding,
+          GREATEST(CURRENT_DATE - COALESCE(i.due_date, i.issued_at::date), 0) AS age_days,
+          i.issued_at,
+          NULL::text AS insurer_name,
+          NULL::text AS claim_reference
+        FROM invoices i
+        LEFT JOIN users u ON u.uid = i.patient_uid
+        WHERE i.payment_status NOT IN ('paid', 'cancelled')
+          AND (i.total_amount - COALESCE(i.paid_amount, 0)) > 0
+        UNION ALL
+        SELECT
+          'v2'::text AS source,
+          bi.id::int AS id,
+          bi.invoice_number,
+          bi.patient_uid,
+          COALESCE(bi.patient_name, u.name) AS patient_name,
+          bi.invoice_type,
+          bi.total_amount::numeric AS total_amount,
+          COALESCE(bi.amount_paid, 0)::numeric AS paid_amount,
+          COALESCE(bi.amount_due, bi.total_amount - COALESCE(bi.amount_paid, 0))::numeric AS outstanding,
+          GREATEST(CURRENT_DATE - COALESCE(bi.issued_at::date, bi.created_at::date), 0) AS age_days,
+          bi.issued_at,
+          p.display_name AS insurer_name,
+          tc.claim_number AS claim_reference
+        FROM billing_invoices bi
+        LEFT JOIN users u ON u.uid = bi.patient_uid
+        LEFT JOIN tpa_claims tc ON tc.invoice_id = bi.id
+        LEFT JOIN insurance_policies ipol ON ipol.id = tc.policy_id
+        LEFT JOIN payers p ON p.id = ipol.payer_id
+        WHERE bi.status IN ('ISSUED', 'PARTIAL')
+          AND bi.voided_at IS NULL
+          AND COALESCE(bi.amount_due, bi.total_amount - COALESCE(bi.amount_paid, 0)) > 0
+      )
     `;
 
     const [overall] = await prisma.$queryRawUnsafe(
-      `SELECT
+      `${baseCte}
+       SELECT
          COUNT(*)::int AS invoice_count,
-         COALESCE(SUM(total_amount - COALESCE(paid_amount, 0)), 0)::float AS total_outstanding,
-         COALESCE(MAX(GREATEST(CURRENT_DATE - COALESCE(due_date, issued_at::date), 0)), 0)::int AS oldest_age_days
-       FROM invoices
-       WHERE ${baseWhere}`,
+         COALESCE(SUM(outstanding), 0)::float AS total_outstanding,
+         COALESCE(MAX(age_days), 0)::int AS oldest_age_days
+       FROM base`,
     );
 
     const buckets = await prisma.$queryRawUnsafe(
-      `WITH base AS (
-         SELECT
-           (total_amount - COALESCE(paid_amount, 0)) AS outstanding,
-           GREATEST(CURRENT_DATE - COALESCE(due_date, issued_at::date), 0) AS age_days
-         FROM invoices
-         WHERE ${baseWhere}
-       ),
-       bucketed AS (
+      `${baseCte}
+       , bucketed AS (
          SELECT
            CASE
              WHEN age_days <= 30 THEN '0-30'
@@ -167,23 +220,23 @@ router.get('/ar-aging', async (req, res) => {
     );
 
     const invoices = await prisma.$queryRawUnsafe(
-      `SELECT
-         i.id,
-         i.invoice_number,
-         i.patient_uid,
-         u.name AS patient_name,
-         i.type,
-         i.payment_status,
-         i.total_amount::float,
-         COALESCE(i.paid_amount, 0)::float AS paid_amount,
-         (i.total_amount - COALESCE(i.paid_amount, 0))::float AS outstanding_amount,
-         i.due_date,
-         i.issued_at,
-         GREATEST(CURRENT_DATE - COALESCE(i.due_date, i.issued_at::date), 0)::int AS age_days
-       FROM invoices i
-       LEFT JOIN users u ON u.uid = i.patient_uid
-       WHERE ${baseWhere.replaceAll('payment_status', 'i.payment_status').replaceAll('total_amount', 'i.total_amount').replaceAll('paid_amount', 'i.paid_amount')}
-       ORDER BY age_days DESC, outstanding_amount DESC, i.issued_at ASC
+      `${baseCte}
+       SELECT
+         source,
+         id,
+         invoice_number,
+         patient_uid,
+         patient_name,
+         invoice_type AS type,
+         total_amount::float,
+         paid_amount::float,
+         outstanding::float AS outstanding_amount,
+         issued_at,
+         age_days::int,
+         insurer_name,
+         claim_reference
+       FROM base
+       ORDER BY age_days DESC, outstanding DESC, issued_at ASC
        LIMIT $1`,
       limit,
     );
