@@ -1,11 +1,18 @@
 // src/services/emr/orderEntryService.js
 // CPOE (Computerized Provider Order Entry) service — typed Prisma ORM.
 // Batch 56: migrated from `prisma.$queryRawUnsafe` to typed Prisma for the
-// `clinical_orders` model. The `order_sets` table (used by applyOrderSet,
-// getOrderSets, createOrderSet) lives only in raw migration 023 and is
-// not declared in `prisma/schema.prisma` — those three sites stay raw
-// (template-tag form, no array-as-spread foot-gun) until the schema gets
-// an `order_sets` model.
+// `clinical_orders` model.
+//
+// Order-set storage lives in `clinical_order_sets` + `clinical_order_set_items`
+// (migration 156, seeded chest-pain bundle in 187). The earlier `order_sets`
+// shim never existed in production — every `applyOrderSet` / `getOrderSets`
+// / `createOrderSet` call 500ed because the table is missing. The three
+// helpers now read from the real tables and translate item rows into
+// createOrder-shaped payloads while keeping the legacy
+// `{ id, name, description, category, orders, is_active }` response shape
+// so existing callers (mobile + admin) keep working unchanged. Findings:
+//   2026-05-09-emergency-walk-in-doctor-order-sets-500
+//   2026-05-10-emergency-walk-in-doctor-chest-pain-orderset-500
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
@@ -490,6 +497,66 @@ export async function getEncounterOrders(encounterId) {
 // applyOrderSet
 // ===================================================================
 
+// Map an item.kind from clinical_order_set_items to the createOrder
+// order_type enum. `note` and `monitor` are nursing-handover items;
+// `vitals` is a nursing observation. `other` keeps the existing
+// permissive default. Unmapped kinds fall through to 'nursing'.
+const ITEM_KIND_TO_ORDER_TYPE = {
+  med: 'medication',
+  lab: 'investigation',
+  radiology: 'investigation',
+  diet: 'diet',
+  nursing: 'nursing',
+  vitals: 'nursing',
+  consult: 'consultation',
+  note: 'nursing',
+  monitor: 'nursing',
+  other: 'nursing',
+};
+
+// `clinical_order_set_items.payload` is one JSONB blob per item with
+// a kind-specific shape (med: drug/dose/route/frequency, lab:
+// test_code/test_name, etc.). createOrder expects a non-empty `details`
+// object; we pass payload through and let downstream consumers branch
+// on payload shape via order_type. A best-effort priority hint is
+// pulled from the payload's `urgency` ('stat'|'routine'|...) field —
+// the chest-pain bundle marks ECG/troponin as stat that way.
+function orderRequestFromItem(item, orderSetTitle) {
+  const payload = item.payload && typeof item.payload === 'object' ? item.payload : {};
+  const priority = typeof payload.urgency === 'string' && VALID_PRIORITIES.includes(payload.urgency.toLowerCase())
+    ? payload.urgency.toLowerCase()
+    : (payload.prn ? 'prn' : 'routine');
+  return {
+    order_type: ITEM_KIND_TO_ORDER_TYPE[item.kind] || 'nursing',
+    priority,
+    details: payload,
+    notes: `From order set: ${orderSetTitle}`,
+  };
+}
+
+// Hydrate a clinical_order_sets row + its items into the legacy
+// `{ id, name, description, category, orders, is_active, created_at,
+// created_by }` shape so /emr/order-sets consumers don't have to learn
+// the new normalised schema.
+function shapeOrderSetForResponse(set, items = []) {
+  return {
+    id: set.id,
+    name: set.title,
+    description: set.description ?? null,
+    category: set.specialty ?? null,
+    orders: items.map((it) => ({
+      ...orderRequestFromItem(it, set.title),
+      kind: it.kind,
+      display_order: it.display_order,
+      default_selected: it.default_selected,
+      payload: it.payload,
+    })),
+    created_by: set.created_by ?? null,
+    is_active: set.active,
+    created_at: set.created_at,
+  };
+}
+
 /**
  * Apply a predefined order set bundle, creating multiple orders at once.
  * @param {string} patientUid
@@ -503,53 +570,55 @@ export async function applyOrderSet(patientUid, encounterId, orderSetId, ordered
     throw AppError.badRequest('patientUid, orderSetId, and orderedBy are required');
   }
 
-  // `order_sets` is not declared in prisma/schema.prisma (lives only in
-  // raw migration 023). Keep the read raw — template-tag form so the
-  // single bound id can't trip the array-as-spread foot-gun.
-  const setRows = await prisma.$queryRaw`
-    SELECT id, name, orders, is_active FROM order_sets WHERE id = ${Number(orderSetId)}
-  `;
+  const set = await prisma.clinical_order_sets.findUnique({
+    where: { id: Number(orderSetId) },
+    select: { id: true, title: true, active: true },
+  });
 
-  if (setRows.length === 0) {
+  if (!set) {
     throw AppError.notFound('Order set not found');
   }
 
-  if (!setRows[0].is_active) {
+  if (!set.active) {
     throw AppError.badRequest('Order set is inactive');
   }
 
-  const orderTemplates = typeof setRows[0].orders === 'string'
-    ? JSON.parse(setRows[0].orders)
-    : setRows[0].orders;
+  const items = await prisma.clinical_order_set_items.findMany({
+    where: { order_set_id: set.id },
+    orderBy: { display_order: 'asc' },
+  });
 
-  if (!Array.isArray(orderTemplates) || orderTemplates.length === 0) {
+  if (!items.length) {
     throw AppError.badRequest('Order set has no order templates');
   }
 
   const createdOrders = [];
 
-  for (const template of orderTemplates) {
+  for (const item of items) {
     try {
+      const req = orderRequestFromItem(item, set.title);
       const result = await createOrder({
         encounter_id: encounterId || null,
         patient_uid: patientUid,
-        order_type: template.order_type,
-        priority: template.priority || 'routine',
-        details: template.details,
+        order_type: req.order_type,
+        priority: req.priority,
+        details: req.details,
         ordered_by: orderedBy,
-        start_date: template.start_date || null,
-        end_date: template.end_date || null,
-        notes: template.notes || `From order set: ${setRows[0].name}`,
+        start_date: null,
+        end_date: null,
+        notes: req.notes,
       });
       createdOrders.push(result);
     } catch (err) {
-      // Log but continue — partial application is acceptable
-      logger.warn(`Failed to create order from set template: ${err.message}`);
-      createdOrders.push({ error: err.message, template });
+      // Log but continue — partial application is acceptable. Don't
+      // surface err.message to the response (per CLAUDE.md security
+      // checklist); the caller sees the count of successful orders.
+      logger.warn(`Failed to create order from set template (kind=${item.kind}): ${err.message}`);
+      createdOrders.push({ error: 'Order template could not be applied', kind: item.kind });
     }
   }
 
-  logger.info(`Order set '${setRows[0].name}' (id=${orderSetId}) applied for patient=${patientUid} by=${orderedBy}, ${createdOrders.length} orders`);
+  logger.info(`Order set '${set.title}' (id=${set.id}) applied for patient=${patientUid} by=${orderedBy}, ${createdOrders.length} orders`);
   return createdOrders;
 }
 
@@ -558,28 +627,39 @@ export async function applyOrderSet(patientUid, encounterId, orderSetId, ordered
 // ===================================================================
 
 /**
- * List available order sets, optionally filtered by category.
+ * List available order sets, optionally filtered by category (mapped to
+ * `specialty` on `clinical_order_sets`).
  * @param {string|null} category
  * @returns {Array} Order sets
  */
 export async function getOrderSets(category) {
-  // `order_sets` is not in prisma/schema.prisma — see applyOrderSet for
-  // context. Use the template-tag form so each branch's binds are typed
-  // and we don't repeat the pre-batch-56 array-as-spread bug.
+  const where = { active: true };
   if (category) {
-    return prisma.$queryRaw`
-      SELECT id, name, description, category, orders, created_by, is_active, created_at
-      FROM order_sets
-      WHERE is_active = true AND category = ${category}
-      ORDER BY name ASC
-    `;
+    // The legacy API accepted free-form category strings ('emergency',
+    // 'cardiology'); migrate that to substring match against `specialty`
+    // so 'emergency' still matches 'critical_care' / 'cardiology' bundles
+    // that have ICD-10 codes for ER conditions.
+    where.OR = [
+      { specialty: category },
+      { specialty: { contains: category, mode: 'insensitive' } },
+    ];
   }
-  return prisma.$queryRaw`
-    SELECT id, name, description, category, orders, created_by, is_active, created_at
-    FROM order_sets
-    WHERE is_active = true
-    ORDER BY name ASC
-  `;
+  const sets = await prisma.clinical_order_sets.findMany({
+    where,
+    orderBy: { title: 'asc' },
+  });
+  if (!sets.length) return [];
+  const setIds = sets.map((s) => s.id);
+  const items = await prisma.clinical_order_set_items.findMany({
+    where: { order_set_id: { in: setIds } },
+    orderBy: [{ order_set_id: 'asc' }, { display_order: 'asc' }],
+  });
+  const itemsBySet = new Map();
+  for (const it of items) {
+    if (!itemsBySet.has(it.order_set_id)) itemsBySet.set(it.order_set_id, []);
+    itemsBySet.get(it.order_set_id).push(it);
+  }
+  return sets.map((s) => shapeOrderSetForResponse(s, itemsBySet.get(s.id) || []));
 }
 
 // ===================================================================
@@ -612,15 +692,43 @@ export async function createOrderSet(data) {
     }
   }
 
-  // `order_sets` not in Prisma schema — keep raw, template-tag form.
-  const rows = await prisma.$queryRaw`
-    INSERT INTO order_sets (name, description, category, orders, created_by, is_active, created_at)
-    VALUES (${name}, ${description ?? null}, ${category}, ${JSON.stringify(orders)}::jsonb, ${created_by}, true, NOW())
-    RETURNING id, name, description, category, orders, created_by, is_active, created_at
-  `;
+  // Map the legacy `order_type` strings to the new `kind` enum on
+  // clinical_order_set_items. Inverse of ITEM_KIND_TO_ORDER_TYPE.
+  const orderTypeToKind = {
+    medication: 'med',
+    investigation: 'lab',
+    nursing: 'nursing',
+    diet: 'diet',
+    activity: 'nursing',
+    consultation: 'consult',
+  };
 
-  logger.info(`Order set created: id=${rows[0].id}, name=${name}, category=${category}, by=${created_by}`);
-  return rows[0];
+  const code = `ORDERSET-${name.toUpperCase().replace(/[^A-Z0-9]+/g, '-').slice(0, 50)}-${Date.now()}`;
+
+  const created = await prisma.$transaction(async (tx) => {
+    const set = await tx.clinical_order_sets.create({
+      data: {
+        code: code.slice(0, 60),
+        title: name,
+        specialty: category,
+        description: description ?? null,
+        active: true,
+        created_by,
+      },
+    });
+    const itemRows = await Promise.all(orders.map((tmpl, i) => tx.clinical_order_set_items.create({
+      data: {
+        order_set_id: set.id,
+        display_order: i + 1,
+        kind: orderTypeToKind[tmpl.order_type] || 'other',
+        payload: tmpl.details,
+      },
+    })));
+    return shapeOrderSetForResponse(set, itemRows);
+  });
+
+  logger.info(`Order set created: id=${created.id}, name=${name}, category=${category}, by=${created_by}`);
+  return created;
 }
 
 export default {
