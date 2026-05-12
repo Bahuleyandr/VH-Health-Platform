@@ -119,6 +119,12 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
         patient_uid: 'b0000000-0000-4000-8000-000000000000', // no consent row
         admitting_doctor: DOCTOR_UID,
         chief_complaint: 'chest pain',
+        // Use the bedless-emergency exception (migration 171) so we get
+        // past the admit-bed gate and the consent check is the firing
+        // condition. Otherwise the missing bed_id returns 400 before
+        // consent is ever evaluated.
+        admission_type: 'emergency',
+        priority: 'emergent',
       });
       expect(res.statusCode).toBe(403);
       expect(String(res.body.code || res.body.message || '')).toMatch(/CONSENT|consent/i);
@@ -173,6 +179,11 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
         patient_uid: PATIENT_UID,
         admitting_doctor: DOCTOR_UID,
         chief_complaint: 'duplicate',
+        // Bedless-emergency exception (migration 171) so the admit-bed
+        // gate passes and the duplicate-active-admission check is the
+        // firing condition.
+        admission_type: 'emergency',
+        priority: 'emergent',
       });
       expect(res.statusCode).toBe(409);
     });
