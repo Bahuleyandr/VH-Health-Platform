@@ -13,9 +13,61 @@ const router = express.Router();
 
 router.post('/orders', requireIdempotencyKey({ required: false, scope: 'clinical_order' }), async (req, res, next) => {
   try {
-    const { encounter_id, patient_uid, order_type, priority, details, start_date, end_date, notes } = req.body;
+    const { encounter_id, patient_uid, order_type, priority, start_date, end_date, notes, stat } = req.body;
+    let { details } = req.body;
 
-    if (!patient_uid || !order_type || !details) {
+    // The staff Orders sheet posts the medication / lab / radiology
+    // fields flat on the body (medication, dosage, route, frequency,
+    // duration, instructions, investigation, reason, …). The canonical
+    // contract is a nested `details` object. Accept both shapes — when
+    // `details` is missing or empty, derive it from the well-known
+    // type-specific flat fields so a doctor on an older staff build
+    // doesn't lose the order to a 400.
+    // Finding 2026-05-12-inpatient-admission-doctor-dee11e39.
+    const isEmpty = (v) =>
+      v === undefined || v === null ||
+      (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
+
+    if (isEmpty(details)) {
+      const t = String(order_type || '').toLowerCase();
+      if (t === 'medication') {
+        details = {
+          medication_name: req.body.medication ?? req.body.medication_name ?? null,
+          dose: req.body.dosage ?? req.body.dose ?? null,
+          route: req.body.route ?? null,
+          frequency: req.body.frequency ?? null,
+          duration: req.body.duration ?? null,
+          instructions: req.body.instructions ?? null,
+          stat: stat === true || stat === 'true',
+        };
+      } else if (t === 'investigation' || t === 'lab' || t === 'radiology') {
+        details = {
+          test_name: req.body.investigation ?? req.body.test_name ?? null,
+          test_code: req.body.test_code ?? null,
+          reason: req.body.reason ?? req.body.clinical_indication ?? null,
+          fasting_required: req.body.fasting_required ?? null,
+        };
+      } else if (t === 'consult' || t === 'consultation' || t === 'referral') {
+        details = {
+          specialty: req.body.specialty ?? null,
+          reason: req.body.reason ?? null,
+        };
+      } else if (t === 'nursing') {
+        details = {
+          description: req.body.description ?? null,
+          frequency: req.body.frequency ?? null,
+          instructions: req.body.instructions ?? null,
+        };
+      }
+      // Drop nulls so the service doesn't persist empty fields.
+      if (details && typeof details === 'object') {
+        details = Object.fromEntries(
+          Object.entries(details).filter(([, v]) => v !== null && v !== ''),
+        );
+      }
+    }
+
+    if (!patient_uid || !order_type || isEmpty(details)) {
       return error(res, 'patient_uid, order_type, and details are required', 400);
     }
 

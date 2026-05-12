@@ -386,18 +386,70 @@ export const getTodayQueue = async (req, res) => {
     if (doctorId !== null) { params.push(doctorId); where += ` AND a.doctor_id=$${params.length}`; }
     if (department) { params.push(department); where += ` AND a.department=$${params.length}`; }
 
+    // Surface ESI-1/ESI-2 ER triage on the doctor's appointment queue.
+    // emergency_visits has no FK back to appointments; the canonical
+    // link is patient_uid + same-day arrival. The doctor's UI needs:
+    //   * triage_priority — esi_1..esi_5 (lower number = more urgent)
+    //   * emergency_visit_id — so the row can deep-link into the ED chart
+    //   * acuity_rank — a small integer for client-side sort hints
+    //   * is_emergent — boolean banner flag
+    // Sort rule: emergent acuity (esi_1, esi_2) first, then existing
+    // token + scheduled-time order. ESI-3..5 (or no ED row) fall back to
+    // the original order. Finding
+    // 2026-05-10-emergency-walk-in-nurse-doctor-queue-missing-acuity.
     const result = await prisma.$queryRawUnsafe(`
+      WITH ed_today AS (
+        SELECT DISTINCT ON (patient_uid)
+          id AS emergency_visit_id,
+          patient_uid,
+          triage_priority,
+          status        AS ed_status,
+          chief_complaint AS ed_chief_complaint,
+          arrival_at
+        FROM emergency_visits
+        WHERE DATE(arrival_at) = CURRENT_DATE
+          AND COALESCE(disposition, '') NOT IN ('discharged', 'lama', 'expired')
+        ORDER BY patient_uid, arrival_at DESC
+      )
       SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date, a.appointment_time,
         a.status, a.reason, a.notes, a.token_number, a.department, a.confirmed_at, a.created_at, a.updated_at,
-        p.name as patient_name, p.phone as patient_phone, p.blood_group,
+        p.name as patient_name, p.phone as patient_phone, p.blood_group, p.uid as patient_uid,
         d.name as doctor_display_name, doc.specialty AS specialization,
-        doc.department as doctor_department
+        doc.department as doctor_department,
+        ed.emergency_visit_id,
+        ed.triage_priority,
+        ed.ed_status,
+        ed.ed_chief_complaint,
+        CASE LOWER(COALESCE(ed.triage_priority, ''))
+          WHEN 'esi_1' THEN 1
+          WHEN 'esi_2' THEN 2
+          WHEN 'esi_3' THEN 3
+          WHEN 'esi_4' THEN 4
+          WHEN 'esi_5' THEN 5
+          ELSE NULL
+        END AS acuity_rank,
+        CASE
+          WHEN LOWER(COALESCE(ed.triage_priority, '')) IN ('esi_1', 'esi_2') THEN TRUE
+          ELSE FALSE
+        END AS is_emergent
       FROM appointments a
       LEFT JOIN users p ON a.patient_id = p.id
       LEFT JOIN users d ON a.doctor_id = d.id
       LEFT JOIN doctors doc ON doc.user_id = a.doctor_id
+      LEFT JOIN ed_today ed ON ed.patient_uid = p.uid
       ${where}
-      ORDER BY a.token_number NULLS LAST, a.appointment_time
+      ORDER BY
+        CASE
+          WHEN LOWER(COALESCE(ed.triage_priority, '')) IN ('esi_1', 'esi_2') THEN 0
+          ELSE 1
+        END,
+        CASE LOWER(COALESCE(ed.triage_priority, ''))
+          WHEN 'esi_1' THEN 1
+          WHEN 'esi_2' THEN 2
+          ELSE 9
+        END,
+        a.token_number NULLS LAST,
+        a.appointment_time
     `, ...params);
 
     success(res, result, "Today's queue fetched");

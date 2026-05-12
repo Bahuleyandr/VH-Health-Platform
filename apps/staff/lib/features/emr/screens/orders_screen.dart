@@ -377,16 +377,23 @@ class _OrdersScreenState extends State<OrdersScreen> {
       ],
       onSubmit: () => _submitOrder(
         formKey: formKey,
+        // /emr/orders expects the medication payload nested under
+        // `details`. The route accepts the flat form too via a
+        // backwards-compat shim, but new code should post the
+        // canonical shape.
         data: {
           'patient_uid': widget.patientUid,
           'order_type': 'medication',
-          'medication': medication.text,
-          'dosage': dosage.text,
-          'frequency': frequency.text,
-          'route': route.text,
-          'duration': duration.text,
-          'instructions': instructions.text,
-          'stat': stat,
+          'priority': stat ? 'stat' : 'routine',
+          'details': {
+            'medication_name': medication.text,
+            'dose': dosage.text,
+            'route': route.text,
+            'frequency': frequency.text,
+            'duration': duration.text,
+            'instructions': instructions.text,
+            'stat': stat,
+          },
         },
       ),
     );
@@ -457,10 +464,12 @@ class _OrdersScreenState extends State<OrdersScreen> {
         data: {
           'patient_uid': widget.patientUid,
           'order_type': 'investigation',
-          'investigation': investigation.text,
-          'clinical_indication': reason.text,
           'priority': priority,
-          'fasting_required': stat,
+          'details': {
+            'test_name': investigation.text,
+            'reason': reason.text,
+            'fasting_required': stat,
+          },
         },
       ),
     );
@@ -514,9 +523,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
         data: {
           'patient_uid': widget.patientUid,
           'order_type': 'nursing',
-          'description': description.text,
-          'frequency': frequency.text,
-          'instructions': instructions.text,
+          'details': {
+            'description': description.text,
+            'frequency': frequency.text,
+            'instructions': instructions.text,
+          },
         },
       ),
     );

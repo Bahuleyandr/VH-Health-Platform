@@ -47,12 +47,71 @@ router.get(
 
 // ---------------------------------------------------------------------------
 // POST /admit — Admit a patient
+//
+// Backwards-compat aliasing for the staff app admission sheet, which
+// posts a `patient_query` (phone/UID/name) instead of `patient_uid`,
+// `provisional_diagnosis` instead of `admitting_diagnosis`, and a
+// free-text `bed` string instead of a `bed_id`. The canonical service
+// signature still requires patient_uid + bed_id + admitting_doctor.
+// Resolving here (rather than in admitPatient) keeps the service
+// strict for callers that already speak the canonical contract.
+// Finding 2026-05-11-tpa-insurance-claim-admission-617772d9.
 // ---------------------------------------------------------------------------
 router.post(
   '/admit',
   wrapAsync(async (req, res) => {
+    const body = req.body || {};
+    const resolved = { ...body };
+
+    if (!resolved.patient_uid && body.patient_query) {
+      const q = String(body.patient_query).trim();
+      // UUID → use directly.
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(q)) {
+        resolved.patient_uid = q;
+      } else {
+        const digits = q.replace(/\D/g, '');
+        // Phone (>=8 digits) → search users.phone with both E.164 and
+        // bare-national forms. Otherwise treat as name (ILIKE prefix).
+        const rows = digits.length >= 8
+          ? await admissionService.findPatientByPhoneOrName({ phone: digits })
+          : await admissionService.findPatientByPhoneOrName({ name: q });
+        if (rows && rows.length === 1) {
+          resolved.patient_uid = rows[0].uid;
+        } else if (rows && rows.length > 1) {
+          return error(
+            res,
+            'patient_query matched multiple patients — pass patient_uid directly',
+            HTTP_STATUS.BAD_REQUEST,
+          );
+        }
+      }
+    }
+
+    if (!resolved.admitting_diagnosis && body.provisional_diagnosis) {
+      resolved.admitting_diagnosis = body.provisional_diagnosis;
+    }
+
+    // bed_id is needed by the service. If the staff form sent a free-text
+    // `bed`, try to resolve it to a bed row (e.g. "ICU-12" / "Bed 12 /
+    // Ward A"). Best-effort — if we can't resolve, leave bed_id missing
+    // and the service will return its existing actionable 400 (which the
+    // staff app can show as "use the bed picker").
+    if (!resolved.bed_id && body.bed) {
+      const bedLabel = String(body.bed).trim();
+      const wardLabel = body.ward ? String(body.ward).trim() : null;
+      const found = await admissionService.findBedByLabel(bedLabel, wardLabel);
+      if (found?.id) resolved.bed_id = found.id;
+    }
+
+    // Doctor users invoking /admit themselves: default admitting_doctor
+    // to the requesting doctor's uid. Other clinical staff still have to
+    // pass it explicitly.
+    if (!resolved.admitting_doctor && String(req.user?.role || '').toUpperCase() === 'DOCTOR') {
+      resolved.admitting_doctor = req.user?.uid;
+    }
+
     const data = {
-      ...req.body,
+      ...resolved,
       created_by: req.user?.uid,
       // E-4 — actor_role threaded so admitPatient can enforce the ICU
       // tier check. Without this, NURSING_STAFF (ward nurse) could
