@@ -290,11 +290,44 @@ export interface WalkInPayload {
   patient_name?: string;
   patient_phone?: string;
   patient_id?: number;
+  patient_birthday?: string;
+  patient_gender?: string;
+  patient_address?: string;
+  patient_weight_kg?: number;
   doctor_id?: number | string;
   department?: string;
   reason?: string;
   notes?: string;
   appointment_time?: string;
+  visit_type?: "NEW" | "FOLLOW_UP" | "EMERGENCY" | "TELE";
+  // Guardian fields — required when DOB indicates the patient is a minor.
+  // Closes findings 2026-05-08-pediatric-opd-receptionist-no-guardian-model,
+  // 2026-05-10-pediatric-opd-receptionist-minor-guardian-id-not-structured,
+  // 2026-05-11-pediatric-opd-receptionist-7501ae08,
+  // 2026-05-09-pediatric-opd-patient-no-dependent-profile.
+  guardian_name?: string;
+  guardian_phone?: string;
+  guardian_relationship?: string;
+  guardian_id_type?: string;
+  guardian_id_reference?: string;
+  guardian_user_id?: number;
+  // ANC fields — captured for OBGYN/ANC walk-ins. Backend writes the
+  // pregnancy row alongside the appointment in one txn. Closes finding
+  // 2026-05-08-obstetric-anc-receptionist-walkin-drops-anc-fields
+  // and 2026-05-10-obstetric-anc-receptionist-walkin-ui-no-anc-fields.
+  lmp_date?: string;
+  edd_date?: string;
+  gravida?: number;
+  parity?: number;
+  living_children?: number;
+  abortions?: number;
+  // Unidentified-ER mode. When `mode === 'unidentified'` and the
+  // department routes to EMERGENCY, the backend mints a synthetic
+  // UNIDENT-* placeholder phone so the registration can proceed
+  // without a real number. Closes finding
+  // 2026-05-09-emergency-walk-in-receptionist-no-phone-optional-er-path.
+  mode?: "unidentified";
+  unidentified?: boolean;
 }
 
 export function registerWalkInAdmin<T = unknown>(data: WalkInPayload) {
