@@ -15,6 +15,7 @@ import logger from '../../logging/logger.js';
 import * as maternity from '../../services/maternity/maternityService.js';
 import * as portal from '../../services/portal/patientPortalService.js';
 import { AppError } from '../../utils/AppError.js';
+import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = Router();
@@ -104,6 +105,37 @@ router.post('/bills/:id/payment-link', requirePatient, wrap(async (req) =>
     invoice_id: req.params.id,
   }),
 ));
+
+// Patient-facing invoice PDF download. Streams the generated binary
+// rather than going through `wrap`/`success` which assume a JSON
+// envelope. PHI access is logged so HIPAA audit captures the download.
+router.get('/bills/:id/pdf', requirePatient, async (req, res, next) => {
+  try {
+    const buffer = await portal.generateMyInvoicePdfBuffer({
+      tenantId: tenantOf(req),
+      patient_uid: patientUidOf(req),
+      id: req.params.id,
+    });
+    logPhiAccess({
+      userId: req.user?.uid,
+      userRole: req.user?.role,
+      patientId: req.user?.uid,
+      recordType: 'billing_invoice_pdf',
+      action: 'EXPORT',
+      ip: req.ip,
+      requestId: req.id,
+    });
+    const filename = `Invoice_${req.params.id}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    return res.send(buffer);
+  } catch (err) {
+    if (err.statusCode) return error(res, err.message, err.statusCode);
+    logger.error('patient bill PDF error:', err);
+    return next(err);
+  }
+});
 
 // ── B-6 — patient-side discharge PDF ────────────────────────────────
 router.get('/discharge/:admissionId/pdf', requirePatient, wrap(async (req) =>

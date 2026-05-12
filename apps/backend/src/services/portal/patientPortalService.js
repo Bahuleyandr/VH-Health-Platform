@@ -119,6 +119,33 @@ export async function createSelfPaymentLink({
 // Patients only see results that have been signed off (NABH 5.6
 // principle — un-signed values can change).
 
+// ── Patient-side invoice PDF (download bill) ─────────────────────────
+//
+// /portal/bills/:id renders the invoice + line items + payments to
+// JSON, but the patient app's "Download bill" CTA needed a binary PDF
+// for offline retention, employer reimbursement, and TPA dispute
+// paperwork. Generates on every request (invoices are small, line
+// counts bounded, payment history may have flipped after settlement).
+// Finding 2026-05-10-tpa-insurance-claim-patient-final-bill-download-missing.
+export async function generateMyInvoicePdfBuffer({ tenantId, patient_uid, id }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const invoiceId = Number(id);
+  if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
+    throw AppError.badRequest('invoice id must be a positive integer');
+  }
+  // IDOR: confirm the invoice belongs to this patient before
+  // generating any binary. We never trust id alone.
+  const owner = await prisma.$queryRawUnsafe(
+    `SELECT id FROM billing_invoices
+      WHERE id = $1::int AND tenant_id = $2::uuid AND patient_uid = $3::uuid`,
+    invoiceId, tenantId, String(patient_uid),
+  );
+  if (!owner.length) throw AppError.notFound('Bill not found');
+
+  const { generateInvoicePDF } = await import('../documents/clinicalPdfGenerator.js');
+  return generateInvoicePDF(invoiceId);
+}
+
 // ── B-6 — patient-side discharge PDF ─────────────────────────────────
 
 // tenantId reserved for future tenant scoping; currently unscoped per the in-flight finding.
