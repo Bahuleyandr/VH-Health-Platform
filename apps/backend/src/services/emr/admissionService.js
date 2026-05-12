@@ -65,6 +65,11 @@ const ADMISSION_RETURNING_SELECT = {
   emergency_consent_bypass_at: true,
   emergency_consent_bypass_by: true,
   emergency_consent_bypass_reason: true,
+  // Wave-4B-1 (migrations 203 + 207) — structured insurance + package links.
+  policy_id: true,
+  package_id: true,
+  package_code: true,
+  package_estimated_cost_minor: true,
 };
 
 // Map ESI/ATS triage acuity onto admissions.priority. Used when the admit
@@ -120,6 +125,14 @@ async function admitPatient(data) {
     // Falls back to the joined bed's bed_type when omitted. See finding
     // 2026-05-08-inpatient-admission-admission-no-semiprivate-room-category.
     room_category: roomCategoryArg,
+    // Wave-4B-1 — structured links to the chosen insurance policy and
+    // surgical/day-care package. Migrations 203 + 204. See findings:
+    //   2026-05-09-tpa-insurance-claim-admission-insurance-policy-no-insurer-master
+    //   2026-05-10-surgical-day-care-admission-package-not-linked
+    policy_id: policyIdArg,
+    package_id: packageIdArg,
+    package_code: packageCodeArg,
+    package_estimated_cost_minor: packageEstimatedCostMinorArg,
   } = data;
 
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
@@ -286,6 +299,60 @@ async function admitPatient(data) {
     throw AppError.conflict('Patient already has an active admission');
   }
 
+  // Wave-4B-1 — resolve policy / package references against their masters
+  // up front so the transaction doesn't have to roundtrip. Both are
+  // optional; an unmatched code returns null and is treated as not-linked.
+  let resolvedPolicyId = null;
+  if (policyIdArg !== undefined && policyIdArg !== null && policyIdArg !== '') {
+    const policyIdInt = Number(policyIdArg);
+    if (!Number.isInteger(policyIdInt) || policyIdInt <= 0) {
+      throw AppError.badRequest('policy_id must be a positive integer');
+    }
+    const policy = await prisma.insurance_policies.findUnique({
+      where: { id: policyIdInt },
+      select: { id: true, patient_uid: true },
+    });
+    if (!policy) throw AppError.badRequest(`policy_id ${policyIdInt} not found`);
+    if (policy.patient_uid !== patient_uid) {
+      throw AppError.badRequest('policy_id belongs to a different patient');
+    }
+    resolvedPolicyId = policy.id;
+  }
+
+  let resolvedPackageId = null;
+  let resolvedPackageCode = packageCodeArg ?? null;
+  let resolvedPackageEstMinor = packageEstimatedCostMinorArg != null
+    ? BigInt(packageEstimatedCostMinorArg)
+    : null;
+  if (packageIdArg !== undefined && packageIdArg !== null && packageIdArg !== '') {
+    const packageIdInt = Number(packageIdArg);
+    if (!Number.isInteger(packageIdInt) || packageIdInt <= 0) {
+      throw AppError.badRequest('package_id must be a positive integer');
+    }
+    const pkg = await prisma.packages.findUnique({
+      where: { id: packageIdInt },
+      select: { id: true, package_code: true, fixed_price_minor: true, status: true },
+    });
+    if (!pkg) throw AppError.badRequest(`package_id ${packageIdInt} not found`);
+    if (pkg.status !== 'active') {
+      throw AppError.badRequest(`package_id ${packageIdInt} is not active (status=${pkg.status})`);
+    }
+    resolvedPackageId = pkg.id;
+    resolvedPackageCode = resolvedPackageCode ?? pkg.package_code ?? null;
+    resolvedPackageEstMinor = resolvedPackageEstMinor ?? pkg.fixed_price_minor ?? null;
+  } else if (packageCodeArg) {
+    // Allow code-only resolution against the default tenant master.
+    const pkg = await prisma.packages.findFirst({
+      where: { package_code: String(packageCodeArg), status: 'active' },
+      select: { id: true, package_code: true, fixed_price_minor: true },
+    });
+    if (pkg) {
+      resolvedPackageId = pkg.id;
+      resolvedPackageCode = pkg.package_code;
+      resolvedPackageEstMinor = resolvedPackageEstMinor ?? pkg.fixed_price_minor ?? null;
+    }
+  }
+
   return prisma.$transaction(async (tx) => {
     // Resolve patient_uid → users.id (beds.patient_id is int FK)
     const patientUser = await tx.users.findUnique({
@@ -329,6 +396,11 @@ async function admitPatient(data) {
         emergency_consent_bypass_at: emergencyBypass?.at ?? null,
         emergency_consent_bypass_by: emergencyBypass?.by ?? null,
         emergency_consent_bypass_reason: emergencyBypass?.reason ?? null,
+        // Wave-4B-1 (migrations 203 + 207) — structured insurance + package links.
+        policy_id: resolvedPolicyId,
+        package_id: resolvedPackageId,
+        package_code: resolvedPackageCode,
+        package_estimated_cost_minor: resolvedPackageEstMinor,
       },
       select: ADMISSION_RETURNING_SELECT,
     });
@@ -1143,6 +1215,35 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
       }
     } catch (e) {
       logger.warn(`Discharge readiness: pending-results check skipped (${e.message})`);
+    }
+
+    // Wave-4B-1 — pending radiology orders. `radiology_orders` lives in a
+    // separate table from `investigations`; the prior gate missed
+    // ultrasound/CT/MRI orders that hadn't reached the lab queue. Treat
+    // any non-terminal radiology status as a blocker. Finding:
+    //   2026-05-10-inpatient-admission-discharge-pending-radiology-not-in-readiness
+    try {
+      const pendingRadiology = await prisma.radiology_orders.findMany({
+        where: {
+          patient_uid: admissionPre.patient_uid,
+          status: { notIn: ['completed', 'cancelled', 'reported', 'signed_off'] },
+          created_at: admissionPre.admitted_at ? { gte: admissionPre.admitted_at } : undefined,
+        },
+        select: { id: true, modality: true, body_part: true, status: true },
+        take: 5,
+      });
+      if (pendingRadiology.length > 0) {
+        blockers.push({
+          type: 'PENDING_RADIOLOGY',
+          message: `${pendingRadiology.length} pending radiology order(s) (${pendingRadiology
+            .map((r) => `${r.modality} ${r.body_part || ''} [${r.status}]`.trim())
+            .join(', ')}). Resolve or cancel before discharge.`,
+          count: pendingRadiology.length,
+          orders: pendingRadiology,
+        });
+      }
+    } catch (e) {
+      logger.warn(`Discharge readiness: pending-radiology check skipped (${e.message})`);
     }
 
     if (blockers.length > 0) {

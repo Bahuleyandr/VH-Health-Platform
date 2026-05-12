@@ -21,6 +21,7 @@ const VITAL_SELECT = {
   id: true,
   patient_uid: true,
   encounter_id: true,
+  encounter_uid: true,
   heart_rate: true,
   systolic_bp: true,
   diastolic_bp: true,
@@ -56,25 +57,49 @@ const IO_SELECT = {
   recorded_at: true,
 };
 
-// Normalize encounter_id to the schema's `Int?` shape. Accepts:
-//   - undefined / null    → null (orphan vitals — see route-level orphan note)
-//   - integer             → as-is
-//   - numeric string `"2"`→ parseInt
-//   - anything else       → 400 with a helpful message (callers were
-//     previously silently 500ing on `"ENC-…"` strings via Prisma).
-// See finding 2026-05-08-inpatient-admission-nurse-vitals-encounter-id-int-vs-string
-// and 2026-05-08-pediatric-opd-nurse-encounter-id-type-mismatch.
-function normalizeEncounterId(raw) {
-  if (raw === undefined || raw === null || raw === '') return null;
-  if (typeof raw === 'number' && Number.isInteger(raw)) return raw;
+// UUID validation — admissions.encounter_id is a UUID, so vitals must
+// accept either the int legacy `encounter_id` or the UUID admission
+// encounter and route them to the right column.
+const ENCOUNTER_UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
+
+// Normalize encounter input into the {encounter_id, encounter_uid} split.
+// Migration 208 added `encounter_uid UUID` so admission encounters can be
+// linked without a type mismatch. Returns:
+//   - { encounter_id: int|null, encounter_uid: string|null }
+// Accepts:
+//   - undefined / null / ''    → both null (orphan vitals, deprecated path)
+//   - integer / numeric string → encounter_id only (legacy HL7 visit_no path)
+//   - UUID string              → encounter_uid only (admission encounter)
+//   - anything else            → 400 with a helpful message
+// See findings:
+//   2026-05-08-inpatient-admission-nurse-vitals-encounter-id-int-vs-string
+//   2026-05-08-pediatric-opd-nurse-encounter-id-type-mismatch
+//   2026-05-08-inpatient-admission-nurse-vitals-encounter-id-type-mismatch
+function normalizeEncounter(raw) {
+  if (raw === undefined || raw === null || raw === '') {
+    return { encounter_id: null, encounter_uid: null };
+  }
+  if (typeof raw === 'number' && Number.isInteger(raw)) {
+    return { encounter_id: raw, encounter_uid: null };
+  }
   if (typeof raw === 'string') {
     const trimmed = raw.trim();
-    if (/^\d+$/.test(trimmed)) return parseInt(trimmed, 10);
+    if (/^\d+$/.test(trimmed)) {
+      return { encounter_id: parseInt(trimmed, 10), encounter_uid: null };
+    }
+    if (ENCOUNTER_UUID_RE.test(trimmed)) {
+      return { encounter_id: null, encounter_uid: trimmed };
+    }
     throw AppError.badRequest(
-      `encounter_id must be an integer or numeric string, got "${trimmed}". Resolve the platform visit_no/token to its integer id before posting vitals.`,
+      `encounter_id must be an integer, numeric string, or UUID, got "${trimmed}".`,
     );
   }
-  throw AppError.badRequest('encounter_id must be an integer or numeric string');
+  throw AppError.badRequest('encounter_id must be an integer or UUID');
+}
+
+// Kept for back-compat with callers that only want the int part.
+function _normalizeEncounterIdLegacy(raw) {
+  return normalizeEncounter(raw).encounter_id;
 }
 
 // Strip Postgres-incompatible NUL bytes (U+0000) from any free-text we
@@ -100,7 +125,7 @@ function toCelsius(value, unit) {
 
 export async function recordVitals(data) {
   const {
-    patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp, temperature,
+    patient_uid, encounter_id, encounter_uid, heart_rate, systolic_bp, diastolic_bp, temperature,
     temperature_unit, spo2, respiratory_rate, blood_glucose, pain_score, weight_kg,
     height_cm, gcs_score, supplemental_o2, o2_flow_rate, consciousness, notes,
     fhr, fundal_height_cm,
@@ -111,7 +136,12 @@ export async function recordVitals(data) {
     throw AppError.badRequest('patient_uid and recorded_by are required');
   }
 
-  const normalizedEncounterId = normalizeEncounterId(encounter_id);
+  // Wave-4B-1 (migration 208) — split encounter input across int + uuid.
+  // Caller can pass either `encounter_id` (legacy int / numeric / UUID) or
+  // explicit `encounter_uid`. The admission flow always emits UUIDs.
+  const normalizedEncounter = normalizeEncounter(encounter_id ?? encounter_uid ?? null);
+  const normalizedEncounterId = normalizedEncounter.encounter_id;
+  const normalizedEncounterUid = normalizedEncounter.encounter_uid;
   const normalizedTemperature = toCelsius(temperature, temperature_unit);
 
   const vitalValues = [heart_rate, systolic_bp, diastolic_bp, normalizedTemperature, spo2,
@@ -142,6 +172,7 @@ export async function recordVitals(data) {
     data: {
       patient_uid,
       encounter_id: normalizedEncounterId,
+      encounter_uid: normalizedEncounterUid,
       heart_rate: heart_rate ?? null,
       systolic_bp: systolic_bp ?? null,
       diastolic_bp: diastolic_bp ?? null,
@@ -260,7 +291,14 @@ export async function getVitalsChart(patientUid, encounterId, pagination = {}) {
   });
 
   const where = { patient_uid: patientUid };
-  if (encounterId) where.encounter_id = encounterId;
+  // Wave-4B-1 (migration 208) — split the encounter filter so callers
+  // passing the admission UUID find the rows recorded with `encounter_uid`
+  // and the legacy HL7 visit_no int path keeps working.
+  if (encounterId !== undefined && encounterId !== null && encounterId !== '') {
+    const split = normalizeEncounter(encounterId);
+    if (split.encounter_uid) where.encounter_uid = split.encounter_uid;
+    else if (split.encounter_id != null) where.encounter_id = split.encounter_id;
+  }
 
   const [vitals, total] = await Promise.all([
     prisma.vitals_chart.findMany({

@@ -1,6 +1,7 @@
 // src/routes/bed/bedRoutes.js
 import express from 'express';
 import * as bedController from '../../controllers/bed/bedController.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 import {
   createWardValidation, updateWardValidation, deleteWardValidation,
   createBedValidation, updateBedValidation, deleteBedValidation,
@@ -10,19 +11,26 @@ import {
 export const bedRouter = express.Router();
 export const wardRouter = express.Router();
 
+// Wave-4B-1 — the parent `/api/v1/beds` gate in app.js was widened to
+// admit housekeeping (GENERAL_STAFF / HOUSEKEEPING_STAFF) so they can
+// close the cleaning loop via the management router's POST /:id/ready.
+// Re-narrow patient-movement + bed-master endpoints here so housekeeping
+// cannot create/delete beds or admit/discharge patients.
+const requireClinical = requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF');
+
 // ===== BED ROUTES =====
 bedRouter.get('/', bedController.listBeds);
 bedRouter.get('/summary', bedController.getBedSummary);
 bedRouter.get('/ward/:wardId', wardIdValidation, bedController.getBedsByWard);
-bedRouter.post('/', createBedValidation, bedController.createBed);
-bedRouter.put('/:id', updateBedValidation, bedController.updateBed);
+bedRouter.post('/', requireClinical, createBedValidation, bedController.createBed);
+bedRouter.put('/:id', requireClinical, updateBedValidation, bedController.updateBed);
 // PATCH /:id/notes — quick-note save from the staff bed-board sheet.
 // Separate from PUT /:id because that handler's body contract requires
 // patient fields and would null them out when the sheet only sends notes.
-bedRouter.patch('/:id/notes', bedController.updateBedNotes);
-bedRouter.delete('/:id', deleteBedValidation, bedController.deleteBed);
-bedRouter.post('/:id/admit', admitValidation, bedController.admitPatient);
-bedRouter.post('/:id/discharge', dischargeValidation, bedController.dischargePatient);
+bedRouter.patch('/:id/notes', requireClinical, bedController.updateBedNotes);
+bedRouter.delete('/:id', requireClinical, deleteBedValidation, bedController.deleteBed);
+bedRouter.post('/:id/admit', requireClinical, admitValidation, bedController.admitPatient);
+bedRouter.post('/:id/discharge', requireClinical, dischargeValidation, bedController.dischargePatient);
 
 // ===== WARD ROUTES =====
 wardRouter.get('/', bedController.listWards);

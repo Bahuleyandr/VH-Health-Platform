@@ -209,6 +209,9 @@ const CLINICAL_STAFF_ROLES = [
   'ADMIN',
   'SUPER_ADMIN',
   'DOCTOR',
+  'CONSULTANT',
+  'JUNIOR_DOCTOR',
+  'RESIDENT',
   'NURSING_STAFF',
   'MEDICAL_RECORDS',
   // E-4 — pharmacy needs read access on /emr/orders (medication orders
@@ -217,6 +220,16 @@ const CLINICAL_STAFF_ROLES = [
   // Finding: 2026-05-08-inpatient-admission-pharmacy-rbac-emr-orders-blocked.
   'PHARMACY_STAFF',
   'PHARMACY_INCHARGE',
+  // Wave-4B-1 — ICU/admission-desk roles must reach /emr/admit before
+  // the per-allocation ICU tier check fires (admissionService runs the
+  // ICU_ALLOCATE_ROLES gate downstream). Without these, the seeded
+  // ICU_NURSE/ADMISSION_OFFICER tokens get a generic 403 from this
+  // top-level gate and never reach the tier check. Finding:
+  // 2026-05-10-emergency-walk-in-admission-icu-nurse-emr-gate-blocks-ccu-admit.
+  'ICU_NURSE',
+  'ICU_INCHARGE',
+  'ADMISSION_OFFICER',
+  'IPD_COUNSELLOR',
 ];
 const CLINICAL_AI_CONTROL_ROLES = [
   'ADMIN',
@@ -524,9 +537,20 @@ app.use(
   housekeepingRoutes,
 );
 
-// Bed/Ward management
-app.use('/api/v1/beds', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedRouter);
-app.use('/api/v1/beds', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedManagementRoutes);
+// Bed/Ward management.
+//
+// Wave-4B-1 — parent gate widened to admit GENERAL_STAFF (the seeded
+// housekeeping role) so they can close the cleaning loop via
+// POST /:id/ready. Sensitive bed-management endpoints (admit / transfer
+// / discharge) re-narrow to clinical roles via per-route requireRole
+// guards inside bedManagementRoutes itself. Finding:
+//   2026-05-09-inpatient-admission-housekeeping-general-staff-cannot-mark-bed-ready
+const BED_PARENT_ROLES = [
+  'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF',
+  'GENERAL_STAFF', 'HOUSEKEEPING_STAFF',
+];
+app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), bedRouter);
+app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), bedManagementRoutes);
 app.use('/api/v1/wards', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), wardRouter);
 // D1 — bed inspection / consumer-choice flow. Receptionists need full
 // access; admission officers + nursing also; admin for audit.
