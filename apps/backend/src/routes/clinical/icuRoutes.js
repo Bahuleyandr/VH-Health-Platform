@@ -60,6 +60,12 @@ router.patch('/admissions/:id/code-status', requireStaffOrAdmin, wrap(async (req
     code_status: req.body.code_status, set_by: req.user?.uid,
   })));
 
+router.patch('/admissions/:id/monitoring-interval', requireStaffOrAdmin, wrap(async (req) =>
+  icu.updateMonitoringInterval({
+    tenantId: tenantOf(req), id: req.params.id,
+    monitoring_interval_minutes: req.body.monitoring_interval_minutes,
+  })));
+
 router.post('/admissions/:id/discharge', requireStaffOrAdmin, wrap(async (req) =>
   icu.dischargeAdmission({
     tenantId: tenantOf(req), id: req.params.id,
