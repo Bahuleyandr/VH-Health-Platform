@@ -330,7 +330,7 @@ export const createPrescription = async (req, res) => {
         (appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
          diagnosis, clinical_notes, medications,
          follow_up_date, follow_up_notes, vitals, handwritten_photo_key, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::date, $10, $11::jsonb, $12, $13)
+       VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6, $7, $8::jsonb, $9::date, $10, $11::jsonb, $12, $13)
        RETURNING id, appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
                  medications, status, created_at,
                  prescription_number, diagnosis, clinical_notes, vitals,
@@ -404,7 +404,7 @@ export const createPrescription = async (req, res) => {
       type: 'prescription',
     }).catch(err => logger.error('Prescription notification failed:', err));
 
-    success(res, prescription, `Prescription ${prescription.prescription_number} created`);
+    success(res, prescription, `Prescription ${prescription.prescription_number} created`, HTTP_STATUS.CREATED);
   } catch (err) {
     logger.error('Create e-prescription error:', err);
     error(res, 'Failed to create prescription', HTTP_STATUS.INTERNAL_SERVER_ERROR);

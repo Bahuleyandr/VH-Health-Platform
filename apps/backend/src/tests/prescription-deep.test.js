@@ -139,7 +139,7 @@ describe('E-prescriptions — deep integration', () => {
         follow_up_notes: 'Review if symptoms persist.'
       });
 
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(201);
     expect(res.body.data.patient_id).toBe(patientId);
     expect(res.body.data.doctor_id).toBe(doctorId);
     expect(res.body.data.medications[0].name).toBe('Cetirizine');
