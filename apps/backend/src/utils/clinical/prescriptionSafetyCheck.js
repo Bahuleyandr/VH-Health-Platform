@@ -276,6 +276,16 @@ export async function validatePrescriptionSafety(patientId, medications) {
     //    silently skipped (no false positives, no false-confidence
     //    "all checked"). See finding
     //    2026-05-08-pediatric-opd-doctor-no-weight-based-dose-check.
+    //
+    //    A trigger (>1.2x weight-based ceiling) is now a HARD BLOCKER
+    //    rather than a warning so the staff-app CDS modal forces the
+    //    doctor to acknowledge with an override reason — adult-tablet
+    //    doses for toddlers previously slipped through warnings-only.
+    //    Override path is the same one the allergy blocker uses
+    //    (`override: { reason: '...' }` on createPrescription, audited
+    //    to prescription_safety_overrides). Findings:
+    //      2026-05-09-pediatric-opd-doctor-paed-dose-warning-not-blocker
+    //      2026-05-12-pediatric-opd-doctor-eba299c1
     const paedCtx = await loadPaediatricContext(patientId);
     if (paedCtx) {
       for (const med of medications) {
@@ -287,7 +297,7 @@ export async function validatePrescriptionSafety(patientId, medications) {
         const expectedMaxMg = mapping.mgPerKg * paedCtx.weightKg * 1.2; // 20% headroom
         if (doseMg > expectedMaxMg) {
           const ratio = (doseMg / (mapping.mgPerKg * paedCtx.weightKg)).toFixed(2);
-          warnings.push({
+          blockers.push({
             type: 'PAEDIATRIC_DOSE_HIGH',
             medication: medName,
             patient_weight_kg: paedCtx.weightKg,
@@ -295,7 +305,7 @@ export async function validatePrescriptionSafety(patientId, medications) {
             entered_dose_mg: doseMg,
             expected_max_per_dose_mg: Number(expectedMaxMg.toFixed(2)),
             mg_per_kg_reference: mapping.mgPerKg,
-            message: `${medName} ${doseMg}mg in a ${paedCtx.weightKg}kg ${paedCtx.ageYears}y patient is ${ratio}x the recommended ${mapping.mgPerKg}mg/kg per-dose ceiling. Confirm or override.`,
+            message: `${medName} ${doseMg}mg in a ${paedCtx.weightKg}kg ${paedCtx.ageYears}y patient is ${ratio}x the recommended ${mapping.mgPerKg}mg/kg per-dose ceiling. Confirm with weight-based dose, or override with reason.`,
           });
         }
       }
