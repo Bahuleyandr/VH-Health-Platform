@@ -522,7 +522,27 @@ class BillingService {
     const parent = await prisma.insurance_claims.findUnique({
       where: { id: parentClaimId },
     });
-    if (!parent) throw AppError.notFound('Parent insurance claim not found');
+    if (!parent) {
+      // tpa_claims (Sprint 5 TPA workflow) is a separate table from
+      // insurance_claims and uses insurance_preauth.parent_preauth_id +
+      // request_type='enhancement' for mid-stay enhancements, not this
+      // billing-side child-claim path. If a caller passes a tpa_claims.id
+      // here, fail loudly so they don't get a silent 404 or, worse,
+      // collide with an insurance_claims row sharing the same id.
+      const tpaMatch = await prisma.tpa_claims.findUnique({
+        where: { id: parentClaimId },
+        select: { id: true, claim_number: true },
+      });
+      if (tpaMatch) {
+        throw AppError.badRequest(
+          `Claim ${parentClaimId} (${tpaMatch.claim_number}) is a TPA claim — ` +
+          `use the insurance_preauth enhancement workflow (request_type='enhancement') ` +
+          `instead of /billing/insurance/claim/:id/enhancement.`,
+          'TPA_CLAIM_USE_PREAUTH_ENHANCEMENT'
+        );
+      }
+      throw AppError.notFound('Parent insurance claim not found');
+    }
 
     // Reuse the parent's claim_number prefix + a `-E<n>` suffix so the
     // lineage is readable. The unique constraint on claim_number forces
