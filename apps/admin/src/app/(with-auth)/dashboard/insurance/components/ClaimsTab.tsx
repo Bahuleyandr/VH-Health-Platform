@@ -47,10 +47,10 @@ export function ClaimsTab() {
     mutationFn: async (vars: { c: Claim; ref: string }) =>
       fetchAdminAPI(`/insurance/claims/${vars.c.id}/submit`, {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           submission_channel: "portal",
           tpa_reference_id: vars.ref || undefined,
-        }),
+        },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["insurance", "claims"] }),
   });
@@ -67,7 +67,7 @@ export function ClaimsTab() {
       if (vars.denial_reason != null) body.denial_reason = vars.denial_reason;
       return fetchAdminAPI(`/insurance/claims/${vars.c.id}/decision`, {
         method: "POST",
-        body: JSON.stringify(body),
+        body: body,
       });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["insurance", "claims"] }),
@@ -81,10 +81,10 @@ export function ClaimsTab() {
     }) =>
       fetchAdminAPI(`/insurance/claims/${vars.c.id}/payment`, {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           paid_amount: vars.paid_amount,
           payment_reference: vars.payment_reference || undefined,
-        }),
+        },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["insurance", "claims"] }),
   });

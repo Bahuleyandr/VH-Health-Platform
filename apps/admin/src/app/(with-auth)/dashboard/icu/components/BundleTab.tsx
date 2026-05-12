@@ -45,7 +45,7 @@ export default function BundleTab({ admissionId }: { admissionId: number }) {
       `/icu/admissions/${admissionId}/bundle`,
       {
         method: "POST",
-        body: JSON.stringify({ bundle_date: day, ...form }),
+        body: { bundle_date: day, ...form },
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["icu", "bundle"] });

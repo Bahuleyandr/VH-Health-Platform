@@ -39,7 +39,7 @@ export default function TodayBoardTab({
 
   const start = useMutation({
     mutationFn: async (id: number) => fetchAdminAPI<unknown>(
-      `/dialysis/sessions/${id}/start`, { method: "POST", body: JSON.stringify({}) },
+      `/dialysis/sessions/${id}/start`, { method: "POST", body: {} },
     ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["dialysis"] }),
   });
@@ -180,11 +180,11 @@ function ScheduleModal({
   const m = useMutation({
     mutationFn: async () => fetchAdminAPI<unknown>("/dialysis/sessions", {
       method: "POST",
-      body: JSON.stringify({
+      body: {
         ...form,
         dialysis_patient_id: Number(form.dialysis_patient_id),
         prescribed_uf_l: form.prescribed_uf_l ? Number(form.prescribed_uf_l) : undefined,
-      }),
+      },
     }),
     onSuccess: () => onScheduled(),
   });

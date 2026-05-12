@@ -224,7 +224,7 @@ function ObsModal({
           ? v : (Number.isFinite(num) ? num : v);
       }
       return fetchAdminAPI<unknown>(`/dialysis/sessions/${sessionId}/obs`, {
-        method: "POST", body: JSON.stringify(body),
+        method: "POST", body: body,
       });
     },
     onSuccess: () => onSaved(),
@@ -312,7 +312,7 @@ function CompleteModal({
       `/dialysis/sessions/${sessionId}/complete`,
       {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           ...form,
           post_weight_kg: form.post_weight_kg ? Number(form.post_weight_kg) : undefined,
           post_bp_systolic: form.post_bp_systolic ? Number(form.post_bp_systolic) : undefined,
@@ -321,7 +321,7 @@ function CompleteModal({
           actual_uf_l: form.actual_uf_l ? Number(form.actual_uf_l) : undefined,
           urea_pre_mg_dl: form.urea_pre_mg_dl ? Number(form.urea_pre_mg_dl) : undefined,
           urea_post_mg_dl: form.urea_post_mg_dl ? Number(form.urea_post_mg_dl) : undefined,
-        }),
+        },
       }),
     onSuccess: () => onCompleted(),
   });

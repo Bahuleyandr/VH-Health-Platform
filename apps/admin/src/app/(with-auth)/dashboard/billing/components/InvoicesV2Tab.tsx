@@ -104,12 +104,12 @@ export function InvoicesV2Tab() {
     mutationFn: async (form: InvoiceForm) => {
       const r = await fetchAdminAPI<unknown>("/billing/v2/invoices", {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           patient_uid: form.patient_uid,
           patient_state: form.patient_state,
           hospital_state: form.hospital_state,
           invoice_type: form.invoice_type,
-        }),
+        },
       });
       const inv = unwrap<InvoiceV2>(r);
       // Add each item sequentially.
@@ -117,13 +117,13 @@ export function InvoicesV2Tab() {
         if (!item.description || !item.unit_price) continue;
         await fetchAdminAPI(`/billing/v2/invoices/${inv.id}/items`, {
           method: "POST",
-          body: JSON.stringify({
+          body: {
             service_code: item.service_code || null,
             description: item.description,
             quantity: Number(item.quantity || 1),
             unit_price: Number(item.unit_price),
             gst_rate: Number(item.gst_rate || 0),
-          }),
+          },
         });
       }
       return inv;

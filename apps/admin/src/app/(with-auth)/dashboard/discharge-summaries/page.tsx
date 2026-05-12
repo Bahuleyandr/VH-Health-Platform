@@ -188,7 +188,7 @@ function SummaryEditor({ id, onClose }: { id: number; onClose: () => void }) {
     mutationFn: async (vars: { key: string; body: string }) =>
       fetchAdminAPI(`/discharge-summaries/${id}/sections/${vars.key}`, {
         method: "PATCH",
-        body: JSON.stringify({ body: vars.body }),
+        body: { body: vars.body },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["discharge", "detail", id] }),
   });
@@ -204,10 +204,10 @@ function SummaryEditor({ id, onClose }: { id: number; onClose: () => void }) {
       if (!signedByName) throw new Error("Doctor name is required to sign");
       return fetchAdminAPI(`/discharge-summaries/${id}/sign`, {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           signed_by_name: signedByName,
           signed_by_reg: signedByReg || undefined,
-        }),
+        },
       });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["discharge", "detail", id] }),
@@ -217,7 +217,7 @@ function SummaryEditor({ id, onClose }: { id: number; onClose: () => void }) {
     mutationFn: async (method: string) =>
       fetchAdminAPI(`/discharge-summaries/${id}/deliver`, {
         method: "POST",
-        body: JSON.stringify({ delivery_method: method }),
+        body: { delivery_method: method },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["discharge", "detail", id] }),
   });

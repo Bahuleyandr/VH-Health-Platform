@@ -88,12 +88,12 @@ function PathologistWorklist() {
       }
       return fetchAdminAPI("/lab/pathologist/signoff", {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           result_ids: Array.from(selected),
           decision,
           signed_off_by_name: signedByName,
           signed_off_by_reg: signedByReg,
-        }),
+        },
       });
     },
     onSuccess: () => {
@@ -270,10 +270,10 @@ function CriticalAlerts() {
       }
       return fetchAdminAPI(`/lab/alerts/critical/${id}/ack`, {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           acknowledged_by_name: readBack.name,
           read_back_method: readBack.method,
-        }),
+        },
       });
     },
     onSuccess: () => {

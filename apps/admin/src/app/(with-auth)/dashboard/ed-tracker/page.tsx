@@ -121,7 +121,7 @@ export default function EdTrackerPage() {
     mutationFn: async (vars: { id: number; status: string }) =>
       fetchAdminAPI(`/admin/ed/visits/${vars.id}/transition`, {
         method: "PATCH",
-        body: JSON.stringify({ status: vars.status }),
+        body: { status: vars.status },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["ed"] }),
   });
@@ -130,7 +130,7 @@ export default function EdTrackerPage() {
     mutationFn: async (vars: { id: number; priority: string }) =>
       fetchAdminAPI(`/admin/ed/visits/${vars.id}/triage-priority`, {
         method: "PATCH",
-        body: JSON.stringify({ triage_priority: vars.priority }),
+        body: { triage_priority: vars.priority },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["ed"] }),
   });
@@ -441,12 +441,12 @@ function RegisterModal({
     mutationFn: async () =>
       fetchAdminAPI("/admin/ed/visits", {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           patient_uid: form.patient_uid || null,
           arrival_mode: form.arrival_mode,
           chief_complaint: form.chief_complaint || null,
           is_mlc: form.is_mlc,
-        }),
+        },
       }),
     onSuccess: onCreated,
   });

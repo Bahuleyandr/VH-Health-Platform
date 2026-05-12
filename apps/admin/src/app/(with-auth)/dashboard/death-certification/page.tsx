@@ -305,7 +305,7 @@ function CreateDeathModal({
   const m = useMutation({
     mutationFn: async () => {
       const r = await fetchAdminAPI<unknown>("/death-certification/records", {
-        method: "POST", body: JSON.stringify(form),
+        method: "POST", body: form,
       });
       return unwrap<{ id: number }>(r);
     },
@@ -524,7 +524,7 @@ function WorkflowSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () =
       ack_no?: string;
     }) => fetchAdminAPI<unknown>(
       `/death-certification/records/${rec.id}/transition`,
-      { method: "POST", body: JSON.stringify(input) },
+      { method: "POST", body: input },
     ),
     onSuccess: () => onChanged(),
   });
@@ -596,12 +596,12 @@ function ReleaseSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () =>
       `/death-certification/records/${rec.id}/body-release`,
       {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           body_released_to_name: name,
           body_released_to_relation: relation,
           body_released_to_id_proof: idProof,
           body_release_method: method,
-        }),
+        },
       }),
     onSuccess: () => onChanged(),
   });
@@ -611,7 +611,7 @@ function ReleaseSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () =>
       `/death-certification/records/${rec.id}/police-clearance`,
       {
         method: "POST",
-        body: JSON.stringify({ fir_no: firNo, station }),
+        body: { fir_no: firNo, station },
       }),
     onSuccess: () => onChanged(),
   });
@@ -683,7 +683,7 @@ function ReviewSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () => 
   const m = useMutation({
     mutationFn: async () => fetchAdminAPI<unknown>(
       `/death-certification/records/${rec.id}/review`,
-      { method: "POST", body: JSON.stringify(form) },
+      { method: "POST", body: form },
     ),
     onSuccess: () => onChanged(),
   });
@@ -693,7 +693,7 @@ function ReviewSection({ rec, onChanged }: { rec: DeathRecord; onChanged: () => 
       if (!review) throw new Error("save first");
       return fetchAdminAPI<unknown>(
         `/death-certification/reviews/${review.id}/finalise`,
-        { method: "POST", body: JSON.stringify({}) },
+        { method: "POST", body: {} },
       );
     },
     onSuccess: () => onChanged(),

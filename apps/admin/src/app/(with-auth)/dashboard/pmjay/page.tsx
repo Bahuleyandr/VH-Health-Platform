@@ -162,7 +162,7 @@ function CasesTab() {
     }) =>
       fetchAdminAPI(`/pmjay/cases/${vars.id}/transition`, {
         method: "POST",
-        body: JSON.stringify(vars),
+        body: vars,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["pmjay"] }),
   });
@@ -399,14 +399,14 @@ function NewCaseModal({
     mutationFn: async () =>
       fetchAdminAPI("/pmjay/cases", {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           patient_uid: form.patient_uid,
           beneficiary_id: form.beneficiary_id,
           package_id: form.package_id,
           primary_diagnosis: form.primary_diagnosis,
           treating_doctor_name: form.treating_doctor_name || undefined,
           expected_admission_date: form.expected_admission_date || undefined,
-        }),
+        },
       }),
     onSuccess: onCreated,
   });
@@ -585,7 +585,7 @@ function BeneficiariesTab() {
     mutationFn: async (vars: { id: number; method: string }) =>
       fetchAdminAPI(`/pmjay/beneficiaries/${vars.id}/verify`, {
         method: "POST",
-        body: JSON.stringify({ verification_method: vars.method }),
+        body: { verification_method: vars.method },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["pmjay", "beneficiaries"] }),
   });
@@ -740,12 +740,12 @@ function AddBeneficiaryModal({
     mutationFn: async () =>
       fetchAdminAPI("/pmjay/beneficiaries", {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           patient_uid: patientUid,
           ...Object.fromEntries(
             Object.entries(form).filter(([, v]) => v),
           ),
-        }),
+        },
       }),
     onSuccess: onSaved,
   });

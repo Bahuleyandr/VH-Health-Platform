@@ -212,7 +212,7 @@ function CreateBatchModal({
   const m = useMutation({
     mutationFn: async () => {
       const r = await fetchAdminAPI<unknown>("/compliance/drug-returns/batches", {
-        method: "POST", body: JSON.stringify(form),
+        method: "POST", body: form,
       });
       return unwrap<{ id: number }>(r);
     },
@@ -300,7 +300,7 @@ function BatchDetailModal({
       quarantine_location?: string;
     }) => fetchAdminAPI<unknown>(
       `/compliance/drug-returns/batches/${detail.id}/transition`,
-      { method: "POST", body: JSON.stringify(input) },
+      { method: "POST", body: input },
     ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["drug-returns"] });
@@ -504,11 +504,11 @@ function AddLineModal({
       `/compliance/drug-returns/batches/${batchId}/lines`,
       {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           ...form,
           qty_units: Number(form.qty_units),
           expiry_date: form.expiry_date || undefined,
-        }),
+        },
       }),
     onSuccess: () => onAdded(),
   });

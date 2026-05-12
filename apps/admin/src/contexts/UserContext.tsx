@@ -73,7 +73,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       try {
         const res = await fetchAdminAPI<{ success?: boolean }>(
           "/admin/auth/login",
-          { method: "POST", body: JSON.stringify({ username, password }) },
+          { method: "POST", body: { username, password } },
         );
         const ok = !!res?.success;
         if (ok) {

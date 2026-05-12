@@ -1487,7 +1487,7 @@ export async function transitionTeleconsultation(
 ) {
   return fetchAdminAPI<Teleconsultation>(
     `/admin/telemedicine/teleconsultations/${id}/transition`,
-    { method: 'PATCH', body: JSON.stringify(payload) },
+    { method: 'PATCH', body: payload },
   );
 }
 

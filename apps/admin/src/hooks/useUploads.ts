@@ -103,7 +103,7 @@ export const useCleanupExpiredFiles = () => {
     mutationFn: (dryRun: boolean) =>
       fetchAdminAPI<CleanupResult>(API_ENDPOINTS.admin.uploads.cleanup, {
         method: "POST",
-        body: JSON.stringify({ dryRun }),
+        body: { dryRun },
       }),
     onSuccess: (data) => {
       if (data.dryRun) {
@@ -131,7 +131,7 @@ export const useBulkUpdateHipaa = () => {
     mutationFn: ({ ids, protect }) =>
       fetchAdminAPI<BulkUpdateResult>(API_ENDPOINTS.admin.uploads.bulkHipaa, {
         method: "POST",
-        body: JSON.stringify({ ids, protect }),
+        body: { ids, protect },
       }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: QK.uploadsRoot });
