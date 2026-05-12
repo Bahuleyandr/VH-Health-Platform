@@ -17,6 +17,35 @@ function asNumericOrNull(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+const CRITICAL_THRESHOLD_ALIASES = [
+  {
+    testCodes: ['TROP', 'TROPI'],
+    loincCodes: ['6598-7', '10839-9'],
+  },
+];
+
+function criticalThresholdLookupKeys(result) {
+  const loincCodes = new Set();
+  const testCodes = new Set();
+  const loinc = result.loinc_code ? String(result.loinc_code).trim() : null;
+  const testCode = result.test_code ? String(result.test_code).trim().toUpperCase() : null;
+
+  if (loinc) loincCodes.add(loinc);
+  if (testCode) testCodes.add(testCode);
+
+  for (const alias of CRITICAL_THRESHOLD_ALIASES) {
+    if (
+      (loinc && alias.loincCodes.includes(loinc)) ||
+      (testCode && alias.testCodes.includes(testCode))
+    ) {
+      alias.loincCodes.forEach((code) => loincCodes.add(code));
+      alias.testCodes.forEach((code) => testCodes.add(code));
+    }
+  }
+
+  return { loincCodes: [...loincCodes], testCodes: [...testCodes] };
+}
+
 /**
  * Parse an HL7 ORU^R01 message and persist its OBX rows into
  * lab_results. Returns the created result rows + any critical alerts
@@ -118,17 +147,28 @@ export async function detectCriticalsForResults({ tenantId, results }) {
   for (const r of results) {
     if (r.value_numeric == null) continue;
 
+    const { loincCodes, testCodes } = criticalThresholdLookupKeys(r);
     const ths = await prisma.$queryRawUnsafe(
       `SELECT critical_low, critical_high, test_name
          FROM lab_critical_thresholds
         WHERE tenant_id = $1::uuid
           AND is_active = true
           AND (
-            (loinc_code IS NOT NULL AND loinc_code = $2) OR
-            (loinc_code IS NULL AND test_code = $3)
+            (loinc_code IS NOT NULL AND loinc_code = ANY($2::text[])) OR
+            (test_code IS NOT NULL AND UPPER(test_code) = ANY($3::text[]))
           )
+        ORDER BY
+          CASE
+            WHEN loinc_code = $4 THEN 0
+            WHEN UPPER(test_code) = $5 THEN 1
+            WHEN loinc_code = ANY($2::text[]) THEN 2
+            ELSE 3
+          END,
+          id ASC
         LIMIT 1`,
-      tenantId, r.loinc_code, r.test_code,
+      tenantId, loincCodes, testCodes,
+      r.loinc_code || null,
+      r.test_code ? String(r.test_code).trim().toUpperCase() : null,
     );
     if (!ths.length) continue;
     const { critical_low: lo, critical_high: hi } = ths[0];
@@ -149,6 +189,7 @@ export async function detectCriticalsForResults({ tenantId, results }) {
       `UPDATE lab_results SET is_critical = true, updated_at = NOW() WHERE id = $1::int`,
       r.id,
     );
+    r.is_critical = true;
 
     const alert = await prisma.$queryRawUnsafe(
       `INSERT INTO lab_critical_alerts
