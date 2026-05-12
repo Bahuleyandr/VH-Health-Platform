@@ -46,6 +46,56 @@ function findMgPerKg(medName) {
   return null;
 }
 
+// Loud-but-honest allergy phrasing seen in clinician free-text notes.
+// "Allergy: Penicillin", "Allergies — Sulfa, NSAIDs", "Pt allergic to
+// peanuts". The trailing list is captured up to the next sentence
+// terminator so multi-allergen lines split cleanly downstream.
+const NOTE_ALLERGY_RX = /(?:allergy|allergies|allergic\s+to)\s*[:\-–]?\s*([A-Za-z][A-Za-z0-9 ,/\-]{1,120})/gi;
+
+const ALLERGY_LIST_SPLIT_RX = /[,;/]| and /i;
+
+// Beta-lactam cross-reactivity — penicillin-class allergy implies
+// caution on any beta-lactam. Substring match (no regex anchors) so
+// brand names like "amoxiclav" / "augmentin" still hit.
+const BETA_LACTAM_DRUGS = [
+  'penicillin', 'amoxicillin', 'ampicillin', 'piperacillin',
+  'cloxacillin', 'flucloxacillin', 'methicillin', 'augmentin',
+  'amoxiclav', 'tazobactam',
+];
+const BETA_LACTAM_ALLERGENS = ['penicillin', 'amoxicillin', 'beta-lactam', 'beta lactam'];
+
+function extractAllergiesFromNote(text) {
+  if (!text || typeof text !== 'string') return [];
+  const found = new Set();
+  for (const match of text.matchAll(NOTE_ALLERGY_RX)) {
+    const raw = (match[1] || '').trim();
+    if (!raw) continue;
+    for (const piece of raw.split(ALLERGY_LIST_SPLIT_RX)) {
+      const cleaned = piece
+        .replace(/[.\s]+$/, '')
+        .trim()
+        .toLowerCase();
+      // Drop common false-positive trailing words (one-word stopwords)
+      // and require ≥3 chars so "no", "an", "to" never become an allergen.
+      if (cleaned.length >= 3 && !/^(none|nil|nka|nkda|known|reported)$/.test(cleaned)) {
+        found.add(cleaned);
+      }
+    }
+  }
+  return [...found];
+}
+
+function medicationConflictsWithAllergen(medName, allergen) {
+  const med = String(medName || '').toLowerCase();
+  const allergy = String(allergen || '').toLowerCase();
+  if (!med || !allergy) return false;
+  if (med.includes(allergy) || allergy.includes(med)) return true;
+  // Beta-lactam cross-reactivity (penicillin allergy ↔ amoxicillin etc.)
+  const allergyIsBetaLactam = BETA_LACTAM_ALLERGENS.some((a) => allergy.includes(a));
+  if (allergyIsBetaLactam && BETA_LACTAM_DRUGS.some((d) => med.includes(d))) return true;
+  return false;
+}
+
 /**
  * Best-effort patient context lookup for paediatric weight-based dosing.
  * Reads age (DOB) + most-recent recorded weight. Returns null if either
@@ -123,6 +173,69 @@ export async function validatePrescriptionSafety(patientId, medications) {
             } else {
               warnings.push(issue);
             }
+          }
+        }
+      }
+    }
+
+    // 1b. Unstructured allergy scan. Doctors routinely write "Allergy:
+    //     Penicillin" in the appointment note instead of (or before)
+    //     adding a structured patient_allergies row. The structured-only
+    //     check above misses the allergen entirely and reports the
+    //     beta-lactam prescription as safe — clinical-safety failure.
+    //     Scan recent free-text notes for the patient and treat any
+    //     extracted allergen as a blocker (severity UNSTRUCTURED), with
+    //     beta-lactam cross-reactivity wired in for the canonical
+    //     penicillin→amoxicillin case. The override path remains
+    //     available for cases where the note has been reviewed.
+    //     Finding:
+    //     2026-05-10-dynamic-acute-abdomen-doctor-allergy-safety-misses-penicillin.
+    const noteRows = await prisma.$queryRawUnsafe(
+      `SELECT 'appointment' AS source, COALESCE(notes, '') || ' ' || COALESCE(reason, '') AS body
+         FROM appointments
+        WHERE patient_id = $1::int
+          AND created_at >= NOW() - INTERVAL '365 days'
+        ORDER BY created_at DESC
+        LIMIT 50
+        UNION ALL
+       SELECT 'clinical_note' AS source, COALESCE(notes, '') AS body
+         FROM clinical_notes cn
+         JOIN users u ON u.uid = cn.patient_uid
+        WHERE u.id = $1::int
+          AND cn.created_at >= NOW() - INTERVAL '365 days'
+          AND COALESCE(cn.status, 'current') NOT IN ('superseded', 'deleted')
+        ORDER BY body
+        LIMIT 50`,
+      patientId,
+    );
+
+    const noteAllergens = new Set();
+    for (const row of noteRows) {
+      for (const allergen of extractAllergiesFromNote(row.body)) {
+        noteAllergens.add(allergen);
+      }
+    }
+    if (noteAllergens.size) {
+      for (const med of medications) {
+        const medName = med.name || med.medication_name || '';
+        for (const allergen of noteAllergens) {
+          // Skip if the structured check already produced a match for
+          // this (medication, allergen) pair — avoid duplicate blockers.
+          const alreadyFlagged = blockers.concat(warnings).some(
+            (b) =>
+              b.type === 'ALLERGY_CONFLICT' &&
+              String(b.medication || '').toLowerCase() === medName.toLowerCase() &&
+              String(b.allergy || '').toLowerCase() === allergen,
+          );
+          if (alreadyFlagged) continue;
+          if (medicationConflictsWithAllergen(medName, allergen)) {
+            blockers.push({
+              type: 'ALLERGY_CONFLICT_UNSTRUCTURED',
+              medication: medName,
+              allergy: allergen,
+              severity: 'UNSTRUCTURED',
+              message: `Patient note records allergy "${allergen}" — "${medName}" may cause a reaction. Confirm and add a structured patient_allergies entry, or override with reason.`,
+            });
           }
         }
       }
