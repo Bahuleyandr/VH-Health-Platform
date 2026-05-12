@@ -633,8 +633,16 @@ export const registerWalkIn = async (req, res) => {
       lmp_date, edd_date, gravida, parity, living_children, abortions,
     } = req.body;
     // Resolved time honours either field; falls back to 'Walk-in' only
-    // when nothing was supplied.
-    const resolvedTime = appointment_time || time || 'Walk-in';
+    // when nothing was supplied. `appointments.appointment_time` is
+    // VARCHAR(10), so free-text inputs like "Walk-in immediate" used to
+    // crash the whole walk-in with `value too long for type character
+    // varying(10)`. Reject anything longer than 10 chars by falling back
+    // to the canonical 'Walk-in' literal. See finding
+    // 2026-05-10-dynamic-acute-abdomen-receptionist-walkin-endpoint-500.
+    const rawResolvedTime = String(appointment_time || time || 'Walk-in').trim();
+    const resolvedTime = rawResolvedTime.length > 0 && rawResolvedTime.length <= 10
+      ? rawResolvedTime
+      : 'Walk-in';
     const VALID_VISIT_TYPES = new Set(['NEW', 'FOLLOW_UP', 'EMERGENCY', 'TELE']);
     const resolvedVisitType = visit_type && VALID_VISIT_TYPES.has(String(visit_type).toUpperCase())
       ? String(visit_type).toUpperCase()
@@ -800,8 +808,12 @@ export const registerWalkIn = async (req, res) => {
       // have a pregnancy_id to attach to. Skipped if lmp_date is
       // missing (walk-in might just be a routine OBGYN consult).
       if (deptPrefix(appointmentDepartment) === 'ANC' && lmp_date) {
+        // Cast the bound `id` parameter explicitly so a Prisma binding that
+        // ever lands as text doesn't trigger `operator does not exist:
+        // integer = text` against `users.id`. See finding
+        // 2026-05-09-obstetric-anc-receptionist-walkin-anc-500-prisma-integer-bug.
         const patientRow = await tx.$queryRawUnsafe(
-          'SELECT uid FROM users WHERE id = $1 LIMIT 1', patientId,
+          'SELECT uid FROM users WHERE id = $1::int LIMIT 1', patientId,
         );
         const patientUid = patientRow[0]?.uid;
         if (patientUid) {
@@ -844,9 +856,10 @@ export const registerWalkIn = async (req, res) => {
       let erVisit = null;
       if (deptPrefix(appointmentDepartment) === 'EMER') {
         // Pull the patient_uid for the FK. Walk-ins create users by
-        // phone earlier in this txn, so the lookup is reliable.
+        // phone earlier in this txn, so the lookup is reliable. Explicit
+        // `$1::int` cast mirrors the ANC branch defense-in-depth.
         const patientRow = await tx.$queryRawUnsafe(
-          'SELECT uid FROM users WHERE id = $1 LIMIT 1',
+          'SELECT uid FROM users WHERE id = $1::int LIMIT 1',
           patientId,
         );
         const patientUid = patientRow[0]?.uid ?? null;
