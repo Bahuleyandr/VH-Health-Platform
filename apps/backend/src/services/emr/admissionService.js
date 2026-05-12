@@ -1224,29 +1224,6 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
           },
         });
 
-        const requester = await tx.users.findUnique({
-          where: { uid: dischargedBy },
-          select: { id: true, uid: true },
-        });
-        if (requester) {
-          const bedLabel = [bedCheck[0].ward_name, bedCheck[0].bed_number].filter(Boolean).join(' / ')
-            || `Bed ${admission.bed_id}`;
-          await tx.housekeeping_requests.create({
-            data: {
-              requester_id: requester.id,
-              requester_uid: requester.uid,
-              location_text: bedLabel,
-              request_type: 'cleaning',
-              urgency: 'high',
-              description: `Discharge cleaning required for ${bedLabel} after admission #${admission.id}.`,
-              status: 'open',
-              updated_at: new Date(),
-            },
-          });
-        } else {
-          logger.warn(`dischargePatient: housekeeping request skipped; no users row for ${dischargedBy}`);
-        }
-
         bedTurnover = {
           bed_id: admission.bed_id,
           bed_number: bedCheck[0].bed_number,
@@ -1271,10 +1248,55 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
     return { updated, losDays, bedTurnover };
   });
 
-  // Phase 1.5: attendant-pass expiry — runs OUTSIDE the tx so a
-  // failure here cannot leave the discharge tx aborted. Best-effort:
-  // the pass cleanup is an audit hygiene step, not part of the
-  // discharge invariant.
+  // Phase 1.5: best-effort downstream side effects — housekeeping
+  // turnover ticket + attendant-pass expiry. These run OUTSIDE the tx
+  // so a failure here cannot leave the discharge tx aborted. Each is
+  // wrapped in its own try/catch, log-on-failure.
+  //
+  // Housekeeping ticket: bed is already flipped to `cleaning` in
+  // Phase 1, so the bed-board view shows it as awaiting turnover. The
+  // explicit `housekeeping_requests` row is the work item the cleaning
+  // staff app + admin dashboard query (mounted at /api/v1/housekeeping
+  // — see 3b5ed06e). Pre-fix this row was created INSIDE the tx, so
+  // any tx-poison upstream rolled it back along with the bed flip and
+  // the cleaning team saw nothing. Finding:
+  //   2026-05-09-inpatient-admission-housekeeping-no-ticket-on-discharge.
+  if (phase1.bedTurnover) {
+    try {
+      const requester = await prisma.users.findUnique({
+        where: { uid: dischargedBy },
+        select: { id: true, uid: true },
+      });
+      if (requester) {
+        const { bed_id, bed_number, ward_name } = phase1.bedTurnover;
+        const bedLabel = [ward_name, bed_number].filter(Boolean).join(' / ')
+          || `Bed ${bed_id}`;
+        // 120-min SLA for high urgency, matching the canonical SLA
+        // map in housekeepingController.js. Setting it lets the
+        // SLA-breach dashboard work for auto-created discharge
+        // tickets just like manually raised ones.
+        const slaDueAt = new Date(Date.now() + 120 * 60 * 1000);
+        await prisma.housekeeping_requests.create({
+          data: {
+            requester_id: requester.id,
+            requester_uid: requester.uid,
+            location_text: bedLabel,
+            request_type: 'cleaning',
+            urgency: 'high',
+            description: `Discharge cleaning required for ${bedLabel} after admission #${admissionId}.`,
+            status: 'open',
+            sla_due_at: slaDueAt,
+            updated_at: new Date(),
+          },
+        });
+      } else {
+        logger.warn(`dischargePatient: housekeeping request skipped; no users row for ${dischargedBy}`);
+      }
+    } catch (e) {
+      logger.warn(`dischargePatient: housekeeping request failed for admission ${admissionId} (continuing): ${e.message}`);
+    }
+  }
+
   try {
     const expired = await expireAttendantPassesForAdmission(prisma, admissionId);
     if (expired.count > 0) {
