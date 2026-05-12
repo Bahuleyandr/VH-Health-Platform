@@ -1808,6 +1808,76 @@ async function getAdmissionStats(dateFrom, dateTo) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Lookup helpers used by the /emr/admit route's backwards-compat shim
+// (Wave 4B-2). They resolve the staff app's free-text patient_query and
+// bed string into the canonical {patient_uid, bed_id} pair before
+// calling admitPatient. Kept here (not in the route) so other admission
+// flows can reuse them if/when needed.
+// ---------------------------------------------------------------------------
+
+async function findPatientByPhoneOrName({ phone, name }) {
+  if (phone) {
+    const last10 = String(phone).replace(/\D/g, '').slice(-10);
+    return prisma.$queryRawUnsafe(
+      `SELECT uid, id, name, phone
+         FROM users
+        WHERE role = 'PATIENT'
+          AND (
+            phone = $1
+            OR phone = $2
+            OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $3
+          )
+        LIMIT 2`,
+      String(phone),
+      `+91${last10}`,
+      `%${last10}`,
+    );
+  }
+  if (name) {
+    return prisma.$queryRawUnsafe(
+      `SELECT uid, id, name, phone
+         FROM users
+        WHERE role = 'PATIENT' AND name ILIKE $1
+        LIMIT 2`,
+      `%${String(name).trim()}%`,
+    );
+  }
+  return [];
+}
+
+async function findBedByLabel(bedLabel, wardLabel = null) {
+  if (!bedLabel) return null;
+  const trimmed = String(bedLabel).trim();
+  // Try exact `bed_number` match first; fall back to ILIKE so
+  // "ICU-12" matches "ICU-12" but tolerates suffixes / prefixes.
+  const params = [trimmed];
+  let where = `bed_number = $1`;
+  if (wardLabel && String(wardLabel).trim()) {
+    params.push(String(wardLabel).trim());
+    where += ` AND ward_name ILIKE $${params.length}`;
+  }
+  let rows = await prisma.$queryRawUnsafe(
+    `SELECT id, bed_number, ward_name, status FROM beds WHERE ${where} LIMIT 2`,
+    ...params,
+  );
+  if (rows.length === 1) return rows[0];
+  if (rows.length > 1) return null; // ambiguous
+
+  const ilikeParams = [`%${trimmed}%`];
+  let ilikeWhere = `bed_number ILIKE $1`;
+  if (wardLabel && String(wardLabel).trim()) {
+    ilikeParams.push(`%${String(wardLabel).trim()}%`);
+    ilikeWhere += ` AND ward_name ILIKE $${ilikeParams.length}`;
+  }
+  rows = await prisma.$queryRawUnsafe(
+    `SELECT id, bed_number, ward_name, status FROM beds WHERE ${ilikeWhere} LIMIT 2`,
+    ...ilikeParams,
+  );
+  if (rows.length === 1) return rows[0];
+  return null;
+}
+
 export default {
   admitPatient,
   assignBedToAdmission,
@@ -1823,4 +1893,7 @@ export default {
   updateCodeStatus,
   updateAttendingDoctor,
   getAdmissionStats,
+  // Wave 4B-2 — staff-app admit-sheet shim helpers.
+  findPatientByPhoneOrName,
+  findBedByLabel,
 };

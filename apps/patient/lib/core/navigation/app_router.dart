@@ -40,6 +40,7 @@ import 'package:vhhealth/features/portal/screens/bill_detail_screen.dart';
 import 'package:vhhealth/features/portal/screens/lab_results_screen.dart';
 import 'package:vhhealth/features/portal/screens/messages_screen.dart';
 import 'package:vhhealth/features/portal/screens/message_thread_screen.dart';
+import 'package:vhhealth/features/portal/screens/tpa_claims_screen.dart';
 import 'package:vhhealth/core/widgets/main_scaffold_go_router.dart';
 
 class AppRouter {
@@ -334,6 +335,16 @@ class AppRouter {
       GoRoute(
         path: '/portal/lab-results',
         builder: (context, state) => const LabResultsScreen(),
+      ),
+      GoRoute(
+        path: '/portal/tpa/claims',
+        builder: (context, state) => const TpaClaimsScreen(),
+      ),
+      GoRoute(
+        path: '/portal/tpa/claims/:id',
+        builder: (context, state) => TpaClaimDetailScreen(
+          claimId: int.parse(state.pathParameters['id']!),
+        ),
       ),
       GoRoute(
         path: '/portal/messages',

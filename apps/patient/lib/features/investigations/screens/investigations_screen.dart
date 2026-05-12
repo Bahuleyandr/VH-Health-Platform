@@ -814,6 +814,33 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
           final files = _fileCache[id];
           final isLoadingFileList = _loadingFiles.contains(id);
 
+          // Collection instructions (migration 203). Only rendered for
+          // pending orders — once completed, the location/deadline/fasting
+          // banner is stale and the patient's focus shifts to results.
+          final collectionLocation = inv['collection_location']?.toString();
+          final collectionDeadlineRaw = inv['collection_deadline_at']
+              ?.toString();
+          DateTime? collectionDeadline;
+          if (collectionDeadlineRaw != null &&
+              collectionDeadlineRaw.isNotEmpty) {
+            try {
+              collectionDeadline = DateTime.parse(
+                collectionDeadlineRaw,
+              ).toLocal();
+            } catch (_) {
+              collectionDeadline = null;
+            }
+          }
+          final fastingRequired = inv['fasting_required'] == true;
+          final fastingInstructions = inv['fasting_instructions']?.toString();
+          final hasInstructions =
+              !isCompleted &&
+              ((collectionLocation != null && collectionLocation.isNotEmpty) ||
+                  collectionDeadline != null ||
+                  fastingRequired ||
+                  (fastingInstructions != null &&
+                      fastingInstructions.isNotEmpty));
+
           return Card(
             margin: const EdgeInsets.only(bottom: 10),
             child: InkWell(
@@ -865,6 +892,14 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                         : null,
                     isThreeLine: true,
                   ),
+                  if (hasInstructions)
+                    _buildCollectionInstructions(
+                      theme,
+                      location: collectionLocation,
+                      deadline: collectionDeadline,
+                      fastingRequired: fastingRequired,
+                      fastingInstructions: fastingInstructions,
+                    ),
                   // Results — gauge if numeric value + parseable reference range, else text
                   if (results != null && results.toString().isNotEmpty)
                     Padding(
@@ -944,6 +979,105 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
             ),
           );
         },
+      ),
+    );
+  }
+
+  /// Renders the lab-order intake panel: where to give the sample, by
+  /// when, and whether fasting is required. Migration 203 surfaces these
+  /// fields on `investigations`; the patient app previously had no way
+  /// to display them and a CBC sample was realistically missed because
+  /// the patient could not tell where to go.
+  Widget _buildCollectionInstructions(
+    ThemeData theme, {
+    String? location,
+    DateTime? deadline,
+    required bool fastingRequired,
+    String? fastingInstructions,
+  }) {
+    final cs = theme.colorScheme;
+    final children = <Widget>[];
+    if (location != null && location.isNotEmpty) {
+      children.add(
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.place_outlined, size: 18, color: cs.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                location,
+                style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurface),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (deadline != null) {
+      final deadlineFmt = DateFormat('EEE, dd MMM • h:mm a');
+      children.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.schedule_outlined, size: 18, color: cs.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Collect by ${deadlineFmt.format(deadline)}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (fastingRequired) {
+      final fastingText =
+          (fastingInstructions != null && fastingInstructions.isNotEmpty)
+          ? fastingInstructions
+          : 'Fasting required before this test.';
+      children.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: cs.errorContainer.withAlpha(150),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: cs.error.withAlpha(120)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.no_food_outlined, size: 18, color: cs.error),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    fastingText,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onErrorContainer,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children,
       ),
     );
   }

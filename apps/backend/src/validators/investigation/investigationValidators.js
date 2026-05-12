@@ -27,6 +27,11 @@ export const investigationRequestValidator = [
   }),
   body('notes').optional().trim().isLength({ max: 1000 }).withMessage('Notes too long'),
   body('cost').optional().isFloat({ min: 0 }).withMessage('Valid cost required'),
+  // Migration 203 — patient-actionable collection instructions.
+  body('collection_location').optional().trim().isLength({ max: 255 }).withMessage('Collection location too long'),
+  body('collection_deadline_at').optional().isISO8601().withMessage('Valid collection deadline required'),
+  body('fasting_required').optional().isBoolean().withMessage('fasting_required must be boolean'),
+  body('fasting_instructions').optional().trim().isLength({ max: 2000 }).withMessage('Fasting instructions too long'),
   // Legacy fields
   body('phone').optional().isMobilePhone('en-IN').withMessage('Valid phone number required'),
   body('file_key').optional().isString().withMessage('File key must be a string')

@@ -1,11 +1,14 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:vhhealth_core/vhhealth_core.dart' show ApiConfig;
 
 // Firebase Options
 import 'firebase_options.dart';
@@ -38,6 +41,24 @@ import 'package:vhhealth/generated/app_localizations.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // When running in debug mode against a non-production backend
+  // (e.g. http://127.0.0.1:5206 for local QA), disable Firebase phone-auth
+  // reCAPTCHA verification. The dev hostname is not in the Firebase project's
+  // authorised-domains list, so reCAPTCHA Enterprise config calls return 403
+  // and the OTP entry screen stalls indefinitely.
+  // appVerificationDisabledForTesting lets test phone numbers (configured
+  // in the Firebase console) skip the reCAPTCHA path entirely; it is a
+  // strict no-op against api.vhhealth.app where the domain is authorised.
+  if (kDebugMode && ApiConfig.baseUrl.startsWith('http://')) {
+    try {
+      await FirebaseAuth.instance.setSettings(
+        appVerificationDisabledForTesting: true,
+      );
+    } catch (e) {
+      debugPrint('Firebase test-mode setSettings skipped: $e');
+    }
+  }
 
   // Install the Firebase-backed crash reporter so core + app code all route
   // non-fatal errors through the same abstraction.

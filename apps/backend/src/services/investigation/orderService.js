@@ -29,12 +29,19 @@ const INVESTIGATION_SELECT = {
   requested_at: true,
   updated_at: true,
   turnaround_target_hours: true,
+  notes: true,
+  collection_location: true,
+  collection_deadline_at: true,
+  fasting_required: true,
+  fasting_instructions: true,
 };
 
 export const createInvestigationOrder = async (orderData) => {
   const {
     patient_id, doctor_uid, test_name, test_code, type,
     priority = 'NORMAL', notes, orderedBy,
+    collection_location, collection_deadline_at,
+    fasting_required, fasting_instructions,
   } = orderData;
 
   if (!patient_id || !(doctor_uid || orderedBy) || !test_name || !type) {
@@ -90,6 +97,17 @@ export const createInvestigationOrder = async (orderData) => {
   const requesterUuid = doctor_uid || orderedBy;
   const now = new Date();
 
+  // Migration 203: collection_location / collection_deadline_at /
+  // fasting_required / fasting_instructions are patient-actionable
+  // intake instructions surfaced on the patient investigations list.
+  // Parse the deadline once so a malformed string fails fast at order
+  // time instead of stamping NULL silently.
+  let parsedDeadline = null;
+  if (collection_deadline_at) {
+    const d = new Date(collection_deadline_at);
+    if (!Number.isNaN(d.getTime())) parsedDeadline = d;
+  }
+
   const investigation = await prisma.investigations.create({
     data: {
       phone: patient.phone || 'unknown',
@@ -101,6 +119,15 @@ export const createInvestigationOrder = async (orderData) => {
       priority: priority.toUpperCase(),
       requested_by: requesterUuid,
       updated_at: now,
+      notes: notes && String(notes).trim() ? String(notes).trim() : null,
+      collection_location: collection_location
+        ? String(collection_location).trim().slice(0, 255)
+        : null,
+      collection_deadline_at: parsedDeadline,
+      fasting_required: fasting_required === true || fasting_required === 'true',
+      fasting_instructions: fasting_instructions
+        ? String(fasting_instructions).trim()
+        : null,
     },
     select: INVESTIGATION_SELECT,
   });
@@ -120,7 +147,6 @@ export const createInvestigationOrder = async (orderData) => {
     },
   }).catch((err) => logger.warn(`investigation notification insert failed: ${err.message}`));
 
-  if (notes) logger.info(`Investigation notes captured (not persisted — schema lacks notes col): ${notes.slice(0, 40)}…`);
   logger.info(`Investigation ordered: ${test_name} for patient ${patient_id} by ${requesterUuid}`);
 
   return {

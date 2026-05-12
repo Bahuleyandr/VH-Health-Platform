@@ -170,30 +170,97 @@ class OrderListTabState extends State<OrderListTab> {
                 const SizedBox(height: 16),
               ],
 
-              // Items list
+              // Items list \u2014 surfaces the dispensed medication schedule
+              // (route + frequency + duration + instructions per item) so
+              // the patient / caregiver can safely administer multi-drug
+              // regimens at home. Each field renders only when populated;
+              // legacy orders that only carry name + qty + price keep
+              // their old compact look.
               if (itemsList.isNotEmpty) ...[
                 const Text(
                   'Items',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
-                ...itemsList.map(
-                  (item) => Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                ...itemsList.map((item) {
+                  final scheduleParts = <String>[
+                    if (item is Map &&
+                        item['dose'] != null &&
+                        '${item['dose']}'.isNotEmpty)
+                      '${item['dose']}',
+                    if (item is Map &&
+                        item['route'] != null &&
+                        '${item['route']}'.isNotEmpty)
+                      '${item['route']}',
+                    if (item is Map &&
+                        item['frequency'] != null &&
+                        '${item['frequency']}'.isNotEmpty)
+                      '${item['frequency']}',
+                    if (item is Map &&
+                        item['duration'] != null &&
+                        '${item['duration']}'.isNotEmpty)
+                      '${item['duration']}',
+                  ];
+                  final instructions = item is Map
+                      ? item['instructions']
+                      : null;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Text('${item['name']} x${item['qty'] ?? 1}'),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${item is Map ? (item['name'] ?? '') : ''} x${item is Map ? (item['qty'] ?? 1) : 1}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            if (item is Map && item['price'] != null)
+                              Text(
+                                '\u20B9${item['price']}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                          ],
                         ),
-                        Text(
-                          '\u20B9${item['price'] ?? '-'}',
-                          style: const TextStyle(fontWeight: FontWeight.w500),
-                        ),
+                        if (scheduleParts.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              scheduleParts.join(' \u2022 '),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        if (instructions != null &&
+                            '$instructions'.trim().isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              '$instructions',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontStyle: FontStyle.italic,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
                       ],
                     ),
-                  ),
-                ),
+                  );
+                }),
                 const Divider(),
               ],
 
