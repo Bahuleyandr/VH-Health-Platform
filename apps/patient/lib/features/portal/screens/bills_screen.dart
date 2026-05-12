@@ -32,8 +32,9 @@ class _Bill {
   final double due;
 }
 
-double _toDouble(dynamic v) =>
-    v == null ? 0.0 : (v is num ? v.toDouble() : double.tryParse(v.toString()) ?? 0.0);
+double _toDouble(dynamic v) => v == null
+    ? 0.0
+    : (v is num ? v.toDouble() : double.tryParse(v.toString()) ?? 0.0);
 
 String _inr(double n) => '₹${n.toStringAsFixed(0)}';
 
@@ -193,12 +194,7 @@ class _BillCard extends StatelessWidget {
                   const SizedBox(width: 12),
                   _amountBlock(theme, 'Paid', _inr(bill.paid)),
                   const SizedBox(width: 12),
-                  _amountBlock(
-                    theme,
-                    'Due',
-                    _inr(bill.due),
-                    highlight: hasDue,
-                  ),
+                  _amountBlock(theme, 'Due', _inr(bill.due), highlight: hasDue),
                 ],
               ),
             ],

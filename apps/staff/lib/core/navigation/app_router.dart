@@ -532,9 +532,7 @@ final GoRouter appRouter = GoRouter(
           name: 'partograph-entry',
           pageBuilder: (context, state) => NoTransitionPage(
             child: PartographEntryScreen(
-              laborAdmissionId: int.parse(
-                state.pathParameters['laborId']!,
-              ),
+              laborAdmissionId: int.parse(state.pathParameters['laborId']!),
             ),
           ),
         ),
@@ -543,9 +541,7 @@ final GoRouter appRouter = GoRouter(
           name: 'partograph-chart',
           pageBuilder: (context, state) => NoTransitionPage(
             child: PartographViewScreen(
-              laborAdmissionId: int.parse(
-                state.pathParameters['laborId']!,
-              ),
+              laborAdmissionId: int.parse(state.pathParameters['laborId']!),
             ),
           ),
         ),

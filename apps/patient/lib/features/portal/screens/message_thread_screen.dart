@@ -100,9 +100,7 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
         });
         if (initialLoad) {
           // Mark read once on open.
-          unawaited(
-            ApiClient.post('/portal/messages/${widget.threadId}/read'),
-          );
+          unawaited(ApiClient.post('/portal/messages/${widget.threadId}/read'));
         }
         // Scroll to bottom after frame paints.
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -174,22 +172,19 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            _error!,
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      )
-                    : ListView.builder(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _messages.length,
-                        itemBuilder: (_, i) =>
-                            _MessageBubble(message: _messages[i]),
-                      ),
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(_error!, textAlign: TextAlign.center),
+                    ),
+                  )
+                : ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _messages.length,
+                    itemBuilder: (_, i) =>
+                        _MessageBubble(message: _messages[i]),
+                  ),
           ),
           if (_thread?.status != 'closed') _buildComposer(),
         ],
@@ -269,8 +264,9 @@ class _MessageBubble extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
-        mainAxisAlignment:
-            isPatient ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: isPatient
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         children: [
           ConstrainedBox(
             constraints: BoxConstraints(

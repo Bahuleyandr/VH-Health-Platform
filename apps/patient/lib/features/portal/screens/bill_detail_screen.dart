@@ -106,8 +106,9 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
     }
   }
 
-  double _toDouble(dynamic v) =>
-      v == null ? 0.0 : (v is num ? v.toDouble() : double.tryParse(v.toString()) ?? 0.0);
+  double _toDouble(dynamic v) => v == null
+      ? 0.0
+      : (v is num ? v.toDouble() : double.tryParse(v.toString()) ?? 0.0);
   String _inr(double n) => '₹${n.toStringAsFixed(2)}';
 
   @override
@@ -117,7 +118,8 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
     final hasDue = due > 0.01;
 
     return FeatureScreenScaffold(
-      title: _invoice?['invoice_number']?.toString() ??
+      title:
+          _invoice?['invoice_number']?.toString() ??
           'Invoice #${widget.invoiceId}',
       icon: Icons.receipt_long,
       color: const Color(0xFFB3E5FC),
@@ -130,37 +132,37 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
               ),
             )
           : _error != null
-              ? Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.error_outline,
-                        size: 48,
-                        color: theme.colorScheme.error,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(_error!, textAlign: TextAlign.center),
-                      const SizedBox(height: 16),
-                      ElevatedButton(onPressed: _fetch, child: const Text('Retry')),
-                    ],
+          ? Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.error_outline,
+                    size: 48,
+                    color: theme.colorScheme.error,
                   ),
-                )
-              : Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _summaryCard(theme, due, hasDue),
-                      const SizedBox(height: 16),
-                      if (hasDue) _payCard(theme, due),
-                      if (hasDue) const SizedBox(height: 16),
-                      _itemsSection(theme),
-                      const SizedBox(height: 16),
-                      _paymentsSection(theme),
-                    ],
-                  ),
-                ),
+                  const SizedBox(height: 16),
+                  Text(_error!, textAlign: TextAlign.center),
+                  const SizedBox(height: 16),
+                  ElevatedButton(onPressed: _fetch, child: const Text('Retry')),
+                ],
+              ),
+            )
+          : Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _summaryCard(theme, due, hasDue),
+                  const SizedBox(height: 16),
+                  if (hasDue) _payCard(theme, due),
+                  if (hasDue) const SizedBox(height: 16),
+                  _itemsSection(theme),
+                  const SizedBox(height: 16),
+                  _paymentsSection(theme),
+                ],
+              ),
+            ),
     );
   }
 
@@ -190,11 +192,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
             ],
             if (discount > 0) _row('Discount', '− ${_inr(discount)}'),
             const Divider(height: 24),
-            _row(
-              'Total',
-              _inr(_toDouble(inv['total_amount'])),
-              bold: true,
-            ),
+            _row('Total', _inr(_toDouble(inv['total_amount'])), bold: true),
             _row('Paid', _inr(_toDouble(inv['amount_paid']))),
             _row(
               'Due',

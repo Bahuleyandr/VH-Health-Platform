@@ -486,8 +486,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         icon: LucideIcons.receipt,
         label: 'Bills',
         color: const Color(0xFFB3E5FC),
-        description:
-            'View hospital bills, see what is due, and pay via UPI',
+        description: 'View hospital bills, see what is due, and pay via UPI',
         onTap: (ctx) => _openFeature(ctx, '/portal/bills'),
       ),
       FeatureIconData(
