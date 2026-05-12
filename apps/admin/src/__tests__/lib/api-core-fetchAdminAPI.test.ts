@@ -56,6 +56,68 @@ describe("fetchAdminAPI endpoint normalization", () => {
   });
 });
 
+describe("fetchAdminAPI body serialization", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("JSON-stringifies a raw object body (canonical pattern)", async () => {
+    mockedApiFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 1 } }));
+
+    await fetchAdminAPI("/users", { method: "POST", body: { name: "x" } });
+
+    expect(mockedApiFetch).toHaveBeenCalledWith(
+      "/api/v1/users",
+      expect.objectContaining({
+        method: "POST",
+        body: '{"name":"x"}',
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  });
+
+  it("passes a pre-stringified body through unchanged (no double-stringify)", async () => {
+    mockedApiFetch.mockResolvedValueOnce(jsonResponse({ data: { id: 1 } }));
+
+    // Several existing call sites (PaymentLinksTab, ClaimsTab, etc.) pre-stringify.
+    // The helper must NOT wrap that string in another JSON.stringify pass —
+    // doing so produces `"\"{\\\"name\\\":\\\"x\\\"}\""` which the backend rejects.
+    await fetchAdminAPI("/users", {
+      method: "POST",
+      body: JSON.stringify({ name: "x" }),
+    });
+
+    expect(mockedApiFetch).toHaveBeenCalledWith(
+      "/api/v1/users",
+      expect.objectContaining({
+        method: "POST",
+        body: '{"name":"x"}',
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  });
+
+  it("omits body + Content-Type when body is undefined", async () => {
+    mockedApiFetch.mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    await fetchAdminAPI("/admin/test", { method: "GET" });
+
+    const call = mockedApiFetch.mock.calls[0][1] as RequestInit;
+    expect(call.body).toBeUndefined();
+    expect(call.headers).toBeUndefined();
+  });
+
+  it("omits body when caller passes null (same shape as undefined)", async () => {
+    mockedApiFetch.mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    await fetchAdminAPI("/admin/test", { method: "POST", body: null });
+
+    const call = mockedApiFetch.mock.calls[0][1] as RequestInit;
+    expect(call.body).toBeUndefined();
+    expect(call.headers).toBeUndefined();
+  });
+});
+
 describe("fetchAdminAPI response/error behavior", () => {
   beforeEach(() => {
     jest.clearAllMocks();
