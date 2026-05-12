@@ -69,7 +69,7 @@ const header = `--
 --          -e POSTGRES_PASSWORD=test -e POSTGRES_DB=vhhealth \\
 --          -p 56432:5432 pgvector/pgvector:pg16
 --   2. Apply baseline + migrations:
---        DATABASE_URL='postgresql://vhhealth:test@127.0.0.1:56432/vhhealth' \\
+--        DATABASE_URL="postgresql://vhhealth:<password>@127.0.0.1:56432/vhhealth" \\
 --          node scripts/ci-setup-db.mjs
 --      (run from inside WSL — Windows localhost-to-WSL forwarding is flaky)
 --   3. Dump + rewrite the header:
