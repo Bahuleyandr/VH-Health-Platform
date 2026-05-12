@@ -7,10 +7,15 @@
 //
 // Mounted under /api/v1/ipd. RBAC follows the existing platform pattern
 // — admin/billing/pharmacy roles gated upstream in app.js.
+//
+// We import ipdSupportService as a default-namespace and call its named
+// methods (`ipdSupportService.X`) — both rules below would otherwise
+// warn on every callsite. The pattern is correct (service exports both
+// named + a default object).
+/* eslint-disable import/no-named-as-default-member */
 
 import express from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import logger from '../../logging/logger.js';
 import ipdSupportService from '../../services/ipd/ipdSupportService.js';
 import { wrapAsync } from '../../config/routeWrapper.js';
 import { success, error } from '../../utils/responseHelper.js';

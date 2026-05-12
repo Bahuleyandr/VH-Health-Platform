@@ -117,7 +117,7 @@ function lookupMedian(table, sex, ageMonths) {
   return table[lo][sexIdx] + t * (table[hi][sexIdx] - table[lo][sexIdx]);
 }
 
-function classifyZ(z, metric) {
+function classifyZ(z, _metric) {
   if (z == null || !Number.isFinite(z)) return null;
   // Generic WHO bands. Severity language differs by metric per the
   // WHO terminology but the cutoffs are consistent.
