@@ -281,13 +281,13 @@ export const addInvestigationResults = async (req, res) => {
   try {
     const userRole = req.user?.role?.toUpperCase();
     const userId = req.user?.uid;
-    
+
     if (!investigationService.canAddResults(userRole)) {
       return error(res, 'Access denied: Lab technician or doctor privileges required', 403);
     }
 
     const { id } = req.params;
-    const { results, interpretation, technician_notes, reviewed_by } = req.body;
+    const { results, interpretation, technician_notes, reviewed_by, re_run, re_run_reason } = req.body;
 
     if (!results) {
       return error(res, 'Results are required', 400);
@@ -295,7 +295,7 @@ export const addInvestigationResults = async (req, res) => {
 
     const investigation = await investigationService.addResults(
       id,
-      { results, interpretation, technician_notes, reviewed_by },
+      { results, interpretation, technician_notes, reviewed_by, re_run, re_run_reason },
       userId
     );
 
@@ -303,7 +303,10 @@ export const addInvestigationResults = async (req, res) => {
       return error(res, 'Investigation not found', 404);
     }
 
-    await logAudit(req, 'investigation-results-added', { investigation_id: id });
+    await logAudit(req, 'investigation-results-added', {
+      investigation_id: id,
+      re_run: re_run === true,
+    });
 
     success(res, {
       investigation,
@@ -311,6 +314,14 @@ export const addInvestigationResults = async (req, res) => {
     }, 'Investigation results added successfully');
 
   } catch (err) {
+    // Surface 409 RESULTS_ALREADY_SUBMITTED + 400 RE_RUN_REASON_REQUIRED
+    // from the service so callers can drive the explicit-re-run UX.
+    if (err?.isOperational && err?.statusCode && err?.code) {
+      return error(res, err.message, err.statusCode, {
+        code: err.code,
+        ...(err.details && typeof err.details === 'object' ? err.details : {}),
+      });
+    }
     logger.error('Add Results Error:', err);
     error(res, 'Failed to add investigation results', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

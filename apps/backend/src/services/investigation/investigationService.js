@@ -4,6 +4,7 @@ import {
   LAB_STAFF_ROLES
 } from '../../config/investigationConfig.js';
 import prisma from '../../lib/prisma.js';
+import { AppError } from '../../utils/AppError.js';
 import { buildPagination } from '../../utils/listQuery.js';
 
 // Relation names Prisma generates for the two FKs pointing at `users`
@@ -512,11 +513,15 @@ export const updateStatus = async (id, status, notes, userId) => {
 // E-5 — versioning. Migration 185 added previous_results (JSONB) and
 // result_version (INTEGER). On a re-submit, the existing results are
 // pushed into previous_results before being overwritten, and
-// result_version is bumped. The API surface stays the same; auditors
-// can walk previous_results to recover any prior version. Finding:
+// result_version is bumped. A re-submit also REQUIRES an explicit
+// `re_run: true` flag plus a non-trivial `re_run_reason` (≥5 chars);
+// without those the service throws a 409 instead of silently
+// overwriting a verified result. Auditors can walk previous_results +
+// the per-version re_run_reason to reconstruct the full timeline.
+// Finding:
 // 2026-05-08-lab-walk-in-lab-tech-results-overwrite-no-history.
 export const addResults = async (id, resultData, userId) => {
-  const { results, interpretation } = resultData;
+  const { results, interpretation, re_run, re_run_reason } = resultData;
   void userId;
 
   const investId = parseInt(id, 10);
@@ -539,6 +544,22 @@ export const addResults = async (id, resultData, userId) => {
       const now = new Date();
       const isReSubmit = existing.results !== null && existing.results !== undefined;
 
+      if (isReSubmit) {
+        if (re_run !== true) {
+          throw AppError.conflict(
+            'Investigation already has results. Pass `re_run: true` with a `re_run_reason` (>=5 chars) to supersede.',
+            'RESULTS_ALREADY_SUBMITTED',
+            { current_version: existing.result_version ?? 1 },
+          );
+        }
+        if (typeof re_run_reason !== 'string' || re_run_reason.trim().length < 5) {
+          throw AppError.badRequest(
+            '`re_run_reason` is required (>=5 chars) when re-submitting a result.',
+            'RE_RUN_REASON_REQUIRED',
+          );
+        }
+      }
+
       let priorHistory = Array.isArray(existing.previous_results) ? existing.previous_results : [];
       if (isReSubmit) {
         priorHistory = [
@@ -550,6 +571,7 @@ export const addResults = async (id, resultData, userId) => {
             completed_at: existing.completed_at ?? null,
             superseded_at: now.toISOString(),
             superseded_by: userId ?? null,
+            re_run_reason: re_run_reason.trim(),
             version: existing.result_version ?? 1,
           },
         ];

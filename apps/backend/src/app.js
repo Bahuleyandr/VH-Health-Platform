@@ -76,6 +76,7 @@ import patientSearchRoutes from './routes/patient/patientSearchRoutes.js';
 import pharmacyRoutes from './routes/pharmacy/index.js';
 import prescriptionRoutes from './routes/prescription/index.js';
 import recordRoutes from './routes/record/index.js';
+import housekeepingRoutes from './routes/housekeepingRoutes.js';
 import searchRoutes from './routes/searchRoutes.js';
 import staffRoutes from './routes/staff/index.js';
 import storageRoutes from './routes/storage/storageRoutes.js';
@@ -509,6 +510,18 @@ app.use('/api/v1/abdm', abdmPatientRoutes);
 // ====================================
 
 app.use('/api/v1/staff', staffRoutes);
+
+// Housekeeping — top-level canonical surface. Same controller already
+// mounted under /api/v1/staff/admin/housekeeping/* and
+// /api/v1/staff/hr/housekeeping/* via staff/index.js; this is the
+// canonical /api/v1/housekeeping/* path the staff app + admin portal
+// expect. Finding:
+// 2026-05-09-inpatient-admission-housekeeping-api-routes-absent.
+app.use(
+  '/api/v1/housekeeping',
+  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'GENERAL_STAFF'),
+  housekeepingRoutes,
+);
 
 // Bed/Ward management
 app.use('/api/v1/beds', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), bedRouter);
