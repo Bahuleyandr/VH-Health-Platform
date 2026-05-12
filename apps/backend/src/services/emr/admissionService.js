@@ -693,10 +693,20 @@ async function markForDischarge(admissionId, requestedBy) {
   if (!admissionId) throw AppError.badRequest('admissionId is required');
   if (!requestedBy) throw AppError.badRequest('requestedBy is required');
 
-  // Phase 1: tx-bounded state changes (stamp markers, open consults,
-  // open final claim placeholder if applicable). Generation of the
-  // draft summary happens AFTER this commits because it can call out
-  // to the LLM and take seconds.
+  // Phase 1: tx-bounded state changes (stamp markers, open consults).
+  // The TPA final-claim placeholder used to live here too, wrapped in
+  // an inner try/catch. That pattern was unsafe — any Prisma error
+  // inside the tx callback (FK violation, unique conflict, validation)
+  // leaves the underlying Postgres transaction in an aborted state.
+  // The inner catch swallows the JS exception, but the next `tx.X.Y()`
+  // call inside the same `$transaction` block then fails with
+  // "current transaction is aborted, commands ignored until end of
+  // transaction block" — surfacing as a generic 500. Findings:
+  //   2026-05-10-tpa-insurance-claim-discharge-cascade-500
+  //   2026-05-10-inpatient-admission-discharge-mark-for-discharge-500
+  // The final-claim opening is best-effort by design (TPA desk
+  // ultimately fills the amount once the bill closes), so it now runs
+  // OUTSIDE the transaction after Phase 1 commits.
   const phase1 = await prisma.$transaction(async (tx) => {
     const admRows = await tx.$queryRaw`
       SELECT id, patient_uid, status, encounter_id, insurance_info,
@@ -743,49 +753,6 @@ async function markForDischarge(admissionId, requestedBy) {
       ),
     );
 
-    // Best-effort TPA final-claim placeholder. Find the most recent
-    // open claim for this patient on this admission's tenant (claim
-    // table is per-tenant), open a child with stage='final', amount=0
-    // — TPA desk fills in actual amount once the bill is closed.
-    let finalClaim = null;
-    const hasInsurance =
-      admission.insurance_info != null
-      || (await tx.insurance_claims.count({ where: { patient_uid: admission.patient_uid, status: { not: 'paid' } } })) > 0;
-    if (hasInsurance) {
-      try {
-        const parent = await tx.insurance_claims.findFirst({
-          where: { patient_uid: admission.patient_uid, stage: { in: ['preauth', 'enhancement'] } },
-          orderBy: [{ submitted_at: 'desc' }],
-        });
-        if (parent) {
-          const existingFinal = await tx.insurance_claims.count({
-            where: { parent_claim_id: parent.id, stage: 'final' },
-          });
-          const finalNumber = `${parent.claim_number}-F${existingFinal + 1}`;
-          finalClaim = await tx.insurance_claims.create({
-            data: {
-              claim_number: finalNumber,
-              patient_uid: parent.patient_uid,
-              invoice_id: parent.invoice_id,
-              insurance_provider: parent.insurance_provider,
-              policy_number: parent.policy_number,
-              claim_amount: 0, // placeholder — TPA desk updates with consolidated bill total
-              status: 'submitted',
-              stage: 'final',
-              parent_claim_id: parent.id,
-              documents: { final: { opened_by: requestedBy, opened_at: now.toISOString(), trigger: 'discharge_initiated' } },
-              submitted_at: now,
-              updated_at: now,
-            },
-          });
-        } else {
-          logger.warn(`markForDischarge: insurance flagged but no parent claim found for patient ${admission.patient_uid}; skipping final claim`);
-        }
-      } catch (e) {
-        logger.warn(`markForDischarge: final claim creation failed (continuing): ${e.message}`);
-      }
-    }
-
     await tx.audit_logs.create({
       data: {
         uid: requestedBy,
@@ -795,15 +762,78 @@ async function markForDischarge(admissionId, requestedBy) {
         metadata: {
           patient_uid: admission.patient_uid,
           consults_opened: consults.map((c) => c.consult_type),
-          final_claim_id: finalClaim?.id ?? null,
           billing_closed_at: now.toISOString(),
         },
         ip_address: null,
       },
     });
 
-    return { admission: updated, encounter_id: admission.encounter_id, patient_uid: admission.patient_uid, consults, finalClaim };
+    return {
+      admission: updated,
+      encounter_id: admission.encounter_id,
+      patient_uid: admission.patient_uid,
+      insurance_info: admission.insurance_info,
+      consults,
+      now,
+    };
   });
+
+  // Phase 1.5: TPA final-claim placeholder — runs OUTSIDE the
+  // transaction so a failure here can't poison the cascade. Best-
+  // effort: if the lookup finds no parent claim or the insert fails,
+  // log + continue with finalClaim=null. The TPA desk can still open
+  // the final claim manually.
+  let finalClaim = null;
+  try {
+    const hasInsurance =
+      phase1.insurance_info != null
+      || (await prisma.insurance_claims.count({
+        where: { patient_uid: phase1.patient_uid, status: { not: 'paid' } },
+      })) > 0;
+    if (hasInsurance) {
+      const parent = await prisma.insurance_claims.findFirst({
+        where: {
+          patient_uid: phase1.patient_uid,
+          stage: { in: ['preauth', 'enhancement'] },
+        },
+        orderBy: [{ submitted_at: 'desc' }],
+      });
+      if (parent) {
+        const existingFinal = await prisma.insurance_claims.count({
+          where: { parent_claim_id: parent.id, stage: 'final' },
+        });
+        const finalNumber = `${parent.claim_number}-F${existingFinal + 1}`;
+        finalClaim = await prisma.insurance_claims.create({
+          data: {
+            claim_number: finalNumber,
+            patient_uid: parent.patient_uid,
+            invoice_id: parent.invoice_id,
+            insurance_provider: parent.insurance_provider,
+            policy_number: parent.policy_number,
+            claim_amount: 0, // placeholder — TPA desk updates with consolidated bill total
+            status: 'submitted',
+            stage: 'final',
+            parent_claim_id: parent.id,
+            documents: {
+              final: {
+                opened_by: requestedBy,
+                opened_at: phase1.now.toISOString(),
+                trigger: 'discharge_initiated',
+              },
+            },
+            submitted_at: phase1.now,
+            updated_at: phase1.now,
+          },
+        });
+      } else {
+        logger.warn(
+          `markForDischarge: insurance flagged but no parent claim found for patient ${phase1.patient_uid}; skipping final claim`,
+        );
+      }
+    }
+  } catch (e) {
+    logger.warn(`markForDischarge: final claim creation failed (continuing): ${e.message}`);
+  }
 
   // Phase 2: generate the draft summary (outside the txn — LLM call).
   // If this fails, T0 is already stamped + consults opened — the doctor
@@ -850,13 +880,13 @@ async function markForDischarge(admissionId, requestedBy) {
     action: 'MARK_FOR_DISCHARGE',
   });
 
-  logger.info(`Admission ${admissionId} marked for discharge by ${requestedBy} — consults: ${phase1.consults.map((c) => c.consult_type).join(', ')}, final claim: ${phase1.finalClaim?.claim_number ?? 'none'}`);
+  logger.info(`Admission ${admissionId} marked for discharge by ${requestedBy} — consults: ${phase1.consults.map((c) => c.consult_type).join(', ')}, final claim: ${finalClaim?.claim_number ?? 'none'}`);
 
   return {
     admission: phase1.admission,
     summary,
     consults: phase1.consults,
-    finalClaim: phase1.finalClaim,
+    finalClaim,
     attending_doctors: attendingDoctors,
   };
 }

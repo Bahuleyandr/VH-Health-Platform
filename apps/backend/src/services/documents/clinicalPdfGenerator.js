@@ -11,14 +11,54 @@ import logger from '../../logging/logger.js';
 
 /**
  * Generate a discharge summary PDF for an admission.
- * @param {number|string} admissionId - Admission ID
- * @returns {Promise<Buffer>} PDF buffer
+ *
+ * `collectAdmissionClinicalContext` returns timeline-event arrays
+ * (notes / diagnoses / vitals / medications / investigations / orders)
+ * where each event has shape
+ *   `{ event_type, sub_type, id, timestamp, summary, payload }`
+ * and the actual row data lives in `payload`. This generator normalises
+ * those shapes back into the per-section views the PDF layout needs.
+ *
+ * Findings:
+ *   2026-05-10-inpatient-admission-discharge-patient-pdf-500
+ *   2026-05-10-surgical-day-care-discharge-patient-pdf-500
+ *
+ * @param {number|string} admissionId
+ * @returns {Promise<Buffer>}
  */
 export async function generateDischargeSummaryPDF(admissionId) {
   logger.info(`Generating discharge summary PDF for admission ${admissionId}`);
 
   const { default: dischargeSummaryGenerator } = await import('../emr/dischargeSummaryGenerator.js');
-  const data = await dischargeSummaryGenerator.collectClinicalData(admissionId);
+  const ctx = await dischargeSummaryGenerator.collectClinicalData(admissionId);
+
+  const patient = ctx?.patient || {};
+  const admission = ctx?.admission || {};
+  const notes = Array.isArray(ctx?.notes) ? ctx.notes : [];
+  const diagnoses = Array.isArray(ctx?.diagnoses) ? ctx.diagnoses : [];
+  const vitalsEvents = Array.isArray(ctx?.vitals) ? ctx.vitals : [];
+  const medicationEvents = Array.isArray(ctx?.medications) ? ctx.medications : [];
+  const investigationEvents = Array.isArray(ctx?.investigations) ? ctx.investigations : [];
+  const orderEvents = Array.isArray(ctx?.orders) ? ctx.orders : [];
+
+  const procedureNotes = notes.filter((n) => /procedure/i.test(String(n.sub_type || '')));
+  const soapNotes = notes.filter((n) => String(n.sub_type || '').toLowerCase() === 'soap');
+  const lastSoap = soapNotes.length ? soapNotes[soapNotes.length - 1] : null;
+
+  // Latest vitals reading. collectAdmissionClinicalContext returns the
+  // timeline sorted ascending, so the last entry is the most recent.
+  const latestVitalsEvent = vitalsEvents.length
+    ? vitalsEvents[vitalsEvents.length - 1]
+    : null;
+  const latestVitals = latestVitalsEvent?.payload || null;
+
+  // Active medication orders for the discharge "take home" list.
+  const dischargeOrders = orderEvents.filter((event) => {
+    const p = event?.payload || {};
+    if (p.order_type !== 'medication') return false;
+    const status = String(p.status || '').toLowerCase();
+    return !['cancelled', 'discontinued', 'completed'].includes(status);
+  });
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50, size: 'A4' });
@@ -38,77 +78,90 @@ export async function generateDischargeSummaryPDF(admissionId) {
 
     // Patient Information
     addSection(doc, 'Patient Information', [
-      `Name: ${data.patient.name || 'N/A'}`,
-      `Phone: ${data.patient.phone || 'N/A'}`,
-      `Gender: ${data.patient.gender || 'N/A'}`,
-      `Date of Birth: ${data.patient.birthday ? new Date(data.patient.birthday).toLocaleDateString() : 'N/A'}`,
-      `Admitted: ${data.admission.admitted_at ? new Date(data.admission.admitted_at).toLocaleDateString() : 'N/A'}`,
-      `Ward: ${data.admission.ward || 'N/A'}`,
-      `Department: ${data.admission.department || 'N/A'}`,
-      `Chief Complaint: ${data.admission.chief_complaint || 'N/A'}`,
-      `Admitting Diagnosis: ${data.admission.admitting_diagnosis || 'N/A'}`,
+      `Name: ${patient.name || 'N/A'}`,
+      `Phone: ${patient.phone || 'N/A'}`,
+      `Gender: ${patient.gender || 'N/A'}`,
+      `Date of Birth: ${patient.birthday ? new Date(patient.birthday).toLocaleDateString() : 'N/A'}`,
+      `Admitted: ${admission.admitted_at ? new Date(admission.admitted_at).toLocaleDateString() : 'N/A'}`,
+      `Ward: ${admission.ward || 'N/A'}`,
+      `Department: ${admission.department || 'N/A'}`,
+      `Chief Complaint: ${admission.chief_complaint || 'N/A'}`,
+      `Admitting Diagnosis: ${admission.admitting_diagnosis || 'N/A'}`,
     ]);
 
     // Diagnoses
-    if (data.diagnoses.length > 0) {
-      addSection(doc, 'Diagnoses', data.diagnoses.map(d =>
-        `${d.icd10_code || ''} ${d.description} (${d.status}, ${d.diagnosis_type || 'secondary'})`
-      ));
+    if (diagnoses.length > 0) {
+      addSection(doc, 'Diagnoses', diagnoses.map((event) => {
+        const d = event?.payload || {};
+        const desc = d.description || d.icd10_description || event?.summary || 'Diagnosis';
+        const status = d.status || 'status unknown';
+        const type = d.diagnosis_type || 'secondary';
+        return `${d.icd10_code ? `${d.icd10_code} ` : ''}${desc} (${status}, ${type})`;
+      }));
     }
 
-    // Hospital Course — from notes
-    if (data.notes.length > 0) {
-      const soapNotes = data.notes.filter(n => n.note_type === 'soap');
-      if (soapNotes.length > 0) {
-        const lastSoap = soapNotes[soapNotes.length - 1];
-        const content = typeof lastSoap.content === 'string' ? JSON.parse(lastSoap.content) : lastSoap.content;
-        addSection(doc, 'Hospital Course', [
-          `Assessment: ${content?.assessment || 'See clinical notes'}`,
-          `Plan: ${content?.plan || 'See clinical notes'}`,
-        ]);
+    // Hospital Course — from the latest SOAP note's assessment+plan.
+    if (lastSoap) {
+      const rawContent = lastSoap.payload?.content;
+      let content = rawContent;
+      if (typeof rawContent === 'string') {
+        try { content = JSON.parse(rawContent); } catch { content = {}; }
       }
+      addSection(doc, 'Hospital Course', [
+        `Assessment: ${content?.assessment || 'See clinical notes'}`,
+        `Plan: ${content?.plan || 'See clinical notes'}`,
+      ]);
     }
 
     // Procedures
-    if (data.procedures.length > 0) {
-      addSection(doc, 'Procedures Performed', data.procedures.map(p => {
-        const content = typeof p.content === 'string' ? JSON.parse(p.content) : p.content;
-        return content?.procedure_name || p.title || 'Procedure';
+    if (procedureNotes.length > 0) {
+      addSection(doc, 'Procedures Performed', procedureNotes.map((event) => {
+        const p = event?.payload || {};
+        const rawContent = p.content;
+        let content = rawContent;
+        if (typeof rawContent === 'string') {
+          try { content = JSON.parse(rawContent); } catch { content = {}; }
+        }
+        return content?.procedure_name || p.procedure_name || p.title || event?.summary || 'Procedure';
       }));
     }
 
     // Latest Vitals
-    if (data.latestVitals) {
-      const v = data.latestVitals;
+    if (latestVitals) {
       addSection(doc, 'Vitals at Discharge', [
-        `Heart Rate: ${v.heart_rate || '-'} bpm`,
-        `Blood Pressure: ${v.systolic_bp || '-'}/${v.diastolic_bp || '-'} mmHg`,
-        `Temperature: ${v.temperature || '-'}`,
-        `SpO2: ${v.spo2 || '-'}%`,
-        `Respiratory Rate: ${v.respiratory_rate || '-'} /min`,
+        `Heart Rate: ${latestVitals.heart_rate ?? '-'} bpm`,
+        `Blood Pressure: ${latestVitals.systolic_bp ?? '-'}/${latestVitals.diastolic_bp ?? '-'} mmHg`,
+        `Temperature: ${latestVitals.temperature ?? '-'}`,
+        `SpO2: ${latestVitals.spo2 ?? '-'}%`,
+        `Respiratory Rate: ${latestVitals.respiratory_rate ?? '-'} /min`,
       ]);
     }
 
     // Investigations
-    if (data.investigations.length > 0) {
-      addSection(doc, 'Investigations', data.investigations.map(i =>
-        `${i.test_name || i.type}: ${i.status} ${i.result_summary ? '- ' + i.result_summary : ''}`
-      ));
+    if (investigationEvents.length > 0) {
+      addSection(doc, 'Investigations', investigationEvents.map((event) => {
+        const i = event?.payload || {};
+        const test = i.test_name || i.test_type || i.investigation_type || 'Investigation';
+        const status = i.status || 'status unknown';
+        const result = i.result_summary || i.conclusion || i.interpretation || '';
+        return `${test}: ${status}${result ? ' - ' + result : ''}`;
+      }));
     }
 
-    // Medications
-    if (data.medications.length > 0) {
-      addSection(doc, 'Medications During Stay', data.medications.map(m =>
-        `${m.medication_name} ${m.dose || ''} ${m.route || ''} (${m.status})`
-      ));
+    // Medications during stay
+    if (medicationEvents.length > 0) {
+      addSection(doc, 'Medications During Stay', medicationEvents.map((event) => {
+        const m = event?.payload || {};
+        return `${m.medication_name || 'Medication'} ${m.dose || m.dosage || ''} ${m.route || ''} (${m.status || 'unknown'})`.trim();
+      }));
     }
 
     // Discharge medications from active orders
-    const dischargeMeds = data.activeOrders.filter(o => o.order_type === 'medication');
-    if (dischargeMeds.length > 0) {
-      addSection(doc, 'Medications on Discharge', dischargeMeds.map(o => {
+    if (dischargeOrders.length > 0) {
+      addSection(doc, 'Medications on Discharge', dischargeOrders.map((event) => {
+        const o = event?.payload || {};
         const d = o.details || {};
-        return `${d.medication_name || 'Unknown'} ${d.dose || ''} ${d.route || ''} ${d.frequency || ''} ${d.duration ? 'for ' + d.duration : ''}`;
+        return `${d.medication_name || 'Unknown'} ${d.dose || ''} ${d.route || ''} ${d.frequency || ''} ${d.duration ? 'for ' + d.duration : ''}`.replace(/\s+/g, ' ').trim();
       }));
     }
 
