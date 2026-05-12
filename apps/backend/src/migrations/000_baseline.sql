@@ -33,7 +33,9 @@
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
-SET transaction_timeout = 0;
+-- `SET transaction_timeout` was added in PostgreSQL 17 and is unknown
+-- in earlier versions; CI currently uses pgvector:pg16. Strip until
+-- CI is moved to PG17 (prod already runs PG17).
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
 SET check_function_bodies = false;
