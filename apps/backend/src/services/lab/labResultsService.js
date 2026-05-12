@@ -205,8 +205,14 @@ export async function detectCriticalsForResults({ tenantId, results }) {
     // E-5 — push the critical alert to the ordering doctor (and any
     // other staff who should know). Best-effort; failure here doesn't
     // abort the result write because the alert row itself is the
-    // canonical record. Finding:
-    // 2026-05-08-emergency-walk-in-lab-tech-critical-alert-no-push.
+    // canonical record. Recipient sources, in order of clinical relevance:
+    //   - investigations.requested_by (OPD/IPD lab orders)
+    //   - clinical_orders.ordered_by (ER orders — stored separately)
+    //   - admissions.attending_doctor (currently admitted)
+    //   - emergency_visits.attending_doctor_uid (active ER visit)
+    // Findings:
+    //   2026-05-08-emergency-walk-in-lab-tech-critical-alert-no-push
+    //   2026-05-09-emergency-walk-in-lab-tech-critical-alert-no-er-notification
     try {
       const { default: outbox } = await import('../../utils/notifications/notificationOutbox.js');
       const recipients = await prisma.$queryRawUnsafe(
@@ -215,14 +221,26 @@ export async function detectCriticalsForResults({ tenantId, results }) {
           WHERE u.uid IN (
                   SELECT DISTINCT requested_by FROM investigations
                    WHERE patient_uid = $1::uuid
+                     AND requested_by IS NOT NULL
                      AND status NOT IN ('CANCELLED')
+                  UNION
+                  SELECT DISTINCT ordered_by FROM clinical_orders
+                   WHERE patient_uid = $1::uuid
+                     AND ordered_by IS NOT NULL
+                     AND status NOT IN ('cancelled')
                   UNION
                   SELECT DISTINCT attending_doctor FROM admissions
                    WHERE patient_uid = $1::uuid
+                     AND attending_doctor IS NOT NULL
                      AND status IN ('admitted', 'transferred')
+                  UNION
+                  SELECT DISTINCT attending_doctor_uid FROM emergency_visits
+                   WHERE patient_uid = $1::uuid
+                     AND attending_doctor_uid IS NOT NULL
+                     AND status NOT IN ('discharged', 'left_without_being_seen')
                 )
             AND u.phone IS NOT NULL
-          LIMIT 5`,
+          LIMIT 10`,
         r.patient_uid,
       );
       for (const recipient of recipients) {
