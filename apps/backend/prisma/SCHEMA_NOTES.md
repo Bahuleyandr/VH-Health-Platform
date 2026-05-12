@@ -92,6 +92,19 @@ _Keyed by Prisma model name. `__top_level__` holds comments outside any model._
 
 > E-9 — guardian fields for paediatric / minor patients (migration 189).
 > Captured at walk-in registration; updatable via PUT /users/:uid.
+>
+> Wave-3 batch-2 — walk-in field completion (migration 202).
+> Adds weight_kg (paediatric dosing intake), guardian_id_type +
+> guardian_id_reference (structured legal-ID), guardian_user_id (FK to
+> the guardian's own users row — dependent-profile model), is_minor
+> (set from birthday at registration), is_unidentified (ER walk-in
+> without phone/ID; backend mints a UNIDENT-EMER-<ts> synthetic phone
+> so the UNIQUE(phone) constraint is not violated; merge-me target
+> for a future identity-reconciliation flow). Partial indexes:
+> idx_users_guardian_user_id WHERE NOT NULL, idx_users_is_minor and
+> idx_users_is_unidentified each WHERE TRUE. The guardian_user_id FK
+> is a self-reference (users → users) with ON DELETE SET NULL —
+> deleting a guardian leaves the dependent row intact, just unlinked.
 
 ## model:wards
 

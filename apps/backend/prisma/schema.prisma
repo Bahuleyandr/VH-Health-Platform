@@ -8335,6 +8335,14 @@ model users {
   phone_encrypted                                                             String?
   phone_search_hash                                                           String?                        @db.Char(64)
   address_encrypted                                                           String?
+  weight_kg                                                                   Decimal?                       @db.Decimal(6, 2)
+  guardian_id_type                                                            String?                        @db.VarChar(30)
+  guardian_id_reference                                                       String?                        @db.VarChar(80)
+  guardian_user_id                                                            Int?
+  is_minor                                                                    Boolean                        @default(false)
+  is_unidentified                                                             Boolean                        @default(false)
+  guardian_user                                                               users?                         @relation("users_guardian_user_fk", fields: [guardian_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  dependents                                                                  users[]                        @relation("users_guardian_user_fk")
   abdm_consents                                                               abdm_consents[]
   abdm_data_requests                                                          abdm_data_requests[]
   annual_review_reminders                                                     annual_review_reminders[]

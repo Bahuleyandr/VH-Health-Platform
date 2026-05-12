@@ -625,6 +625,20 @@ export const registerWalkIn = async (req, res) => {
       // contact. Finding:
       // 2026-05-08-pediatric-opd-receptionist-no-guardian-model.
       guardian_name, guardian_phone, guardian_relationship,
+      // Wave-3 batch-2 — structured guardian legal-ID + dependent-profile
+      // link + paediatric weight. Migration 202. Findings:
+      //   2026-05-10-pediatric-opd-receptionist-minor-guardian-id-not-structured
+      //   2026-05-11-pediatric-opd-receptionist-7501ae08
+      //   2026-05-09-pediatric-opd-patient-no-dependent-profile
+      //   2026-05-08-pediatric-opd-receptionist-no-dob-no-gender-walkin
+      guardian_id_type, guardian_id, guardian_id_reference, guardian_user_id,
+      patient_weight_kg, weight_kg,
+      // Wave-3 batch-2 — unidentified-patient ER path. Migration 202.
+      // `mode === 'unidentified'` flips two switches: phone becomes
+      // optional (we mint UNIDENT-EMER-<ts>), and the resulting users
+      // row is flagged is_unidentified=true. Finding:
+      //   2026-05-09-emergency-walk-in-receptionist-no-phone-optional-er-path.
+      mode, unidentified,
       // E-12 — ANC fields captured at walk-in. When department routes
       // to ANC, lmp_date / edd_date / gravida / parity / blood_group
       // are written into a maternity_pregnancies row alongside the
@@ -648,7 +662,33 @@ export const registerWalkIn = async (req, res) => {
       ? String(visit_type).toUpperCase()
       : null;
 
-    if (!patient_phone && !patient_id) {
+    // Wave-3 batch-2 — unidentified-ER walk-in. Honours either
+    // `mode === 'unidentified'` or a top-level `unidentified: true`,
+    // and only when the receptionist is already routing to EMERGENCY
+    // (the only clinical context where phone-less intake is correct —
+    // every other walk-in must keep the de-dupe-by-phone invariant
+    // intact). When active, we mint a synthetic placeholder phone so
+    // the existing UNIQUE(phone) constraint stays honoured and a
+    // future identity-merge flow has a stable target. Finding:
+    //   2026-05-09-emergency-walk-in-receptionist-no-phone-optional-er-path
+    const departmentForCheck = String(department || '').trim().toLowerCase();
+    const isUnidentifiedMode =
+      (String(mode || '').toLowerCase() === 'unidentified' || unidentified === true) &&
+      ['emergency', 'emer', 'er', 'ed'].includes(departmentForCheck);
+    let resolvedPhone = patient_phone;
+    let isUnidentifiedFlag = false;
+    if (isUnidentifiedMode && !patient_phone && !patient_id) {
+      // 13 chars: "UNIDENT-EMER-" prefix + 13-digit ms timestamp would
+      // overflow VARCHAR(15). Use a 6-char base36 timestamp suffix
+      // ("UNIDENT-EMER-XXXXXX") — fits in 15 chars, collision-resistant
+      // over the lifetime of a hospital ER shift. Phone-search-hash on
+      // this row is intentionally NULL; the row is merge-me target, not
+      // an OTP recipient.
+      resolvedPhone = `UNIDENT-${Date.now().toString(36).slice(-6).toUpperCase().padStart(6, '0')}`;
+      isUnidentifiedFlag = true;
+    }
+
+    if (!resolvedPhone && !patient_id) {
       return error(res, 'patient_phone or patient_id is required', HTTP_STATUS.BAD_REQUEST);
     }
 
@@ -679,12 +719,18 @@ export const registerWalkIn = async (req, res) => {
         priorVisitCount = priors[0]?.count ?? 0;
         lastVisitAt = priors[0]?.last ?? null;
         returningPatient = priorVisitCount > 0;
-      } else if (!patientId && patient_phone) {
-        const existing = await tx.$queryRawUnsafe(
-          `SELECT id FROM users WHERE phone = $1 OR phone = $2 LIMIT 1`,
-          patient_phone,
-          patient_phone.replace(/\D/g, '').slice(-10),
-        );
+      } else if (!patientId && resolvedPhone) {
+        // Phone-based de-dupe only runs for real phones, not the
+        // UNIDENT-EMER-* placeholder — every unidentified ER walk-in
+        // is by definition a new row (a future identity-merge flow
+        // collapses them once family arrives with ID).
+        const existing = isUnidentifiedFlag
+          ? []
+          : await tx.$queryRawUnsafe(
+              `SELECT id FROM users WHERE phone = $1 OR phone = $2 LIMIT 1`,
+              resolvedPhone,
+              resolvedPhone.replace(/\D/g, '').slice(-10),
+            );
         if (existing.length > 0) {
           patientId = existing[0].id;
           returningPatient = true;
@@ -718,20 +764,74 @@ export const registerWalkIn = async (req, res) => {
           const guardianRel = guardian_relationship && validRel.includes(String(guardian_relationship).toLowerCase())
             ? String(guardian_relationship).toLowerCase()
             : (guardian_relationship ? String(guardian_relationship).slice(0, 40) : null);
+          // Wave-3 batch-2 — structured guardian legal-ID + dependent-profile
+          // link + paediatric weight. Migration 202. Free-text ID kinds
+          // outside the CHECK allowlist fall back to 'other' rather than
+          // crashing the registration; the reference itself stays as
+          // typed (the platform stores last4 / masked refs, not full PII).
+          const validIdTypes = new Set([
+            'aadhaar', 'pan', 'voter_id', 'passport', 'driving_licence',
+            'ration_card', 'abha', 'other',
+          ]);
+          const guardianIdTypeNorm = guardian_id_type
+            ? String(guardian_id_type).toLowerCase().trim().replace(/\s+/g, '_')
+            : null;
+          const guardianIdType = guardianIdTypeNorm
+            ? (validIdTypes.has(guardianIdTypeNorm) ? guardianIdTypeNorm : 'other')
+            : null;
+          const guardianIdRef = (guardian_id_reference || guardian_id)
+            ? String(guardian_id_reference || guardian_id).trim().slice(0, 80)
+            : null;
+          // guardian_user_id is a self-FK on users; only accept positive ints.
+          const guardianUserIdInt = (() => {
+            const n = parseInt(guardian_user_id, 10);
+            return Number.isFinite(n) && n > 0 ? n : null;
+          })();
+          const weightKgRaw = patient_weight_kg ?? weight_kg;
+          const weightKg = weightKgRaw !== undefined && weightKgRaw !== null && weightKgRaw !== ''
+            ? (() => {
+                const n = Number(weightKgRaw);
+                // NUMERIC(6,2) → 9999.99 max. Reject NaN, negatives, and
+                // absurd values rather than letting Postgres throw.
+                return Number.isFinite(n) && n > 0 && n <= 9999.99 ? n : null;
+              })()
+            : null;
+          // is_minor derives from birthday — 18y is the cutoff (Indian
+          // age-of-majority + legal-consent threshold). The DB column
+          // has a backfill from migration 202 for legacy rows.
+          let isMinor = false;
+          if (birthday) {
+            const dob = new Date(birthday);
+            const cutoff = new Date();
+            cutoff.setFullYear(cutoff.getFullYear() - 18);
+            isMinor = dob > cutoff;
+          }
           const newUser = await tx.$queryRawUnsafe(
             `INSERT INTO users (phone, name, birthday, gender, address, role,
                                 guardian_name, guardian_phone, guardian_relationship,
+                                guardian_id_type, guardian_id_reference, guardian_user_id,
+                                weight_kg, is_minor, is_unidentified,
                                 updated_at)
-             VALUES ($1, $2, $3::date, $4, $5, 'PATIENT', $6, $7, $8, NOW())
+             VALUES ($1, $2, $3::date, $4, $5, 'PATIENT',
+                     $6, $7, $8,
+                     $9, $10, $11,
+                     $12, $13, $14,
+                     NOW())
              RETURNING id`,
-            patient_phone,
-            patient_name || 'Walk-in Patient',
+            resolvedPhone,
+            patient_name || (isUnidentifiedFlag ? 'Unidentified Patient' : 'Walk-in Patient'),
             birthday,
             gender,
             address,
             guardian_name ? String(guardian_name).trim().slice(0, 160) : null,
             guardian_phone ? String(guardian_phone).trim().slice(0, 20) : null,
             guardianRel,
+            guardianIdType,
+            guardianIdRef,
+            guardianUserIdInt,
+            weightKg,
+            isMinor,
+            isUnidentifiedFlag,
           );
           patientId = newUser[0].id;
           returningPatient = false;
@@ -775,7 +875,11 @@ export const registerWalkIn = async (req, res) => {
         patientId,
         doctor_id || null,
         resolvedTime,
-        patient_phone || '',
+        // Wave-3 batch-2 — use the resolved phone so an unidentified-ER
+        // walk-in's appointment row carries the UNIDENT-* synthetic
+        // identifier instead of the empty-string default; downstream
+        // ED queue / nurse worklist join on phone to locate the patient.
+        resolvedPhone || '',
         reason || 'Walk-in consultation',
         notes || null,
         tokenNumber,
@@ -887,6 +991,11 @@ export const registerWalkIn = async (req, res) => {
         returning_patient: returningPatient,
         prior_visit_count: priorVisitCount,
         last_visit_at: lastVisitAt,
+        // Wave-3 batch-2 — surface the unidentified flag so the ER admin
+        // UI can banner "Unidentified patient — merge identity on family
+        // arrival" and the future identity-reconciliation flow has a
+        // discoverable target.
+        is_unidentified: isUnidentifiedFlag,
       };
     });
 
