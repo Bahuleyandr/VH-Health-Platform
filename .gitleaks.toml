@@ -43,6 +43,13 @@ regexes = [
   # documented in docs/qa-findings/_baseline.md and required verbatim by
   # scripts/qa-reset.mjs and the QA findings' repro steps.
   '''qa_writer:qa_writer_local''',
+  # Local-only baseline-regen docker container password. The
+  # vhhealth:test@127.0.0.1:56432 URL is the ephemeral docker container
+  # used by scripts/rewrite-baseline-header.mjs (vh-pg-baseline). The
+  # POSTGRES_PASSWORD=test only ever exists in a local WSL docker run
+  # used to regenerate 000_baseline.sql; documented inline in the
+  # baseline file and the rewrite script.
+  '''postgresql://vhhealth:test@''',
   '''PLACEHOLDER_REPLACE_WITH_KUBESEAL_CIPHERTEXT''',
   # Legacy placeholder used in base/ sealed-secret examples before standardisation.
   # Kept here so the git history of the migration commit doesn't trip the range scan.
