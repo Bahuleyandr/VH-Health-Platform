@@ -153,6 +153,13 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         patient_id: patientIntId, doctor_id: doctorProfileId,
         appointment_date: apptDate, appointment_time: '10:30',
         reason: 'Doctor picker id normalization',
+        // Same patient already has a SCHEDULED appointment with this
+        // doctor today (from the preceding "books an appointment" test);
+        // appointmentCrudController's duplicate-same-day guard
+        // (finding 2026-05-08-follow-up-opd-receptionist-duplicate-appt-no-warning)
+        // requires explicit opt-in. The tests are deliberately stacking
+        // time-distinct slots for the same patient.
+        confirm_duplicate: true,
       });
       expect(res.statusCode).toBe(201);
       const a = res.body.data.appointment;
@@ -165,11 +172,15 @@ describe('Appointment booking + lifecycle — deep integration', () => {
     });
 
     it('rejects a double-booking on the same doctor/date/time with 409', async () => {
-      // First a fresh booking at 11:00
+      // First a fresh booking at 11:00. confirm_duplicate because this
+      // patient already has SCHEDULED slots earlier today; the test
+      // exercises slot-conflict on the second booking by otherPatient,
+      // not the same-day-duplicate guard for this patient.
       const ok = await patient.post('/api/v1/appointments/book').send({
         patient_id: patientIntId, doctor_id: doctorIntId,
         appointment_date: apptDate, appointment_time: '11:00',
         reason: 'Slot A',
+        confirm_duplicate: true,
       });
       expect(ok.statusCode).toBe(201);
 
@@ -192,6 +203,9 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         patient_id: patientIntId, doctor_id: doctorIntId,
         appointment_date: apptDate, appointment_time: '14:00',
         reason: 'For lifecycle walk-through',
+        // Same patient already has earlier slots booked today; opt past
+        // the duplicate-same-day guard.
+        confirm_duplicate: true,
       });
       expect(res.statusCode).toBe(201);
       apptId = res.body.data.appointment.id;
@@ -267,6 +281,9 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         patient_id: patientIntId, doctor_id: doctorIntId,
         appointment_date: apptDate, appointment_time: '16:00',
         reason: 'For cancel branch',
+        // Same patient already has earlier slots booked today; opt past
+        // the duplicate-same-day guard.
+        confirm_duplicate: true,
       });
       apptId = res.body.data.appointment.id;
     });
@@ -296,6 +313,10 @@ describe('Appointment booking + lifecycle — deep integration', () => {
         patient_id: patientIntId, doctor_id: doctorIntId,
         appointment_date: apptDate, appointment_time: '16:00',
         reason: 'After cancel, slot is free',
+        // Same patient still has other earlier slots booked today; the
+        // 16:00 slot is the one being re-tested, but the same-day-duplicate
+        // guard still fires on any same-patient/doctor/date combo.
+        confirm_duplicate: true,
       });
       expect(res.statusCode).toBe(201);
       expect(res.body.data.appointment.status).toBe('SCHEDULED');

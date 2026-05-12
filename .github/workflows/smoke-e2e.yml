@@ -92,12 +92,18 @@ jobs:
 
       - name: Prepare migrated and seeded database
         working-directory: apps/backend
+        # Mirrors _reusable-backend-lint-test.yml: raw SQL migrations
+        # (000_baseline.sql + 001+) are the source of truth; the previous
+        # `prisma db push` step was removed because Prisma cannot recreate
+        # the GENERATED columns / sequence-referencing defaults introduced
+        # by 001+ migrations. The drift check runs after migrations so
+        # any new migration that touches a Prisma-modelled table will
+        # fail CI until schema.prisma is regenerated via `prisma db pull`.
         run: |
           npx prisma generate
           npm run db:ensure-pgvector
-          npx prisma db push --skip-generate --accept-data-loss
-          node scripts/check-schema-drift.mjs
           node scripts/ci-setup-db.mjs
+          node scripts/check-schema-drift.mjs
           npm run ci:db-guardrails
 
       - name: Start backend

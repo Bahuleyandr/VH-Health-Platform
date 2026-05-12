@@ -11,6 +11,11 @@ import app from '../app.js';
 const DOCTOR_UID = 'a1111111-1111-4111-8111-111111111a01';
 const PATIENT_UID = 'a1111111-1111-4111-8111-111111111a02';
 const ADMIN_UID = 'a1111111-1111-4111-8111-111111111a03';
+// A second patient that exists in users but has NO patient_consents row,
+// so the admit consent check is the firing condition rather than the
+// upstream "patient not found" check (which returned 404 before the
+// patient was seeded).
+const NO_CONSENT_PATIENT_UID = 'a1111111-1111-4111-8111-111111111a04';
 const PATIENT_PHONE = '9000010001';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
@@ -41,8 +46,8 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM patient_consents WHERE patient_uid = $1::uuid`, PATIENT_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number IN ('DEEP-BED-A','DEEP-BED-B')`);
     await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name = 'DEEP-TEST-WARD'`);
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
-      PATIENT_UID, DOCTOR_UID, ADMIN_UID);
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+      PATIENT_UID, DOCTOR_UID, ADMIN_UID, NO_CONSENT_PATIENT_UID);
 
     // Seed patient (users row)
     const patientRows = await prisma.$queryRawUnsafe(
@@ -51,6 +56,14 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
        RETURNING id`,
       PATIENT_UID, PATIENT_PHONE);
     patientIntId = patientRows[0].id;
+
+    // Second patient — exists but deliberately has no patient_consents row
+    // so the consent gate is the firing condition for the "no active
+    // consent" test below.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, '9000010004', 'Deep Test No-Consent Patient', 'PATIENT', true, NOW())`,
+      NO_CONSENT_PATIENT_UID);
 
     // Admin user (for audit FK — not strictly required since uid FK is soft, but keeps data clean)
     await prisma.$executeRawUnsafe(
@@ -94,8 +107,8 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM patient_consents WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number IN ('DEEP-BED-A','DEEP-BED-B')`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE id = $1`, wardId).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`,
-      PATIENT_UID, DOCTOR_UID, ADMIN_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+      PATIENT_UID, DOCTOR_UID, ADMIN_UID, NO_CONSENT_PATIENT_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
 
@@ -116,9 +129,17 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
 
     it('rejects admission without active consent', async () => {
       const res = await admin.post('/api/v1/emr/admit').send({
-        patient_uid: 'b0000000-0000-4000-8000-000000000000', // no consent row
+        patient_uid: NO_CONSENT_PATIENT_UID,
         admitting_doctor: DOCTOR_UID,
         chief_complaint: 'chest pain',
+        // Elective admission with a real bed so we exercise the consent
+        // gate, not the admit-bed gate. Critically, NOT emergency+emergent:
+        // migration 182 introduced the implied-consent doctrine which
+        // bypasses the consent check for true emergencies. This test
+        // is asserting the default rule for non-emergency admits.
+        bed_id: bed2Id,
+        admission_type: 'elective',
+        priority: 'routine',
       });
       expect(res.statusCode).toBe(403);
       expect(String(res.body.code || res.body.message || '')).toMatch(/CONSENT|consent/i);
@@ -173,6 +194,11 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
         patient_uid: PATIENT_UID,
         admitting_doctor: DOCTOR_UID,
         chief_complaint: 'duplicate',
+        // Bedless-emergency exception (migration 171) so the admit-bed
+        // gate passes and the duplicate-active-admission check is the
+        // firing condition.
+        admission_type: 'emergency',
+        priority: 'emergent',
       });
       expect(res.statusCode).toBe(409);
     });
