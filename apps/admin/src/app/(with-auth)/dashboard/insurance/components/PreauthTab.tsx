@@ -42,15 +42,22 @@ export function PreauthTab() {
   const responseMut = useMutation({
     mutationFn: async (vars: {
       p: Preauth;
-      response_type: "approved" | "denied" | "queried";
+      // `partially_approved` accepts a sanctioned_amount < the requested
+      // expected_cost — captures the "Star Health approved INR 30,000
+      // of an INR 40,000 enhancement" case the backend already supports
+      // but the UI previously couldn't represent. See finding
+      // 2026-05-10-tpa-insurance-claim-billing-partial-enhancement-ui-missing.
+      response_type: "approved" | "partially_approved" | "denied" | "queried";
       sanctioned_amount?: number;
       query_text?: string;
       denial_reason?: string;
+      conditions?: string;
     }) => {
       const body: Record<string, unknown> = { response_type: vars.response_type };
       if (vars.sanctioned_amount != null) body.sanctioned_amount = vars.sanctioned_amount;
       if (vars.query_text != null) body.query_text = vars.query_text;
       if (vars.denial_reason != null) body.denial_reason = vars.denial_reason;
+      if (vars.conditions != null) body.conditions = vars.conditions;
       return fetchAdminAPI(`/insurance/preauth/${vars.p.id}/response`, {
         method: "POST",
         body: body,
@@ -68,7 +75,10 @@ export function PreauthTab() {
     submitMut.mutate({ p, ref });
   }
 
-  function recordResponse(p: Preauth, response_type: "approved" | "denied" | "queried") {
+  function recordResponse(
+    p: Preauth,
+    response_type: "approved" | "partially_approved" | "denied" | "queried",
+  ) {
     if (response_type === "approved") {
       const amt = window.prompt(
         `Sanctioned amount for ${p.preauth_number} (₹):`,
@@ -76,6 +86,43 @@ export function PreauthTab() {
       );
       if (amt === null) return;
       responseMut.mutate({ p, response_type, sanctioned_amount: Number(amt) });
+    } else if (response_type === "partially_approved") {
+      // Partial approval: capture (a) the amount the TPA actually
+      // sanctioned (which is < requested) and (b) a short reason /
+      // conditions string so the audit trail can later distinguish
+      // "TPA fully approved INR 30000" from "TPA partially approved
+      // INR 30000 of a larger enhancement request". Both prompts must
+      // be filled — empty values cancel.
+      const amt = window.prompt(
+        `Partially approved amount for ${p.preauth_number} (₹) ` +
+          `— requested ₹${p.expected_cost}:`,
+        "",
+      );
+      if (amt === null) return;
+      const sanctioned = Number(amt);
+      if (!Number.isFinite(sanctioned) || sanctioned <= 0) {
+        window.alert(`Sanctioned amount must be a positive number; got "${amt}"`);
+        return;
+      }
+      if (sanctioned >= Number(p.expected_cost)) {
+        window.alert(
+          `Partial approval requires sanctioned < requested ` +
+            `(requested ₹${p.expected_cost}, entered ₹${sanctioned}). ` +
+            `Use the Approved button for full approvals.`,
+        );
+        return;
+      }
+      const conditions = window.prompt(
+        `Conditions / reason TPA approved less than requested for ${p.preauth_number}:`,
+        "",
+      );
+      if (conditions === null) return;
+      responseMut.mutate({
+        p,
+        response_type,
+        sanctioned_amount: sanctioned,
+        conditions: conditions || undefined,
+      });
     } else if (response_type === "denied") {
       const reason = window.prompt(`Denial reason for ${p.preauth_number}:`, "");
       if (reason === null) return;
@@ -176,6 +223,14 @@ export function PreauthTab() {
                           className="px-2 py-1 rounded bg-emerald-600 text-white disabled:opacity-40"
                         >
                           Approved
+                        </button>
+                        <button
+                          disabled={busy}
+                          onClick={() => recordResponse(p, "partially_approved")}
+                          className="px-2 py-1 rounded bg-emerald-500/80 text-white disabled:opacity-40"
+                          title="TPA approved a smaller amount than requested"
+                        >
+                          Partial
                         </button>
                         <button
                           disabled={busy}
