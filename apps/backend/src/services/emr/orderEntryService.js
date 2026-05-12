@@ -13,6 +13,7 @@ import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
 import { scheduleMedications } from '../clinical/marService.js';
+import { createWardIndentForClinicalMedicationOrder } from '../ipd/ipdSupportService.js';
 
 
 // ===================================================================
@@ -183,6 +184,12 @@ export async function createOrder(data) {
     },
     select: ORDER_RETURNING_SELECT,
   });
+
+  if (order.order_type === 'medication' && order.encounter_id) {
+    await createWardIndentForClinicalMedicationOrder(order).catch((err) => {
+      logger.error(`Failed to create ward indent for medication order ${order.order_number}: ${err.message}`);
+    });
+  }
 
   // Dispatch integrations (fire-and-forget, do not block response)
   dispatchOrderIntegrations(order).catch((err) => {

@@ -22,6 +22,7 @@ const VALID_INDENT_TRANSITIONS = {
   received:  new Set([]),
   rejected:  new Set([]),
 };
+const CLINICAL_ORDER_REF_RE = /clinical_order_id:(\d+)/g;
 
 const ATTENDANT_PASS_COUNT_PER_ADMISSION = 2;
 
@@ -69,6 +70,33 @@ async function nextIndentNumber(tx) {
   });
   const nextSeq = last ? Number.parseInt(last.indent_number.slice(prefix.length), 10) + 1 : 1;
   return `${prefix}${pad(nextSeq, 4)}`;
+}
+
+function parseClinicalOrderDetails(details) {
+  if (!details) return {};
+  if (typeof details === 'string') {
+    try {
+      return JSON.parse(details);
+    } catch {
+      return { medication_name: details };
+    }
+  }
+  return typeof details === 'object' ? details : {};
+}
+
+function quantityFromMedicationDetails(details) {
+  const qty = Number(details.quantity_requested ?? details.quantity ?? details.qty ?? details.units);
+  return Number.isFinite(qty) && qty > 0 ? qty : 1;
+}
+
+function linkedClinicalOrderIds(items = []) {
+  const ids = new Set();
+  for (const item of items) {
+    for (const match of String(item.notes ?? '').matchAll(CLINICAL_ORDER_REF_RE)) {
+      ids.add(Number(match[1]));
+    }
+  }
+  return [...ids].filter(Number.isInteger);
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -407,6 +435,97 @@ export async function createWardIndent({
   });
 }
 
+export async function createWardIndentForClinicalMedicationOrder(order) {
+  if (!order || order.order_type !== 'medication' || !order.encounter_id) return null;
+
+  const details = parseClinicalOrderDetails(order.details);
+  const medicationName = details.medication_name || details.medication || details.name;
+  if (!medicationName || !order.ordered_by) return null;
+
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.$queryRawUnsafe(
+      `SELECT wi.id
+         FROM ward_indents wi
+         JOIN ward_indent_items wii ON wii.ward_indent_id = wi.id
+        WHERE wii.notes LIKE $1
+        ORDER BY wi.created_at DESC
+        LIMIT 1`,
+      `%clinical_order_id:${order.id}%`,
+    );
+    if (existing.length) {
+      return tx.ward_indents.findUnique({
+        where: { id: existing[0].id },
+        include: { items: true },
+      });
+    }
+
+    const admissions = await tx.$queryRawUnsafe(
+      `SELECT a.id, a.ward AS admission_ward, b.ward_id, COALESCE(w.name, b.ward_name, a.ward) AS ward_name
+         FROM admissions a
+         LEFT JOIN beds b ON b.id = a.bed_id
+         LEFT JOIN wards w ON w.id = b.ward_id
+        WHERE a.encounter_id = $1::uuid
+          AND a.patient_uid = $2::uuid
+          AND COALESCE(a.status, 'admitted') NOT IN ('discharged', 'cancelled')
+        ORDER BY a.admitted_at DESC NULLS LAST, a.id DESC
+        LIMIT 1`,
+      order.encounter_id,
+      order.patient_uid,
+    );
+    const admission = admissions[0];
+    if (!admission) return null;
+
+    const catalogMatches = await tx.$queryRawUnsafe(
+      `SELECT id, COALESCE(unit_price, price) AS unit_price
+         FROM pharmacy_catalog
+        WHERE COALESCE(is_active, TRUE) = TRUE
+          AND (
+            name ILIKE $1
+            OR generic_name ILIKE $1
+            OR $2 ILIKE '%' || name || '%'
+            OR (generic_name IS NOT NULL AND $2 ILIKE '%' || generic_name || '%')
+          )
+        ORDER BY
+          CASE
+            WHEN name ILIKE $1 THEN 0
+            WHEN generic_name ILIKE $1 THEN 1
+            WHEN $2 ILIKE '%' || name || '%' THEN 2
+            ELSE 3
+          END,
+          COALESCE(is_available, TRUE) DESC,
+          id ASC
+        LIMIT 1`,
+      `%${medicationName}%`,
+      medicationName,
+    );
+    const catalog = catalogMatches[0] ?? null;
+    const indentNumber = await nextIndentNumber(tx);
+
+    return tx.ward_indents.create({
+      data: {
+        indent_number: indentNumber,
+        ward_id: admission.ward_id ?? null,
+        ward_name: admission.ward_name ?? admission.admission_ward ?? null,
+        indent_type: 'pharmacy',
+        status: 'requested',
+        requested_by: order.ordered_by,
+        notes: `Generated from inpatient medication order ${order.order_number}`,
+        items: {
+          create: [{
+            pharmacy_catalog_id: catalog?.id ?? null,
+            item_name: medicationName,
+            quantity_requested: quantityFromMedicationDetails(details),
+            unit: details.unit ?? null,
+            unit_price: catalog?.unit_price != null ? Number(catalog.unit_price) : null,
+            notes: `clinical_order_id:${order.id}; order_number:${order.order_number}`,
+          }],
+        },
+      },
+      include: { items: true },
+    });
+  });
+}
+
 async function transitionWardIndent({ indentId, fromExpected, toStatus, actorUid, extra = {} }) {
   if (!indentId) throw AppError.badRequest('indentId is required');
   if (!actorUid) throw AppError.badRequest('actorUid is required');
@@ -463,7 +582,6 @@ export async function issueWardIndent({ indentId, issuedBy, itemQuantitiesIssued
   return prisma.$transaction(async (tx) => {
     const current = await tx.ward_indents.findUnique({
       where: { id: indentId },
-      select: { id: true, status: true, items: true },
       include: { items: true },
     });
     if (!current) throw AppError.notFound('Ward indent not found');
@@ -493,6 +611,22 @@ export async function issueWardIndent({ indentId, issuedBy, itemQuantitiesIssued
           qtyIssued, item.pharmacy_catalog_id,
         );
       }
+    }
+    const clinicalOrderIds = linkedClinicalOrderIds(current.items);
+    if (clinicalOrderIds.length) {
+      await tx.clinical_orders.updateMany({
+        where: {
+          id: { in: clinicalOrderIds },
+          order_type: 'medication',
+          status: { in: ['ordered', 'verified', 'in_progress'] },
+        },
+        data: {
+          status: 'completed',
+          completed_by: issuedBy,
+          completed_at: new Date(),
+          updated_at: new Date(),
+        },
+      });
     }
 
     return tx.ward_indents.update({
@@ -549,6 +683,7 @@ export default {
   listAdmissionPasses,
   // indents
   createWardIndent,
+  createWardIndentForClinicalMedicationOrder,
   approveWardIndent,
   rejectWardIndent,
   issueWardIndent,
