@@ -569,6 +569,31 @@ export async function getMyClaim({ tenantId, patient_uid, id }) {
     nonPayable + patientCopay + Math.max(0, claimedAmount - approvedAmount)
   );
 
+  // Surface the recorded TPA correspondence so the patient can see WHY
+  // an amount was disallowed in plain language rather than just an
+  // unexplained INR delta. `tpa_claim_correspondence` is the canonical
+  // log of insurer queries / approvals / settlement notes — pull the
+  // most-recent inbound row (the insurer's reply) plus a chronological
+  // tail so a settled cashless claim shows the full audit trail.
+  // Finding 2026-05-10-tpa-insurance-claim-patient-claim-breakdown-500.
+  let correspondence = [];
+  try {
+    correspondence = await prisma.$queryRawUnsafe(
+      `SELECT id, direction, channel, subject, body, recorded_at
+         FROM tpa_claim_correspondence
+        WHERE claim_id = $1::int
+        ORDER BY recorded_at ASC, id ASC`,
+      Number(id),
+    );
+  } catch (corrErr) {
+    // Under-migrated tenants (rare): table missing → empty array.
+    if (corrErr?.meta?.code !== '42P01') throw corrErr;
+  }
+
+  const latestInbound = [...correspondence]
+    .reverse()
+    .find((row) => row.direction === 'inbound');
+
   return {
     claim,
     invoice_breakdown: {
@@ -584,6 +609,14 @@ export async function getMyClaim({ tenantId, patient_uid, id }) {
       patient_responsibility: patientResponsibility,
       currency: 'INR',
     },
+    correspondence,
+    latest_insurer_message: latestInbound
+      ? {
+          subject: latestInbound.subject,
+          body: latestInbound.body,
+          recorded_at: latestInbound.recorded_at,
+        }
+      : null,
   };
 }
 

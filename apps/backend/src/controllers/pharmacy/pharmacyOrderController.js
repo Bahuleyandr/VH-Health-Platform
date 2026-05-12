@@ -96,10 +96,18 @@ export const getMyOrders = async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
     const offset = Math.max(parseInt(req.query.offset) || 0, 0);
 
+    // Surface `items_list` (the dispensed medication schedule —
+    // name/dose/route/frequency/duration/instructions per line item).
+    // Without it the patient sees only "DISPENSED" + an order note and
+    // cannot safely administer multi-medication regimens at home (e.g.
+    // post-cataract eye drops: Moxifloxacin QID, Prednisolone QID taper,
+    // Nepafenac BD). Finding
+    // 2026-05-10-surgical-day-care-patient-pharmacy-order-omits-eye-drop-schedule.
     const result = await prisma.$queryRawUnsafe(
       `SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url, prescription_photo_key,
         status, order_note, delivery_type, delivery_address, delivery_landmark,
         total_amount, payment_status, assigned_pharmacist, token_number,
+        items_list,
         created_at, updated_at, dispatched_at, delivered_at
        FROM pharmacy_orders WHERE patient_id=$1
        ORDER BY created_at DESC LIMIT $2 OFFSET $3`,

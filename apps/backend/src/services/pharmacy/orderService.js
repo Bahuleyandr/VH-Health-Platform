@@ -31,6 +31,11 @@ const ORDER_LIST_SELECT = {
   dispensed_by: true,
   ordered_at: true,
   updated_at: true,
+  // The dispensed medication schedule per line item. The patient app
+  // and pharmacy queue both need this to safely administer multi-drug
+  // regimens at home (e.g. post-cataract eye drops). Finding
+  // 2026-05-10-surgical-day-care-patient-pharmacy-order-omits-eye-drop-schedule.
+  items_list: true,
 };
 
 export const createOrder = async (orderData) => {
