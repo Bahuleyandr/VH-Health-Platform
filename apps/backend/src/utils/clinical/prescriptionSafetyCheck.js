@@ -50,7 +50,7 @@ function findMgPerKg(medName) {
 // "Allergy: Penicillin", "Allergies — Sulfa, NSAIDs", "Pt allergic to
 // peanuts". The trailing list is captured up to the next sentence
 // terminator so multi-allergen lines split cleanly downstream.
-const NOTE_ALLERGY_RX = /(?:allergy|allergies|allergic\s+to)\s*[:\-–]?\s*([A-Za-z][A-Za-z0-9 ,/\-]{1,120})/gi;
+const NOTE_ALLERGY_RX = /(?:allergy|allergies|allergic\s+to)\s*[-:–]?\s*([A-Za-z][A-Za-z0-9 ,/-]{1,120})/gi;
 
 const ALLERGY_LIST_SPLIT_RX = /[,;/]| and /i;
 
