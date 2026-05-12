@@ -131,6 +131,7 @@ const navSections: NavSection[] = [
       { name: "Dashboards",      href: "/dashboard/dashboards" },
       { name: "Insurance",       href: "/dashboard/insurance" },
       { name: "PM-JAY",          href: "/dashboard/pmjay" },
+      { name: "Day-care Packages", href: "/dashboard/billing/packages" },
       { name: "PCPNDT (Form F)", href: "/dashboard/pcpndt" },
       { name: "BMW Register",    href: "/dashboard/bmw" },
       { name: "Drug Returns",    href: "/dashboard/drug-returns" },
