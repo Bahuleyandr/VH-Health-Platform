@@ -1013,14 +1013,154 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
   }
   if (!dischargedBy) throw AppError.badRequest('dischargedBy is required');
 
-  return prisma.$transaction(async (tx) => {
+  // Pre-flight: load admission state outside any tx. The readiness
+  // gate's optional billing/investigations probes used to live INSIDE
+  // the $transaction wrapped in try/catch — that pattern poisons the
+  // underlying Postgres tx on any inner failure. JS catches the
+  // exception, but the tx is now aborted, and the next `tx.*` call
+  // inside the same block fails with "current transaction is aborted"
+  // → generic 500. Findings:
+  //   2026-05-10-inpatient-admission-discharge-final-discharge-500-bed-not-vacated
+  //   2026-05-10-surgical-day-care-discharge-final-discharge-500-leaves-bed-occupied
+  // The atomic state changes still happen under a FOR UPDATE lock in
+  // Phase 1 below; the pre-flight read just feeds the gate.
+  const admissionPre = await prisma.admissions.findUnique({
+    where: { id: admissionId },
+    select: {
+      id: true, patient_uid: true, status: true, encounter_id: true,
+      admitted_at: true,
+      discharge_initiated_at: true, summary_signed_at: true,
+      discharge_drugs_dispensed_at: true,
+    },
+  });
+  if (!admissionPre) throw AppError.notFound('Admission not found');
+
+  const allowedFromPre = VALID_STATUS_TRANSITIONS[admissionPre.status];
+  if (!allowedFromPre || !allowedFromPre.includes('discharged')) {
+    throw AppError.invalidTransition(admissionPre.status, 'discharged', allowedFromPre || []);
+  }
+
+  // Discharge readiness gate. `lama` (left against medical advice) and
+  // `expired` (deceased) bypass the gate by definition; planned home
+  // discharges must clear (a) discharge_summary present, (b) no
+  // unpaid invoice for this admission, (c) no still-pending lab/imaging
+  // results. Explicit `override_readiness_gate: true` lets the
+  // discharge counter override (with audit). See finding
+  // 2026-05-08-tpa-insurance-claim-discharge-no-readiness-gate.
+  const READINESS_GATED_TYPES = new Set(['home', 'transfer', 'aor']);
+  if (READINESS_GATED_TYPES.has(discharge_type) && override_readiness_gate !== true) {
+    const blockers = [];
+    // Discharge cascade gates (D2). Require:
+    //   - mark-for-discharge already happened (T0 stamped)
+    //   - signed summary (T2)
+    //   - takeaway drugs dispensed (T3)
+    // discharge_summary text in dischargeData is allowed as the
+    // legacy free-text path; if the admission has a clinical_notes
+    // discharge note that's signed, that satisfies the summary gate.
+    if (!admissionPre.discharge_initiated_at) {
+      blockers.push({
+        type: 'NOT_MARKED_FOR_DISCHARGE',
+        message: 'Admission has not been marked for discharge yet. Call POST /admissions/:id/mark-for-discharge first to open the cascade.',
+      });
+    }
+    if (!admissionPre.summary_signed_at) {
+      const signedNote = await prisma.clinical_notes.findFirst({
+        where: {
+          encounter_id: admissionPre.encounter_id ?? undefined,
+          note_type: 'discharge',
+          is_addendum: false,
+          is_signed: true,
+        },
+        select: { id: true },
+      });
+      if (!signedNote && (!discharge_summary || !String(discharge_summary).trim())) {
+        blockers.push({
+          type: 'SUMMARY_NOT_SIGNED',
+          message: 'Discharge summary must be signed by the doctor before final discharge.',
+        });
+      }
+    }
+    if (!admissionPre.discharge_drugs_dispensed_at) {
+      blockers.push({
+        type: 'DRUGS_NOT_DISPENSED',
+        message: 'Discharge takeaway drugs must be dispensed before final discharge. Call POST /admissions/:id/mark-drugs-dispensed when pharmacy hands over.',
+      });
+    }
+    try {
+      // Surface ALL non-final v2 invoices that still owe money. The
+      // exclude list deliberately omits 'DRAFT' — a DRAFT invoice
+      // with positive amount_due means the cashier added charges
+      // but never issued + collected, which is itself a billing-
+      // close concern at discharge. ISSUED + PARTIAL flow through
+      // as obvious unpaid blockers. Findings:
+      //   2026-05-10-inpatient-admission-discharge-billing-v2-due-not-in-readiness
+      //   2026-05-10-surgical-day-care-discharge-billing-v2-due-not-in-readiness
+      const unpaid = await prisma.$queryRawUnsafe(
+        `SELECT id,
+                COALESCE(invoice_number, 'DRAFT-' || id::text) AS invoice_number,
+                status,
+                amount_due AS balance
+           FROM billing_invoices
+          WHERE admission_id = $1::int
+            AND COALESCE(status, '') NOT IN ('PAID', 'VOID', 'paid', 'written_off', 'cancelled')
+            AND COALESCE(amount_due, 0) > 0
+          ORDER BY id
+          LIMIT 5`,
+        admissionId,
+      );
+      if (unpaid.length > 0) {
+        blockers.push({
+          type: 'UNPAID_INVOICE',
+          message: `Outstanding invoice(s) on this admission: ${unpaid
+            .map((i) => `${i.invoice_number} [${i.status}] (₹${i.balance})`)
+            .join(', ')}.`,
+          invoices: unpaid,
+        });
+      }
+    } catch (e) {
+      // Billing schema may carry slightly different column names in some
+      // deploys. Don't fail the gate on a query error — log and continue
+      // with the rest. The override path remains for cases where this
+      // query simply can't run.
+      logger.warn(`Discharge readiness: invoice check skipped for admission ${admissionId} (${e.message})`);
+    }
+    try {
+      const pendingResults = await prisma.$queryRawUnsafe(
+        `SELECT id FROM investigations
+          WHERE patient_uid = $1::uuid
+            AND COALESCE(status, '') NOT IN ('COMPLETED', 'CANCELLED', 'completed', 'cancelled')
+            AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)
+          LIMIT 5`,
+        admissionPre.patient_uid,
+        admissionPre.admitted_at,
+      );
+      if (pendingResults.length > 0) {
+        blockers.push({
+          type: 'PENDING_RESULTS',
+          message: `${pendingResults.length} pending lab/imaging result(s) tied to this admission. Review or cancel before discharge.`,
+          count: pendingResults.length,
+        });
+      }
+    } catch (e) {
+      logger.warn(`Discharge readiness: pending-results check skipped (${e.message})`);
+    }
+
+    if (blockers.length > 0) {
+      const err = AppError.badRequest('Discharge blocked — readiness gate not met. Pass `override_readiness_gate: true` with a reason in discharge_summary to override.');
+      err.code = 'DISCHARGE_NOT_READY';
+      err.details = { blockers };
+      throw err;
+    }
+  }
+
+  // Phase 1: atomic state changes — flip admission to discharged,
+  // vacate the bed (status → cleaning + clear back-links), record the
+  // bed transfer audit row, queue the housekeeping ticket, stamp
+  // audit_logs. Everything here must succeed or roll back together.
+  const phase1 = await prisma.$transaction(async (tx) => {
     // FOR UPDATE lock on the admission to serialise concurrent state changes.
-    // Pull the discharge-cascade markers + encounter_id so the readiness
-    // gate (D2) can check summary-signed / drugs-dispensed without a
-    // second query.
     const admRows = await tx.$queryRaw`
-      SELECT id, patient_uid, bed_id, status, admitted_at, encounter_id,
-             discharge_initiated_at, summary_signed_at, discharge_drugs_dispensed_at
+      SELECT id, patient_uid, bed_id, status, admitted_at
       FROM admissions WHERE id = ${admissionId} FOR UPDATE
     `;
     if (!admRows.length) throw AppError.notFound('Admission not found');
@@ -1029,119 +1169,6 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
     const allowedFrom = VALID_STATUS_TRANSITIONS[admission.status];
     if (!allowedFrom || !allowedFrom.includes('discharged')) {
       throw AppError.invalidTransition(admission.status, 'discharged', allowedFrom || []);
-    }
-
-    // Discharge readiness gate. `lama` (left against medical advice) and
-    // `expired` (deceased) bypass the gate by definition; planned home
-    // discharges must clear (a) discharge_summary present, (b) no
-    // unpaid invoice for this admission, (c) no still-pending lab/imaging
-    // results. Explicit `override_readiness_gate: true` lets the
-    // discharge counter override (with audit). See finding
-    // 2026-05-08-tpa-insurance-claim-discharge-no-readiness-gate.
-    const READINESS_GATED_TYPES = new Set(['home', 'transfer', 'aor']);
-    if (READINESS_GATED_TYPES.has(discharge_type) && override_readiness_gate !== true) {
-      const blockers = [];
-      // Discharge cascade gates (D2). Require:
-      //   - mark-for-discharge already happened (T0 stamped)
-      //   - signed summary (T2)
-      //   - takeaway drugs dispensed (T3)
-      // discharge_summary text in dischargeData is allowed as the
-      // legacy free-text path; if the admission has a clinical_notes
-      // discharge note that's signed, that satisfies the summary gate.
-      if (!admission.discharge_initiated_at) {
-        blockers.push({
-          type: 'NOT_MARKED_FOR_DISCHARGE',
-          message: 'Admission has not been marked for discharge yet. Call POST /admissions/:id/mark-for-discharge first to open the cascade.',
-        });
-      }
-      if (!admission.summary_signed_at) {
-        const signedNote = await tx.clinical_notes.findFirst({
-          where: {
-            encounter_id: admission.encounter_id ?? undefined,
-            note_type: 'discharge',
-            is_addendum: false,
-            is_signed: true,
-          },
-          select: { id: true },
-        });
-        if (!signedNote && (!discharge_summary || !String(discharge_summary).trim())) {
-          blockers.push({
-            type: 'SUMMARY_NOT_SIGNED',
-            message: 'Discharge summary must be signed by the doctor before final discharge.',
-          });
-        }
-      }
-      if (!admission.discharge_drugs_dispensed_at) {
-        blockers.push({
-          type: 'DRUGS_NOT_DISPENSED',
-          message: 'Discharge takeaway drugs must be dispensed before final discharge. Call POST /admissions/:id/mark-drugs-dispensed when pharmacy hands over.',
-        });
-      }
-      try {
-        // Surface ALL non-final v2 invoices that still owe money. The
-        // exclude list deliberately omits 'DRAFT' — a DRAFT invoice
-        // with positive amount_due means the cashier added charges
-        // but never issued + collected, which is itself a billing-
-        // close concern at discharge. ISSUED + PARTIAL flow through
-        // as obvious unpaid blockers. Findings:
-        //   2026-05-10-inpatient-admission-discharge-billing-v2-due-not-in-readiness
-        //   2026-05-10-surgical-day-care-discharge-billing-v2-due-not-in-readiness
-        const unpaid = await tx.$queryRawUnsafe(
-          `SELECT id,
-                  COALESCE(invoice_number, 'DRAFT-' || id::text) AS invoice_number,
-                  status,
-                  amount_due AS balance
-             FROM billing_invoices
-            WHERE admission_id = $1::int
-              AND COALESCE(status, '') NOT IN ('PAID', 'VOID', 'paid', 'written_off', 'cancelled')
-              AND COALESCE(amount_due, 0) > 0
-            ORDER BY id
-            LIMIT 5`,
-          admissionId,
-        );
-        if (unpaid.length > 0) {
-          blockers.push({
-            type: 'UNPAID_INVOICE',
-            message: `Outstanding invoice(s) on this admission: ${unpaid
-              .map((i) => `${i.invoice_number} [${i.status}] (₹${i.balance})`)
-              .join(', ')}.`,
-            invoices: unpaid,
-          });
-        }
-      } catch (e) {
-        // Billing schema may carry slightly different column names in some
-        // deploys. Don't fail the gate on a query error — log and continue
-        // with the rest. The override path remains for cases where this
-        // query simply can't run.
-        logger.warn(`Discharge readiness: invoice check skipped for admission ${admissionId} (${e.message})`);
-      }
-      try {
-        const pendingResults = await tx.$queryRawUnsafe(
-          `SELECT id FROM investigations
-            WHERE patient_uid = $1::uuid
-              AND COALESCE(status, '') NOT IN ('COMPLETED', 'CANCELLED', 'completed', 'cancelled')
-              AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)
-            LIMIT 5`,
-          admission.patient_uid,
-          admission.admitted_at,
-        );
-        if (pendingResults.length > 0) {
-          blockers.push({
-            type: 'PENDING_RESULTS',
-            message: `${pendingResults.length} pending lab/imaging result(s) tied to this admission. Review or cancel before discharge.`,
-            count: pendingResults.length,
-          });
-        }
-      } catch (e) {
-        logger.warn(`Discharge readiness: pending-results check skipped (${e.message})`);
-      }
-
-      if (blockers.length > 0) {
-        const err = AppError.badRequest('Discharge blocked — readiness gate not met. Pass `override_readiness_gate: true` with a reason in discharge_summary to override.');
-        err.code = 'DISCHARGE_NOT_READY';
-        err.details = { blockers };
-        throw err;
-      }
     }
 
     const losDays = computeLos(admission.admitted_at, new Date());
@@ -1161,6 +1188,7 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
       select: ADMISSION_RETURNING_SELECT,
     });
 
+    let bedTurnover = null;
     if (admission.bed_id) {
       // FOR UPDATE lock on the bed row before handing it to housekeeping.
       const bedCheck = await tx.$queryRaw`
@@ -1218,19 +1246,13 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
         } else {
           logger.warn(`dischargePatient: housekeeping request skipped; no users row for ${dischargedBy}`);
         }
-      }
-    }
 
-    // Expire any still-active attendant passes for this admission
-    // (architectural item A4 / migration 174). Best-effort — log if it
-    // fails but don't fail the discharge.
-    try {
-      const expired = await expireAttendantPassesForAdmission(tx, admissionId);
-      if (expired.count > 0) {
-        logger.info(`Expired ${expired.count} attendant pass(es) for admission #${admissionId}`);
+        bedTurnover = {
+          bed_id: admission.bed_id,
+          bed_number: bedCheck[0].bed_number,
+          ward_name: bedCheck[0].ward_name,
+        };
       }
-    } catch (e) {
-      logger.warn(`dischargePatient: attendant-pass expiry failed for admission ${admissionId}: ${e.message}`);
     }
 
     await tx.audit_logs.create({
@@ -1246,9 +1268,24 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
       },
     });
 
-    logger.info(`Admission #${admissionId} discharged (${discharge_type}), LOS ${losDays} days`);
-    return { ...updated, los_days: losDays };
+    return { updated, losDays, bedTurnover };
   });
+
+  // Phase 1.5: attendant-pass expiry — runs OUTSIDE the tx so a
+  // failure here cannot leave the discharge tx aborted. Best-effort:
+  // the pass cleanup is an audit hygiene step, not part of the
+  // discharge invariant.
+  try {
+    const expired = await expireAttendantPassesForAdmission(prisma, admissionId);
+    if (expired.count > 0) {
+      logger.info(`Expired ${expired.count} attendant pass(es) for admission #${admissionId}`);
+    }
+  } catch (e) {
+    logger.warn(`dischargePatient: attendant-pass expiry failed for admission ${admissionId}: ${e.message}`);
+  }
+
+  logger.info(`Admission #${admissionId} discharged (${discharge_type}), LOS ${phase1.losDays} days`);
+  return { ...phase1.updated, los_days: phase1.losDays };
 }
 
 async function transferPatient(admissionId, toWardId, toBedId, reason, transferredBy) {
