@@ -6648,6 +6648,13 @@ model pharmacy_orders {
   dispensed_medications                      Json?
   pharmacist_notes                           String?
   updated_by                                 String?                  @db.Uuid
+  payment_mode                               String?                  @db.VarChar(40)
+  amount_collected                           Decimal?                 @db.Decimal(10, 2)
+  partial_dispense                           Boolean                  @default(false)
+  partial_reason                             String?
+  receipt_delivery                           String?                  @db.VarChar(20)
+  payment_metadata                           Json?
+  dispense_label                             Json?
   pharmacy_order_history                     pharmacy_order_history[]
   users_pharmacy_orders_dispensed_byTousers  users?                   @relation("pharmacy_orders_dispensed_byTousers", fields: [dispensed_by], references: [uid], onUpdate: NoAction)
   users_pharmacy_orders_patient_idTousers    users?                   @relation("pharmacy_orders_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)

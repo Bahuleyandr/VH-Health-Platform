@@ -20,13 +20,62 @@ export const createReminder = async (req, res) => {
       return error(res, 'reminder_times must be a non-empty array of time strings (HH:MM)', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const validFrequencies = ['once_daily', 'twice_daily', 'thrice_daily', 'as_needed'];
-    if (!validFrequencies.includes(frequency)) {
-      return error(res, `Invalid frequency. Must be one of: ${validFrequencies.join(', ')}`, HTTP_STATUS.BAD_REQUEST);
+    // Accept the canonical snake_case forms plus the common clinical
+    // abbreviations (OD/BD/TDS/QID/SOS/HS) that prescriptions actually
+    // use. four_times_daily / QID matters for paediatric paracetamol
+    // (and most antibiotic regimens) where the prescription writes Q6H
+    // and the patient app needs four equally-spaced alerts. Aliases
+    // normalise to the canonical token so the row stays consistent.
+    // Finding: 2026-05-09-pediatric-opd-patient-reminder-no-qid.
+    const FREQUENCY_ALIASES = {
+      od: 'once_daily',
+      qd: 'once_daily',
+      bd: 'twice_daily',
+      bid: 'twice_daily',
+      tds: 'thrice_daily',
+      tid: 'thrice_daily',
+      qid: 'four_times_daily',
+      qds: 'four_times_daily',
+      q6h: 'four_times_daily',
+      every_6_hours: 'four_times_daily',
+      sos: 'as_needed',
+      prn: 'as_needed',
+      stat: 'stat',
+      hs: 'at_bedtime',
+    };
+    const validFrequencies = new Set([
+      'once_daily', 'twice_daily', 'thrice_daily', 'four_times_daily',
+      'as_needed', 'stat', 'at_bedtime',
+    ]);
+    const normalised = String(frequency).trim().toLowerCase().replace(/\s+/g, '_');
+    const canonicalFrequency = validFrequencies.has(normalised)
+      ? normalised
+      : (FREQUENCY_ALIASES[normalised] ?? null);
+    if (!canonicalFrequency) {
+      return error(
+        res,
+        `Invalid frequency. Must be one of: ${[...validFrequencies].join(', ')} (or aliases: OD/BD/TDS/QID/SOS/HS/STAT)`,
+        HTTP_STATUS.BAD_REQUEST,
+      );
+    }
+
+    // For multi-dose frequencies, require reminder_times slot count
+    // matches the cadence so the patient gets all the alerts the doctor
+    // intended. four_times_daily with only 2 times is almost certainly
+    // a typo and worth rejecting up-front.
+    const expectedSlots = {
+      once_daily: 1, twice_daily: 2, thrice_daily: 3, four_times_daily: 4,
+    }[canonicalFrequency];
+    if (expectedSlots && reminder_times.length !== expectedSlots) {
+      return error(
+        res,
+        `Frequency ${canonicalFrequency} requires exactly ${expectedSlots} reminder_times`,
+        HTTP_STATUS.BAD_REQUEST,
+      );
     }
 
     const reminder = await reminderService.createReminder(patientUid, {
-      medication_name, dosage, frequency, reminder_times, start_date, end_date, notes,
+      medication_name, dosage, frequency: canonicalFrequency, reminder_times, start_date, end_date, notes,
     });
 
     success(res, reminder, 'Medication reminder created', HTTP_STATUS.CREATED);

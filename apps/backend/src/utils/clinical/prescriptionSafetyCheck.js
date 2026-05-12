@@ -22,7 +22,21 @@ const PAEDIATRIC_MG_PER_KG = {
 
 const DOSE_VALUE_RX = /(-?\d+(?:\.\d+)?)\s*(mg|mcg|µg|g|ml)\b/i;
 
-function parseDoseToMg(doseString) {
+// Syrup-strength patterns in medication names. Catch "125mg/5ml",
+// "100 mg/ml", "100mg / 5 ml", etc. Returns mg-per-ml when present.
+const STRENGTH_RX = /(\d+(?:\.\d+)?)\s*mg\s*\/\s*(\d+(?:\.\d+)?)?\s*ml\b/i;
+
+function parseStrengthMgPerMl(text) {
+  if (!text || typeof text !== 'string') return null;
+  const m = text.match(STRENGTH_RX);
+  if (!m) return null;
+  const mg = Number.parseFloat(m[1]);
+  const perMl = m[2] != null && m[2] !== '' ? Number.parseFloat(m[2]) : 1;
+  if (!Number.isFinite(mg) || !Number.isFinite(perMl) || perMl <= 0 || mg <= 0) return null;
+  return mg / perMl;
+}
+
+function parseDoseToMg(doseString, options = {}) {
   if (!doseString || typeof doseString !== 'string') return null;
   const m = doseString.match(DOSE_VALUE_RX);
   if (!m) return null;
@@ -32,9 +46,14 @@ function parseDoseToMg(doseString) {
   if (unit === 'mg') return value;
   if (unit === 'g') return value * 1000;
   if (unit === 'mcg' || unit === 'µg') return value / 1000;
-  // ml is liquid volume — can't convert without a strength (e.g. "125 mg/5 ml").
-  // Skip ml-only doses; the caller can add concentration to the medication
-  // payload to enable more accurate checks.
+  // ml is liquid volume — needs a strength (e.g. "125mg/5ml") to
+  // convert. When the caller passes a strengthMgPerMl (parsed from the
+  // medication name or an explicit field), we do the conversion here;
+  // otherwise return null so the dose check skips silently. Finding:
+  // 2026-05-10-pediatric-opd-doctor-syrup-volume-dose-bypass.
+  if (unit === 'ml' && Number.isFinite(options.strengthMgPerMl) && options.strengthMgPerMl > 0) {
+    return value * options.strengthMgPerMl;
+  }
   return null;
 }
 
@@ -282,7 +301,18 @@ export async function validatePrescriptionSafety(patientId, medications) {
         const medName = med.name || med.medication_name || '';
         const mapping = findMgPerKg(medName);
         if (!mapping) continue;
-        const doseMg = parseDoseToMg(med.dose || med.dosage || '');
+        // Resolve syrup/drop strength so an ml-only dose can be converted
+        // to mg. Priority: explicit strength_mg_per_ml field, then the
+        // medication name (e.g. "Paracetamol syrup 125mg/5ml"), then the
+        // strength / concentration free-text field if the doctor entered
+        // one. Falls back to null → ml-only dose is skipped.
+        const strengthMgPerMl =
+          Number(med.strength_mg_per_ml) ||
+          parseStrengthMgPerMl(medName) ||
+          parseStrengthMgPerMl(med.strength) ||
+          parseStrengthMgPerMl(med.concentration) ||
+          null;
+        const doseMg = parseDoseToMg(med.dose || med.dosage || '', { strengthMgPerMl });
         if (doseMg === null) continue;
         const expectedMaxMg = mapping.mgPerKg * paedCtx.weightKg * 1.2; // 20% headroom
         if (doseMg > expectedMaxMg) {
@@ -295,6 +325,7 @@ export async function validatePrescriptionSafety(patientId, medications) {
             entered_dose_mg: doseMg,
             expected_max_per_dose_mg: Number(expectedMaxMg.toFixed(2)),
             mg_per_kg_reference: mapping.mgPerKg,
+            strength_mg_per_ml: strengthMgPerMl,
             message: `${medName} ${doseMg}mg in a ${paedCtx.weightKg}kg ${paedCtx.ageYears}y patient is ${ratio}x the recommended ${mapping.mgPerKg}mg/kg per-dose ceiling. Confirm or override.`,
           });
         }

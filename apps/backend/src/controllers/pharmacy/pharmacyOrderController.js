@@ -357,16 +357,21 @@ export const markDelivered = async (req, res) => {
       // Items with no catalog_id and no name match are skipped (kept loose
       // so legacy free-text orders don't 500). Aggregate per catalog_id so
       // duplicates in the items_list don't double-skip a single UPDATE.
+      // Items_list shape is canonicalised on the order-create path, but
+      // accept `medication_name` and `drug_name` as aliases for backwards
+      // compat with rows created before that fix. See finding
+      // 2026-05-09-walk-in-opd-pharmacy-stock-not-decremented.
       const items = Array.isArray(order.items_list) ? order.items_list : [];
       const decrementByCatalog = new Map();
       for (const item of items) {
         const qty = Number(item?.qty ?? item?.quantity ?? 0);
         if (!Number.isFinite(qty) || qty <= 0) continue;
         let catalogId = item?.catalog_id ? parseInt(item.catalog_id, 10) : null;
-        if (!catalogId && item?.name) {
+        const itemName = item?.name || item?.medication_name || item?.drug_name || null;
+        if (!catalogId && itemName) {
           const match = await tx.$queryRawUnsafe(
             'SELECT id FROM pharmacy_catalog WHERE name ILIKE $1 LIMIT 1',
-            item.name,
+            itemName,
           );
           if (match.length) catalogId = match[0].id;
         }
@@ -423,6 +428,80 @@ export const markDelivered = async (req, res) => {
   }
 };
 
+// Payment modes accepted on the counter dispense payload. Anything else
+// is dropped so we don't write garbage strings into the column.
+const COUNTER_PAYMENT_MODES = new Set([
+  'cash', 'card', 'upi', 'wallet',
+  'corporate_tpa', 'insurance', 'package', 'credit', 'none',
+]);
+
+// Modes that cover the cost through a non-cash channel — used to decide
+// whether `amount_collected: 0` means "fully covered" or "still owed".
+const NON_CASH_PAYMENT_MODES = new Set([
+  'corporate_tpa', 'insurance', 'package', 'credit',
+]);
+
+const RECEIPT_DELIVERY_MODES = new Set(['phone', 'print', 'email', 'none']);
+
+/**
+ * Merge the pharmacist-supplied dispensed_items into the order's
+ * existing items_list. Each dispensed item is keyed off catalog_id (or
+ * name when catalog_id is absent) so a partial dispense overrides the
+ * matching line rather than appending a duplicate. Returns the merged
+ * items_list (used for stock decrement + total_amount) plus the
+ * normalised partial flag.
+ */
+function mergeDispensedItems(existingItems, dispensedItems) {
+  const existing = Array.isArray(existingItems) ? existingItems.map((i) => ({ ...i })) : [];
+  const dispensed = Array.isArray(dispensedItems) ? dispensedItems : [];
+  if (!dispensed.length) {
+    return { items: existing, partialFromQty: false };
+  }
+  let partialFromQty = false;
+  for (const d of dispensed) {
+    if (!d || typeof d !== 'object') continue;
+    const dCatalogId = d.catalog_id ? Number(d.catalog_id) : null;
+    const dName = d.name || d.medication_name || d.drug_name || null;
+    const idx = existing.findIndex((e) => {
+      if (dCatalogId && e.catalog_id && Number(e.catalog_id) === dCatalogId) return true;
+      if (!dCatalogId && dName) {
+        const eName = e.name || e.medication_name || e.drug_name;
+        return eName && String(eName).toLowerCase() === String(dName).toLowerCase();
+      }
+      return false;
+    });
+    const orderedQty = idx >= 0 ? Number(existing[idx].qty ?? existing[idx].quantity ?? 0) : 0;
+    const dispensedQty = Number(d.dispensed_quantity ?? d.dispensed_qty ?? d.qty ?? d.quantity ?? orderedQty);
+    const effectiveQty = Number.isFinite(dispensedQty) && dispensedQty >= 0 ? dispensedQty : orderedQty;
+    if (orderedQty > 0 && effectiveQty < orderedQty) partialFromQty = true;
+    const merged = idx >= 0 ? { ...existing[idx] } : {};
+    if (dCatalogId) merged.catalog_id = dCatalogId;
+    if (dName) {
+      merged.name = dName;
+      merged.medication_name = dName;
+    }
+    merged.qty = effectiveQty;
+    if (orderedQty > 0) merged.ordered_qty = orderedQty;
+    merged.dispensed_qty = effectiveQty;
+    if (d.dispensed_quantity_ml != null) merged.dispensed_quantity_ml = Number(d.dispensed_quantity_ml);
+    if (d.prescribed_dose) merged.prescribed_dose = d.prescribed_dose;
+    if (d.child_weight_kg != null) merged.child_weight_kg = Number(d.child_weight_kg);
+    if (d.label_instruction) merged.label_instruction = d.label_instruction;
+    if (d.instructions) merged.instructions = d.instructions;
+    if (d.batch_no) merged.batch_no = d.batch_no;
+    if (d.expiry_date) merged.expiry_date = d.expiry_date;
+    if (typeof d.price === 'number' && Number.isFinite(d.price)) {
+      merged.price = d.price;
+    }
+    if (typeof merged.price === 'number' && Number.isFinite(merged.price)) {
+      merged.line_total = Number((merged.price * effectiveQty).toFixed(2));
+    }
+    if (idx >= 0) existing[idx] = merged;
+    else existing.push(merged);
+  }
+  return { items: existing, partialFromQty };
+}
+
 /**
  * B-2 — counter-dispense flow. The patient walks up to the pharmacy
  * with their Rx, the pharmacist confirms + hands it over on the spot.
@@ -431,6 +510,14 @@ export const markDelivered = async (req, res) => {
  * DISPENSED, with the same stock-decrement + Rx-fulfilment hooks
  * markDelivered runs. Required: delivery_type='counter' on the order
  * (else use the delivery flow).
+ *
+ * The pharmacist may supply a rich dispense payload — partial quantity,
+ * paediatric label, cash/TPA payment, guardian acknowledgement, receipt
+ * delivery preference. All of it is persisted on the order so the label
+ * endpoint + billing can reach it. See findings
+ *   2026-05-09-pediatric-opd-pharmacy-zero-bill-no-items
+ *   2026-05-10-pediatric-opd-pharmacy-dispense-payload-label-payment-dropped
+ *   2026-05-10-walk-in-opd-pharmacy-partial-dispense-payment-ignored
  */
 export const markCounterDispensed = async (req, res) => {
   try {
@@ -439,11 +526,38 @@ export const markCounterDispensed = async (req, res) => {
       return error(res, 'Invalid order id', HTTP_STATUS.BAD_REQUEST);
     }
 
+    const {
+      dispensed_items,
+      payment_mode: rawPaymentMode,
+      payment_method,
+      amount_collected,
+      partial_dispense: rawPartialDispense,
+      partial_reason,
+      confirmation_notes,
+      receipt_delivery,
+      guardian_acknowledged,
+      insurer,
+      policy_number,
+      package_deduction,
+      tpa_reference,
+    } = req.body ?? {};
+
+    const paymentModeInput = String(rawPaymentMode ?? payment_method ?? '').toLowerCase();
+    const paymentMode = COUNTER_PAYMENT_MODES.has(paymentModeInput) ? paymentModeInput : null;
+    const amountCollected = (() => {
+      const n = Number(amount_collected);
+      return Number.isFinite(n) && n >= 0 ? Number(n.toFixed(2)) : null;
+    })();
+    const receiptDelivery = RECEIPT_DELIVERY_MODES.has(String(receipt_delivery ?? '').toLowerCase())
+      ? String(receipt_delivery).toLowerCase()
+      : null;
+
     const result = await prisma.$transaction(async (tx) => {
       // Pull state + delivery_type up-front so the wrong-flow guard
       // returns a clean 400 instead of an empty UPDATE result.
       const existing = await tx.$queryRawUnsafe(
-        `SELECT id, status, delivery_type, items_list, patient_id
+        `SELECT id, status, delivery_type, items_list, patient_id,
+                patient_name, order_number, total_amount
            FROM pharmacy_orders WHERE id=$1`,
         orderId,
       );
@@ -456,32 +570,143 @@ export const markCounterDispensed = async (req, res) => {
         return { error: 'WRONG_STATUS', status: order.status };
       }
 
+      // Merge pharmacist-supplied dispensed_items into the items_list
+      // already on the order (typically populated by orderPharmacyFromPrescription
+      // or the confirm step). When the pharmacist passes a partial qty
+      // the merged line carries dispensed_qty AND ordered_qty so the
+      // remaining-balance is reachable from the order detail.
+      const { items: mergedItems, partialFromQty } = mergeDispensedItems(
+        Array.isArray(order.items_list) ? order.items_list : [],
+        Array.isArray(dispensed_items) ? dispensed_items : [],
+      );
+
+      // Recompute total_amount from the merged item lines whenever any
+      // line carries a numeric price. Falls back to the existing total
+      // for free-text orders where prices were never resolved.
+      let totalAmount = Number(order.total_amount ?? 0);
+      const priced = mergedItems.filter(
+        (i) => typeof i.line_total === 'number' && Number.isFinite(i.line_total),
+      );
+      if (priced.length) {
+        totalAmount = Number(priced.reduce((sum, i) => sum + i.line_total, 0).toFixed(2));
+      }
+
+      const partialDispense = Boolean(rawPartialDispense) || partialFromQty;
+
+      const packageDeduction = Number(package_deduction);
+      const paymentMetadata = {};
+      if (insurer) paymentMetadata.insurer = String(insurer);
+      if (policy_number) paymentMetadata.policy_number = String(policy_number);
+      if (Number.isFinite(packageDeduction)) paymentMetadata.package_deduction = packageDeduction;
+      if (tpa_reference) paymentMetadata.tpa_reference = String(tpa_reference);
+      if (typeof guardian_acknowledged === 'boolean') {
+        paymentMetadata.guardian_acknowledged = guardian_acknowledged;
+      }
+      const hasPaymentMetadata = Object.keys(paymentMetadata).length > 0;
+
+      // Decide payment_status:
+      //   - amount_collected >= total_amount → paid
+      //   - non-cash mode (TPA/insurance/package/credit) → paid when the
+      //     package_deduction (or any non-zero deduction) at least matches
+      //     total, else partial
+      //   - none of the above → pending
+      let paymentStatus = 'pending';
+      if (totalAmount <= 0) {
+        paymentStatus = 'paid';
+      } else if (amountCollected != null && amountCollected >= totalAmount) {
+        paymentStatus = 'paid';
+      } else if (paymentMode && NON_CASH_PAYMENT_MODES.has(paymentMode)) {
+        if (Number.isFinite(packageDeduction) && packageDeduction >= totalAmount) {
+          paymentStatus = 'paid';
+        } else if (amountCollected != null && amountCollected > 0) {
+          paymentStatus = 'partial';
+        } else {
+          paymentStatus = 'paid';
+        }
+      } else if (amountCollected != null && amountCollected > 0) {
+        paymentStatus = 'partial';
+      }
+
+      // Build the dispense_label snapshot. Pharmacy app / staff app can
+      // re-render this without re-reading the prescription. Keep the
+      // shape tight — patient name, items with labels, dispensed_at.
+      const dispenseLabel = {
+        order_number: order.order_number,
+        patient_name: order.patient_name,
+        dispensed_at: new Date().toISOString(),
+        partial_dispense: partialDispense,
+        partial_reason: partial_reason ?? null,
+        items: mergedItems.map((i) => ({
+          name: i.name || i.medication_name || null,
+          strength: i.strength ?? null,
+          dose: i.dose ?? i.prescribed_dose ?? null,
+          frequency: i.frequency ?? null,
+          duration: i.duration ?? null,
+          route: i.route ?? null,
+          dispensed_qty: i.dispensed_qty ?? i.qty,
+          dispensed_quantity_ml: i.dispensed_quantity_ml ?? null,
+          child_weight_kg: i.child_weight_kg ?? null,
+          label_instruction: i.label_instruction ?? i.instructions ?? null,
+        })),
+      };
+
       // dispensed_by is UUID FK → users.uid (not the int id). Use the
       // JWT's uid claim, not the integer id used elsewhere in this
       // controller for confirmed_by/changed_by (those are int FKs).
       const updated = await tx.$queryRawUnsafe(
         `UPDATE pharmacy_orders
-            SET status='DISPENSED', dispensed_by=$2::uuid, dispensed_at=NOW(),
-                delivery_tracking_active=FALSE, updated_at=NOW()
+            SET status='DISPENSED',
+                dispensed_by=$2::uuid,
+                dispensed_at=NOW(),
+                delivery_tracking_active=FALSE,
+                items_list=$3::jsonb,
+                dispensed_medications=$3::jsonb,
+                total_amount=$4,
+                payment_status=$5,
+                payment_mode=$6,
+                amount_collected=$7,
+                partial_dispense=$8,
+                partial_reason=$9,
+                receipt_delivery=$10,
+                payment_metadata=$11::jsonb,
+                dispense_label=$12::jsonb,
+                confirmation_notes=COALESCE($13, confirmation_notes),
+                updated_at=NOW()
           WHERE id=$1
           RETURNING id, uid, patient_id, patient_name, status, order_note,
-                    total_amount, items_list, dispensed_at, created_at,
-                    updated_at, order_number, delivery_type`,
-        orderId, req.user?.uid ?? null,
+                    total_amount, items_list, dispensed_medications,
+                    payment_status, payment_mode, amount_collected,
+                    partial_dispense, partial_reason, receipt_delivery,
+                    payment_metadata, dispense_label, confirmation_notes,
+                    dispensed_at, created_at, updated_at, order_number, delivery_type`,
+        orderId,
+        req.user?.uid ?? null,
+        JSON.stringify(mergedItems),
+        totalAmount,
+        paymentStatus,
+        paymentMode,
+        amountCollected,
+        partialDispense,
+        partial_reason ?? null,
+        receiptDelivery,
+        hasPaymentMetadata ? JSON.stringify(paymentMetadata) : null,
+        JSON.stringify(dispenseLabel),
+        confirmation_notes ?? null,
       );
       const out = updated[0];
 
-      // Same stock-decrement aggregator as markDelivered.
-      const items = Array.isArray(out.items_list) ? out.items_list : [];
+      // Stock decrement: aggregate per catalog_id from the MERGED items
+      // so a partial dispense only pulls dispensed_qty out of stock.
       const decByCatalog = new Map();
-      for (const item of items) {
-        const qty = Number(item?.qty ?? item?.quantity ?? 0);
+      for (const item of mergedItems) {
+        const qty = Number(item?.dispensed_qty ?? item?.qty ?? item?.quantity ?? 0);
         if (!Number.isFinite(qty) || qty <= 0) continue;
         let catalogId = item?.catalog_id ? parseInt(item.catalog_id, 10) : null;
-        if (!catalogId && item?.name) {
+        const itemName = item?.name || item?.medication_name || item?.drug_name || null;
+        if (!catalogId && itemName) {
           const match = await tx.$queryRawUnsafe(
             'SELECT id FROM pharmacy_catalog WHERE name ILIKE $1 LIMIT 1',
-            item.name,
+            itemName,
           );
           if (match.length) catalogId = match[0].id;
         }
@@ -498,7 +723,11 @@ export const markCounterDispensed = async (req, res) => {
         );
       }
 
-      // Rx fulfilment, identical to markDelivered.
+      // Rx fulfilment, identical to markDelivered. A partial dispense
+      // still flips status to 'fulfilled' — the remaining qty stays
+      // visible on the order itself (partial_dispense=true + items
+      // carry ordered_qty/dispensed_qty), and the pharmacist creates a
+      // refill order from the prescription when the balance is collected.
       await tx.$executeRawUnsafe(
         `UPDATE e_prescriptions
             SET status = 'fulfilled',
@@ -517,8 +746,13 @@ export const markCounterDispensed = async (req, res) => {
 
       await tx.$queryRawUnsafe(
         `INSERT INTO pharmacy_order_history (order_id, from_status, to_status, changed_by, changed_by_role, notes)
-         VALUES ($1, $2, 'DISPENSED', $3, 'pharmacist', 'Counter dispense')`,
-        orderId, order.status, req.user?.id ?? null,
+         VALUES ($1, $2, 'DISPENSED', $3, 'pharmacist', $4)`,
+        orderId,
+        order.status,
+        req.user?.id ?? null,
+        partialDispense
+          ? `Counter dispense (partial${partial_reason ? `: ${partial_reason}` : ''})`
+          : 'Counter dispense',
       );
 
       return { ok: out };
@@ -625,7 +859,10 @@ export const getOrderDetail = async (req, res) => {
     const order = await prisma.$queryRawUnsafe(
       `SELECT id, uid, patient_id, patient_name, patient_phone, prescription_url,
         prescription_photo_key, status, order_note, delivery_type, delivery_address,
-        total_amount, payment_status, assigned_pharmacist, token_number, order_number,
+        total_amount, payment_status, payment_mode, amount_collected,
+        partial_dispense, partial_reason, receipt_delivery, payment_metadata,
+        dispense_label, dispensed_medications, dispensed_at,
+        assigned_pharmacist, token_number, order_number,
         confirmation_notes, items_list, cancellation_reason, cancelled_at,
         created_at, updated_at, confirmed_at, preparing_at, dispatched_at, delivered_at
        FROM pharmacy_orders WHERE id=$1`, parseInt(id));
@@ -642,6 +879,132 @@ export const getOrderDetail = async (req, res) => {
   } catch (err) {
     logger.error('Get pharmacy order detail error:', err);
     error(res, 'Failed to fetch order detail', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+/**
+ * GET /pharmacy/orders/:id/label
+ *
+ * Returns the dispense label as JSON so the staff/patient app can render
+ * it (with paediatric weight, measuring-cup instructions, and dosing
+ * schedule) or hand off to the receipt printer. Available once the order
+ * has been DISPENSED or DELIVERED; the stored `dispense_label` snapshot
+ * is the source of truth, with a freshly-computed fallback so legacy
+ * orders that pre-date column 201 still produce a label.
+ *
+ * Closes:
+ *   2026-05-09-pediatric-opd-pharmacy-no-label-endpoint
+ *   2026-05-09-walk-in-opd-pharmacy-no-label-endpoint (delivery flow shares the endpoint)
+ */
+export const getDispenseLabel = async (req, res) => {
+  try {
+    const orderId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(orderId)) {
+      return error(res, 'Invalid order id', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT po.id, po.uid, po.patient_id, po.patient_name, po.patient_phone, po.phone,
+              po.order_number, po.status, po.delivery_type, po.total_amount,
+              po.payment_status, po.payment_mode, po.amount_collected,
+              po.partial_dispense, po.partial_reason, po.receipt_delivery,
+              po.payment_metadata, po.dispense_label, po.items_list,
+              po.confirmation_notes, po.dispensed_at, po.delivered_at,
+              po.created_at,
+              u.birthday AS patient_birthday,
+              (SELECT vc.weight_kg FROM vitals_chart vc
+                 JOIN users vu ON vu.uid = vc.patient_uid
+                WHERE vu.id = po.patient_id AND vc.weight_kg IS NOT NULL
+                ORDER BY vc.recorded_at DESC NULLS LAST LIMIT 1) AS latest_weight_kg,
+              (SELECT array_agg(DISTINCT pa.allergy_name)
+                 FROM patient_allergies pa
+                WHERE pa.patient_id = po.patient_id AND pa.is_active = TRUE) AS allergies
+         FROM pharmacy_orders po
+         LEFT JOIN users u ON u.id = po.patient_id
+        WHERE po.id = $1`,
+      orderId,
+    );
+    if (!rows.length) return error(res, 'Order not found', HTTP_STATUS.NOT_FOUND);
+    const o = rows[0];
+
+    if (!['DISPENSED', 'DELIVERED'].includes(o.status)) {
+      return error(
+        res,
+        `Label not available until order is dispensed (current status: ${o.status})`,
+        HTTP_STATUS.BAD_REQUEST,
+      );
+    }
+
+    // Prefer the stored snapshot — that's what the pharmacist actually
+    // saw at dispense time. Fall back to a derived label from items_list
+    // for legacy orders that pre-date column 201.
+    const storedLabel = o.dispense_label && typeof o.dispense_label === 'object'
+      ? o.dispense_label
+      : null;
+    const items = Array.isArray(o.items_list) ? o.items_list : [];
+
+    const ageYears = (() => {
+      if (!o.patient_birthday) return null;
+      const dob = new Date(o.patient_birthday);
+      if (Number.isNaN(dob.getTime())) return null;
+      const diffMs = Date.now() - dob.getTime();
+      return Math.floor(diffMs / (1000 * 60 * 60 * 24 * 365.25));
+    })();
+    const weightKg = o.latest_weight_kg != null ? Number(o.latest_weight_kg) : null;
+
+    const labelItems = (storedLabel?.items ?? items).map((i) => ({
+      name: i.name || i.medication_name || null,
+      strength: i.strength ?? null,
+      dose: i.dose ?? i.prescribed_dose ?? null,
+      frequency: i.frequency ?? null,
+      duration: i.duration ?? null,
+      route: i.route ?? null,
+      dispensed_qty: i.dispensed_qty ?? i.qty ?? null,
+      dispensed_quantity_ml: i.dispensed_quantity_ml ?? null,
+      child_weight_kg: i.child_weight_kg ?? null,
+      label_instruction: i.label_instruction ?? i.instructions ?? null,
+    }));
+
+    const label = {
+      order_number: o.order_number,
+      order_id: o.id,
+      patient: {
+        name: o.patient_name,
+        phone: o.patient_phone || o.phone,
+        age_years: ageYears,
+        weight_kg: weightKg,
+        allergies: Array.isArray(o.allergies) ? o.allergies : [],
+      },
+      items: labelItems,
+      partial_dispense: o.partial_dispense ?? false,
+      partial_reason: o.partial_reason ?? null,
+      payment: {
+        status: o.payment_status,
+        mode: o.payment_mode,
+        amount_collected: o.amount_collected != null ? Number(o.amount_collected) : null,
+        total_amount: o.total_amount != null ? Number(o.total_amount) : null,
+        metadata: o.payment_metadata ?? null,
+      },
+      receipt_delivery: o.receipt_delivery,
+      confirmation_notes: o.confirmation_notes,
+      dispensed_at: o.dispensed_at ?? o.delivered_at ?? null,
+      // Paediatric measuring-cup helper. The dispensing pharmacist usually
+      // writes "2.5 ml = ½ tsp" by hand; surface a stock conversion when
+      // the label has any ml-based instruction so the patient/staff app
+      // can render the same hint in print.
+      measuring_guide: labelItems.some((i) =>
+        (i.dispensed_quantity_ml ?? null) != null ||
+        /\d+\s*ml\b/i.test(String(i.dose ?? '')) ||
+        /\d+\s*ml\b/i.test(String(i.label_instruction ?? '')),
+      )
+        ? { '5_ml': '1 teaspoon', '2_5_ml': '½ teaspoon', '15_ml': '1 tablespoon' }
+        : null,
+    };
+
+    success(res, label, 'Dispense label');
+  } catch (err) {
+    logger.error('Get dispense label error:', err);
+    error(res, 'Failed to fetch label', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 

@@ -45,7 +45,11 @@ wrapAutoRBAC(router, 'pharmacyPatientOrderRoutes', {
 // Pharmacist lifecycle actions
 wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
   get: [
-    ['/:id/detail', [], pharmacyOrderController.getOrderDetail]
+    ['/:id/detail', [], pharmacyOrderController.getOrderDetail],
+    // Dispense label / receipt for printing or in-app display. Available
+    // once the order has been DISPENSED or DELIVERED. Wave-3 batch-1.
+    ['/:id/label', [], pharmacyOrderController.getDispenseLabel],
+    ['/:id/receipt', [], pharmacyOrderController.getDispenseLabel]
   ],
   post: [
     ['/:id/confirm', [], pharmacyOrderController.confirmOrder],
