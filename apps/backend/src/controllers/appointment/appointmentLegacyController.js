@@ -59,19 +59,29 @@ export const getAppointmentsByPhone = async (req, res) => {
   }
 };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Get appointments by UID (legacy)
 export const getAppointmentsByUID = async (req, res) => {
   try {
     const { uid } = req.params;
-    
+    if (!uid || !UUID_RE.test(String(uid).trim())) {
+      return error(res, 'Invalid patient UID', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // `uid` is the patient's user UID (Firebase auth `sub`), not the
+    // appointment's own row UID. Earlier WHERE a.uid = $1 matched the
+    // appointment's primary uid and so always returned [] for patients
+    // (and for follow-up appointments whose own `uid` is NULL).
     const result = await prisma.$queryRawUnsafe(`
       SELECT a.*, d.name as doctor_name, dp.department, dp.specialty
       FROM appointments a
       LEFT JOIN users d ON a.doctor_id = d.id
       LEFT JOIN doctors dp ON d.id = dp.user_id
-      WHERE a.uid = $1::uuid
+      JOIN users p ON a.patient_id = p.id
+      WHERE p.uid = $1::uuid
       ORDER BY a.appointment_date DESC
-    `, uid);
+    `, String(uid).trim().toLowerCase());
 
     // An empty result is not a "not found" — the user just has no
     // appointments. Return 200 with [] so the dashboard smart-polling
