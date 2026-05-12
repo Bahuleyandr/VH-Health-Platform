@@ -163,6 +163,34 @@ async function recomputeInvoiceTotals(invoiceId) {
       WHERE id = $7::int`,
     subtotal, cgst, sgst, igst, total, due, invoiceId,
   );
+
+  // TPA cap-proximity alert. The new total_amount may have crossed
+  // the 80% / 100% rungs of the admission's approved cap — surface
+  // it as a clinical alert so the cashier sees a flag at the next
+  // dashboard refresh. Idempotent (won't double-emit while the prior
+  // alert is unacknowledged). Errors are caught + logged but never
+  // bubble up — the invoice update is authoritative.
+  const meta = await prisma.$queryRawUnsafe(
+    `SELECT admission_id, patient_uid, tenant_id
+       FROM billing_invoices WHERE id = $1::int`,
+    invoiceId,
+  );
+  if (meta.length && meta[0].admission_id && meta[0].patient_uid) {
+    try {
+      await maybeEmitTpaCapAlerts({
+        admissionId: meta[0].admission_id,
+        patientUid: meta[0].patient_uid,
+        tenantId: meta[0].tenant_id,
+        totalAmount: total,
+      });
+    } catch (alertErr) {
+      logger.error('Failed to emit TPA cap proximity alert', {
+        invoice_id: invoiceId,
+        error: alertErr.message,
+      });
+    }
+  }
+
   return { subtotal, cgst, sgst, igst, discount, total, paid, due };
 }
 
@@ -467,6 +495,32 @@ export async function issueInvoice(invoiceId) {
       WHERE id = $2::int`,
     number, Number(invoiceId),
   );
+
+  // Issuing transitions DRAFT → ISSUED without changing totals, but
+  // re-check the TPA cap anyway so a draft that's already over cap
+  // surfaces an alert at issuance. recomputeInvoiceTotals only fires
+  // on item / discount mutations.
+  const meta = await prisma.$queryRawUnsafe(
+    `SELECT admission_id, patient_uid, tenant_id, total_amount
+       FROM billing_invoices WHERE id = $1::int`,
+    Number(invoiceId),
+  );
+  if (meta.length && meta[0].admission_id && meta[0].patient_uid) {
+    try {
+      await maybeEmitTpaCapAlerts({
+        admissionId: meta[0].admission_id,
+        patientUid: meta[0].patient_uid,
+        tenantId: meta[0].tenant_id,
+        totalAmount: meta[0].total_amount,
+      });
+    } catch (alertErr) {
+      logger.error('Failed to emit TPA cap proximity alert on issue', {
+        invoice_id: invoiceId,
+        error: alertErr.message,
+      });
+    }
+  }
+
   return getInvoice(invoiceId);
 }
 
@@ -486,6 +540,111 @@ export async function voidInvoice(invoiceId, { reason, voided_by }) {
     voided_by ? String(voided_by) : null, reason, Number(invoiceId),
   );
   return getInvoice(invoiceId);
+}
+
+// TPA cap-proximity alert thresholds. The 80% rung is the "tell the
+// patient" line — billing should warn the cashier before they swipe
+// another room charge that pushes the bill close to the sanctioned
+// cap. The 100% rung is the "stop billing without confirmation" line.
+// See finding
+// 2026-05-09-tpa-insurance-claim-billing-no-cap-proximity-alert.
+const TPA_CAP_WARN_PCT = 80;
+const TPA_CAP_CRITICAL_PCT = 100;
+
+/**
+ * Emit clinical_alerts when an admission's bill crosses TPA cap
+ * thresholds. Idempotent per (admission, severity) pair — we never
+ * emit a second WARNING for the same admission while the previous
+ * one is unacknowledged. Safe to call after every invoice mutation
+ * (recompute / issue / payment) — duplicate suppression lives in
+ * the query itself.
+ *
+ * Returns the array of alert rows actually inserted, or [] when no
+ * threshold was crossed.
+ *
+ * Fire-and-forget callers should still `.catch` — we throw on
+ * unexpected DB errors so unit tests can assert the failure path.
+ */
+async function maybeEmitTpaCapAlerts({ admissionId, patientUid, tenantId, totalAmount }) {
+  if (!admissionId || !patientUid) return [];
+  const cap = await resolveAdmissionTpaCap(admissionId, tenantId);
+  if (!cap || cap.cumulative_approved <= 0) return [];
+
+  const total = Number(totalAmount ?? 0);
+  if (total <= 0) return [];
+  const pct = (total / cap.cumulative_approved) * 100;
+
+  // Translate the threshold ladder into the (alert_type, severity)
+  // tuples we want to emit. Critical fires only when the bill has
+  // crossed the cap; warning fires from 80% upward (and stays put if
+  // the bill later crosses 100% — the critical row adds to it rather
+  // than replacing it).
+  const toEmit = [];
+  if (pct >= TPA_CAP_CRITICAL_PCT) toEmit.push('CRITICAL');
+  if (pct >= TPA_CAP_WARN_PCT) toEmit.push('WARNING');
+  if (toEmit.length === 0) return [];
+
+  // patient_id is an INT FK on clinical_alerts but admissions/invoices
+  // key by patient_uid. Resolve once.
+  const userRows = await prisma.$queryRawUnsafe(
+    `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`,
+    String(patientUid),
+  );
+  if (!userRows.length) return [];
+  const patientId = userRows[0].id;
+
+  const inserted = [];
+  for (const severity of toEmit) {
+    // Idempotency probe: don't double-emit while an alert at the same
+    // (admission, severity) is unacknowledged. `admission ${id}` in
+    // the message is the join key — no separate column on
+    // clinical_alerts for admission_id.
+    const existing = await prisma.$queryRawUnsafe(
+      `SELECT id FROM clinical_alerts
+        WHERE patient_id = $1::int
+          AND alert_type = 'TPA_CAP_PROXIMITY'
+          AND severity = $2
+          AND acknowledged = false
+          AND message LIKE $3
+        LIMIT 1`,
+      Number(patientId),
+      severity,
+      `%admission ${admissionId}%`,
+    );
+    if (existing.length) continue;
+
+    const remaining = Math.max(0, cap.cumulative_approved - total);
+    const utilisationPct = Math.round(pct * 10) / 10;
+    const message =
+      severity === 'CRITICAL'
+        ? `IPD bill for admission ${admissionId} (${cap.root_preauth_number}) ` +
+          `at INR ${total.toFixed(2)} has exceeded the TPA approved cap of ` +
+          `INR ${Number(cap.cumulative_approved).toFixed(2)} (${utilisationPct}%). ` +
+          `Halt non-essential charges; raise enhancement preauth or collect ` +
+          `patient liability before continuing.`
+        : `IPD bill for admission ${admissionId} (${cap.root_preauth_number}) ` +
+          `at INR ${total.toFixed(2)} of INR ${Number(cap.cumulative_approved).toFixed(2)} ` +
+          `approved (${utilisationPct}%, INR ${remaining.toFixed(2)} remaining). ` +
+          `Warn patient + consider enhancement preauth before further charges.`;
+
+    const inserted_rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_alerts
+         (patient_id, alert_type, severity, message, acknowledged, created_at)
+       VALUES ($1::int, 'TPA_CAP_PROXIMITY', $2, $3, false, NOW())
+       RETURNING id, severity, message`,
+      Number(patientId), severity, message,
+    );
+    inserted.push(inserted_rows[0]);
+    logger.warn('TPA cap proximity alert emitted', {
+      admission_id: admissionId,
+      patient_uid: patientUid,
+      severity,
+      utilisation_pct: utilisationPct,
+      cap: cap.cumulative_approved,
+      total,
+    });
+  }
+  return inserted;
 }
 
 /**
