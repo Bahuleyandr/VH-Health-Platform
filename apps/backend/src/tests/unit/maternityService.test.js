@@ -12,6 +12,7 @@ import {
   recordNewborn,
   recordApgar,
   recordPostnatalVisit,
+  setSupplementReminder,
 } from '../../services/maternity/maternityService.js';
 
 const T = '00000000-0000-4000-8000-000000000001';
@@ -165,6 +166,22 @@ describe('recordPostnatalVisit validation', () => {
     ).rejects.toMatchObject({
       message: expect.stringMatching(/delivery_id/i),
     });
+  });
+});
+
+describe('setSupplementReminder validation', () => {
+  it('rejects invalid pregnancy, supplement, and reminder inputs before DB access', async () => {
+    await expect(
+      setSupplementReminder({ tenantId: T, pregnancy_id: 0, supplement_id: 1, reminder_enabled: true }),
+    ).rejects.toMatchObject({ message: expect.stringMatching(/pregnancy_id/i) });
+
+    await expect(
+      setSupplementReminder({ tenantId: T, pregnancy_id: 1, supplement_id: 0, reminder_enabled: true }),
+    ).rejects.toMatchObject({ message: expect.stringMatching(/supplement_id/i) });
+
+    await expect(
+      setSupplementReminder({ tenantId: T, pregnancy_id: 1, supplement_id: 1, reminder_enabled: 'yes' }),
+    ).rejects.toMatchObject({ message: expect.stringMatching(/reminder_enabled/i) });
   });
 });
 

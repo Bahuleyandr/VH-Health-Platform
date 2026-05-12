@@ -466,6 +466,36 @@ export async function listFetalKicks({ tenantId, pregnancy_id, fromDate = null, 
   );
 }
 
+export async function setSupplementReminder({
+  tenantId, pregnancy_id, supplement_id, reminder_enabled,
+}) {
+  const pregnancyId = Number.parseInt(pregnancy_id, 10);
+  const supplementId = Number.parseInt(supplement_id, 10);
+  if (!Number.isInteger(pregnancyId) || pregnancyId <= 0) {
+    throw AppError.badRequest('pregnancy_id must be a positive integer');
+  }
+  if (!Number.isInteger(supplementId) || supplementId <= 0) {
+    throw AppError.badRequest('supplement_id must be a positive integer');
+  }
+  if (typeof reminder_enabled !== 'boolean') {
+    throw AppError.badRequest('reminder_enabled must be a boolean');
+  }
+  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE maternity_supplements
+        SET reminder_enabled = $1,
+            updated_at = NOW()
+      WHERE tenant_id = $2::uuid
+        AND pregnancy_id = $3::int
+        AND id = $4::int
+      RETURNING id, supplement, dose, frequency, route, start_date, end_date,
+                reminder_enabled, notes, prescribed_by, created_at, updated_at`,
+    reminder_enabled, tid, pregnancyId, supplementId,
+  );
+  if (!rows.length) throw AppError.notFound('Supplement not found');
+  return rows[0];
+}
+
 export async function listAncVisits({ tenantId, pregnancy_id }) {
   return prisma.$queryRawUnsafe(
     `SELECT * FROM maternity_anc_visits

@@ -8,7 +8,9 @@
 
 import { Router } from 'express';
 import logger from '../../logging/logger.js';
+import * as maternity from '../../services/maternity/maternityService.js';
 import * as portal from '../../services/portal/patientPortalService.js';
+import { AppError } from '../../utils/AppError.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = Router();
@@ -42,6 +44,15 @@ function requirePatient(req, res, next) {
   }
   if (!patientUidOf(req)) return error(res, 'Patient UID missing from token', 401);
   next();
+}
+
+async function requireActivePregnancy(req) {
+  const active = await maternity.getActivePregnancyForPatient({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+  });
+  if (!active) throw AppError.notFound('Active pregnancy not found');
+  return active;
 }
 
 // ── Bills ────────────────────────────────────────────────────────────
@@ -111,6 +122,52 @@ router.get('/lab-results/:id', requirePatient, wrap(async (req) =>
     id: req.params.id,
   }),
 ));
+
+// ── Maternity / ANC ─────────────────────────────────────────────────
+router.get('/maternity/timeline', requirePatient, wrap(async (req) =>
+  maternity.getAncTimelineForPatient({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+  }),
+));
+
+router.get('/maternity/fetal-kicks', requirePatient, wrap(async (req) => {
+  const active = await maternity.getActivePregnancyForPatient({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+  });
+  if (!active) return { pregnancy: null, fetal_kicks: [] };
+  const fetalKicks = await maternity.listFetalKicks({
+    tenantId: tenantOf(req),
+    pregnancy_id: active.id,
+    fromDate: req.query.from || null,
+    toDate: req.query.to || null,
+  });
+  return { pregnancy: active, fetal_kicks: fetalKicks };
+}));
+
+router.post('/maternity/fetal-kicks', requirePatient, wrap(async (req) => {
+  const active = await requireActivePregnancy(req);
+  return maternity.recordFetalKick({
+    tenantId: tenantOf(req),
+    pregnancy_id: active.id,
+    log_date: req.body.log_date,
+    kick_count: req.body.kick_count,
+    observation_window_minutes: req.body.observation_window_minutes,
+    notes: req.body.notes,
+    recorded_by: patientUidOf(req),
+  });
+}));
+
+router.patch('/maternity/supplements/:id/reminder', requirePatient, wrap(async (req) => {
+  const active = await requireActivePregnancy(req);
+  return maternity.setSupplementReminder({
+    tenantId: tenantOf(req),
+    pregnancy_id: active.id,
+    supplement_id: req.params.id,
+    reminder_enabled: req.body.reminder_enabled,
+  });
+}));
 
 // ── Secure messaging ────────────────────────────────────────────────
 router.get('/messages', requirePatient, wrap(async (req) =>
