@@ -72,6 +72,7 @@ router.get('/results/patient/:patientUid', requireStaffOrAdmin, wrap(async (req)
     tenantId: tenantOf(req),
     patient_uid: req.params.patientUid,
     limit: req.query.limit,
+    include_preliminary: req.query.include_preliminary,
   }),
 ));
 

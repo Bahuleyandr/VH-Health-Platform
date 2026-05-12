@@ -522,12 +522,27 @@ export async function createPostopNote({
   followUpActions = null,
   disposition = null,
   status = 'draft',
+  finalizedBy = null,
   aiAssistGenerationId = null,
   metadata = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const scheduleId = normalizeId(otScheduleId, 'ot_schedule_id');
   await ensureScheduleVisible(tid, scheduleId);
+  const cleanStatus = normalizeEnum(status, NOTE_STATUSES, 'status') || 'draft';
+  // Wave-2 fix: if a postop note is created already finalized, stamp the
+  // signature columns. Without this the note shows status=finalized with
+  // NULL finalized_by/at — invisible signature. Finding:
+  // 2026-05-09-surgical-day-care-ot-staff-anesthesia-finalized-by-null.
+  const finalizerUid = cleanStatus === 'finalized'
+    ? (maybeUuid(finalizedBy, 'finalized_by') || maybeUuid(authoredBy, 'authored_by'))
+    : null;
+  if (cleanStatus === 'finalized' && !finalizerUid) {
+    throw AppError.badRequest(
+      'finalized_by (or authored_by) is required to create a finalized postop note',
+      'POSTOP_FINALIZER_REQUIRED',
+    );
+  }
 
   try {
     const rows = await prisma.$queryRawUnsafe(
@@ -538,14 +553,17 @@ export async function createPostopNote({
           drain_status, wound_status, diet_advanced_to,
           ambulation, bowel_function, urine_output_ml,
           complications_noted, pending_orders, follow_up_actions,
-          disposition, status, ai_assist_generation_id, metadata)
+          disposition, status, finalized_by, finalized_at,
+          ai_assist_generation_id, metadata)
        VALUES ($1::uuid, $2, $3::uuid,
          $4::uuid, $5, $6,
          $7::jsonb, $8, $9,
          $10::jsonb, $11, $12,
          $13, $14, $15,
          $16, $17::jsonb, $18::jsonb,
-         $19, $20, $21, $22::jsonb)
+         $19, $20, $21::uuid,
+         CASE WHEN $20 = 'finalized' THEN NOW() ELSE NULL END,
+         $22, $23::jsonb)
        RETURNING ${POSTOP_RETURNING}`,
       tid, scheduleId, maybeUuid(patientUid, 'patient_uid'),
       maybeUuid(authoredBy, 'authored_by'),
@@ -564,7 +582,8 @@ export async function createPostopNote({
       JSON.stringify(pendingOrders ? normalizeJsonArray(pendingOrders, 'pending_orders') : []),
       JSON.stringify(followUpActions ? normalizeJsonArray(followUpActions, 'follow_up_actions') : []),
       safeText(disposition, 160),
-      normalizeEnum(status, NOTE_STATUSES, 'status') || 'draft',
+      cleanStatus,
+      finalizerUid,
       aiAssistGenerationId ? normalizeId(aiAssistGenerationId, 'ai_assist_generation_id') : null,
       JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
     );
@@ -669,6 +688,7 @@ export async function upsertAnesthesiaRecord({
   painPlan = null,
   ponvProphylaxis = null,
   status = 'draft',
+  finalizedBy = null,
   aiPrecheckGenerationId = null,
   metadata = null,
 } = {}) {
@@ -676,6 +696,19 @@ export async function upsertAnesthesiaRecord({
   const scheduleId = normalizeId(otScheduleId, 'ot_schedule_id');
   await ensureScheduleVisible(tid, scheduleId);
   const cleanStatus = normalizeEnum(status, NOTE_STATUSES, 'status') || 'draft';
+  // Wave-2 fix: stamp finalized_by / finalized_at whenever the upsert lands
+  // on status='finalized'. Without this stamp the signature is invisible
+  // even after the route reports the record as signed. Finding:
+  // 2026-05-09-surgical-day-care-ot-staff-anesthesia-finalized-by-null.
+  const finalizerUid = cleanStatus === 'finalized'
+    ? (maybeUuid(finalizedBy, 'finalized_by') || maybeUuid(anesthetist, 'anesthetist'))
+    : null;
+  if (cleanStatus === 'finalized' && !finalizerUid) {
+    throw AppError.badRequest(
+      'finalized_by (or anesthetist) is required to finalize an anaesthesia record',
+      'ANAESTHESIA_FINALIZER_REQUIRED',
+    );
+  }
 
   try {
     const rows = await prisma.$queryRawUnsafe(
@@ -686,14 +719,16 @@ export async function upsertAnesthesiaRecord({
           technique, airway_managed, intubation_grade, agents_used,
           fluids_in_ml, blood_products_in, urine_output_ml, blood_loss_ml,
           events, complications, recovery_destination, pain_plan, ponv_prophylaxis,
-          status, ai_precheck_generation_id, metadata)
+          status, finalized_by, finalized_at, ai_precheck_generation_id, metadata)
        VALUES ($1::uuid, $2, $3::uuid,
          $4::uuid, $5::uuid, $6,
          $7, $8::jsonb, $9::jsonb,
          $10, $11, $12, $13::jsonb,
          $14, $15::jsonb, $16, $17,
          $18::jsonb, $19, $20, $21, $22,
-         $23, $24, $25::jsonb)
+         $23, $24::uuid,
+         CASE WHEN $23 = 'finalized' THEN NOW() ELSE NULL END,
+         $25, $26::jsonb)
        ON CONFLICT (tenant_id, ot_schedule_id) DO UPDATE SET
          patient_uid = EXCLUDED.patient_uid,
          anesthetist = EXCLUDED.anesthetist,
@@ -716,6 +751,14 @@ export async function upsertAnesthesiaRecord({
          pain_plan = EXCLUDED.pain_plan,
          ponv_prophylaxis = EXCLUDED.ponv_prophylaxis,
          status = EXCLUDED.status,
+         finalized_by = CASE
+           WHEN EXCLUDED.status = 'finalized' THEN COALESCE(EXCLUDED.finalized_by, anesthesia_records.finalized_by)
+           ELSE anesthesia_records.finalized_by
+         END,
+         finalized_at = CASE
+           WHEN EXCLUDED.status = 'finalized' AND anesthesia_records.finalized_at IS NULL THEN NOW()
+           ELSE anesthesia_records.finalized_at
+         END,
          ai_precheck_generation_id = EXCLUDED.ai_precheck_generation_id,
          metadata = EXCLUDED.metadata,
          updated_at = NOW()
@@ -741,6 +784,7 @@ export async function upsertAnesthesiaRecord({
       safeText(painPlan),
       safeText(ponvProphylaxis),
       cleanStatus,
+      finalizerUid,
       aiPrecheckGenerationId ? normalizeId(aiPrecheckGenerationId, 'ai_precheck_generation_id') : null,
       JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
     );
@@ -749,6 +793,32 @@ export async function upsertAnesthesiaRecord({
     if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
     throw err;
   }
+}
+
+export async function finalizeAnesthesiaRecord({
+  tenantId = null, otScheduleId, finalizedBy = null,
+} = {}) {
+  const tid = resolveTenantId({ tenantId });
+  const scheduleId = normalizeId(otScheduleId, 'ot_schedule_id');
+  const finalizerUid = maybeUuid(finalizedBy, 'finalized_by');
+  if (!finalizerUid) {
+    throw AppError.badRequest(
+      'finalized_by is required to finalize an anaesthesia record',
+      'ANAESTHESIA_FINALIZER_REQUIRED',
+    );
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE anesthesia_records
+     SET status = 'finalized',
+         finalized_by = $1::uuid,
+         finalized_at = NOW(),
+         updated_at = NOW()
+     WHERE ot_schedule_id = $2 AND tenant_id = $3::uuid AND status IN ('draft', 'amended')
+     RETURNING ${ANESTHESIA_RETURNING}`,
+    finalizerUid, scheduleId, tid,
+  );
+  if (!rows[0]) throw AppError.notFound('Anaesthesia record not found or already finalized');
+  return rows[0];
 }
 
 export async function getAnesthesiaRecord({ tenantId = null, otScheduleId } = {}) {
@@ -1212,6 +1282,7 @@ export default {
   listPostopNotes,
   finalizePostopNote,
   upsertAnesthesiaRecord,
+  finalizeAnesthesiaRecord,
   getAnesthesiaRecord,
   recordImplant,
   listImplants,

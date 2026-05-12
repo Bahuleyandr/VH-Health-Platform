@@ -1108,6 +1108,33 @@ model care_plans {
   @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_care_plans_tenant_status")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model cash_drawer_sessions {
+  id                    BigInt    @id @default(autoincrement())
+  tenant_id             String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  cashier_uid           String    @db.Uuid
+  shift                 String    @db.VarChar(20)
+  opened_at             DateTime  @default(now()) @db.Timestamptz(6)
+  opening_float         Decimal   @default(0) @db.Decimal(12, 2)
+  closed_at             DateTime? @db.Timestamptz(6)
+  counted_total         Decimal?  @db.Decimal(12, 2)
+  counted_denominations Json?
+  system_total          Decimal?  @db.Decimal(12, 2)
+  variance              Decimal?  @db.Decimal(12, 2)
+  short_count           Boolean   @default(false)
+  over_count            Boolean   @default(false)
+  requires_review       Boolean   @default(false)
+  variance_reason       String?   @db.VarChar(500)
+  status                String    @default("open") @db.VarChar(20)
+  reviewed_by           String?   @db.Uuid
+  reviewed_at           DateTime? @db.Timestamptz(6)
+  review_notes          String?   @db.VarChar(500)
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([tenant_id, cashier_uid, opened_at(sort: Desc)], map: "idx_cash_drawer_sessions_cashier")
+}
+
 model cds_alerts {
   id           Int       @id @default(autoincrement())
   patient_uid  String    @db.Uuid

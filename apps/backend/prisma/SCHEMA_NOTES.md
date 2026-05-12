@@ -107,3 +107,19 @@ _Keyed by Prisma model name. `__top_level__` holds comments outside any model._
 > panel_code is the template (CBC | LIPID | RFT | THYROID …) so
 > reports + trend queries can group by it.
 
+## model:cash_drawer_sessions
+
+> Cashier shift-close / cash-drawer reconciliation (migration 198,
+> wave-2 batch). One row per cashier per shift open; closed/reviewed
+> rows accumulate as audit history. A partial unique index on
+> `(tenant_id, cashier_uid, shift) WHERE status='open'` (NOT a Prisma
+> model attribute — enforced at the DB layer) keeps the "one open
+> session at a time per cashier" invariant. `system_total` is the
+> CASH-mode billing_payments total for the same cashier+shift since
+> `opened_at`. `variance = counted_total - (system_total +
+> opening_float)`. A non-zero variance flips short_count / over_count;
+> when |variance| exceeds CASH_DRAWER_VARIANCE_TOLERANCE (env, default
+> ₹1) the session stays `closed` with `requires_review=true` until a
+> FINANCE_INCHARGE / ADMIN signs it off. Within tolerance, the close
+> handler auto-stamps `reviewed_at` and flips to `reviewed`.
+

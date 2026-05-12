@@ -14,6 +14,7 @@
  *   GET    /surgical/postop                            — list postop notes
  *   PATCH  /surgical/postop/:id/finalize               — finalize postop note
  *   PUT    /surgical/anesthesia/:scheduleId            — upsert anesthesia record
+ *   PATCH  /surgical/anesthesia/:scheduleId/finalize   — finalize anesthesia record
  *   GET    /surgical/anesthesia/:scheduleId            — get anesthesia record
  *   POST   /surgical/implants                          — record implant
  *   GET    /surgical/implants                          — list implants
@@ -33,6 +34,7 @@ import {
   acknowledgeComplicationAlert,
   createIntraopNote,
   createPostopNote,
+  finalizeAnesthesiaRecord,
   finalizeIntraopNote,
   finalizePostopNote,
   getAnesthesiaRecord,
@@ -212,6 +214,7 @@ router.post('/postop', async (req, res, next) => {
       followUpActions: body.follow_up_actions,
       disposition: body.disposition,
       status: body.status,
+      finalizedBy: body.finalized_by || req.user?.uid || null,
       aiAssistGenerationId: body.ai_assist_generation_id,
       metadata: body.metadata,
     });
@@ -274,10 +277,22 @@ router.put('/anesthesia/:scheduleId', async (req, res, next) => {
       painPlan: body.pain_plan,
       ponvProphylaxis: body.ponv_prophylaxis,
       status: body.status,
+      finalizedBy: body.finalized_by || req.user?.uid || null,
       aiPrecheckGenerationId: body.ai_precheck_generation_id,
       metadata: body.metadata,
     });
     return success(res, row, 'Anesthesia record saved');
+  } catch (err) { return next(err); }
+});
+
+router.patch('/anesthesia/:scheduleId/finalize', async (req, res, next) => {
+  try {
+    const row = await finalizeAnesthesiaRecord({
+      tenantId: req.tenantId,
+      otScheduleId: req.params.scheduleId,
+      finalizedBy: req.user?.uid || null,
+    });
+    return success(res, row, 'Anesthesia record finalized');
   } catch (err) { return next(err); }
 });
 
