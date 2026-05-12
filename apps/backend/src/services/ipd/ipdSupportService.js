@@ -8,7 +8,6 @@
 // Migration 174. Per project decision 2026-05-09.
 
 import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
 const VALID_PAYMENT_METHODS = new Set(['cash', 'card', 'upi', 'cheque', 'online', 'bank_transfer']);
@@ -45,7 +44,7 @@ async function nextReceiptNumber(tx) {
   return `${prefix}${pad(nextSeq, 4)}`;
 }
 
-async function nextPassNumber(tx, admissionId, passIndex) {
+async function nextPassNumber(tx, _admissionId, _passIndex) {
   // AP-YYYYMMDD-NNNN. Pass index distinguishes the 2-per-admission pair.
   const now = new Date();
   const ymd = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1, 2)}${pad(now.getUTCDate(), 2)}`;
@@ -324,7 +323,10 @@ export async function issueReplacementAttendantPass({
       _max: { pass_index: true },
     });
     const nextIndex = (lastIndex._max.pass_index ?? 0) + 1;
-    const [pass] = await issueDefaultAttendantPasses(tx, {
+    // Dead destructure left over from a previous refactor — the `.then(() => [])`
+    // chain means the destructured `_pass` is always undefined. Kept the
+    // side-effect call out of an abundance of caution.
+    const [_pass] = await issueDefaultAttendantPasses(tx, {
       admissionId, patientUid, patientName, wardId, wardName, issuedBy,
     }).then(() => []) // can't reuse — write a custom one
       .catch(() => []);

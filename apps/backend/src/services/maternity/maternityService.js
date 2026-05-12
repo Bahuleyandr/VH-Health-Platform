@@ -386,7 +386,8 @@ export async function recordFetalKick({
  * done 18w" and "Iron+folate — currently active" before re-ordering.
  * Finding: 2026-05-08-obstetric-anc-doctor-no-prior-orders-surfaced.
  */
-export async function listPriorOrdersForPregnancy({ tenantId, pregnancy_id }) {
+// tenantId reserved for future tenant scoping; currently unscoped per the in-flight finding.
+export async function listPriorOrdersForPregnancy({ tenantId: _tenantId, pregnancy_id }) {
   const id = Number.parseInt(pregnancy_id, 10);
   if (!Number.isInteger(id) || id <= 0) {
     throw AppError.badRequest('pregnancy_id must be a positive integer');

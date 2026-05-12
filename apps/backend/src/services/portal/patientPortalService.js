@@ -121,7 +121,8 @@ export async function createSelfPaymentLink({
 
 // ── B-6 — patient-side discharge PDF ─────────────────────────────────
 
-export async function getMyDischargePdfUrl({ tenantId, patient_uid, admission_id }) {
+// tenantId reserved for future tenant scoping; currently unscoped per the in-flight finding.
+export async function getMyDischargePdfUrl({ tenantId: _tenantId, patient_uid, admission_id }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   const id = Number(admission_id);
   if (!Number.isInteger(id) || id <= 0) {

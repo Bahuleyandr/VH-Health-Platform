@@ -22,7 +22,8 @@ const VALID_CLAIM_STATUSES = [
 // `preauth` (initial submission), `enhancement` (mid-stay top-up), `final`
 // (discharge claim). Helps the TPA desk + downstream reports tell apart
 // the lifecycle stages of a single admission's claims.
-const VALID_CLAIM_STAGES = ['preauth', 'enhancement', 'final'];
+// Documents lifecycle stages; referenced by name in DB rows + downstream docs.
+const _VALID_CLAIM_STAGES = ['preauth', 'enhancement', 'final'];
 
 class BillingService {
 

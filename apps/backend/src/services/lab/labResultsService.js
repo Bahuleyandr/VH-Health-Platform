@@ -423,7 +423,9 @@ export async function getResultsForPatient({ tenantId, patient_uid, limit = 200 
  * lab tech sees only inpatients, not the OPD walk-ins. Finding:
  * 2026-05-08-inpatient-admission-lab-tech-ipd-orders-not-on-worklist.
  */
-export async function listIpdLabWorklist({ tenantId, limit = 100 } = {}) {
+// TODO: tenantId is accepted but not yet scoped into the query — see
+// the in-flight finding about tenant isolation on lab worklists.
+export async function listIpdLabWorklist({ tenantId: _tenantId, limit = 100 } = {}) {
   const lim = Math.max(1, Math.min(500, Number(limit) || 100));
   return prisma.$queryRawUnsafe(
     `SELECT i.id, i.test_name, i.test_type, i.status, i.priority,

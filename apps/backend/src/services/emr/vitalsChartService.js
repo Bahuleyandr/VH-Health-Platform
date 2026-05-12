@@ -85,7 +85,7 @@ function normalizeEncounterId(raw) {
 // 2026-05-08-emergency-walk-in-nurse-vitals-notes-utf8-nul.
 function stripNul(s) {
   if (s == null || typeof s !== 'string') return s;
-  return s.indexOf('\u0000') === -1 ? s : s.replace(/\u0000/g, '');
+  return s.indexOf('\u0000') === -1 ? s : s.replaceAll('\u0000', '');
 }
 
 // Convert a temperature value to Celsius, given the unit hint. Default unit

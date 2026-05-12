@@ -586,7 +586,7 @@ export const addResults = async (id, resultData, userId) => {
           visit(results);
           if (lines.length) resultSummary = lines.slice(0, 20).join('\n');
         }
-      } catch (e) {
+      } catch {
         // Summary is best-effort; never block result write on it.
       }
 
@@ -637,7 +637,7 @@ export const addResults = async (id, resultData, userId) => {
             data: { investigation_id: updated.id, test_name: updated.test_name },
           }).catch(() => {});
         }
-      } catch (e) {
+      } catch {
         // Notification dispatch is best-effort.
       }
       return updated;
