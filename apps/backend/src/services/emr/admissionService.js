@@ -1078,29 +1078,42 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
         });
       }
       try {
+        // Surface ALL non-final v2 invoices that still owe money. The
+        // exclude list deliberately omits 'DRAFT' — a DRAFT invoice
+        // with positive amount_due means the cashier added charges
+        // but never issued + collected, which is itself a billing-
+        // close concern at discharge. ISSUED + PARTIAL flow through
+        // as obvious unpaid blockers. Findings:
+        //   2026-05-10-inpatient-admission-discharge-billing-v2-due-not-in-readiness
+        //   2026-05-10-surgical-day-care-discharge-billing-v2-due-not-in-readiness
         const unpaid = await tx.$queryRawUnsafe(
-          `SELECT id, invoice_number, amount_due AS balance
+          `SELECT id,
+                  COALESCE(invoice_number, 'DRAFT-' || id::text) AS invoice_number,
+                  status,
+                  amount_due AS balance
              FROM billing_invoices
-            WHERE admission_id = $1
+            WHERE admission_id = $1::int
               AND COALESCE(status, '') NOT IN ('PAID', 'VOID', 'paid', 'written_off', 'cancelled')
               AND COALESCE(amount_due, 0) > 0
+            ORDER BY id
             LIMIT 5`,
           admissionId,
         );
         if (unpaid.length > 0) {
           blockers.push({
             type: 'UNPAID_INVOICE',
-            message: `Outstanding invoice(s) on this admission: ${unpaid.map((i) => `${i.invoice_number} (₹${i.balance})`).join(', ')}.`,
+            message: `Outstanding invoice(s) on this admission: ${unpaid
+              .map((i) => `${i.invoice_number} [${i.status}] (₹${i.balance})`)
+              .join(', ')}.`,
             invoices: unpaid,
           });
         }
       } catch (e) {
         // Billing schema may carry slightly different column names in some
         // deploys. Don't fail the gate on a query error — log and continue
-        // with the rest. The
-        // override path remains for cases where this query simply can't
-        // run.
-        logger.warn(`Discharge readiness: invoice check skipped (${e.message})`);
+        // with the rest. The override path remains for cases where this
+        // query simply can't run.
+        logger.warn(`Discharge readiness: invoice check skipped for admission ${admissionId} (${e.message})`);
       }
       try {
         const pendingResults = await tx.$queryRawUnsafe(

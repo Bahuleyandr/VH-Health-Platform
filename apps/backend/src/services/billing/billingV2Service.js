@@ -353,8 +353,28 @@ export async function createDraftInvoice({
   return rows[0];
 }
 
+// Allowed source-ref types. Anything outside this list is rejected at
+// the API surface so the audit-trail vocabulary stays bounded. 'manual'
+// is the default for free-text cashier entries (and the backfill value
+// for pre-migration-199 historicals); 'package' covers packaged
+// bundles that legitimately have no source row. Migration 199.
+// Finding: 2026-05-10-inpatient-admission-billing-final-bill-untraceable-package-line.
+const VALID_SOURCE_REF_TYPES = new Set([
+  'lab_order',
+  'radiology_order',
+  'pharmacy_order',
+  'ward_indent',
+  'room_day',
+  'discharge_consult',
+  'theatre_case',
+  'admission_package',
+  'package',
+  'manual',
+]);
+
 export async function addInvoiceItem(invoiceId, {
   service_code, description, quantity = 1, unit_price, gst_rate, notes,
+  source_ref_type, source_ref_id,
 }) {
   // Pull the service master row when service_code is provided so we
   // snapshot description/category/hsn/gst defaults consistently.
@@ -377,6 +397,23 @@ export async function addInvoiceItem(invoiceId, {
   }
   if (!resolved.description) throw AppError.badRequest('description (or valid service_code) is required');
   if (resolved.unit_price == null) throw AppError.badRequest('unit_price is required for ad-hoc lines');
+
+  // source_ref_type defaults to 'manual' (cashier-typed line, no source
+  // record). Callers that produce a line from a completed lab/order/
+  // indent/etc must pass the source pair so the bill stays auditable.
+  // Permits 'package' / 'admission_package' with null id for bundles.
+  const resolvedSourceRefType = source_ref_type ? String(source_ref_type).toLowerCase() : 'manual';
+  if (!VALID_SOURCE_REF_TYPES.has(resolvedSourceRefType)) {
+    throw AppError.badRequest(
+      `Invalid source_ref_type "${source_ref_type}". Allowed: ${Array.from(VALID_SOURCE_REF_TYPES).join(', ')}`,
+    );
+  }
+  const resolvedSourceRefId = source_ref_id != null && source_ref_id !== ''
+    ? Number(source_ref_id)
+    : null;
+  if (resolvedSourceRefId != null && !Number.isInteger(resolvedSourceRefId)) {
+    throw AppError.badRequest('source_ref_id must be an integer when provided');
+  }
 
   // Read the parent invoice for state-pair (governs CGST+SGST vs IGST)
   // and admission_id for the billing-close enforcement (B-1).
@@ -406,13 +443,14 @@ export async function addInvoiceItem(invoiceId, {
     `INSERT INTO billing_invoice_items
       (invoice_id, service_code, description, category, hsn_sac, quantity,
        unit_price, gst_rate, line_subtotal, cgst_amount, sgst_amount,
-       igst_amount, line_total, notes)
+       igst_amount, line_total, notes, source_ref_type, source_ref_id)
      VALUES ($1::int, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::numeric,
-             $9::numeric, $10::numeric, $11::numeric, $12::numeric, $13::numeric, $14)
+             $9::numeric, $10::numeric, $11::numeric, $12::numeric, $13::numeric, $14, $15, $16)
      RETURNING *`,
     Number(invoiceId), service_code || null, resolved.description, resolved.category,
     resolved.hsn_sac, qty, price, rate, lineSub,
     split.cgst, split.sgst, split.igst, split.lineTotal, notes || null,
+    resolvedSourceRefType, resolvedSourceRefId,
   );
   await recomputeInvoiceTotals(Number(invoiceId));
   return rows[0];
