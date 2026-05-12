@@ -143,11 +143,11 @@ export async function getMyDischargePdfUrl({ tenantId: _tenantId, patient_uid, a
 
 // ── B-5 — patient-app TPA breakdown ──────────────────────────────────
 //
-// Patient self-service view of insurance claim status. Joins the
-// claim with its A11 caps so the breakdown shows what the TPA
-// approved per category, what the hospital billed, and what's left
-// for the patient to pay. Read-only — claim creation stays on the
-// staff path.
+// Patient self-service view of TPA claim status. The Sprint 5 TPA
+// workflow (migration 153) lives in `tpa_claims`, distinct from the
+// legacy billing-driven `insurance_claims`. See the table-split note
+// in apps/backend/CLAUDE.md. Read-only — claim creation stays on the
+// staff path (claimsService).
 
 export async function listMyClaims({ tenantId, patient_uid, status = null }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
@@ -158,13 +158,13 @@ export async function listMyClaims({ tenantId, patient_uid, status = null }) {
     where += ` AND status = $${params.length}`;
   }
   return prisma.$queryRawUnsafe(
-    `SELECT id, claim_number, insurance_provider, policy_number,
-            claim_amount, approved_amount, non_payable_amount,
-            status, stage, submitted_at, reviewed_at,
-            invoice_id
-       FROM insurance_claims
+    `SELECT id, claim_number, claim_type, total_billed, claimed_amount,
+            approved_amount, paid_amount, non_payable_amount,
+            patient_copay, status, submitted_at, paid_at,
+            invoice_id, admission_id, denial_reason, tpa_reference_id
+       FROM tpa_claims
       WHERE ${where}
-      ORDER BY submitted_at DESC, id DESC
+      ORDER BY created_at DESC, id DESC
       LIMIT 100`,
     ...params,
   );
@@ -172,32 +172,28 @@ export async function listMyClaims({ tenantId, patient_uid, status = null }) {
 
 export async function getMyClaim({ tenantId, patient_uid, id }) {
   const claimRows = await prisma.$queryRawUnsafe(
-    `SELECT id, claim_number, patient_uid, invoice_id,
-            insurance_provider, policy_number,
-            claim_amount, approved_amount, non_payable_amount,
-            disallowed_reason, status, stage,
-            submitted_at, reviewed_at, rejection_reason,
-            created_at, updated_at
-       FROM insurance_claims
-      WHERE id = $1::int AND tenant_id = $2::uuid AND patient_uid = $3::uuid`,
+    `SELECT c.id, c.claim_number, c.patient_uid, c.invoice_id,
+            c.policy_id, c.preauth_id, c.admission_id,
+            c.claim_type, c.total_billed, c.claimed_amount,
+            c.approved_amount, c.paid_amount,
+            c.non_payable_amount, c.patient_copay,
+            c.status, c.submitted_at, c.paid_at,
+            c.denial_reason, c.tpa_reference_id,
+            c.created_at, c.updated_at,
+            p.policy_number, p.policyholder_name, p.policy_type
+       FROM tpa_claims c
+       LEFT JOIN insurance_policies p ON p.id = c.policy_id
+      WHERE c.id = $1::int
+        AND c.tenant_id = $2::uuid
+        AND c.patient_uid = $3::uuid`,
     Number(id), tenantId, String(patient_uid),
   );
   if (!claimRows.length) throw AppError.notFound('Claim not found');
   const claim = claimRows[0];
 
-  // Per-category caps from A11 (migration 178). Patient sees what the
-  // TPA approved per bucket so the breakdown is auditable, not just a
-  // single approved_amount aggregate.
-  const caps = await prisma.$queryRawUnsafe(
-    `SELECT category, max_amount, currency, source
-       FROM insurance_claim_caps
-      WHERE claim_id = $1::int
-      ORDER BY category`,
-    Number(id),
-  );
-
   // Linked invoice line totals per category (when invoice is linked).
-  // The patient_responsibility is the gap: hospital_billed - tpa_approved.
+  // The patient_responsibility is the gap between hospital_billed and
+  // what the TPA approved, plus any pre-disclosed non_payable amount.
   let invoiceLines = [];
   let invoiceTotal = 0;
   if (claim.invoice_id) {
@@ -213,21 +209,29 @@ export async function getMyClaim({ tenantId, patient_uid, id }) {
     invoiceTotal = lines.reduce((sum, l) => sum + Number(l.total || 0), 0);
   }
 
-  const claimAmount = Number(claim.claim_amount || 0);
+  const totalBilled = Number(claim.total_billed || 0);
+  const claimedAmount = Number(claim.claimed_amount || 0);
   const approvedAmount = Number(claim.approved_amount || 0);
-  const patientResponsibility = Math.max(0, claimAmount - approvedAmount);
+  const paidAmount = Number(claim.paid_amount || 0);
+  const nonPayable = Number(claim.non_payable_amount || 0);
+  const patientCopay = Number(claim.patient_copay || 0);
+  const patientResponsibility = Math.max(
+    0,
+    nonPayable + patientCopay + Math.max(0, claimedAmount - approvedAmount)
+  );
 
   return {
     claim,
-    caps,
     invoice_breakdown: {
       invoice_id: claim.invoice_id,
       lines: invoiceLines,
       total: invoiceTotal,
     },
     summary: {
-      hospital_billed: claimAmount,
+      hospital_billed: totalBilled,
+      tpa_claimed: claimedAmount,
       tpa_approved: approvedAmount,
+      tpa_paid: paidAmount,
       patient_responsibility: patientResponsibility,
       currency: 'INR',
     },
