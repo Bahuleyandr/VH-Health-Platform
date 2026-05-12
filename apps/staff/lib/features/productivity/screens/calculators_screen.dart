@@ -18,6 +18,7 @@ class CalculatorField {
   });
   final String name;
   final String label;
+
   /// number | bool | enum
   final String kind;
   final List<String>? options;
@@ -87,10 +88,22 @@ const _calculators = <CalculatorDef>[
         kind: 'enum',
         options: ['male', 'female'],
       ),
-      CalculatorField(name: 'congestive_hf', label: 'Congestive HF', kind: 'bool'),
-      CalculatorField(name: 'hypertension', label: 'Hypertension', kind: 'bool'),
+      CalculatorField(
+        name: 'congestive_hf',
+        label: 'Congestive HF',
+        kind: 'bool',
+      ),
+      CalculatorField(
+        name: 'hypertension',
+        label: 'Hypertension',
+        kind: 'bool',
+      ),
       CalculatorField(name: 'diabetes', label: 'Diabetes', kind: 'bool'),
-      CalculatorField(name: 'prior_stroke_tia', label: 'Prior stroke / TIA', kind: 'bool'),
+      CalculatorField(
+        name: 'prior_stroke_tia',
+        label: 'Prior stroke / TIA',
+        kind: 'bool',
+      ),
       CalculatorField(
         name: 'vascular_disease',
         label: 'Vascular disease (MI / PAD / aortic plaque)',
@@ -108,10 +121,26 @@ const _calculators = <CalculatorDef>[
         label: 'Uncontrolled hypertension (SBP > 160)',
         kind: 'bool',
       ),
-      CalculatorField(name: 'abnormal_renal', label: 'Abnormal renal function', kind: 'bool'),
-      CalculatorField(name: 'abnormal_liver', label: 'Abnormal liver function', kind: 'bool'),
-      CalculatorField(name: 'prior_stroke', label: 'Prior stroke', kind: 'bool'),
-      CalculatorField(name: 'prior_bleed', label: 'Prior major bleed', kind: 'bool'),
+      CalculatorField(
+        name: 'abnormal_renal',
+        label: 'Abnormal renal function',
+        kind: 'bool',
+      ),
+      CalculatorField(
+        name: 'abnormal_liver',
+        label: 'Abnormal liver function',
+        kind: 'bool',
+      ),
+      CalculatorField(
+        name: 'prior_stroke',
+        label: 'Prior stroke',
+        kind: 'bool',
+      ),
+      CalculatorField(
+        name: 'prior_bleed',
+        label: 'Prior major bleed',
+        kind: 'bool',
+      ),
       CalculatorField(name: 'labile_inr', label: 'Labile INR', kind: 'bool'),
       CalculatorField(name: 'age_over_65', label: 'Age > 65', kind: 'bool'),
       CalculatorField(
@@ -119,7 +148,11 @@ const _calculators = <CalculatorDef>[
         label: 'Drugs that predispose to bleeding',
         kind: 'bool',
       ),
-      CalculatorField(name: 'alcohol_excess', label: 'Alcohol excess', kind: 'bool'),
+      CalculatorField(
+        name: 'alcohol_excess',
+        label: 'Alcohol excess',
+        kind: 'bool',
+      ),
     ],
   ),
   CalculatorDef(
@@ -127,7 +160,11 @@ const _calculators = <CalculatorDef>[
     title: 'Wells PE',
     subtitle: 'Pulmonary embolism probability',
     fields: [
-      CalculatorField(name: 'clinical_signs_dvt', label: 'Clinical signs of DVT', kind: 'bool'),
+      CalculatorField(
+        name: 'clinical_signs_dvt',
+        label: 'Clinical signs of DVT',
+        kind: 'bool',
+      ),
       CalculatorField(
         name: 'pe_most_likely_diagnosis',
         label: 'PE is the most likely diagnosis',
@@ -139,9 +176,17 @@ const _calculators = <CalculatorDef>[
         label: 'Immobilisation / recent surgery',
         kind: 'bool',
       ),
-      CalculatorField(name: 'prior_dvt_or_pe', label: 'Prior DVT / PE', kind: 'bool'),
+      CalculatorField(
+        name: 'prior_dvt_or_pe',
+        label: 'Prior DVT / PE',
+        kind: 'bool',
+      ),
       CalculatorField(name: 'hemoptysis', label: 'Haemoptysis', kind: 'bool'),
-      CalculatorField(name: 'malignancy', label: 'Malignancy (active)', kind: 'bool'),
+      CalculatorField(
+        name: 'malignancy',
+        label: 'Malignancy (active)',
+        kind: 'bool',
+      ),
     ],
   ),
   CalculatorDef(
@@ -149,7 +194,11 @@ const _calculators = <CalculatorDef>[
     title: 'Wells DVT',
     subtitle: 'Deep vein thrombosis probability',
     fields: [
-      CalculatorField(name: 'active_cancer', label: 'Active cancer', kind: 'bool'),
+      CalculatorField(
+        name: 'active_cancer',
+        label: 'Active cancer',
+        kind: 'bool',
+      ),
       CalculatorField(
         name: 'paralysis_paresis_recent_immob',
         label: 'Paralysis / paresis / recent immobilisation',
@@ -165,8 +214,16 @@ const _calculators = <CalculatorDef>[
         label: 'Tenderness along deep veins',
         kind: 'bool',
       ),
-      CalculatorField(name: 'entire_leg_swollen', label: 'Entire leg swollen', kind: 'bool'),
-      CalculatorField(name: 'calf_swelling_3cm', label: 'Calf swelling > 3cm vs other', kind: 'bool'),
+      CalculatorField(
+        name: 'entire_leg_swollen',
+        label: 'Entire leg swollen',
+        kind: 'bool',
+      ),
+      CalculatorField(
+        name: 'calf_swelling_3cm',
+        label: 'Calf swelling > 3cm vs other',
+        kind: 'bool',
+      ),
       CalculatorField(
         name: 'pitting_edema_symptomatic_leg',
         label: 'Pitting oedema (symptomatic leg)',
@@ -191,7 +248,11 @@ const _calculators = <CalculatorDef>[
     subtitle: 'Bedside sepsis screen (≥2 = high risk)',
     fields: [
       CalculatorField(name: 'rr_over_22', label: 'RR > 22', kind: 'bool'),
-      CalculatorField(name: 'altered_mentation', label: 'Altered mentation (GCS < 15)', kind: 'bool'),
+      CalculatorField(
+        name: 'altered_mentation',
+        label: 'Altered mentation (GCS < 15)',
+        kind: 'bool',
+      ),
       CalculatorField(name: 'sbp_under_100', label: 'SBP < 100', kind: 'bool'),
     ],
   ),
@@ -219,7 +280,8 @@ const _calculators = <CalculatorDef>[
         label: 'Motor response',
         kind: 'enum',
         options: ['1', '2', '3', '4', '5', '6'],
-        hint: '1 none · 2 extension · 3 flexion · 4 withdraws · 5 localises · 6 obeys',
+        hint:
+            '1 none · 2 extension · 3 flexion · 4 withdraws · 5 localises · 6 obeys',
       ),
     ],
   ),
@@ -231,7 +293,11 @@ const _calculators = <CalculatorDef>[
       CalculatorField(name: 'creatinine_mg_dl', label: 'Creatinine (mg/dL)'),
       CalculatorField(name: 'bilirubin_mg_dl', label: 'Bilirubin (mg/dL)'),
       CalculatorField(name: 'inr', label: 'INR'),
-      CalculatorField(name: 'on_dialysis', label: 'On dialysis (≥2 sessions/wk)', kind: 'bool'),
+      CalculatorField(
+        name: 'on_dialysis',
+        label: 'On dialysis (≥2 sessions/wk)',
+        kind: 'bool',
+      ),
     ],
   ),
   CalculatorDef(
@@ -301,9 +367,7 @@ class CalculatorsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Clinical Calculators'),
-      ),
+      appBar: AppBar(title: const Text('Clinical Calculators')),
       body: ListView.separated(
         padding: const EdgeInsets.all(12),
         itemCount: _calculators.length,

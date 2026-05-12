@@ -103,10 +103,7 @@ class _OrderSetsScreenState extends State<OrderSetsScreen> {
     try {
       final response = await ApiClient.get(
         '/productivity/order-sets',
-        queryParameters: {
-          if (_query.isNotEmpty) 'q': _query,
-          'limit': '100',
-        },
+        queryParameters: {if (_query.isNotEmpty) 'q': _query, 'limit': '100'},
       );
       if (!mounted) return;
       if (response.isSuccess) {
@@ -158,28 +155,27 @@ class _OrderSetsScreenState extends State<OrderSetsScreen> {
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(_error!, textAlign: TextAlign.center),
-                        ),
-                      )
-                    : _sets.isEmpty
-                        ? const Center(child: Text('No order sets'))
-                        : RefreshIndicator(
-                            onRefresh: _fetch,
-                            child: ListView.separated(
-                              padding: const EdgeInsets.all(12),
-                              itemCount: _sets.length,
-                              separatorBuilder: (_, _) =>
-                                  const SizedBox(height: 8),
-                              itemBuilder: (_, i) => _SetCard(
-                                summary: _sets[i],
-                                encounterId: widget.encounterId,
-                                patientUid: widget.patientUid,
-                              ),
-                            ),
-                          ),
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(_error!, textAlign: TextAlign.center),
+                    ),
+                  )
+                : _sets.isEmpty
+                ? const Center(child: Text('No order sets'))
+                : RefreshIndicator(
+                    onRefresh: _fetch,
+                    child: ListView.separated(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: _sets.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
+                      itemBuilder: (_, i) => _SetCard(
+                        summary: _sets[i],
+                        encounterId: widget.encounterId,
+                        patientUid: widget.patientUid,
+                      ),
+                    ),
+                  ),
           ),
         ],
       ),
@@ -188,11 +184,7 @@ class _OrderSetsScreenState extends State<OrderSetsScreen> {
 }
 
 class _SetCard extends StatelessWidget {
-  const _SetCard({
-    required this.summary,
-    this.encounterId,
-    this.patientUid,
-  });
+  const _SetCard({required this.summary, this.encounterId, this.patientUid});
   final _OrderSetSummary summary;
   final int? encounterId;
   final String? patientUid;
@@ -337,13 +329,7 @@ class _OrderSetDetailScreenState extends State<OrderSetDetailScreen> {
     });
     final applied = _items
         .where((it) => _selected.contains(it.id))
-        .map(
-          (it) => {
-            'id': it.id,
-            'kind': it.kind,
-            'payload': it.payload,
-          },
-        )
+        .map((it) => {'id': it.id, 'kind': it.kind, 'payload': it.payload})
         .toList();
     final skipped = _items
         .where((it) => !_selected.contains(it.id))
@@ -388,63 +374,62 @@ class _OrderSetDetailScreenState extends State<OrderSetDetailScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(_error!, textAlign: TextAlign.center),
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(8),
-                  itemCount: _items.length,
-                  itemBuilder: (_, i) {
-                    final it = _items[i];
-                    final selected = _selected.contains(it.id);
-                    return CheckboxListTile(
-                      value: selected,
-                      onChanged: (v) {
-                        setState(() {
-                          if (v == true) {
-                            _selected.add(it.id);
-                          } else {
-                            _selected.remove(it.id);
-                          }
-                        });
-                      },
-                      controlAffinity: ListTileControlAffinity.leading,
-                      title: Text(it.displayLabel),
-                      subtitle: Wrap(
-                        spacing: 6,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color:
-                                  (_kindColours[it.kind] ?? Colors.grey)
-                                      .withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              it.kind,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: _kindColours[it.kind] ?? Colors.grey,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          if (it.kind == 'med' && it.payload['route'] != null)
-                            Text('via ${it.payload['route']}'),
-                          if (it.kind == 'med' &&
-                              it.payload['duration_days'] != null)
-                            Text('× ${it.payload['duration_days']}d'),
-                        ],
-                      ),
-                    );
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(_error!, textAlign: TextAlign.center),
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(8),
+              itemCount: _items.length,
+              itemBuilder: (_, i) {
+                final it = _items[i];
+                final selected = _selected.contains(it.id);
+                return CheckboxListTile(
+                  value: selected,
+                  onChanged: (v) {
+                    setState(() {
+                      if (v == true) {
+                        _selected.add(it.id);
+                      } else {
+                        _selected.remove(it.id);
+                      }
+                    });
                   },
-                ),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: Text(it.displayLabel),
+                  subtitle: Wrap(
+                    spacing: 6,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: (_kindColours[it.kind] ?? Colors.grey)
+                              .withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          it.kind,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: _kindColours[it.kind] ?? Colors.grey,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      if (it.kind == 'med' && it.payload['route'] != null)
+                        Text('via ${it.payload['route']}'),
+                      if (it.kind == 'med' &&
+                          it.payload['duration_days'] != null)
+                        Text('× ${it.payload['duration_days']}d'),
+                    ],
+                  ),
+                );
+              },
+            ),
       bottomNavigationBar: _set == null
           ? null
           : SafeArea(

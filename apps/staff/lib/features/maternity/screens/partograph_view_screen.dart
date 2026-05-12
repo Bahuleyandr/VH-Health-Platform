@@ -94,74 +94,71 @@ class _PartographViewScreenState extends State<PartographViewScreen> {
       appBar: AppBar(
         title: const Text('Partograph'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _fetch,
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _fetch),
         ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(_error!, textAlign: TextAlign.center),
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(_error!, textAlign: TextAlign.center),
+              ),
+            )
+          : ListView(
+              padding: const EdgeInsets.all(12),
+              children: [
+                if (actionCount > 0)
+                  Card(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    child: ListTile(
+                      leading: const Icon(Icons.warning_amber),
+                      title: Text(
+                        'Action line crossed in $actionCount entr${actionCount == 1 ? "y" : "ies"}',
+                      ),
+                      subtitle: const Text(
+                        'Escalate to obstetrician — labour progress is below the WHO action line.',
+                      ),
+                    ),
+                  )
+                else if (alertCount > 0)
+                  Card(
+                    color: Colors.amber.shade100,
+                    child: ListTile(
+                      leading: const Icon(Icons.info_outline),
+                      title: Text(
+                        'Alert line crossed in $alertCount entr${alertCount == 1 ? "y" : "ies"}',
+                      ),
+                      subtitle: const Text(
+                        'Increase frequency of monitoring; consider intervention if no progress.',
+                      ),
+                    ),
                   ),
-                )
-              : ListView(
-                  padding: const EdgeInsets.all(12),
-                  children: [
-                    if (actionCount > 0)
-                      Card(
-                        color: Theme.of(context).colorScheme.errorContainer,
-                        child: ListTile(
-                          leading: const Icon(Icons.warning_amber),
-                          title: Text(
-                            'Action line crossed in $actionCount entr${actionCount == 1 ? "y" : "ies"}',
-                          ),
-                          subtitle: const Text(
-                            'Escalate to obstetrician — labour progress is below the WHO action line.',
-                          ),
-                        ),
-                      )
-                    else if (alertCount > 0)
-                      Card(
-                        color: Colors.amber.shade100,
-                        child: ListTile(
-                          leading: const Icon(Icons.info_outline),
-                          title: Text(
-                            'Alert line crossed in $alertCount entr${alertCount == 1 ? "y" : "ies"}',
-                          ),
-                          subtitle: const Text(
-                            'Increase frequency of monitoring; consider intervention if no progress.',
-                          ),
-                        ),
-                      ),
-                    if (_activePhaseStart != null) ...[
-                      PartographChart(
-                        points: _points,
-                        activePhaseStartedAt: _activePhaseStart!,
-                      ),
-                      const SizedBox(height: 8),
-                      _PointTimeline(
-                        points: _points,
-                        activePhaseStart: _activePhaseStart!,
-                      ),
-                    ] else
-                      const Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Text(
-                          'No active phase anchor recorded — set labor_started_at on admission to plot the chart.',
-                        ),
-                      ),
-                  ],
-                ),
+                if (_activePhaseStart != null) ...[
+                  PartographChart(
+                    points: _points,
+                    activePhaseStartedAt: _activePhaseStart!,
+                  ),
+                  const SizedBox(height: 8),
+                  _PointTimeline(
+                    points: _points,
+                    activePhaseStart: _activePhaseStart!,
+                  ),
+                ] else
+                  const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'No active phase anchor recorded — set labor_started_at on admission to plot the chart.',
+                    ),
+                  ),
+              ],
+            ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          final added = await Navigator.of(context).pushNamed(
-            '/maternity/partograph/${widget.laborAdmissionId}',
-          );
+          final added = await Navigator.of(
+            context,
+          ).pushNamed('/maternity/partograph/${widget.laborAdmissionId}');
           if (added == true) {
             _fetch();
           }
@@ -174,10 +171,7 @@ class _PartographViewScreenState extends State<PartographViewScreen> {
 }
 
 class _PointTimeline extends StatelessWidget {
-  const _PointTimeline({
-    required this.points,
-    required this.activePhaseStart,
-  });
+  const _PointTimeline({required this.points, required this.activePhaseStart});
   final List<PartographPoint> points;
   final DateTime activePhaseStart;
 
@@ -204,8 +198,8 @@ class _PointTimeline extends StatelessWidget {
               final colour = p.onActionLine == true
                   ? Colors.red
                   : p.onAlertLine == true
-                      ? Colors.amber.shade700
-                      : Colors.green;
+                  ? Colors.amber.shade700
+                  : Colors.green;
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(

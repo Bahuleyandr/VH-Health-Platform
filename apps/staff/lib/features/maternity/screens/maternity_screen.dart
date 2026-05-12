@@ -20,7 +20,8 @@ class _ActiveLabor {
       admittedAt = j['admitted_at']?.toString(),
       reason = j['admission_reason']?.toString(),
       highRisk = j['high_risk'] as bool? ?? false,
-      highRiskReasons = (j['high_risk_reasons'] as List?)
+      highRiskReasons =
+          (j['high_risk_reasons'] as List?)
               ?.map((r) => r.toString())
               .toList() ??
           const [];
@@ -117,67 +118,63 @@ class _MaternityScreenState extends State<MaternityScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          size: 48,
-                          color: theme.colorScheme.error,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(_error!, textAlign: TextAlign.center),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: _fetch,
-                          child: const Text('Retry'),
-                        ),
-                      ],
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: theme.colorScheme.error,
                     ),
-                  ),
-                )
-              : _labors.isEmpty
-                  ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(32),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.child_friendly,
-                              size: 64,
-                              color: Colors.grey,
-                            ),
-                            SizedBox(height: 16),
-                            Text(
-                              'Labour ward is quiet',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            Text(
-                              'No active labour admissions right now.',
-                              style: TextStyle(color: Colors.grey),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _fetch,
-                      child: ListView.separated(
-                        padding: const EdgeInsets.all(12),
-                        itemCount: _labors.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 8),
-                        itemBuilder: (_, i) =>
-                            _LaborCard(labor: _labors[i], onChanged: _fetch),
+                    const SizedBox(height: 12),
+                    Text(_error!, textAlign: TextAlign.center),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _fetch,
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : _labors.isEmpty
+          ? const Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.child_friendly, size: 64, color: Colors.grey),
+                    SizedBox(height: 16),
+                    Text(
+                      'Labour ward is quiet',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
+                    SizedBox(height: 8),
+                    Text(
+                      'No active labour admissions right now.',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _fetch,
+              child: ListView.separated(
+                padding: const EdgeInsets.all(12),
+                itemCount: _labors.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 8),
+                itemBuilder: (_, i) =>
+                    _LaborCard(labor: _labors[i], onChanged: _fetch),
+              ),
+            ),
     );
   }
 }
@@ -272,8 +269,9 @@ class _LaborCard extends StatelessWidget {
                 Expanded(
                   child: FilledButton.icon(
                     onPressed: () async {
-                      final added = await context
-                          .push<bool>('/maternity/partograph/${labor.id}');
+                      final added = await context.push<bool>(
+                        '/maternity/partograph/${labor.id}',
+                      );
                       if (added == true) onChanged();
                     },
                     icon: const Icon(Icons.add),

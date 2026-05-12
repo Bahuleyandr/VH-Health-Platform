@@ -114,8 +114,7 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
           'drugs_given': _drugsCtrl.text.trim().isEmpty
               ? null
               : _drugsCtrl.text.trim(),
-          'iv_fluids':
-              _ivCtrl.text.trim().isEmpty ? null : _ivCtrl.text.trim(),
+          'iv_fluids': _ivCtrl.text.trim().isEmpty ? null : _ivCtrl.text.trim(),
           'notes': _notesCtrl.text.trim().isEmpty
               ? null
               : _notesCtrl.text.trim(),
@@ -132,14 +131,14 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
               onAction
                   ? 'Saved · ACTION line crossed — escalate to obstetrician'
                   : onAlert
-                      ? 'Saved · alert line crossed'
-                      : 'Saved',
+                  ? 'Saved · alert line crossed'
+                  : 'Saved',
             ),
             backgroundColor: onAction
                 ? Colors.red[700]
                 : onAlert
-                    ? Colors.amber[700]
-                    : null,
+                ? Colors.amber[700]
+                : null,
           ),
         );
         Navigator.of(context).pop(true);
@@ -167,9 +166,9 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
           children: [
             Text(
               title,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             ...children,
@@ -233,10 +232,7 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
                 'Cervix dilation (cm)',
                 hint: 'Active phase begins at 4cm',
               ),
-              _numField(
-                _descentCtrl,
-                'Descent (fifths above brim, 0–5)',
-              ),
+              _numField(_descentCtrl, 'Descent (fifths above brim, 0–5)'),
               _numField(_ctxCountCtrl, 'Contractions per 10 min'),
               _numField(_ctxDurCtrl, 'Contraction duration (sec)'),
               _enumField(
@@ -249,30 +245,25 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
             const SizedBox(height: 8),
             _section('Fetal status', [
               _numField(_fhrCtrl, 'Fetal heart rate (bpm)'),
-              _enumField(
-                'Decelerations',
-                _decel,
-                const ['none', 'early', 'late', 'variable'],
-                (v) => setState(() => _decel = v),
-              ),
-              _enumField(
-                'Amniotic fluid',
-                _amniotic,
-                const [
-                  'intact_membranes',
-                  'clear',
-                  'meconium_thin',
-                  'meconium_thick',
-                  'blood',
-                ],
-                (v) => setState(() => _amniotic = v),
-              ),
-              _enumField(
-                'Moulding',
-                _moulding,
-                const ['0', '1+', '2+', '3+'],
-                (v) => setState(() => _moulding = v),
-              ),
+              _enumField('Decelerations', _decel, const [
+                'none',
+                'early',
+                'late',
+                'variable',
+              ], (v) => setState(() => _decel = v)),
+              _enumField('Amniotic fluid', _amniotic, const [
+                'intact_membranes',
+                'clear',
+                'meconium_thin',
+                'meconium_thick',
+                'blood',
+              ], (v) => setState(() => _amniotic = v)),
+              _enumField('Moulding', _moulding, const [
+                '0',
+                '1+',
+                '2+',
+                '3+',
+              ], (v) => setState(() => _moulding = v)),
             ]),
             const SizedBox(height: 8),
             _section('Maternal vitals', [

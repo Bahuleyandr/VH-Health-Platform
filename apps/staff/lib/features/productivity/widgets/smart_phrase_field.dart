@@ -102,13 +102,10 @@ class _SmartPhraseFieldState extends State<SmartPhraseField> {
       // Resolve placeholders if a resolver was provided.
       final expanded = widget.tokenResolver == null
           ? body
-          : body.replaceAllMapped(
-              RegExp(r'\{\{([A-Z0-9_]+)\}\}'),
-              (m) {
-                final v = widget.tokenResolver!(m.group(1)!);
-                return v ?? m.group(0)!;
-              },
-            );
+          : body.replaceAllMapped(RegExp(r'\{\{([A-Z0-9_]+)\}\}'), (m) {
+              final v = widget.tokenResolver!(m.group(1)!);
+              return v ?? m.group(0)!;
+            });
 
       // Splice: pre[0..triggerStart] + expanded + terminator + pre[triggerEnd..end].
       final before = text.substring(0, triggerStart);
@@ -143,8 +140,7 @@ class _SmartPhraseFieldState extends State<SmartPhraseField> {
           controller: widget.controller,
           minLines: widget.minLines,
           maxLines: widget.maxLines,
-          decoration: (widget.decoration ?? const InputDecoration())
-              .copyWith(
+          decoration: (widget.decoration ?? const InputDecoration()).copyWith(
             border: const OutlineInputBorder(),
             helperText:
                 widget.decoration?.helperText ??
@@ -155,14 +151,11 @@ class _SmartPhraseFieldState extends State<SmartPhraseField> {
           Padding(
             padding: const EdgeInsets.all(8),
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 2,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withValues(
-                      alpha: 0.1,
-                    ),
+                color: Theme.of(
+                  context,
+                ).colorScheme.primary.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(

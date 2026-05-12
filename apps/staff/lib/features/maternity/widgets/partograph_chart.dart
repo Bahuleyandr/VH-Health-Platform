@@ -96,7 +96,10 @@ class PartographChart extends StatelessWidget {
               children: [
                 _LegendDot(colour: Color(0xFF10B981), label: 'On track'),
                 _LegendDot(colour: Color(0xFFF59E0B), label: 'Past alert line'),
-                _LegendDot(colour: Color(0xFFEF4444), label: 'Past action line'),
+                _LegendDot(
+                  colour: Color(0xFFEF4444),
+                  label: 'Past action line',
+                ),
                 _LegendLine(
                   colour: Color(0xFFF59E0B),
                   label: 'Alert line (1 cm/hr)',
@@ -206,11 +209,7 @@ class _PartographPainter extends CustomPainter {
     // X-axis ticks (hours in 2-hour steps).
     for (var hr = 0.0; hr <= maxHours; hr += 2) {
       final x = _xFor(hr, plot);
-      canvas.drawLine(
-        Offset(x, plot.top),
-        Offset(x, plot.bottom),
-        gridPaint,
-      );
+      canvas.drawLine(Offset(x, plot.top), Offset(x, plot.bottom), gridPaint);
       _drawText(
         canvas,
         '${hr.toInt()}h',
@@ -252,8 +251,8 @@ class _PartographPainter extends CustomPainter {
     Offset? prev;
     for (final p in points) {
       if (p.cervixDilationCm == null) continue;
-      final hours = p.recordedAt.difference(activePhaseStartedAt).inSeconds /
-          3600.0;
+      final hours =
+          p.recordedAt.difference(activePhaseStartedAt).inSeconds / 3600.0;
       if (hours < 0 || hours > maxHours) continue;
       final dot = Offset(_xFor(hours, plot), _yFor(p.cervixDilationCm!, plot));
       if (prev != null) canvas.drawLine(prev, dot, linePaint);
@@ -263,8 +262,8 @@ class _PartographPainter extends CustomPainter {
       pointPaint.color = p.onActionLine == true
           ? const Color(0xFFEF4444)
           : p.onAlertLine == true
-              ? const Color(0xFFF59E0B)
-              : const Color(0xFF10B981);
+          ? const Color(0xFFF59E0B)
+          : const Color(0xFF10B981);
       canvas.drawCircle(dot, 4, pointPaint);
     }
 
@@ -273,11 +272,7 @@ class _PartographPainter extends CustomPainter {
       canvas,
       'cm',
       Offset(2, plot.top - 2),
-      TextStyle(
-        color: textColour,
-        fontSize: 9,
-        fontWeight: FontWeight.w600,
-      ),
+      TextStyle(color: textColour, fontSize: 9, fontWeight: FontWeight.w600),
     );
   }
 
