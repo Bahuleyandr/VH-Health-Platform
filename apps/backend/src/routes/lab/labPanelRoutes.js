@@ -33,8 +33,19 @@ function wrap(handler) {
       return success(res, data);
     } catch (err) {
       if (err.statusCode) return error(res, err.message, err.statusCode);
-      logger.error('lab panel route error:', err);
-      return error(res, err.message || 'Lab panel error', 500);
+      // CLAUDE.md security checklist forbids surfacing err.message to
+      // clients on 500s. The earlier behaviour leaked Prisma's
+      // `Cannot read properties of undefined (reading 'findMany')`
+      // when the client was generated against an older schema —
+      // exactly the symptom in finding
+      // 2026-05-10-lab-walk-in-lab-tech-result-submit-500. Log
+      // server-side, return a generic message + requestId.
+      logger.error('lab panel route error:', {
+        requestId: req.id,
+        err: err?.message,
+        stack: err?.stack,
+      });
+      return error(res, 'Lab panel error', 500, { requestId: req.id });
     }
   };
 }
