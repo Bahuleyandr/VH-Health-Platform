@@ -721,31 +721,74 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       return error(res, 'Pharmacy order already placed for this prescription', HTTP_STATUS.BAD_REQUEST);
     }
 
-    // Build items list from medications + catalog prices
+    // Build items list from medications + catalog prices.
+    //
+    // The e_prescriptions.medications JSONB carries clinician-entered shape
+    // — `medication_name` is the canonical field, with `name` accepted as
+    // alias for older Rx payloads. Pull every dispensing-relevant field
+    // (dose, frequency, route, duration, instructions) into the order's
+    // items_list so the counter pharmacist + label endpoint have what they
+    // need without re-reading the prescription. Resolve catalog_id when we
+    // can — this is what markCounterDispensed/markDelivered use to decrement
+    // stock; otherwise stock movement silently drops to zero.
+    //
+    // Findings:
+    //   2026-05-09-walk-in-opd-pharmacy-order-items-missing-medication-details
+    //   2026-05-09-inpatient-admission-pharmacy-order-pharmacy-items-zero-price-no-stock
+    //   2026-05-09-walk-in-opd-pharmacy-stock-not-decremented
     const medications = rx.medications || [];
     const itemsList = [];
     let totalCost = 0;
 
+    const toPositiveInt = (val, fallback = 1) => {
+      const n = Number.parseInt(val, 10);
+      return Number.isFinite(n) && n > 0 ? n : fallback;
+    };
+
     for (const med of medications) {
+      const medName = med.name || med.medication_name || med.drug_name || '';
       let price = 0;
-      if (med.catalog_id) {
-        const catRes = await prisma.$queryRawUnsafe('SELECT unit_price FROM pharmacy_catalog WHERE id=$1', med.catalog_id);
-        if (catRes.length > 0) price = parseFloat(catRes[0].unit_price);
-      } else {
-        // Try matching by name
-        const catRes = await prisma.$queryRawUnsafe('SELECT unit_price FROM pharmacy_catalog WHERE name ILIKE $1 LIMIT 1', med.name);
-        if (catRes.length > 0) price = parseFloat(catRes[0].unit_price);
+      let catalogId = med.catalog_id ? Number(med.catalog_id) : null;
+      if (Number.isFinite(catalogId)) {
+        const catRes = await prisma.$queryRawUnsafe(
+          'SELECT id, unit_price FROM pharmacy_catalog WHERE id=$1',
+          catalogId,
+        );
+        if (catRes.length > 0) {
+          price = parseFloat(catRes[0].unit_price) || 0;
+        } else {
+          catalogId = null;
+        }
       }
-      const qty = med.quantity || 1;
-      const lineTotal = price * qty;
+      if (!catalogId && medName) {
+        const catRes = await prisma.$queryRawUnsafe(
+          'SELECT id, unit_price FROM pharmacy_catalog WHERE name ILIKE $1 LIMIT 1',
+          medName,
+        );
+        if (catRes.length > 0) {
+          catalogId = catRes[0].id;
+          price = parseFloat(catRes[0].unit_price) || 0;
+        }
+      }
+      const qty = toPositiveInt(med.quantity ?? med.qty, 1);
+      const lineTotal = Number((price * qty).toFixed(2));
       totalCost += lineTotal;
       itemsList.push({
-        name: med.name,
+        catalog_id: catalogId,
+        name: medName,
+        medication_name: medName,
+        strength: med.strength || med.dosage || null,
+        dose: med.dose || med.dosage || null,
+        route: med.route || null,
+        frequency: med.frequency || null,
+        duration: med.duration || null,
+        instructions: med.instructions || med.notes || null,
         qty,
         price,
         line_total: lineTotal,
       });
     }
+    totalCost = Number(totalCost.toFixed(2));
 
     // Create pharmacy order.
     // Three drift fixes per finding 2026-05-08-pediatric-opd-pharmacy-order-from-rx-500:

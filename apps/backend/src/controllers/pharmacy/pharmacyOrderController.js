@@ -357,16 +357,21 @@ export const markDelivered = async (req, res) => {
       // Items with no catalog_id and no name match are skipped (kept loose
       // so legacy free-text orders don't 500). Aggregate per catalog_id so
       // duplicates in the items_list don't double-skip a single UPDATE.
+      // Items_list shape is canonicalised on the order-create path, but
+      // accept `medication_name` and `drug_name` as aliases for backwards
+      // compat with rows created before that fix. See finding
+      // 2026-05-09-walk-in-opd-pharmacy-stock-not-decremented.
       const items = Array.isArray(order.items_list) ? order.items_list : [];
       const decrementByCatalog = new Map();
       for (const item of items) {
         const qty = Number(item?.qty ?? item?.quantity ?? 0);
         if (!Number.isFinite(qty) || qty <= 0) continue;
         let catalogId = item?.catalog_id ? parseInt(item.catalog_id, 10) : null;
-        if (!catalogId && item?.name) {
+        const itemName = item?.name || item?.medication_name || item?.drug_name || null;
+        if (!catalogId && itemName) {
           const match = await tx.$queryRawUnsafe(
             'SELECT id FROM pharmacy_catalog WHERE name ILIKE $1 LIMIT 1',
-            item.name,
+            itemName,
           );
           if (match.length) catalogId = match[0].id;
         }
@@ -471,17 +476,20 @@ export const markCounterDispensed = async (req, res) => {
       );
       const out = updated[0];
 
-      // Same stock-decrement aggregator as markDelivered.
+      // Same stock-decrement aggregator as markDelivered. Accept
+      // `medication_name`/`drug_name` aliases for rows created before
+      // items_list was canonicalised.
       const items = Array.isArray(out.items_list) ? out.items_list : [];
       const decByCatalog = new Map();
       for (const item of items) {
         const qty = Number(item?.qty ?? item?.quantity ?? 0);
         if (!Number.isFinite(qty) || qty <= 0) continue;
         let catalogId = item?.catalog_id ? parseInt(item.catalog_id, 10) : null;
-        if (!catalogId && item?.name) {
+        const itemName = item?.name || item?.medication_name || item?.drug_name || null;
+        if (!catalogId && itemName) {
           const match = await tx.$queryRawUnsafe(
             'SELECT id FROM pharmacy_catalog WHERE name ILIKE $1 LIMIT 1',
-            item.name,
+            itemName,
           );
           if (match.length) catalogId = match[0].id;
         }
