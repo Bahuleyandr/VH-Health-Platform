@@ -132,12 +132,14 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
         patient_uid: NO_CONSENT_PATIENT_UID,
         admitting_doctor: DOCTOR_UID,
         chief_complaint: 'chest pain',
-        // Use the bedless-emergency exception (migration 171) so we get
-        // past the admit-bed gate and the consent check is the firing
-        // condition. Otherwise the missing bed_id returns 400 before
-        // consent is ever evaluated.
-        admission_type: 'emergency',
-        priority: 'emergent',
+        // Elective admission with a real bed so we exercise the consent
+        // gate, not the admit-bed gate. Critically, NOT emergency+emergent:
+        // migration 182 introduced the implied-consent doctrine which
+        // bypasses the consent check for true emergencies. This test
+        // is asserting the default rule for non-emergency admits.
+        bed_id: bed2Id,
+        admission_type: 'elective',
+        priority: 'routine',
       });
       expect(res.statusCode).toBe(403);
       expect(String(res.body.code || res.body.message || '')).toMatch(/CONSENT|consent/i);
