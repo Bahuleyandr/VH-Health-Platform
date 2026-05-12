@@ -12,6 +12,15 @@
 //   - dashboards can aggregate caps across live claims by category
 //   - revisions overwrite a single row instead of restringifying jsonb
 //
+// Wrong-table-tpa batch 4 — `insurance_claim_caps` was extended in
+// migration 197 to also reference `tpa_claims`. The Sprint 5 TPA
+// workflow lives there (see CLAUDE.md table-split note), and the
+// /api/v1/insurance/claims/:id/caps surface receives a tpa_claims id
+// today. Before 197, every cap POST returned 404 because the service
+// only probed the legacy `insurance_claims` side. Now we probe both
+// tables and write to the correct parent column. Each row carries
+// exactly one of (claim_id, tpa_claim_id) — CHECK constraint in 197.
+//
 // Categories mirror the existing invoice-line buckets.
 
 import prisma from '../../lib/prisma.js';
@@ -26,7 +35,7 @@ const VALID_SOURCES = new Set([
   'tpa_preauth', 'tpa_revision', 'policy_default', 'manual_override',
 ]);
 
-function assertClaimId(claimId) {
+function parseClaimId(claimId) {
   const parsed = Number.parseInt(claimId, 10);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     throw AppError.badRequest('claim_id must be a positive integer');
@@ -35,10 +44,37 @@ function assertClaimId(claimId) {
 }
 
 /**
+ * Probe both `insurance_claims` and `tpa_claims` for the supplied id
+ * and return a discriminator the rest of the service uses to choose
+ * the right FK column. The two tables use independent SERIAL ids
+ * starting at 1, so the same numeric id can exist in both; we prefer
+ * `tpa_claims` when both match because that's the surface the route
+ * (`/api/v1/insurance/claims/:id`) actively writes to today.
+ *
+ * @returns {{ id: number, side: 'legacy'|'tpa', whereByParent: object }}
+ */
+async function resolveClaimTarget(claimId) {
+  const id = parseClaimId(claimId);
+  const [tpa, legacy] = await Promise.all([
+    prisma.tpa_claims.findUnique({ where: { id }, select: { id: true } }),
+    prisma.insurance_claims.findUnique({ where: { id }, select: { id: true } }),
+  ]);
+  if (tpa) {
+    return { id, side: 'tpa', whereByParent: { tpa_claim_id: id } };
+  }
+  if (legacy) {
+    return { id, side: 'legacy', whereByParent: { claim_id: id } };
+  }
+  throw AppError.notFound(`Claim ${id} not found`);
+}
+
+/**
  * Bulk-set / replace caps for a claim. Each row is upserted on
- * (claim_id, category). Caps absent from `caps[]` are NOT removed —
- * use deleteCap() for that. This matches TPA workflow where revisions
- * typically add/raise caps without explicitly clearing earlier ones.
+ * (parent_id, category) — partial unique indexes in migration 197
+ * enforce the constraint per parent side. Caps absent from `caps[]`
+ * are NOT removed — use deleteCap() for that. This matches TPA
+ * workflow where revisions typically add/raise caps without
+ * explicitly clearing earlier ones.
  *
  * @param {Object} args
  * @param {number} args.claimId
@@ -46,7 +82,6 @@ function assertClaimId(claimId) {
  * @param {string} args.actorUid
  */
 export async function setClaimCaps({ claimId, caps, actorUid }) {
-  const id = assertClaimId(claimId);
   if (!actorUid) throw AppError.badRequest('actorUid is required');
   if (!Array.isArray(caps) || caps.length === 0) {
     throw AppError.badRequest('caps must be a non-empty array');
@@ -63,34 +98,36 @@ export async function setClaimCaps({ claimId, caps, actorUid }) {
     }
   }
 
-  const claim = await prisma.insurance_claims.findUnique({
-    where: { id },
-    select: { id: true },
-  });
-  if (!claim) throw AppError.notFound(`Claim ${id} not found`);
+  const target = await resolveClaimTarget(claimId);
 
   const result = await prisma.$transaction(async (tx) => {
     const rows = [];
     for (const c of caps) {
-      const row = await tx.insurance_claim_caps.upsert({
-        where: { claim_id_category: { claim_id: id, category: c.category } },
-        update: {
-          max_amount: c.max_amount,
-          currency: c.currency ?? 'INR',
-          source: c.source ?? 'tpa_preauth',
-          notes: c.notes ?? null,
-          updated_at: new Date(),
-        },
-        create: {
-          claim_id: id,
-          category: c.category,
-          max_amount: c.max_amount,
-          currency: c.currency ?? 'INR',
-          source: c.source ?? 'tpa_preauth',
-          notes: c.notes ?? null,
-          created_by: actorUid,
-        },
+      const existing = await tx.insurance_claim_caps.findFirst({
+        where: { ...target.whereByParent, category: c.category },
       });
+      const row = existing
+        ? await tx.insurance_claim_caps.update({
+            where: { id: existing.id },
+            data: {
+              max_amount: c.max_amount,
+              currency: c.currency ?? 'INR',
+              source: c.source ?? 'tpa_preauth',
+              notes: c.notes ?? null,
+              updated_at: new Date(),
+            },
+          })
+        : await tx.insurance_claim_caps.create({
+            data: {
+              ...target.whereByParent,
+              category: c.category,
+              max_amount: c.max_amount,
+              currency: c.currency ?? 'INR',
+              source: c.source ?? 'tpa_preauth',
+              notes: c.notes ?? null,
+              created_by: actorUid,
+            },
+          });
       rows.push(row);
     }
     await tx.audit_logs.create({
@@ -98,38 +135,43 @@ export async function setClaimCaps({ claimId, caps, actorUid }) {
         uid: actorUid,
         action: 'SET_CLAIM_CAPS',
         resource: 'insurance_claim_caps',
-        resource_id: String(id),
-        metadata: { claim_id: id, cap_count: rows.length, categories: rows.map((r) => r.category) },
+        resource_id: String(target.id),
+        metadata: {
+          claim_id: target.id,
+          claim_side: target.side,
+          cap_count: rows.length,
+          categories: rows.map((r) => r.category),
+        },
         ip_address: null,
       },
     });
     return rows;
   });
 
-  logger.info(`Claim caps set: claim=${id} categories=${result.map((r) => r.category).join(',')} by=${actorUid}`);
+  logger.info(`Claim caps set: ${target.side}=${target.id} categories=${result.map((r) => r.category).join(',')} by=${actorUid}`);
   return result;
 }
 
 export async function getClaimCaps(claimId) {
-  const id = assertClaimId(claimId);
+  const target = await resolveClaimTarget(claimId);
   return prisma.insurance_claim_caps.findMany({
-    where: { claim_id: id },
+    where: target.whereByParent,
     orderBy: { category: 'asc' },
   });
 }
 
 export async function deleteCap({ claimId, category, actorUid }) {
-  const id = assertClaimId(claimId);
   if (!VALID_CATEGORIES.has(category)) {
     throw AppError.badRequest(`Invalid category: ${category}`);
   }
   if (!actorUid) throw AppError.badRequest('actorUid is required');
+  const target = await resolveClaimTarget(claimId);
 
   return prisma.$transaction(async (tx) => {
-    const existing = await tx.insurance_claim_caps.findUnique({
-      where: { claim_id_category: { claim_id: id, category } },
+    const existing = await tx.insurance_claim_caps.findFirst({
+      where: { ...target.whereByParent, category },
     });
-    if (!existing) throw AppError.notFound(`Cap for ${category} not found on claim ${id}`);
+    if (!existing) throw AppError.notFound(`Cap for ${category} not found on claim ${target.id}`);
     await tx.insurance_claim_caps.delete({ where: { id: existing.id } });
     await tx.audit_logs.create({
       data: {
@@ -137,7 +179,12 @@ export async function deleteCap({ claimId, category, actorUid }) {
         action: 'DELETE_CLAIM_CAP',
         resource: 'insurance_claim_caps',
         resource_id: String(existing.id),
-        metadata: { claim_id: id, category, prior_max_amount: existing.max_amount },
+        metadata: {
+          claim_id: target.id,
+          claim_side: target.side,
+          category,
+          prior_max_amount: existing.max_amount,
+        },
         ip_address: null,
       },
     });
@@ -160,10 +207,10 @@ export async function deleteCap({ claimId, category, actorUid }) {
  * }}
  */
 export async function applyCapsToInvoiceLines(claimId, lines) {
-  const id = assertClaimId(claimId);
   if (!Array.isArray(lines)) throw AppError.badRequest('lines must be an array');
+  const target = await resolveClaimTarget(claimId);
   const caps = await prisma.insurance_claim_caps.findMany({
-    where: { claim_id: id },
+    where: target.whereByParent,
   });
   const capByCategory = new Map(caps.map((c) => [c.category, c]));
 
