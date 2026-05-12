@@ -363,8 +363,24 @@ export async function recordClaimPayment({
   if (!['approved', 'partially_approved', 'submitted'].includes(cl.status)) {
     throw AppError.badRequest(`Cannot record payment on ${cl.status} claim`);
   }
-  if (!paid_amount || Number(paid_amount) <= 0) {
+  const paidNum = Number(paid_amount);
+  if (!paid_amount || paidNum <= 0) {
     throw AppError.badRequest('paid_amount must be > 0');
+  }
+  // Insurers must not pay more than the hospital claimed. The
+  // non_payable component (room upgrade delta, pharmacy over-cap,
+  // attendant charges, etc.) is patient liability and must never be
+  // silently absorbed into the TPA settlement — that would zero out
+  // the patient share at discharge. See finding
+  // 2026-05-09-tpa-insurance-claim-billing-tpa-overpay-no-validation.
+  const claimedNum = Number(cl.claimed_amount || 0);
+  if (claimedNum > 0 && paidNum > claimedNum) {
+    throw AppError.badRequest(
+      `paid_amount ${paidNum} exceeds claimed_amount ${claimedNum}; ` +
+      `record an enhancement preauth or split the payment instead.`,
+      'PAYMENT_EXCEEDS_CLAIM',
+      { claimed_amount: claimedNum, paid_amount: paidNum }
+    );
   }
   await prisma.$executeRawUnsafe(
     `UPDATE tpa_claims
