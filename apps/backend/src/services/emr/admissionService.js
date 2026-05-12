@@ -931,10 +931,51 @@ async function completeDischargeConsult(admissionId, consultType, completedBy, n
  * Stamp admissions.discharge_drugs_dispensed_at = T3. Called by the
  * pharmacy module when discharge takeaway drugs are dispensed.
  * Architectural item D2.
+ *
+ * Defensive shape: pre-flight the admission lookup so a missing row
+ * surfaces as 404 instead of P2025-from-update → 500; require the
+ * discharge cascade to be open (T0 stamped) so the marker can't be
+ * stamped on an admission that never entered the cascade; idempotent
+ * on the timestamp so pharmacy retries from flaky tablets don't 500;
+ * audit-log is best-effort so a malformed actor uid doesn't tank the
+ * pharmacy hand-off. Findings:
+ *   2026-05-10-inpatient-admission-discharge-drugs-dispensed-500
+ *   2026-05-10-surgical-day-care-discharge-mark-drugs-dispensed-500
  */
 async function markDischargeDrugsDispensed(admissionId, dispensedBy) {
   if (!admissionId) throw AppError.badRequest('admissionId is required');
   if (!dispensedBy) throw AppError.badRequest('dispensedBy is required');
+
+  const existing = await prisma.admissions.findUnique({
+    where: { id: admissionId },
+    select: {
+      id: true,
+      status: true,
+      discharge_initiated_at: true,
+      discharge_drugs_dispensed_at: true,
+    },
+  });
+  if (!existing) {
+    throw AppError.notFound(`Admission ${admissionId} not found`);
+  }
+  if (!existing.discharge_initiated_at) {
+    throw AppError.badRequest(
+      `Admission ${admissionId} is not in the discharge cascade. ` +
+      'Call POST /admissions/:id/mark-for-discharge first to stamp T0.',
+    );
+  }
+
+  // Idempotent — pharmacy retries shouldn't re-stamp or re-audit.
+  if (existing.discharge_drugs_dispensed_at) {
+    const current = await prisma.admissions.findUnique({
+      where: { id: admissionId },
+      select: ADMISSION_RETURNING_SELECT,
+    });
+    logger.info(
+      `markDischargeDrugsDispensed: admission ${admissionId} already stamped at ${existing.discharge_drugs_dispensed_at.toISOString?.() ?? existing.discharge_drugs_dispensed_at}; returning current state`,
+    );
+    return current;
+  }
 
   const updated = await prisma.admissions.update({
     where: { id: admissionId },
@@ -942,16 +983,22 @@ async function markDischargeDrugsDispensed(admissionId, dispensedBy) {
     select: ADMISSION_RETURNING_SELECT,
   });
 
-  await prisma.audit_logs.create({
-    data: {
-      uid: dispensedBy,
-      action: 'MARK_DISCHARGE_DRUGS_DISPENSED',
-      resource: 'admission',
-      resource_id: String(admissionId),
-      metadata: { dispensed_at: new Date().toISOString() },
-      ip_address: null,
-    },
-  });
+  try {
+    await prisma.audit_logs.create({
+      data: {
+        uid: dispensedBy,
+        action: 'MARK_DISCHARGE_DRUGS_DISPENSED',
+        resource: 'admission',
+        resource_id: String(admissionId),
+        metadata: { dispensed_at: new Date().toISOString() },
+        ip_address: null,
+      },
+    });
+  } catch (auditErr) {
+    logger.warn(
+      `markDischargeDrugsDispensed: audit log skipped for admission ${admissionId} (${auditErr.message})`,
+    );
+  }
 
   logger.info(`Discharge drugs dispensed for admission ${admissionId} by ${dispensedBy}`);
   return updated;
