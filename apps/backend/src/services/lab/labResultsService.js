@@ -425,14 +425,46 @@ export async function getResultsForBooking({ tenantId, booking_id }) {
   );
 }
 
-export async function getResultsForPatient({ tenantId, patient_uid, limit = 200 }) {
-  return prisma.$queryRawUnsafe(
-    `SELECT * FROM lab_results
-      WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
+export async function getResultsForPatient({
+  tenantId, patient_uid, limit = 200, include_preliminary = false,
+}) {
+  // Wave-2 fix: a preliminary (unsigned) lab result is medico-legally
+  // unverified and must not be returned on the patient-lookup read API
+  // unless the caller explicitly asks for it via include_preliminary.
+  // Every returned row now carries `verified` so any consumer (patient
+  // app, clinical UI) can plainly distinguish signed from unsigned.
+  // Finding:
+  // 2026-05-09-inpatient-admission-lab-tech-preliminary-results-visible-before-signoff.
+  const wantPreliminary = include_preliminary === true
+    || include_preliminary === 'true'
+    || include_preliminary === 1
+    || include_preliminary === '1';
+  const filters = ['tenant_id = $1::uuid', 'patient_uid = $2::uuid'];
+  if (!wantPreliminary) {
+    filters.push(`status NOT IN ('preliminary')`);
+    filters.push('signed_off_at IS NOT NULL');
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, tenant_id, booking_id, patient_uid, patient_name,
+            hl7_message_id, hl7_segment_index,
+            loinc_code, test_code, test_name,
+            value_text, value_numeric, unit, reference_range,
+            abnormal_flag, status, is_critical,
+            performed_by_lab, performed_at, received_at,
+            signed_off_at, signed_off_by,
+            comments, raw_obx, panel_id, panel_code,
+            reference_range_low, reference_range_high,
+            created_at, updated_at
+       FROM lab_results
+      WHERE ${filters.join(' AND ')}
       ORDER BY received_at DESC
       LIMIT $3::int`,
     tenantId, String(patient_uid), Number(limit),
   );
+  return rows.map((r) => ({
+    ...r,
+    verified: r.status === 'final' && r.signed_off_at != null,
+  }));
 }
 
 /**
