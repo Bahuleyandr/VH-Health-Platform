@@ -61,6 +61,14 @@ export const orderInvestigation = async (req, res) => {
       test_name: body.test_name ?? body.investigation_name ?? body.testName,
       type: body.type ?? body.investigation_type ?? body.investigationType,
       notes: body.notes ?? body.clinical_notes ?? body.clinicalNotes,
+      // Migration 203: patient-actionable collection instructions. Accept
+      // common alias keys (camelCase / collectionDeadline) so admin and
+      // doctor UIs converge on the same intake without churn.
+      collection_location: body.collection_location ?? body.collectionLocation,
+      collection_deadline_at:
+        body.collection_deadline_at ?? body.collectionDeadlineAt ?? body.collection_deadline,
+      fasting_required: body.fasting_required ?? body.fastingRequired,
+      fasting_instructions: body.fasting_instructions ?? body.fastingInstructions,
       priority: body.priority ? String(body.priority).toUpperCase() : body.priority,
       orderedBy: requestedBy,
     };

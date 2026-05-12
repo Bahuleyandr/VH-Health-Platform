@@ -32,6 +32,15 @@ const INV_LIST_SELECT_BASE = {
   requested_by: true,
   created_at: true,
   updated_at: true,
+  // Migration 203 — patient-actionable collection instructions.
+  // Surfaced verbatim in the patient app so the patient knows where
+  // and by when to give the sample, and whether to fast.
+  collection_location: true,
+  collection_deadline_at: true,
+  fasting_required: true,
+  fasting_instructions: true,
+  scheduled_date: true,
+  time_slot: true,
 };
 const INV_LIST_SELECT_WITH_RESULTS = { ...INV_LIST_SELECT_BASE, results: true };
 

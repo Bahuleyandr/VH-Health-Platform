@@ -5313,6 +5313,10 @@ model investigations {
   cancelled_at                             DateTime?                           @db.Timestamp(6)
   cancelled_by                             String?                             @db.Uuid
   cancellation_reason                      String?
+  collection_location                      String?                             @db.VarChar(255)
+  collection_deadline_at                   DateTime?                           @db.Timestamptz(6)
+  fasting_required                         Boolean                             @default(false)
+  fasting_instructions                     String?
   clinical_ai_lab_autoverifications        clinical_ai_lab_autoverifications[]
   investigation_bookings                   investigation_bookings[]
   users_investigations_patient_idTousers   users?                              @relation("investigations_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
