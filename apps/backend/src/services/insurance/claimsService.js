@@ -136,13 +136,80 @@ export async function createPreauth({
   return rows[0];
 }
 
+/**
+ * Sum sanctioned_amount across the parent + every approved /
+ * partially_approved child for an admission's preauth chain. This is
+ * the cumulative TPA cap the cashier should bill against — the original
+ * preauth alone is stale once an enhancement is approved. Mirrors the
+ * approved-states set used in the chart-path GET handler.
+ *
+ * Strategy: when called with a child preauth, walk up to the parent
+ * once and then aggregate. Stable for chains of any depth because
+ * enhancements are always direct children of the original preauth
+ * (request_type='enhancement', parent_preauth_id=original.id) —
+ * grandchildren are not part of the workflow.
+ *
+ * Returns numeric values (Number, not Decimal) because the consumers
+ * (cashier UI, billing alerts) compare them with computed totals.
+ */
+export async function chainTotalsFor({ tenantId, preauthId }) {
+  const rootRows = await prisma.$queryRawUnsafe(
+    `WITH RECURSIVE root AS (
+       SELECT id, parent_preauth_id
+         FROM insurance_preauth
+        WHERE id = $1::int AND tenant_id = $2::uuid
+       UNION ALL
+       SELECT p.id, p.parent_preauth_id
+         FROM insurance_preauth p
+         JOIN root r ON r.parent_preauth_id = p.id
+     )
+     SELECT id FROM root WHERE parent_preauth_id IS NULL LIMIT 1`,
+    Number(preauthId), tenantId,
+  );
+  if (!rootRows.length) {
+    return {
+      root_preauth_id: null,
+      cumulative_approved: 0,
+      cumulative_requested: 0,
+      chain_length: 0,
+    };
+  }
+  const rootId = rootRows[0].id;
+  const totals = await prisma.$queryRawUnsafe(
+    `SELECT
+        $1::int AS root_id,
+        SUM(CASE WHEN status IN ('approved','partially_approved')
+                 THEN COALESCE(sanctioned_amount, 0) ELSE 0 END)::numeric AS approved_total,
+        SUM(CASE WHEN status NOT IN ('cancelled','lapsed','denied')
+                 THEN COALESCE(expected_cost, 0) ELSE 0 END)::numeric AS requested_total,
+        COUNT(*)::int AS chain_length
+       FROM insurance_preauth
+      WHERE tenant_id = $2::uuid
+        AND (id = $1::int OR parent_preauth_id = $1::int)`,
+    rootId, tenantId,
+  );
+  const t = totals[0] || {};
+  return {
+    root_preauth_id: rootId,
+    cumulative_approved: Number(t.approved_total ?? 0),
+    cumulative_requested: Number(t.requested_total ?? 0),
+    chain_length: Number(t.chain_length ?? 0),
+  };
+}
+
 export async function getPreauth({ tenantId, id }) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT * FROM insurance_preauth WHERE id = $1::int AND tenant_id = $2::uuid`,
     Number(id), tenantId,
   );
   if (!rows.length) throw AppError.notFound('Pre-auth not found');
-  return rows[0];
+  // Project cumulative totals across the parent + enhancement chain so
+  // every consumer of /api/v1/insurance/preauth/:id (admin TPA desk,
+  // chart panel, billing screens) sees the live cap, not the row's
+  // own sanctioned amount. See finding
+  // 2026-05-10-tpa-insurance-claim-billing-cumulative-approval-not-projected.
+  const totals = await chainTotalsFor({ tenantId, preauthId: rows[0].id });
+  return { ...rows[0], ...totals };
 }
 
 export async function submitPreauth({

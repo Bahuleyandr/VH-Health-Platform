@@ -125,6 +125,7 @@ import billingRoutes from './routes/billing/billingRoutes.js';
 import billingV2Routes from './routes/billing/billingV2Routes.js';
 import labRoutes from './routes/lab/labRoutes.js';
 import insuranceClaimsRoutes from './routes/insurance/claimsRoutes.js';
+import admissionEnhancementRoutes from './routes/insurance/admissionEnhancementRoutes.js';
 import pmjayRoutes from './routes/insurance/pmjayRoutes.js';
 import maternityRoutes from './routes/maternity/maternityRoutes.js';
 import productivityRoutes from './routes/productivity/productivityRoutes.js';
@@ -704,6 +705,22 @@ app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_ST
 // A5 — structured panel entry + reference-range admin (sibling router under same /lab prefix).
 app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF'), phiAccessLogger('LAB_RESULT'), labPanelRoutes);
 app.use('/api/v1/insurance', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), insuranceClaimsRoutes);
+// Chart-shaped TPA enhancement surface — keyed off admission_id, open
+// to clinicians so a treating consultant can initiate an enhancement
+// from the patient chart instead of being routed through billing.
+// See findings 2026-05-09-...-enhancement-in-billing-not-chart and
+// 2026-05-10-...-doctor-enhancement-rbac.
+app.use(
+  '/api/v1/admissions/:admissionId/tpa-enhancement',
+  requireRole(
+    'ADMIN', 'SUPER_ADMIN',
+    'DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT',
+    'NURSING_STAFF',
+    'BILLING_STAFF', 'INSURANCE_COORDINATOR',
+  ),
+  phiAccessLogger('INSURANCE_PREAUTH'),
+  admissionEnhancementRoutes,
+);
 app.use('/api/v1/pmjay', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), pmjayRoutes);
 app.use('/api/v1/maternity', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('MATERNITY_RECORD'), maternityRoutes);
 // A10 — paediatric immunisation tracking. Receptionists need write access

@@ -519,23 +519,23 @@ class BillingService {
       throw AppError.badRequest('enhancementAmount must be a positive number');
     }
 
-    const parent = await prisma.insurance_claims.findUnique({
-      where: { id: parentClaimId },
-    });
-    if (!parent) {
-      // tpa_claims (Sprint 5 TPA workflow) is a separate table from
-      // insurance_claims and uses insurance_preauth.parent_preauth_id +
-      // request_type='enhancement' for mid-stay enhancements, not this
-      // billing-side child-claim path. If a caller passes a tpa_claims.id
-      // here, fail loudly so they don't get a silent 404 or, worse,
-      // collide with an insurance_claims row sharing the same id.
-      const tpaMatch = await prisma.tpa_claims.findUnique({
-        where: { id: parentClaimId },
-        select: { id: true, claim_number: true },
-      });
-      if (tpaMatch) {
+    // Probe both tables. `insurance_claims` is the legacy billing-side
+    // surface this endpoint writes to; `tpa_claims` is the Sprint 5 TPA
+    // workflow and uses `insurance_preauth.parent_preauth_id` instead
+    // (see CLAUDE.md table-split note + commit 8c2b157a).
+    const parentRows = await prisma.$queryRawUnsafe(
+      `SELECT id, claim_number, patient_uid, invoice_id, insurance_provider, policy_number
+         FROM insurance_claims WHERE id = $1::int`,
+      Number(parentClaimId),
+    );
+    if (!parentRows.length) {
+      const tpaRows = await prisma.$queryRawUnsafe(
+        `SELECT id, claim_number FROM tpa_claims WHERE id = $1::int`,
+        Number(parentClaimId),
+      );
+      if (tpaRows.length) {
         throw AppError.badRequest(
-          `Claim ${parentClaimId} (${tpaMatch.claim_number}) is a TPA claim — ` +
+          `Claim ${parentClaimId} (${tpaRows[0].claim_number}) is a TPA claim — ` +
           `use the insurance_preauth enhancement workflow (request_type='enhancement') ` +
           `instead of /billing/insurance/claim/:id/enhancement.`,
           'TPA_CLAIM_USE_PREAUTH_ENHANCEMENT'
@@ -543,36 +543,86 @@ class BillingService {
       }
       throw AppError.notFound('Parent insurance claim not found');
     }
+    const parent = parentRows[0];
 
-    // Reuse the parent's claim_number prefix + a `-E<n>` suffix so the
-    // lineage is readable. The unique constraint on claim_number forces
-    // us to count existing children to allocate the next E-suffix.
-    const existingEnhancements = await prisma.insurance_claims.count({
-      where: { parent_claim_id: parentClaimId, stage: 'enhancement' },
-    });
-    const enhancementClaimNumber = `${parent.claim_number}-E${existingEnhancements + 1}`;
+    // claim_number is VARCHAR(30). The parent number plus a `-E<n>` suffix
+    // can overflow if the parent is close to the limit, so cap the prefix
+    // length defensively before suffixing.
+    const baseNumber = String(parent.claim_number || '').slice(0, 26);
 
-    const created = await prisma.insurance_claims.create({
-      data: {
-        claim_number: enhancementClaimNumber,
-        patient_uid: parent.patient_uid,
-        invoice_id: parent.invoice_id,
-        insurance_provider: parent.insurance_provider,
-        policy_number: parent.policy_number,
-        claim_amount: amount,
-        status: 'submitted',
-        stage: 'enhancement',
-        parent_claim_id: parentClaimId,
-        documents: justification
-          ? { enhancement: { justification, requested_by: actorUid, requested_at: new Date().toISOString() } }
-          : null,
-        submitted_at: new Date(),
-        updated_at: new Date(),
-      },
-    });
+    // Allocate the next `-E<n>` slot + insert in a single transaction so
+    // two concurrent enhancement requests don't both pick E1 and collide
+    // on the unique constraint. Raw SQL mirrors the manual INSERT shape
+    // that the finding confirmed works against the live schema (the
+    // prior `prisma.insurance_claims.create({ data: { ... } })` path
+    // returned 500 — see finding
+    // 2026-05-09-tpa-insurance-claim-doctor-enhancement-api-500).
+    const docsJson = justification
+      ? JSON.stringify({
+          enhancement: {
+            justification,
+            requested_by: actorUid ?? null,
+            requested_at: new Date().toISOString(),
+          },
+        })
+      : null;
 
-    logger.info(`Enhancement claim ${created.claim_number} (id=${created.id}) opened against parent claim ${parentClaimId} for ${amount}`);
-    return created;
+    try {
+      const created = await prisma.$transaction(async (tx) => {
+        const countRows = await tx.$queryRawUnsafe(
+          `SELECT COUNT(*)::int AS n
+             FROM insurance_claims
+            WHERE parent_claim_id = $1::int AND stage = 'enhancement'`,
+          Number(parentClaimId),
+        );
+        const nextSuffix = (countRows[0]?.n ?? 0) + 1;
+        const enhancementClaimNumber = `${baseNumber}-E${nextSuffix}`;
+
+        const insertedRows = await tx.$queryRawUnsafe(
+          `INSERT INTO insurance_claims
+             (claim_number, patient_uid, invoice_id,
+              insurance_provider, policy_number,
+              claim_amount, status, stage, parent_claim_id,
+              documents, submitted_at, created_at, updated_at)
+           VALUES ($1, $2::uuid, $3::int,
+                   $4, $5,
+                   $6::numeric, 'submitted', 'enhancement', $7::int,
+                   $8::jsonb, NOW(), NOW(), NOW())
+           RETURNING id, claim_number, patient_uid, invoice_id,
+                     insurance_provider, policy_number, claim_amount,
+                     status, stage, parent_claim_id, documents,
+                     submitted_at, created_at, updated_at`,
+          enhancementClaimNumber,
+          parent.patient_uid,
+          parent.invoice_id ?? null,
+          parent.insurance_provider,
+          parent.policy_number,
+          amount,
+          Number(parentClaimId),
+          docsJson,
+        );
+        return insertedRows[0];
+      });
+
+      logger.info(
+        `Enhancement claim ${created.claim_number} (id=${created.id}) opened against parent claim ${parentClaimId} for ${amount}`
+      );
+      return created;
+    } catch (err) {
+      // Log the actual Postgres error before the global handler scrubs it,
+      // so future regressions in this path are diagnosable from the
+      // backend logs instead of needing a `psql` repro. Finding
+      // 2026-05-09-tpa-insurance-claim-doctor-enhancement-api-500
+      // explicitly called out that the root cause never reached the
+      // log files.
+      logger.error('createEnhancementClaim insert failed', {
+        parentClaimId,
+        amount,
+        code: err.code,
+        message: err.message,
+      });
+      throw err;
+    }
   }
 
   /**
