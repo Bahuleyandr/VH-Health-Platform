@@ -15,6 +15,7 @@ import logger from '../../logging/logger.js';
 import * as maternity from '../../services/maternity/maternityService.js';
 import * as portal from '../../services/portal/patientPortalService.js';
 import { AppError } from '../../utils/AppError.js';
+import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 const router = Router();
@@ -79,6 +80,27 @@ router.get('/records', requirePatient, useAuthenticatedPatientPhone, getHealthRe
 
 router.get('/prescriptions', requirePatient, getMyPrescriptions);
 
+// Patient-facing Rx PDF — returns a JSON envelope with a signed R2
+// URL. Lazily regenerates the PDF if pdf_key is null (R2 outage at
+// create time would otherwise leave it permanently un-downloadable).
+// Finding 2026-05-10-pediatric-opd-patient-weight-based-rx-pdf-missing.
+router.get('/prescriptions/:id/pdf', requirePatient, wrap(async (req) => {
+  const result = await portal.getOrGenerateMyPrescriptionPdfUrl({
+    patient_uid: patientUidOf(req),
+    prescription_id: req.params.id,
+  });
+  logPhiAccess({
+    userId: req.user?.uid,
+    userRole: req.user?.role,
+    patientId: req.user?.uid,
+    recordType: 'e_prescription_pdf',
+    action: 'EXPORT',
+    ip: req.ip,
+    requestId: req.id,
+  });
+  return result;
+}));
+
 
 // ── Bills ────────────────────────────────────────────────────────────
 router.get('/bills', requirePatient, wrap(async (req) =>
@@ -105,6 +127,37 @@ router.post('/bills/:id/payment-link', requirePatient, wrap(async (req) =>
   }),
 ));
 
+// Patient-facing invoice PDF download. Streams the generated binary
+// rather than going through `wrap`/`success` which assume a JSON
+// envelope. PHI access is logged so HIPAA audit captures the download.
+router.get('/bills/:id/pdf', requirePatient, async (req, res, next) => {
+  try {
+    const buffer = await portal.generateMyInvoicePdfBuffer({
+      tenantId: tenantOf(req),
+      patient_uid: patientUidOf(req),
+      id: req.params.id,
+    });
+    logPhiAccess({
+      userId: req.user?.uid,
+      userRole: req.user?.role,
+      patientId: req.user?.uid,
+      recordType: 'billing_invoice_pdf',
+      action: 'EXPORT',
+      ip: req.ip,
+      requestId: req.id,
+    });
+    const filename = `Invoice_${req.params.id}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    return res.send(buffer);
+  } catch (err) {
+    if (err.statusCode) return error(res, err.message, err.statusCode);
+    logger.error('patient bill PDF error:', err);
+    return next(err);
+  }
+});
+
 // ── B-6 — patient-side discharge PDF ────────────────────────────────
 router.get('/discharge/:admissionId/pdf', requirePatient, wrap(async (req) =>
   portal.getMyDischargePdfUrl({
@@ -113,6 +166,79 @@ router.get('/discharge/:admissionId/pdf', requirePatient, wrap(async (req) =>
     admission_id: req.params.admissionId,
   }),
 ));
+
+// ── Discharge summary read surface ──────────────────────────────────
+router.get('/discharge-summaries', requirePatient, wrap(async (req) =>
+  portal.listMyDischargeSummaries({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+    limit: req.query.limit,
+  }),
+));
+
+router.get('/discharge-summaries/admission/:admissionId', requirePatient, wrap(async (req) =>
+  portal.getMyDischargeSummaryByAdmission({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+    admission_id: req.params.admissionId,
+  }),
+));
+
+router.get('/discharge-summaries/:id', requirePatient, wrap(async (req) =>
+  portal.getMyDischargeSummary({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+    id: req.params.id,
+  }),
+));
+
+// ── Clinical notes (patient self-read) ──────────────────────────────
+// /api/v1/emr/notes is staff-only by RBAC (CLINICAL_STAFF_ROLES). The
+// patient-scoped equivalent lives here, returning only signed notes
+// owned by the authenticated patient_uid and filtered to types the
+// patient should see (progress / SOAP / discharge / procedure /
+// consultation / follow-up). PHI access is logged per read.
+// Finding 2026-05-09-follow-up-opd-patient-progress-note-not-visible.
+
+function logClinicalNoteAccess(req) {
+  logPhiAccess({
+    userId: req.user?.uid,
+    userRole: req.user?.role,
+    patientId: req.user?.uid,
+    recordType: 'clinical_note',
+    action: 'VIEW',
+    ip: req.ip,
+    requestId: req.id,
+  });
+}
+
+router.get('/clinical-notes', requirePatient, wrap(async (req) => {
+  const result = await portal.listMyClinicalNotes({
+    patient_uid: patientUidOf(req),
+    note_type: req.query.note_type || null,
+    limit: req.query.limit,
+  });
+  logClinicalNoteAccess(req);
+  return result;
+}));
+
+router.get('/clinical-notes/appointment/:appointmentId', requirePatient, wrap(async (req) => {
+  const result = await portal.listMyClinicalNotesForAppointment({
+    patient_uid: patientUidOf(req),
+    appointment_id: req.params.appointmentId,
+  });
+  logClinicalNoteAccess(req);
+  return result;
+}));
+
+router.get('/clinical-notes/:id', requirePatient, wrap(async (req) => {
+  const result = await portal.getMyClinicalNote({
+    patient_uid: patientUidOf(req),
+    id: req.params.id,
+  });
+  logClinicalNoteAccess(req);
+  return result;
+}));
 
 // ── B-5 — TPA / insurance claims (read-only) ────────────────────────
 router.get('/tpa/claims', requirePatient, wrap(async (req) =>

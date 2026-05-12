@@ -159,28 +159,89 @@ export const uploadAppointmentDocument = async (req, res) => {
 };
 
 /**
- * Get documents for an appointment
+ * Get documents for an appointment.
+ *
+ * Returns appointment_documents rows visible to the patient AND
+ * synthesised entries for any e_prescriptions row created for this
+ * appointment. The patient app's "View Prescription" CTA hits this
+ * endpoint expecting to find the structured prescription document.
+ * Before this synthesis, the structured Rx (e_prescriptions.pdf_key)
+ * was completely separate from appointment_documents and the CTA
+ * surfaced an empty list — finding
+ * 2026-05-10-walk-in-opd-patient-appointment-prescription-empty.
  */
 export const getAppointmentDocuments = async (req, res) => {
   try {
     const { appointment_id } = req.params;
-    const result = await prisma.$queryRawUnsafe(
-      `SELECT ad.id, ad.appointment_id, ad.patient_id, ad.doctor_id, ad.uploaded_by, ad.upload_role, ad.document_type, ad.file_key, ad.file_url, ad.file_name, ad.file_size, ad.file_mime, ad.notes, ad.created_at, u.name as uploaded_by_name
-       FROM appointment_documents ad
-       LEFT JOIN users u ON ad.uploaded_by = u.id
-       WHERE ad.appointment_id=$1::int AND ad.is_visible_to_patient=TRUE
-       ORDER BY ad.created_at DESC`,
-      appointment_id
-    );
+    const apptId = parseInt(appointment_id, 10);
+    if (!Number.isInteger(apptId) || apptId <= 0) {
+      return error(res, 'Invalid appointment id', HTTP_STATUS.BAD_REQUEST);
+    }
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const [docRows, rxRows] = await Promise.all([
+      prisma.$queryRawUnsafe(
+        `SELECT ad.id, ad.appointment_id, ad.patient_id, ad.doctor_id, ad.uploaded_by, ad.upload_role, ad.document_type, ad.file_key, ad.file_url, ad.file_name, ad.file_size, ad.file_mime, ad.notes, ad.created_at, u.name as uploaded_by_name
+         FROM appointment_documents ad
+         LEFT JOIN users u ON ad.uploaded_by = u.id
+         WHERE ad.appointment_id=$1::int AND ad.is_visible_to_patient=TRUE
+         ORDER BY ad.created_at DESC`,
+        apptId,
+      ),
+      prisma.$queryRawUnsafe(
+        `SELECT ep.id, ep.appointment_id, ep.patient_id, ep.doctor_id,
+                ep.prescription_number, ep.pdf_key, ep.created_at,
+                d.name AS doctor_name
+           FROM e_prescriptions ep
+           LEFT JOIN users d ON d.id = ep.doctor_id
+          WHERE ep.appointment_id = $1::int
+          ORDER BY ep.created_at DESC`,
+        apptId,
+      ),
+    ]);
 
-    const docs = await Promise.all(result.map(async (doc) => {
+    const docs = await Promise.all(docRows.map(async (doc) => {
       if (doc.file_key) {
-        doc.file_url = await getSignedFileUrl(doc.file_key, 3600, { baseUrl: `${req.protocol}://${req.get('host')}` }).catch(() => null);
+        doc.file_url = await getSignedFileUrl(doc.file_key, 3600, { baseUrl }).catch(() => null);
       }
       return doc;
     }));
 
-    success(res, docs, 'Documents fetched');
+    // Synthesise document entries from e_prescriptions. We only emit
+    // an entry per Rx when the PDF has been generated (pdf_key set) —
+    // if generation failed at create-time, the patient-portal
+    // /portal/prescriptions/:id/pdf endpoint will lazily regenerate
+    // and stamp the key. Document IDs are prefixed `rx-` so they can't
+    // collide with appointment_documents.id (BigInt).
+    const rxDocs = await Promise.all(rxRows.filter((rx) => rx.pdf_key).map(async (rx) => {
+      const file_url = await getSignedFileUrl(rx.pdf_key, 3600, { baseUrl }).catch(() => null);
+      return {
+        id: `rx-${rx.id}`,
+        appointment_id: rx.appointment_id,
+        patient_id: rx.patient_id,
+        doctor_id: rx.doctor_id,
+        uploaded_by: rx.doctor_id,
+        uploaded_by_name: rx.doctor_name,
+        upload_role: 'staff',
+        document_type: 'prescription',
+        file_key: rx.pdf_key,
+        file_url,
+        file_name: `${rx.prescription_number || `prescription-${rx.id}`}.pdf`,
+        file_size: null,
+        file_mime: 'application/pdf',
+        notes: null,
+        source: 'e_prescription',
+        prescription_id: rx.id,
+        created_at: rx.created_at,
+      };
+    }));
+
+    const combined = [...docs, ...rxDocs].sort((a, b) => {
+      const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return tb - ta;
+    });
+
+    success(res, combined, 'Documents fetched');
   } catch (err) {
     logger.error('Get Appointment Docs Error:', err);
     error(res, 'Failed', HTTP_STATUS.INTERNAL_SERVER_ERROR);

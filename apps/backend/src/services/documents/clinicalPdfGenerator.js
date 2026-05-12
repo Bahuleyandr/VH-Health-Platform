@@ -354,6 +354,162 @@ export async function generateLabReportPDF(investigationId) {
 }
 
 // =============================================================================
+// INVOICE / FINAL BILL PDF
+// =============================================================================
+
+/**
+ * Generate a patient-facing invoice PDF for a `billing_invoices` row.
+ *
+ * Used by the patient app's "Download bill" action — TPA patients in
+ * particular need a copy of the final bill for reimbursement records
+ * and employer claims. The same PDF is acceptable for OPD bills too;
+ * the layout collapses the payment-history section to a "Not paid"
+ * line when there are no payments. Idempotency is the caller's
+ * responsibility (we generate on every request — invoices are small,
+ * line counts are bounded, and amount_paid may flip after partial
+ * settlements).
+ *
+ * Finding 2026-05-10-tpa-insurance-claim-patient-final-bill-download-missing.
+ *
+ * @param {number|string} invoiceId
+ * @returns {Promise<Buffer>}
+ */
+export async function generateInvoicePDF(invoiceId) {
+  const id = Number(invoiceId);
+  if (!Number.isInteger(id) || id <= 0) {
+    const err = new Error('invoiceId must be a positive integer');
+    err.statusCode = 400;
+    throw err;
+  }
+  logger.info(`Generating invoice PDF for invoice ${id}`);
+
+  const invRows = await prisma.$queryRawUnsafe(
+    `SELECT id, invoice_number, invoice_type, status,
+            patient_uid, patient_name, patient_phone,
+            patient_state, hospital_state,
+            admission_id, doctor_uid, department,
+            subtotal, cgst_amount, sgst_amount, igst_amount,
+            discount_amount, discount_reason,
+            total_amount, amount_paid, amount_due,
+            issued_at, created_at, notes
+       FROM billing_invoices WHERE id = $1::int`,
+    id,
+  );
+  if (!invRows.length) {
+    const err = new Error('Invoice not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const inv = invRows[0];
+
+  const [items, payments] = await Promise.all([
+    prisma.$queryRawUnsafe(
+      `SELECT description, quantity, unit_price, gst_rate,
+              line_subtotal, line_total, hsn_sac
+         FROM billing_invoice_items
+        WHERE invoice_id = $1::int
+        ORDER BY id`,
+      id,
+    ),
+    prisma.$queryRawUnsafe(
+      `SELECT amount, mode, reference, collected_at, reversed
+         FROM billing_payments
+        WHERE invoice_id = $1::int AND COALESCE(reversed, false) = false
+        ORDER BY collected_at`,
+      id,
+    ),
+  ]);
+
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+    const buffers = [];
+    doc.on('data', (chunk) => buffers.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
+    doc.on('error', reject);
+
+    // Hospital header
+    doc.fontSize(18).font('Helvetica-Bold').text('Venkataeswara Hospitals', { align: 'center' });
+    doc.fontSize(10).font('Helvetica').text('Nandanam, Chennai – 600 035', { align: 'center' });
+    doc.moveDown(0.5);
+    drawLine(doc);
+    doc.moveDown(0.5);
+
+    const title = inv.invoice_type === 'IP' ? 'FINAL BILL' : 'TAX INVOICE';
+    doc.fontSize(14).font('Helvetica-Bold').text(title, { align: 'center' });
+    doc.moveDown(0.3);
+    doc.fontSize(10).font('Helvetica').text(
+      `Invoice #${inv.invoice_number || inv.id} | ${inv.status || 'DRAFT'}`,
+      { align: 'center' },
+    );
+    doc.moveDown();
+
+    addSection(doc, 'Patient Information', [
+      `Name: ${inv.patient_name || 'N/A'}`,
+      `Phone: ${inv.patient_phone || 'N/A'}`,
+      inv.admission_id ? `Admission ID: ${inv.admission_id}` : null,
+      inv.department ? `Department: ${inv.department}` : null,
+      `Issued: ${(inv.issued_at || inv.created_at) ? new Date(inv.issued_at || inv.created_at).toLocaleString() : 'N/A'}`,
+    ].filter(Boolean));
+
+    // Line items
+    if (items.length > 0) {
+      addSection(doc, 'Charges', items.map((it) => {
+        const qty = it.quantity != null ? `x${it.quantity}` : '';
+        const unit = it.unit_price != null ? `@ ${Number(it.unit_price).toFixed(2)}` : '';
+        const lineTotal = it.line_total != null ? `= ${Number(it.line_total).toFixed(2)}` : '';
+        const gst = it.gst_rate != null ? ` (GST ${Number(it.gst_rate).toFixed(2)}%)` : '';
+        return `${it.description || 'Service'} ${qty} ${unit} ${lineTotal}${gst}`.replace(/\s+/g, ' ').trim();
+      }));
+    } else {
+      addSection(doc, 'Charges', ['No line items recorded.']);
+    }
+
+    // Totals
+    addSection(doc, 'Summary', [
+      `Subtotal: ${Number(inv.subtotal || 0).toFixed(2)}`,
+      inv.cgst_amount && Number(inv.cgst_amount) > 0
+        ? `CGST: ${Number(inv.cgst_amount).toFixed(2)}` : null,
+      inv.sgst_amount && Number(inv.sgst_amount) > 0
+        ? `SGST: ${Number(inv.sgst_amount).toFixed(2)}` : null,
+      inv.igst_amount && Number(inv.igst_amount) > 0
+        ? `IGST: ${Number(inv.igst_amount).toFixed(2)}` : null,
+      inv.discount_amount && Number(inv.discount_amount) > 0
+        ? `Discount${inv.discount_reason ? ' (' + inv.discount_reason + ')' : ''}: -${Number(inv.discount_amount).toFixed(2)}`
+        : null,
+      `Total: ${Number(inv.total_amount || 0).toFixed(2)}`,
+      `Paid: ${Number(inv.amount_paid || 0).toFixed(2)}`,
+      `Due: ${Number(inv.amount_due || 0).toFixed(2)}`,
+    ].filter(Boolean));
+
+    // Payment history (only non-reversed entries)
+    if (payments.length > 0) {
+      addSection(doc, 'Payments', payments.map((p) => {
+        const when = p.collected_at ? new Date(p.collected_at).toLocaleString() : '';
+        const ref = p.reference ? ` ref ${p.reference}` : '';
+        return `${Number(p.amount || 0).toFixed(2)} ${p.mode || ''}${ref} ${when}`.replace(/\s+/g, ' ').trim();
+      }));
+    } else if (Number(inv.amount_paid || 0) === 0) {
+      addSection(doc, 'Payments', ['No payments recorded yet.']);
+    }
+
+    if (inv.notes) {
+      addSection(doc, 'Notes', [String(inv.notes)]);
+    }
+
+    // Footer
+    doc.moveDown(2);
+    drawLine(doc);
+    doc.moveDown(0.3);
+    doc.fontSize(8).font('Helvetica').text(
+      `Generated by VH Health on ${new Date().toLocaleString()} | This is a computer-generated invoice.`,
+      { align: 'center' },
+    );
+
+    doc.end();
+  });
+}
+
+// =============================================================================
 // HELPERS
 // =============================================================================
 
@@ -377,4 +533,4 @@ function drawLine(doc) {
     .stroke();
 }
 
-export default { generateDischargeSummaryPDF, generateLabReportPDF };
+export default { generateDischargeSummaryPDF, generateLabReportPDF, generateInvoicePDF };

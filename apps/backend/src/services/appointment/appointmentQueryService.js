@@ -386,37 +386,67 @@ export class AppointmentQueryService {
       // E-10 — completed-visit clinical summary. Patient app calling
       // GET /appointments/:id on a COMPLETED visit previously got an
       // empty shell with no notes / prescriptions / diagnoses to read.
-      // Join them inline so the response is self-contained. Finding:
-      // 2026-05-08-follow-up-opd-patient-completed-visit-empty-shell.
-      if (flat.status === 'COMPLETED' && patient?.uid) {
+      // Join them inline so the response is self-contained. Findings:
+      //   2026-05-08-follow-up-opd-patient-completed-visit-empty-shell
+      //   2026-05-11-follow-up-opd-patient-bb4300c3 (progress note not visible)
+      //   2026-05-11-follow-up-opd-patient-8cd46bfe (completed FU omits note)
+      //
+      // The notes join now prefers `content->>'appointment_id'` over
+      // a 6h time window. The window-only approach missed any note
+      // written more than 6h after the appointment was BOOKED (not
+      // when the visit happened — appointment_date can be days/weeks
+      // out from created_at for follow-ups), which is the common
+      // case for follow-up OPDs. We fall back to a wider 24h window
+      // around appointment_date for legacy notes that don't carry the
+      // attribute. Status comparison is case-insensitive — some
+      // routes still return lowercase 'completed'.
+      if (String(flat.status || '').toUpperCase() === 'COMPLETED' && patient?.uid) {
         try {
+          const anchorTs = flat.appointment_date || flat.created_at;
+          const apptIdInt = Number(flat.id);
           const [notes, prescriptions, diagnoses] = await Promise.all([
             prisma.$queryRawUnsafe(
-              `SELECT id, note_type, content, author_role, created_at
+              `SELECT id, note_type, content, author_role, is_signed,
+                      signed_at, created_at
                  FROM clinical_notes
                 WHERE patient_uid = $1::uuid
-                  AND created_at >= ($2::timestamp - INTERVAL '6 hours')
+                  AND (
+                    (content ? 'appointment_id'
+                     AND (content->>'appointment_id')::int = $3::int)
+                    OR
+                    (NOT (content ? 'appointment_id')
+                     AND created_at >= ($2::timestamp - INTERVAL '24 hours')
+                     AND created_at <= ($2::timestamp + INTERVAL '7 days'))
+                  )
                 ORDER BY created_at ASC`,
-              patient.uid, flat.created_at,
+              patient.uid, anchorTs, apptIdInt,
             ),
             prisma.$queryRawUnsafe(
               `SELECT id, prescription_number, diagnosis, medications, follow_up_date,
-                      follow_up_notes, created_at
+                      follow_up_notes, pdf_key, created_at
                  FROM e_prescriptions
                 WHERE patient_uid = $1::uuid
-                  AND created_at >= ($2::timestamp - INTERVAL '6 hours')
+                  AND (
+                    appointment_id = $3::int
+                    OR (
+                      appointment_id IS NULL
+                      AND created_at >= ($2::timestamp - INTERVAL '24 hours')
+                      AND created_at <= ($2::timestamp + INTERVAL '7 days')
+                    )
+                  )
                 ORDER BY created_at ASC
                 LIMIT 5`,
-              patient.uid, flat.created_at,
+              patient.uid, anchorTs, apptIdInt,
             ),
             prisma.$queryRawUnsafe(
               `SELECT id, icd10_code, icd10_description, description, diagnosis_type,
                       severity, onset_date, created_at
                  FROM diagnoses
                 WHERE patient_uid = $1::uuid
-                  AND created_at >= ($2::timestamp - INTERVAL '6 hours')
+                  AND created_at >= ($2::timestamp - INTERVAL '24 hours')
+                  AND created_at <= ($2::timestamp + INTERVAL '7 days')
                 ORDER BY created_at ASC`,
-              patient.uid, flat.created_at,
+              patient.uid, anchorTs,
             ),
           ]);
           flat.clinical_summary = {

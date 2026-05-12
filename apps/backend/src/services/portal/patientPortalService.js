@@ -119,6 +119,251 @@ export async function createSelfPaymentLink({
 // Patients only see results that have been signed off (NABH 5.6
 // principle — un-signed values can change).
 
+// ── Clinical notes read surface for patients ─────────────────────────
+//
+// /api/v1/emr/notes is gated by CLINICAL_STAFF_ROLES, so PATIENT
+// requests come back 403. Patients still need to read their own
+// progress notes — the "completed follow-up with no new Rx" case
+// is the most common: the doctor's plan is in clinical_notes and
+// the patient app has nowhere to surface it. These exports add a
+// patient-scoped read surface that mirrors what the staff timeline
+// would show, filtered to the authenticated patient_uid and
+// restricted to note types the patient should see.
+//
+// We hide nursing assessments (those are internal handover artifacts)
+// and unsigned drafts (patients should never see un-finalised notes).
+// Doctor-authored progress / discharge / SOAP / procedure notes pass.
+
+const PATIENT_VISIBLE_NOTE_TYPES = [
+  'progress',
+  'soap',
+  'discharge',
+  'procedure',
+  'consultation',
+  'follow_up',
+  'follow-up',
+];
+
+export async function listMyClinicalNotes({ patient_uid, limit = 100, note_type = null }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const types = note_type
+    ? [String(note_type).toLowerCase()]
+    : PATIENT_VISIBLE_NOTE_TYPES;
+  return prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, encounter_id, author_uid, author_role,
+            note_type, title, content, version, is_addendum,
+            is_signed, signed_at, parent_note_id,
+            created_at, updated_at
+       FROM clinical_notes
+      WHERE patient_uid = $1::uuid
+        AND is_signed = TRUE
+        AND lower(note_type) = ANY($2::text[])
+      ORDER BY created_at DESC, id DESC
+      LIMIT $3::int`,
+    String(patient_uid), types, Number(limit),
+  );
+}
+
+export async function getMyClinicalNote({ patient_uid, id }) {
+  const noteId = Number(id);
+  if (!Number.isInteger(noteId) || noteId <= 0) {
+    throw AppError.badRequest('clinical note id must be a positive integer');
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, encounter_id, author_uid, author_role,
+            note_type, title, content, version, is_addendum,
+            is_signed, signed_at, parent_note_id,
+            created_at, updated_at
+       FROM clinical_notes
+      WHERE id = $1::int
+        AND patient_uid = $2::uuid
+        AND is_signed = TRUE
+        AND lower(note_type) = ANY($3::text[])`,
+    noteId, String(patient_uid), PATIENT_VISIBLE_NOTE_TYPES,
+  );
+  if (!rows.length) throw AppError.notFound('Clinical note not found');
+  return rows[0];
+}
+
+export async function listMyClinicalNotesForAppointment({ patient_uid, appointment_id }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const apptId = Number(appointment_id);
+  if (!Number.isInteger(apptId) || apptId <= 0) {
+    throw AppError.badRequest('appointment_id must be a positive integer');
+  }
+  // clinical_notes has no direct appointment_id FK — the link lives
+  // in content->>'appointment_id' when the doctor's note-writer
+  // attaches it. Fall back to a 24h time window around the
+  // appointment for legacy notes that don't carry the attribute.
+  const apptRows = await prisma.$queryRawUnsafe(
+    `SELECT a.id, a.created_at, a.appointment_date, a.appointment_time,
+            COALESCE(u.uid, a.uid) AS patient_uid
+       FROM appointments a
+       LEFT JOIN users u ON u.id = a.patient_id
+      WHERE a.id = $1::int`,
+    apptId,
+  );
+  if (!apptRows.length) throw AppError.notFound('Appointment not found');
+  const appt = apptRows[0];
+  if (String(appt.patient_uid) !== String(patient_uid)) {
+    throw AppError.notFound('Appointment not found');
+  }
+  return prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, encounter_id, author_uid, author_role,
+            note_type, title, content, version, is_addendum,
+            is_signed, signed_at, parent_note_id,
+            created_at, updated_at
+       FROM clinical_notes
+      WHERE patient_uid = $1::uuid
+        AND is_signed = TRUE
+        AND lower(note_type) = ANY($2::text[])
+        AND (
+          (content ? 'appointment_id'
+           AND (content->>'appointment_id')::int = $3::int)
+          OR
+          (NOT (content ? 'appointment_id')
+           AND created_at >= $4::timestamptz - INTERVAL '24 hours'
+           AND created_at <= $4::timestamptz + INTERVAL '7 days')
+        )
+      ORDER BY created_at ASC, id ASC`,
+    String(patient_uid),
+    PATIENT_VISIBLE_NOTE_TYPES,
+    apptId,
+    appt.created_at,
+  );
+}
+
+// ── Patient-side Rx PDF (download prescription) ──────────────────────
+//
+// e_prescriptions.pdf_key is stamped at create-time by
+// ePrescriptionController.generatePrescriptionPDF, but the upload to
+// R2 is best-effort and silently swallows R2 outages — leaving pdf_key
+// null forever for that row. Patients hitting "Download" on a
+// prescription with pdf_key null currently get a 404 from the staff
+// downloadPrescriptionPDF endpoint. This service:
+//   - Verifies the prescription belongs to the authenticated patient
+//   - Returns the existing signed URL if pdf_key is set
+//   - Otherwise regenerates the PDF, uploads, stamps pdf_key, returns
+// Finding 2026-05-10-pediatric-opd-patient-weight-based-rx-pdf-missing.
+export async function getOrGenerateMyPrescriptionPdfUrl({ patient_uid, prescription_id }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const id = Number(prescription_id);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw AppError.badRequest('prescription id must be a positive integer');
+  }
+
+  // IDOR: patient_uid join. Prescriptions created via legacy paths
+  // may have patient_uid null but patient_id set; fall back to a
+  // uid→id lookup so those still resolve.
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT ep.id, ep.pdf_key, ep.patient_id, ep.patient_uid,
+            ep.prescription_number
+       FROM e_prescriptions ep
+      WHERE ep.id = $1::int
+        AND (
+          ep.patient_uid = $2::uuid
+          OR ep.patient_id = (SELECT id FROM users WHERE uid = $2::uuid LIMIT 1)
+        )`,
+    id, String(patient_uid),
+  );
+  if (!rows.length) throw AppError.notFound('Prescription not found');
+  const rx = rows[0];
+
+  const { uploadFileToR2, getSignedFileUrl } = await import('../../utils/r2Storage.js');
+
+  if (rx.pdf_key) {
+    try {
+      const url = await getSignedFileUrl(rx.pdf_key, 3600);
+      return { key: rx.pdf_key, url, generated: false };
+    } catch (e) {
+      logger.warn(`Persisted Rx PDF key resolved but signed URL failed: ${e.message}; regenerating`);
+    }
+  }
+
+  // Lazy regeneration. We reach into the controller's
+  // generatePrescriptionPDF helper rather than duplicating layout.
+  // The helper is a pure renderer over (prescription, patient,
+  // doctor) — no res handle required.
+  const { generatePrescriptionPDFBuffer } = await import('../prescription/prescriptionPdfHelper.js');
+  const detail = await prisma.$queryRawUnsafe(
+    `SELECT ep.id, ep.appointment_id, ep.patient_id, ep.doctor_id,
+            ep.prescription_number, ep.diagnosis, ep.clinical_notes,
+            ep.medications, ep.vitals, ep.follow_up_date,
+            ep.follow_up_notes, ep.created_at,
+            p.name AS patient_name, p.phone AS patient_phone,
+            p.gender AS patient_gender, p.birthday AS patient_birthday,
+            d.name AS doctor_name, doc.specialty AS doctor_specialization
+       FROM e_prescriptions ep
+       LEFT JOIN users p ON p.id = ep.patient_id
+       LEFT JOIN users d ON d.id = ep.doctor_id
+       LEFT JOIN doctors doc ON doc.user_id = ep.doctor_id
+      WHERE ep.id = $1::int`,
+    id,
+  );
+  if (!detail.length) throw AppError.notFound('Prescription detail not found');
+  const row = detail[0];
+
+  const buffer = await generatePrescriptionPDFBuffer(
+    {
+      id: row.id,
+      prescription_number: row.prescription_number,
+      diagnosis: row.diagnosis,
+      clinical_notes: row.clinical_notes,
+      medications: row.medications,
+      vitals: row.vitals,
+      follow_up_date: row.follow_up_date,
+      follow_up_notes: row.follow_up_notes,
+      created_at: row.created_at,
+    },
+    {
+      name: row.patient_name,
+      phone: row.patient_phone,
+      gender: row.patient_gender,
+      birthday: row.patient_birthday,
+    },
+    {
+      name: row.doctor_name,
+      specialization: row.doctor_specialization,
+    },
+  );
+
+  const key = `prescriptions/pdf/${row.prescription_number || `rx-${row.id}-${Date.now()}`}.pdf`;
+  await uploadFileToR2(buffer, key, 'application/pdf');
+  await prisma.$executeRawUnsafe(
+    `UPDATE e_prescriptions SET pdf_key = $1, updated_at = NOW() WHERE id = $2::int`,
+    key, id,
+  );
+  const url = await getSignedFileUrl(key, 3600);
+  return { key, url, generated: true };
+}
+
+// ── Patient-side invoice PDF (download bill) ─────────────────────────
+//
+// /portal/bills/:id renders the invoice + line items + payments to
+// JSON, but the patient app's "Download bill" CTA needed a binary PDF
+// for offline retention, employer reimbursement, and TPA dispute
+// paperwork. Generates on every request (invoices are small, line
+// counts bounded, payment history may have flipped after settlement).
+// Finding 2026-05-10-tpa-insurance-claim-patient-final-bill-download-missing.
+export async function generateMyInvoicePdfBuffer({ tenantId, patient_uid, id }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const invoiceId = Number(id);
+  if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
+    throw AppError.badRequest('invoice id must be a positive integer');
+  }
+  // IDOR: confirm the invoice belongs to this patient before
+  // generating any binary. We never trust id alone.
+  const owner = await prisma.$queryRawUnsafe(
+    `SELECT id FROM billing_invoices
+      WHERE id = $1::int AND tenant_id = $2::uuid AND patient_uid = $3::uuid`,
+    invoiceId, tenantId, String(patient_uid),
+  );
+  if (!owner.length) throw AppError.notFound('Bill not found');
+
+  const { generateInvoicePDF } = await import('../documents/clinicalPdfGenerator.js');
+  return generateInvoicePDF(invoiceId);
+}
+
 // ── B-6 — patient-side discharge PDF ─────────────────────────────────
 
 // tenantId reserved for future tenant scoping; currently unscoped per the in-flight finding.
@@ -139,6 +384,110 @@ export async function getMyDischargePdfUrl({ tenantId: _tenantId, patient_uid, a
 
   const { getOrGenerateDischargePdfUrl } = await import('../documents/clinicalPdfGenerator.js');
   return getOrGenerateDischargePdfUrl(id);
+}
+
+// ── Discharge summary read surface for patients ──────────────────────
+//
+// `discharge_summaries` (Sprint 11, structured template-driven path)
+// previously had zero patient-facing HTTP route — the row existed in
+// the DB but the patient app could not retrieve it. These exports add
+// list + detail reads scoped to the authenticated patient's own
+// patient_uid; we never trust admission_id or summary_id alone.
+//
+// Only signed/delivered summaries are visible to patients — drafts and
+// ready_for_signoff are clinician-only WIP.
+
+const PATIENT_VISIBLE_DISCHARGE_STATUSES = ['signed', 'delivered'];
+
+export async function listMyDischargeSummaries({ tenantId, patient_uid, limit = 50 }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  return prisma.$queryRawUnsafe(
+    `SELECT id, admission_id, primary_diagnosis,
+            patient_name_snapshot, hospital_number,
+            admitted_at, discharged_at, ward_at_discharge,
+            status, signed_by_name, signed_at,
+            delivered_at, delivery_method, created_at
+       FROM discharge_summaries
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND status = ANY($3::text[])
+      ORDER BY COALESCE(signed_at, created_at) DESC, id DESC
+      LIMIT $4::int`,
+    tenantId, String(patient_uid),
+    PATIENT_VISIBLE_DISCHARGE_STATUSES, Number(limit),
+  );
+}
+
+async function fetchDischargeSummaryWithSections({ tenantId, patient_uid, where, ...params }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, admission_id, patient_uid,
+            patient_name_snapshot, age_years_snapshot, sex_snapshot,
+            hospital_number, admitted_at, discharged_at,
+            ward_at_discharge, primary_diagnosis, secondary_diagnoses,
+            icd10_codes, procedures_performed,
+            status, signed_by_name, signed_by_reg, signed_at,
+            delivered_at, delivery_method, created_at, updated_at
+       FROM discharge_summaries
+      WHERE ${where}
+        AND tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND status = ANY($3::text[])
+      LIMIT 1`,
+    tenantId, String(patient_uid),
+    PATIENT_VISIBLE_DISCHARGE_STATUSES,
+    ...params.values,
+  );
+  if (!rows.length) {
+    throw AppError.notFound('Discharge summary not found');
+  }
+  const summary = rows[0];
+  const sections = await prisma.$queryRawUnsafe(
+    `SELECT section_key, section_title, display_order, body
+       FROM discharge_summary_sections
+      WHERE discharge_summary_id = $1::int
+      ORDER BY display_order, id`,
+    summary.id,
+  );
+  return { ...summary, sections };
+}
+
+export async function getMyDischargeSummary({ tenantId, patient_uid, id }) {
+  const summaryId = Number(id);
+  if (!Number.isInteger(summaryId) || summaryId <= 0) {
+    throw AppError.badRequest('Discharge summary id must be a positive integer');
+  }
+  return fetchDischargeSummaryWithSections({
+    tenantId,
+    patient_uid,
+    where: 'id = $4::int',
+    values: [summaryId],
+  });
+}
+
+export async function getMyDischargeSummaryByAdmission({
+  tenantId, patient_uid, admission_id,
+}) {
+  const adId = Number(admission_id);
+  if (!Number.isInteger(adId) || adId <= 0) {
+    throw AppError.badRequest('admission_id must be a positive integer');
+  }
+  // Multiple discharge_summaries rows can exist for a single admission
+  // (e.g. amended summary after a coding correction). The latest
+  // signed one is the legal copy the patient should see.
+  return fetchDischargeSummaryWithSections({
+    tenantId,
+    patient_uid,
+    where: `id = (
+      SELECT id FROM discharge_summaries
+       WHERE admission_id = $4::int
+         AND tenant_id = $1::uuid
+         AND patient_uid = $2::uuid
+         AND status = ANY($3::text[])
+       ORDER BY COALESCE(signed_at, created_at) DESC, id DESC
+       LIMIT 1
+    )`,
+    values: [adId],
+  });
 }
 
 // ── B-5 — patient-app TPA breakdown ──────────────────────────────────
