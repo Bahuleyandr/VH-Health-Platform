@@ -11,12 +11,14 @@
 import { Router } from 'express';
 import logger from '../../logging/logger.js';
 import * as billing from '../../services/billing/billingV2Service.js';
+import * as cashDrawer from '../../services/billing/cashDrawerService.js';
 import * as payLinks from '../../services/billing/paymentLinkService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 
 const router = Router();
 const BILLING_V2_EXTRA_STAFF_ROLES = ['SUPER_ADMIN', 'FINANCE_INCHARGE', 'BILLING_INCHARGE'];
+const CASH_DRAWER_REVIEWER_ROLES = ['ADMIN', 'SUPER_ADMIN', 'FINANCE_INCHARGE'];
 
 // Wrap each handler with try/catch + AppError → response so route
 // definitions stay terse.
@@ -44,6 +46,14 @@ function requireStaffOrAdmin(req, res, next) {
 
 function requireAdmin(req, res, next) {
   if (!isAdmin(req.user?.role)) return error(res, 'Admin role required', 403);
+  next();
+}
+
+function requireCashDrawerReviewer(req, res, next) {
+  const role = String(req.user?.role || '').trim().toUpperCase();
+  if (!CASH_DRAWER_REVIEWER_ROLES.includes(role)) {
+    return error(res, 'Cash-drawer review requires FINANCE_INCHARGE or admin', 403);
+  }
   next();
 }
 
@@ -173,6 +183,57 @@ router.get('/reports/outstanding', requireStaffOrAdmin, wrap(async (req) =>
     days_old: req.query.days_old,
     department: req.query.department,
     limit: req.query.limit || 100,
+  }),
+));
+
+// ── Cash-drawer sessions (cashier shift-close + reconciliation) ───────
+// Closes findings:
+//   2026-05-09-inpatient-admission-billing-no-cashier-shift-reconciliation
+//   2026-05-10-inpatient-admission-billing-cash-drawer-reconciliation-missing
+
+router.post('/cash-drawer/sessions/open', requireStaffOrAdmin, wrap(async (req) =>
+  cashDrawer.openSession({
+    tenantId: tenantOf(req),
+    cashier_uid: req.body.cashier_uid || req.user?.uid,
+    shift: req.body.shift,
+    opening_float: req.body.opening_float,
+  }),
+));
+
+router.post('/cash-drawer/sessions/:id/close', requireStaffOrAdmin, wrap(async (req) =>
+  cashDrawer.closeSession({
+    tenantId: tenantOf(req),
+    id: req.params.id,
+    cashier_uid: req.user?.uid,
+    counted_denominations: req.body.counted_denominations,
+    variance_reason: req.body.variance_reason,
+  }),
+));
+
+router.post('/cash-drawer/sessions/:id/review', requireCashDrawerReviewer, wrap(async (req) =>
+  cashDrawer.reviewSession({
+    tenantId: tenantOf(req),
+    id: req.params.id,
+    reviewer_uid: req.user?.uid,
+    review_notes: req.body.review_notes,
+  }),
+));
+
+router.get('/cash-drawer/sessions', requireStaffOrAdmin, wrap(async (req) =>
+  cashDrawer.listSessions({
+    tenantId: tenantOf(req),
+    cashier_uid: req.query.cashier_uid,
+    shift: req.query.shift,
+    status: req.query.status,
+    requires_review: req.query.requires_review,
+    limit: req.query.limit,
+  }),
+));
+
+router.get('/cash-drawer/sessions/:id', requireStaffOrAdmin, wrap(async (req) =>
+  cashDrawer.getSession({
+    tenantId: tenantOf(req),
+    id: req.params.id,
   }),
 ));
 
