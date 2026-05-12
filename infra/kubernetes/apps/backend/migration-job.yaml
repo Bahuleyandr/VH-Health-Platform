@@ -8,11 +8,32 @@
 #     errors). No leftover Completed Jobs to reap manually.
 #   - Failure aborts the sync. Fix the migration, re-sync.
 #
-# The job runs the backend's own startup script which:
-#   1. Runs `prisma db push` (idempotent schema sync for Prisma's 69 models).
-#   2. Runs `node scripts/ci-setup-db.mjs` (applies the raw-SQL migrations
-#      in src/migrations/*.sql — CLAUDE.md Phase 0.5 notes this is required for
-#      the full schema; Prisma alone is ~60% of tables).
+# The job does:
+#   1. `npm run db:ensure-pgvector` — runs `CREATE EXTENSION IF NOT EXISTS
+#      vector`. The CNPG cluster image ships the pgvector binary but the
+#      bootstrap `postInitApplicationSQL` (see base/cnpg/cluster.yaml) does
+#      not enable it, and `000_baseline.sql` declares columns of type
+#      `public.vector`, so this must run before ci-setup-db on a fresh DB.
+#   2. `node scripts/ci-setup-db.mjs` — tracker-driven, idempotent. Applies
+#      every file in `src/migrations/*.sql` exactly once per DB via the
+#      `_migrations` table; auto-detects a pre-existing baseline schema
+#      (probes for users + appointments + admissions) and records
+#      `000_baseline.sql` without re-running its non-idempotent DDL.
+#      Safe to re-run on a populated DB — no-op when caught up.
+#
+# History: previously this job also ran `prisma db push --accept-data-loss`
+# as step 1 to sync the ~69 Prisma-modelled tables before applying raw
+# migrations for the rest. Removed 2026-05-12 in PR #78 (commit 5712f0cb)
+# along with the same step in `_reusable-backend-lint-test.yml`,
+# `smoke-e2e.yml`, and `apps/backend/scripts/ensure-test-db.mjs`. Raw SQL
+# migrations are now the source of truth: `000_baseline.sql` is a
+# `pg_dump --schema-only` of the fully migrated QA DB and includes
+# GENERATED ALWAYS AS columns (e.g. `bmw_waste_log.total_kg`,
+# `drug_return_items.total_value_paise`), sequence-referencing defaults,
+# and column-reference defaults that Prisma cannot emit declaratively.
+# Pushing the regenerated `schema.prisma` against an empty DB therefore
+# fails before any rows exist. See memory note
+# `project_vh_health_schema_drift_fix.md` for the full rationale.
 #
 # Security: same non-root + readOnlyRootFilesystem + tmp volumes as the
 # main Deployment. Uses the same image & same DATABASE_URL Secret —
@@ -59,9 +80,9 @@ spec:
           args:
             - |
               set -euo pipefail
-              echo ">> prisma db push (sync 69 Prisma models)"
-              npx --no-install prisma db push --skip-generate --accept-data-loss=false
-              echo ">> ci-setup-db.mjs (apply raw src/migrations/*.sql)"
+              echo ">> db:ensure-pgvector (CREATE EXTENSION IF NOT EXISTS vector)"
+              npm run db:ensure-pgvector
+              echo ">> ci-setup-db.mjs (apply raw src/migrations/*.sql, tracker-driven)"
               node scripts/ci-setup-db.mjs
               echo ">> migrations complete"
           env:
