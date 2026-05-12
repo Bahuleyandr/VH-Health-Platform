@@ -32,12 +32,33 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
       throw AppError.badRequest(`Invalid route: ${med.route}. Must be one of: ${VALID_ROUTES.join(', ')}`);
     }
 
+    // F-2 — idempotency guard. If an active (non-cancelled) row already
+    // exists for the same patient + medication + scheduled_time, return
+    // it instead of creating a duplicate. Without this guard, calling
+    // /mar/schedule twice for one prescription produced parallel rows
+    // that could both be administered. Finding:
+    // 2026-05-09-inpatient-admission-nurse-mar-no-duplicate-guard.
+    const dup = await prisma.$queryRawUnsafe(
+      `SELECT id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, created_at
+         FROM medication_administrations
+        WHERE patient_uid = $1::uuid
+          AND medication_name = $2
+          AND scheduled_time = $3::timestamptz
+          AND status <> 'cancelled'
+        LIMIT 1`,
+      patientUid, med.medication_name, med.scheduled_time,
+    );
+    if (dup.length) {
+      results.push(dup[0]);
+      continue;
+    }
+
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO medication_administrations
          (patient_uid, prescription_id, medication_name, dose, route, scheduled_time, notes, status)
        VALUES ($1::uuid, $2, $3, $4, $5, $6::timestamptz, $7, 'scheduled')
        RETURNING id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, created_at`,
-      
+
         patientUid,
         prescriptionId || null,
         med.medication_name,
@@ -45,7 +66,7 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
         med.route.toLowerCase(),
         med.scheduled_time,
         med.notes || null,
-      
+
     );
     results.push(rows[0]);
   }
@@ -64,7 +85,9 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
  */
 export async function recordAdministration(id, administeredBy, notes = null, witnessUid = null) {
   const existing = await prisma.$queryRawUnsafe(
-    'SELECT id, status FROM medication_administrations WHERE id = $1',
+    `SELECT id, status, patient_uid, medication_name, scheduled_time
+       FROM medication_administrations
+      WHERE id = $1`,
     id
   );
 
@@ -78,6 +101,31 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
 
   if (!['scheduled', 'held'].includes(existing[0].status)) {
     throw AppError.invalidTransition(existing[0].status, 'administered', ['scheduled', 'held']);
+  }
+
+  // F-2 — cross-row duplicate guard. The id-level check above only
+  // blocks re-administering the same row; it can't see a sibling row
+  // for the same patient + medication + scheduled_time that another
+  // nurse already administered. Without this guard the same dose was
+  // chartable twice. Finding:
+  // 2026-05-09-inpatient-admission-nurse-mar-no-duplicate-guard.
+  const sibling = await prisma.$queryRawUnsafe(
+    `SELECT id
+       FROM medication_administrations
+      WHERE id <> $1
+        AND patient_uid = $2::uuid
+        AND medication_name = $3
+        AND scheduled_time = $4::timestamptz
+        AND status = 'administered'
+      LIMIT 1`,
+    id, existing[0].patient_uid, existing[0].medication_name, existing[0].scheduled_time,
+  );
+  if (sibling.length) {
+    throw AppError.conflict(
+      `Another MAR row (id=${sibling[0].id}) for this medication and scheduled time has already been administered`,
+      'MAR_DUPLICATE_ADMINISTRATION',
+      { duplicate_id: sibling[0].id },
+    );
   }
 
   const rows = await prisma.$queryRawUnsafe(

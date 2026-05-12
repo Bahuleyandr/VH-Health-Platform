@@ -508,6 +508,58 @@ export const updateStatus = async (id, status, notes, userId) => {
   }
 };
 
+// Walk a free-form lab `results` JSON and elevate per-analyte `flag` to
+// 'CRITICAL' (panic) when the numeric value crosses a 3× ULN or LLN/3
+// threshold derived from a string normal_range / reference_range field.
+// The tech-supplied `flag` ('H'/'L') is preserved when value is merely
+// abnormal but inside the panic threshold. Finding:
+// 2026-05-09-dynamic-acute-abdomen-doctor-critical-lab-flag-not-critical.
+function elevatePanicFlags(results) {
+  if (!results || typeof results !== 'object') return results;
+
+  const PANIC_MULTIPLIER = 3;
+
+  const parseRange = (raw) => {
+    if (raw == null) return null;
+    const s = String(raw).trim();
+    // "28-100" or "28 - 100" or "28–100"
+    let m = s.match(/^\s*(-?\d+(?:\.\d+)?)\s*[-–—to]+\s*(-?\d+(?:\.\d+)?)\s*$/i);
+    if (m) return { low: Number(m[1]), high: Number(m[2]) };
+    // "< 160" / "≤ 160"
+    m = s.match(/^\s*[<≤]\s*(-?\d+(?:\.\d+)?)\s*$/);
+    if (m) return { low: null, high: Number(m[1]) };
+    // "> 5" / "≥ 5"
+    m = s.match(/^\s*[>≥]\s*(-?\d+(?:\.\d+)?)\s*$/);
+    if (m) return { low: Number(m[1]), high: null };
+    return null;
+  };
+
+  const visit = (obj) => {
+    if (!obj || typeof obj !== 'object') return;
+    const valueRaw = obj.value ?? obj.result;
+    if (valueRaw !== undefined) {
+      const v = Number(valueRaw);
+      const range = parseRange(obj.normal_range ?? obj.reference_range);
+      if (Number.isFinite(v) && range) {
+        let elevated = null;
+        if (range.high != null && v >= range.high * PANIC_MULTIPLIER) elevated = 'HH';
+        else if (range.low != null && range.low > 0 && v <= range.low / PANIC_MULTIPLIER) elevated = 'LL';
+        if (elevated) {
+          obj.flag = elevated;
+          if (obj.abnormal_flag !== undefined) obj.abnormal_flag = elevated;
+          obj.is_critical = true;
+        }
+      }
+    }
+    for (const child of Object.values(obj)) {
+      if (child && typeof child === 'object') visit(child);
+    }
+  };
+
+  visit(results);
+  return results;
+}
+
 // Add investigation results.
 //
 // E-5 — versioning. Migration 185 added previous_results (JSONB) and
@@ -612,8 +664,10 @@ export const addResults = async (id, resultData, userId) => {
         // Summary is best-effort; never block result write on it.
       }
 
+      const elevatedResults = elevatePanicFlags(results);
+
       const data = {
-        results,
+        results: elevatedResults,
         status: 'COMPLETED',
         completed_at: now,
         result_uploaded_at: now,

@@ -45,6 +45,10 @@ export const listAppointmentsValidators = [
     .customSanitizer(dateKeywordSanitizer)
     .isISO8601()
     .withMessage('Date must be in YYYY-MM-DD format (or "today" / "tomorrow" / "yesterday")'),
+  query('advised_for_admission')
+    .optional()
+    .isIn(['true', 'false', '1', '0'])
+    .withMessage('advised_for_admission must be true / false / 1 / 0'),
   handleValidationErrors
 ];
 

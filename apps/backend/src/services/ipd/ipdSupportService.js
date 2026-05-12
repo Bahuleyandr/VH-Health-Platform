@@ -149,6 +149,20 @@ export async function collectAdvanceDeposit({
         collected_by: collectedBy,
       },
     });
+
+    // F-2 — bridge the IPD deposit to billing_advances so the cashier
+    // can settle it against the eventual invoice via billingV2's
+    // settleAdvance flow. Reference column carries `IPD/<receipt>` so
+    // the refund path can find this row again. Finding:
+    // 2026-05-10-inpatient-admission-billing-advance-deposit-not-netted.
+    await tx.$executeRawUnsafe(
+      `INSERT INTO billing_advances
+         (patient_uid, admission_id, amount, balance, mode, reference, collected_by, notes)
+       VALUES ($1::uuid, $2::int, $3::numeric, $3::numeric, $4, $5, $6::uuid, $7)`,
+      admission.patient_uid, admissionId, num, paymentMethod,
+      `IPD/${receiptNumber}`, collectedBy, notes ?? null,
+    );
+
     return deposit;
   });
 }
@@ -213,6 +227,29 @@ export async function refundAdvanceDeposit({
         collected_by: refundedBy,
       },
     });
+
+    // F-2 — propagate the refund debit to the mirrored billing_advances
+    // row (linked via reference `IPD/<parent receipt>`). Caps at 0 so
+    // billing_advances.balance never goes negative — a refund against
+    // an already-settled advance won't reverse the settlement here;
+    // that needs an explicit billingV2 raiseRefund call.
+    const parentRows = await tx.$queryRawUnsafe(
+      `SELECT receipt_number FROM advance_deposits WHERE id = $1::int`,
+      parent.id,
+    );
+    const parentReceipt = parentRows[0]?.receipt_number;
+    if (parentReceipt) {
+      await tx.$executeRawUnsafe(
+        `UPDATE billing_advances
+            SET balance = GREATEST(balance - $1::numeric, 0::numeric),
+                status = CASE WHEN GREATEST(balance - $1::numeric, 0::numeric) <= 0.005
+                              THEN 'EXHAUSTED' ELSE status END,
+                updated_at = NOW()
+          WHERE reference = $2`,
+        num, `IPD/${parentReceipt}`,
+      );
+    }
+
     return refund;
   });
 }

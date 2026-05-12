@@ -18,7 +18,10 @@ export const listAppointments = async (req, res) => {
       doctor_id: req.query.doctor_id,
       patient_id: req.query.patient_id,
       date: req.query.date,
-      search: req.query.search
+      search: req.query.search,
+      // Admission-counter worklist: ?advised_for_admission=true returns
+      // only appointments with a non-null advised_for_admission_at.
+      advised_for_admission: req.query.advised_for_admission,
     };
 
     const pagination = parseListQuery(req.query, {

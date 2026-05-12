@@ -196,12 +196,20 @@ class BedService {
   }
 
   async dischargePatient(bedId) {
+    // F-2 — clear patient_uid and admission_id alongside patient_id /
+    // patient_name. Leaving the uuid FK behind made the bed appear
+    // available on the map while still pointing at a previous occupant
+    // (who, after a fresh admit elsewhere, surfaced on two rows).
+    // Finding: 2026-05-10-dynamic-acute-abdomen-admission-available-bed-retains-active-patient.
     const rows = await prisma.$queryRawUnsafe(
       `UPDATE beds SET
          status = 'available',
          patient_id = NULL,
          patient_name = NULL,
+         patient_uid = NULL,
+         admission_id = NULL,
          admitted_at = NULL,
+         expected_discharge = NULL,
          updated_at = NOW()
        WHERE id = $1 AND status = 'occupied'
        RETURNING ${BED_RETURNING}`,

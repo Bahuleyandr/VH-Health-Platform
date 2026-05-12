@@ -24,6 +24,13 @@ const APPT_BASE_SELECT = {
   doctor_name: true,
   department: true,
   token_number: true,
+  // F-2 — surface admission-advice columns so the admission counter
+  // queue can render advice timestamp + note + advising doctor without
+  // a second round-trip. Finding:
+  // 2026-05-10-inpatient-admission-receptionist-advice-queue-filter-ignored.
+  advised_for_admission_at: true,
+  advised_for_admission_by: true,
+  advised_for_admission_note: true,
   created_at: true,
   updated_at: true,
 };
@@ -166,6 +173,17 @@ export class AppointmentQueryService {
       if (filters.doctor_id) where.doctor_id = parseInt(filters.doctor_id);
       if (filters.patient_id) where.patient_id = parseInt(filters.patient_id);
       if (filters.date) where.appointment_date = dateRangeFilter(filters.date);
+      // F-2 — admission-counter worklist. Accept the boolean flag in
+      // truthy ('true' / '1' / true) form and filter to rows where the
+      // advice timestamp is set (= advised for admission). Finding:
+      // 2026-05-09-inpatient-admission-receptionist-no-admission-queue-endpoint.
+      if (filters.advised_for_admission !== undefined && filters.advised_for_admission !== '') {
+        const truthy = filters.advised_for_admission === true
+          || filters.advised_for_admission === 'true'
+          || filters.advised_for_admission === '1'
+          || filters.advised_for_admission === 1;
+        where.advised_for_admission_at = truthy ? { not: null } : null;
+      }
       if (listQuery.search) {
         where.OR = [
           { patient_name: { contains: listQuery.search, mode: 'insensitive' } },
