@@ -23,7 +23,7 @@ export const LEAK_PATTERNS = [
   // `C:\Users\foo\...`). Finding:
   // 2026-05-08-emergency-walk-in-admission-beds-available-prisma-leak.
   /[A-Z]:\\(Users|Dev|Projects|Program Files)\\/i,
-  /\bnode_modules[\\\/]@?prisma/i,
+  /\bnode_modules[\\/]@?prisma/i,
   /\bsyntax error\b/i,
   /\bunexpected token\b/i,
   /\bconnection refused\b/i,

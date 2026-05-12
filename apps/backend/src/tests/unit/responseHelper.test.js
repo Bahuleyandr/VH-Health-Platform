@@ -83,16 +83,35 @@ describe('responseHelper.sanitizeErrorMessage', () => {
     });
   });
 
-  describe('non-production skips scrubbing', () => {
+  describe('non-production leak scrubbing', () => {
     beforeEach(async () => {
       process.env.NODE_ENV = 'development';
       jest.resetModules();
       ({ sanitizeErrorMessage } = await import('../../utils/responseHelper.js'));
     });
 
-    it('returns raw message in dev for easier debugging', () => {
+    it('scrubs schema leaks in dev responses', () => {
       const out = sanitizeErrorMessage('relation "diet_orders" does not exist', 400);
-      expect(out).toContain('diet_orders');
+      expect(out).toBe('Request could not be processed.');
+    });
+
+    it('scrubs Prisma validation stacks with Windows paths in dev responses', () => {
+      const msg = [
+        'Invalid `prisma.vitals_chart.create()` invocation:',
+        'PrismaClientValidationError: Unknown argument `encounter_id`.',
+        '    at D:\\Dev\\Projects\\VH Health\\VH-Health-Platform\\apps\\backend\\node_modules\\@prisma\\client\\src\\runtime\\core\\errorRendering\\throwValidationException.ts:45:9',
+      ].join('\n');
+
+      const out = sanitizeErrorMessage(msg, 500);
+
+      expect(out).toBe('An internal server error occurred. Please try again later.');
+      expect(out).not.toContain('PrismaClient');
+      expect(out).not.toContain('D:\\Dev');
+    });
+
+    it('still preserves benign dev validation messages', () => {
+      const out = sanitizeErrorMessage('patient_uid is required', 400);
+      expect(out).toBe('patient_uid is required');
     });
   });
 });
