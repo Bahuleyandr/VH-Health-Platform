@@ -488,6 +488,54 @@ export async function voidInvoice(invoiceId, { reason, voided_by }) {
   return getInvoice(invoiceId);
 }
 
+/**
+ * Resolve the live TPA approval cap for an admission by walking its
+ * preauth chain. Returns null if the admission has no preauth (cash
+ * invoice or pre-TPA). Lifted out so getInvoice + the cap-proximity
+ * alert path (recomputeInvoicePaymentState) can share it.
+ *
+ * The cap = sum(sanctioned_amount) across the parent preauth + every
+ * approved/partially_approved enhancement child. See finding
+ * 2026-05-10-tpa-insurance-claim-billing-cumulative-approval-not-projected
+ * — the cashier needs the cumulative number, not the parent's
+ * original sanction.
+ */
+export async function resolveAdmissionTpaCap(admissionId, tenantId) {
+  if (!admissionId) return null;
+  const tenant = tenantId || '00000000-0000-4000-8000-000000000001';
+  const rows = await prisma.$queryRawUnsafe(
+    `WITH active_root AS (
+       SELECT id, preauth_number, status
+         FROM insurance_preauth
+        WHERE tenant_id = $2::uuid
+          AND admission_id = $1::int
+          AND parent_preauth_id IS NULL
+          AND status NOT IN ('cancelled','lapsed')
+        ORDER BY created_at DESC
+        LIMIT 1
+     )
+     SELECT
+        (SELECT id FROM active_root) AS root_preauth_id,
+        (SELECT preauth_number FROM active_root) AS root_preauth_number,
+        COALESCE((
+          SELECT SUM(CASE WHEN status IN ('approved','partially_approved')
+                          THEN COALESCE(sanctioned_amount, 0) ELSE 0 END)::numeric
+            FROM insurance_preauth
+           WHERE tenant_id = $2::uuid
+             AND (id = (SELECT id FROM active_root)
+                  OR parent_preauth_id = (SELECT id FROM active_root))
+        ), 0)::numeric AS cumulative_approved`,
+    Number(admissionId), tenant,
+  );
+  const row = rows[0] || {};
+  if (!row.root_preauth_id) return null;
+  return {
+    root_preauth_id: row.root_preauth_id,
+    root_preauth_number: row.root_preauth_number,
+    cumulative_approved: Number(row.cumulative_approved ?? 0),
+  };
+}
+
 export async function getInvoice(invoiceId) {
   const inv = await prisma.$queryRawUnsafe(
     `SELECT * FROM billing_invoices WHERE id = $1::int`, Number(invoiceId),
@@ -508,7 +556,38 @@ export async function getInvoice(invoiceId) {
       WHERE s.invoice_id = $1::int`,
     Number(invoiceId),
   );
-  return { ...inv[0], items, payments, advance_settlements: settlements };
+
+  // Project the live TPA cap so the cashier sees "₹79,000 of ₹80,000
+  // approved (98.8%)" on the invoice screen — not just the row's
+  // total_amount in isolation. Returns null when the admission has
+  // no preauth (cash invoice).
+  const tpaCap = await resolveAdmissionTpaCap(inv[0].admission_id, inv[0].tenant_id);
+  let tpaUtilisation = null;
+  if (tpaCap && tpaCap.cumulative_approved > 0) {
+    const total = Number(inv[0].total_amount ?? 0);
+    const utilisationPct = (total / tpaCap.cumulative_approved) * 100;
+    let status = 'within_cap';
+    if (utilisationPct >= 100) status = 'over_cap';
+    else if (utilisationPct >= 90) status = 'near_limit';
+    else if (utilisationPct >= 80) status = 'approaching_limit';
+    tpaUtilisation = {
+      root_preauth_id: tpaCap.root_preauth_id,
+      root_preauth_number: tpaCap.root_preauth_number,
+      cumulative_approved: tpaCap.cumulative_approved,
+      total_charged: total,
+      remaining: Math.max(0, tpaCap.cumulative_approved - total),
+      utilisation_pct: Math.round(utilisationPct * 10) / 10,
+      status,
+    };
+  }
+
+  return {
+    ...inv[0],
+    items,
+    payments,
+    advance_settlements: settlements,
+    tpa_utilisation: tpaUtilisation,
+  };
 }
 
 export async function listInvoices({
