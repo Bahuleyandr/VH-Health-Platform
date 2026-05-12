@@ -68,6 +68,13 @@ export default {
   // surface that NURSING_STAFF / DOCTOR / PHARMACY_STAFF / LAB_STAFF
   // / HR_STAFF were hitting on the freshly-installed staff app.
   staffRoutes: [ADMIN, GENERAL_STAFF, NURSING_STAFF, DOCTOR, PHARMACY_STAFF, LAB_STAFF, HR_STAFF],
+  // /api/v1/housekeeping/* — staff self-service (raise/complete tickets,
+  // submit cleaning logs, view zones). Every operational role can use it
+  // because the request workflow spans wards/labs/pharmacy. Admin
+  // verification + zone administration is gated separately via
+  // housekeepingAdminRoutes below.
+  housekeepingRoutes: [ADMIN, GENERAL_STAFF, NURSING_STAFF, DOCTOR, PHARMACY_STAFF, LAB_STAFF, HR_STAFF],
+  housekeepingAdminRoutes: [ADMIN, HR_STAFF],
   lookupRoutes: [ADMIN, GENERAL_STAFF],
 
   // Public / open routes
