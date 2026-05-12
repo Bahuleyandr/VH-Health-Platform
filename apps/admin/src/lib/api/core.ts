@@ -197,6 +197,17 @@ async function requestJSON<T = unknown>(
  * Thin helpers
  * ========================= */
 
+// Serialize a request body for the JSON helpers. Accepts a raw object
+// (canonical) OR a string that the caller already JSON-stringified.
+// Without the string passthrough, pre-serialized bodies get wrapped in
+// outer quotes and the backend rejects them as malformed JSON — a
+// latent bug across ~30 call sites that survived because they hit
+// rarely-used mutation paths.
+function serializeJsonBody(body: unknown): string | undefined {
+  if (body === undefined || body === null) return undefined;
+  return typeof body === "string" ? body : JSON.stringify(body);
+}
+
 export function getJSON<T = unknown>(
   endpoint: string,
   params?: QueryParams,
@@ -213,7 +224,7 @@ export function postJSON<T = unknown>(
 ) {
   return requestJSON<T>(endpoint, {
     method: "POST",
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: serializeJsonBody(body),
     headers: { "Content-Type": "application/json" },
     useAuth,
   });
@@ -226,7 +237,7 @@ export function putJSON<T = unknown>(
 ) {
   return requestJSON<T>(endpoint, {
     method: "PUT",
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: serializeJsonBody(body),
     headers: { "Content-Type": "application/json" },
     useAuth,
   });
@@ -246,11 +257,12 @@ export async function fetchAdminAPI<T = unknown>(
   // Note: `token` arg is legacy — client-side requests are authenticated via
   // the httpOnly auth_token cookie handled by /api/proxy. Passing a token here
   // is a no-op for security, kept only for API-shape compatibility.
+  const serializedBody = serializeJsonBody(body);
   const res = await apiFetch(prefixedEndpoint, {
     method,
     token,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
+    headers: serializedBody !== undefined ? { "Content-Type": "application/json" } : undefined,
+    body: serializedBody,
   });
   if (!res.ok) {
     const body = await safeReadJson(res);
