@@ -699,6 +699,7 @@ app.use('/api/v1/paediatric', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NUR
 app.use('/api/v1/productivity', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), productivityRoutes);
 app.use('/api/v1/dashboards', requireRole('ADMIN', 'SUPER_ADMIN'), dashboardsRoutes);
 app.use('/api/v1/portal', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
+app.use('/api/v1/patient', patientRateLimiter, requireRole('PATIENT'), phiAccessLogger('PATIENT_PORTAL'), patientPortalRoutes);
 app.use('/api/v1/staff-messaging', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BILLING_STAFF'), phiAccessLogger('PATIENT_MESSAGING'), staffMessagingRoutes);
 app.use('/api/v1/discharge-summaries', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('DISCHARGE_SUMMARY'), dischargeRoutes);
 
