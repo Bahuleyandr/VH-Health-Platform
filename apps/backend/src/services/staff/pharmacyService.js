@@ -2,16 +2,18 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 export const updatePharmacyOrderStatus = async (data) => {
-  const { 
-    phone, order_id, status, notes, 
+  const {
+    phone, order_id, status, notes,
     dispensed_medications, pharmacist_notes,
-    _dispensed_by, dispensed_at, updatedBy, updatedByName
+    dispensed_at, updatedBy, updatedByName
   } = data;
 
-  // Update pharmacy order
+  // Update pharmacy order.
+  // Schema columns are `dispensed_by` (no leading underscore) and `ordered_at`
+  // (there is no `placed_at` column). See prisma/schema.prisma#pharmacy_orders.
   const result = await prisma.$queryRawUnsafe(`
-    UPDATE pharmacy_orders SET 
-      status = $1, 
+    UPDATE pharmacy_orders SET
+      status = $1,
       order_note = COALESCE($2, order_note),
       dispensed_medications = $3,
       pharmacist_notes = $4,
@@ -20,11 +22,11 @@ export const updatePharmacyOrderStatus = async (data) => {
       updated_by = $7,
       updated_at = NOW()
     WHERE id = $8 AND phone = $9
-    RETURNING id, phone, status, order_note, dispensed_medications, pharmacist_notes, _dispensed_by, dispensed_at, updated_by, updated_at, placed_at
-  `, 
-    status, notes, 
+    RETURNING id, phone, status, order_note, dispensed_medications, pharmacist_notes, dispensed_by, dispensed_at, updated_by, updated_at, ordered_at
+  `,
+    status, notes,
     dispensed_medications ? JSON.stringify(dispensed_medications) : null,
-    pharmacist_notes, 
+    pharmacist_notes,
     status === 'dispensed' ? updatedBy : null,
     dispensed_at,
     updatedBy, order_id, phone
@@ -77,7 +79,7 @@ export const updatePharmacyOrderStatus = async (data) => {
   return {
     order: {
       ...result[0],
-      placed_at: result[0].placed_at ? result[0].placed_at.toLocaleString('en-IN') : null,
+      ordered_at: result[0].ordered_at ? result[0].ordered_at.toLocaleString('en-IN') : null,
       dispensed_at: result[0].dispensed_at ? result[0].dispensed_at.toLocaleString('en-IN') : null,
       updated_at: result[0].updated_at.toLocaleString('en-IN')
     },

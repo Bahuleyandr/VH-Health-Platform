@@ -69,17 +69,23 @@ function clamp(value, max = 100) {
 async function scoreReadmissionRisk({ tenantId, patientUid }) {
   const contributors = {};
   // Prior admissions in 180 days.
+  // The `admissions` table has no `actual_los_days` and no `tenant_id`
+  // column — only `expected_los_days` (planned LOS) and the timestamp
+  // pair `admitted_at`/`discharged_at` (see prisma/schema.prisma#admissions).
+  // Compute realised LOS in days from those timestamps. Tenant scoping
+  // for admissions happens at a different layer (ward/department), so
+  // the per-patient prior-admission window is not tenant-filtered here.
+  void tenantId;
   const [priorAdmissions] = await prisma.$queryRawUnsafe(
     `SELECT COUNT(*)::int AS cnt,
-            AVG(actual_los_days)::float AS avg_los,
+            AVG(EXTRACT(EPOCH FROM (discharged_at - admitted_at)) / 86400.0)::float AS avg_los,
             MAX(discharged_at) AS last_discharge
      FROM admissions
      WHERE patient_uid = $1::uuid
-       AND ($2::uuid IS NULL OR tenant_id = $2::uuid OR tenant_id IS NULL)
        AND status = 'discharged'
-       AND discharged_at >= NOW() - INTERVAL '180 days'`,
-    patientUid,
-    tenantId
+       AND discharged_at >= NOW() - INTERVAL '180 days'
+       AND admitted_at IS NOT NULL`,
+    patientUid
   ).catch(() => [{ cnt: 0, avg_los: null, last_discharge: null }]);
 
   let score = 0;

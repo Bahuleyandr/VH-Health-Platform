@@ -11,18 +11,20 @@ export async function getUserStats() {
   const active = (await columnExists('users', 'is_active'))
     ? await safeScalar(`SELECT COUNT(*) FROM users WHERE is_active = true`)
     : 0;
-  const newToday = (await columnExists('users', 'created_at'))
+  // The users table has no `created_at` — the canonical new-user timestamp
+  // is `registered_at` (see prisma/schema.prisma#users).
+  const newToday = (await columnExists('users', 'registered_at'))
     ? await safeScalar(
-        `SELECT COUNT(*) FROM users WHERE (created_at)::date = CURRENT_DATE`
+        `SELECT COUNT(*) FROM users WHERE (registered_at)::date = CURRENT_DATE`
       )
     : 0;
 
-  const growth = (await columnExists('users', 'created_at'))
+  const growth = (await columnExists('users', 'registered_at'))
     ? await safeQuery(
         `
-        SELECT date_trunc('day', created_at) AS date, COUNT(*)::int AS count
+        SELECT date_trunc('day', registered_at) AS date, COUNT(*)::int AS count
         FROM users
-        WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'
+        WHERE registered_at >= CURRENT_DATE - INTERVAL '30 days'
         GROUP BY 1
         ORDER BY 1
         `,
@@ -277,11 +279,13 @@ export async function getQuickStats() {
     })(),
     (async () => {
       if (!(await tableExists('pharmacy_orders'))) return { today: 0, month: 0 };
+      // pharmacy_orders has `ordered_at` (and `created_at`) — never `placed_at`.
+      // See prisma/schema.prisma#pharmacy_orders.
       const today = await safeScalar(
-        `SELECT COALESCE(SUM(total_amount),0) FROM pharmacy_orders WHERE DATE(placed_at) = CURRENT_DATE`
+        `SELECT COALESCE(SUM(total_amount),0) FROM pharmacy_orders WHERE DATE(ordered_at) = CURRENT_DATE`
       );
       const month = await safeScalar(
-        `SELECT COALESCE(SUM(total_amount),0) FROM pharmacy_orders WHERE placed_at >= DATE_TRUNC('month', CURRENT_DATE)`
+        `SELECT COALESCE(SUM(total_amount),0) FROM pharmacy_orders WHERE ordered_at >= DATE_TRUNC('month', CURRENT_DATE)`
       );
       return { today: Number(today), month: Number(month) };
     })(),

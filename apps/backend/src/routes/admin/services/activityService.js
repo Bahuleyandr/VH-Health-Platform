@@ -39,16 +39,18 @@ export async function getRecentActivity(limit = 50, offset = 0) {
   }
 
   if (await tableExists('users')) {
+    // users.registered_at is the canonical column for new-user timestamps
+    // (the schema has no `created_at` on users — see prisma/schema.prisma#users).
     sources.push(
       safeQuery(
         `
         SELECT 'user' AS type,
                'New user registered' AS description,
-               created_at AS timestamp,
+               registered_at AS timestamp,
                (uid)::text AS user_id
         FROM users
-        WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
-        ORDER BY created_at DESC
+        WHERE registered_at >= CURRENT_DATE - INTERVAL '7 days'
+        ORDER BY registered_at DESC
         LIMIT $1 OFFSET $2
         `,
         [limit, offset],
