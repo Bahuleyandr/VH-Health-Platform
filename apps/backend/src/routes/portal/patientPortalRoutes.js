@@ -114,6 +114,31 @@ router.get('/discharge/:admissionId/pdf', requirePatient, wrap(async (req) =>
   }),
 ));
 
+// ── Discharge summary read surface ──────────────────────────────────
+router.get('/discharge-summaries', requirePatient, wrap(async (req) =>
+  portal.listMyDischargeSummaries({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+    limit: req.query.limit,
+  }),
+));
+
+router.get('/discharge-summaries/admission/:admissionId', requirePatient, wrap(async (req) =>
+  portal.getMyDischargeSummaryByAdmission({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+    admission_id: req.params.admissionId,
+  }),
+));
+
+router.get('/discharge-summaries/:id', requirePatient, wrap(async (req) =>
+  portal.getMyDischargeSummary({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+    id: req.params.id,
+  }),
+));
+
 // ── B-5 — TPA / insurance claims (read-only) ────────────────────────
 router.get('/tpa/claims', requirePatient, wrap(async (req) =>
   portal.listMyClaims({

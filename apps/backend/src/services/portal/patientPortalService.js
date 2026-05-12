@@ -141,6 +141,110 @@ export async function getMyDischargePdfUrl({ tenantId: _tenantId, patient_uid, a
   return getOrGenerateDischargePdfUrl(id);
 }
 
+// ── Discharge summary read surface for patients ──────────────────────
+//
+// `discharge_summaries` (Sprint 11, structured template-driven path)
+// previously had zero patient-facing HTTP route — the row existed in
+// the DB but the patient app could not retrieve it. These exports add
+// list + detail reads scoped to the authenticated patient's own
+// patient_uid; we never trust admission_id or summary_id alone.
+//
+// Only signed/delivered summaries are visible to patients — drafts and
+// ready_for_signoff are clinician-only WIP.
+
+const PATIENT_VISIBLE_DISCHARGE_STATUSES = ['signed', 'delivered'];
+
+export async function listMyDischargeSummaries({ tenantId, patient_uid, limit = 50 }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  return prisma.$queryRawUnsafe(
+    `SELECT id, admission_id, primary_diagnosis,
+            patient_name_snapshot, hospital_number,
+            admitted_at, discharged_at, ward_at_discharge,
+            status, signed_by_name, signed_at,
+            delivered_at, delivery_method, created_at
+       FROM discharge_summaries
+      WHERE tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND status = ANY($3::text[])
+      ORDER BY COALESCE(signed_at, created_at) DESC, id DESC
+      LIMIT $4::int`,
+    tenantId, String(patient_uid),
+    PATIENT_VISIBLE_DISCHARGE_STATUSES, Number(limit),
+  );
+}
+
+async function fetchDischargeSummaryWithSections({ tenantId, patient_uid, where, ...params }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, admission_id, patient_uid,
+            patient_name_snapshot, age_years_snapshot, sex_snapshot,
+            hospital_number, admitted_at, discharged_at,
+            ward_at_discharge, primary_diagnosis, secondary_diagnoses,
+            icd10_codes, procedures_performed,
+            status, signed_by_name, signed_by_reg, signed_at,
+            delivered_at, delivery_method, created_at, updated_at
+       FROM discharge_summaries
+      WHERE ${where}
+        AND tenant_id = $1::uuid
+        AND patient_uid = $2::uuid
+        AND status = ANY($3::text[])
+      LIMIT 1`,
+    tenantId, String(patient_uid),
+    PATIENT_VISIBLE_DISCHARGE_STATUSES,
+    ...params.values,
+  );
+  if (!rows.length) {
+    throw AppError.notFound('Discharge summary not found');
+  }
+  const summary = rows[0];
+  const sections = await prisma.$queryRawUnsafe(
+    `SELECT section_key, section_title, display_order, body
+       FROM discharge_summary_sections
+      WHERE discharge_summary_id = $1::int
+      ORDER BY display_order, id`,
+    summary.id,
+  );
+  return { ...summary, sections };
+}
+
+export async function getMyDischargeSummary({ tenantId, patient_uid, id }) {
+  const summaryId = Number(id);
+  if (!Number.isInteger(summaryId) || summaryId <= 0) {
+    throw AppError.badRequest('Discharge summary id must be a positive integer');
+  }
+  return fetchDischargeSummaryWithSections({
+    tenantId,
+    patient_uid,
+    where: 'id = $4::int',
+    values: [summaryId],
+  });
+}
+
+export async function getMyDischargeSummaryByAdmission({
+  tenantId, patient_uid, admission_id,
+}) {
+  const adId = Number(admission_id);
+  if (!Number.isInteger(adId) || adId <= 0) {
+    throw AppError.badRequest('admission_id must be a positive integer');
+  }
+  // Multiple discharge_summaries rows can exist for a single admission
+  // (e.g. amended summary after a coding correction). The latest
+  // signed one is the legal copy the patient should see.
+  return fetchDischargeSummaryWithSections({
+    tenantId,
+    patient_uid,
+    where: `id = (
+      SELECT id FROM discharge_summaries
+       WHERE admission_id = $4::int
+         AND tenant_id = $1::uuid
+         AND patient_uid = $2::uuid
+         AND status = ANY($3::text[])
+       ORDER BY COALESCE(signed_at, created_at) DESC, id DESC
+       LIMIT 1
+    )`,
+    values: [adId],
+  });
+}
+
 // ── B-5 — patient-app TPA breakdown ──────────────────────────────────
 //
 // Patient self-service view of TPA claim status. The Sprint 5 TPA

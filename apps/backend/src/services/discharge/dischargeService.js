@@ -7,7 +7,21 @@
 //   draft → ready_for_signoff → signed → delivered
 
 import prisma from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+
+// Section keys we recognise as "discharge medications" for the
+// materialise-to-e_prescriptions handoff. Templates use slightly
+// different naming conventions across specialties; match all of them
+// case-insensitively. Anything matching here triggers a synthesised
+// e_prescriptions row on sign so the patient app's Rx tab finds it.
+const DISCHARGE_MED_SECTION_KEYS = new Set([
+  'discharge_medications',
+  'medications_on_discharge',
+  'takeaway_medications',
+  'take_home_medications',
+  'discharge_meds',
+]);
 
 // ── Templates ───────────────────────────────────────────────────────
 
@@ -198,7 +212,7 @@ export async function sign({
             updated_at = NOW()
       WHERE id = $4::int AND tenant_id = $5::uuid
         AND status IN ('draft', 'ready_for_signoff')
-      RETURNING id`,
+      RETURNING id, admission_id, patient_uid, signed_at`,
     signed_by ? String(signed_by) : null,
     String(signed_by_name),
     signed_by_reg || null,
@@ -209,7 +223,157 @@ export async function sign({
       'Discharge summary already signed or in an invalid state for signing',
     );
   }
+
+  const signed = rows[0];
+
+  // Denormalise summary_signed_at onto the admission row so the
+  // patient-side discharge-PDF gate (clinicalPdfGenerator
+  // .getOrGenerateDischargePdfUrl) and the cascade-readiness check
+  // can both read it without re-joining discharge_summaries. The
+  // dischargeSummaryGenerator (clinical_notes path) does the same;
+  // until this point the discharge_summaries path silently skipped
+  // it and the patient PDF endpoint returned 409 forever. Finding:
+  // 2026-05-09-tpa-insurance-claim-patient-discharge-pdf-blocked.
+  if (signed.admission_id) {
+    try {
+      await prisma.$executeRawUnsafe(
+        `UPDATE admissions
+            SET summary_signed_at = $1, updated_at = NOW()
+          WHERE id = $2::int`,
+        signed.signed_at, Number(signed.admission_id),
+      );
+    } catch (e) {
+      logger.warn(
+        `dischargeService.sign: failed to stamp summary_signed_at on admission ${signed.admission_id}: ${e.message}`,
+      );
+    }
+  }
+
+  // Materialise discharge medications as an e_prescriptions row so the
+  // patient app's Rx tab surfaces them. Best-effort: signing must not
+  // fail if no medication section is configured or the section body is
+  // empty. Finding 2026-05-09-surgical-day-care-patient-discharge-meds-
+  // not-in-e_prescriptions.
+  await materialiseDischargeMedsAsPrescription({
+    discharge_summary_id: Number(id),
+    patient_uid: signed.patient_uid,
+    doctor_uid: signed_by || null,
+  });
+
   return getOne({ tenantId, id });
+}
+
+/**
+ * Create an e_prescriptions row from the discharge summary's medication
+ * section(s) so the patient app's Rx list surfaces discharge meds.
+ *
+ * Section bodies are free text — we don't try to parse them into
+ * structured `medications` JSON (that would require NLP and may
+ * misrepresent dosing for a clinical artifact). Instead we store the
+ * full body as `clinical_notes` and one synthetic medication entry
+ * pointing at the discharge summary, so the Rx tab card renders
+ * something sensible and a deep-link can route the patient to the
+ * actual discharge summary view (see Group A patient portal route).
+ *
+ * Idempotent — if a prescription was already created from this
+ * discharge summary, we skip. Best-effort: any failure is logged and
+ * swallowed.
+ */
+async function materialiseDischargeMedsAsPrescription({
+  discharge_summary_id, patient_uid, doctor_uid,
+}) {
+  if (!patient_uid) return;
+  try {
+    const sections = await prisma.$queryRawUnsafe(
+      `SELECT section_key, section_title, body
+         FROM discharge_summary_sections
+        WHERE discharge_summary_id = $1::int
+          AND body IS NOT NULL AND length(trim(body)) > 0`,
+      Number(discharge_summary_id),
+    );
+    const medSection = sections.find((s) =>
+      DISCHARGE_MED_SECTION_KEYS.has(String(s.section_key || '').toLowerCase()),
+    );
+    if (!medSection) return;
+
+    // Idempotency probe: a prescription whose clinical_notes references
+    // this discharge_summary_id means we've already materialised it.
+    const marker = `[discharge_summary_id=${discharge_summary_id}]`;
+    const existing = await prisma.$queryRawUnsafe(
+      `SELECT id FROM e_prescriptions
+        WHERE patient_uid = $1::uuid
+          AND clinical_notes LIKE $2
+        LIMIT 1`,
+      String(patient_uid), `%${marker}%`,
+    );
+    if (existing.length) return;
+
+    // Resolve int ids — getMyPrescriptions filters by patient_id (int).
+    // doctor_id is best-effort: discharge can be signed by a name-only
+    // user with no DB row.
+    const [patientRow, doctorRow] = await Promise.all([
+      prisma.$queryRawUnsafe(
+        `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`,
+        String(patient_uid),
+      ),
+      doctor_uid
+        ? prisma.$queryRawUnsafe(
+            `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`,
+            String(doctor_uid),
+          )
+        : Promise.resolve([]),
+    ]);
+    const patientId = patientRow[0]?.id ?? null;
+    const doctorId = doctorRow[0]?.id ?? null;
+    if (!patientId) {
+      logger.warn(
+        `materialiseDischargeMedsAsPrescription: no users row for patient_uid=${patient_uid}`,
+      );
+      return;
+    }
+
+    // The section body is unstructured free text (one med per line in
+    // typical templates). Surface it verbatim as a single "medication"
+    // entry so the Rx tab card renders the body, and the patient can
+    // tap through to the discharge summary view for the full schedule.
+    const sectionBody = String(medSection.body || '').trim();
+    const lines = sectionBody
+      .split(/\r?\n/)
+      .map((l) => l.replace(/^[\s•\-*]+/, '').trim())
+      .filter((l) => l.length > 0);
+    const medications = lines.length
+      ? lines.map((line) => ({
+          name: line,
+          instructions: 'See discharge summary for full schedule',
+          source: 'discharge_summary',
+        }))
+      : [{
+          name: medSection.section_title || 'Discharge medications',
+          instructions: sectionBody,
+          source: 'discharge_summary',
+        }];
+
+    const clinicalNotesText =
+      `Discharge medications from discharge summary. ${marker}\n\n${sectionBody}`;
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO e_prescriptions
+         (appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
+          diagnosis, clinical_notes, medications, status)
+       VALUES (NULL, $1::int, $2, $3::uuid, $4,
+               NULL, $5, $6::jsonb, 'active')`,
+      patientId,
+      doctorId,
+      String(patient_uid),
+      doctor_uid ? String(doctor_uid) : null,
+      clinicalNotesText,
+      JSON.stringify(medications),
+    );
+  } catch (e) {
+    logger.warn(
+      `materialiseDischargeMedsAsPrescription failed for discharge_summary_id=${discharge_summary_id}: ${e.message}`,
+    );
+  }
 }
 
 export async function markDelivered({
