@@ -15,21 +15,7 @@
  * via a re-export.
  */
 
-import { jest } from '@jest/globals';
-
-// We need access to the internal stripReasoningTags. Since it's not
-// exported, the simplest test is to call generateClinicalText with a
-// mocked fetch and observe the returned text. But for a pure unit
-// test on the helper, easier path: import the file as a module text
-// and use the regex behavior directly.
-
-// The behavior under test is a single regex applied to a string.
-// Re-implement here so the test pins the expected behavior; if the
-// implementation changes shape, this test still asserts the contract.
-function stripReasoningTags(text) {
-  if (typeof text !== 'string') return text;
-  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-}
+import { stripReasoningTags } from '../../services/ai/localLlmClient.js';
 
 describe('stripReasoningTags', () => {
   it('returns the input unchanged for plain text', () => {

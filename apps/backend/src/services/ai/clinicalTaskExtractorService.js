@@ -53,6 +53,22 @@ function optionalInt(value, fieldName = 'id') {
   return parsed;
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+
+// Returns null for null/undefined/empty, throws AppError.badRequest for
+// non-UUID strings, and the lowercase canonical form for valid UUIDs.
+// Cheaper + clearer than letting `$N::uuid` blow up at the Postgres
+// layer with a generic invalid-syntax error.
+function optionalUuid(value, fieldName) {
+  if (value === null || value === undefined || value === '') return null;
+  const text = String(value).trim();
+  if (!UUID_RE.test(text)) {
+    throw AppError.badRequest(`${fieldName} must be a UUID`);
+  }
+  return text.toLowerCase();
+}
+
 function sourceHash(value) {
   return crypto.createHash('sha256').update(JSON.stringify(value || {})).digest('hex');
 }
@@ -668,6 +684,7 @@ export async function listClinicalTaskCandidates({
   const tid = resolveTenantId({ tenantId });
   const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
   const aid = admissionId ? optionalInt(admissionId, 'admission_id') : null;
+  const uid = optionalUuid(patientUid, 'patient_uid');
   const normalizedDecision = decision && ROUTINE_DECISIONS.has(cleanText(decision).toLowerCase())
     ? cleanText(decision).toLowerCase()
     : null;
@@ -703,7 +720,7 @@ export async function listClinicalTaskCandidates({
        LIMIT $7`,
       tid,
       aid,
-      patientUid || null,
+      uid,
       normalizedDecision,
       normalizedPriority,
       ownerRole || null,
