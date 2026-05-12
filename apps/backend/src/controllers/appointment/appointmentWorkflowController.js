@@ -20,12 +20,25 @@ export const getDoctorOptions = async (req, res) => {
   try {
     const listQuery = parseListQuery(req.query, {
       defaultLimit: 100,
-      maxLimit: 100,
+      maxLimit: 500,
       defaultSortBy: 'name',
       defaultSortOrder: 'ASC',
     });
     const params = [];
-    const where = ['d.is_active = true'];
+    // Picker endpoint — INNER JOIN with users.role='DOCTOR' so every option
+    // is bookable. Pre-fix the LEFT JOIN returned rows whose linked user
+    // was a PATIENT (or no user at all), and the receptionist's selection
+    // bounced from POST /appointments/book with "Doctor not found".
+    // Wave-3 fix for findings:
+    //   2026-05-11-follow-up-opd-receptionist-e9992d3f
+    //   2026-05-10-follow-up-opd-receptionist-unbookable-paediatric-doctor
+    //   2026-05-10-emergency-walk-in-receptionist-doctor-handoff-id-mismatch
+    //   2026-05-10-walk-in-opd-receptionist-doctor-roster-not-assignable
+    const where = [
+      'd.is_active = true',
+      `u.role = 'DOCTOR'`,
+      'u.is_active = true',
+    ];
 
     if (listQuery.search) {
       params.push(`%${listQuery.search}%`);
@@ -36,26 +49,47 @@ export const getDoctorOptions = async (req, res) => {
       );
     }
 
+    // Optional specialty filter — passes through to a substring match so
+    // ?specialty=Paediatrics narrows the picker for a paeds walk-in
+    // without depending on age_range seed values being maintained.
+    if (req.query.specialty) {
+      params.push(`%${req.query.specialty}%`);
+      where.push(`COALESCE(d.specialty, '') ILIKE $${params.length}`);
+    }
+    if (req.query.department) {
+      params.push(String(req.query.department).toUpperCase());
+      where.push(`UPPER(COALESCE(d.department, '')) = $${params.length}`);
+    }
+    if (req.query.ageRange && ['paediatric', 'adult', 'all'].includes(req.query.ageRange)) {
+      params.push(req.query.ageRange);
+      where.push(`(COALESCE(d.age_range, 'all') = $${params.length} OR COALESCE(d.age_range, 'all') = 'all')`);
+    }
+
     const countRows = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*)::int AS total
          FROM doctors d
-         LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
+         INNER JOIN users u ON u.id = d.user_id
         WHERE ${where.join(' AND ')}`,
       ...params,
     );
 
     const total = countRows[0]?.total ?? 0;
     params.push(listQuery.limit, listQuery.offset);
+    // `id` and `user_id` are both set to users.id — the canonical
+    // identifier the booking endpoint stores in appointments.doctor_id.
+    // `doctor_row_id` exposes the legacy doctors.id PK for admin pages
+    // that still key on it. Callers should submit `id` (== user_id).
     const doctors = await prisma.$queryRawUnsafe(
       `SELECT
-          d.id,
-          COALESCE(u.id, d.user_id) AS user_id,
+          u.id AS id,
+          u.id AS user_id,
+          d.id AS doctor_row_id,
           COALESCE(u.name, d.name) AS name,
           COALESCE(d.department, '') AS department,
           COALESCE(d.specialty, '') AS specialization,
           d.is_available
          FROM doctors d
-         LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
+         INNER JOIN users u ON u.id = d.user_id
         WHERE ${where.join(' AND ')}
         ORDER BY COALESCE(u.name, d.name) ASC
         LIMIT $${params.length - 1} OFFSET $${params.length}`,

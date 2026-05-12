@@ -7,7 +7,14 @@ import { bookAppointmentAdmin } from "@/lib/api/appointments";
 import { fetchAdminAPI } from "@/lib/api";
 
 interface DoctorOption {
+  // /appointments/doctors/options returns `id` set to users.id (the
+  // canonical doctor identifier downstream booking stores). Doctors
+  // whose users.role isn't 'DOCTOR' are filtered out by the backend
+  // INNER JOIN so picker options are always bookable. Wave-3 doctor
+  // roster fix (2026-05-12).
   id: number;
+  user_id?: number;
+  doctor_row_id?: number;
   name?: string;
   department?: string;
   specialization?: string;
