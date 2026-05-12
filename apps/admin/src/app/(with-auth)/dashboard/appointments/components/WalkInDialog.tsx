@@ -8,6 +8,14 @@ import { fetchAdminAPI } from "@/lib/api";
 
 interface DoctorOption {
   id: number;
+  // `user_id` is the canonical identifier the booking endpoint stores in
+  // appointments.doctor_id. When `assignable=true` is requested the
+  // backend INNER-joins users.role='DOCTOR' so user_id is always set;
+  // submit it (not id, which is the doctors row PK) so seed rows whose
+  // doctors.id collides with an OBGYN/PATIENT users.id can't misroute
+  // the visit. See finding
+  // 2026-05-10-pediatric-opd-receptionist-doctor-dropdown-misroutes-paeds.
+  user_id?: number;
   name?: string;
   department?: string;
   specialization?: string;
@@ -40,15 +48,39 @@ export function WalkInDialog({
   const [time, setTime] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // Doctor dropdown — was a free-form number input before, which let
-  // operators paste random ints (including negatives) and had no way to
-  // know who the assigned doctor actually was. The /doctors endpoint
-  // paginates at 10 by default which silently hid half the roster — pass
-  // limit=200 so a hospital with 100+ consultants still gets the full
-  // list. See finding 2026-05-08-walk-in-opd-receptionist-walkin-dialog-doctor-dropdown-truncated-at-10.
+  // Paediatric mode kicks in when the DOB resolves to under 12 years —
+  // the dropdown then asks the backend for paediatricians + general
+  // 'all-ages' consultants. Same age threshold used by the backend's
+  // weight-based dose check. Finding:
+  // 2026-05-10-pediatric-opd-receptionist-doctor-dropdown-misroutes-paeds.
+  const isPaediatric = (() => {
+    if (!patientDob) return false;
+    const dob = new Date(patientDob);
+    if (Number.isNaN(dob.getTime())) return false;
+    const ageYears = (Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+    return ageYears >= 0 && ageYears < 12;
+  })();
+
+  // Doctor dropdown — pass `assignable=true` so the backend INNER-joins
+  // users.role='DOCTOR' and excludes seed rows whose doctors.user_id
+  // points to a PATIENT placeholder. The default limit of 10 silently
+  // hid half the roster, so request 200 explicitly. Department + paeds
+  // age filter narrow the list to the right consultants when the
+  // receptionist has already chosen them. Findings:
+  //   2026-05-08-walk-in-opd-receptionist-walkin-dialog-doctor-dropdown-truncated-at-10
+  //   2026-05-10-walk-in-opd-receptionist-doctor-roster-not-assignable
+  //   2026-05-10-pediatric-opd-receptionist-doctor-dropdown-misroutes-paeds
+  //   2026-05-11-pediatric-opd-receptionist-19ac24e8
+  //   2026-05-11-dynamic-acute-abdomen-receptionist-3d9eb5b9
+  const doctorQueryParams = (() => {
+    const parts = ["limit=200", "assignable=true"];
+    if (department) parts.push(`department=${encodeURIComponent(department)}`);
+    if (isPaediatric) parts.push("ageRange=paediatric");
+    return parts.join("&");
+  })();
   const { data: doctorsResp } = useQuery({
-    queryKey: ["doctors", { limit: 200 }],
-    queryFn: () => fetchAdminAPI<unknown>("/doctors?limit=200"),
+    queryKey: ["doctors", { limit: 200, assignable: true, department, isPaediatric }],
+    queryFn: () => fetchAdminAPI<unknown>(`/doctors?${doctorQueryParams}`),
   });
   const doctorsList: DoctorOption[] = (() => {
     const raw = doctorsResp as Record<string, unknown> | unknown[] | undefined;
@@ -102,6 +134,11 @@ export function WalkInDialog({
         reason: reason || "Walk-in consultation",
         appointment_time: time || "Walk-in",
       };
+      // doctorId carries the canonical users.id (assignable mode populates
+      // option.value with d.user_id) — that's what appointments.doctor_id
+      // expects. The booking endpoint still accepts the legacy doctors.id
+      // via a UNION ALL fallback, but submitting users.id avoids the
+      // ambiguous resolution path entirely.
       if (doctorId) payload.doctor_id = parseInt(doctorId);
       const res = await registerWalkInAdmin(payload);
       const token = (res as Record<string, unknown>)?.data
@@ -162,13 +199,16 @@ export function WalkInDialog({
               className="w-full border rounded px-3 py-2 text-sm mt-1 bg-white"
             >
               <option value="">— Unassigned —</option>
-              {doctorsList.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name || `Doctor #${d.id}`}
-                  {d.department ? ` · ${d.department}` : ""}
-                  {d.specialization ? ` (${d.specialization})` : ""}
-                </option>
-              ))}
+              {doctorsList.map((d) => {
+                const submitId = d.user_id ?? d.id;
+                return (
+                  <option key={d.id} value={submitId}>
+                    {d.name || `Doctor #${submitId}`}
+                    {d.department ? ` · ${d.department}` : ""}
+                    {d.specialization ? ` (${d.specialization})` : ""}
+                  </option>
+                );
+              })}
             </select>
           </div>
           <div>
