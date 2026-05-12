@@ -48,6 +48,11 @@ export class DoctorService {
   buildDoctorSelectFieldsFromDoctors(schema, { detailed = false } = {}) {
     const fields = [
       'd.id',
+      // `user_id` is the canonical identifier downstream booking accepts —
+      // appointments.doctor_id is a users.id FK. When INNER-joined with role
+      // 'DOCTOR' we know u.id is always populated; tolerate the legacy LEFT
+      // JOIN by falling back to d.user_id. Pickers should submit user_id.
+      // See wave-3 doctor roster fix (2026-05-12).
       'COALESCE(u.id, d.user_id) AS user_id',
       'u.uid',
       'u.phone',
@@ -172,15 +177,31 @@ export class DoctorService {
   async getAllDoctors(filters = {}) {
     try {
       const schema = await this.getDoctorSchema();
-      const { department, departmentId, available, ageRange } = filters;
+      const { department, departmentId, available, ageRange, specialty, assignable } = filters;
       const listQuery = parseListQuery(filters, {
         defaultLimit: DOCTOR_CONFIG.PAGINATION.DEFAULT_LIMIT,
-        maxLimit: 100,
+        maxLimit: 500,
         defaultSortBy: 'name'
       });
 
       const params = [];
       const where = [`d.is_active = true`];
+
+      // `assignable=true` is the strict picker mode used by walk-in /
+      // booking dropdowns: only return doctors whose user is a real
+      // DOCTOR row + still active. Default mode keeps legacy behavior
+      // (LEFT JOIN) so admin doctor management still sees rows whose
+      // user is missing or has a non-DOCTOR role — those need editing,
+      // not silent hiding. Wave-3 doctor-roster fix (2026-05-12):
+      // findings 2026-05-10-walk-in-opd-receptionist-doctor-roster-not-assignable,
+      // 2026-05-10-emergency-walk-in-receptionist-doctor-handoff-id-mismatch,
+      // 2026-05-11-dynamic-acute-abdomen-receptionist-3d9eb5b9,
+      // 2026-05-11-follow-up-opd-receptionist-e9992d3f.
+      const assignableMode = assignable === true || assignable === 'true';
+      if (assignableMode) {
+        where.push(`u.role = 'DOCTOR'`);
+        where.push(`u.is_active = true`);
+      }
 
       if (department && schema.department) {
         params.push(department.toUpperCase());
@@ -210,6 +231,16 @@ export class DoctorService {
         where.push(`(COALESCE(d.age_range, 'all') = $${params.length} OR COALESCE(d.age_range, 'all') = 'all')`);
       }
 
+      // Specialty filter — substring (case-insensitive) so callers can
+      // pass "Paediatrics" or "paeds" and hit the same rows. Lives on
+      // `doctors.specialty` (post batch-47 rename). Wave-3 fix for finding
+      // 2026-05-11-pediatric-opd-receptionist-19ac24e8 (paediatric filter
+      // returned full consultant roster).
+      if (specialty && schema.specialization) {
+        params.push(`%${specialty}%`);
+        where.push(`COALESCE(d.${schema.specialization}, '') ILIKE $${params.length}`);
+      }
+
       if (listQuery.search) {
         params.push(`%${listQuery.search}%`);
         const searchParam = `$${params.length}`;
@@ -220,12 +251,16 @@ export class DoctorService {
         where.push(`(${searchClauses.join(' OR ')})`);
       }
 
+      const joinClause = assignableMode
+        ? `INNER JOIN users u ON u.id = d.user_id`
+        : `LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'`;
+
       params.push(listQuery.limit, listQuery.offset);
       const rows = await prisma.$queryRawUnsafe(
         `
           SELECT ${this.buildDoctorSelectFieldsFromDoctors(schema)}
           FROM doctors d
-          LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
+          ${joinClause}
           WHERE ${where.join(' AND ')}
           ORDER BY COALESCE(u.name, d.name)
           LIMIT $${params.length - 1} OFFSET $${params.length}
@@ -252,19 +287,40 @@ export class DoctorService {
   async countDoctors(filters = {}) {
     try {
       const schema = await this.getDoctorSchema();
-      const { department, available, search } = filters;
+      const { department, departmentId, available, ageRange, specialty, search, assignable } = filters;
 
       const params = [];
       const where = [`d.is_active = true`];
+
+      const assignableMode = assignable === true || assignable === 'true';
+      if (assignableMode) {
+        where.push(`u.role = 'DOCTOR'`);
+        where.push(`u.is_active = true`);
+      }
 
       if (department && schema.department) {
         params.push(department.toUpperCase());
         where.push(`UPPER(d.department) = $${params.length}`);
       }
 
+      if (departmentId && schema.department) {
+        params.push(departmentId);
+        where.push(`UPPER(d.department) = (SELECT UPPER(name) FROM departments WHERE id = $${params.length} LIMIT 1)`);
+      }
+
       if (available !== undefined && schema.isAvailable) {
         params.push(available);
         where.push(`d.is_available = $${params.length}`);
+      }
+
+      if (ageRange && ['paediatric', 'adult', 'all'].includes(ageRange)) {
+        params.push(ageRange);
+        where.push(`(COALESCE(d.age_range, 'all') = $${params.length} OR COALESCE(d.age_range, 'all') = 'all')`);
+      }
+
+      if (specialty && schema.specialization) {
+        params.push(`%${specialty}%`);
+        where.push(`COALESCE(d.${schema.specialization}, '') ILIKE $${params.length}`);
       }
 
       if (search) {
@@ -277,11 +333,15 @@ export class DoctorService {
         where.push(`(${searchClauses.join(' OR ')})`);
       }
 
+      const joinClause = assignableMode
+        ? `INNER JOIN users u ON u.id = d.user_id`
+        : `LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'`;
+
       const result = await prisma.$queryRawUnsafe(
         `
           SELECT COUNT(*)::int as count
           FROM doctors d
-          LEFT JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR'
+          ${joinClause}
           WHERE ${where.join(' AND ')}
         `,
         ...params,

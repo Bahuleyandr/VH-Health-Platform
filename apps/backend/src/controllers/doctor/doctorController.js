@@ -23,7 +23,11 @@ export const doctorController = {
     try {
       const listQuery = parseListQuery(req.query, {
         defaultLimit: 10,
-        maxLimit: 100,
+        // Pickers paginate at default 10 and silently truncate large
+        // rosters; bump the ceiling so a `?limit=200` request from the
+        // walk-in/booking dialogs returns the full list. See finding
+        // 2026-05-08-walk-in-opd-receptionist-walkin-dialog-doctor-dropdown-truncated-at-10.
+        maxLimit: 500,
         defaultSortBy: 'name',
         defaultSortOrder: 'ASC',
       });
@@ -45,6 +49,14 @@ export const doctorController = {
         // E-9 — paeds OPD age filter. ?ageRange=paediatric returns
         // paediatricians plus general practitioners flagged as 'all'.
         ageRange: req.query.ageRange || req.query.age_range || null,
+        // Substring filter on doctors.specialty so pickers can scope to
+        // "Paediatrics" / "Cardiology" / etc. Wave-3 fix.
+        specialty: req.query.specialty || req.query.specialization || null,
+        // `assignable=true` is the strict picker mode used by walk-in /
+        // booking dropdowns: only return doctors whose linked user is a
+        // real active DOCTOR row. Defaults off so admin doctor management
+        // still sees rows that need cleanup.
+        assignable: req.query.assignable,
         search: listQuery.search
       };
 
