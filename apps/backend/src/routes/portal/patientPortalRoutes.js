@@ -192,6 +192,54 @@ router.get('/discharge-summaries/:id', requirePatient, wrap(async (req) =>
   }),
 ));
 
+// ── Clinical notes (patient self-read) ──────────────────────────────
+// /api/v1/emr/notes is staff-only by RBAC (CLINICAL_STAFF_ROLES). The
+// patient-scoped equivalent lives here, returning only signed notes
+// owned by the authenticated patient_uid and filtered to types the
+// patient should see (progress / SOAP / discharge / procedure /
+// consultation / follow-up). PHI access is logged per read.
+// Finding 2026-05-09-follow-up-opd-patient-progress-note-not-visible.
+
+function logClinicalNoteAccess(req) {
+  logPhiAccess({
+    userId: req.user?.uid,
+    userRole: req.user?.role,
+    patientId: req.user?.uid,
+    recordType: 'clinical_note',
+    action: 'VIEW',
+    ip: req.ip,
+    requestId: req.id,
+  });
+}
+
+router.get('/clinical-notes', requirePatient, wrap(async (req) => {
+  const result = await portal.listMyClinicalNotes({
+    patient_uid: patientUidOf(req),
+    note_type: req.query.note_type || null,
+    limit: req.query.limit,
+  });
+  logClinicalNoteAccess(req);
+  return result;
+}));
+
+router.get('/clinical-notes/appointment/:appointmentId', requirePatient, wrap(async (req) => {
+  const result = await portal.listMyClinicalNotesForAppointment({
+    patient_uid: patientUidOf(req),
+    appointment_id: req.params.appointmentId,
+  });
+  logClinicalNoteAccess(req);
+  return result;
+}));
+
+router.get('/clinical-notes/:id', requirePatient, wrap(async (req) => {
+  const result = await portal.getMyClinicalNote({
+    patient_uid: patientUidOf(req),
+    id: req.params.id,
+  });
+  logClinicalNoteAccess(req);
+  return result;
+}));
+
 // ── B-5 — TPA / insurance claims (read-only) ────────────────────────
 router.get('/tpa/claims', requirePatient, wrap(async (req) =>
   portal.listMyClaims({

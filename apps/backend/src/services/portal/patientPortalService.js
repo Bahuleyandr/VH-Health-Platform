@@ -119,6 +119,120 @@ export async function createSelfPaymentLink({
 // Patients only see results that have been signed off (NABH 5.6
 // principle — un-signed values can change).
 
+// ── Clinical notes read surface for patients ─────────────────────────
+//
+// /api/v1/emr/notes is gated by CLINICAL_STAFF_ROLES, so PATIENT
+// requests come back 403. Patients still need to read their own
+// progress notes — the "completed follow-up with no new Rx" case
+// is the most common: the doctor's plan is in clinical_notes and
+// the patient app has nowhere to surface it. These exports add a
+// patient-scoped read surface that mirrors what the staff timeline
+// would show, filtered to the authenticated patient_uid and
+// restricted to note types the patient should see.
+//
+// We hide nursing assessments (those are internal handover artifacts)
+// and unsigned drafts (patients should never see un-finalised notes).
+// Doctor-authored progress / discharge / SOAP / procedure notes pass.
+
+const PATIENT_VISIBLE_NOTE_TYPES = [
+  'progress',
+  'soap',
+  'discharge',
+  'procedure',
+  'consultation',
+  'follow_up',
+  'follow-up',
+];
+
+export async function listMyClinicalNotes({ patient_uid, limit = 100, note_type = null }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const types = note_type
+    ? [String(note_type).toLowerCase()]
+    : PATIENT_VISIBLE_NOTE_TYPES;
+  return prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, encounter_id, author_uid, author_role,
+            note_type, title, content, version, is_addendum,
+            is_signed, signed_at, parent_note_id,
+            created_at, updated_at
+       FROM clinical_notes
+      WHERE patient_uid = $1::uuid
+        AND is_signed = TRUE
+        AND lower(note_type) = ANY($2::text[])
+      ORDER BY created_at DESC, id DESC
+      LIMIT $3::int`,
+    String(patient_uid), types, Number(limit),
+  );
+}
+
+export async function getMyClinicalNote({ patient_uid, id }) {
+  const noteId = Number(id);
+  if (!Number.isInteger(noteId) || noteId <= 0) {
+    throw AppError.badRequest('clinical note id must be a positive integer');
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, encounter_id, author_uid, author_role,
+            note_type, title, content, version, is_addendum,
+            is_signed, signed_at, parent_note_id,
+            created_at, updated_at
+       FROM clinical_notes
+      WHERE id = $1::int
+        AND patient_uid = $2::uuid
+        AND is_signed = TRUE
+        AND lower(note_type) = ANY($3::text[])`,
+    noteId, String(patient_uid), PATIENT_VISIBLE_NOTE_TYPES,
+  );
+  if (!rows.length) throw AppError.notFound('Clinical note not found');
+  return rows[0];
+}
+
+export async function listMyClinicalNotesForAppointment({ patient_uid, appointment_id }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const apptId = Number(appointment_id);
+  if (!Number.isInteger(apptId) || apptId <= 0) {
+    throw AppError.badRequest('appointment_id must be a positive integer');
+  }
+  // clinical_notes has no direct appointment_id FK — the link lives
+  // in content->>'appointment_id' when the doctor's note-writer
+  // attaches it. Fall back to a 24h time window around the
+  // appointment for legacy notes that don't carry the attribute.
+  const apptRows = await prisma.$queryRawUnsafe(
+    `SELECT a.id, a.created_at, a.appointment_date, a.appointment_time,
+            COALESCE(u.uid, a.uid) AS patient_uid
+       FROM appointments a
+       LEFT JOIN users u ON u.id = a.patient_id
+      WHERE a.id = $1::int`,
+    apptId,
+  );
+  if (!apptRows.length) throw AppError.notFound('Appointment not found');
+  const appt = apptRows[0];
+  if (String(appt.patient_uid) !== String(patient_uid)) {
+    throw AppError.notFound('Appointment not found');
+  }
+  return prisma.$queryRawUnsafe(
+    `SELECT id, patient_uid, encounter_id, author_uid, author_role,
+            note_type, title, content, version, is_addendum,
+            is_signed, signed_at, parent_note_id,
+            created_at, updated_at
+       FROM clinical_notes
+      WHERE patient_uid = $1::uuid
+        AND is_signed = TRUE
+        AND lower(note_type) = ANY($2::text[])
+        AND (
+          (content ? 'appointment_id'
+           AND (content->>'appointment_id')::int = $3::int)
+          OR
+          (NOT (content ? 'appointment_id')
+           AND created_at >= $4::timestamptz - INTERVAL '24 hours'
+           AND created_at <= $4::timestamptz + INTERVAL '7 days')
+        )
+      ORDER BY created_at ASC, id ASC`,
+    String(patient_uid),
+    PATIENT_VISIBLE_NOTE_TYPES,
+    apptId,
+    appt.created_at,
+  );
+}
+
 // ── Patient-side Rx PDF (download prescription) ──────────────────────
 //
 // e_prescriptions.pdf_key is stamped at create-time by
