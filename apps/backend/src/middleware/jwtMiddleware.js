@@ -1,7 +1,44 @@
 // src/middleware/jwtMiddleware.js
 import logger from '../logging/logger.js';
+import prisma from '../lib/prisma.js';
 import { verifyToken } from '../utils/jwtUtils.js';
 import { isTokenBlacklisted, isUserTokensRevoked } from '../utils/tokenBlacklist.js';
+
+// Process-local memo for the uid→users.id fallback below. The mapping is
+// stable for the lifetime of a uid (users.id is never reassigned), so
+// caching forever is safe; FIFO-evict at 50k entries to cap memory.
+// `null` is a valid cached value — it means "no users row for this uid"
+// (admin/Hasura-only token), and we want to skip the DB hit on subsequent
+// requests too.
+const UID_TO_ID_CACHE_MAX = 50000;
+const uidToIdCache = new Map();
+
+async function resolveUserIdFromUid(uid) {
+  if (!uid) return null;
+  if (uidToIdCache.has(uid)) return uidToIdCache.get(uid);
+
+  let resolved = null;
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      'SELECT id FROM users WHERE uid = $1::uuid LIMIT 1',
+      uid
+    );
+    if (rows.length > 0 && Number.isInteger(rows[0].id)) {
+      resolved = rows[0].id;
+    }
+  } catch (err) {
+    // Bad uuid format / DB blip: don't fail the request, just leave id null.
+    logger.warn(`uid→id fallback lookup failed for ${uid}: ${err.message}`);
+    return null;
+  }
+
+  if (uidToIdCache.size >= UID_TO_ID_CACHE_MAX) {
+    const oldestKey = uidToIdCache.keys().next().value;
+    uidToIdCache.delete(oldestKey);
+  }
+  uidToIdCache.set(uid, resolved);
+  return resolved;
+}
 
 /**
  * Normalize role names to what the RBAC layer expects.
@@ -118,8 +155,18 @@ export default async function jwtMiddleware(req, res, next) {
   const phone = decoded.phone ?? decoded.phone_number ?? decoded.phoneNumber ?? null;
   const email = decoded.email ?? null;
   // Preserve the int DB id when the token carries one (distinct from uid, which is a uuid).
+  // Many token-issuance paths (admin login, MFA verify, staff PIN login) omit
+  // the int `id` claim, so we fall back to a cached `users.uid → id` lookup
+  // when the token doesn't carry one. Without the fallback every IDOR check
+  // that compares `req.user.id` against an int FK column (e.g.
+  // `appointments.doctor_id`) silently fails closed for any role whose token
+  // path skipped the claim — see finding
+  // 2026-05-08-walk-in-opd-doctor-idor-check-always-fails-for-staff-jwt.
   const idRaw = decoded.id ?? decoded.userId ?? decoded.user_id ?? hasura?.['x-hasura-user-int-id'] ?? null;
-  const idInt = idRaw != null && /^\d+$/.test(String(idRaw)) ? parseInt(String(idRaw), 10) : null;
+  let idInt = idRaw != null && /^\d+$/.test(String(idRaw)) ? parseInt(String(idRaw), 10) : null;
+  if (idInt == null) {
+    idInt = await resolveUserIdFromUid(String(uidRaw));
+  }
 
   // tenant_id is optional in the token — tenantContextMiddleware will
   // resolve/default downstream if the claim is missing.

@@ -5,6 +5,7 @@
 
 import jwt from 'jsonwebtoken';
 import jwtMiddleware from '../../middleware/jwtMiddleware.js';
+import prisma from '../../lib/prisma.js';
 
 const SECRET = process.env.JWT_SECRET || 'test-jwt-secret-for-ci-must-be-at-least-32-chars';
 
@@ -62,12 +63,50 @@ describe('jwtMiddleware.req.user shape', () => {
     expect(req.user.role).toBe('NURSING_STAFF');
   });
 
-  it('sets id to null when the token is uid-only', async () => {
+  it('sets id to null when the token is uid-only and no users row matches', async () => {
     const req = makeReq({ uid: 'a0000000-0000-4000-8000-000000000004', role: 'PATIENT' });
     const res = makeRes();
     await jwtMiddleware(req, res, () => {});
     expect(req.user.uid).toBe('a0000000-0000-4000-8000-000000000004');
     expect(req.user.id).toBeNull();
+  });
+
+  // Regression for finding
+  // 2026-05-08-walk-in-opd-doctor-idor-check-always-fails-for-staff-jwt:
+  // many token-issuance paths (admin login, MFA verify, staff PIN login)
+  // never carried an integer `id` claim, so every IDOR check that compared
+  // `req.user.id` against an int FK silently 403'd. The fallback below
+  // resolves users.uid → users.id when the token doesn't carry it.
+  describe('id fallback via uid → users.id lookup', () => {
+    const FALLBACK_UID = 'a0000000-0000-4000-8000-0000000fb001';
+    let fallbackId;
+
+    beforeAll(async () => {
+      await prisma
+        .$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, FALLBACK_UID)
+        .catch(() => {});
+      const rows = await prisma.$queryRawUnsafe(
+        `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+         VALUES ($1::uuid, '9999220001', 'JWT Fallback Doctor', 'DOCTOR', true, NOW())
+         RETURNING id`,
+        FALLBACK_UID
+      );
+      fallbackId = rows[0].id;
+    });
+
+    afterAll(async () => {
+      await prisma
+        .$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, FALLBACK_UID)
+        .catch(() => {});
+    });
+
+    it('resolves req.user.id from the users table when token omits the id claim', async () => {
+      const req = makeReq({ uid: FALLBACK_UID, role: 'DOCTOR' }); // no `id` claim
+      const res = makeRes();
+      await jwtMiddleware(req, res, () => {});
+      expect(req.user.uid).toBe(FALLBACK_UID);
+      expect(req.user.id).toBe(fallbackId);
+    });
   });
 
   it('accepts userId claim as a fallback for id', async () => {
