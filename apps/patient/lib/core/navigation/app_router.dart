@@ -328,9 +328,8 @@ class AppRouter {
       ),
       GoRoute(
         path: '/portal/bills/:id',
-        builder: (context, state) => BillDetailScreen(
-          invoiceId: int.parse(state.pathParameters['id']!),
-        ),
+        builder: (context, state) =>
+            BillDetailScreen(invoiceId: int.parse(state.pathParameters['id']!)),
       ),
       GoRoute(
         path: '/portal/lab-results',
