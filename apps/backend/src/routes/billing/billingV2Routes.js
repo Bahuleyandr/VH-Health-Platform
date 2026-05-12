@@ -117,6 +117,51 @@ router.post('/invoices/:id/void', requireAdmin, wrap(async (req) =>
   billing.voidInvoice(req.params.id, { ...req.body, voided_by: req.user?.uid }),
 ));
 
+// Wave-4B-1 — cashier-side PDF reprints. Both endpoints stream a binary
+// PDF rather than going through `wrap`/`success` which assume a JSON
+// envelope. The tax invoice is the GST-breakup billing document; the
+// receipt is a payment-confirmation summary. See finding:
+//   2026-05-10-surgical-day-care-billing-no-receipt-tax-invoice-reprint
+router.get('/invoices/:id/tax-invoice-pdf', requireStaffOrAdmin, async (req, res, next) => {
+  try {
+    const invoiceId = Number(req.params.id);
+    if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
+      return error(res, 'invoice id must be a positive integer', 400);
+    }
+    const { generateInvoicePDF } = await import('../../services/documents/clinicalPdfGenerator.js');
+    const buffer = await generateInvoicePDF(invoiceId);
+    const filename = `TaxInvoice_${invoiceId}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    return res.send(buffer);
+  } catch (err) {
+    if (err.statusCode) return error(res, err.message, err.statusCode);
+    logger.error('billingV2 tax-invoice PDF error:', err);
+    return next(err);
+  }
+});
+
+router.get('/invoices/:id/receipt-pdf', requireStaffOrAdmin, async (req, res, next) => {
+  try {
+    const invoiceId = Number(req.params.id);
+    if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
+      return error(res, 'invoice id must be a positive integer', 400);
+    }
+    const { generateReceiptPDF } = await import('../../services/documents/clinicalPdfGenerator.js');
+    const buffer = await generateReceiptPDF(invoiceId);
+    const filename = `Receipt_${invoiceId}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    return res.send(buffer);
+  } catch (err) {
+    if (err.statusCode) return error(res, err.message, err.statusCode);
+    logger.error('billingV2 receipt PDF error:', err);
+    return next(err);
+  }
+});
+
 // ── Payments ──────────────────────────────────────────────────────────
 router.post('/payments', requireStaffOrAdmin, wrap(async (req) =>
   billing.collectPayment({ ...req.body, collected_by: req.user?.uid }),

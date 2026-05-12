@@ -5,8 +5,18 @@ import express from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import bedManagementService from '../../services/bed/bedManagementService.js';
 import { success, error } from '../../utils/responseHelper.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 
 const router = express.Router();
+
+// Wave-4B-1 — clinical-only narrowing for the sensitive bed endpoints.
+// The parent `/api/v1/beds` gate in app.js is widened to include
+// GENERAL_STAFF/HOUSEKEEPING_STAFF so they can close the cleaning loop
+// via POST /:id/ready. This guard re-narrows the patient-movement
+// endpoints (admit / transfer / discharge) back to clinical roles.
+const requireClinicalForBedMovement = requireRole(
+  'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF',
+);
 
 // ---------------------------------------------------------------------------
 // Helper: async route wrapper
@@ -46,6 +56,7 @@ router.get(
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/admit',
+  requireClinicalForBedMovement,
   wrapAsync(async (req, res) => {
     const bedId = parseInt(req.params.id, 10);
     const { patient_uid, expected_discharge } = req.body;
@@ -68,6 +79,7 @@ router.post(
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/discharge',
+  requireClinicalForBedMovement,
   wrapAsync(async (req, res) => {
     const bedId = parseInt(req.params.id, 10);
     const dischargedBy = req.user?.uid || null;
@@ -82,6 +94,7 @@ router.post(
 // ---------------------------------------------------------------------------
 router.post(
   '/transfer',
+  requireClinicalForBedMovement,
   wrapAsync(async (req, res) => {
     const { patient_uid, to_bed_id, reason } = req.body;
     const transferredBy = req.user?.uid || null;

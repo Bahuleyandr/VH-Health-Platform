@@ -88,6 +88,11 @@ async function getPatient(patientUid) {
       email: true,
       birthday: true,
       address: true,
+      // Wave-4B-1 (migration 209) — chronic meds surface for discharge
+      // reconciliation. Defaulted to '[]'::jsonb on insert so patients
+      // without entries still serialise cleanly.
+      chronic_medications: true,
+      chronic_medications_updated_at: true,
     },
   });
 }
@@ -621,6 +626,37 @@ export async function collectAdmissionClinicalContext(admissionId) {
   const byType = (type) => timeline.filter((event) => event.event_type === type);
   const allergies = await getCombinedAllergies(admission.patient_uid);
 
+  // Wave-4B-1 — pull radiology orders for the discharge readiness gate
+  // and the discharge-summary PENDING_RADIOLOGY safety flag. `radiology_orders`
+  // lives in a sibling table to `investigations`, so it's invisible to the
+  // existing timeline collectors. Findings:
+  //   2026-05-10-inpatient-admission-discharge-pending-radiology-not-in-readiness
+  //   2026-05-10-inpatient-admission-discharge-drug-reconciliation-drops-chronic-meds
+  const radiology_orders = await optionalFindMany('radiology_orders', () =>
+    prisma.radiology_orders.findMany({
+      where: {
+        patient_uid: admission.patient_uid,
+        created_at: dateFrom ? { gte: dateFrom } : undefined,
+      },
+      select: {
+        id: true, modality: true, body_part: true, status: true,
+        ordered_by: true, created_at: true, report_completed_at: true,
+      },
+      orderBy: { created_at: 'desc' },
+      take: 50,
+    }),
+  );
+
+  // Normalise chronic_medications JSON into a plain array (the Prisma Json
+  // type returns the object directly; in the unlikely case it's a string,
+  // parse defensively).
+  let chronic_medications = patient?.chronic_medications;
+  if (typeof chronic_medications === 'string') {
+    try { chronic_medications = JSON.parse(chronic_medications); }
+    catch { chronic_medications = []; }
+  }
+  if (!Array.isArray(chronic_medications)) chronic_medications = [];
+
   return {
     patient,
     admission,
@@ -633,6 +669,8 @@ export async function collectAdmissionClinicalContext(admissionId) {
     investigations: byType('investigation'),
     orders: byType('clinical_order'),
     handovers: byType('handover'),
+    radiology_orders,
+    chronic_medications,
     citations: timeline.map(makeCitation),
   };
 }

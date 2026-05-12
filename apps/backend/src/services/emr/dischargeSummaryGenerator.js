@@ -94,6 +94,8 @@ function buildSafetyFlags(context, summary = {}) {
   const investigations = asArray(context.investigations);
   const orders = asArray(context.orders);
   const allergies = asArray(context.allergies);
+  const radiologyOrders = asArray(context.radiology_orders);
+  const chronicMeds = asArray(context.chronic_medications);
 
   if (!diagnoses.some((event) => /primary/i.test(text(event.payload?.diagnosis_type)))) {
     flags.push({
@@ -119,6 +121,56 @@ function buildSafetyFlags(context, summary = {}) {
       code: 'PENDING_INVESTIGATIONS',
       message: `${pendingInvestigations.length} investigation(s) appear pending.`,
     });
+  }
+
+  // Wave-4B-1 — pending radiology orders are a discharge-readiness blocker
+  // (the prior gate only looked at `investigations`, missing ultrasound /
+  // CT / MRI / X-ray orders). Finding:
+  //   2026-05-10-inpatient-admission-discharge-pending-radiology-not-in-readiness
+  const pendingRadiology = radiologyOrders.filter((row) => {
+    const status = String(row.status || '').toLowerCase();
+    return status && !['completed', 'cancelled', 'reported', 'signed_off'].includes(status);
+  });
+  if (pendingRadiology.length > 0) {
+    flags.push({
+      severity: 'high',
+      code: 'PENDING_RADIOLOGY',
+      message: `${pendingRadiology.length} pending radiology order(s): ${pendingRadiology
+        .map((r) => `${r.modality || 'radiology'} ${r.body_part || ''} [${r.status}]`.trim())
+        .slice(0, 3)
+        .join('; ')}${pendingRadiology.length > 3 ? '; …' : ''}.`,
+    });
+  }
+
+  // Wave-4B-1 — chronic medication reconciliation. Any chronic med the
+  // patient was on pre-admission that isn't present in the discharge med
+  // list AND isn't explicitly reconciled (continue / stop / hold / restart)
+  // is a polypharmacy safety risk. Finding:
+  //   2026-05-10-inpatient-admission-discharge-drug-reconciliation-drops-chronic-meds
+  if (chronicMeds.length > 0) {
+    const dischargeMedNames = new Set(
+      meds.map((m) => text(m.name || m.medication_name).toLowerCase()).filter(Boolean),
+    );
+    const unreconciled = chronicMeds.filter((cm) => {
+      const cmName = text(cm.name || cm.medication_name).toLowerCase();
+      if (!cmName) return false;
+      // Explicit reconciliation marker (set when the doctor reviewed it).
+      if (cm.reconciled_at_discharge || cm.reconciliation_status) return false;
+      // Fuzzy match against discharge meds — chronic Atorvastatin is OK
+      // if discharge meds include "Atorvastatin 10mg".
+      return !Array.from(dischargeMedNames).some((dn) => dn.includes(cmName) || cmName.includes(dn));
+    });
+    if (unreconciled.length > 0) {
+      flags.push({
+        severity: 'high',
+        code: 'CHRONIC_MED_NOT_RECONCILED',
+        message: `${unreconciled.length} chronic medication(s) not reconciled: ${unreconciled
+          .map((m) => m.name || m.medication_name)
+          .slice(0, 5)
+          .join(', ')}${unreconciled.length > 5 ? ', …' : ''}. Mark continue / stop / hold / restart before discharge.`,
+        chronic_unreconciled: unreconciled,
+      });
+    }
   }
 
   const latestVitals = latestByType(context.vitals);
@@ -212,7 +264,7 @@ function buildDischargeMedications(context) {
     .filter((event) => event.payload?.order_type === 'medication')
     .filter((event) => !/cancelled|discontinued/i.test(text(event.payload?.status)));
 
-  return activeMedicationOrders.map((event) => {
+  const inpatientMeds = activeMedicationOrders.map((event) => {
     const details = event.payload?.details || {};
     return {
       name: details.medication_name || details.name || 'Medication not named',
@@ -221,8 +273,43 @@ function buildDischargeMedications(context) {
       frequency: details.frequency || '',
       duration: details.duration || '',
       source_order_id: event.id,
+      source: 'inpatient',
+      reconciliation_status: 'continue',
     };
   });
+
+  // Wave-4B-1 — merge in pre-admission chronic medications so the discharge
+  // medication draft surfaces them for explicit continue / stop / hold /
+  // restart review by the signing doctor. Chronic entries that the doctor
+  // already reconciled (`reconciled_at_discharge: true` or a non-null
+  // `reconciliation_status`) carry the status forward; un-reconciled ones
+  // get `reconciliation_status: 'pending_review'` so the buildSafetyFlags
+  // pass can emit CHRONIC_MED_NOT_RECONCILED. Finding:
+  //   2026-05-10-inpatient-admission-discharge-drug-reconciliation-drops-chronic-meds
+  const chronicMeds = asArray(context.chronic_medications);
+  const inpatientNames = new Set(
+    inpatientMeds.map((m) => text(m.name).toLowerCase()).filter(Boolean),
+  );
+  const chronicAsDischargeMeds = chronicMeds.map((cm) => {
+    const cmName = cm.name || cm.medication_name || '';
+    const alreadyOnList = Array.from(inpatientNames).some(
+      (nm) => nm.includes(cmName.toLowerCase()) || cmName.toLowerCase().includes(nm),
+    );
+    return {
+      name: cmName || 'Chronic medication (unnamed)',
+      dose: cm.dose || cm.dosage || '',
+      route: cm.route || '',
+      frequency: cm.frequency || '',
+      duration: cm.duration || 'chronic',
+      indication: cm.indication || '',
+      started_at: cm.started_at || null,
+      source: 'pre_admission_chronic',
+      reconciliation_status: cm.reconciliation_status
+        || (cm.reconciled_at_discharge ? 'continue' : alreadyOnList ? 'continue' : 'pending_review'),
+    };
+  });
+
+  return [...inpatientMeds, ...chronicAsDischargeMeds];
 }
 
 function buildStructuredSummary(context, hospitalCourse, aiResult) {

@@ -8,10 +8,29 @@
 // Migration 174. Per project decision 2026-05-09.
 
 import prisma from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
-const VALID_PAYMENT_METHODS = new Set(['cash', 'card', 'upi', 'cheque', 'online', 'bank_transfer']);
-const VALID_DEPOSIT_PURPOSES = new Set(['admission_advance', 'package_advance', 'attendant_deposit', 'security_deposit']);
+// Wave-4B-1 — 'deferred' is the IRDAI/MCI emergency-care payment mode for
+// unidentified patients and brought-in-dead RTA victims. The hospital must
+// admit first and reconcile the deposit within 24 hours; rejecting a
+// zero-amount deposit at admit closes off any structured record. The
+// deposit row carries amount=0 with payment_method='deferred' and the
+// purpose discriminates further. Finding:
+//   2026-05-09-emergency-walk-in-admission-advance-deposit-no-deferred-mode
+const VALID_PAYMENT_METHODS = new Set(['cash', 'card', 'upi', 'cheque', 'online', 'bank_transfer', 'deferred']);
+const VALID_DEPOSIT_PURPOSES = new Set([
+  'admission_advance', 'package_advance', 'attendant_deposit', 'security_deposit',
+  // Wave-4B-1 — emergency-deferred path for unidentified/RTA admits.
+  'emergency_deferred',
+]);
+
+// UUID validation regex — Prisma's @db.Uuid columns reject non-UUID strings
+// with a generic 500 unless we 400 at the boundary first.
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
+function isUuid(s) {
+  return typeof s === 'string' && UUID_RE.test(s);
+}
 
 const VALID_INDENT_TYPES = new Set(['pharmacy', 'consumables', 'linen', 'sterile_supplies']);
 const VALID_INDENT_TRANSITIONS = {
@@ -111,60 +130,106 @@ export async function collectAdvanceDeposit({
   purpose = 'admission_advance', notes = null, collectedBy,
 }) {
   if (!admissionId) throw AppError.badRequest('admissionId is required');
-  const num = Number(amount);
-  if (!Number.isFinite(num) || num <= 0) {
-    throw AppError.badRequest('amount must be a positive number');
-  }
   if (!VALID_PAYMENT_METHODS.has(paymentMethod)) {
     throw AppError.badRequest(`Invalid payment_method: ${paymentMethod}. Must be one of: ${[...VALID_PAYMENT_METHODS].join(', ')}`);
   }
   if (!VALID_DEPOSIT_PURPOSES.has(purpose)) {
     throw AppError.badRequest(`Invalid purpose: ${purpose}. Must be one of: ${[...VALID_DEPOSIT_PURPOSES].join(', ')}`);
   }
+
+  // Wave-4B-1 — deferred admits (unidentified patient, RTA brought in by
+  // traffic police, mass-casualty events) record amount=0. Cashless
+  // collection happens in the next 24h via a sibling deposit row. Any
+  // non-deferred mode still requires a positive amount.
+  const isDeferred = paymentMethod === 'deferred' || purpose === 'emergency_deferred';
+  const num = Number(amount);
+  if (!Number.isFinite(num)) {
+    throw AppError.badRequest('amount must be a number');
+  }
+  if (!isDeferred && num <= 0) {
+    throw AppError.badRequest('amount must be a positive number');
+  }
+  if (isDeferred && num < 0) {
+    throw AppError.badRequest('deferred deposits cannot carry a negative amount');
+  }
+
   if (!collectedBy) throw AppError.badRequest('collectedBy is required');
+  if (!isUuid(collectedBy)) {
+    // advance_deposits.collected_by is @db.Uuid; without this early 400
+    // Prisma surfaces a generic 500 from the .create() — opaque to the
+    // counter staff. Finding:
+    //   2026-05-10-inpatient-admission-admission-advance-deposit-500
+    throw AppError.badRequest('collectedBy must be a UUID');
+  }
 
-  return prisma.$transaction(async (tx) => {
-    const admission = await tx.admissions.findUnique({
-      where: { id: admissionId },
-      select: { id: true, patient_uid: true, status: true, billing_closed_at: true },
-    });
-    if (!admission) throw AppError.notFound('Admission not found');
-    if (admission.billing_closed_at) {
-      throw AppError.badRequest(
-        `Admission billing is closed (since ${admission.billing_closed_at.toISOString()}). Cannot collect new advance deposit.`,
-      );
-    }
-
-    const receiptNumber = await nextReceiptNumber(tx);
-    const deposit = await tx.advance_deposits.create({
-      data: {
-        admission_id: admissionId,
-        patient_uid: admission.patient_uid,
-        receipt_number: receiptNumber,
-        amount: num,
-        payment_method: paymentMethod,
-        payment_reference: paymentReference ?? null,
-        purpose,
-        notes,
-        collected_by: collectedBy,
-      },
-    });
-
-    // F-2 — bridge the IPD deposit to billing_advances so the cashier
-    // can settle it against the eventual invoice via billingV2's
-    // settleAdvance flow. Reference column carries `IPD/<receipt>` so
-    // the refund path can find this row again. Finding:
-    // 2026-05-10-inpatient-admission-billing-advance-deposit-not-netted.
-    await tx.$executeRawUnsafe(
-      `INSERT INTO billing_advances
-         (patient_uid, admission_id, amount, balance, mode, reference, collected_by, notes)
-       VALUES ($1::uuid, $2::int, $3::numeric, $3::numeric, $4, $5, $6::uuid, $7)`,
-      admission.patient_uid, admissionId, num, paymentMethod,
-      `IPD/${receiptNumber}`, collectedBy, notes ?? null,
-    );
-
-    return deposit;
+  // Pre-flight admission lookup outside the transaction — a missing
+  // admission used to throw P2025 from inside .create on the FK insert,
+  // which the global handler dropped through as a generic 500. Pulling
+  // the 404 out of the tx makes the failure mode actionable.
+  const admission = await prisma.admissions.findUnique({
+    where: { id: admissionId },
+    select: { id: true, patient_uid: true, status: true, billing_closed_at: true },
   });
+  if (!admission) throw AppError.notFound('Admission not found');
+  if (admission.billing_closed_at) {
+    throw AppError.badRequest(
+      `Admission billing is closed (since ${admission.billing_closed_at.toISOString()}). Cannot collect new advance deposit.`,
+    );
+  }
+
+  // Retry once on receipt_number unique-conflict — `nextReceiptNumber`
+  // picks max+1 inside a tx but two concurrent collectors can both pick
+  // the same value before either has COMMITted. A single retry is enough
+  // for typical throughput.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const receiptNumber = await nextReceiptNumber(tx);
+        const deposit = await tx.advance_deposits.create({
+          data: {
+            admission_id: admissionId,
+            patient_uid: admission.patient_uid,
+            receipt_number: receiptNumber,
+            amount: num,
+            payment_method: paymentMethod,
+            payment_reference: paymentReference ?? null,
+            purpose,
+            notes,
+            collected_by: collectedBy,
+          },
+        });
+
+        // F-2 — bridge the IPD deposit to billing_advances so the cashier
+        // can settle it against the eventual invoice via billingV2's
+        // settleAdvance flow. Reference column carries `IPD/<receipt>` so
+        // the refund path can find this row again. Finding:
+        //   2026-05-10-inpatient-admission-billing-advance-deposit-not-netted
+        // Deferred-mode (amount=0) rows skip the mirror — there's nothing
+        // to settle yet; the deferred row will be reconciled when the
+        // real payment comes in via a sibling deposit.
+        if (num > 0) {
+          await tx.$executeRawUnsafe(
+            `INSERT INTO billing_advances
+               (patient_uid, admission_id, amount, balance, mode, reference, collected_by, notes)
+             VALUES ($1::uuid, $2::int, $3::numeric, $3::numeric, $4, $5, $6::uuid, $7)`,
+            admission.patient_uid, admissionId, num, paymentMethod,
+            `IPD/${receiptNumber}`, collectedBy, notes ?? null,
+          );
+        }
+
+        return deposit;
+      });
+    } catch (err) {
+      // Prisma P2002 = unique constraint violation. Retry once for receipt_number.
+      if (err?.code === 'P2002' && attempt === 0) {
+        logger.warn(`collectAdvanceDeposit: receipt_number conflict on admission ${admissionId}, retrying`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  // Unreachable — the loop either returns or rethrows.
+  throw AppError.badRequest('Failed to allocate receipt number after retry');
 }
 
 /**

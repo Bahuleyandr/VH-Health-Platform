@@ -38,13 +38,92 @@ async function nextSeq(tableCounter, prefix, tenantId) {
 
 // ── Insurance policy CRUD ────────────────────────────────────────────
 
+/**
+ * Resolve a payer reference. Accepts payer_id (canonical), payer_code, or a
+ * fuzzy insurer_name match. Returns the numeric id or null when none match
+ * (caller decides whether that's a 400 or a soft fail-open). Migration 203
+ * seeds the master with the common Indian insurers, plus an 'OTHER'
+ * placeholder row for unrecognised insurers.
+ */
+async function resolvePayerId(tenantId, { payer_id, payer_code, insurer_code, insurer_name }) {
+  if (payer_id) return Number(payer_id);
+  const code = (payer_code || insurer_code || '').trim();
+  if (code) {
+    const row = await prisma.payers.findFirst({
+      where: { tenant_id: tenantId, payer_code: code.toUpperCase() },
+      select: { id: true },
+    });
+    if (row) return row.id;
+  }
+  const name = (insurer_name || '').trim();
+  if (name) {
+    const row = await prisma.payers.findFirst({
+      where: {
+        tenant_id: tenantId,
+        display_name: { contains: name, mode: 'insensitive' },
+      },
+      select: { id: true },
+    });
+    if (row) return row.id;
+  }
+  return null;
+}
+
+/**
+ * Resolve a TPA reference. Same shape as resolvePayerId; accepts tpa_id,
+ * tpa_code, or fuzzy display_name.
+ */
+async function resolveTpaId(tenantId, { tpa_id, tpa_code, tpa_name }) {
+  if (tpa_id) return Number(tpa_id);
+  const code = (tpa_code || '').trim();
+  if (code) {
+    const row = await prisma.tpas.findFirst({
+      where: { tenant_id: tenantId, tpa_code: code.toUpperCase() },
+      select: { id: true },
+    });
+    if (row) return row.id;
+  }
+  const name = (tpa_name || '').trim();
+  if (name) {
+    const row = await prisma.tpas.findFirst({
+      where: {
+        tenant_id: tenantId,
+        display_name: { contains: name, mode: 'insensitive' },
+      },
+      select: { id: true },
+    });
+    if (row) return row.id;
+  }
+  return null;
+}
+
 export async function upsertPolicy({
   tenantId, patient_uid, payer_id, tpa_id, policy_number, member_id,
   policyholder_name, relation_to_patient, policy_type, corporate_employer,
   sum_insured, valid_from, valid_to, card_url, notes, created_by,
+  // Master-resolution aliases — counter UIs send these instead of raw FKs.
+  payer_code, tpa_code, insurer_code, insurer_name, tpa_name,
 }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   if (!policy_number) throw AppError.badRequest('policy_number is required');
+
+  // Resolve insurer (payer) + TPA against the master before INSERT. If a
+  // caller passes only insurer_name/insurer_code, this turns it into the
+  // proper FK so downstream queries (network checks, TPA contact lookups,
+  // claim caps) reach the right row. Falls back to the 'OTHER' placeholder
+  // payer when none of the inputs match the seeded master.
+  const resolvedPayerId = await resolvePayerId(tenantId, {
+    payer_id, payer_code, insurer_code, insurer_name,
+  });
+  const resolvedTpaId = await resolveTpaId(tenantId, { tpa_id, tpa_code, tpa_name });
+  let finalPayerId = resolvedPayerId;
+  if (!finalPayerId && (insurer_name || insurer_code || payer_code)) {
+    const placeholder = await prisma.payers.findFirst({
+      where: { tenant_id: tenantId, payer_code: 'OTHER' },
+      select: { id: true },
+    });
+    finalPayerId = placeholder?.id ?? null;
+  }
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO insurance_policies
@@ -56,8 +135,8 @@ export async function upsertPolicy({
              $10::numeric, $11::date, $12::date, $13, $14, $15::uuid, $16::uuid)
      RETURNING *`,
     String(patient_uid),
-    payer_id ? Number(payer_id) : null,
-    tpa_id ? Number(tpa_id) : null,
+    finalPayerId ? Number(finalPayerId) : null,
+    resolvedTpaId ? Number(resolvedTpaId) : null,
     String(policy_number),
     member_id || null, policyholder_name || null,
     relation_to_patient || null, policy_type || null,
@@ -290,7 +369,109 @@ export async function recordPreauthResponse({
     Number(preauth_id),
   );
 
+  // Wave-4B-1 — room-cap detection. If the partial approval text downgrades
+  // the approved room category below the current admission room_category,
+  // emit a clinical_alerts row so the bed-board / billing screens surface
+  // the upgrade-difference patient liability before discharge reconciliation.
+  // Finding: 2026-05-09-tpa-insurance-claim-billing-no-room-cap-flag
+  if (response_type === 'partially_approved' && pre.admission_id) {
+    try {
+      await emitRoomCapAlertIfNeeded({
+        preauth_id: Number(preauth_id),
+        admission_id: pre.admission_id,
+        conditions_text: conditions || '',
+        recorded_by,
+      });
+    } catch (e) {
+      // Alert emission is best-effort — never block the approval flow.
+      console.warn(`recordPreauthResponse: room-cap alert emission failed: ${e.message}`);
+    }
+  }
+
   return { response: respRows[0], preauth: await getPreauth({ tenantId, id: preauth_id }) };
+}
+
+// Wave-4B-1 — room-cap detection helper.
+//
+// TPA partial approvals frequently carry a free-text "conditions" clause
+// like "room cap: semi-private at ₹4500/day" or "approved at general-ward
+// rate only". The cashier needs structured visibility into this so the
+// upgrade differential (₹X/day private vs semi-private) can be surfaced
+// at the bed-board or billing screen, not discovered at discharge
+// reconciliation. We parse the conditions text against a small allowlist
+// of room category keywords; when the parsed cap is BELOW the admission's
+// current room_category, we emit a clinical_alerts row.
+//
+// Conservative parser — false negatives (missed alert) are OK and the
+// cashier still sees the conditions text. False positives (spurious alert)
+// would be noise; we keep the keyword set tight.
+const ROOM_CATEGORY_RANK = {
+  general: 1,
+  semi_private: 2,
+  'semi-private': 2,
+  semiprivate: 2,
+  private: 3,
+  deluxe: 4,
+  suite: 5,
+  icu: 5,
+  ccu: 5,
+};
+
+function detectCappedRoomCategory(conditionsText) {
+  if (!conditionsText) return null;
+  const t = String(conditionsText).toLowerCase();
+  // Look for "[cap|approved|limit|max] ... <category>" — order matters
+  // since "private" is a substring of "semi-private".
+  const hits = [];
+  for (const key of Object.keys(ROOM_CATEGORY_RANK)) {
+    if (t.includes(key)) hits.push(key);
+  }
+  if (!hits.length) return null;
+  // Pick the LOWEST-rank match (most restrictive cap mentioned).
+  hits.sort((a, b) => ROOM_CATEGORY_RANK[a] - ROOM_CATEGORY_RANK[b]);
+  const matched = hits[0];
+  // Normalise to canonical category names used on admissions.room_category.
+  if (matched === 'semi-private' || matched === 'semiprivate') return 'semi_private';
+  return matched;
+}
+
+async function emitRoomCapAlertIfNeeded({ preauth_id, admission_id, conditions_text, recorded_by }) {
+  const cappedCat = detectCappedRoomCategory(conditions_text);
+  if (!cappedCat) return;
+
+  const admission = await prisma.admissions.findUnique({
+    where: { id: Number(admission_id) },
+    select: { id: true, room_category: true, patient_uid: true },
+  });
+  if (!admission?.room_category) return;
+
+  const currentRank = ROOM_CATEGORY_RANK[String(admission.room_category).toLowerCase()] || 0;
+  const cappedRank = ROOM_CATEGORY_RANK[cappedCat] || 0;
+  if (currentRank <= cappedRank) return; // Patient already at/below cap — no liability.
+
+  // Resolve patient_uid → patient_id (int) for the alert FK.
+  const patient = await prisma.users.findUnique({
+    where: { uid: admission.patient_uid },
+    select: { id: true },
+  });
+
+  await prisma.clinical_alerts.create({
+    data: {
+      patient_id: patient?.id ?? null,
+      alert_type: 'TPA_ROOM_CATEGORY_CAP',
+      severity: 'medium',
+      message:
+        `TPA preauth #${preauth_id} approved room category '${cappedCat}'; admission #${admission_id} ` +
+        `currently in '${admission.room_category}'. Upgrade difference will be patient liability. ` +
+        `Confirm consent + cash-pay-difference or downgrade the room.`,
+      created_by: null,
+      acknowledged: false,
+    },
+  });
+
+  // Best-effort signal — recorded_by is informational only here. The
+  // alert row carries the operational context downstream consumers need.
+  void recorded_by;
 }
 
 export async function listPendingPreauths({ tenantId, limit = 100 }) {
