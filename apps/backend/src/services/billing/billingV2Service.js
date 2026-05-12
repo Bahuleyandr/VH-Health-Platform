@@ -21,6 +21,21 @@ const VALID_PAYMENT_MODES = [
 ];
 const VALID_INVOICE_STATUSES = ['DRAFT', 'ISSUED', 'PARTIAL', 'PAID', 'VOID'];
 const VALID_REFUND_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'PAID'];
+const HIGH_VALUE_DISCOUNT_APPROVER_ROLES = ['FINANCE_INCHARGE', 'ADMIN', 'SUPER_ADMIN'];
+
+function envNumber(name, fallback) {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export const DISCOUNT_APPROVAL_AMOUNT_THRESHOLD = envNumber(
+  'BILLING_DISCOUNT_APPROVAL_AMOUNT_THRESHOLD',
+  500,
+);
+export const DISCOUNT_APPROVAL_PERCENT_THRESHOLD = envNumber(
+  'BILLING_DISCOUNT_APPROVAL_PERCENT_THRESHOLD',
+  5,
+);
 
 // ───────────────────────────────────────────────────────────────────────
 // Helpers
@@ -36,6 +51,27 @@ export function fiscalYearOf(date = new Date()) {
 
 function toFixed2(n) {
   return Math.round(Number(n) * 100) / 100;
+}
+
+export function parseDiscountAmount(amount) {
+  if (amount === undefined || amount === null || amount === '') {
+    throw AppError.badRequest('amount is required');
+  }
+  const parsed = Number(amount);
+  if (!Number.isFinite(parsed)) throw AppError.badRequest('amount must be numeric');
+  if (parsed < 0) throw AppError.badRequest('Discount cannot be negative');
+  return toFixed2(parsed);
+}
+
+export function canApproveHighValueDiscount(role) {
+  return HIGH_VALUE_DISCOUNT_APPROVER_ROLES.includes(String(role || '').trim().toUpperCase());
+}
+
+export function requiresDiscountApproval({ amount, invoiceGross }) {
+  const discountAmount = Number(amount);
+  const gross = Number(invoiceGross || 0);
+  return discountAmount > DISCOUNT_APPROVAL_AMOUNT_THRESHOLD ||
+    (gross > 0 && discountAmount > toFixed2((gross * DISCOUNT_APPROVAL_PERCENT_THRESHOLD) / 100));
 }
 
 /**
@@ -370,15 +406,32 @@ export async function removeInvoiceItem(invoiceId, itemId) {
   return recomputeInvoiceTotals(Number(invoiceId));
 }
 
-export async function applyDiscount(invoiceId, { amount, reason, approved_by }) {
-  if (Number(amount) < 0) throw AppError.badRequest('Discount cannot be negative');
+export async function applyDiscount(invoiceId, { amount, reason, approved_by, approved_by_role }) {
+  const discountAmount = parseDiscountAmount(amount);
   const inv = await prisma.$queryRawUnsafe(
-    `SELECT status, total_amount, admission_id FROM billing_invoices WHERE id = $1::int`,
+    `SELECT status, subtotal, cgst_amount, sgst_amount, igst_amount, admission_id
+       FROM billing_invoices WHERE id = $1::int`,
     Number(invoiceId),
   );
   if (!inv.length) throw AppError.notFound('Invoice not found');
   if (inv[0].status === 'VOID') throw AppError.badRequest('Cannot discount a void invoice');
   await assertAdmissionBillingOpen(inv[0].admission_id);
+  const invoiceGross = toFixed2(
+    Number(inv[0].subtotal || 0) +
+    Number(inv[0].cgst_amount || 0) +
+    Number(inv[0].sgst_amount || 0) +
+    Number(inv[0].igst_amount || 0),
+  );
+  if (
+    requiresDiscountApproval({ amount: discountAmount, invoiceGross }) &&
+    !canApproveHighValueDiscount(approved_by_role)
+  ) {
+    throw AppError.forbidden(
+      `Discounts above INR ${DISCOUNT_APPROVAL_AMOUNT_THRESHOLD} or ${DISCOUNT_APPROVAL_PERCENT_THRESHOLD}% ` +
+        'require FINANCE_INCHARGE, ADMIN, or SUPER_ADMIN approval',
+      'DISCOUNT_APPROVAL_REQUIRED',
+    );
+  }
 
   await prisma.$executeRawUnsafe(
     `UPDATE billing_invoices
@@ -387,7 +440,7 @@ export async function applyDiscount(invoiceId, { amount, reason, approved_by }) 
             discount_approved_by = $3::uuid,
             updated_at = NOW()
       WHERE id = $4::int`,
-    Number(amount), reason || null, approved_by ? String(approved_by) : null, Number(invoiceId),
+    discountAmount, reason || null, approved_by ? String(approved_by) : null, Number(invoiceId),
   );
   return recomputeInvoiceTotals(Number(invoiceId));
 }

@@ -1,7 +1,13 @@
 // Unit tests for the Sprint-1 billing helpers and Sprint-4 UPI deep
 // link builder. Pure-compute, no DB.
 
-import { fiscalYearOf, splitGst } from '../../services/billing/billingV2Service.js';
+import {
+  canApproveHighValueDiscount,
+  fiscalYearOf,
+  parseDiscountAmount,
+  requiresDiscountApproval,
+  splitGst,
+} from '../../services/billing/billingV2Service.js';
 import { buildUpiDeepLink } from '../../services/billing/paymentLinkService.js';
 
 describe('fiscalYearOf', () => {
@@ -64,6 +70,26 @@ describe('splitGst', () => {
     });
     expect(r.cgst + r.sgst).toBeCloseTo(4.95, 2);
     expect(r.lineTotal).toBeCloseTo(99 + 4.95, 2);
+  });
+});
+
+describe('billing discount approval helpers', () => {
+  it('rejects missing or non-numeric discount amounts before SQL casts', () => {
+    expect(() => parseDiscountAmount(undefined)).toThrow('amount is required');
+    expect(() => parseDiscountAmount('not-a-number')).toThrow('amount must be numeric');
+  });
+
+  it('requires finance approval above INR 500 or 5 percent of invoice gross', () => {
+    expect(requiresDiscountApproval({ amount: 3200, invoiceGross: 6411 })).toBe(true);
+    expect(requiresDiscountApproval({ amount: 600, invoiceGross: 20000 })).toBe(true);
+    expect(requiresDiscountApproval({ amount: 400, invoiceGross: 2000 })).toBe(true);
+    expect(requiresDiscountApproval({ amount: 400, invoiceGross: 10000 })).toBe(false);
+  });
+
+  it('limits high-value discount approval to finance/admin roles', () => {
+    expect(canApproveHighValueDiscount('BILLING_STAFF')).toBe(false);
+    expect(canApproveHighValueDiscount('FINANCE_INCHARGE')).toBe(true);
+    expect(canApproveHighValueDiscount('SUPER_ADMIN')).toBe(true);
   });
 });
 
