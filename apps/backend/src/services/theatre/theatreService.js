@@ -81,6 +81,54 @@ function assertOtReadySiteMark(checklist, schedule) {
 }
 
 class TheatreService {
+  async _assertReadyForClosure(scheduleId) {
+    const [anesthesia] = await prisma.$queryRawUnsafe(
+      `SELECT status, finalized_by, finalized_at
+         FROM anesthesia_records
+        WHERE ot_schedule_id = $1
+        ORDER BY updated_at DESC
+        LIMIT 1`,
+      scheduleId,
+    );
+    if (!anesthesia || anesthesia.status !== 'finalized'
+        || !anesthesia.finalized_by || !anesthesia.finalized_at) {
+      throw AppError.badRequest(
+        'Cannot close OT case until the anaesthesia record is finalized and signed',
+        'ANAESTHESIA_FINALIZE_REQUIRED',
+      );
+    }
+
+    const [intraop] = await prisma.$queryRawUnsafe(
+      `SELECT status, finalized_by, finalized_at,
+              sponge_count_correct, sharp_count_correct, instrument_count_correct
+         FROM intraop_notes
+        WHERE ot_schedule_id = $1
+        ORDER BY updated_at DESC
+        LIMIT 1`,
+      scheduleId,
+    );
+    if (!intraop || intraop.status !== 'finalized'
+        || !intraop.finalized_by || !intraop.finalized_at) {
+      throw AppError.badRequest(
+        'Cannot close OT case until the intraop note is finalized and signed by the surgeon',
+        'INTRAOP_FINALIZE_REQUIRED',
+      );
+    }
+    if (intraop.sponge_count_correct !== true
+        || intraop.sharp_count_correct !== true
+        || intraop.instrument_count_correct !== true) {
+      throw AppError.badRequest(
+        'Cannot close OT case until sponge, sharp, and instrument counts are confirmed correct',
+        'INSTRUMENT_COUNTS_REQUIRED',
+        {
+          sponge_count_correct: intraop.sponge_count_correct,
+          sharp_count_correct: intraop.sharp_count_correct,
+          instrument_count_correct: intraop.instrument_count_correct,
+        },
+      );
+    }
+  }
+
   async scheduleSurgery(data) {
     const {
       patient_uid, encounter_id, surgeon, anesthetist,
@@ -173,6 +221,16 @@ class TheatreService {
           'WHO_TIMEOUT_REQUIRED'
         );
       }
+    }
+
+    // Wave-2 fix: gate post_op + completed on signed anaesthesia + intraop
+    // notes + correct instrument counts. An OT case cannot transition past
+    // in_progress until both the surgeon's intraop note and the
+    // anaesthetist's anaesthesia record are finalized, and the closing
+    // sponge/sharp/instrument counts are correct. Finding:
+    // 2026-05-09-surgical-day-care-ot-staff-case-close-no-gate.
+    if (newStatus === 'post_op' || newStatus === 'completed') {
+      await this._assertReadyForClosure(scheduleId);
     }
 
     const result = await prisma.$queryRawUnsafe(
