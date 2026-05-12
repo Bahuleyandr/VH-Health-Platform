@@ -12,6 +12,7 @@ const PATIENT_UID = 'ba000000-0000-4000-8000-00000000a001';
 const SURGEON_UID = 'ba000000-0000-4000-8000-00000000a002';
 const ANESTHETIST_UID = 'ba000000-0000-4000-8000-00000000a003';
 const ADMIN_UID = 'ba000000-0000-4000-8000-00000000a004';
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const API_KEY = process.env.API_KEY || 'test-api-key';
 
 function mkClient(role, uid, intId) {
@@ -168,8 +169,34 @@ describe('Theatre scheduling — deep integration', () => {
       expect(row[0].status).toBe('scheduled');
     });
 
-    it('advances scheduled → pre_op → in_progress → post_op → completed', async () => {
-      for (const target of ['pre_op', 'in_progress', 'post_op', 'completed']) {
+    it('blocks pre_op → in_progress until WHO time-out is complete', async () => {
+      const preOp = await admin.put(`/api/v1/theatre/${scheduleId}/status`).send({ status: 'pre_op' });
+      expect(preOp.statusCode).toBe(200);
+      expect(preOp.body.data.status).toBe('pre_op');
+
+      const blocked = await admin.put(`/api/v1/theatre/${scheduleId}/status`).send({ status: 'in_progress' });
+      expect(blocked.statusCode).toBe(400);
+      expect(blocked.body.message).toMatch(/WHO time-out/i);
+      const row = await prisma.$queryRawUnsafe(
+        `SELECT status FROM ot_schedules WHERE id = $1`, scheduleId);
+      expect(row[0].status).toBe('pre_op');
+    });
+
+    it('advances pre_op → in_progress → post_op → completed after WHO time-out', async () => {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO surgical_safety_checklists
+           (tenant_id, ot_schedule_id, patient_uid, phase, performed_by, performed_at,
+            items, all_items_confirmed, outstanding_items, status)
+         VALUES ($1::uuid, $2, $3::uuid, 'time_out', $4::uuid, NOW(),
+           $5::jsonb, true, '[]'::jsonb, 'complete')`,
+        DEFAULT_TENANT_ID,
+        scheduleId,
+        PATIENT_UID,
+        ADMIN_UID,
+        JSON.stringify([{ item: 'patient_procedure_site_confirmed', confirmed: true }]),
+      );
+
+      for (const target of ['in_progress', 'post_op', 'completed']) {
         const res = await admin.put(`/api/v1/theatre/${scheduleId}/status`).send({ status: target });
         expect(res.statusCode).toBe(200);
         expect(res.body.data.status).toBe(target);

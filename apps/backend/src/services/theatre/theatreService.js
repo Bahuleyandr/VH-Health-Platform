@@ -140,8 +140,9 @@ class TheatreService {
       throw AppError.badRequest(`Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}`);
     }
 
+    const scheduleId = requireIntId(id);
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status FROM ot_schedules WHERE id = $1`, requireIntId(id));
+      `SELECT id, status FROM ot_schedules WHERE id = $1`, scheduleId);
     if (existing.length === 0) throw AppError.notFound('OT schedule not found');
 
     const currentStatus = existing[0].status;
@@ -150,10 +151,34 @@ class TheatreService {
       throw AppError.invalidTransition(currentStatus, newStatus, allowed);
     }
 
+    if (currentStatus === 'pre_op' && newStatus === 'in_progress') {
+      const timeOutRows = await prisma.$queryRawUnsafe(
+        `SELECT id FROM surgical_safety_checklists
+         WHERE ot_schedule_id = $1
+           AND phase = 'time_out'
+           AND (
+             status = 'complete'
+             OR (
+               status = 'incomplete_with_override'
+               AND NULLIF(TRIM(override_reason), '') IS NOT NULL
+               AND override_authorized_by IS NOT NULL
+             )
+           )
+         LIMIT 1`,
+        scheduleId
+      );
+      if (timeOutRows.length === 0) {
+        throw AppError.badRequest(
+          'WHO time-out must be completed before moving an OT case to in_progress',
+          'WHO_TIMEOUT_REQUIRED'
+        );
+      }
+    }
+
     const result = await prisma.$queryRawUnsafe(
       `UPDATE ot_schedules SET status = $1, updated_at = NOW() WHERE id = $2
        RETURNING ${OT_RETURNING}`,
-      newStatus, requireIntId(id)
+      newStatus, scheduleId
     );
 
     logger.info('OT schedule status updated', { scheduleId: id, from: currentStatus, to: newStatus, updatedBy });
