@@ -419,12 +419,22 @@ export class UserService {
       return user;
     }
 
+    // RETURNING includes the profile + clinical PHI fields the caller may
+    // have just SET so the response is self-verifying. Before this list was
+    // extended, callers received HTTP 200 with no signal that blood_group /
+    // emergency_contact / allergies had been silently dropped — see finding
+    // 2026-05-08-walk-in-opd-receptionist-blood-group-silently-dropped.
+    // Sensitive credential columns (encrypted_password, pwd, pin_hash) are
+    // intentionally excluded per the no-SELECT-* convention.
     const result = await prisma.$queryRaw`
       UPDATE users
       SET ${Prisma.join([...setClauses, Prisma.sql`updated_at = NOW()`], ', ')}
       WHERE uid = ${user.uid}::uuid
       RETURNING
         id, uid, phone, name, email, role,
+        gender, birthday, anniversary, address, profile_picture,
+        blood_group, allergies, medical_history, emergency_contact,
+        guardian_name, guardian_phone, guardian_relationship,
         registered_at AS created_at,
         updated_at
     `;
