@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import logger from '../src/logging/logger.js';
 // scripts/lint-raw-params.mjs
 //
 // Grep for the `prisma.$queryRawUnsafe(sql, [array])` bug pattern across src/.
@@ -7,9 +6,15 @@ import logger from '../src/logging/logger.js';
 // positional arg is interpreted as a SINGLE value, not unpacked, so every
 // placeholder after $1 goes unbound. This was broken across ~70 sites before
 // the 2026-04-14 drift-fix pass. Fail CI if it reappears.
+//
+// Standalone CLI — uses plain console.log instead of the Winston logger
+// so the script doesn't have to spin up the full backend log subsystem
+// just to print a one-line summary, and so it stays runnable from any
+// CWD (the previous `walk('src')` only worked from `apps/backend/`).
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 function walk(dir, acc = []) {
   for (const name of readdirSync(dir)) {
@@ -22,7 +27,10 @@ function walk(dir, acc = []) {
   return acc;
 }
 
-const files = walk('src');
+// Resolve `src/` relative to the script location so this lint can be
+// invoked from any CWD (npm script in apps/backend/, root, or CI).
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const files = walk(join(scriptDir, '..', 'src'));
 
 // Match: `.$queryRawUnsafe(anything, [`  or `.$executeRawUnsafe(anything, [`
 // The `[` must start the second positional arg — we approximate with a look
@@ -98,4 +106,4 @@ if (offenders > 0) {
   console.error('Fix: change `prisma.$queryRawUnsafe(sql, [a, b])` to `prisma.$queryRawUnsafe(sql, a, b)`.\n');
   process.exit(1);
 }
-logger.info(`✓ 0 offending sites across ${files.length} files. Raw-param spread form is consistent.`);
+console.log(`✓ 0 offending sites across ${files.length} files. Raw-param spread form is consistent.`);

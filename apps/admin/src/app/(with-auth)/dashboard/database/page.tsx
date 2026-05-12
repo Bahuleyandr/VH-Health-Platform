@@ -172,6 +172,20 @@ function ColumnList({ columns }: { columns: DatabaseColumn[] }) {
 
 function RowsPreview({ data }: { data: DatabaseRowsResponse }) {
   const columns = data.table.columns.map((column) => column.name);
+  const primaryKeyColumns = data.table.primaryKeyColumns;
+
+  // Prefer a stable key derived from the row's primary key values so React
+  // doesn't reconcile by array position. Falls back to `${table.name}:${index}`
+  // for tables without a primary key.
+  function getRowKey(row: Record<string, unknown>, index: number): string {
+    if (primaryKeyColumns.length > 0) {
+      const values = primaryKeyColumns.map((column) => row[column]);
+      if (values.every((value) => value !== null && value !== undefined && value !== "")) {
+        return values.map((value) => formatCell(value)).join("::");
+      }
+    }
+    return `${data.table.name}:${index}`;
+  }
 
   if (data.rows.length === 0) {
     return (
@@ -195,7 +209,7 @@ function RowsPreview({ data }: { data: DatabaseRowsResponse }) {
         </thead>
         <tbody className="divide-y divide-border">
           {data.rows.map((row, index) => (
-            <tr key={index} className="hover:bg-muted/30">
+            <tr key={getRowKey(row, index)} className="hover:bg-muted/30">
               {columns.map((column) => (
                 <td
                   key={column}

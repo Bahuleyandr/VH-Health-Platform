@@ -251,7 +251,7 @@ function responseHeader(response, name) {
  * Done at extraction time so downstream JSON parsing in the explainer
  * pipelines and `safeJsonParse` see clean text.
  */
-function stripReasoningTags(text) {
+export function stripReasoningTags(text) {
   if (typeof text !== 'string') return text;
   return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 }

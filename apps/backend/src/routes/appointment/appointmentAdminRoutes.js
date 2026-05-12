@@ -65,7 +65,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           FROM appointments a
           LEFT JOIN doctors d ON a.doctor_id = d.id
           ${whereClause}
-        `, params);
+        `, ...params);
 
         // Appointment trends
         const trends = await prisma.$queryRawUnsafe(`
@@ -80,7 +80,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           GROUP BY DATE(appointment_date)
           ORDER BY date DESC
           LIMIT 30
-        `, params);
+        `, ...params);
 
         // Department-wise breakdown
         const departmentStats = await prisma.$queryRawUnsafe(`
@@ -95,7 +95,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           ${whereClause}
           GROUP BY dept.name
           ORDER BY appointments DESC
-        `, params);
+        `, ...params);
 
         // Peak hours analysis
         const peakHours = await prisma.$queryRawUnsafe(`
@@ -108,7 +108,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           ${whereClause}
           GROUP BY EXTRACT(HOUR FROM appointment_date)
           ORDER BY hour
-        `, params);
+        `, ...params);
 
         success(res, {
           timeframe,
@@ -282,7 +282,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             AND a1.appointment_date < a2.appointment_date
             AND a1.appointment_date + INTERVAL '30 minutes' > a2.appointment_date
           ORDER BY a1.appointment_date
-        `, params);
+        `, ...params);
 
         success(res, {
           conflicts: conflicts,
@@ -464,7 +464,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           LEFT JOIN users p ON a.patient_id = p.id
           GROUP BY d.id, d.name, dept.name, doc.max_appointments_per_day
           ORDER BY utilization_percentage DESC
-        `, params);
+        `, ...params);
 
         const summary = await prisma.$queryRawUnsafe(`
           SELECT 
@@ -475,7 +475,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
             ROUND(COUNT(a.id)::numeric / NULLIF(SUM(doc.max_appointments_per_day), 0) * 100, 2) as overall_utilization
           FROM doctors doc
           LEFT JOIN appointments a ON doc.id = a.doctor_id ${whereClause}
-        `, params);
+        `, ...params);
 
         success(res, {
           date,
@@ -657,8 +657,17 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
       try {
         const { hours_before = 24, include_departments = [], exclude_cancelled = true } = req.body;
 
+        // Clamp user-supplied hours into a sane range and bind into the
+        // INTERVAL as a parameter (`make_interval(hours => $N::int)`)
+        // instead of string-interpolating it into the SQL.
+        const parsedHours = Number.parseInt(hours_before, 10);
+        const safeHoursBefore = Number.isFinite(parsedHours) && parsedHours >= 1
+          ? Math.min(parsedHours, 168) // cap at 1 week
+          : 24;
+
+        const params = [safeHoursBefore];
         const whereConditions = [
-          `a.appointment_date BETWEEN NOW() AND NOW() + INTERVAL '${hours_before} hours'`,
+          `a.appointment_date BETWEEN NOW() AND NOW() + make_interval(hours => $${params.length}::int)`,
           `a.reminder_sent = false`
         ];
 
@@ -666,7 +675,6 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           whereConditions.push(`a.status != 'cancelled'`);
         }
 
-        const params = [];
         if (include_departments.length > 0) {
           params.push(include_departments);
           whereConditions.push(`doc.department_id = ANY($${params.length})`);
@@ -687,7 +695,7 @@ wrapAutoRBAC(router, 'appointmentAdminRoutes', {
           JOIN users d ON doc.user_id = d.id
           JOIN departments dept ON doc.department_id = dept.id
           WHERE ${whereConditions.join(' AND ')}
-        `, params);
+        `, ...params);
 
         // In a real implementation, this would trigger SMS/email sending
         // For now, just mark as reminder sent

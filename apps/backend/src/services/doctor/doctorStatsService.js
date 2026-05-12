@@ -3,44 +3,60 @@ import { DOCTOR_CONFIG, DOCTOR_MESSAGES } from '../../config/doctorConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
+// Clamp a user-supplied positive integer to [1, max], with a fallback for
+// non-numeric / non-positive inputs. Used to safely bind a duration into a
+// parameterised `make_interval()` call instead of string-interpolating into
+// `INTERVAL '${n} months'` (which would be a SQL-injection vector per the
+// `apps/backend/CLAUDE.md` "parameterized queries" rule).
+function clampPositiveInt(value, fallback, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return fallback;
+  }
+  return Math.min(parsed, max);
+}
+
 export class DoctorStatsService {
   // Get doctor statistics
   async getDoctorStats(doctorId, months = 6) {
     try {
+      const safeMonths = clampPositiveInt(months, 6, 12);
       const [appointmentStats, patientStats, revenueStats] = await Promise.all([
         // Appointment statistics
         prisma.$queryRawUnsafe(`
-          SELECT 
+          SELECT
             COUNT(*) as total_appointments,
             COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed_appointments,
             COUNT(CASE WHEN status = 'SCHEDULED' THEN 1 END) as scheduled_appointments,
             COUNT(CASE WHEN status = 'CANCELLED' THEN 1 END) as cancelled_appointments,
             ROUND(COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END)::numeric / NULLIF(COUNT(*), 0) * 100, 2) as completion_rate
-          FROM appointments 
-          WHERE doctor_id = $1 AND appointment_date >= CURRENT_DATE - INTERVAL '${months} months'
-        `, doctorId),
-        
+          FROM appointments
+          WHERE doctor_id = $1
+            AND appointment_date >= CURRENT_DATE - make_interval(months => $2::int)
+        `, doctorId, safeMonths),
+
         // Patient statistics
         prisma.$queryRawUnsafe(`
-          SELECT 
+          SELECT
             COUNT(DISTINCT patient_id) as unique_patients,
             COUNT(*) as total_consultations
-          FROM appointments 
+          FROM appointments
           WHERE doctor_id = $1 AND status = 'COMPLETED'
         `, doctorId),
-        
+
         // Revenue statistics
         prisma.$queryRawUnsafe(`
-          SELECT 
+          SELECT
             COUNT(CASE WHEN a.status = 'COMPLETED' THEN 1 END) * d.consultation_fee as estimated_revenue,
             d.consultation_fee
           FROM appointments a
           JOIN doctors d ON a.doctor_id = d.user_id
-          WHERE a.doctor_id = $1 AND a.appointment_date >= CURRENT_DATE - INTERVAL '${months} months'
+          WHERE a.doctor_id = $1
+            AND a.appointment_date >= CURRENT_DATE - make_interval(months => $2::int)
           GROUP BY d.consultation_fee
-        `, doctorId)
+        `, doctorId, safeMonths)
       ]);
-      
+
       return {
         appointments: appointmentStats[0],
         patients: patientStats[0],
@@ -55,54 +71,58 @@ export class DoctorStatsService {
   // Get doctor performance analytics
   async getDoctorAnalytics(doctorId, months = 6) {
     try {
+      const safeMonths = clampPositiveInt(months, 6, 12);
       // Verify doctor exists
       const doctorCheck = await prisma.$queryRawUnsafe(
         'SELECT u.name, d.specialty AS specialization, d.department FROM users u JOIN doctors d ON u.id = d.user_id WHERE u.id = $1',
         doctorId
       );
-      
+
       if (doctorCheck.length === 0) {
         throw new Error(DOCTOR_MESSAGES.NOT_FOUND);
       }
-      
+
       const [appointmentStats, monthlyTrends, patientFeedback] = await Promise.all([
         // Appointment statistics
         prisma.$queryRawUnsafe(`
-          SELECT 
+          SELECT
             COUNT(*) as total_appointments,
             COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed_appointments,
             COUNT(CASE WHEN status = 'CANCELLED' THEN 1 END) as cancelled_appointments,
             COUNT(CASE WHEN status = 'NO_SHOW' THEN 1 END) as no_show_appointments,
             ROUND(COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END)::numeric / NULLIF(COUNT(*), 0) * 100, 2) as completion_rate
-          FROM appointments 
-          WHERE doctor_id = $1 AND appointment_date >= CURRENT_DATE - INTERVAL '${months} months'
-        `, doctorId),
-        
+          FROM appointments
+          WHERE doctor_id = $1
+            AND appointment_date >= CURRENT_DATE - make_interval(months => $2::int)
+        `, doctorId, safeMonths),
+
         // Monthly trends
         prisma.$queryRawUnsafe(`
-          SELECT 
+          SELECT
             TO_CHAR(DATE_TRUNC('month', appointment_date), 'MM-YYYY') as month,
             COUNT(*) as total_appointments,
             COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed_appointments,
             SUM(CASE WHEN status = 'COMPLETED' THEN d.consultation_fee ELSE 0 END) as revenue
           FROM appointments a
           JOIN doctors d ON a.doctor_id = d.user_id
-          WHERE a.doctor_id = $1 AND a.appointment_date >= CURRENT_DATE - INTERVAL '${months} months'
+          WHERE a.doctor_id = $1
+            AND a.appointment_date >= CURRENT_DATE - make_interval(months => $2::int)
           GROUP BY DATE_TRUNC('month', appointment_date)
           ORDER BY DATE_TRUNC('month', appointment_date) DESC
-        `, doctorId),
-        
+        `, doctorId, safeMonths),
+
         // Patient feedback (if table exists)
         prisma.$queryRawUnsafe(`
           SELECT AVG(rating) as avg_rating, COUNT(*) as total_reviews,
                  COUNT(CASE WHEN rating >= 4 THEN 1 END) as positive_reviews
-          FROM patient_feedback 
-          WHERE doctor_id = $1 AND created_at >= CURRENT_DATE - INTERVAL '${months} months'
-        `, doctorId).catch(() => ({
+          FROM patient_feedback
+          WHERE doctor_id = $1
+            AND created_at >= CURRENT_DATE - make_interval(months => $2::int)
+        `, doctorId, safeMonths).catch(() => ({
           rows: [{ avg_rating: null, total_reviews: 0, positive_reviews: 0 }]
         }))
       ]);
-      
+
       return {
         doctor: doctorCheck[0],
         appointment_statistics: appointmentStats[0],
@@ -118,6 +138,7 @@ export class DoctorStatsService {
   // Get workload analysis
   async getWorkloadAnalysis(days = 30, department = null) {
     try {
+      const safeDays = clampPositiveInt(days, 30, 365);
       let query = `
         SELECT u.id, u.name, d.specialty AS specialization, d.department,
                d.available_days, d.available_hours,
@@ -125,7 +146,7 @@ export class DoctorStatsService {
                COUNT(CASE WHEN a.status = 'COMPLETED' THEN 1 END) as completed_appointments,
                COUNT(CASE WHEN a.status = 'CANCELLED' THEN 1 END) as cancelled_appointments,
                ROUND(COUNT(a.id)::numeric / $1, 2) as avg_appointments_per_day,
-               CASE 
+               CASE
                  WHEN COUNT(a.id) > ${DOCTOR_CONFIG.WORKLOAD_LEVELS.HIGH.min} THEN 'HIGH'
                  WHEN COUNT(a.id) > ${DOCTOR_CONFIG.WORKLOAD_LEVELS.MEDIUM.min} THEN 'MEDIUM'
                  ELSE 'LOW'
@@ -133,30 +154,30 @@ export class DoctorStatsService {
                SUM(CASE WHEN a.status = 'COMPLETED' THEN d.consultation_fee ELSE 0 END) as revenue
         FROM users u
         JOIN doctors d ON u.id = d.user_id
-        LEFT JOIN appointments a ON u.id = a.doctor_id 
-          AND a.appointment_date >= CURRENT_DATE - INTERVAL '${days} days'
+        LEFT JOIN appointments a ON u.id = a.doctor_id
+          AND a.appointment_date >= CURRENT_DATE - make_interval(days => $2::int)
         WHERE u.role = 'DOCTOR' AND d.is_available = true
       `;
-      const params = [days];
-      
+      const params = [safeDays, safeDays];
+
       if (department) {
-        query += ' AND d.department = $2';
+        query += ` AND d.department = $${params.length + 1}`;
         params.push(department);
       }
-      
+
       query += ` GROUP BY u.id, u.name, d.specialty, d.department,
                  d.available_days, d.available_hours, d.consultation_fee
                  ORDER BY total_appointments DESC`;
-      
+
       const result = await prisma.$queryRawUnsafe(query, ...params);
-      
+
       // Calculate workload distribution
       const workloadDistribution = result.reduce((acc, doctor) => {
         const level = doctor.workload_level;
         acc[level] = (acc[level] || 0) + 1;
         return acc;
       }, {});
-      
+
       return {
         doctors: result,
         distribution: workloadDistribution,
@@ -167,7 +188,7 @@ export class DoctorStatsService {
           ),
           high_workload_doctors: result.filter(d => d.workload_level === 'HIGH').length
         },
-        period_days: days,
+        period_days: safeDays,
         department_filter: department
       };
     } catch (error) {

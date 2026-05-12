@@ -210,14 +210,14 @@ export function ReportsOverview() {
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-4">Appointments Trend</h3>
           <div className="h-64 flex items-end justify-between gap-1">
-            {stats.appointmentsTrend.map((day, index) => {
+            {stats.appointmentsTrend.map((day) => {
               const maxCount = Math.max(
                 ...stats.appointmentsTrend.map((d) => d.count),
               );
               const height = maxCount > 0 ? (day.count / maxCount) * 100 : 0;
               return (
                 <div
-                  key={index}
+                  key={day.date}
                   className="flex-1 bg-primary hover:bg-primary/90 rounded-t transition-colors relative group"
                   style={{ height: `${height}%` }}
                 >
@@ -239,14 +239,14 @@ export function ReportsOverview() {
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-4">Revenue by Department</h3>
           <div className="space-y-3">
-            {stats.revenueByDepartment.slice(0, 5).map((dept, index) => {
+            {stats.revenueByDepartment.slice(0, 5).map((dept) => {
               const maxRevenue = Math.max(
                 ...stats.revenueByDepartment.map((d) => d.revenue),
               );
               const percentage =
                 maxRevenue > 0 ? (dept.revenue / maxRevenue) * 100 : 0;
               return (
-                <div key={index}>
+                <div key={dept.department}>
                   <div className="flex justify-between mb-1">
                     <span className="text-sm font-medium">
                       {dept.department}
@@ -293,8 +293,8 @@ export function ReportsOverview() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {stats.topDoctors.map((doctor, index) => (
-                <tr key={index} className="hover:bg-muted">
+              {stats.topDoctors.map((doctor) => (
+                <tr key={doctor.name} className="hover:bg-muted">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-foreground">
                       Dr. {doctor.name}

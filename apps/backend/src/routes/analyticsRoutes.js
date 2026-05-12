@@ -234,18 +234,24 @@ wrapAutoRBAC(
                 return error(res, 'Invalid metric specified. Valid options: users, appointments, investigations, feedback, pharmacy', HTTP_STATUS.BAD_REQUEST);
             }
 
+            // dateField / dateFormat / uniqueEntityExpression / additionalFields /
+            // tableName all come from the allowlisted switch statements above —
+            // safe to interpolate. `days` is already clamped to [1, 365] above
+            // (line ~175), but per backend CLAUDE.md "never use template
+            // literals in SQL", bind it as a parameter via make_interval()
+            // instead of into the INTERVAL string.
             const trends = await prisma.$queryRawUnsafe(`
-              SELECT 
+              SELECT
                 TO_CHAR(${dateField}, '${dateFormat}') as period,
                 COUNT(*) as count,
                 COUNT(DISTINCT ${uniqueEntityExpression}) as unique_entities
                 ${additionalFields}
               FROM ${tableName}
-              WHERE ${dateField} > NOW() - INTERVAL '${days} days'
+              WHERE ${dateField} > NOW() - make_interval(days => $1::int)
               GROUP BY TO_CHAR(${dateField}, '${dateFormat}')
               ORDER BY period DESC
               LIMIT 100
-            `);
+            `, days);
 
             success(res, {
               metric,

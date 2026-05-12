@@ -64,6 +64,17 @@ class AppRouter {
   static String? get userPhone => _userPhone;
   static String? get userName => _userName;
 
+  /// Shape-check a JWT: header.payload.signature, each part non-empty.
+  /// Cheaper than verification, but rules out garbage values that an
+  /// attacker (or a corrupted storage write) could leave in
+  /// `flutter_secure_storage` to bypass the "do we have a session?"
+  /// gate. Matches the staff-app hardening.
+  static bool _hasValidJwtShape(String? jwt) {
+    if (jwt == null || jwt.isEmpty) return false;
+    final parts = jwt.split('.');
+    return parts.length == 3 && parts.every((part) => part.isNotEmpty);
+  }
+
   /// Read user phone from Provider (preferred) with static fallback.
   /// Treats an *empty* Provider value as a miss — login flows that only
   /// update the static (dev login, legacy OTP) need to fall through.
@@ -141,7 +152,9 @@ class AppRouter {
       if (!isLoggedIn) {
         try {
           final jwt = await const FlutterSecureStorage().read(key: 'jwt');
-          isLoggedIn = jwt != null && jwt.isNotEmpty;
+          // Don't treat any non-empty secure-storage value as an
+          // authenticated session — require a JWT-shaped string.
+          isLoggedIn = _hasValidJwtShape(jwt);
         } catch (_) {
           // Storage read failure → fall through to Firebase-only signal.
         }
