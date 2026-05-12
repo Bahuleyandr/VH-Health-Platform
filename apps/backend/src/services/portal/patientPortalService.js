@@ -239,22 +239,35 @@ export async function getMyClaim({ tenantId, patient_uid, id }) {
 }
 
 export async function listMyLabResults({ tenantId, patient_uid, limit = 100 }) {
+  // `lab_results` has `performed_at` and `received_at` — never an
+  // `observation_datetime` column. The earlier query 500ed on every
+  // patient-portal lab-results load. Use `performed_at` as the canonical
+  // observation timestamp and fall back to `received_at` when the
+  // analyzer didn't report one (legacy HL7 paths). Exposed as
+  // `observation_datetime` for backwards compatibility with the Flutter
+  // patient app's lab_results_screen. See finding
+  // 2026-05-10-lab-walk-in-patient-lab-results-portal-500.
   return prisma.$queryRawUnsafe(
-    `SELECT id, test_code, test_name, observation_datetime,
+    `SELECT id, test_code, test_name,
+            COALESCE(performed_at, received_at) AS observation_datetime,
             value_text, value_numeric, unit, reference_range,
             abnormal_flag, signed_off_at
        FROM lab_results
       WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid
         AND signed_off_at IS NOT NULL
-      ORDER BY observation_datetime DESC NULLS LAST, id DESC
+      ORDER BY COALESCE(performed_at, received_at) DESC NULLS LAST, id DESC
       LIMIT $3::int`,
     tenantId, String(patient_uid), Number(limit),
   );
 }
 
 export async function getMyLabResult({ tenantId, patient_uid, id }) {
+  // Expose the `observation_datetime` alias alongside the row so the
+  // Flutter app's detail screen and the list screen see the same field
+  // — match the alias from listMyLabResults above.
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM lab_results
+    `SELECT *, COALESCE(performed_at, received_at) AS observation_datetime
+       FROM lab_results
       WHERE id = $1::int AND tenant_id = $2::uuid AND patient_uid = $3::uuid
         AND signed_off_at IS NOT NULL`,
     Number(id), tenantId, String(patient_uid),
