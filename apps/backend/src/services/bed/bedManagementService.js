@@ -237,7 +237,18 @@ class BedManagementService {
   // getAvailableBeds — List available beds with optional ward/type filters
   // =========================================================================
   async getAvailableBeds(wardId, bedType) {
-    const conditions = ["status = 'available'"];
+    // F-2 — defensive filter: status='available' alone trusted a column
+    // legacy paths (bedService.dischargePatient pre-2026-05-12) didn't
+    // always clear alongside the stale occupant FKs. The combined check
+    // means a bed only appears available when no occupant identifiers
+    // and no active admissions row references it. Finding:
+    // 2026-05-10-dynamic-acute-abdomen-admission-available-bed-retains-active-patient.
+    const conditions = [
+      "status = 'available'",
+      'patient_uid IS NULL',
+      'patient_id IS NULL',
+      "NOT EXISTS (SELECT 1 FROM admissions a WHERE a.bed_id = beds.id AND a.discharged_at IS NULL)",
+    ];
     const params = [];
     let idx = 1;
 
