@@ -31,10 +31,10 @@ export function PreauthTab() {
     mutationFn: async (vars: { p: Preauth; ref: string }) =>
       fetchAdminAPI(`/insurance/preauth/${vars.p.id}/submit`, {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           submission_channel: "portal",
           tpa_reference_id: vars.ref || undefined,
-        }),
+        },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["insurance", "preauth"] }),
   });
@@ -53,7 +53,7 @@ export function PreauthTab() {
       if (vars.denial_reason != null) body.denial_reason = vars.denial_reason;
       return fetchAdminAPI(`/insurance/preauth/${vars.p.id}/response`, {
         method: "POST",
-        body: JSON.stringify(body),
+        body: body,
       });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["insurance", "preauth"] }),

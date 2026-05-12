@@ -295,11 +295,11 @@ function ScanModal({
     mutationFn: async () => {
       const r = await fetchAdminAPI<unknown>("/clinical/mar/verify", {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           mar_id: dose.id,
           scanned_patient_uid: patientBarcode,
           scanned_barcode: drugBarcode,
-        }),
+        },
       });
       return unwrap<RightsResult>(r);
     },
@@ -310,11 +310,11 @@ function ScanModal({
     mutationFn: async () =>
       fetchAdminAPI(`/clinical/mar/${dose.id}/administer-with-scan`, {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           scanned_patient_uid: patientBarcode,
           scanned_barcode: drugBarcode,
           override_reason: overrideReason || undefined,
-        }),
+        },
       }),
     onSuccess: onSaved,
   });

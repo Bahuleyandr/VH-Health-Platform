@@ -116,10 +116,10 @@ export default function BedsPage() {
     mutationFn: async (vars: { bedId: number; patient_uid: string; expected_discharge?: string }) =>
       fetchAdminAPI(`/beds/${vars.bedId}/admit`, {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           patient_uid: vars.patient_uid,
           expected_discharge: vars.expected_discharge ?? null,
-        }),
+        },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["beds"] }),
   });
@@ -140,7 +140,7 @@ export default function BedsPage() {
     mutationFn: async (vars: { patient_uid: string; to_bed_id: number; reason?: string }) =>
       fetchAdminAPI(`/beds/transfer`, {
         method: "POST",
-        body: JSON.stringify(vars),
+        body: vars,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["beds"] }),
   });

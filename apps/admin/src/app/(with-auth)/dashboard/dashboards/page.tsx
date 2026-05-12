@@ -42,7 +42,7 @@ export default function DashboardsPage() {
     mutationFn: async (key: string) => {
       const r = await fetchAdminAPI<unknown>("/dashboards/embed/url", {
         method: "POST",
-        body: JSON.stringify({ key, ttlSeconds: 1800 }),
+        body: { key, ttlSeconds: 1800 },
       });
       return unwrap<{ url: string }>(r);
     },

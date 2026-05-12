@@ -372,7 +372,7 @@ function RecordDoseModal({
     mutationFn: async () =>
       fetchAdminAPI(`/maternity/immunisations/${dose.id}/record`, {
         method: "PATCH",
-        body: JSON.stringify({
+        body: {
           status: form.status,
           given_by_name: form.status === "given" ? form.given_by_name : undefined,
           batch_number: form.batch_number || undefined,
@@ -380,7 +380,7 @@ function RecordDoseModal({
           site_of_injection: form.status === "given" ? form.site_of_injection : undefined,
           adverse_event: form.adverse_event || undefined,
           notes: form.notes || undefined,
-        }),
+        },
       }),
     onSuccess: onSaved,
   });

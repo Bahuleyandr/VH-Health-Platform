@@ -375,7 +375,7 @@ function NewFormFModal({
       };
       return fetchAdminAPI("/pcpndt/form-f", {
         method: "POST",
-        body: JSON.stringify(body),
+        body: body,
       });
     },
     onSuccess: onCreated,
@@ -709,7 +709,7 @@ function MachineFormModal({
     mutationFn: async () =>
       fetchAdminAPI("/pcpndt/machines", {
         method: "POST",
-        body: JSON.stringify(form),
+        body: form,
       }),
     onSuccess: onSaved,
   });
@@ -865,7 +865,7 @@ function SonologistFormModal({
     mutationFn: async () =>
       fetchAdminAPI("/pcpndt/sonologists", {
         method: "POST",
-        body: JSON.stringify(form),
+        body: form,
       }),
     onSuccess: onSaved,
   });
@@ -936,10 +936,10 @@ function SubmissionsTab() {
     mutationFn: async () =>
       fetchAdminAPI("/pcpndt/submissions/generate", {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           period_year: period.year,
           period_month: period.month,
-        }),
+        },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["pcpndt"] }),
   });
@@ -948,7 +948,7 @@ function SubmissionsTab() {
     mutationFn: async (vars: { id: number; reference: string }) =>
       fetchAdminAPI(`/pcpndt/submissions/${vars.id}/acknowledge`, {
         method: "POST",
-        body: JSON.stringify({ authority_reference: vars.reference }),
+        body: { authority_reference: vars.reference },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["pcpndt", "submissions"] }),
   });

@@ -232,12 +232,12 @@ function RassModal({ admissionId, onClose, onSaved }: {
       `/icu/admissions/${admissionId}/assessments`,
       {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           assessment_kind: "rass",
           rass_score: score,
           rass_target: target ? Number(target) : undefined,
           notes: notes || undefined,
-        }),
+        },
       }),
     onSuccess: () => onSaved(),
   });
@@ -302,12 +302,12 @@ function CamModal({ admissionId, onClose, onSaved }: {
       `/icu/admissions/${admissionId}/assessments`,
       {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           assessment_kind: "cam_icu",
           cam_feature_1: f1, cam_feature_2: f2,
           cam_feature_3: f3, cam_feature_4: f4,
           notes: notes || undefined,
-        }),
+        },
       }),
     onSuccess: () => onSaved(),
   });
@@ -361,7 +361,7 @@ function SofaModal({ admissionId, onClose, onSaved }: {
       `/icu/admissions/${admissionId}/assessments`,
       {
         method: "POST",
-        body: JSON.stringify({ assessment_kind: "sofa", ...c }),
+        body: { assessment_kind: "sofa", ...c },
       }),
     onSuccess: () => onSaved(),
   });
@@ -429,7 +429,7 @@ function CpotModal({ admissionId, onClose, onSaved }: {
       `/icu/admissions/${admissionId}/assessments`,
       {
         method: "POST",
-        body: JSON.stringify({ assessment_kind: "cpot", ...c }),
+        body: { assessment_kind: "cpot", ...c },
       }),
     onSuccess: () => onSaved(),
   });

@@ -365,7 +365,7 @@ function NewEntryModal({
       if (form.event_note) body.event_note = form.event_note;
       return fetchAdminAPI("/anesthesia/entries", {
         method: "POST",
-        body: JSON.stringify(body),
+        body: body,
       });
     },
     onSuccess: onSaved,

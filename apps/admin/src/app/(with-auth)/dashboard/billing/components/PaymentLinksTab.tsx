@@ -78,10 +78,10 @@ export function PaymentLinksTab() {
     mutationFn: async (vars: { link: PaymentLink; phone: string }) =>
       fetchAdminAPI(`/billing/v2/payment-links/${vars.link.link_token}/send`, {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           channels: ["whatsapp"],
           patient_phone: vars.phone,
-        }),
+        },
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["billing", "payment-links"] }),
   });
@@ -92,7 +92,7 @@ export function PaymentLinksTab() {
         `/billing/v2/payment-links/${vars.link.link_token}/mark-paid`,
         {
           method: "POST",
-          body: JSON.stringify({ paid_via: "upi", paid_reference: vars.ref }),
+          body: { paid_via: "upi", paid_reference: vars.ref },
         },
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["billing", "payment-links"] }),
@@ -104,7 +104,7 @@ export function PaymentLinksTab() {
         `/billing/v2/payment-links/${vars.link.link_token}/cancel`,
         {
           method: "POST",
-          body: JSON.stringify({ reason: vars.reason }),
+          body: { reason: vars.reason },
         },
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["billing", "payment-links"] }),

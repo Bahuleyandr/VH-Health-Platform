@@ -266,7 +266,7 @@ function CreateOrderModal({
     mutationFn: async () =>
       fetchAdminAPI("/microbiology/orders", {
         method: "POST",
-        body: JSON.stringify(form),
+        body: form,
       }),
     onSuccess: onCreated,
   });
@@ -390,7 +390,7 @@ function OrderDetailModal({
     mutationFn: async (vars: { status: string; growth_status?: string }) =>
       fetchAdminAPI(`/microbiology/orders/${orderId}/transition`, {
         method: "POST",
-        body: JSON.stringify(vars),
+        body: vars,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["micro"] }),
   });
@@ -421,7 +421,7 @@ function OrderDetailModal({
     if (!name) return;
     fetchAdminAPI(`/microbiology/orders/${orderId}/isolates`, {
       method: "POST",
-      body: JSON.stringify({ organism_name: name }),
+      body: { organism_name: name },
     }).then(() => qc.invalidateQueries({ queryKey: ["micro", "order", orderId] }));
   }
 
@@ -437,11 +437,11 @@ function OrderDetailModal({
     if (!result) return;
     fetchAdminAPI(`/microbiology/isolates/${isolateId}/sensitivities`, {
       method: "POST",
-      body: JSON.stringify({
+      body: {
         antibiotic_code: code,
         antibiotic_name: name,
         result: result.toUpperCase(),
-      }),
+      },
     }).then(() => qc.invalidateQueries({ queryKey: ["micro", "order", orderId] }));
   }
 

@@ -158,11 +158,11 @@ function EnrolModal({
     mutationFn: async () => {
       const r = await fetchAdminAPI<unknown>("/dialysis/patients", {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           ...form,
           prescribed_minutes: form.prescribed_minutes ? Number(form.prescribed_minutes) : undefined,
           dry_weight_kg: form.dry_weight_kg ? Number(form.dry_weight_kg) : undefined,
-        }),
+        },
       });
       return unwrap<{ id: number }>(r);
     },
@@ -242,7 +242,7 @@ function PatientDetailModal({
   const updDryWt = useMutation({
     mutationFn: async () => fetchAdminAPI<unknown>(
       `/dialysis/patients/${detail.id}/dry-weight`,
-      { method: "PATCH", body: JSON.stringify({ dry_weight_kg: Number(newDryWt) }) },
+      { method: "PATCH", body: { dry_weight_kg: Number(newDryWt) } },
     ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["dialysis"] });
@@ -445,11 +445,11 @@ function AddAccessModal({
       `/dialysis/patients/${patientId}/access`,
       {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           ...form,
           qa_flow_ml_min: form.qa_flow_ml_min ? Number(form.qa_flow_ml_min) : undefined,
           first_used_date: form.first_used_date || undefined,
-        }),
+        },
       }),
     onSuccess: () => onAdded(),
   });
@@ -526,10 +526,10 @@ function SerologyModal({
       `/dialysis/patients/${patientId}/serology`,
       {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           ...form,
           hbs_titre: form.hbs_titre ? Number(form.hbs_titre) : undefined,
-        }),
+        },
       }),
     onSuccess: () => onSaved(),
   });

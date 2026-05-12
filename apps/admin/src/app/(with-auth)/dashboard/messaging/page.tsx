@@ -134,7 +134,7 @@ export default function MessagingPage() {
       if (open === null) throw new Error("No thread open");
       return fetchAdminAPI(`/staff-messaging/threads/${open}/reply`, {
         method: "POST",
-        body: JSON.stringify({ body }),
+        body: { body },
       });
     },
     onSuccess: () => {
@@ -149,7 +149,7 @@ export default function MessagingPage() {
       if (open === null) throw new Error("No thread open");
       return fetchAdminAPI(`/staff-messaging/threads/${open}/status`, {
         method: "POST",
-        body: JSON.stringify({ status }),
+        body: { status },
       });
     },
     onSuccess: () => {

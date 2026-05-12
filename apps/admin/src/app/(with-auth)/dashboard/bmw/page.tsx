@@ -256,14 +256,14 @@ function BmwLogModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
   const m = useMutation({
     mutationFn: async () => fetchAdminAPI<unknown>("/compliance/bmw/log", {
       method: "POST",
-      body: JSON.stringify({
+      body: {
         ...form,
         yellow_kg: Number(form.yellow_kg),
         red_kg: Number(form.red_kg),
         white_kg: Number(form.white_kg),
         blue_kg: Number(form.blue_kg),
         bag_count: form.bag_count ? Number(form.bag_count) : undefined,
-      }),
+      },
     }),
     onSuccess: () => onSaved(),
   });

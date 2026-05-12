@@ -229,7 +229,7 @@ function FlowsheetEntryModal({
       }
       const r = await fetchAdminAPI<unknown>(
         `/icu/admissions/${admissionId}/flowsheet`,
-        { method: "POST", body: JSON.stringify(body) },
+        { method: "POST", body: body },
       );
       return unwrap<FlowsheetEntry>(r);
     },

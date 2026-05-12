@@ -230,7 +230,7 @@ function AdmitModal({
         expected_los_days: form.expected_los_days ? Number(form.expected_los_days) : undefined,
       };
       const r = await fetchAdminAPI<unknown>("/icu/admissions", {
-        method: "POST", body: JSON.stringify(body),
+        method: "POST", body: body,
       });
       return unwrap<{ id: number }>(r);
     },

@@ -350,7 +350,7 @@ function ScoreModal({
     mutationFn: async () => {
       const r = await fetchAdminAPI<unknown>("/nursing-assessments/score", {
         method: "POST",
-        body: JSON.stringify({ kind, inputs }),
+        body: { kind, inputs },
       });
       return unwrap<ScoreResult>(r);
     },
@@ -361,12 +361,12 @@ function ScoreModal({
     mutationFn: async () =>
       fetchAdminAPI("/nursing-assessments", {
         method: "POST",
-        body: JSON.stringify({
+        body: {
           patient_uid: patientUid,
           assessment_kind: kind,
           inputs,
           notes: notes || undefined,
-        }),
+        },
       }),
     onSuccess: onSaved,
   });

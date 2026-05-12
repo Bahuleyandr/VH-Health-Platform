@@ -42,7 +42,7 @@ export const useBroadcastAlert = () => {
     }) =>
       fetchAdminAPI(API_ENDPOINTS.admin.sos.broadcast, {
         method: "POST",
-        body: JSON.stringify({ message, severity }),
+        body: { message, severity },
       }),
     onSuccess: () => {
       toast.success("Emergency broadcast sent successfully");
@@ -62,7 +62,7 @@ export const useEscalateAlert = () => {
     }) =>
       fetchAdminAPI(API_ENDPOINTS.admin.sos.escalate(alertId), {
         method: "POST",
-        body: JSON.stringify({ reason }),
+        body: { reason },
       }),
     onSuccess: () => {
       toast.success("Alert escalated successfully");
