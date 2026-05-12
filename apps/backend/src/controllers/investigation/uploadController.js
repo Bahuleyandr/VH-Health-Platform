@@ -21,7 +21,7 @@ export const uploadResult = async (req, res) => {
     const userRole = req.user?.role?.toUpperCase();
     
     // Access control - only medical staff can upload
-    const allowedRoles = ['DOCTOR', 'LAB_TECHNICIAN', 'RADIOLOGIST', 'ADMIN'];
+    const allowedRoles = ['DOCTOR', 'LAB_STAFF', 'LAB_TECHNICIAN', 'RADIOLOGIST', 'ADMIN'];
     if (!allowedRoles.includes(userRole)) {
       return error(res, 'Access denied: Medical staff privileges required', 403);
     }
