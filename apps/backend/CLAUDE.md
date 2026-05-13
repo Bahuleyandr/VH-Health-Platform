@@ -269,11 +269,59 @@ node --experimental-vm-modules node_modules/jest/bin/jest.js critical-paths --fo
 - Health checks can report which routes failed to load
 
 ## Database Access
+
+Two native Postgres 17 clusters cohabit this dev box (the Windows
+service on `:5432` is the default install — leave it alone, it owns
+nothing of ours):
+
+| Cluster | Port | DB / Role | PGDATA | Purpose |
+|---|---|---|---|---|
+| Dev | 5433 | `vhhealth` / `vhhealth` | `D:/Dev/Tools/pgdata-vhhealth` | `npm run dev`, drift check, day-to-day |
+| QA | 55432 | `vhhealth_test` / `qa_writer` | `D:/Dev/Tools/vhhealth-test-postgres-data` | `scripts/qa-orchestrator.mjs`, `vh-health-qa` skill |
+
+### Dev cluster
+
 ```bash
-# Native Postgres 17 dev cluster (not Docker). Start once with:
-#   "C:/Program Files/PostgreSQL/17/bin/pg_ctl" -D "D:/Dev/Tools/pgdata-vhhealth" -o "-p 5433" -l "D:/Dev/Tools/pgdata-vhhealth/logfile" start
+# Start once per Windows boot:
+"C:/Program Files/PostgreSQL/17/bin/pg_ctl" \
+  -D "D:/Dev/Tools/pgdata-vhhealth" \
+  -o "-p 5433" \
+  -l "D:/Dev/Tools/pgdata-vhhealth/logfile" \
+  start
 psql -h localhost -p 5433 -U vhhealth -d vhhealth
 ```
+
+### QA cluster
+
+The QA cluster is what the `vh-health-qa` skill, the orchestrator,
+and the reset script all expect at `127.0.0.1:55432`. Bring it up
+with the idempotent script:
+
+```bash
+node apps/backend/scripts/qa-cluster-up.mjs
+# → QA cluster ready at postgresql://qa_writer:qa_writer_local@127.0.0.1:55432/vhhealth_test
+```
+
+The script starts postgres if it isn't already up, creates the
+`vhhealth_test` DB + `qa_writer` role + grants if missing, applies
+pending `src/migrations/*.sql` via `ci-setup-db.mjs`, and verifies a
+Windows-side `qa_writer` connect. Re-running against a healthy
+cluster is a fast no-op.
+
+**IPv6 bind caveat (Trenzalore, 2026-05-13).** On this host postgres
+fails to bind `::1:55432` with `Permission denied` even though .NET
+and Node bind the same address fine. Some WFP / Hyper-V / WinNAT
+component holds an invisible IPv6 reservation that `netsh int ipv6
+show excludedportrange` does not list. Adjacent ports (5433, 55430,
+55433, 56432, 5435) and the dev cluster bind both families with no
+trouble — only port 55432 specifically. We work around it two ways:
+the QA cluster's `postgresql.conf` is pinned to `listen_addresses =
+'127.0.0.1'`, and `qa-cluster-up.mjs` also passes `-o "-p 55432 -h
+127.0.0.1"` to `pg_ctl` so any manual restart still binds IPv4-only.
+Do **not** revert the conf or drop the `-h 127.0.0.1`; the failure
+mode is silent (cluster comes partway up then exits, refuses
+connections, no other diagnostic beyond the log line `could not bind
+IPv6 address "::1": Permission denied`).
 
 ## Sibling apps (same monorepo)
 
