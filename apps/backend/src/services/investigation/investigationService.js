@@ -682,7 +682,17 @@ export const addResults = async (id, resultData, userId) => {
         result_uploaded_at: now,
         result_summary: resultSummary,
         previous_results: priorHistory.length ? priorHistory : null,
-        result_version: (existing.result_version ?? 1) + (isReSubmit ? 1 : 0),
+        // Coerce to Number — Prisma sometimes returns BigInt for Int
+        // columns under driver-adapter mode and `BigInt + Number` throws
+        // `TypeError: Cannot mix BigInt and other types`, which the
+        // controller surfaces as a generic 500.
+        result_version: Number(existing.result_version ?? 1) + (isReSubmit ? 1 : 0),
+        // updated_at is NOT NULL with no `@updatedAt` decorator in the
+        // Prisma model, so leaving it out keeps the previous timestamp
+        // but masks the result-completion event from downstream sync
+        // pipelines that watch updated_at. Stamp it explicitly. Finding:
+        // 2026-05-10-emergency-walk-in-lab-tech-investigation-result-write-500.
+        updated_at: now,
       };
       if (interpretation != null) data.interpretation = interpretation;
 
