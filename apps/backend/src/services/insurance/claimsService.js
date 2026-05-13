@@ -344,6 +344,20 @@ export async function submitPreauth({
   if (pre.status !== 'draft') {
     throw AppError.badRequest(`Pre-auth in ${pre.status} cannot be submitted`);
   }
+  // Block submission with no clinical attachment. Without an admission
+  // note / advice letter the TPA portal sees a bare claim number and
+  // queries it back — the desk thinks the case is in flight when it
+  // is effectively unsubmitted.
+  // See finding 2026-05-10-tpa-insurance-claim-billing-preauth-submit-no-documents.
+  const docCount = await prisma.$queryRawUnsafe(
+    `SELECT COUNT(*)::int AS n FROM tpa_claim_documents WHERE preauth_id = $1::int`,
+    pre.id,
+  );
+  if (!docCount[0] || docCount[0].n === 0) {
+    throw AppError.badRequest(
+      'Pre-auth submission requires at least one supporting document (admission note, advice letter, or clinical summary). Attach via POST /api/v1/insurance/documents first.',
+    );
+  }
   await prisma.$executeRawUnsafe(
     `UPDATE insurance_preauth
         SET status = 'submitted', submitted_at = NOW(),
@@ -586,12 +600,42 @@ export async function getClaim({ tenantId, id }) {
   return rows[0];
 }
 
+/**
+ * Doc types the final cashless packet must include before submission.
+ * Lab + imaging are NOT required — they may not exist for every
+ * admission (observation-only / no investigations done). The TPA
+ * portal will still query a claim missing them, but discharge summary
+ * and final bill are non-negotiable.
+ * See finding 2026-05-10-tpa-insurance-claim-discharge-final-claim-submits-without-packet.
+ */
+export const FINAL_CASHLESS_REQUIRED_DOC_TYPES = ['discharge_summary', 'final_bill'];
+
 export async function submitClaim({
   tenantId, id, submitted_by, submission_channel = 'portal', tpa_reference_id,
 }) {
   const cl = await getClaim({ tenantId, id });
   if (cl.status !== 'prepared') {
     throw AppError.badRequest(`Claim in ${cl.status} cannot be submitted`);
+  }
+  const docs = await prisma.$queryRawUnsafe(
+    `SELECT doc_type FROM tpa_claim_documents WHERE claim_id = $1::int`,
+    cl.id,
+  );
+  if (docs.length === 0) {
+    throw AppError.badRequest(
+      'Claim submission requires at least one supporting document. Attach via POST /api/v1/insurance/documents first.',
+    );
+  }
+  // Cashless final claim: enforce the minimal portal packet so the TPA
+  // does not bounce the case for missing summary/bill.
+  if (cl.claim_type === 'cashless') {
+    const present = new Set(docs.map((d) => String(d.doc_type)));
+    const missing = FINAL_CASHLESS_REQUIRED_DOC_TYPES.filter((t) => !present.has(t));
+    if (missing.length) {
+      throw AppError.badRequest(
+        `Cashless claim packet missing required document types: ${missing.join(', ')}. Attach all of: ${FINAL_CASHLESS_REQUIRED_DOC_TYPES.join(', ')}.`,
+      );
+    }
   }
   await prisma.$executeRawUnsafe(
     `UPDATE tpa_claims

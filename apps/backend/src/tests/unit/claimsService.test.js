@@ -7,6 +7,7 @@ import {
   createPreauth,
   createClaim,
   extractPreauthCaps,
+  FINAL_CASHLESS_REQUIRED_DOC_TYPES,
 } from '../../services/insurance/claimsService.js';
 
 describe('createPreauth validation', () => {
@@ -147,5 +148,17 @@ describe('extractPreauthCaps', () => {
       pharmacy_cap: 99999,
     });
     expect(out).toEqual({ pharmacy: { max_amount: 20000, currency: 'INR' } });
+  });
+});
+
+describe('FINAL_CASHLESS_REQUIRED_DOC_TYPES', () => {
+  // Regression for 2026-05-10-tpa-insurance-claim-discharge-final-claim-submits-without-packet.
+  // The cashless packet check must include the two non-negotiable
+  // docs. Loosening to a single item re-opens the submitted-but-empty
+  // bug; adding lab/imaging breaks observation-only admissions.
+  it('contains discharge_summary and final_bill, nothing else', () => {
+    expect([...FINAL_CASHLESS_REQUIRED_DOC_TYPES].sort()).toEqual([
+      'discharge_summary', 'final_bill',
+    ]);
   });
 });
