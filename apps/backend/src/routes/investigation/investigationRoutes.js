@@ -64,7 +64,11 @@ wrapAutoRBAC(router, 'investigationRoutes', {
 
     ['/catalog', investigationController.upsertTestCatalog],
     ['/order', investigationRequestValidator, orderController.orderInvestigation],
-    ['/:id/upload', upload.single('file'), uploadController.uploadResult],    
+    // Wave-5 batch-3 — stamp sample collection on the investigations
+    // row itself (not the booking). Surfaces a printable barcode +
+    // collector/notes for the lab walk-in flow that bypasses bookings.
+    ['/:id/collected', idValidator, investigationController.markInvestigationCollected],
+    ['/:id/upload', upload.single('file'), uploadController.uploadResult],
     ['/', investigationRequestValidator, orderController.legacyInvestigationRequest]
   ],
 
