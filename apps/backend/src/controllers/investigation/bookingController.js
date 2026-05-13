@@ -451,6 +451,21 @@ export const uploadResult = async (req, res) => {
     const booking = await prisma.$queryRawUnsafe('SELECT id, investigation_id, patient_id, patient_name, patient_phone, test_name, status, scheduled_date, phlebotomist_id, notes, created_at, updated_at FROM investigation_bookings WHERE id=$1', id);
     if (!booking.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
 
+    // Chip-G — block silent overwrite of an already-uploaded result.
+    // RESULT_READY means a lab tech has filed the result file; further
+    // uploads would silently destroy the verified record (no audit row
+    // in investigation_booking_history, no overridden_by). Amendments
+    // are not yet supported, so the only safe behaviour is reject and
+    // surface the workflow gap. Finding:
+    // 2026-05-09-lab-walk-in-lab-tech-duplicate-result-overwrite.
+    if (booking[0].status === 'RESULT_READY') {
+      return error(
+        res,
+        'Result already uploaded for this booking; file an amendment instead of overwriting',
+        HTTP_STATUS.CONFLICT,
+      );
+    }
+
     // Upload to R2
     const timestamp = Date.now();
     const ext = req.file.originalname?.split('.').pop() || 'pdf';
