@@ -419,6 +419,59 @@ export const createPrescription = async (req, res) => {
       type: 'prescription',
     }).catch(err => logger.error('Prescription notification failed:', err));
 
+    // Phase 1.5 — best-effort follow-up appointment auto-booking. The
+    // doctor's Rx form has a `follow_up_date` field that was previously
+    // captured only as a printed instruction on the prescription PDF.
+    // The receptionist had to remember to manually book the follow-up
+    // — and frequently didn't, so the 28-week ANC return / 14-day
+    // post-op review / chronic-care visit never materialised. Finding:
+    //   2026-05-09-walk-in-opd-patient-follow-up-appt-not-booked.
+    //
+    // Idempotency: skip if an appointment for the same
+    // (patient_id, doctor_id, appointment_date) already exists in a
+    // non-terminal state. The matcher uses DATE() to ignore time
+    // components — patients typically don't care which slot of the
+    // recommended day they get, only that one is reserved.
+    if (follow_up_date && /^\d{4}-\d{2}-\d{2}$/.test(String(follow_up_date))) {
+      try {
+        const existing = await prisma.$queryRawUnsafe(
+          `SELECT id FROM appointments
+            WHERE patient_id = $1::int
+              AND doctor_id  = $2::int
+              AND DATE(appointment_date) = $3::date
+              AND status NOT IN ('CANCELLED', 'NO_SHOW')
+            LIMIT 1`,
+          patientId, doctorId, follow_up_date,
+        );
+        if (!existing.length) {
+          await prisma.$queryRawUnsafe(
+            `INSERT INTO appointments
+               (patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
+                status, visit_type, parent_appointment_id, created_by, updated_at)
+             VALUES ($1::int, $2::int, $3::date, $4, $5, $6, $7,
+                     'SCHEDULED', 'FOLLOW_UP', $8, $9::uuid, NOW())`,
+            patientId, doctorId, follow_up_date,
+            // appointment_time is VARCHAR(10) NOT NULL. The Rx didn't
+            // capture a slot time — the receptionist will assign one
+            // when the day comes. Use the 'Follow-up' literal as a
+            // placeholder that the appointment dashboard recognises.
+            'Follow-up',
+            patient.phone || '',
+            `Follow-up for prescription ${prescription.prescription_number}`,
+            follow_up_notes || null,
+            appointmentId || null,
+            req.user?.uid || null,
+          );
+        }
+      } catch (followUpErr) {
+        // Non-blocking — the prescription is already saved.
+        logger.warn('Follow-up appointment auto-booking failed:', {
+          prescription_id: prescription.id,
+          err: followUpErr?.message,
+        });
+      }
+    }
+
     success(res, prescription, `Prescription ${prescription.prescription_number} created`, HTTP_STATUS.CREATED);
   } catch (err) {
     // Log enough context to actually diagnose the next swarm 500. The

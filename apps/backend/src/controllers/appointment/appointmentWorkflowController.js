@@ -4,6 +4,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { sendAppointmentConfirmationSMS } from '../../services/smsService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
+import { logAudit } from '../../utils/logAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
@@ -778,6 +779,56 @@ export const registerWalkIn = async (req, res) => {
       return error(res, 'patient_phone or patient_id is required', HTTP_STATUS.BAD_REQUEST);
     }
 
+    // Phase 0 — DOCTOR-role gate. The walk-in admin dialog already
+    // requests `assignable=true` from `/doctors` (Wave-3 doctor-roster
+    // fix, commit 60ba8fba), so legitimate UI submissions always
+    // resolve to a DOCTOR-role user. This is the defense-in-depth
+    // check at the API boundary: a malformed payload (legacy client,
+    // direct API consumer, race against a role downgrade) must not be
+    // able to write a PATIENT- or RECEPTIONIST-role doctor_id onto the
+    // appointment row. The ANC walk-in path is the highest-leverage
+    // case — finding
+    // 2026-05-10-obstetric-anc-doctor-visit-assigned-to-non-doctor —
+    // because the assigned "doctor" surfaced on every downstream
+    // chart, prescription PDF, and TPA claim header.
+    if (doctor_id !== undefined && doctor_id !== null && doctor_id !== '') {
+      const doctorIdInt = parseInt(doctor_id, 10);
+      if (!Number.isFinite(doctorIdInt) || doctorIdInt <= 0) {
+        return error(res, 'doctor_id must be a positive integer', HTTP_STATUS.BAD_REQUEST);
+      }
+      // UNION ALL accepts either users.id (preferred — the
+      // assignable-mode dropdown surfaces this) or doctors.id (legacy
+      // booking surfaces) and confirms the underlying user is an
+      // active DOCTOR. The doctors-side branch goes through
+      // d.is_active=true so a deactivated doctor row also gets
+      // rejected.
+      const ok = await prisma.$queryRawUnsafe(
+        `SELECT 1 AS ok FROM (
+           SELECT 1 FROM users
+            WHERE id = $1::int
+              AND role = 'DOCTOR'
+              AND is_active = true
+           UNION ALL
+           SELECT 1 FROM doctors d
+             JOIN users u ON u.id = d.user_id
+            WHERE d.id = $1::int
+              AND d.is_active = true
+              AND u.role = 'DOCTOR'
+              AND u.is_active = true
+         ) candidates
+         LIMIT 1`,
+        doctorIdInt,
+      );
+      if (!ok.length) {
+        return error(
+          res,
+          `doctor_id ${doctorIdInt} is not an active DOCTOR — use /doctors?assignable=true to pick`,
+          HTTP_STATUS.BAD_REQUEST,
+          { code: 'INVALID_DOCTOR_ID' },
+        );
+      }
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       const appointmentDepartment = await resolveWalkInDepartment(tx, {
         department,
@@ -1115,8 +1166,14 @@ export const registerWalkIn = async (req, res) => {
  * Advise an appointment for inpatient admission — the OPD→IPD bridge.
  * A doctor flips this on a visit; the admission counter sees it in their
  * queue (`GET /appointments?advised_for_admission=true`). Migration 169
- * added the columns. See finding
- * 2026-05-08-inpatient-admission-receptionist-no-advise-admission-workflow.
+ * added the columns; Wave-4B-3 (commit 37e3458a) added the queue filter
+ * on the READ side. Wave-5 batch-3 closes the audit gap: every advise
+ * event lands in `audit_logs` so compliance can reconstruct who
+ * recommended an admission and when, and only DOCTOR/SUPER_ADMIN roles
+ * can record one — admission is a clinical decision, not an
+ * administrative one. Findings:
+ *   2026-05-08-inpatient-admission-receptionist-no-admission-advice-workflow
+ *   2026-05-08-inpatient-admission-receptionist-no-advise-admission-workflow.
  */
 export const adviseForAdmission = async (req, res) => {
   try {
@@ -1124,6 +1181,26 @@ export const adviseForAdmission = async (req, res) => {
     if (!Number.isFinite(id)) {
       return error(res, 'Invalid appointment id', HTTP_STATUS.BAD_REQUEST);
     }
+
+    // Clinical-decision gate. The wrapAutoRBAC roster
+    // (`appointmentRoutes` in rbacConfig.js) allows DOCTOR / ADMIN /
+    // NURSE / RECEPTIONIST / PATIENT through — fine for booking +
+    // cancel, too permissive for "patient needs to be admitted". The
+    // admission advice is the trigger for an IPD bed allocation, so
+    // restricting to DOCTOR + SUPER_ADMIN keeps the chain of clinical
+    // authority intact. ADMIN can also advise (super-admin override
+    // for ops desk edge cases) but not NURSE or RECEPTIONIST.
+    const role = req.user?.role ?? null;
+    const ALLOWED_ROLES = new Set(['DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'ADMIN', 'SUPER_ADMIN']);
+    if (role && !ALLOWED_ROLES.has(role)) {
+      return error(
+        res,
+        'Only a doctor or admin can advise admission',
+        HTTP_STATUS.FORBIDDEN,
+        { code: 'ADVISE_ADMISSION_ROLE_REQUIRED' },
+      );
+    }
+
     const note = typeof req.body?.note === 'string' ? req.body.note.trim() : null;
     const advisedBy = req.user?.uid ?? null;
 
@@ -1141,6 +1218,19 @@ export const adviseForAdmission = async (req, res) => {
     if (!rows.length) {
       return error(res, 'Appointment not found', HTTP_STATUS.NOT_FOUND);
     }
+
+    // Phase 1.5 — best-effort audit row. logAudit is fire-and-forget
+    // with its own error trap, so a write failure here cannot 500 the
+    // advise event itself.
+    logAudit(req, 'appointment-advise-admission', {
+      appointment_id: rows[0].id,
+      appointment_uid: rows[0].uid,
+      patient_id: rows[0].patient_id,
+      doctor_id: rows[0].doctor_id,
+      advised_at: rows[0].advised_for_admission_at,
+      note,
+    }).catch(() => {});
+
     success(res, rows[0], 'Patient advised for admission — admission counter notified');
   } catch (err) {
     logger.error('adviseForAdmission error:', { requestId: req.id, err: err?.message, stack: err?.stack });
