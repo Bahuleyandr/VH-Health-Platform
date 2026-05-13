@@ -18,7 +18,7 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
-const { detectCriticalsForResults } = await import('../../services/lab/labResultsService.js');
+const { detectCriticalsForResults, recordResultManual } = await import('../../services/lab/labResultsService.js');
 
 describe('labResultsService critical detection', () => {
   beforeEach(() => {
@@ -70,5 +70,103 @@ describe('labResultsService critical detection', () => {
       expect.stringContaining('UPDATE lab_results SET is_critical = true'),
       37,
     );
+  });
+});
+
+describe('labResultsService recordResultManual — investigation linkage', () => {
+  const tenantId = '00000000-0000-4000-8000-000000000001';
+  const patientUid = 'aaaa1111-2222-4333-8444-555555555555';
+
+  beforeEach(() => {
+    queryRawUnsafeMock.mockReset();
+    executeRawUnsafeMock.mockReset();
+    executeRawUnsafeMock.mockResolvedValue(1);
+  });
+
+  it('resolves investigation_id from booking_id when caller omits it, and advances investigations.status', async () => {
+    // Sequence of $queryRawUnsafe calls inside recordResultManual for a
+    // non-numeric value with no critical threshold and a booking_id:
+    //   1) lab_critical_thresholds probe (non-numeric branch) → empty
+    //   2) investigation_bookings lookup → resolveInvestigationIdForBooking
+    //   3) lab_results INSERT
+    // detectCriticalsForResults short-circuits when value_numeric is null.
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ investigation_id: 42 }])
+      .mockResolvedValueOnce([{
+        id: 101,
+        tenant_id: tenantId,
+        booking_id: 7,
+        investigation_id: 42,
+        patient_uid: patientUid,
+        test_code: 'CBC',
+        test_name: 'Complete Blood Count',
+        value_text: 'No growth at 48 hours',
+        value_numeric: null,
+        unit: null,
+        status: 'preliminary',
+      }]);
+
+    const { result } = await recordResultManual({
+      tenantId,
+      performed_by: 'lab-tech-uid',
+      result: {
+        booking_id: 7,
+        patient_uid: patientUid,
+        test_code: 'CBC',
+        test_name: 'Complete Blood Count',
+        value_text: 'No growth at 48 hours',
+      },
+    });
+
+    expect(result.investigation_id).toBe(42);
+
+    // INSERT (call 3) carries investigation_id=42 as $2.
+    const insertCall = queryRawUnsafeMock.mock.calls[2];
+    expect(insertCall[0]).toMatch(/INSERT INTO lab_results/);
+    expect(insertCall[0]).toMatch(/investigation_id/);
+    expect(insertCall[2]).toBe(42);
+
+    // investigations.status advance happens via $executeRawUnsafe.
+    const statusAdvance = executeRawUnsafeMock.mock.calls
+      .find((args) => /UPDATE investigations/.test(args[0]));
+    expect(statusAdvance).toBeDefined();
+    expect(statusAdvance[1]).toBe(42);
+    expect(statusAdvance[2]).toEqual(
+      expect.arrayContaining(['REQUESTED', 'PENDING', 'SCHEDULED', 'COLLECTED']),
+    );
+    expect(statusAdvance[0]).toMatch(/SET status = 'IN_PROGRESS'/);
+  });
+
+  it('skips the investigation status advance when no investigation is linked', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 102,
+        tenant_id: tenantId,
+        booking_id: null,
+        investigation_id: null,
+        patient_uid: patientUid,
+        test_code: 'BLDCULT',
+        test_name: 'Blood culture',
+        value_text: 'No growth',
+        value_numeric: null,
+        status: 'preliminary',
+      }]);
+
+    await recordResultManual({
+      tenantId,
+      performed_by: 'lab-tech-uid',
+      result: {
+        patient_uid: patientUid,
+        test_code: 'BLDCULT',
+        test_name: 'Blood culture',
+        value_text: 'No growth',
+      },
+    });
+
+    const statusAdvance = executeRawUnsafeMock.mock.calls
+      .find((args) => /UPDATE investigations/.test(args[0]));
+    expect(statusAdvance).toBeUndefined();
   });
 });

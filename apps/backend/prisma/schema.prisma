@@ -5334,6 +5334,7 @@ model investigations {
   verified_by                              String?                             @db.Uuid
   clinical_ai_lab_autoverifications        clinical_ai_lab_autoverifications[]
   investigation_bookings                   investigation_bookings[]
+  lab_results                              lab_results[]
   users_investigations_patient_idTousers   users?                              @relation("investigations_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
   users_investigations_requested_byTousers users?                              @relation("investigations_requested_byTousers", fields: [requested_by], references: [uid], onUpdate: NoAction)
 
@@ -9532,7 +9533,9 @@ model lab_results {
   reference_range_high Decimal?              @db.Decimal(15, 4)
   created_at           DateTime              @default(now()) @db.Timestamptz(6)
   updated_at           DateTime              @default(now()) @db.Timestamptz(6)
+  investigation_id     Int?
   lab_critical_alerts  lab_critical_alerts[]
+  investigations       investigations?       @relation(fields: [investigation_id], references: [id], onUpdate: NoAction)
 
   @@index([patient_uid, received_at(sort: Desc)], map: "idx_lab_results_patient")
   @@index([panel_id], map: "idx_lab_results_panel")
