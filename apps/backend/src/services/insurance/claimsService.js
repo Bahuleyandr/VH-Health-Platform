@@ -720,13 +720,24 @@ export async function recordClaimPayment({
       { claimed_amount: claimedNum, paid_amount: paidNum }
     );
   }
+  // Short-paid claim → settled_partial (migration 218). The
+  // disallowed_amount is what the insurer refused (claimed − paid).
+  // Distinct from non_payable_amount (food / attendant exclusions
+  // declared at claim creation).
+  // See findings 2026-05-09-tpa-insurance-claim-billing-no-settled-partial-state
+  // and 2026-05-10-tpa-insurance-claim-billing-settlement-collapses-to-paid.
+  const isShortPay = claimedNum > 0 && paidNum < claimedNum;
+  const newStatus = isShortPay ? 'settled_partial' : 'paid';
+  const disallowed = isShortPay ? Number((claimedNum - paidNum).toFixed(2)) : 0;
   await prisma.$executeRawUnsafe(
     `UPDATE tpa_claims
-        SET status = 'paid', paid_amount = $1::numeric,
-            payment_reference = $2, paid_at = COALESCE($3::timestamptz, NOW()),
+        SET status = $1, paid_amount = $2::numeric,
+            disallowed_amount = $3::numeric,
+            payment_reference = $4, paid_at = COALESCE($5::timestamptz, NOW()),
             updated_at = NOW()
-      WHERE id = $4::int`,
-    Number(paid_amount), payment_reference || null,
+      WHERE id = $6::int`,
+    newStatus, paidNum, disallowed,
+    payment_reference || null,
     paid_at || null, cl.id,
   );
 
