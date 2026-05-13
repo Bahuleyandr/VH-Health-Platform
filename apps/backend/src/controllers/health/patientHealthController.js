@@ -369,6 +369,120 @@ export async function recordStaffVitals(req, res) {
   }
 }
 
+// Correction window for staff-recorded vitals. A nurse should be able
+// to fix a transposed BP / glucose / heart rate within a few minutes
+// of recording (data entered under time pressure during a vitals round
+// or pre-op holding area). Outside the window, a correction has to go
+// through a clinical-note addendum rather than silently overwriting
+// the row.
+const VITALS_EDIT_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * PUT /health/records/:id — Correct a staff-recorded vital sign row
+ * within the 5-minute edit window. Accepts the same shape as
+ * POST /health/records (vital_signs / measurements). Returns 403 with
+ * `EDIT_WINDOW_EXPIRED` once the window has closed.
+ */
+export async function updateStaffVitals(req, res) {
+  try {
+    const vitalId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(vitalId) || vitalId <= 0) {
+      return error(res, 'vital id must be a positive integer', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const existingRows = await prisma.$queryRawUnsafe(
+      `SELECT id, patient_uid, recorded_at
+         FROM patient_vitals
+        WHERE id = $1
+        LIMIT 1`,
+      vitalId,
+    );
+    if (existingRows.length === 0) {
+      return error(res, 'Vital record not found', HTTP_STATUS.NOT_FOUND);
+    }
+    const existing = existingRows[0];
+
+    const recordedAtMs = new Date(existing.recorded_at).getTime();
+    if (!Number.isFinite(recordedAtMs)) {
+      return error(res, 'Vital record has no recorded_at timestamp', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    }
+    if (Date.now() - recordedAtMs > VITALS_EDIT_WINDOW_MS) {
+      return error(
+        res,
+        'Edit window expired — corrections beyond 5 minutes must be filed as a clinical-note addendum',
+        HTTP_STATUS.FORBIDDEN,
+        { code: 'EDIT_WINDOW_EXPIRED', recordedAt: existing.recorded_at },
+      );
+    }
+
+    const body = req.body || {};
+    const vitalSigns = body.vital_signs && typeof body.vital_signs === 'object' ? body.vital_signs : {};
+    const measurementValues = body.measurements && typeof body.measurements === 'object' ? body.measurements : {};
+    const numberOrNull = (value, parser = Number.parseFloat) => {
+      if (value === null || value === undefined || value === '') return undefined;
+      const parsed = parser(String(value), 10);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
+
+    const bloodPressure = vitalSigns.blood_pressure ?? vitalSigns.bloodPressure;
+    const heartRate = numberOrNull(
+      vitalSigns.heart_rate ?? vitalSigns.heartRate ?? vitalSigns.pulse,
+      Number.parseInt,
+    );
+    const temperature = numberOrNull(vitalSigns.temperature);
+    const bloodSugar = numberOrNull(
+      vitalSigns.blood_sugar ?? vitalSigns.bloodSugar,
+      Number.parseInt,
+    );
+    const spO2 = numberOrNull(vitalSigns.spo2 ?? vitalSigns.spO2, Number.parseInt);
+    const weight = numberOrNull(measurementValues.weight);
+
+    const updates = [];
+    const params = [];
+    const pushSet = (column, value, cast = '') => {
+      params.push(value);
+      updates.push(`${column} = $${params.length}${cast}`);
+    };
+    if (bloodPressure !== undefined) {
+      pushSet('blood_pressure', bloodPressure ? JSON.stringify(bloodPressure) : null, '::jsonb');
+    }
+    if (heartRate !== undefined) pushSet('heart_rate', heartRate);
+    if (temperature !== undefined) pushSet('temperature', temperature);
+    if (bloodSugar !== undefined) pushSet('blood_sugar', bloodSugar);
+    if (weight !== undefined) pushSet('weight', weight);
+    if (spO2 !== undefined) pushSet('spo2', spO2);
+
+    if (updates.length === 0) {
+      return error(res, 'At least one vital field is required to correct', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    params.push(vitalId);
+    const result = await prisma.$queryRawUnsafe(
+      `UPDATE patient_vitals
+          SET ${updates.join(', ')}
+        WHERE id = $${params.length}
+        RETURNING id, patient_uid, blood_pressure, heart_rate, temperature,
+                  blood_sugar, weight, spo2, recorded_at, source`,
+      ...params,
+    );
+
+    logPhiAccess({
+      userId: req.user?.uid,
+      userRole: req.user?.role,
+      patientId: existing.patient_uid,
+      recordType: 'STAFF_RECORDED_VITALS',
+      action: 'UPDATE',
+      ip: req.headers['x-forwarded-for'] || req.socket?.remoteAddress,
+      requestId: req.id,
+    });
+
+    success(res, result[0], 'Vital record corrected');
+  } catch (err) {
+    logger.error('Update staff vitals error:', err);
+    error(res, 'Failed to correct vital record', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+}
+
 /**
  * GET /health/patient/:patient_id/sync-status
  *
