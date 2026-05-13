@@ -41,6 +41,7 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
   beforeAll(async () => {
     // Clean any leftovers from prior runs (in reverse FK order)
     await prisma.$executeRawUnsafe(`DELETE FROM bed_transfers WHERE patient_uid = $1::uuid`, PATIENT_UID);
+    await prisma.$executeRawUnsafe(`DELETE FROM follow_up_plans WHERE patient_uid = $1::uuid`, PATIENT_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'admission' AND metadata->>'patient_uid' = $1`, PATIENT_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM patient_consents WHERE patient_uid = $1::uuid`, PATIENT_UID);
@@ -302,6 +303,21 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
                 billing_closed_at = NOW()
           WHERE id = $1`,
         admissionId,
+      );
+
+      // Final-discharge readiness gate (chip B, finding
+      // 2026-05-10-surgical-day-care-discharge-followup-not-in-readiness)
+      // requires an open/scheduled follow_up_plans row for the admission
+      // patient — POD1 review handoff is mandatory. Seed one for the
+      // happy-path discharge test.
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO follow_up_plans
+           (tenant_id, patient_uid, origin_kind, reason, status, due_at)
+         VALUES
+           ('00000000-0000-4000-8000-000000000001'::uuid, $1::uuid,
+            'admission_discharge', 'POD1 review for deep-test admission',
+            'open', NOW() + INTERVAL '7 days')`,
+        PATIENT_UID,
       );
 
       const res = await admin.post(`/api/v1/emr/${admissionId}/discharge`).send({
