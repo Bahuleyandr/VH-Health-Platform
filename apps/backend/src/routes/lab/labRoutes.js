@@ -84,6 +84,21 @@ router.get('/worklist/ipd', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
+// ── General lab worklist ────────────────────────────────────────────
+// All open investigations across OPD walk-ins, ER, and IPD — without
+// the admission inner join the /worklist/ipd endpoint applies. STAT/
+// URGENT orders sort to the top regardless of source. Findings:
+//   2026-05-10-emergency-walk-in-lab-tech-stat-er-order-not-on-worklist
+//   2026-05-08-obstetric-anc-lab-tech-no-worklist-endpoint
+router.get('/worklist', requireStaffOrAdmin, wrap(async (req) =>
+  lab.listLabWorklist({
+    tenantId: tenantOf(req),
+    limit: req.query.limit,
+    priority: req.query.priority,
+    source: req.query.source,
+  }),
+));
+
 // ── Pathologist worklist + sign-off ──────────────────────────────────
 router.get('/pathologist/pending', requireStaffOrAdmin, wrap(async (req) =>
   lab.listPendingSignOff({

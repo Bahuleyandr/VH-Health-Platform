@@ -8593,6 +8593,9 @@ model vitals_chart {
   recorded_at      DateTime? @default(now()) @db.Timestamptz(6)
   created_at       DateTime? @default(now()) @db.Timestamptz(6)
   encounter_uid    String?   @db.Uuid
+  urine_albumin    String?   @db.VarChar(10)
+  urine_sugar      String?   @db.VarChar(10)
+  urine_ketones    String?   @db.VarChar(10)
 
   @@index([patient_uid, recorded_at(sort: Desc)], map: "idx_vitals_chart_patient_recorded")
 }
