@@ -725,9 +725,15 @@ app.use('/api/v1/blood-bank', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NUR
 app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'BILLING_STAFF', 'PATIENT'), billingRoutes);
 app.use('/api/v1/billing/v2', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'BILLING_INCHARGE', 'FINANCE_INCHARGE', 'NURSING_STAFF', 'DOCTOR'), billingV2Routes);
 app.use('/api/v1/billing', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), revenueCycleRoutes);
-app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF'), phiAccessLogger('LAB_RESULT'), labRoutes);
+// PATHOLOGIST + LAB_INCHARGE are the clinically-correct signoff tiers for
+// /lab/pathologist/signoff (route-level requirePathologistTier enforces
+// the inner gate). Including them at the mount-level requireRole keeps
+// the seeded pathologist account from hitting a generic 403 before the
+// tier-specific message ever reaches the client. Finding:
+// 2026-05-10-emergency-walk-in-lab-tech-pathologist-signoff-rbac-blocked.
+app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF', 'PATHOLOGIST', 'LAB_INCHARGE'), phiAccessLogger('LAB_RESULT'), labRoutes);
 // A5 — structured panel entry + reference-range admin (sibling router under same /lab prefix).
-app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF'), phiAccessLogger('LAB_RESULT'), labPanelRoutes);
+app.use('/api/v1/lab', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF', 'PATHOLOGIST', 'LAB_INCHARGE'), phiAccessLogger('LAB_RESULT'), labPanelRoutes);
 app.use('/api/v1/insurance', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), insuranceClaimsRoutes);
 // Chart-shaped TPA enhancement surface — keyed off admission_id, open
 // to clinicians so a treating consultant can initiate an enhancement
