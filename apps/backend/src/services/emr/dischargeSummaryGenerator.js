@@ -732,11 +732,122 @@ export async function signDischargeSummary(admissionId, doctorUid) {
     },
   });
 
+  // Materialise take-home medicines from the signed discharge note into
+  // e_prescriptions so the patient app's Rx tab surfaces them. The
+  // clinical_notes path stores the discharge summary as a structured
+  // JSON object on `content` — medications_on_discharge is an array of
+  // { name, dose, frequency, duration, instructions, ... } entries (see
+  // buildDischargeMedications). The sibling Sprint-11 dischargeService
+  // path does the same materialisation against discharge_summary_sections
+  // free-text bodies. Best-effort: signing must not fail if no
+  // medications are present.
+  // Finding 2026-05-10-inpatient-admission-patient-takeaway-meds-missing.
+  await materialiseDischargeMedsFromClinicalNote({
+    note_id: txnResult.noteId,
+    admission_id: admissionId,
+    patient_uid: admission.patient_uid,
+    doctor_uid: doctorUid,
+  });
+
   return {
     noteId: txnResult.noteId,
     signed: true,
     signedAt: signedAt,
   };
+}
+
+async function materialiseDischargeMedsFromClinicalNote({
+  note_id, admission_id, patient_uid, doctor_uid,
+}) {
+  if (!patient_uid) return;
+  try {
+    const noteRows = await prisma.clinical_notes.findUnique({
+      where: { id: Number(note_id) },
+      select: { content: true },
+    });
+    const content = noteRows?.content;
+    const meds = (content && typeof content === 'object' && !Array.isArray(content))
+      ? asArray(content.medications_on_discharge)
+      : [];
+    if (!meds.length) return;
+
+    // Idempotency probe — re-signing or backfilling should not create
+    // duplicate Rx rows. Stamp a discharge marker in clinical_notes so
+    // we can detect a prior insert via LIKE.
+    const marker = `[discharge_clinical_note_id=${note_id}]`;
+    const existing = await prisma.$queryRawUnsafe(
+      `SELECT id FROM e_prescriptions
+        WHERE patient_uid = $1::uuid
+          AND clinical_notes LIKE $2
+        LIMIT 1`,
+      String(patient_uid), `%${marker}%`,
+    );
+    if (existing.length) return;
+
+    // Resolve int ids for the FK columns. The patient must exist; the
+    // doctor may not (legacy / name-only signers).
+    const [patientRow, doctorRow] = await Promise.all([
+      prisma.users.findUnique({
+        where: { uid: String(patient_uid) },
+        select: { id: true },
+      }),
+      doctor_uid
+        ? prisma.users.findUnique({
+            where: { uid: String(doctor_uid) },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    const patientId = patientRow?.id ?? null;
+    const doctorId = doctorRow?.id ?? null;
+    if (!patientId) {
+      logger.warn(
+        `materialiseDischargeMedsFromClinicalNote: no users row for patient_uid=${patient_uid}`,
+      );
+      return;
+    }
+
+    // Each entry is a structured medication record. Surface the array
+    // verbatim into e_prescriptions.medications so the Rx tab card
+    // renders the same fields the discharge note carried.
+    const medications = meds.map((m) => {
+      if (typeof m !== 'object' || m === null) {
+        return { name: String(m), source: 'discharge_summary' };
+      }
+      return { ...m, source: 'discharge_summary' };
+    });
+
+    const clinicalNotesText =
+      `Take-home medicines from discharge summary. ${marker}\n\n` +
+      medications.map((m) => {
+        const parts = [
+          m.name,
+          m.dose ? `(${m.dose})` : null,
+          m.frequency || null,
+          m.duration ? `× ${m.duration}` : null,
+          m.instructions || null,
+        ].filter(Boolean);
+        return `• ${parts.join(' ')}`.trim();
+      }).join('\n');
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO e_prescriptions
+         (appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
+          diagnosis, clinical_notes, medications, status)
+       VALUES (NULL, $1::int, $2, $3::uuid, $4,
+               NULL, $5, $6::jsonb, 'active')`,
+      patientId,
+      doctorId,
+      String(patient_uid),
+      doctor_uid ? String(doctor_uid) : null,
+      clinicalNotesText,
+      JSON.stringify(medications),
+    );
+  } catch (e) {
+    logger.warn(
+      `materialiseDischargeMedsFromClinicalNote failed for admission ${admission_id} note ${note_id}: ${e.message}`,
+    );
+  }
 }
 
 export function getDischargeSummaryAiConfig() {
