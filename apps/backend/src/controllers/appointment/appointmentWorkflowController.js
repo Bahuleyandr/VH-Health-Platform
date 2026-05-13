@@ -758,10 +758,26 @@ export const registerWalkIn = async (req, res) => {
     // the existing UNIQUE(phone) constraint stays honoured and a
     // future identity-merge flow has a stable target. Finding:
     //   2026-05-09-emergency-walk-in-receptionist-no-phone-optional-er-path
+    // Accept the full department label too — "Emergency Medicine" /
+    // "Emergency Department" / "ER" / "ED" all resolve to the same
+    // clinical context. The literal-only allowlist used to require the
+    // caller to send `department: "emergency"` exactly, so legitimate
+    // walk-in dialogs that pass the full department name failed the
+    // phone-less fast path even though the visit_type already said
+    // EMERGENCY. Finding:
+    // 2026-05-10-emergency-walk-in-receptionist-no-unidentified-fast-path.
     const departmentForCheck = String(department || '').trim().toLowerCase();
-    const isUnidentifiedMode =
-      (String(mode || '').toLowerCase() === 'unidentified' || unidentified === true) &&
-      ['emergency', 'emer', 'er', 'ed'].includes(departmentForCheck);
+    const visitTypeUpper = String(visit_type || '').toUpperCase();
+    const departmentLooksEmergency =
+      ['emergency', 'emer', 'er', 'ed'].includes(departmentForCheck) ||
+      departmentForCheck.includes('emergency') ||
+      departmentForCheck.includes('casualty') ||
+      visitTypeUpper === 'EMERGENCY';
+    const unidentifiedSignal =
+      String(mode || '').toLowerCase() === 'unidentified' ||
+      unidentified === true ||
+      (visitTypeUpper === 'EMERGENCY' && !patient_phone && !patient_id);
+    const isUnidentifiedMode = unidentifiedSignal && departmentLooksEmergency;
     let resolvedPhone = patient_phone;
     let isUnidentifiedFlag = false;
     if (isUnidentifiedMode && !patient_phone && !patient_id) {
