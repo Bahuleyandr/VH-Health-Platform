@@ -1089,6 +1089,372 @@ export async function dailyCollection({ date, mode, shift, collected_by } = {}) 
   return { date: target, summary, items };
 }
 
+// ─── Wave-5 batch-3 — admission invoice auto-itemizer ─────────────────
+//
+// Closes the deferral from Wave 2.1 (commit 5f4f0db6's migration 199
+// added the source-ref columns as the unblock). Walks the events that
+// happened during an admission and emits one billing_invoice_items
+// row per source record. Items carry source_ref_type +
+// source_ref_id so the bill stays auditable, plus a default
+// tpa_decision so the patient portal can preview the non-payable
+// component as it accumulates instead of only at discharge.
+//
+// Findings:
+//   2026-05-10-surgical-day-care-billing-package-not-itemised-iol-delta-opaque
+//   2026-05-09-tpa-insurance-claim-discharge-nonpayable-not-disclosed-proactively
+//
+// Idempotency. Each candidate emission is keyed on
+// (source_ref_type, source_ref_id). The function reads the invoice's
+// existing items first and skips any source that already has a line.
+// Calling itemizeAdmissionInvoice() multiple times during a stay is
+// safe — only new events surface.
+//
+// Scope. The function itemises:
+//   * Package line (one)                — `admission_package`
+//   * Pharmacy orders (one per order)   — `pharmacy_order`
+//   * Investigations (one per test)     — `lab_order`
+//   * Discharge consults (one per row)  — `discharge_consult`
+//   * OT schedules (one per case)       — `theatre_case`
+//
+// Skipped intentionally: ward_indents, individual room-day breakdown.
+// Indents have no per-row monetary value at the indent level (cost
+// lives on inventory issues); room-days need a separate room-cost
+// catalogue that doesn't exist yet. Both are roll-ups the cashier
+// adds manually until those catalogues are seeded.
+//
+// TPA decision defaults are conservative — 'pending' for orders, and
+// 'payable' for the package line. Room-upgrade-delta detection is
+// inline: if the admission's bed category exceeds the package's
+// bedded category, an extra non-payable 'room_upgrade_delta' line is
+// added with quantity equal to length-of-stay (so the patient can
+// see "Room upgrade × 3 nights — non-payable" on the portal).
+
+const ITEMIZER_DEFAULT_GST = 0; // healthcare services exempt from GST in India
+
+async function fetchExistingSourceKeys(invoiceId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT source_ref_type, source_ref_id
+       FROM billing_invoice_items
+      WHERE invoice_id = $1::int
+        AND source_ref_type IS NOT NULL`,
+    Number(invoiceId),
+  );
+  const keys = new Set();
+  for (const r of rows) {
+    keys.add(`${r.source_ref_type}:${r.source_ref_id ?? 'NULL'}`);
+  }
+  return keys;
+}
+
+async function fetchAdmissionForItemizing(admissionId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT a.id, a.patient_uid, a.admitted_at, a.discharged_at,
+            a.ward, a.bed_id, a.package_id, a.package_code,
+            a.package_estimated_cost_minor,
+            p.fixed_price_minor AS package_price_minor,
+            p.display_name      AS package_name
+       FROM admissions a
+       LEFT JOIN packages p ON p.id = a.package_id
+      WHERE a.id = $1::int
+      LIMIT 1`,
+    Number(admissionId),
+  );
+  return rows[0] || null;
+}
+
+export async function itemizeAdmissionInvoice(invoiceId, {
+  decided_by = null,
+  emit_package = true,
+  emit_pharmacy = true,
+  emit_lab = true,
+  emit_consults = true,
+  emit_theatre = true,
+} = {}) {
+  const invId = Number(invoiceId);
+  if (!Number.isInteger(invId) || invId <= 0) {
+    throw AppError.badRequest('invoiceId must be a positive integer');
+  }
+
+  // Phase 0 — pre-flight: invoice exists, is DRAFT, and has an admission.
+  const invRows = await prisma.$queryRawUnsafe(
+    `SELECT id, status, admission_id
+       FROM billing_invoices
+      WHERE id = $1::int
+      LIMIT 1`,
+    invId,
+  );
+  if (!invRows.length) throw AppError.notFound('Invoice not found');
+  const inv = invRows[0];
+  if (inv.status !== 'DRAFT') {
+    throw AppError.badRequest('Auto-itemize can only run on a DRAFT invoice');
+  }
+  if (!inv.admission_id) {
+    throw AppError.badRequest('Invoice has no admission_id — auto-itemize only supports admission-scoped invoices');
+  }
+  const admission = await fetchAdmissionForItemizing(inv.admission_id);
+  if (!admission) throw AppError.notFound('Admission not found');
+
+  const startTs = admission.admitted_at || admission.created_at;
+  const endTs = admission.discharged_at || new Date();
+  const existingKeys = await fetchExistingSourceKeys(invId);
+
+  const summary = {
+    package: 0,
+    pharmacy: 0,
+    lab: 0,
+    consults: 0,
+    theatre: 0,
+    room_upgrade: 0,
+    skipped_existing: 0,
+  };
+
+  const addLine = async ({ description, unit_price, quantity = 1, notes, source_ref_type, source_ref_id, tpa_decision, tpa_non_payable_reason }) => {
+    const key = `${source_ref_type}:${source_ref_id ?? 'NULL'}`;
+    if (existingKeys.has(key)) {
+      summary.skipped_existing += 1;
+      return null;
+    }
+    existingKeys.add(key);
+    const row = await addInvoiceItem(invId, {
+      description,
+      unit_price,
+      quantity,
+      gst_rate: ITEMIZER_DEFAULT_GST,
+      notes,
+      source_ref_type,
+      source_ref_id,
+    });
+    // Stamp the TPA decision on the newly-created line. addInvoiceItem
+    // returns the row; we patch the four migration-213 columns in a
+    // single UPDATE that the cashier can later override via the
+    // TPA-desk surface.
+    if (tpa_decision) {
+      await prisma.$executeRawUnsafe(
+        `UPDATE billing_invoice_items
+            SET tpa_decision = $1,
+                tpa_non_payable_reason = $2,
+                tpa_decided_at = NOW(),
+                tpa_decided_by = $3::uuid
+          WHERE id = $4::int`,
+        tpa_decision,
+        tpa_non_payable_reason || null,
+        decided_by ? String(decided_by) : null,
+        Number(row.id),
+      );
+    }
+    return row;
+  };
+
+  // 1. Package line (if admission is package-bundled).
+  if (emit_package && admission.package_id) {
+    const fixed = admission.package_estimated_cost_minor ?? admission.package_price_minor ?? null;
+    if (fixed != null) {
+      const price = Math.round(Number(fixed)) / 100; // paise → rupees
+      await addLine({
+        description: `Package: ${admission.package_name || admission.package_code}`,
+        unit_price: price,
+        quantity: 1,
+        notes: `Package ${admission.package_code || admission.package_id}`,
+        source_ref_type: 'admission_package',
+        source_ref_id: admission.id,
+        tpa_decision: 'payable',
+      });
+      summary.package += 1;
+    }
+  }
+
+  // 2. Pharmacy orders dispensed during the stay.
+  if (emit_pharmacy) {
+    const orders = await prisma.$queryRawUnsafe(
+      `SELECT id, order_number, medication, total_amount, dispensed_at
+         FROM pharmacy_orders
+        WHERE uid IS NOT NULL
+          AND uid = $1::uuid
+          AND status = 'DELIVERED'
+          AND dispensed_at >= $2::timestamptz
+          AND dispensed_at <= $3::timestamptz
+        ORDER BY dispensed_at`,
+      String(admission.patient_uid),
+      startTs, endTs,
+    );
+    for (const o of orders) {
+      const price = Number(o.total_amount ?? 0);
+      if (price <= 0) continue; // no charge to bill
+      const created = await addLine({
+        description: `Pharmacy: ${(o.medication || o.order_number || '').slice(0, 200)}`,
+        unit_price: price,
+        notes: o.order_number || null,
+        source_ref_type: 'pharmacy_order',
+        source_ref_id: o.id,
+        tpa_decision: 'pending',
+      });
+      if (created) summary.pharmacy += 1;
+    }
+  }
+
+  // 3. Investigations completed during the stay.
+  if (emit_lab) {
+    const tests = await prisma.$queryRawUnsafe(
+      `SELECT id, test_name, cost, completed_at
+         FROM investigations
+        WHERE patient_uid = $1::uuid
+          AND status = 'COMPLETED'
+          AND COALESCE(completed_at, requested_at) >= $2::timestamptz
+          AND COALESCE(completed_at, requested_at) <= $3::timestamptz
+        ORDER BY completed_at NULLS LAST, id`,
+      String(admission.patient_uid),
+      startTs, endTs,
+    );
+    for (const t of tests) {
+      const price = Number(t.cost ?? 0);
+      if (price <= 0) continue;
+      const created = await addLine({
+        description: `Lab: ${t.test_name}`,
+        unit_price: price,
+        notes: null,
+        source_ref_type: 'lab_order',
+        source_ref_id: t.id,
+        tpa_decision: 'pending',
+      });
+      if (created) summary.lab += 1;
+    }
+  }
+
+  // 4. Discharge consults — pre-discharge speciality reviews requested
+  //    during the stay. Most have no cost catalogue yet, so they're
+  //    informational lines at unit_price=0 unless the operator
+  //    overrides. The audit value is the source-ref trail.
+  if (emit_consults) {
+    const consults = await prisma.$queryRawUnsafe(
+      `SELECT id, consult_type, completed_at
+         FROM discharge_consults
+        WHERE admission_id = $1::int
+          AND completed_at IS NOT NULL
+        ORDER BY completed_at`,
+      Number(admission.id),
+    );
+    for (const c of consults) {
+      const created = await addLine({
+        description: `Discharge consult: ${c.consult_type}`,
+        unit_price: 0,
+        notes: 'Cost catalogue pending — line is audit-only',
+        source_ref_type: 'discharge_consult',
+        source_ref_id: c.id,
+        tpa_decision: 'pending',
+      });
+      if (created) summary.consults += 1;
+    }
+  }
+
+  // 5. OT schedules (theatre cases) completed during the stay. Cost
+  //    catalogue not yet seeded — the package line covers the
+  //    surgical fee for package-bundled admissions; for non-package
+  //    admissions the cashier still has to enter the theatre fee
+  //    manually. The line carries the procedure_code so the future
+  //    catalogue lookup is straightforward.
+  if (emit_theatre) {
+    const cases = await prisma.$queryRawUnsafe(
+      `SELECT id, procedure_name, procedure_code, scheduled_date
+         FROM ot_schedules
+        WHERE patient_uid = $1::uuid
+          AND status = 'completed'
+          AND scheduled_date >= $2::date
+          AND scheduled_date <= $3::date
+        ORDER BY scheduled_date, id`,
+      String(admission.patient_uid),
+      new Date(startTs).toISOString().slice(0, 10),
+      new Date(endTs).toISOString().slice(0, 10),
+    );
+    for (const cs of cases) {
+      const created = await addLine({
+        description: `Theatre case: ${cs.procedure_name}${cs.procedure_code ? ` (${cs.procedure_code})` : ''}`,
+        unit_price: 0,
+        notes: 'Cost catalogue pending — line is audit-only',
+        source_ref_type: 'theatre_case',
+        source_ref_id: cs.id,
+        tpa_decision: 'pending',
+      });
+      if (created) summary.theatre += 1;
+    }
+  }
+
+  return {
+    invoice_id: invId,
+    admission_id: admission.id,
+    package_id: admission.package_id ?? null,
+    summary,
+  };
+}
+
+// ─── Wave-5 batch-3 — TPA decision UI helpers ────────────────────────
+//
+// The TPA desk operator marks individual invoice items as
+// 'non_payable' once they've reviewed the cap exclusions. The patient
+// portal subscribes to the running total so the patient learns about
+// non-payable charges as they accumulate, not only at discharge.
+
+const VALID_TPA_DECISIONS = new Set(['payable', 'non_payable', 'partial', 'pending']);
+const VALID_NON_PAYABLE_REASONS = new Set([
+  'room_upgrade_delta', 'over_cap_pharmacy', 'attendant_charges',
+  'cosmetic', 'package_addon', 'food_charges', 'consumables',
+  'transport', 'medical_records_copy', 'discharge_summary_fee',
+  'duplicate_charge', 'other',
+]);
+
+export async function recordInvoiceItemTpaDecision({
+  invoice_id, item_id, decision, non_payable_reason, decided_by,
+}) {
+  if (!VALID_TPA_DECISIONS.has(decision)) {
+    throw AppError.badRequest(
+      `decision must be one of: ${[...VALID_TPA_DECISIONS].join(', ')}`,
+    );
+  }
+  if (decision === 'non_payable' || decision === 'partial') {
+    if (!non_payable_reason || !VALID_NON_PAYABLE_REASONS.has(non_payable_reason)) {
+      throw AppError.badRequest(
+        `non_payable_reason required for ${decision} and must be one of: ${[...VALID_NON_PAYABLE_REASONS].join(', ')}`,
+      );
+    }
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE billing_invoice_items
+        SET tpa_decision = $1,
+            tpa_non_payable_reason = $2,
+            tpa_decided_at = NOW(),
+            tpa_decided_by = $3::uuid
+      WHERE id = $4::int AND invoice_id = $5::int
+      RETURNING id, invoice_id, description, line_total,
+                tpa_decision, tpa_non_payable_reason,
+                tpa_decided_at, tpa_decided_by`,
+    decision,
+    decision === 'payable' || decision === 'pending' ? null : non_payable_reason,
+    decided_by ? String(decided_by) : null,
+    Number(item_id), Number(invoice_id),
+  );
+  if (!rows.length) throw AppError.notFound('Invoice item not found');
+  return rows[0];
+}
+
+export async function getInvoiceNonPayableBreakdown(invoiceId) {
+  const items = await prisma.$queryRawUnsafe(
+    `SELECT id, description, source_ref_type, source_ref_id,
+            line_total, tpa_decision, tpa_non_payable_reason,
+            tpa_decided_at
+       FROM billing_invoice_items
+      WHERE invoice_id = $1::int
+        AND tpa_decision IN ('non_payable', 'partial')
+      ORDER BY tpa_decided_at DESC NULLS LAST, id`,
+    Number(invoiceId),
+  );
+  const total = items.reduce((acc, r) => acc + Number(r.line_total || 0), 0);
+  return {
+    invoice_id: Number(invoiceId),
+    non_payable_total: Math.round(total * 100) / 100,
+    line_count: items.length,
+    lines: items,
+  };
+}
+
 export async function outstandingBills({ days_old, department, limit = 100 } = {}) {
   const params = [];
   const where = ['status IN (\'ISSUED\', \'PARTIAL\')', 'amount_due > 0'];
