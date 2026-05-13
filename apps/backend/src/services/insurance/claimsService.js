@@ -288,7 +288,53 @@ export async function getPreauth({ tenantId, id }) {
   // own sanctioned amount. See finding
   // 2026-05-10-tpa-insurance-claim-billing-cumulative-approval-not-projected.
   const totals = await chainTotalsFor({ tenantId, preauthId: rows[0].id });
-  return { ...rows[0], ...totals };
+  // Project the latest insurer response onto the detail surface. The
+  // partial-approval text + structured caps (pharmacy max, room
+  // category, etc.) live in insurance_preauth_responses and otherwise
+  // never make it to billing/admission screens.
+  // See finding 2026-05-10-tpa-insurance-claim-billing-preauth-caps-hidden-from-detail.
+  const respRows = await prisma.$queryRawUnsafe(
+    `SELECT response_type, sanctioned_amount, validity_until, conditions,
+            query_text, denial_reason, raw_response, decided_by_tpa_user,
+            decided_at
+       FROM insurance_preauth_responses
+      WHERE preauth_id = $1::int
+      ORDER BY decided_at DESC, id DESC
+      LIMIT 1`,
+    rows[0].id,
+  );
+  const latest_response = respRows[0] || null;
+  const caps = extractPreauthCaps(latest_response?.raw_response);
+  return {
+    ...rows[0], ...totals,
+    latest_response,
+    conditions: latest_response?.conditions ?? rows[0].query_text ?? null,
+    raw_response: latest_response?.raw_response ?? null,
+    caps,
+  };
+}
+
+/**
+ * Pull the structured `caps` object out of the insurer's raw response.
+ * The TPA portal payload shape we accept (per
+ * recordPreauthResponse contract) is either:
+ *   { caps: { pharmacy: { max_amount: 15000, currency: 'INR' },
+ *             room_category: { max_category: 'semi_private' } } }
+ * or a flat `{ pharmacy_cap: 15000, room_category: 'semi_private' }`.
+ * Both surface as a normalised object keyed by category — billing /
+ * admission screens read `caps.pharmacy.max_amount` etc directly.
+ */
+export function extractPreauthCaps(rawResponse) {
+  if (!rawResponse || typeof rawResponse !== 'object') return null;
+  const raw = rawResponse.caps && typeof rawResponse.caps === 'object'
+    ? rawResponse.caps
+    : null;
+  if (raw) return raw;
+  // Fallback: lift the flat *_cap fields some legacy TPA portals use.
+  const flat = {};
+  if (rawResponse.pharmacy_cap != null) flat.pharmacy = { max_amount: Number(rawResponse.pharmacy_cap), currency: 'INR' };
+  if (rawResponse.room_category) flat.room_category = { max_category: String(rawResponse.room_category) };
+  return Object.keys(flat).length ? flat : null;
 }
 
 export async function submitPreauth({
