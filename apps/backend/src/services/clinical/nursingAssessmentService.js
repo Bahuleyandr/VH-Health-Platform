@@ -14,8 +14,22 @@ const SCORING_VERSION = 'v1';
 // Royal College of Physicians 2017 spec.
 // Inputs: rr (resp rate), spo2 (%), spo2_scale (1=normal, 2=copd),
 // supplemental_o2 (bool), temp_c, sbp, hr, consciousness ('awake' | 'avpu_v_p_u').
+// Long-form aliases (respiratory_rate, temperature, systolic_bp, pulse,
+// heart_rate) are accepted because the staff-app vitals payload uses them;
+// without aliasing, every long-form field falls through as undefined and the
+// score collapses to 0 even for clinically deteriorating patients.
 export function scoreNews2(input) {
-  const i = input ?? {};
+  const raw = input ?? {};
+  const i = {
+    rr: raw.rr ?? raw.respiratory_rate,
+    spo2: raw.spo2,
+    spo2_scale: raw.spo2_scale,
+    supplemental_o2: raw.supplemental_o2,
+    temp_c: raw.temp_c ?? raw.temperature,
+    sbp: raw.sbp ?? raw.systolic_bp,
+    hr: raw.hr ?? raw.pulse ?? raw.heart_rate,
+    consciousness: raw.consciousness,
+  };
   let total = 0;
   let band = 'low'; // low | low_medium | medium | high
 

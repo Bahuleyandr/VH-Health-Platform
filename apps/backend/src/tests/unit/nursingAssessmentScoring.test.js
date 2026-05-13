@@ -54,6 +54,32 @@ describe('NEWS2', () => {
     });
     expect(r.reassessmentMins).toBe(720);
   });
+
+  // Regression: long-form vitals keys (respiratory_rate, temperature,
+  // systolic_bp, pulse) used to fall through as undefined and collapsed
+  // every abnormal vital set to total_score=0 / band 'low'. Tracked as
+  // finding 2026-05-09-inpatient-admission-nurse-news2-scoring-zero.
+  it('accepts long-form vitals keys (respiratory_rate / temperature / systolic_bp / pulse)', () => {
+    const r = scoreNews2({
+      respiratory_rate: 18, spo2: 97, supplemental_o2: false,
+      temperature: 38.4, systolic_bp: 102, pulse: 96, consciousness: 'A',
+    });
+    // Temp 38.1-39 → +1, SBP 101-110 → +1, Pulse 91-110 → +1.
+    expect(r.total_score).toBe(3);
+    expect(r.band).toBe('low_medium');
+    expect(r.reassessmentMins).toBe(240);
+  });
+
+  // High-acute case from the finding hint: every channel maxed out.
+  it('high-acute combined vitals (long-form) scores ≥7 → high band', () => {
+    const r = scoreNews2({
+      respiratory_rate: 28, spo2: 88, supplemental_o2: false,
+      temperature: 39.5, systolic_bp: 85, pulse: 140, consciousness: 'V',
+    });
+    expect(r.total_score).toBeGreaterThanOrEqual(7);
+    expect(r.band).toBe('high');
+    expect(r.reassessmentMins).toBe(15);
+  });
 });
 
 describe('Braden', () => {
