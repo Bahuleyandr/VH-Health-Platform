@@ -14,6 +14,7 @@ import 'package:vhhealth/features/auth/screens/login_screen.dart';
 import 'package:vhhealth/features/auth/screens/terms_disclaimer_screen.dart';
 import 'package:vhhealth/features/profile/screens/profile_setup_screen.dart';
 import 'package:vhhealth/features/profile/screens/profile_edit_screen.dart';
+import 'package:vhhealth/features/profile/screens/add_dependent_screen.dart';
 import 'package:vhhealth/features/dashboard/screens/dashboard_screen.dart';
 import 'package:vhhealth/features/your_health/screens/your_health_screen.dart';
 import 'package:vhhealth/features/notifications/screens/notifications_screen.dart';
@@ -409,6 +410,10 @@ class AppRouter {
       GoRoute(
         path: '/family',
         builder: (context, state) => FamilyScreen(phone: _phone(context)),
+      ),
+      GoRoute(
+        path: '/add-dependent',
+        builder: (context, state) => const AddDependentScreen(),
       ),
       GoRoute(
         path: '/reminders',

@@ -1,0 +1,216 @@
+// lib/core/providers/dependents_provider.dart
+//
+// Holds the list of minor dependents the logged-in guardian has linked
+// (migration 202: `users.guardian_user_id`), plus the currently-active
+// profile. `activeDependent == null` means the guardian is viewing their
+// own profile.
+//
+// Cross-resource API calls (dashboard / appointments / records) do NOT
+// automatically rewrite to the dependent's id — that requires per-endpoint
+// backend support that doesn't exist yet. For now, switching profiles is
+// visual + threads the dependent's uid/phone into screens that take those
+// as args. The deferred follow-up is to wire `X-Acting-As-Uid` through
+// `VHHttpClient` once backend endpoints opt into honouring it.
+
+import 'package:flutter/foundation.dart';
+
+import 'package:vhhealth/core/services/api_client.dart';
+
+@immutable
+class Dependent {
+  final int id;
+  final String uid;
+  final String name;
+  final String? phone;
+  final String? birthday;
+  final String? gender;
+  final bool isMinor;
+  final double? weightKg;
+  final String? relationship;
+  final String? linkedAt;
+
+  const Dependent({
+    required this.id,
+    required this.uid,
+    required this.name,
+    this.phone,
+    this.birthday,
+    this.gender,
+    required this.isMinor,
+    this.weightKg,
+    this.relationship,
+    this.linkedAt,
+  });
+
+  factory Dependent.fromJson(Map<String, dynamic> json) {
+    return Dependent(
+      id: (json['id'] as num).toInt(),
+      uid: json['uid'] as String,
+      name: json['name'] as String? ?? 'Dependent',
+      phone: json['phone'] as String?,
+      birthday: json['birthday']?.toString(),
+      gender: json['gender'] as String?,
+      isMinor: json['is_minor'] as bool? ?? false,
+      weightKg: (json['weight_kg'] as num?)?.toDouble(),
+      relationship: json['guardian_relationship'] as String?,
+      linkedAt: json['linked_at']?.toString(),
+    );
+  }
+}
+
+class DependentsProvider extends ChangeNotifier {
+  List<Dependent> _dependents = const [];
+  Dependent? _active;
+  bool _loading = false;
+  String? _error;
+  bool _loadedOnce = false;
+
+  List<Dependent> get dependents => _dependents;
+  Dependent? get activeDependent => _active;
+  bool get loading => _loading;
+  String? get error => _error;
+  bool get hasDependents => _dependents.isNotEmpty;
+  bool get isViewingDependent => _active != null;
+
+  /// Load (or reload) the dependents list from the backend.
+  ///
+  /// Safe to call repeatedly — concurrent calls coalesce via the loading
+  /// flag. The active selection is preserved across reloads when the
+  /// previously-active dependent is still in the new list.
+  Future<void> loadDependents({bool force = false}) async {
+    if (_loading) return;
+    if (_loadedOnce && !force) return;
+    _loading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final response = await ApiClient.get('/users/dependents');
+      if (response.isSuccess) {
+        final raw = response.data;
+        List<dynamic> list = const [];
+        if (raw is Map<String, dynamic>) {
+          final inner = raw['dependents'];
+          if (inner is List) list = inner;
+        } else if (raw is List) {
+          list = raw;
+        }
+        _dependents = list
+            .whereType<Map<String, dynamic>>()
+            .map(Dependent.fromJson)
+            .toList(growable: false);
+        _loadedOnce = true;
+
+        // Preserve active selection if the dependent is still linked;
+        // otherwise drop it back to "self" rather than leaving a dangling
+        // reference.
+        final activeUid = _active?.uid;
+        if (activeUid != null) {
+          final match = _dependents.where((d) => d.uid == activeUid).toList();
+          _active = match.isEmpty ? null : match.first;
+        }
+      } else {
+        _error = response.message ?? 'Failed to load dependents';
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('DependentsProvider.loadDependents: $e');
+      _error = 'Failed to load dependents';
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Switch the active profile. Pass `null` to revert to the guardian's
+  /// own profile.
+  void switchTo(Dependent? dep) {
+    if (dep != null && !_dependents.any((d) => d.uid == dep.uid)) {
+      // Refuse to switch to a dependent not in the loaded list — protects
+      // against stale UI state after an unlink.
+      return;
+    }
+    if (_active?.uid == dep?.uid) return;
+    _active = dep;
+    notifyListeners();
+  }
+
+  /// Link a new dependent by phone or UID. Returns the freshly-linked
+  /// Dependent on success and rethrows the parsed error message on failure
+  /// (so the caller can surface it in a SnackBar / inline form error).
+  Future<Dependent> linkDependent({
+    required String dependentUidOrPhone,
+    String? relationship,
+  }) async {
+    final response = await ApiClient.post(
+      '/users/dependents/link',
+      body: {
+        'dependent_uid_or_phone': dependentUidOrPhone.trim(),
+        if (relationship != null && relationship.isNotEmpty)
+          'relationship': relationship,
+      },
+    );
+
+    if (!response.isSuccess) {
+      throw DependentApiException(
+        response.message ?? 'Failed to link dependent',
+      );
+    }
+
+    final raw = response.data;
+    Map<String, dynamic>? depJson;
+    if (raw is Map<String, dynamic>) {
+      final inner = raw['dependent'];
+      if (inner is Map<String, dynamic>) depJson = inner;
+    }
+    if (depJson == null) {
+      throw DependentApiException('Backend returned no dependent payload');
+    }
+    final dep = Dependent.fromJson(depJson);
+
+    final existingIdx = _dependents.indexWhere((d) => d.uid == dep.uid);
+    if (existingIdx == -1) {
+      _dependents = [..._dependents, dep];
+    } else {
+      final next = [..._dependents];
+      next[existingIdx] = dep;
+      _dependents = next;
+    }
+    _loadedOnce = true;
+    notifyListeners();
+    return dep;
+  }
+
+  /// Unlink a dependent and remove it from the local list.
+  Future<void> unlinkDependent(int dependentId) async {
+    final response = await ApiClient.delete('/users/dependents/$dependentId');
+    if (!response.isSuccess) {
+      throw DependentApiException(
+        response.message ?? 'Failed to unlink dependent',
+      );
+    }
+    _dependents = _dependents
+        .where((d) => d.id != dependentId)
+        .toList(growable: false);
+    if (_active?.id == dependentId) {
+      _active = null;
+    }
+    notifyListeners();
+  }
+
+  void clear() {
+    _dependents = const [];
+    _active = null;
+    _loading = false;
+    _error = null;
+    _loadedOnce = false;
+    notifyListeners();
+  }
+}
+
+class DependentApiException implements Exception {
+  final String message;
+  const DependentApiException(this.message);
+
+  @override
+  String toString() => message;
+}

@@ -35,6 +35,7 @@ import 'package:vhhealth/features/dashboard/widgets/smart_investigation_card.dar
 import 'package:vhhealth/features/dashboard/widgets/smart_prescription_card.dart';
 import 'package:vhhealth/features/dashboard/widgets/stagger_entry.dart';
 import 'package:vhhealth/features/dashboard/widgets/stats_strip.dart';
+import 'package:vhhealth/features/profile/widgets/profile_switcher.dart';
 
 class DashboardScreen extends StatefulWidget {
   final String name;
@@ -694,6 +695,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 nextAppointmentLabel: nextApptLabel,
                 lastVitalsLabel: lastVitalsLabel,
               ),
+
+              // Profile switcher (guardian → minor dependents). Self-hides
+              // when the user has no linked dependents.
+              if (!isGuest) const ProfileSwitcher(),
 
               // Offline / stale-data banner (pinned, stays visible on scroll).
               OfflineBanner(staleLabel: _staleLabel),
