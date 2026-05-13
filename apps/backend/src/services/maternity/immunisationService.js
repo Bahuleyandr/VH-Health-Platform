@@ -146,7 +146,7 @@ const VALID_IMMUNISATION_AGE_GROUPS = new Set([
  * The row lands in `clinical_notes` with `note_type='immunisation_review'`
  * and content carrying status / as_of / age_group / signed_by_name.
  * The patient app's immunisation card surface reads the most recent
- * such note via the partial index added in migration 212.
+ * such note via the partial index added in migration 215.
  *
  * Finding:
  *   2026-05-10-pediatric-opd-nurse-immunisation-up-to-date-requires-29-writes

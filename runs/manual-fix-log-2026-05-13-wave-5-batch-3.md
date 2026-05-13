@@ -19,11 +19,11 @@ of the auto-itemizer.
 | 2 | `2026-05-08-dynamic-acute-abdomen-doctor-emergency-admit-blocked-by-treatment-consent` | **Resolved-by-prior.** Migration 182 + `admissionService.js` B-4 block (lines 271-292) already handle implied-consent bypass for `admission_type='emergency'` AND `priority='emergent'`. No new work. |
 | 3 | `2026-05-10-obstetric-anc-doctor-visit-assigned-to-non-doctor` | **Defense-in-depth.** Wave 3.3 fixed the dialog filter (`assignable=true`). Wave 5/3 adds the backend pre-flight validation so a malformed payload cannot write a non-DOCTOR `doctor_id` onto an appointment row. |
 | 4 | `2026-05-09-walk-in-opd-patient-follow-up-appt-not-booked` | **Fixed.** `createPrescription` now Phase-1.5 best-effort auto-books the follow-up appointment when `follow_up_date` is set. Idempotent. |
-| 5 | `2026-05-10-pediatric-opd-nurse-immunisation-up-to-date-requires-29-writes` | **Fixed.** Single-tap `clinical_notes` row pattern; new endpoint `POST /api/v1/maternity/immunisations/up-to-date`. Migration 212 adds the partial index. |
-| 6 | `2026-05-10-lab-walk-in-lab-tech-no-sample-barcode-audit` | **Fixed.** Migration 211 adds `sample_barcode`, `collected_notes`, `verified_at/by`. New `POST /api/v1/investigations/:id/collected` mints + persists. |
+| 5 | `2026-05-10-pediatric-opd-nurse-immunisation-up-to-date-requires-29-writes` | **Fixed.** Single-tap `clinical_notes` row pattern; new endpoint `POST /api/v1/maternity/immunisations/up-to-date`. Migration 215 adds the partial index. |
+| 6 | `2026-05-10-lab-walk-in-lab-tech-no-sample-barcode-audit` | **Fixed.** Migration 214 adds `sample_barcode`, `collected_notes`, `verified_at/by`. New `POST /api/v1/investigations/:id/collected` mints + persists. |
 | 7 | `2026-05-10-obstetric-anc-lab-tech-collected-time-missing` | **Fixed.** Same fix as #6; `markSampleCollected` stamps `collected_at`, `collected_by`. Read-side aliases `i.requested_at AS sample_collected_at` corrected to `i.collected_at`. |
 | 8 | `2026-05-10-surgical-day-care-billing-package-not-itemised-iol-delta-opaque` | **Fixed — closes Wave 2.1 deferral.** `itemizeAdmissionInvoice()` walks admission events (package, pharmacy, lab, consults, theatre) and emits one `billing_invoice_items` row per source. Idempotent. |
-| 9 | `2026-05-09-tpa-insurance-claim-discharge-nonpayable-not-disclosed-proactively` | **Fixed.** Migration 213 adds `tpa_decision`, `tpa_non_payable_reason`, `tpa_decided_at/by` on `billing_invoice_items`. Patient portal `getMyBill` returns `non_payable_preview` rollup. New routes: TPA-desk decision recording + non-payable breakdown read. |
+| 9 | `2026-05-09-tpa-insurance-claim-discharge-nonpayable-not-disclosed-proactively` | **Fixed.** Migration 216 adds `tpa_decision`, `tpa_non_payable_reason`, `tpa_decided_at/by` on `billing_invoice_items`. Patient portal `getMyBill` returns `non_payable_preview` rollup. New routes: TPA-desk decision recording + non-payable breakdown read. |
 
 ## Commits
 
@@ -40,9 +40,9 @@ of the auto-itemizer.
 
 | File | Tables touched | Index changes |
 |---|---|---|
-| `211_investigations_sample_barcode_collection.sql` | `investigations` (4 new cols) | UNIQUE on `sample_barcode` (partial NOT NULL); partial index on `collected_at` for pending-upload worklist |
-| `212_clinical_notes_immunisation_review.sql` | (index only) | Partial index on `clinical_notes(patient_uid, created_at DESC) WHERE note_type='immunisation_review'` |
-| `213_billing_invoice_items_tpa_decision.sql` | `billing_invoice_items` (4 new cols) | Partial index on `invoice_id` for `tpa_decision IN ('non_payable','partial')` |
+| `214_investigations_sample_barcode_collection.sql` | `investigations` (4 new cols) | UNIQUE on `sample_barcode` (partial NOT NULL); partial index on `collected_at` for pending-upload worklist |
+| `215_clinical_notes_immunisation_review.sql` | (index only) | Partial index on `clinical_notes(patient_uid, created_at DESC) WHERE note_type='immunisation_review'` |
+| `216_billing_invoice_items_tpa_decision.sql` | `billing_invoice_items` (4 new cols) | Partial index on `invoice_id` for `tpa_decision IN ('non_payable','partial')` |
 
 ## API surface added
 

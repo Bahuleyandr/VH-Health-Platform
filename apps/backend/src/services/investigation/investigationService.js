@@ -758,7 +758,7 @@ export const canUpdateStatus = (userRole) => {
  * to them — `markCollected` updates `investigation_bookings` only, and
  * one of the legacy SELECTs aliases `requested_at AS sample_collected_at`
  * to paper over the gap. Lab walk-ins (no booking row) had no
- * collection event at all. Migration 211 adds:
+ * collection event at all. Migration 214 adds:
  *   * sample_barcode VARCHAR(40) — printable barcode minted at collection
  *   * collected_notes TEXT — phlebotomist notes (e.g. "haemolysed")
  *   * verified_at / verified_by — supervisor counter-signature

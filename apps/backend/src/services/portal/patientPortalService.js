@@ -69,7 +69,7 @@ export async function getMyBill({ tenantId, patient_uid, id }) {
   if (!rows.length) throw AppError.notFound('Bill not found');
   // Wave-5 batch-3 — include the TPA-decision columns so the patient
   // app's bill detail can banner non-payable lines as they're flagged.
-  // Migration 213 added the four columns; null defaults are surfaced
+  // Migration 216 added the four columns; null defaults are surfaced
   // as 'pending' on the client. Finding:
   //   2026-05-09-tpa-insurance-claim-discharge-nonpayable-not-disclosed-proactively
   const items = await prisma.$queryRawUnsafe(
