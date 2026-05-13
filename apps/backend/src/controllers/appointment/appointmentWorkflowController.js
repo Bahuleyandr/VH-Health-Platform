@@ -995,6 +995,17 @@ export const registerWalkIn = async (req, res) => {
       );
       const tokenNumber = String(parseInt(tokenResult[0].next_token));
 
+      // Compose the human-readable visit_no BEFORE the INSERT so we can
+      // persist it on the row. Previously this was computed post-INSERT
+      // and only echoed in the response, so search-by-visit_no found
+      // nothing. Migration 217 added the column. Finding:
+      // 2026-05-10-inpatient-admission-receptionist-visit-no-not-persisted.
+      const visitNo = composeVisitNo({
+        department: appointmentDepartment,
+        date: new Date(),
+        tokenNumber,
+      });
+
       // appointments has no `confirmed_by` column. created_by is uuid.
       // phone, appointment_date, appointment_time, updated_at are NOT NULL.
       // E-10 — visit_type + parent_appointment_id captured at walk-in time
@@ -1002,12 +1013,12 @@ export const registerWalkIn = async (req, res) => {
       const apptRows = await tx.$queryRawUnsafe(
         `INSERT INTO appointments
            (patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
-            status, confirmed_at, token_number, department, created_by, updated_at,
+            status, confirmed_at, token_number, visit_no, department, created_by, updated_at,
             visit_type, parent_appointment_id)
-         VALUES ($1, $2, NOW(), $3, $4, $5, $6, 'CONFIRMED', NOW(), $7, $8, $9::uuid, NOW(),
-                 $10, $11)
+         VALUES ($1, $2, NOW(), $3, $4, $5, $6, 'CONFIRMED', NOW(), $7, $8, $9, $10::uuid, NOW(),
+                 $11, $12)
          RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
-                   status, confirmed_at, token_number, department, created_at,
+                   status, confirmed_at, token_number, visit_no, department, created_at,
                    visit_type, parent_appointment_id`,
         patientId,
         doctor_id || null,
@@ -1020,6 +1031,7 @@ export const registerWalkIn = async (req, res) => {
         reason || 'Walk-in consultation',
         notes || null,
         tokenNumber,
+        visitNo,
         appointmentDepartment,
         staffUid,
         resolvedVisitType,
@@ -1036,13 +1048,8 @@ export const registerWalkIn = async (req, res) => {
         staffId,
       );
 
-      // E-2 — composite visit_no surfaced in the response so the ER
-      // triage / lab worklist / paeds list can route by prefix.
-      const visitNo = composeVisitNo({
-        department: appointmentDepartment,
-        date: appt.appointment_date || new Date(),
-        tokenNumber,
-      });
+      // visit_no was computed pre-INSERT and persisted on the appointments
+      // row (migration 217). Use it for the ER visit_number FK below.
 
       // E-12 — ANC walk-ins also need a maternity_pregnancies row so
       // the OB doctor's chart open + the new prior-orders endpoint
