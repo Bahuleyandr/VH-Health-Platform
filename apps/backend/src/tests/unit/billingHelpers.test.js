@@ -7,6 +7,7 @@ import {
   parseDiscountAmount,
   requiresDiscountApproval,
   splitGst,
+  VALID_INVOICE_LINE_CATEGORIES,
 } from '../../services/billing/billingV2Service.js';
 import { buildUpiDeepLink } from '../../services/billing/paymentLinkService.js';
 
@@ -90,6 +91,19 @@ describe('billing discount approval helpers', () => {
     expect(canApproveHighValueDiscount('BILLING_STAFF')).toBe(false);
     expect(canApproveHighValueDiscount('FINANCE_INCHARGE')).toBe(true);
     expect(canApproveHighValueDiscount('SUPER_ADMIN')).toBe(true);
+  });
+});
+
+describe('VALID_INVOICE_LINE_CATEGORIES', () => {
+  // Regression for 2026-05-09-tpa-insurance-claim-billing-category-silently-dropped.
+  // The set must include the same buckets claimCapsService accepts, so
+  // an ad-hoc pharmacy line passed by billing staff matches a TPA
+  // pharmacy cap. Drift between the two sets re-opens the silent-drop.
+  it('matches the claim-caps category set', () => {
+    expect([...VALID_INVOICE_LINE_CATEGORIES].sort()).toEqual([
+      'consultation', 'implants', 'investigations', 'other',
+      'pharmacy', 'physiotherapy', 'procedure', 'radiology', 'room_rent',
+    ]);
   });
 });
 
