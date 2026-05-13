@@ -162,11 +162,33 @@ export async function createOrder(data) {
   // Run CDS safety checks
   const cdsResult = await runCDSChecks(patient_uid, order_type, details);
 
-  // If there are blockers, reject the order
+  // If there are blockers, reject the order. Each blocker from
+  // validatePrescriptionSafety is a shaped object — joining the array
+  // directly would render every blocker as the literal "[object Object]"
+  // and leave the prescribing doctor with no actionable detail
+  // (`message:"Order blocked by safety checks: [object Object]"`). Map
+  // each blocker through its renderable string field, and surface the
+  // structured array as `details` so the staff-app CDS modal can show
+  // per-blocker context + the override flow.
+  // Findings:
+  //   2026-05-10-inpatient-admission-doctor-medication-orders-cds-blocked
+  //   2026-05-10-inpatient-admission-doctor-medication-cpoe-blocks-oral-switch-object-object
+  //   2026-05-10-dynamic-acute-abdomen-doctor-medication-order-paths-blocked
   if (cdsResult.blockers.length > 0) {
+    const renderedBlockers = cdsResult.blockers.map((b) => {
+      if (typeof b === 'string') return b;
+      if (b && typeof b === 'object') {
+        return b.message || b.reason || b.type || JSON.stringify(b);
+      }
+      return String(b);
+    });
     throw AppError.badRequest(
-      `Order blocked by safety checks: ${cdsResult.blockers.join('; ')}`,
-      'CDS_BLOCKER'
+      `Order blocked by safety checks: ${renderedBlockers.join('; ')}`,
+      'CDS_BLOCKER',
+      {
+        blockers: cdsResult.blockers,
+        warnings: cdsResult.warnings,
+      },
     );
   }
 
