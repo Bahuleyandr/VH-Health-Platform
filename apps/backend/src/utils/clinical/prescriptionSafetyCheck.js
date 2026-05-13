@@ -209,22 +209,33 @@ export async function validatePrescriptionSafety(patientId, medications) {
     //     available for cases where the note has been reviewed.
     //     Finding:
     //     2026-05-10-dynamic-acute-abdomen-doctor-allergy-safety-misses-penicillin.
+    // Postgres requires per-source ORDER BY / LIMIT to live inside a
+    // subquery — otherwise the parser treats the ORDER BY as applying to
+    // the whole UNION and chokes on the next SELECT (`syntax error at or
+    // near "UNION"`). Each side is wrapped in its own scalar subquery so
+    // the 50-row cap is per-source.
     const noteRows = await prisma.$queryRawUnsafe(
-      `SELECT 'appointment' AS source, COALESCE(notes, '') || ' ' || COALESCE(reason, '') AS body
-         FROM appointments
-        WHERE patient_id = $1::int
-          AND created_at >= NOW() - INTERVAL '365 days'
-        ORDER BY created_at DESC
-        LIMIT 50
-        UNION ALL
-       SELECT 'clinical_note' AS source, COALESCE(notes, '') AS body
-         FROM clinical_notes cn
-         JOIN users u ON u.uid = cn.patient_uid
-        WHERE u.id = $1::int
-          AND cn.created_at >= NOW() - INTERVAL '365 days'
-          AND COALESCE(cn.status, 'current') NOT IN ('superseded', 'deleted')
-        ORDER BY body
-        LIMIT 50`,
+      `SELECT source, body FROM (
+         SELECT 'appointment' AS source,
+                COALESCE(notes, '') || ' ' || COALESCE(reason, '') AS body,
+                created_at
+           FROM appointments
+          WHERE patient_id = $1::int
+            AND created_at >= NOW() - INTERVAL '365 days'
+          ORDER BY created_at DESC
+          LIMIT 50
+       ) a
+       UNION ALL
+       SELECT source, body FROM (
+         SELECT 'clinical_note' AS source, COALESCE(cn.notes, '') AS body
+           FROM clinical_notes cn
+           JOIN users u ON u.uid = cn.patient_uid
+          WHERE u.id = $1::int
+            AND cn.created_at >= NOW() - INTERVAL '365 days'
+            AND COALESCE(cn.status, 'current') NOT IN ('superseded', 'deleted')
+          ORDER BY cn.created_at DESC
+          LIMIT 50
+       ) c`,
       patientId,
     );
 
