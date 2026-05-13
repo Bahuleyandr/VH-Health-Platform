@@ -750,6 +750,84 @@ export const canUpdateStatus = (userRole) => {
   return LAB_STAFF_ROLES.includes(userRole);
 };
 
+/**
+ * Wave-5 batch-3 — stamp sample collection on an investigations row.
+ *
+ * The `investigations` table has had `collected_at` + `collected_by`
+ * since migration 088 (SELECT drift sweep), but no service ever wrote
+ * to them — `markCollected` updates `investigation_bookings` only, and
+ * one of the legacy SELECTs aliases `requested_at AS sample_collected_at`
+ * to paper over the gap. Lab walk-ins (no booking row) had no
+ * collection event at all. Migration 214 adds:
+ *   * sample_barcode VARCHAR(40) — printable barcode minted at collection
+ *   * collected_notes TEXT — phlebotomist notes (e.g. "haemolysed")
+ *   * verified_at / verified_by — supervisor counter-signature
+ *
+ * Barcode format: `INV-<id-base36>-<6-char-random-base36>` (≤ 40 chars
+ * for the entire id space). Auto-minted if caller doesn't supply one.
+ * The DB enforces uniqueness on non-null barcodes.
+ *
+ * Findings:
+ *   2026-05-10-lab-walk-in-lab-tech-no-sample-barcode-audit
+ *   2026-05-10-obstetric-anc-lab-tech-collected-time-missing
+ */
+function mintInvestigationBarcode(investigationId) {
+  const idPart = Number(investigationId).toString(36).toUpperCase();
+  // 6-char base36 ≈ 36^6 = 2.18B values — collision-resistant for the
+  // hospital-shift window even before the per-id namespace.
+  const rand = Math.floor(Math.random() * 36 ** 6).toString(36).toUpperCase().padStart(6, '0');
+  return `INV-${idPart}-${rand}`;
+}
+
+export const markSampleCollected = async ({
+  id, collected_by, collected_notes, sample_barcode,
+}) => {
+  const investigationId = parseInt(id, 10);
+  if (!Number.isFinite(investigationId) || investigationId <= 0) {
+    throw AppError.badRequest('id must be a positive integer');
+  }
+  if (!collected_by) {
+    throw AppError.badRequest('collected_by (staff uid) is required');
+  }
+
+  // Phase 0 — pre-flight existence + state check. P2025 from the
+  // update would translate to a generic 500; surface the missing-row
+  // case explicitly.
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT id, status, sample_barcode
+       FROM investigations
+      WHERE id = $1::int
+      LIMIT 1`,
+    investigationId,
+  );
+  if (!existing.length) throw AppError.notFound('Investigation not found');
+
+  // Reuse the existing barcode if the caller is re-marking (idempotent
+  // for "redraw" workflows). Otherwise mint a new one if not supplied.
+  let resolvedBarcode = sample_barcode ? String(sample_barcode).trim().slice(0, 40) : null;
+  if (!resolvedBarcode) {
+    resolvedBarcode = existing[0].sample_barcode || mintInvestigationBarcode(investigationId);
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE investigations
+        SET status = 'COLLECTED',
+            collected_at = NOW(),
+            collected_by = $1::uuid,
+            collected_notes = $2,
+            sample_barcode = $3,
+            updated_at = NOW()
+      WHERE id = $4::int
+      RETURNING id, uid, status, collected_at, collected_by,
+                collected_notes, sample_barcode`,
+    String(collected_by),
+    collected_notes || null,
+    resolvedBarcode,
+    investigationId,
+  );
+  return rows[0];
+};
+
 export const canAddResults = (userRole) => {
   return LAB_STAFF_ROLES.includes(userRole);
 };

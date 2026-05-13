@@ -210,6 +210,27 @@ router.get('/immunisations/due', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
+// Wave-5 batch-3 — single-tap "this patient is up to date" shortcut.
+// Replaces the 29-write per-dose entry path with one signed
+// clinical_notes row. Finding:
+//   2026-05-10-pediatric-opd-nurse-immunisation-up-to-date-requires-29-writes
+router.post('/immunisations/up-to-date', requireStaffOrAdmin, wrap(async (req) =>
+  immun.markScheduleUpToDate({
+    tenantId: tenantOf(req),
+    patient_uid: req.body?.patient_uid,
+    as_of: req.body?.as_of,
+    age_group: req.body?.age_group,
+    signed_by: req.user?.uid,
+    signed_by_name: req.user?.name || req.body?.signed_by_name || null,
+    notes: req.body?.notes || null,
+  }),
+));
+
+// Read-side companion — patient app's immunisation card uses this.
+router.get('/immunisations/status/:patientUid', requireStaffOrAdmin, wrap(async (req) =>
+  immun.getImmunisationStatus({ patient_uid: req.params.patientUid }),
+));
+
 // ── A7 — ANC operational helpers (migration 181) ────────────────────
 
 // GET /api/v1/maternity/ga?lmp=YYYY-MM-DD&onDate=YYYY-MM-DD?

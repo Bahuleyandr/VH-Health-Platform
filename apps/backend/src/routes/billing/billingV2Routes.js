@@ -101,6 +101,42 @@ router.delete('/invoices/:id/items/:itemId', requireStaffOrAdmin, wrap(async (re
   billing.removeInvoiceItem(req.params.id, req.params.itemId),
 ));
 
+// ── Wave-5 batch-3 — auto-itemize admission invoice ──────────────────
+// Walks the admission's completed events (package, pharmacy, lab,
+// consults, theatre) and emits one billing_invoice_items row per
+// source record. Idempotent — safe to call repeatedly during the
+// stay. Closes the Wave-2.1 deferral. Findings:
+//   2026-05-10-surgical-day-care-billing-package-not-itemised-iol-delta-opaque
+//   2026-05-09-tpa-insurance-claim-discharge-nonpayable-not-disclosed-proactively
+router.post('/invoices/:id/itemize', requireStaffOrAdmin, wrap(async (req) =>
+  billing.itemizeAdmissionInvoice(req.params.id, {
+    decided_by: req.user?.uid,
+    emit_package: req.body?.emit_package !== false,
+    emit_pharmacy: req.body?.emit_pharmacy !== false,
+    emit_lab: req.body?.emit_lab !== false,
+    emit_consults: req.body?.emit_consults !== false,
+    emit_theatre: req.body?.emit_theatre !== false,
+  }),
+));
+
+// TPA-desk decision recording — per-line payable/non-payable verdict
+// that the patient portal subscribes to.
+router.post('/invoices/:id/items/:itemId/tpa-decision', requireStaffOrAdmin, wrap(async (req) =>
+  billing.recordInvoiceItemTpaDecision({
+    invoice_id: req.params.id,
+    item_id: req.params.itemId,
+    decision: req.body?.decision,
+    non_payable_reason: req.body?.non_payable_reason,
+    decided_by: req.user?.uid,
+  }),
+));
+
+// Patient-portal-facing read: running total of non-payable items on
+// this invoice with the reason breakdown.
+router.get('/invoices/:id/non-payable', requireStaffOrAdmin, wrap(async (req) =>
+  billing.getInvoiceNonPayableBreakdown(req.params.id),
+));
+
 router.post('/invoices/:id/discount', requireStaffOrAdmin, wrap(async (req) =>
   billing.applyDiscount(req.params.id, {
     ...req.body,

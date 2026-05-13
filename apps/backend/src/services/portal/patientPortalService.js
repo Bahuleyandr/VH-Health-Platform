@@ -67,10 +67,17 @@ export async function getMyBill({ tenantId, patient_uid, id }) {
     Number(id), tenantId, String(patient_uid),
   );
   if (!rows.length) throw AppError.notFound('Bill not found');
+  // Wave-5 batch-3 — include the TPA-decision columns so the patient
+  // app's bill detail can banner non-payable lines as they're flagged.
+  // Migration 216 added the four columns; null defaults are surfaced
+  // as 'pending' on the client. Finding:
+  //   2026-05-09-tpa-insurance-claim-discharge-nonpayable-not-disclosed-proactively
   const items = await prisma.$queryRawUnsafe(
     `SELECT id, service_code, description, quantity, unit_price, gst_rate,
             line_subtotal, cgst_amount, sgst_amount, igst_amount, line_total,
-            hsn_sac
+            hsn_sac,
+            source_ref_type, source_ref_id,
+            tpa_decision, tpa_non_payable_reason, tpa_decided_at
        FROM billing_invoice_items
       WHERE invoice_id = $1::int
       ORDER BY id`,
@@ -83,13 +90,39 @@ export async function getMyBill({ tenantId, patient_uid, id }) {
       ORDER BY collected_at DESC`,
     rows[0].id,
   );
-  // Insurance / TPA breakdown — IRDAI requires itemised non-payable
-  // explanations to cashless patients. Surface the linked tpa_claims row
-  // and any per-line decisions from tpa_claim_line_decisions (migration
-  // 211). Cash-payer invoices have no linked claim and return null here.
+  // Wave-5 batch-2 — Insurance / TPA breakdown. Surface the linked
+  // tpa_claims row and any per-line decisions from tpa_claim_line_decisions
+  // (migration 211, separately-numbered) so cashless patients see IRDAI-
+  // required itemised non-payable explanations. Cash-payer invoices
+  // return null tpa_breakdown.
   // Finding 2026-05-09-tpa-insurance-claim-patient-bill-no-disallowance-breakdown.
   const tpaBreakdown = await resolveBillTpaBreakdown({ invoice_id: rows[0].id });
-  return { invoice: rows[0], items, payments, tpa_breakdown: tpaBreakdown };
+
+  // Wave-5 batch-3 — non-payable preview rollup from the billing_invoice_items
+  // columns added in migration 216 (`tpa_decision`, `tpa_non_payable_reason`).
+  // Complements the tpa_breakdown above: tpa_breakdown is the FINAL insurer-
+  // verdict view (post-TPA reply); non_payable_preview is the running
+  // prediction from the auto-itemizer (proactive disclosure as items
+  // accumulate, before TPA responds).
+  // Finding: 2026-05-09-tpa-insurance-claim-discharge-nonpayable-not-disclosed-proactively.
+  let nonPayableTotal = 0;
+  let nonPayableLineCount = 0;
+  const nonPayableReasons = {};
+  for (const it of items) {
+    if (it.tpa_decision === 'non_payable' || it.tpa_decision === 'partial') {
+      nonPayableTotal += Number(it.line_total || 0);
+      nonPayableLineCount += 1;
+      const reason = it.tpa_non_payable_reason || 'other';
+      nonPayableReasons[reason] = (nonPayableReasons[reason] || 0) + Number(it.line_total || 0);
+    }
+  }
+  const non_payable_preview = {
+    total: Math.round(nonPayableTotal * 100) / 100,
+    line_count: nonPayableLineCount,
+    reasons: nonPayableReasons,
+  };
+
+  return { invoice: rows[0], items, payments, tpa_breakdown: tpaBreakdown, non_payable_preview };
 }
 
 // Plain-language explanations for tpa_claim_line_decisions.reason_code.

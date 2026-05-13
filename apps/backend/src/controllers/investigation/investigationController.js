@@ -233,6 +233,45 @@ export const getPendingInvestigations = async (req, res) => {
   }
 };
 
+// Wave-5 batch-3 — stamp sample collection on an investigations row.
+// Distinct from `POST /bookings/:id/collected` which works on the
+// upstream `investigation_bookings` scheduling table. This endpoint
+// targets the investigations row directly so lab walk-ins (no
+// booking) and booking-driven flows both leave a stamped collection
+// event with a printable barcode. Findings:
+//   2026-05-10-lab-walk-in-lab-tech-no-sample-barcode-audit
+//   2026-05-10-obstetric-anc-lab-tech-collected-time-missing
+export const markInvestigationCollected = async (req, res) => {
+  try {
+    const userRole = req.user?.role?.toUpperCase();
+    if (!investigationService.canUpdateStatus(userRole)) {
+      return error(res, 'Access denied: lab technician or doctor privileges required', HTTP_STATUS.FORBIDDEN);
+    }
+    const { id } = req.params;
+    const { collected_notes, sample_barcode } = req.body || {};
+
+    const row = await investigationService.markSampleCollected({
+      id,
+      collected_by: req.user?.uid,
+      collected_notes,
+      sample_barcode,
+    });
+
+    await logAudit(req, 'investigation-sample-collected', {
+      investigation_id: row.id,
+      sample_barcode: row.sample_barcode,
+    });
+
+    success(res, row, 'Sample collected');
+  } catch (err) {
+    if (err?.isOperational && err?.statusCode) {
+      return error(res, err.message, err.statusCode, err?.code ? { code: err.code } : undefined);
+    }
+    logger.error('markInvestigationCollected error:', { err: err?.message, stack: err?.stack });
+    error(res, 'Failed to mark sample collected', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
 // Update investigation status
 export const updateInvestigationStatus = async (req, res) => {
   try {
@@ -358,7 +397,8 @@ export const getInvestigationsByPhone = async (req, res) => {
         i.investigation_type AS test_category,
         i.status, i.priority, i.notes, i.result_summary,
         NULL::text AS lab_name,
-        i.requested_at AS sample_collected_at,
+        i.collected_at AS sample_collected_at,
+        i.sample_barcode,
         i.result_uploaded_at AS report_ready_at,
         i.created_at, i.updated_at
        FROM investigations i
@@ -433,7 +473,8 @@ export const getInvestigationsByUID = async (req, res) => {
         i.investigation_type AS test_category,
         i.status, i.priority, i.notes, i.result_summary,
         NULL::text AS lab_name,
-        i.requested_at AS sample_collected_at,
+        i.collected_at AS sample_collected_at,
+        i.sample_barcode,
         i.result_uploaded_at AS report_ready_at,
         i.created_at, i.updated_at
        FROM investigations i
