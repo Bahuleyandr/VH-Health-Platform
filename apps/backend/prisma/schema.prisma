@@ -777,27 +777,30 @@ model attendance_logs {
 }
 
 model audit_log {
-  id               Int       @id @default(autoincrement())
-  uid              String?   @db.Uuid
-  action           String?   @db.VarChar(255)
-  resource         String?   @db.VarChar(100)
-  resource_id      String?   @db.VarChar(100)
-  metadata         Json?
-  ip_address       String?   @db.VarChar(50)
-  created_at       DateTime? @default(now()) @db.Timestamptz(6)
-  user_id          Int?
-  user_name        String?   @db.VarChar(255)
-  user_role        String?   @db.VarChar(50)
-  method           String?   @db.VarChar(10)
-  path             String?   @db.VarChar(500)
-  module           String?   @db.VarChar(100)
-  query_params     Json?
-  request_summary  String?
-  status_code      Int?
-  response_time_ms Int?
-  success          Boolean?
-  user_agent       String?   @db.VarChar(500)
-  error_message    String?
+  id                  Int       @id @default(autoincrement())
+  uid                 String?   @db.Uuid
+  action              String?   @db.VarChar(255)
+  resource            String?   @db.VarChar(100)
+  resource_id         String?   @db.VarChar(100)
+  metadata            Json?
+  ip_address          String?   @db.VarChar(50)
+  created_at          DateTime? @default(now()) @db.Timestamptz(6)
+  user_id             Int?
+  user_name           String?   @db.VarChar(255)
+  user_role           String?   @db.VarChar(50)
+  method              String?   @db.VarChar(10)
+  path                String?   @db.VarChar(500)
+  module              String?   @db.VarChar(100)
+  query_params        Json?
+  request_summary     String?
+  status_code         Int?
+  response_time_ms    Int?
+  success             Boolean?
+  user_agent          String?   @db.VarChar(500)
+  error_message       String?
+  actor_uid           String?   @db.Uuid
+  subject_uid         String?   @db.Uuid
+  acting_as_dependent Boolean   @default(false)
 
   @@index([path])
   @@index([status_code])
@@ -805,16 +808,19 @@ model audit_log {
 }
 
 model audit_logs {
-  id          Int      @id @default(autoincrement())
-  uid         String?  @db.Uuid
-  role        String?  @db.VarChar(50)
-  action      String   @db.VarChar(100)
-  resource    String?  @db.VarChar(100)
-  resource_id String?  @db.VarChar(100)
-  metadata    Json?
-  ip_address  String?  @db.VarChar(45)
-  user_agent  String?
-  created_at  DateTime @default(now()) @db.Timestamp(6)
+  id                  Int      @id @default(autoincrement())
+  uid                 String?  @db.Uuid
+  role                String?  @db.VarChar(50)
+  action              String   @db.VarChar(100)
+  resource            String?  @db.VarChar(100)
+  resource_id         String?  @db.VarChar(100)
+  metadata            Json?
+  ip_address          String?  @db.VarChar(45)
+  user_agent          String?
+  created_at          DateTime @default(now()) @db.Timestamp(6)
+  actor_uid           String?  @db.Uuid
+  subject_uid         String?  @db.Uuid
+  acting_as_dependent Boolean  @default(false)
 
   @@index([action])
   @@index([created_at])
@@ -4807,15 +4813,18 @@ model health_records {
 }
 
 model hipaa_access_log {
-  id               BigInt   @id @default(autoincrement())
-  accessed_by      String?  @db.Uuid
-  accessed_by_role String?  @db.VarChar(40)
-  patient_id       String?  @db.VarChar(64)
-  record_type      String?  @db.VarChar(80)
-  action           String?  @db.VarChar(40)
-  ip_address       String?  @db.VarChar(60)
-  request_id       String?  @db.VarChar(80)
-  accessed_at      DateTime @default(now()) @db.Timestamptz(6)
+  id                  BigInt   @id @default(autoincrement())
+  accessed_by         String?  @db.Uuid
+  accessed_by_role    String?  @db.VarChar(40)
+  patient_id          String?  @db.VarChar(64)
+  record_type         String?  @db.VarChar(80)
+  action              String?  @db.VarChar(40)
+  ip_address          String?  @db.VarChar(60)
+  request_id          String?  @db.VarChar(80)
+  accessed_at         DateTime @default(now()) @db.Timestamptz(6)
+  actor_uid           String?  @db.Uuid
+  subject_uid         String?  @db.Uuid
+  acting_as_dependent Boolean  @default(false)
 
   @@index([accessed_at(sort: Desc)], map: "idx_hipaa_access_recent")
 }

@@ -25,6 +25,19 @@ class VHHttpClient {
   /// Set this from the app's root widget to trigger a redirect to login.
   static void Function(String? message)? onSessionExpired;
 
+  /// When set, returns the UID the current request should be made on
+  /// behalf of (e.g. a guardian acting as their minor dependent). When
+  /// non-null + non-empty the resolver's return value is sent as the
+  /// `X-Acting-As-Uid` header on every authenticated request. The
+  /// backend's `jwtMiddleware` verifies guardianship + tenant parity
+  /// before rewriting `req.user` to the dependent — see the acting-as
+  /// delegation chip (2026-05-13).
+  ///
+  /// Returning `null` (or an empty string) disables delegation for the
+  /// next request — exactly what the "switch back to my profile" UX
+  /// action does.
+  static String? Function()? actingAsUidProvider;
+
   // ── Injectable HTTP client (for tests) ─────────────────────────────────
   static http.Client _client = http.Client();
 
@@ -298,14 +311,29 @@ class VHHttpClient {
     bool auth = true,
     bool json = false,
   }) async {
+    final Map<String, String> base;
     if (auth && json) {
-      return ApiConfig.authenticatedHeaders();
+      base = await ApiConfig.authenticatedHeaders();
     } else if (auth) {
-      return ApiConfig.authenticatedAuthHeaders();
+      base = await ApiConfig.authenticatedAuthHeaders();
     } else if (json) {
-      return ApiConfig.jsonHeaders;
+      base = Map<String, String>.from(ApiConfig.jsonHeaders);
+    } else {
+      base = Map<String, String>.from(ApiConfig.authHeaders);
     }
-    return ApiConfig.authHeaders;
+
+    // Acting-as delegation header — only attached on authenticated calls.
+    // The provider is null for staff/admin (and for guardians on their
+    // own profile); when set + non-empty the backend rewrites req.user
+    // to the named dependent.
+    if (auth) {
+      final actingAsUid = actingAsUidProvider?.call();
+      if (actingAsUid != null && actingAsUid.isNotEmpty) {
+        base['X-Acting-As-Uid'] = actingAsUid;
+      }
+    }
+
+    return base;
   }
 
   static Uri _buildUri(String path, [Map<String, String>? queryParameters]) {

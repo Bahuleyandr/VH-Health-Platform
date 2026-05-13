@@ -5,14 +5,17 @@
 // profile. `activeDependent == null` means the guardian is viewing their
 // own profile.
 //
-// Cross-resource API calls (dashboard / appointments / records) do NOT
-// automatically rewrite to the dependent's id — that requires per-endpoint
-// backend support that doesn't exist yet. For now, switching profiles is
-// visual + threads the dependent's uid/phone into screens that take those
-// as args. The deferred follow-up is to wire `X-Acting-As-Uid` through
-// `VHHttpClient` once backend endpoints opt into honouring it.
+// When `activeDependent` is non-null, every authenticated HTTP call made
+// through `VHHttpClient` automatically attaches the `X-Acting-As-Uid`
+// header. The backend's `jwtMiddleware` verifies guardianship + tenant
+// parity, then rewrites `req.user` to the dependent's identity for the
+// remainder of the request — so dashboard / appointments / records /
+// prescriptions / pharmacy / etc. all return the *dependent's* data
+// without per-endpoint plumbing. Switching back to the guardian's
+// profile clears the resolver and subsequent calls drop the header.
 
 import 'package:flutter/foundation.dart';
+import 'package:vhhealth_core/vhhealth_core.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 
@@ -59,6 +62,15 @@ class Dependent {
 }
 
 class DependentsProvider extends ChangeNotifier {
+  DependentsProvider() {
+    // Register the acting-as resolver with the shared HTTP client so every
+    // authenticated request the patient app makes attaches the right header
+    // based on the currently-active profile. The closure captures `this`,
+    // so the resolver always reflects the latest `_active` without needing
+    // explicit re-registration on every switch.
+    VHHttpClient.actingAsUidProvider = () => _active?.uid;
+  }
+
   List<Dependent> _dependents = const [];
   Dependent? _active;
   bool _loading = false;
@@ -204,6 +216,15 @@ class DependentsProvider extends ChangeNotifier {
     _error = null;
     _loadedOnce = false;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    // Tear down the resolver so a torn-down provider doesn't keep
+    // returning a stale uid into a still-running HTTP client (matters
+    // mainly for tests; the production app keeps one provider alive).
+    VHHttpClient.actingAsUidProvider = null;
+    super.dispose();
   }
 }
 
