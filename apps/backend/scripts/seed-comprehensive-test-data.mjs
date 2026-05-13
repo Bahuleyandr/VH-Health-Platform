@@ -868,10 +868,45 @@ async function summarize(failed) {
   };
 }
 
+// Explicit seed for insurance_claim_caps. The auto-seeder in
+// seedRemainingTables can't navigate the CHECK constraint added by
+// migration 197 — the constraint requires exactly one of claim_id /
+// tpa_claim_id to be set, but rowForTable either sets both (violating
+// the XOR check) or neither (violating the "at least one" half). Pick
+// any existing insurance_claims.id from the auto-seeded rows and bind
+// a single cap row to it so the seeded.table.coverage contract passes.
+async function seedInsuranceClaimCaps() {
+  if (await tableCount('insurance_claim_caps')) return;
+
+  // Prefer linking to a legacy insurance_claims row; fall back to
+  // tpa_claims if the legacy side is somehow empty. Both should be
+  // auto-seeded by this point.
+  const legacyClaim = await first('insurance_claims', 'id', 'TRUE', []);
+  const tpaClaim = legacyClaim ? null : await first('tpa_claims', 'id', 'TRUE', []);
+  if (!legacyClaim && !tpaClaim) return; // can't seed without a parent
+
+  const staffUid = await firstValue('users', 'uid') || DEFAULT_TENANT_ID;
+  const baseRow = {
+    category: 'room_rent',
+    max_amount: 3500,
+    currency: 'INR',
+    notes: 'Seed cap for QA coverage',
+    tenant_id: DEFAULT_TENANT_ID,
+    created_by: staffUid,
+  };
+
+  await insertIfEmpty('insurance_claim_caps', [
+    legacyClaim
+      ? { ...baseRow, claim_id: legacyClaim.id }
+      : { ...baseRow, tpa_claim_id: tpaClaim.id },
+  ]);
+}
+
 try {
   await client.query('BEGIN');
   await seedCoreData();
   const { seeded, failed } = await seedRemainingTables();
+  await seedInsuranceClaimCaps();
   await client.query('COMMIT');
   const summary = await summarize(failed);
   console.log(JSON.stringify({ ...summary, newlySeededTables: seeded.length }, null, 2));
