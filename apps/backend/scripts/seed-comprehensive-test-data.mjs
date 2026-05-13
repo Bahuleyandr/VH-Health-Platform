@@ -886,12 +886,17 @@ async function seedInsuranceClaimCaps() {
   if (!legacyClaim && !tpaClaim) return; // can't seed without a parent
 
   const staffUid = await firstValue('users', 'uid') || DEFAULT_TENANT_ID;
+  // insurance_claim_caps has no tenant_id column — its tenant scope is
+  // inherited through the parent claim row (insurance_claims has no
+  // tenant_id either, tpa_claims has tenant_id). Columns: claim_id /
+  // tpa_claim_id (XOR), category, max_amount, currency, source, notes,
+  // created_by (uuid required), created_at, updated_at.
   const baseRow = {
     category: 'room_rent',
     max_amount: 3500,
     currency: 'INR',
+    source: 'tpa_preauth',
     notes: 'Seed cap for QA coverage',
-    tenant_id: DEFAULT_TENANT_ID,
     created_by: staffUid,
   };
 
