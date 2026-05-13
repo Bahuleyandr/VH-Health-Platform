@@ -710,6 +710,7 @@ model appointments {
   reminder_1h_sent                     Boolean                      @default(false)
   reminder_24h_sent                    Boolean                      @default(false)
   token_number                         String?                      @db.VarChar(20)
+  visit_no                             String?                      @db.VarChar(50)
   department                           String?                      @db.VarChar(100)
   confirmed_at                         DateTime?                    @db.Timestamptz(6)
   sla_target_at                        DateTime?                    @db.Timestamptz(6)
@@ -733,6 +734,7 @@ model appointments {
   @@index([phone])
   @@index([status])
   @@index([uid])
+  @@index([visit_no])
   @@index([department, appointment_date], map: "idx_appointments_department_date")
 }
 

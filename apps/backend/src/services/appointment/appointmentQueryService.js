@@ -24,6 +24,10 @@ const APPT_BASE_SELECT = {
   doctor_name: true,
   department: true,
   token_number: true,
+  // Persisted human-readable visit_no (migration 217) so receptionists
+  // can reprint the slip and downstream counters can match the printed
+  // OPD-YYYYMMDD-NNN token in list responses.
+  visit_no: true,
   // F-2 — surface admission-advice columns so the admission counter
   // queue can render advice timestamp + note + advising doctor without
   // a second round-trip. Finding:
@@ -190,6 +194,10 @@ export class AppointmentQueryService {
           { doctor_name: { contains: listQuery.search, mode: 'insensitive' } },
           { phone: { contains: listQuery.search, mode: 'insensitive' } },
           { reason: { contains: listQuery.search, mode: 'insensitive' } },
+          // Walk-ins persist visit_no (migration 217) so reception can
+          // reprint the slip and downstream counters can find the appointment
+          // by the printed `OPD-YYYYMMDD-NNN` token.
+          { visit_no: { contains: listQuery.search, mode: 'insensitive' } },
         ];
       }
 
