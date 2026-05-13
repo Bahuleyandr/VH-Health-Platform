@@ -13,12 +13,34 @@ export async function recordEntry({
   vent_mode, fio2_pct, tidal_volume_ml, peep_cmh2o, airway_pressure,
   drugs_given, iv_fluids_ml, blood_loss_ml, urine_output_ml,
   event_note, recorded_by,
+  // Top-level shorthand fields the intra-op UI / API clients send when
+  // logging a single drug per entry (entry_type='drug' workflow). The
+  // anesthesia_chart_entries table stores drugs as a jsonb array, so
+  // synthesise the array entry below rather than dropping the fields.
+  entry_type, drug_name, dose, route,
 }) {
   if (!ot_schedule_id) throw AppError.badRequest('ot_schedule_id is required');
   // Compute MAP if it wasn't supplied but SBP+DBP were.
   let computedMap = mapValue;
   if (computedMap == null && sbp != null && dbp != null) {
     computedMap = Math.round(Number(dbp) + (Number(sbp) - Number(dbp)) / 3);
+  }
+
+  // Map the single-drug shorthand into the drugs_given jsonb array.
+  // Caller can also pass `drugs_given: [...]` directly; if both are
+  // provided, the shorthand entry is appended (consistent with logging
+  // a drug given concurrently with vitals on the same chart row).
+  let drugsArr = Array.isArray(drugs_given) ? [...drugs_given] : [];
+  const hasShorthand =
+    (drug_name && String(drug_name).trim() !== '') ||
+    (entry_type === 'drug' && (dose || route));
+  if (hasShorthand) {
+    drugsArr.push({
+      name: drug_name ? String(drug_name).trim() : null,
+      dose: dose ?? null,
+      route: route ?? null,
+      time: recorded_at || new Date().toISOString(),
+    });
   }
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO anesthesia_chart_entries
@@ -38,7 +60,7 @@ export async function recordEntry({
     spo2 ?? null, etco2 ?? null, rr ?? null, temp_c ?? null,
     vent_mode || null, fio2_pct ?? null, tidal_volume_ml ?? null,
     peep_cmh2o ?? null, airway_pressure ?? null,
-    JSON.stringify(drugs_given ?? []),
+    JSON.stringify(drugsArr),
     iv_fluids_ml ?? null, blood_loss_ml ?? null, urine_output_ml ?? null,
     event_note || null,
     recorded_by ? String(recorded_by) : null,

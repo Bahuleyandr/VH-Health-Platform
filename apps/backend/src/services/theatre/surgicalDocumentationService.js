@@ -1041,13 +1041,13 @@ export async function upsertSafetyChecklistPhase({
           items, all_items_confirmed, outstanding_items,
           status, override_reason, override_authorized_by, notes, metadata)
        VALUES ($1::uuid, $2, $3::uuid,
-         $4, $5::uuid, $6::timestamptz,
+         $4, $5::uuid, COALESCE($6::timestamptz, NOW()),
          $7::jsonb, $8, $9::jsonb,
          $10, $11, $12::uuid, $13, $14::jsonb)
        ON CONFLICT (tenant_id, ot_schedule_id, phase) DO UPDATE SET
          patient_uid = EXCLUDED.patient_uid,
          performed_by = EXCLUDED.performed_by,
-         performed_at = EXCLUDED.performed_at,
+         performed_at = COALESCE(EXCLUDED.performed_at, surgical_safety_checklists.performed_at, NOW()),
          items = EXCLUDED.items,
          all_items_confirmed = EXCLUDED.all_items_confirmed,
          outstanding_items = EXCLUDED.outstanding_items,

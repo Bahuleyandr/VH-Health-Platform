@@ -147,6 +147,7 @@ import dietaryRoutes from './routes/dietary/dietaryRoutes.js';
 import theatreRoutes from './routes/theatre/theatreRoutes.js';
 import orBoardRoutes from './routes/theatre/orBoardRoutes.js';
 import anesthesiaChartRoutes from './routes/theatre/anesthesiaChartRoutes.js';
+import surgicalDocumentationRoutes from './routes/admin/surgicalDocumentationRoutes.js';
 import microbiologyRoutes from './routes/lab/microbiologyRoutes.js';
 import labPanelRoutes from './routes/lab/labPanelRoutes.js';
 import paediatricImmunisationRoutes from './routes/paediatric/paediatricImmunisationRoutes.js';
@@ -711,6 +712,26 @@ app.use('/api/v1/dietary', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSIN
 app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF'), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
 app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF'), orBoardRoutes);
 app.use('/api/v1/anesthesia', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF'), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
+
+// Surgical documentation — parallel mount at /api/v1/surgical for clinical
+// staff (OT nurses, surgeons, anaesthetists) who own these workflows in
+// real life. The legacy /api/v1/admin/surgical mount still exists for
+// audit/reporting consumers but RBAC-blocks NURSING_STAFF/OT_STAFF/DOCTOR
+// from authoring pre-op checklists, intraop notes, post-op (PACU) notes,
+// and WHO safety phases. Findings:
+//   2026-05-09-surgical-day-care-nurse-pacu-note-admin-only
+//   2026-05-10-surgical-day-care-nurse-preop-checklist-admin-only
+//   2026-05-10-surgical-day-care-ot-staff-timeout-recording-admin-only
+//   2026-05-10-surgical-day-care-ot-staff-surgeon-op-notes-admin-only
+app.use(
+  '/api/v1/surgical',
+  requireRole(
+    'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF',
+    'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT',
+  ),
+  phiAccessLogger('SURGICAL_DOCUMENTATION'),
+  surgicalDocumentationRoutes,
+);
 app.use('/api/v1/microbiology', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'LAB_STAFF'), phiAccessLogger('MICROBIOLOGY'), microbiologyRoutes);
 app.use('/api/v1/pcpndt', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RADIOLOGIST'), phiAccessLogger('PCPNDT'), pcpndtRoutes);
 app.use('/api/v1/icu', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'ICU_STAFF'), phiAccessLogger('ICU'), icuRoutes);

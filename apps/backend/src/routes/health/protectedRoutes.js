@@ -59,6 +59,13 @@ router.post('/records',
   patientHealthController.recordStaffVitals
 );
 
+// 5-minute correction window for nurses fixing a transposed vital right
+// after recording. Outside the window, edits must go through a clinical
+// note addendum. Finding:
+//   2026-05-10-surgical-day-care-nurse-vitals-edit-window-missing
+router.put('/records/:id', patientHealthController.updateStaffVitals);
+router.patch('/records/:id', patientHealthController.updateStaffVitals);
+
 router.get('/patient/:patient_id/vitals',
   patientIdValidator,
   patientHealthController.getPatientVitals
