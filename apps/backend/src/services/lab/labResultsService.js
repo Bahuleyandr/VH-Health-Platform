@@ -18,6 +18,21 @@ function asNumericOrNull(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+// Stage-3 chip G — investigations.status values from which the order
+// is considered "pre-result" and should advance to IN_PROGRESS once a
+// lab_results row is filed. Terminal states (COMPLETED/CANCELLED) and
+// already-running (IN_PROGRESS) are left alone. See migration 217.
+const INVESTIGATION_PRE_RESULT_STATUSES = ['REQUESTED', 'PENDING', 'SCHEDULED', 'COLLECTED'];
+
+async function resolveInvestigationIdForBooking(client, bookingId) {
+  if (bookingId == null) return null;
+  const rows = await client.$queryRawUnsafe(
+    `SELECT investigation_id FROM investigation_bookings WHERE id = $1 LIMIT 1`,
+    Number(bookingId),
+  );
+  return rows[0]?.investigation_id ?? null;
+}
+
 const CRITICAL_THRESHOLD_ALIASES = [
   {
     testCodes: ['TROP', 'TROPI'],
@@ -80,16 +95,20 @@ export async function ingestOruMessage(message, { tenantId, source }) {
   if (!patientUid) throw AppError.badRequest('Missing patient identifier (PID-3)');
   const patientName = parsed.pid?.name || null;
 
-  // Order linkage — ORC-2 (placer order number) → investigation_bookings
+  // Order linkage — ORC-2 (placer order number) → investigation_bookings,
+  // then bookings.investigation_id → investigations. Investigation
+  // linkage on the result row lets us advance investigations.status
+  // out of REQUESTED on result entry (chip-G / migration 217).
   let bookingId = null;
   const placerOrderId = parsed.orc?.placerOrderNumber;
   if (placerOrderId && /^\d+$/.test(String(placerOrderId))) {
     const matches = await prisma.$queryRawUnsafe(
-      `SELECT id FROM investigation_bookings WHERE id = $1::int LIMIT 1`,
+      `SELECT id, investigation_id FROM investigation_bookings WHERE id = $1::int LIMIT 1`,
       Number(placerOrderId),
     );
     if (matches.length) bookingId = matches[0].id;
   }
+  const investigationId = await resolveInvestigationIdForBooking(prisma, bookingId);
 
   const obxRows = parsed.obx || [];
   if (!obxRows.length) {
@@ -101,16 +120,17 @@ export async function ingestOruMessage(message, { tenantId, source }) {
     const numeric = asNumericOrNull(obx.value);
     const r = await prisma.$queryRawUnsafe(
       `INSERT INTO lab_results
-        (tenant_id, booking_id, patient_uid, patient_name,
+        (tenant_id, booking_id, investigation_id, patient_uid, patient_name,
          hl7_message_id, hl7_segment_index,
          loinc_code, test_code, test_name,
          value_text, value_numeric, unit, reference_range,
          abnormal_flag, status, performed_by_lab, performed_at, raw_obx)
-       VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10,
-               $11, $12, $13, $14, $15, $16, $17, $18)
+       VALUES ($1::uuid, $2, $3, $4::uuid, $5, $6, $7, $8, $9, $10,
+               $11, $12, $13, $14, $15, $16, $17, $18, $19)
        RETURNING *`,
       tenantId,
       bookingId,
+      investigationId,
       patientUid,
       patientName,
       messageControlId,
@@ -129,6 +149,19 @@ export async function ingestOruMessage(message, { tenantId, source }) {
       obx.raw || null,
     );
     results.push(r[0]);
+  }
+
+  if (investigationId != null) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE investigations
+          SET status = 'IN_PROGRESS',
+              result_uploaded_at = COALESCE(result_uploaded_at, NOW()),
+              updated_at = NOW()
+        WHERE id = $1
+          AND status = ANY($2::text[])`,
+      investigationId,
+      INVESTIGATION_PRE_RESULT_STATUSES,
+    );
   }
 
   // Critical detection
@@ -302,7 +335,7 @@ export async function detectCriticalsForResults({ tenantId, results }) {
 
 export async function recordResultManual({ tenantId, performed_by, result }) {
   const fields = [
-    'booking_id', 'patient_uid', 'patient_name', 'loinc_code',
+    'booking_id', 'investigation_id', 'patient_uid', 'patient_name', 'loinc_code',
     'test_code', 'test_name', 'value_text', 'unit', 'reference_range',
     'abnormal_flag', 'status', 'comments',
   ];
@@ -374,20 +407,48 @@ export async function recordResultManual({ tenantId, performed_by, result }) {
     }
   }
 
+  // Resolve investigation_id: explicit > booking_id lookup. The result
+  // row needs an FK back to the doctor's order so investigations.status
+  // can advance and the lab worklist can drop the fulfilled order
+  // (chip-G / migration 217 / finding
+  // 2026-05-09-inpatient-admission-lab-tech-no-investigation-result-linkage).
+  let resolvedInvestigationId = sanitised.investigation_id != null
+    ? Number(sanitised.investigation_id)
+    : null;
+  if (resolvedInvestigationId == null && sanitised.booking_id != null) {
+    resolvedInvestigationId = await resolveInvestigationIdForBooking(prisma, sanitised.booking_id);
+  }
+  sanitised.investigation_id = Number.isFinite(resolvedInvestigationId)
+    ? resolvedInvestigationId : null;
+
   const values = fields.map((f) => sanitised[f] ?? null);
   values.push(numeric, performed_by ? String(performed_by) : null, tenantId);
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO lab_results
-      (booking_id, patient_uid, patient_name, loinc_code, test_code,
+      (booking_id, investigation_id, patient_uid, patient_name, loinc_code, test_code,
        test_name, value_text, unit, reference_range, abnormal_flag,
        status, comments, value_numeric, performed_by_lab, tenant_id)
-     VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-             $13::numeric, $14, $15::uuid)
+     VALUES ($1, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+             $13, $14::numeric, $15, $16::uuid)
      RETURNING *`,
     ...values,
   );
   const created = rows[0];
+
+  if (created.investigation_id != null) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE investigations
+          SET status = 'IN_PROGRESS',
+              result_uploaded_at = COALESCE(result_uploaded_at, NOW()),
+              updated_at = NOW()
+        WHERE id = $1
+          AND status = ANY($2::text[])`,
+      created.investigation_id,
+      INVESTIGATION_PRE_RESULT_STATUSES,
+    );
+  }
+
   const alerts = await detectCriticalsForResults({ tenantId, results: [created] });
   return { result: created, alerts };
 }
