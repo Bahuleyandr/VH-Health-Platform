@@ -36,8 +36,10 @@ import 'package:vhhealth/features/family/screens/family_screen.dart';
 import 'package:vhhealth/features/medications/screens/medication_reminders_screen.dart';
 import 'package:vhhealth/features/abdm/screens/abdm_screen.dart';
 import 'package:vhhealth/features/gamification/screens/health_points_screen.dart';
+import 'package:vhhealth/features/maternity/screens/anc_timeline_screen.dart';
 import 'package:vhhealth/features/portal/screens/bills_screen.dart';
 import 'package:vhhealth/features/portal/screens/bill_detail_screen.dart';
+import 'package:vhhealth/features/portal/screens/lab_orders_screen.dart';
 import 'package:vhhealth/features/portal/screens/lab_results_screen.dart';
 import 'package:vhhealth/features/portal/screens/messages_screen.dart';
 import 'package:vhhealth/features/portal/screens/message_thread_screen.dart';
@@ -336,6 +338,14 @@ class AppRouter {
       GoRoute(
         path: '/portal/lab-results',
         builder: (context, state) => const LabResultsScreen(),
+      ),
+      GoRoute(
+        path: '/portal/lab-orders',
+        builder: (context, state) => const LabOrdersScreen(),
+      ),
+      GoRoute(
+        path: '/portal/maternity/timeline',
+        builder: (context, state) => const AncTimelineScreen(),
       ),
       GoRoute(
         path: '/portal/tpa/claims',

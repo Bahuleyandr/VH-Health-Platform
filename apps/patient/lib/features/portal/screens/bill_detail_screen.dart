@@ -22,6 +22,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
   Map<String, dynamic>? _invoice;
   List<Map<String, dynamic>> _items = const [];
   List<Map<String, dynamic>> _payments = const [];
+  Map<String, dynamic>? _tpaBreakdown;
   bool _generatingLink = false;
   String? _linkUrl;
   String? _linkToken;
@@ -50,6 +51,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
           _payments = (data['payments'] as List? ?? [])
               .whereType<Map<String, dynamic>>()
               .toList();
+          _tpaBreakdown = data['tpa_breakdown'] as Map<String, dynamic>?;
           _loading = false;
         });
       } else {
@@ -157,6 +159,8 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                   const SizedBox(height: 16),
                   if (hasDue) _payCard(theme, due),
                   if (hasDue) const SizedBox(height: 16),
+                  if (_tpaBreakdown != null) _insuranceSection(theme),
+                  if (_tpaBreakdown != null) const SizedBox(height: 16),
                   _itemsSection(theme),
                   const SizedBox(height: 16),
                   _paymentsSection(theme),
@@ -246,6 +250,162 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _insuranceSection(ThemeData theme) {
+    final tpa = _tpaBreakdown;
+    if (tpa == null) return const SizedBox.shrink();
+    final summary = tpa['summary'] as Map<String, dynamic>? ?? const {};
+    final claim = tpa['claim'] as Map<String, dynamic>? ?? const {};
+    final lineDecisions = (tpa['line_decisions'] as List? ?? [])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+    final latestMessage =
+        tpa['latest_insurer_message'] as Map<String, dynamic>?;
+
+    final billed = _toDouble(summary['hospital_billed']);
+    final approved = _toDouble(summary['tpa_approved']);
+    final paid = _toDouble(summary['tpa_paid']);
+    final nonPayable = _toDouble(summary['non_payable']);
+    final copay = _toDouble(summary['patient_copay']);
+    final claimNumber = claim['claim_number']?.toString();
+    final claimStatus = claim['status']?.toString();
+
+    return Card(
+      // Tint the insurance section so it reads as a distinct block, not
+      // another GST sub-card.
+      color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.4),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.shield_outlined, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Insurance / TPA breakdown',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                if (claimStatus != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      claimStatus.replaceAll('_', ' '),
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+              ],
+            ),
+            if (claimNumber != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Claim $claimNumber',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            _row('Total billed', _inr(billed)),
+            _row('TPA approved', _inr(approved)),
+            _row('TPA paid', _inr(paid)),
+            if (copay > 0) _row('Policy co-pay', _inr(copay)),
+            if (nonPayable > 0)
+              _row(
+                'Non-payable (your share)',
+                _inr(nonPayable),
+                bold: true,
+                colour: theme.colorScheme.error,
+              ),
+            if (lineDecisions.isNotEmpty) ...[
+              const Divider(height: 24),
+              Text('What was not covered', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 8),
+              ...lineDecisions.map((d) => _decisionRow(theme, d)),
+            ],
+            if (latestMessage != null) ...[
+              const Divider(height: 24),
+              Text('Latest insurer note', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 6),
+              if (latestMessage['subject'] != null)
+                Text(
+                  latestMessage['subject'].toString(),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              if (latestMessage['body'] != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  latestMessage['body'].toString(),
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _decisionRow(ThemeData theme, Map<String, dynamic> d) {
+    final desc = d['item_description']?.toString() ?? '—';
+    final amount = _toDouble(d['non_payable_amount']);
+    final label =
+        d['reason_label']?.toString() ??
+        d['reason_text']?.toString() ??
+        d['reason_code']?.toString() ??
+        '';
+    final reasonText = d['reason_text']?.toString();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text(desc, style: theme.textTheme.bodyMedium)),
+              const SizedBox(width: 8),
+              Text(
+                '− ${_inr(amount)}',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.error,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          if (label.isNotEmpty)
+            Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+          if (reasonText != null &&
+              reasonText.isNotEmpty &&
+              reasonText != label)
+            Text(
+              reasonText,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+        ],
       ),
     );
   }

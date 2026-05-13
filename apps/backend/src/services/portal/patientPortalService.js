@@ -83,7 +83,105 @@ export async function getMyBill({ tenantId, patient_uid, id }) {
       ORDER BY collected_at DESC`,
     rows[0].id,
   );
-  return { invoice: rows[0], items, payments };
+  // Insurance / TPA breakdown — IRDAI requires itemised non-payable
+  // explanations to cashless patients. Surface the linked tpa_claims row
+  // and any per-line decisions from tpa_claim_line_decisions (migration
+  // 211). Cash-payer invoices have no linked claim and return null here.
+  // Finding 2026-05-09-tpa-insurance-claim-patient-bill-no-disallowance-breakdown.
+  const tpaBreakdown = await resolveBillTpaBreakdown({ invoice_id: rows[0].id });
+  return { invoice: rows[0], items, payments, tpa_breakdown: tpaBreakdown };
+}
+
+// Plain-language explanations for tpa_claim_line_decisions.reason_code.
+// The DB CHECK constraint enforces this set; the app maps each code to a
+// patient-friendly label so the bill never surfaces a raw insurer code.
+const TPA_REASON_LABELS = {
+  room_upgrade: 'Room upgrade beyond policy entitlement',
+  over_cap_pharmacy: 'Pharmacy charges above policy cap',
+  over_cap_consumables: 'Consumables above policy cap',
+  non_listed: 'Item not covered by the policy',
+  partial_approval: 'Partial approval — balance is patient share',
+  co_pay: 'Policy co-pay portion',
+  sub_limit: 'Sub-limit reached for this category',
+  pre_existing_waiting: 'Pre-existing condition still under waiting period',
+  other: 'Other — see notes',
+};
+
+async function resolveBillTpaBreakdown({ invoice_id }) {
+  // tpa_claims.invoice_id is the FK — at most one claim per invoice in
+  // the cashless workflow. Reimbursement claims may not link an invoice
+  // at all (filed after discharge). We tolerate the empty case.
+  let claimRows = [];
+  try {
+    claimRows = await prisma.$queryRawUnsafe(
+      `SELECT id, claim_number, claim_type, total_billed, claimed_amount,
+              approved_amount, paid_amount, non_payable_amount,
+              patient_copay, status, denial_reason
+         FROM tpa_claims
+        WHERE invoice_id = $1::int
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1`,
+      Number(invoice_id),
+    );
+  } catch (err) {
+    // Under-migrated tenants: tpa_claims table missing → not a TPA bill.
+    if (err?.meta?.code !== '42P01') throw err;
+    return null;
+  }
+  if (!claimRows.length) return null;
+  const claim = claimRows[0];
+
+  let decisions = [];
+  try {
+    decisions = await prisma.$queryRawUnsafe(
+      `SELECT d.id, d.invoice_item_id, d.reason_code, d.reason_text,
+              d.approved_amount, d.non_payable_amount, d.recorded_at,
+              i.description AS item_description, i.line_total AS item_line_total
+         FROM tpa_claim_line_decisions d
+         JOIN billing_invoice_items i ON i.id = d.invoice_item_id
+        WHERE d.claim_id = $1::int
+        ORDER BY i.id`,
+      Number(claim.id),
+    );
+  } catch (err) {
+    // Migration 211 not yet applied on this tenant — return claim totals
+    // only. The patient still sees the aggregate non_payable_amount.
+    if (err?.meta?.code !== '42P01') throw err;
+  }
+
+  // Surface the latest insurer correspondence (if any) so the patient
+  // sees the same plain-language note the staff received from the TPA.
+  let latestInsurerMessage = null;
+  try {
+    const corrRows = await prisma.$queryRawUnsafe(
+      `SELECT subject, body, recorded_at
+         FROM tpa_claim_correspondence
+        WHERE claim_id = $1::int AND direction = 'inbound'
+        ORDER BY recorded_at DESC, id DESC
+        LIMIT 1`,
+      Number(claim.id),
+    );
+    if (corrRows.length) latestInsurerMessage = corrRows[0];
+  } catch (err) {
+    if (err?.meta?.code !== '42P01') throw err;
+  }
+
+  return {
+    claim,
+    line_decisions: decisions.map((d) => ({
+      ...d,
+      reason_label: TPA_REASON_LABELS[d.reason_code] || TPA_REASON_LABELS.other,
+    })),
+    latest_insurer_message: latestInsurerMessage,
+    summary: {
+      hospital_billed: Number(claim.total_billed || 0),
+      tpa_approved: Number(claim.approved_amount || 0),
+      tpa_paid: Number(claim.paid_amount || 0),
+      non_payable: Number(claim.non_payable_amount || 0),
+      patient_copay: Number(claim.patient_copay || 0),
+      currency: 'INR',
+    },
+  };
 }
 
 /**
@@ -618,6 +716,124 @@ export async function getMyClaim({ tenantId, patient_uid, id }) {
         }
       : null,
   };
+}
+
+// ── Lab orders (investigations) ─────────────────────────────────────
+//
+// `lab_results` rows arrive from the analyzer with per-analyte values
+// (haemoglobin, WBC, etc.) and the patient sees those on
+// /portal/lab-results. The lab **order** that produced them lives in
+// `investigations` and carries the patient-actionable fields:
+// collection_location, fasting_required, fasting_instructions,
+// collection_deadline_at (migration 203). Without surfacing these the
+// patient is sent home with no idea where to give the sample or
+// whether to fast.
+// Finding 2026-05-09-walk-in-opd-patient-lab-order-no-collection-instructions
+// + 2026-05-10-walk-in-opd-patient-lab-order-missing-instructions.
+
+export async function listMyLabOrders({ patient_uid, status = null, limit = 100 }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  // Resolve the patient's int id once — legacy rows on `investigations`
+  // (created before patient_uid backfill) only carry patient_id.
+  const userRows = await prisma.$queryRawUnsafe(
+    `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`,
+    String(patient_uid),
+  );
+  const patientId = userRows[0]?.id ?? null;
+
+  const params = [String(patient_uid)];
+  let where = `(i.patient_uid = $1::uuid`;
+  if (patientId != null) {
+    params.push(patientId);
+    where += ` OR i.patient_id = $${params.length}::int`;
+  }
+  where += `)`;
+  if (status) {
+    params.push(String(status).toUpperCase());
+    where += ` AND UPPER(i.status) = $${params.length}`;
+  }
+  params.push(Number(limit));
+  return prisma.$queryRawUnsafe(
+    `SELECT i.id, i.test_name, i.test_code, i.test_type, i.investigation_type,
+            i.status, i.priority,
+            i.requested_at, i.scheduled_date, i.time_slot,
+            i.collected_at, i.completed_at,
+            i.collection_location, i.collection_deadline_at,
+            i.fasting_required, i.fasting_instructions,
+            i.notes, i.result_summary, i.conclusion,
+            i.result_uploaded_at, i.file_key,
+            u.name AS doctor_name, doc.specialty AS doctor_specialty
+       FROM investigations i
+       LEFT JOIN users u ON u.id = i.doctor_id
+       LEFT JOIN doctors doc ON doc.user_id = i.doctor_id
+      WHERE ${where}
+      ORDER BY
+        CASE WHEN UPPER(i.status) IN ('REQUESTED','PENDING','SCHEDULED','SAMPLE_COLLECTED','PROCESSING') THEN 0 ELSE 1 END,
+        i.requested_at DESC NULLS LAST, i.id DESC
+      LIMIT $${params.length}::int`,
+    ...params,
+  );
+}
+
+export async function getMyLabOrder({ patient_uid, id }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const invId = Number(id);
+  if (!Number.isInteger(invId) || invId <= 0) {
+    throw AppError.badRequest('lab order id must be a positive integer');
+  }
+  const userRows = await prisma.$queryRawUnsafe(
+    `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`,
+    String(patient_uid),
+  );
+  const patientId = userRows[0]?.id ?? null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT i.id, i.test_name, i.test_code, i.test_type, i.investigation_type,
+            i.status, i.priority,
+            i.requested_at, i.scheduled_date, i.time_slot,
+            i.collected_at, i.completed_at,
+            i.collection_location, i.collection_deadline_at,
+            i.fasting_required, i.fasting_instructions,
+            i.notes, i.result_summary, i.conclusion, i.interpretation,
+            i.results, i.structured_results,
+            i.result_uploaded_at, i.file_key,
+            u.name AS doctor_name, doc.specialty AS doctor_specialty
+       FROM investigations i
+       LEFT JOIN users u ON u.id = i.doctor_id
+       LEFT JOIN doctors doc ON doc.user_id = i.doctor_id
+      WHERE i.id = $1::int
+        AND (i.patient_uid = $2::uuid OR i.patient_id = $3::int)`,
+    invId, String(patient_uid), patientId,
+  );
+  if (!rows.length) throw AppError.notFound('Lab order not found');
+  return rows[0];
+}
+
+// Generate a lab report PDF for a completed investigation. Patient is
+// IDOR-scoped on patient_uid (or fallback patient_id) before the binary
+// is generated. Delegates to clinicalPdfGenerator.generateLabReportPDF
+// for the actual layout. Finding
+// 2026-05-10-lab-walk-in-patient-no-report-pdf-download.
+export async function generateMyLabOrderPdfBuffer({ patient_uid, id }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const invId = Number(id);
+  if (!Number.isInteger(invId) || invId <= 0) {
+    throw AppError.badRequest('lab order id must be a positive integer');
+  }
+  const userRows = await prisma.$queryRawUnsafe(
+    `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`,
+    String(patient_uid),
+  );
+  const patientId = userRows[0]?.id ?? null;
+  const ownRows = await prisma.$queryRawUnsafe(
+    `SELECT id FROM investigations
+      WHERE id = $1::int
+        AND (patient_uid = $2::uuid OR patient_id = $3::int)`,
+    invId, String(patient_uid), patientId,
+  );
+  if (!ownRows.length) throw AppError.notFound('Lab order not found');
+
+  const { generateLabReportPDF } = await import('../documents/clinicalPdfGenerator.js');
+  return generateLabReportPDF(invId);
 }
 
 export async function listMyLabResults({ tenantId, patient_uid, limit = 100 }) {

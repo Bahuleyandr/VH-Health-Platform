@@ -8969,6 +8969,7 @@ model billing_invoice_items {
   source_ref_type  String?          @db.VarChar(40)
   source_ref_id    Int?
   billing_invoices billing_invoices @relation(fields: [invoice_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tpa_claim_line_decisions tpa_claim_line_decisions[]
 
   @@index([invoice_id], map: "idx_invoice_items_invoice")
 }
@@ -10088,12 +10089,32 @@ model tpa_claims {
   insurance_claim_caps     insurance_claim_caps[]
   tpa_claim_correspondence tpa_claim_correspondence[]
   tpa_claim_documents      tpa_claim_documents[]
+  tpa_claim_line_decisions tpa_claim_line_decisions[]
   billing_invoices         billing_invoices?          @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
   insurance_policies       insurance_policies         @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
   insurance_preauth        insurance_preauth?         @relation(fields: [preauth_id], references: [id], onUpdate: NoAction)
 
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_tpa_claims_patient")
   @@index([status, created_at(sort: Desc)], map: "idx_tpa_claims_status")
+}
+
+model tpa_claim_line_decisions {
+  id                    Int                   @id @default(autoincrement())
+  claim_id              Int
+  invoice_item_id       Int
+  reason_code           String                @db.VarChar(40)
+  reason_text           String?
+  approved_amount       Decimal               @default(0) @db.Decimal(12, 2)
+  non_payable_amount    Decimal               @default(0) @db.Decimal(12, 2)
+  recorded_by           String?               @db.Uuid
+  recorded_at           DateTime              @default(now()) @db.Timestamptz(6)
+  tenant_id             String                @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tpa_claims            tpa_claims            @relation(fields: [claim_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  billing_invoice_items billing_invoice_items @relation(fields: [invoice_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([claim_id, invoice_item_id])
+  @@index([claim_id], map: "idx_tpa_claim_line_decisions_claim")
+  @@index([invoice_item_id], map: "idx_tpa_claim_line_decisions_invoice_item")
 }
 
 model anesthesia_chart_entries {

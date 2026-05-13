@@ -274,6 +274,52 @@ router.get('/lab-results/:id', requirePatient, wrap(async (req) =>
   }),
 ));
 
+// ── Lab orders (patient-actionable collection + report download) ───
+router.get('/lab-orders', requirePatient, wrap(async (req) =>
+  portal.listMyLabOrders({
+    patient_uid: patientUidOf(req),
+    status: req.query.status,
+    limit: req.query.limit,
+  }),
+));
+
+router.get('/lab-orders/:id', requirePatient, wrap(async (req) =>
+  portal.getMyLabOrder({
+    patient_uid: patientUidOf(req),
+    id: req.params.id,
+  }),
+));
+
+// Binary PDF stream — bypass `wrap`/`success` which assume a JSON
+// envelope. PHI access is logged so HIPAA audit captures the download.
+router.get('/lab-orders/:id/pdf', requirePatient, async (req, res, next) => {
+  try {
+    const buffer = await portal.generateMyLabOrderPdfBuffer({
+      patient_uid: patientUidOf(req),
+      id: req.params.id,
+    });
+    logPhiAccess({
+      userId: req.user?.uid,
+      userRole: req.user?.role,
+      patientId: req.user?.uid,
+      recordType: 'lab_report_pdf',
+      action: 'EXPORT',
+      ip: req.ip,
+      requestId: req.id,
+    });
+    const filename =
+      `LabReport_${req.params.id}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    return res.send(buffer);
+  } catch (err) {
+    if (err.statusCode) return error(res, err.message, err.statusCode);
+    logger.error('patient lab report PDF error:', err);
+    return next(err);
+  }
+});
+
 // ── Maternity / ANC ─────────────────────────────────────────────────
 router.get('/maternity/timeline', requirePatient, wrap(async (req) =>
   maternity.getAncTimelineForPatient({
