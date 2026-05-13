@@ -30,7 +30,7 @@ export async function recordEntry({
   // Caller can also pass `drugs_given: [...]` directly; if both are
   // provided, the shorthand entry is appended (consistent with logging
   // a drug given concurrently with vitals on the same chart row).
-  let drugsArr = Array.isArray(drugs_given) ? [...drugs_given] : [];
+  const drugsArr = Array.isArray(drugs_given) ? [...drugs_given] : [];
   const hasShorthand =
     (drug_name && String(drug_name).trim() !== '') ||
     (entry_type === 'drug' && (dose || route));
