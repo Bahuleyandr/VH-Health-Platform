@@ -10,6 +10,7 @@ import logger from '../../logging/logger.js';
 import { parseHL7 } from '../hl7/hl7Parser.js';
 import { AppError } from '../../utils/AppError.js';
 import { canSignOffLabResults } from '../../utils/roleHelpers.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 
 function asNumericOrNull(value) {
   if (value == null || value === '') return null;
@@ -216,7 +217,7 @@ export async function detectCriticalsForResults({ tenantId, results }) {
     try {
       const { default: outbox } = await import('../../utils/notifications/notificationOutbox.js');
       const recipients = await prisma.$queryRawUnsafe(
-        `SELECT DISTINCT u.id, u.phone, u.name
+        `SELECT DISTINCT u.id, u.uid, u.phone, u.name
            FROM users u
           WHERE u.uid IN (
                   SELECT DISTINCT requested_by FROM investigations
@@ -243,25 +244,55 @@ export async function detectCriticalsForResults({ tenantId, results }) {
           LIMIT 10`,
         r.patient_uid,
       );
+      const alertTitle = `CRITICAL lab: ${r.test_name}`;
+      const alertBody = `${r.test_name} = ${r.value_text}${r.unit ? ' ' + r.unit : ''} (threshold ${breachedSide} ${breachedValue}). Patient: ${r.patient_uid}.`;
+      const alertData = {
+        result_id: r.id,
+        alert_id: alert[0].id,
+        patient_uid: r.patient_uid,
+        breachedSide,
+        value: v,
+        threshold: breachedValue,
+      };
       for (const recipient of recipients) {
+        // External delivery queue (FCM/SMS retry) — see notificationOutbox.js.
         await outbox.queue({
           type: 'lab_critical_alert',
           recipientId: recipient.id,
           recipientPhone: recipient.phone,
-          title: `CRITICAL lab: ${r.test_name}`,
-          body: `${r.test_name} = ${r.value_text}${r.unit ? ' ' + r.unit : ''} (threshold ${breachedSide} ${breachedValue}). Patient: ${r.patient_uid}.`,
-          data: {
-            result_id: r.id,
-            alert_id: alert[0].id,
-            patient_uid: r.patient_uid,
-            breachedSide,
-            value: v,
-            threshold: breachedValue,
-          },
-        }).catch((e) => logger.warn(`Critical lab alert notify failed: ${e.message}`));
+          title: alertTitle,
+          body: alertBody,
+          data: alertData,
+        }).catch((e) => logger.error(`Critical lab alert outbox queue failed for user ${recipient.id}: ${e.message}`));
+
+        // In-app feed row — what GET /api/v1/notifications/my reads via
+        // notificationService.getNotificationsByPhone (matches on
+        // normalizePhone(users.phone)). The outbox alone is invisible to
+        // the doctor's feed because the feed reads `notifications`, not
+        // `notification_outbox`. See finding
+        // 2026-05-13-emergency-walk-in-lab-tech-1e24f95f.
+        try {
+          await prisma.$executeRawUnsafe(
+            `INSERT INTO notifications
+               (uid, user_id, phone, title, body, type, priority,
+                data, is_read, created_at, updated_at)
+             VALUES ($1::uuid, $2::int, $3, $4, $5, 'lab_critical_alert',
+                     'HIGH', $6::jsonb, false, NOW(), NOW())`,
+            recipient.uid,
+            recipient.id,
+            normalizePhone(recipient.phone),
+            alertTitle,
+            alertBody,
+            JSON.stringify(alertData),
+          );
+        } catch (e) {
+          // logger.error (not warn) because a missing in-app row leaves a
+          // patient-safety alert invisible to the treating doctor.
+          logger.error(`Critical lab alert in-app feed insert failed for user ${recipient.id}: ${e.message}`);
+        }
       }
     } catch (e) {
-      logger.warn(`Critical lab alert push hook failed: ${e?.message}`);
+      logger.error(`Critical lab alert recipient fan-out failed for result ${r.id}: ${e?.message}`);
     }
   }
   return alerts;
