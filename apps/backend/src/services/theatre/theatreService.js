@@ -48,6 +48,34 @@ function inferProcedureSide(schedule) {
   return null;
 }
 
+// Active-diabetic probe for the OT-ready glucose gate. Looks for an
+// active ICD-10 E10/E11/E13 diagnosis (type 1, type 2, other DM) or a
+// description that mentions diabetes/diabetic. Swallows query errors —
+// if the diagnoses table is unavailable, the gate fails open rather
+// than blocking a non-diabetic patient.
+async function isDiabeticPatient(patientUid) {
+  if (!patientUid) return false;
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT 1 FROM diagnoses
+        WHERE patient_uid = $1::uuid
+          AND COALESCE(status, '') NOT IN ('resolved', 'inactive', 'erroneous')
+          AND (
+            UPPER(COALESCE(icd10_code, '')) LIKE 'E10%'
+            OR UPPER(COALESCE(icd10_code, '')) LIKE 'E11%'
+            OR UPPER(COALESCE(icd10_code, '')) LIKE 'E13%'
+            OR description ILIKE '%diabetes%'
+            OR description ILIKE '%diabetic%'
+          )
+        LIMIT 1`,
+      patientUid,
+    );
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function assertOtReadySiteMark(checklist, schedule) {
   if (!checklist || typeof checklist !== 'object' || Array.isArray(checklist) || checklist.ot_ready !== true) return;
 
@@ -265,12 +293,28 @@ class TheatreService {
 
   async completeChecklist(id, checklist) {
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status, procedure_name, procedure_code FROM ot_schedules WHERE id = $1`, requireIntId(id));
+      `SELECT id, status, procedure_name, procedure_code, patient_uid FROM ot_schedules WHERE id = $1`, requireIntId(id));
     if (existing.length === 0) throw AppError.notFound('OT schedule not found');
     if (['completed', 'cancelled'].includes(existing[0].status)) {
       throw AppError.badRequest('Cannot update checklist for a completed or cancelled surgery');
     }
     assertOtReadySiteMark(checklist, existing[0]);
+
+    // Diabetic glucose gate: pre-op for any patient with an active
+    // diabetes diagnosis must include a documented blood glucose check
+    // before ot_ready can flip to true. Avoids the hypo/hyperglycaemia
+    // window that an unmonitored fasting diabetic enters under anaesthesia.
+    if (checklist && typeof checklist === 'object' && !Array.isArray(checklist) && checklist.ot_ready === true) {
+      const glucoseChecked = checklist.blood_glucose_checked === true
+        || (checklist.blood_glucose_mg_dl != null && Number.isFinite(Number(checklist.blood_glucose_mg_dl)))
+        || (checklist.glucose != null && Number.isFinite(Number(checklist.glucose)));
+      if (!glucoseChecked && await isDiabeticPatient(existing[0].patient_uid)) {
+        throw AppError.badRequest(
+          'Cannot set OT-ready for a diabetic patient until a pre-op blood glucose check is documented',
+          'DIABETIC_GLUCOSE_CHECK_REQUIRED'
+        );
+      }
+    }
 
     const result = await prisma.$queryRawUnsafe(
       `UPDATE ot_schedules SET pre_op_checklist = $1::jsonb, updated_at = NOW()
