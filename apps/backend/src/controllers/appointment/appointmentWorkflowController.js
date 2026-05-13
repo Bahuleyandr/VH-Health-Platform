@@ -829,6 +829,37 @@ export const registerWalkIn = async (req, res) => {
       }
     }
 
+    // Phase 0 — minor patient guard. Creating a new patient under 18
+    // without guardian fields leaves consent forms, discharge handoffs,
+    // and emergency call-back chains with nobody on file. Skip the
+    // check for returning patients (already in the DB — guardian was
+    // collected on the original registration) and for unidentified-ER
+    // walk-ins (the family may not have arrived yet; merge flow will
+    // attach guardian later). Finding:
+    //   2026-05-09-pediatric-opd-receptionist-no-minor-age-guard.
+    if (!patient_id && !isUnidentifiedMode && patient_birthday
+        && /^\d{4}-\d{2}-\d{2}$/.test(patient_birthday)) {
+      const dob = new Date(patient_birthday);
+      const cutoff = new Date();
+      cutoff.setFullYear(cutoff.getFullYear() - 18);
+      if (dob > cutoff) {
+        const missing = [];
+        if (!guardian_name || !String(guardian_name).trim()) missing.push('guardian_name');
+        if (!guardian_phone || !String(guardian_phone).trim()) missing.push('guardian_phone');
+        if (!guardian_relationship || !String(guardian_relationship).trim()) {
+          missing.push('guardian_relationship');
+        }
+        if (missing.length) {
+          return error(
+            res,
+            `Minor patient (age < 18) requires guardian fields: ${missing.join(', ')}`,
+            HTTP_STATUS.BAD_REQUEST,
+            { code: 'GUARDIAN_REQUIRED_FOR_MINOR', missing },
+          );
+        }
+      }
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       const appointmentDepartment = await resolveWalkInDepartment(tx, {
         department,
