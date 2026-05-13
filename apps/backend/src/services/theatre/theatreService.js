@@ -141,6 +141,26 @@ class TheatreService {
       throw AppError.badRequest('Missing required fields: patient_uid, surgeon, procedure_name, scheduled_date');
     }
 
+    // ot_schedules.encounter_id is INTEGER (legacy HL7 visit_no column),
+    // but admissions.encounter_id is UUID. Callers pass the admission's
+    // UUID here, which Postgres rejects with a type error → previously
+    // surfaced as a generic 500. Accept the UUID form and store NULL
+    // until the table is widened to a uuid/int split (matches what
+    // vitalsChartService does for the same column collision).
+    let encounterIdInt = null;
+    if (encounter_id !== null && encounter_id !== undefined && encounter_id !== '') {
+      const asInt = Number.parseInt(encounter_id, 10);
+      if (Number.isFinite(asInt) && String(asInt) === String(encounter_id).trim()) {
+        encounterIdInt = asInt;
+      } else if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(encounter_id)) {
+        logger.warn('scheduleSurgery: UUID encounter_id passed; ot_schedules.encounter_id is INT — storing NULL', {
+          patient_uid, encounter_id,
+        });
+      } else {
+        throw AppError.badRequest('encounter_id must be an integer or a UUID');
+      }
+    }
+
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO ot_schedules
         (patient_uid, encounter_id, surgeon, anesthetist, procedure_name, procedure_code,
@@ -149,7 +169,7 @@ class TheatreService {
        VALUES ($1::uuid, $2, $3::uuid, $4::uuid, $5, $6, $7, $8::date, $9::time,
          $10, 'scheduled', $11::text[], $12, $13, NOW(), NOW())
        RETURNING ${OT_RETURNING}`,
-      patient_uid, encounter_id || null, surgeon, anesthetist || null,
+      patient_uid, encounterIdInt, surgeon, anesthetist || null,
       procedure_name, procedure_code || null, ot_room || null,
       scheduled_date, scheduled_time || null, estimated_duration || null,
       equipment_needed, blood_arranged, consent_obtained
