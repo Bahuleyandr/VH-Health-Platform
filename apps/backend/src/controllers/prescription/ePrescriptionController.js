@@ -820,6 +820,17 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       return Number.isFinite(n) && n > 0 ? n : fallback;
     };
 
+    // Catalog-match every line; if any medication can't be resolved to a
+    // catalog row, refuse the order. Previously unmatched lines silently
+    // landed at price=0 / catalog_id=null / line_total=0, and the
+    // counter-dispense flow then marked the order DISPENSED + the Rx
+    // fulfilled with zero stock movement and zero bill. For a paediatric
+    // patient that means the formulation never matched (e.g. syrup vs
+    // tablet) and the system closed the medication loop without proof
+    // that the right product left the shelf. Finding:
+    //   2026-05-10-pediatric-opd-pharmacy-syrup-non-catalog-zero-bill-fulfilled.
+    const unmatched = [];
+
     for (const med of medications) {
       const medName = med.name || med.medication_name || med.drug_name || '';
       let price = 0;
@@ -845,6 +856,9 @@ export const orderPharmacyFromPrescription = async (req, res) => {
           price = parseFloat(catRes[0].unit_price) || 0;
         }
       }
+      if (!catalogId) {
+        unmatched.push(medName || '(unnamed medication)');
+      }
       const qty = toPositiveInt(med.quantity ?? med.qty, 1);
       const lineTotal = Number((price * qty).toFixed(2));
       totalCost += lineTotal;
@@ -864,6 +878,15 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       });
     }
     totalCost = Number(totalCost.toFixed(2));
+
+    if (unmatched.length) {
+      return error(
+        res,
+        `Cannot create pharmacy order — items not in catalog: ${unmatched.join('; ')}. Add the catalog entry (correct formulation/strength) and retry.`,
+        HTTP_STATUS.BAD_REQUEST,
+        { code: 'ITEM_NOT_IN_CATALOG', unmatched },
+      );
+    }
 
     // Create pharmacy order.
     // Three drift fixes per finding 2026-05-08-pediatric-opd-pharmacy-order-from-rx-500:
