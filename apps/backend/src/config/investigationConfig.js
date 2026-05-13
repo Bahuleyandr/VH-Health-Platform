@@ -31,12 +31,29 @@ export const INVESTIGATION_STATUS = {
   CANCELLED: 'CANCELLED'
 };
 
-// Priority levels
+// Priority levels.
+// STAT is the ER door-to-decision tier (ECG within 10 min, troponin within
+// 60 min), distinct from generic URGENT (4h SLA). Without an explicit
+// STAT level, ER doctors had to chart STAT intent in the notes field and
+// downstream lab worklists could not see it. Finding:
+// 2026-05-10-emergency-walk-in-doctor-stat-investigation-context-lost.
 export const PRIORITY_LEVELS = {
+  STAT: 'STAT',
   URGENT: 'URGENT',
   HIGH: 'HIGH',
   NORMAL: 'NORMAL',
   LOW: 'LOW'
+};
+
+// Default turnaround_target_hours per priority when the catalog row does
+// not carry an explicit turnaround. STAT/URGENT must surface against an
+// hours-scale clock on the worklist, not the catch-all 24h default.
+export const PRIORITY_TURNAROUND_HOURS = {
+  STAT: 1,
+  URGENT: 4,
+  HIGH: 8,
+  NORMAL: 24,
+  LOW: 48,
 };
 
 // Pagination defaults
