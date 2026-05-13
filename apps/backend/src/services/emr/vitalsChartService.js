@@ -17,6 +17,24 @@ const VALID_IO_TYPES = ['intake', 'output'];
 const VALID_IO_CATEGORIES = ['oral', 'iv', 'blood', 'urine', 'drain', 'vomit', 'stool', 'other'];
 const VALID_CONSCIOUSNESS = ['A', 'C', 'V', 'P', 'U'];
 
+// Urine dipstick (migration 211). Five-step scale used on both the
+// vitals_chart entry and the ANC visit composer. Stored as plain text
+// so the strip-reader UI can round-trip the value without an enum
+// migration when manufacturers ship slightly different labelling
+// (`+/-` vs `trace`, etc.). Finding:
+// 2026-05-08-obstetric-anc-nurse-no-ob-vitals-fields (dipstick portion).
+const VALID_DIPSTICK_VALUES = ['negative', 'trace', '1+', '2+', '3+', '4+'];
+function normaliseDipstick(raw, field) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  const v = String(raw).trim().toLowerCase();
+  if (!VALID_DIPSTICK_VALUES.includes(v)) {
+    throw AppError.badRequest(
+      `${field} must be one of: ${VALID_DIPSTICK_VALUES.join(', ')}`,
+    );
+  }
+  return v;
+}
+
 const VITAL_SELECT = {
   id: true,
   patient_uid: true,
@@ -40,6 +58,14 @@ const VITAL_SELECT = {
   // 2026-05-08-obstetric-anc-nurse-no-fhr-fundal-fields.
   fhr: true,
   fundal_height_cm: true,
+  // Urine dipstick (migration 211) — the third OB-vital surface the
+  // ANC nurse fills at routine antenatal checks. Mirrors the column
+  // names already used on maternity_anc_visits so the two compositions
+  // stay consistent. Finding:
+  // 2026-05-08-obstetric-anc-nurse-no-ob-vitals-fields (dipstick part).
+  urine_albumin: true,
+  urine_sugar: true,
+  urine_ketones: true,
   notes: true,
   recorded_by: true,
   recorded_at: true,
@@ -129,6 +155,7 @@ export async function recordVitals(data) {
     temperature_unit, spo2, respiratory_rate, blood_glucose, pain_score, weight_kg,
     height_cm, gcs_score, supplemental_o2, o2_flow_rate, consciousness, notes,
     fhr, fundal_height_cm,
+    urine_albumin, urine_sugar, urine_ketones,
     recorded_by,
   } = data;
 
@@ -144,9 +171,14 @@ export async function recordVitals(data) {
   const normalizedEncounterUid = normalizedEncounter.encounter_uid;
   const normalizedTemperature = toCelsius(temperature, temperature_unit);
 
+  const normalizedAlbumin = normaliseDipstick(urine_albumin, 'urine_albumin');
+  const normalizedSugar = normaliseDipstick(urine_sugar, 'urine_sugar');
+  const normalizedKetones = normaliseDipstick(urine_ketones, 'urine_ketones');
+
   const vitalValues = [heart_rate, systolic_bp, diastolic_bp, normalizedTemperature, spo2,
     respiratory_rate, blood_glucose, pain_score, weight_kg, height_cm, gcs_score,
-    fhr, fundal_height_cm];
+    fhr, fundal_height_cm,
+    normalizedAlbumin, normalizedSugar, normalizedKetones];
   if (vitalValues.every((v) => v === undefined || v === null)) {
     throw AppError.badRequest('At least one vital sign measurement is required');
   }
@@ -191,6 +223,10 @@ export async function recordVitals(data) {
       // 2026-05-08-obstetric-anc-nurse-no-fhr-fundal-fields.
       fhr: fhr ?? null,
       fundal_height_cm: fundal_height_cm ?? null,
+      // Urine dipstick (migration 211).
+      urine_albumin: normalizedAlbumin,
+      urine_sugar: normalizedSugar,
+      urine_ketones: normalizedKetones,
       notes: stripNul(notes ?? null),
       recorded_by,
     },

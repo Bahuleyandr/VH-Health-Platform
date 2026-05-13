@@ -18,6 +18,7 @@ router.post('/vitals', async (req, res, next) => {
       pain_score, weight_kg, height_cm, gcs_score, supplemental_o2,
       o2_flow_rate, consciousness, notes,
       fhr, fundal_height_cm,
+      urine_albumin, urine_sugar, urine_ketones,
     } = req.body;
 
     if (!patient_uid) {
@@ -45,6 +46,9 @@ router.post('/vitals', async (req, res, next) => {
       notes,
       fhr,
       fundal_height_cm,
+      urine_albumin,
+      urine_sugar,
+      urine_ketones,
       recorded_by: req.user.uid,
     });
 

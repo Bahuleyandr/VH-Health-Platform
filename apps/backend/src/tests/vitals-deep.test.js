@@ -122,6 +122,43 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
     });
   });
 
+  describe('OB urine dipstick fields (migration 211)', () => {
+    it('persists urine_albumin / urine_sugar / urine_ketones when set', async () => {
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PATIENT_UID,
+        systolic_bp: 124, diastolic_bp: 78,
+        urine_albumin: '1+',
+        urine_sugar: 'negative',
+        urine_ketones: 'trace',
+      });
+      expect(res.statusCode).toBe(201);
+      const row = await prisma.$queryRawUnsafe(
+        `SELECT urine_albumin, urine_sugar, urine_ketones
+           FROM vitals_chart WHERE id = $1`, res.body.data.vitals.id);
+      expect(row[0].urine_albumin).toBe('1+');
+      expect(row[0].urine_sugar).toBe('negative');
+      expect(row[0].urine_ketones).toBe('trace');
+    });
+
+    it('rejects unknown dipstick values', async () => {
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PATIENT_UID,
+        systolic_bp: 118,
+        urine_albumin: '5+', // not in the 5-step scale
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('accepts dipstick-only vitals when at least one pad is recorded', async () => {
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PATIENT_UID,
+        urine_albumin: '2+',
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.body.data.vitals.urine_albumin).toBe('2+');
+    });
+  });
+
   describe('anomaly detection', () => {
     it('flags a CRITICAL low SpO2 and persists a clinical_alert', async () => {
       const res = await doctor.post('/api/v1/emr/vitals').send({
