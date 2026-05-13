@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import 'package:vhhealth/core/navigation/app_router.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
+import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/firebase_session_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -72,7 +74,16 @@ class LogoutButton extends StatelessWidget {
         debugPrint('Logout cleanup: $e');
       }
 
-      // Clear storage, cached API data, and sign out before navigating
+      // Clear storage, cached API data, and sign out before navigating.
+      // Dependents list is per-account state — drop it so the next sign-in
+      // doesn't briefly flash the previous guardian's roster.
+      if (context.mounted) {
+        try {
+          context.read<DependentsProvider>().clear();
+        } catch (_) {
+          // Provider not in this subtree — ignore.
+        }
+      }
       await storage.deleteAll();
       await ApiCacheManager.clearAll();
       await FirebaseAuth.instance.signOut();

@@ -40,6 +40,24 @@ List<Widget> buildSettingsSections(SettingsController c) {
           const Divider(height: 1),
           ListTile(
             leading: CircleAvatar(
+              backgroundColor: cs.tertiaryContainer,
+              child: Icon(Icons.escalator_warning, color: cs.tertiary),
+            ),
+            title: Text('Manage dependents', style: txt.titleMedium),
+            subtitle: Text(
+              'Link or remove a minor under your account',
+              style: txt.bodySmall,
+            ),
+            trailing: Icon(
+              Icons.arrow_forward_ios,
+              size: 16,
+              color: cs.onSurfaceVariant,
+            ),
+            onTap: () => c.context.push('/add-dependent'),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: CircleAvatar(
               backgroundColor: const Color(0xFF26A69A).withAlpha(30),
               child: const Icon(
                 Icons.health_and_safety,

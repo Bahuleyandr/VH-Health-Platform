@@ -18,6 +18,7 @@ import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/providers/language_provider.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
 import 'package:vhhealth/core/providers/session_timeout_provider.dart';
+import 'package:vhhealth/core/providers/dependents_provider.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/providers/websocket_provider.dart';
 
@@ -163,6 +164,7 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
         ChangeNotifierProvider(create: (_) => LanguageProvider()),
         ChangeNotifierProvider(create: (_) => NotificationProvider()),
         ChangeNotifierProvider(create: (_) => UserProvider()),
+        ChangeNotifierProvider(create: (_) => DependentsProvider()),
         ChangeNotifierProvider(create: (_) => WebSocketProvider()..listen()),
         // Realtime fabric lifecycle owner. Widgets listen via
         // `context.read<RealtimeProvider>().events(channel)` instead of
