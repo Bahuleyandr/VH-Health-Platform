@@ -7,6 +7,7 @@ import logger from '../../logging/logger.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { calculateETA } from '../delivery/deliveryTrackingController.js';
+import { probePharmacyCap, shouldBlockDispense } from '../../services/pharmacy/pharmacyCapService.js';
 
 // ── Helper: attach signed URL to order ──────────────────────────────────────
 async function attachSignedUrl(order) {
@@ -345,6 +346,38 @@ export const markDelivered = async (req, res) => {
       return error(res, 'Invalid order id', HTTP_STATUS.BAD_REQUEST);
     }
 
+    // Phase 0 — TPA pharmacy-cap pre-flight. Same gate as the counter
+    // flow (see markCounterDispensed). markDelivered is the home-delivery
+    // tail, but an IPD ward dispense can ride this flow when the order
+    // was created before the counter route was wired, so we still
+    // probe the cap.
+    try {
+      const preRows = await prisma.$queryRawUnsafe(
+        `SELECT patient_id, total_amount FROM pharmacy_orders WHERE id=$1`,
+        orderId,
+      );
+      if (preRows.length) {
+        const probe = await probePharmacyCap({
+          patientId: preRows[0].patient_id,
+          additionalAmount: Number(preRows[0].total_amount ?? 0),
+        });
+        if (probe.message) {
+          logger.warn('Pharmacy cap probe', { order_id: orderId, ...probe });
+        }
+        if (shouldBlockDispense(probe, { allowOverride: Boolean(req.body?.cap_override) })) {
+          return error(res, probe.message, HTTP_STATUS.BAD_REQUEST, {
+            code: 'TPA_PHARMACY_CAP_EXCEEDED',
+            cap_amount: probe.pharmacyCap,
+            current_spend: probe.currentSpend,
+            projected_total: probe.projectedTotal,
+            utilisation_pct: probe.utilisationPct,
+          });
+        }
+      }
+    } catch (capErr) {
+      logger.warn('Pharmacy cap probe failed', { order_id: orderId, error: capErr.message });
+    }
+
     // Pull items_list + linked prescription up-front so we can do the
     // stock decrement + Rx fulfilment hook in the same transaction.
     // Findings: 2026-05-08-walk-in-opd-pharmacy-dispense-no-stock-decrement,
@@ -511,6 +544,28 @@ function mergeDispensedItems(existingItems, dispensedItems) {
 }
 
 /**
+ * Estimate the rupee amount about to be dispensed, BEFORE the
+ * transaction runs. Mirrors the totalAmount recomputation inside
+ * markCounterDispensed: prefer summed line_total across the merged
+ * items_list, fall back to the existing total_amount on the order for
+ * free-text/legacy orders with no priced lines.
+ */
+function computeDispenseProbeAmount({ existingItems, dispensedItems, fallbackTotal }) {
+  const { items: merged } = mergeDispensedItems(
+    Array.isArray(existingItems) ? existingItems : [],
+    Array.isArray(dispensedItems) ? dispensedItems : [],
+  );
+  const priced = merged.filter(
+    (i) => typeof i.line_total === 'number' && Number.isFinite(i.line_total),
+  );
+  if (priced.length) {
+    return Number(priced.reduce((s, i) => s + i.line_total, 0).toFixed(2));
+  }
+  const n = Number(fallbackTotal);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
  * B-2 — counter-dispense flow. The patient walks up to the pharmacy
  * with their Rx, the pharmacist confirms + hands it over on the spot.
  * No CONFIRMED -> PREPARING -> DISPATCHED -> DELIVERED chain — that's
@@ -548,7 +603,54 @@ export const markCounterDispensed = async (req, res) => {
       policy_number,
       package_deduction,
       tpa_reference,
+      cap_override,
     } = req.body ?? {};
+
+    // Phase 0 — TPA pharmacy-cap pre-flight (outside the transaction
+    // per the Phase 0/1/1.5 boundary rule in apps/backend/CLAUDE.md).
+    // For an admitted patient on a TPA preauth with a pharmacy cap,
+    // block dispensing that would push cumulative pharmacy spend over
+    // the cap unless the caller passed cap_override=true (gated by
+    // billing-supervisor RBAC in higher layers).
+    // See finding 2026-05-09-tpa-insurance-claim-billing-pharmacy-cap-not-enforced.
+    try {
+      const preRows = await prisma.$queryRawUnsafe(
+        `SELECT patient_id, items_list, total_amount
+           FROM pharmacy_orders WHERE id=$1`,
+        orderId,
+      );
+      if (preRows.length) {
+        const probeAmount = computeDispenseProbeAmount({
+          existingItems: preRows[0].items_list,
+          dispensedItems: dispensed_items,
+          fallbackTotal: preRows[0].total_amount,
+        });
+        const probe = await probePharmacyCap({
+          patientId: preRows[0].patient_id,
+          additionalAmount: probeAmount,
+        });
+        if (probe.message) {
+          logger.warn('Pharmacy cap probe', {
+            order_id: orderId, ...probe,
+          });
+        }
+        if (shouldBlockDispense(probe, { allowOverride: Boolean(cap_override) })) {
+          return error(res, probe.message, HTTP_STATUS.BAD_REQUEST, {
+            code: 'TPA_PHARMACY_CAP_EXCEEDED',
+            cap_amount: probe.pharmacyCap,
+            current_spend: probe.currentSpend,
+            projected_total: probe.projectedTotal,
+            utilisation_pct: probe.utilisationPct,
+          });
+        }
+      }
+    } catch (capErr) {
+      // Probe failure is non-fatal — log and continue. The cap check
+      // is opt-in until every admission has structured caps.
+      logger.warn('Pharmacy cap probe failed', {
+        order_id: orderId, error: capErr.message,
+      });
+    }
 
     const paymentModeInput = String(rawPaymentMode ?? payment_method ?? '').toLowerCase();
     const paymentMode = COUNTER_PAYMENT_MODES.has(paymentModeInput) ? paymentModeInput : null;

@@ -10083,6 +10083,7 @@ model tpa_claims {
   status                   String                     @default("prepared") @db.VarChar(20)
   approved_amount          Decimal?                   @db.Decimal(14, 2)
   paid_amount              Decimal?                   @db.Decimal(14, 2)
+  disallowed_amount        Decimal?                   @db.Decimal(14, 2)
   paid_at                  DateTime?                  @db.Timestamptz(6)
   payment_reference        String?                    @db.VarChar(160)
   denial_reason            String?

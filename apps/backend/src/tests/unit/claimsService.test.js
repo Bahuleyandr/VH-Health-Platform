@@ -3,7 +3,12 @@
 // derivation logic. The full submit/decision/payment state-machine
 // is covered by the e2e Playwright suite against a seeded DB.
 
-import { createPreauth, createClaim } from '../../services/insurance/claimsService.js';
+import {
+  createPreauth,
+  createClaim,
+  extractPreauthCaps,
+  FINAL_CASHLESS_REQUIRED_DOC_TYPES,
+} from '../../services/insurance/claimsService.js';
 
 describe('createPreauth validation', () => {
   const validBase = {
@@ -104,5 +109,56 @@ describe('createClaim validation + claimed_amount derivation', () => {
     ).rejects.toMatchObject({
       message: expect.stringMatching(/claimed_amount/i),
     });
+  });
+});
+
+describe('extractPreauthCaps', () => {
+  // Regression for 2026-05-10-tpa-insurance-claim-billing-preauth-caps-hidden-from-detail.
+  // The structured caps insurer sends back (pharmacy max, room
+  // category) must surface on GET /preauth/:id, otherwise billing
+  // screens cannot read them.
+  it('returns null for empty / non-object input', () => {
+    expect(extractPreauthCaps(null)).toBeNull();
+    expect(extractPreauthCaps(undefined)).toBeNull();
+    expect(extractPreauthCaps('not-an-object')).toBeNull();
+    expect(extractPreauthCaps({})).toBeNull();
+  });
+
+  it('returns the nested caps object verbatim when present', () => {
+    const caps = {
+      pharmacy: { max_amount: 15000, currency: 'INR' },
+      room_category: { max_category: 'semi_private' },
+    };
+    expect(extractPreauthCaps({ caps, insurer_note: 'ignored' })).toEqual(caps);
+  });
+
+  it('lifts flat pharmacy_cap / room_category fallbacks into normalized shape', () => {
+    expect(extractPreauthCaps({ pharmacy_cap: 15000 })).toEqual({
+      pharmacy: { max_amount: 15000, currency: 'INR' },
+    });
+    expect(extractPreauthCaps({ pharmacy_cap: 15000, room_category: 'semi_private' })).toEqual({
+      pharmacy: { max_amount: 15000, currency: 'INR' },
+      room_category: { max_category: 'semi_private' },
+    });
+  });
+
+  it('prefers nested caps over flat fallbacks', () => {
+    const out = extractPreauthCaps({
+      caps: { pharmacy: { max_amount: 20000, currency: 'INR' } },
+      pharmacy_cap: 99999,
+    });
+    expect(out).toEqual({ pharmacy: { max_amount: 20000, currency: 'INR' } });
+  });
+});
+
+describe('FINAL_CASHLESS_REQUIRED_DOC_TYPES', () => {
+  // Regression for 2026-05-10-tpa-insurance-claim-discharge-final-claim-submits-without-packet.
+  // The cashless packet check must include the two non-negotiable
+  // docs. Loosening to a single item re-opens the submitted-but-empty
+  // bug; adding lab/imaging breaks observation-only admissions.
+  it('contains discharge_summary and final_bill, nothing else', () => {
+    expect([...FINAL_CASHLESS_REQUIRED_DOC_TYPES].sort()).toEqual([
+      'discharge_summary', 'final_bill',
+    ]);
   });
 });

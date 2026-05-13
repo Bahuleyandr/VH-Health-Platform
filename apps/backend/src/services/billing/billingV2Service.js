@@ -23,6 +23,14 @@ const VALID_INVOICE_STATUSES = ['DRAFT', 'ISSUED', 'PARTIAL', 'PAID', 'VOID'];
 const VALID_REFUND_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'PAID'];
 const HIGH_VALUE_DISCOUNT_APPROVER_ROLES = ['FINANCE_INCHARGE', 'ADMIN', 'SUPER_ADMIN'];
 
+// Mirrors VALID_CATEGORIES in claimCapsService — the bucket set TPA caps
+// match against. addInvoiceItem rejects unknown categories so ad-hoc
+// pharmacy/room/etc lines stay enforceable by /claims/:id/caps/apply.
+export const VALID_INVOICE_LINE_CATEGORIES = new Set([
+  'room_rent', 'pharmacy', 'investigations', 'consultation',
+  'procedure', 'implants', 'radiology', 'physiotherapy', 'other',
+]);
+
 function envNumber(name, fallback) {
   const parsed = Number(process.env[name]);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -373,12 +381,25 @@ const VALID_SOURCE_REF_TYPES = new Set([
 ]);
 
 export async function addInvoiceItem(invoiceId, {
-  service_code, description, quantity = 1, unit_price, gst_rate, notes,
+  service_code, description, category, quantity = 1, unit_price, gst_rate, notes,
   source_ref_type, source_ref_id,
 }) {
-  // Pull the service master row when service_code is provided so we
-  // snapshot description/category/hsn/gst defaults consistently.
-  const resolved = { description, category: null, hsn_sac: null, unit_price, gst_rate };
+  // Ad-hoc lines (no service_code) may carry a caller-supplied category
+  // so per-category TPA caps (`insurance_claim_caps`) and pharmacy/cap
+  // probes can match them. service_code branch still wins — the master
+  // row is the canonical source when it exists.
+  if (category != null && !VALID_INVOICE_LINE_CATEGORIES.has(String(category))) {
+    throw AppError.badRequest(
+      `Invalid category "${category}". Allowed: ${Array.from(VALID_INVOICE_LINE_CATEGORIES).join(', ')}`,
+    );
+  }
+  const resolved = {
+    description,
+    category: category != null ? String(category) : null,
+    hsn_sac: null,
+    unit_price,
+    gst_rate,
+  };
   if (service_code) {
     const sm = await prisma.$queryRawUnsafe(
       `SELECT description, category, hsn_sac, default_price, gst_rate
