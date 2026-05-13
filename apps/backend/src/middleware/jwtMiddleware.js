@@ -192,7 +192,183 @@ export default async function jwtMiddleware(req, res, next) {
   };
 
   logger.info(`JWT OK: uid=${req.user.uid} role=${req.user.role} scope=${scope}`);
+
+  // ── Acting-as delegation hop ──────────────────────────────────────────────
+  // If the client sent X-Acting-As-Uid, verify the JWT actor is a guardian
+  // of that dependent + same-tenant, then rewrite req.user to the
+  // dependent's identity. Original actor is preserved on req.acting so the
+  // audit trail captures both. Every downstream IDOR check that compares
+  // against req.user.id / req.user.uid now scopes to the dependent without
+  // the call sites needing to know about delegation.
+  const actingAsHeader =
+    req.headers?.['x-acting-as-uid'] ?? req.headers?.['X-Acting-As-Uid'];
+  if (actingAsHeader) {
+    const denial = await applyActingAsHop(req, String(actingAsHeader).trim());
+    if (denial) return res.status(denial.status).json(denial.body);
+  }
+
   return next();
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function applyActingAsHop(req, dependentUidRaw) {
+  // Narrow-scope tokens (e.g. mfa_setup) must never act-as — they exist
+  // only to complete enrollment of the bearer's own account.
+  if (req.user?.scope && req.user.scope !== 'full') {
+    logger.warn(`Acting-as denied: token scope=${req.user.scope} cannot delegate`);
+    return {
+      status: 403,
+      body: {
+        success: false,
+        error: 'Acting-as not permitted for this token',
+        code: 'NOT_AUTHORISED_TO_ACT_AS',
+      },
+    };
+  }
+
+  if (!UUID_RE.test(dependentUidRaw)) {
+    logger.warn('Acting-as denied: malformed X-Acting-As-Uid');
+    return {
+      status: 403,
+      body: {
+        success: false,
+        error: 'Not authorised to act as that user',
+        code: 'NOT_AUTHORISED_TO_ACT_AS',
+      },
+    };
+  }
+
+  // No-op when the header points at the JWT bearer themselves — keep
+  // req.user as-is rather than fail the request.
+  if (String(dependentUidRaw).toLowerCase() === String(req.user.uid).toLowerCase()) {
+    return null;
+  }
+
+  // Single query: load dependent + guardian, enforce
+  //   - dependent.guardian_user_id = guardian.id
+  //   - dependent.is_minor = TRUE
+  //   - dependent.role = 'PATIENT'
+  //   - tenant parity (fail-closed if guardian.tenant_id != dependent.tenant_id)
+  // The query joins guardian by uid (the JWT-supplied actor) so a stolen /
+  // mismatched X-Acting-As-Uid can't bypass the guardian check.
+  let rows;
+  try {
+    rows = await prisma.$queryRawUnsafe(
+      `SELECT dep.id          AS dep_id,
+              dep.uid         AS dep_uid,
+              dep.phone       AS dep_phone,
+              dep.email       AS dep_email,
+              dep.role        AS dep_role,
+              dep.is_minor    AS dep_is_minor,
+              dep.tenant_id   AS dep_tenant_id,
+              g.id            AS g_id,
+              g.uid           AS g_uid,
+              g.tenant_id     AS g_tenant_id
+         FROM users dep
+         JOIN users g ON g.id = dep.guardian_user_id
+        WHERE dep.uid = $1::uuid
+          AND g.uid = $2::uuid
+        LIMIT 1`,
+      dependentUidRaw,
+      req.user.uid,
+    );
+  } catch (err) {
+    logger.warn(`Acting-as lookup failed: ${err.message}`);
+    return {
+      status: 403,
+      body: {
+        success: false,
+        error: 'Not authorised to act as that user',
+        code: 'NOT_AUTHORISED_TO_ACT_AS',
+      },
+    };
+  }
+
+  if (!rows || rows.length === 0) {
+    // Don't leak whether the dependent exists or whether the link is
+    // missing — both surface as the same 403.
+    logger.warn(
+      `Acting-as denied: guardian=${req.user.uid} not linked to dependent=${dependentUidRaw}`,
+    );
+    return {
+      status: 403,
+      body: {
+        success: false,
+        error: 'Not authorised to act as that user',
+        code: 'NOT_AUTHORISED_TO_ACT_AS',
+      },
+    };
+  }
+
+  const row = rows[0];
+
+  // Hard gates: minor + PATIENT role + same tenant. Each fails closed.
+  if (!row.dep_is_minor) {
+    logger.warn(`Acting-as denied: dependent ${row.dep_uid} not a minor`);
+    return {
+      status: 403,
+      body: {
+        success: false,
+        error: 'Not authorised to act as that user',
+        code: 'NOT_AUTHORISED_TO_ACT_AS',
+      },
+    };
+  }
+  if (row.dep_role && row.dep_role !== 'PATIENT') {
+    logger.warn(`Acting-as denied: dependent ${row.dep_uid} role=${row.dep_role}`);
+    return {
+      status: 403,
+      body: {
+        success: false,
+        error: 'Not authorised to act as that user',
+        code: 'NOT_AUTHORISED_TO_ACT_AS',
+      },
+    };
+  }
+  if (
+    row.g_tenant_id != null
+    && row.dep_tenant_id != null
+    && String(row.g_tenant_id) !== String(row.dep_tenant_id)
+  ) {
+    logger.warn(
+      `Acting-as denied: tenant mismatch — guardian.tenant=${row.g_tenant_id} dep.tenant=${row.dep_tenant_id}`,
+    );
+    return {
+      status: 403,
+      body: {
+        success: false,
+        error: 'Not authorised to act as that user',
+        code: 'NOT_AUTHORISED_TO_ACT_AS',
+      },
+    };
+  }
+
+  // All gates passed — record the actor on req.acting and rewrite req.user
+  // to the dependent's identity. Downstream IDOR checks now scope to the
+  // dependent automatically.
+  req.acting = {
+    actorUid: req.user.uid,
+    actorId: req.user.id,
+    actorRole: req.user.role,
+    actorPhone: req.user.phone,
+    actorEmail: req.user.email,
+  };
+  req.user = {
+    ...req.user,
+    uid: String(row.dep_uid),
+    id: Number.isInteger(row.dep_id) ? row.dep_id : parseInt(row.dep_id, 10),
+    phone: row.dep_phone ?? null,
+    email: row.dep_email ?? null,
+    role: 'PATIENT',
+    // Tenant matches by precondition above — pick the dependent's tenant.
+    tenant_id: row.dep_tenant_id ?? req.user.tenant_id,
+  };
+
+  logger.info(
+    `Acting-as OK: actor=${req.acting.actorUid} -> subject=${req.user.uid}`,
+  );
+  return null;
 }
 
 /**

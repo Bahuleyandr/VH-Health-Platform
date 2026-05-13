@@ -45,6 +45,15 @@ function deriveAction(method) {
  * Create middleware that logs PHI access after the response is sent.
  * Fire-and-forget — never blocks the request.
  *
+ * Captures both actor and subject so the acting-as delegation flow is
+ * fully traceable:
+ *   * userId  / accessed_by — historically the actor (kept).
+ *   * actorUid              — the human pressing the button (=
+ *     req.acting.actorUid when delegating, = req.user.uid otherwise).
+ *   * subjectUid            — the patient whose record was accessed (=
+ *     req.user.uid AFTER any acting-as rewrite).
+ *   * actingAsDependent     — TRUE iff X-Acting-As-Uid was honoured.
+ *
  * @param {string} recordType - PHI category: 'MEDICAL_RECORD', 'INVESTIGATION',
  *   'PRESCRIPTION', 'PHARMACY_ORDER', 'APPOINTMENT', 'ADMISSION', 'CLINICAL_NOTE',
  *   'VITAL_SIGN', 'DIAGNOSIS', 'CLINICAL_ORDER'
@@ -58,19 +67,29 @@ export function phiAccessLogger(recordType) {
       if (res.statusCode >= 400) return;
 
       const patientId = derivePatientId(req);
-      const userId = req.user?.uid || req.user?.id;
+      const actorUid = req.acting?.actorUid ?? req.user?.uid ?? null;
+      const subjectUid = req.user?.uid ?? null;
+      const actingAsDependent = req.acting != null;
+
+      // Use the actor (human pressing the button) for the legacy
+      // accessed_by column — that preserves historical semantics, since
+      // the column always meant "who initiated this access".
+      const userId = actorUid || req.user?.id;
 
       // Skip if we can't identify who's accessing (middleware ran before auth)
       if (!userId) return;
 
       logPhiAccess({
         userId: String(userId),
-        userRole: req.user?.role || 'UNKNOWN',
+        userRole: req.acting?.actorRole ?? req.user?.role ?? 'UNKNOWN',
         patientId: patientId ? String(patientId) : null,
         recordType,
         action: deriveAction(req.method),
         ip: req.ip,
         requestId: req.id,
+        actorUid,
+        subjectUid,
+        actingAsDependent,
       });
     });
 

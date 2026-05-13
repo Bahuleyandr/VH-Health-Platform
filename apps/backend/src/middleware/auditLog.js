@@ -204,11 +204,17 @@ export function auditLogMiddleware(req, res, next) {
         const responseTimeMs = Date.now() - startMs;
         const isSuccess     = statusCode < 400;
 
+        const actorUid = req.acting?.actorUid ?? user?.uid ?? null;
+        const subjectUid = user?.uid ?? null;
+        const actingAsDependent = req.acting != null;
+
         await prisma.$queryRawUnsafe(`
           INSERT INTO audit_log
             (user_id, user_name, user_role, ip_address, method, path, module, action,
-             query_params, request_summary, status_code, response_time_ms, success, user_agent)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CAST($9 AS jsonb),$10,$11,$12,$13,$14)
+             query_params, request_summary, status_code, response_time_ms, success, user_agent,
+             actor_uid, subject_uid, acting_as_dependent)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CAST($9 AS jsonb),$10,$11,$12,$13,$14,
+                  $15::uuid,$16::uuid,$17)
         `,
           userId,
           userName,
@@ -224,6 +230,9 @@ export function auditLogMiddleware(req, res, next) {
           responseTimeMs,
           isSuccess,
           (headers['user-agent'] || '').substring(0, 200),
+          actorUid,
+          subjectUid,
+          actingAsDependent,
         );
       } catch (err) {
         // Fallback: write to audit log file when DB is unavailable
