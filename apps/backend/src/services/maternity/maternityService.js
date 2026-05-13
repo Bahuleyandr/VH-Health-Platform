@@ -15,6 +15,8 @@
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import logger from '../../logging/logger.js';
+import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
 
 // ── Pregnancy episode ────────────────────────────────────────────────
 
@@ -187,7 +189,55 @@ export async function recordAncVisit({
     recorded_by ? String(recorded_by) : null, tenantId,
     nextNumber,
   );
-  return rows[0];
+  const visit = rows[0];
+
+  // Phase 1.5 best-effort: emit pre-eclampsia alert on BP ≥140/90.
+  // Patient-safety hook — finding
+  // 2026-05-09-obstetric-anc-nurse-anc-visit-no-preeclampsia-alert.
+  // Pregnancy BP thresholds live in vitalSignMonitor's
+  // PREGNANCY_BP_OVERRIDES and only fire when users.is_pregnant=TRUE,
+  // so we set the flag here too. Failure of this hook must NEVER block
+  // visit creation — pattern mirrors maybeEmitTpaCapAlerts.
+  let alerts = [];
+  if (bp_systolic != null || bp_diastolic != null) {
+    try {
+      const patientRows = await prisma.$queryRawUnsafe(
+        `SELECT u.id, u.is_pregnant
+           FROM maternity_pregnancies p
+           JOIN users u ON u.uid = p.patient_uid
+          WHERE p.id = $1::int
+          LIMIT 1`,
+        Number(pregnancy_id),
+      );
+      const patient = patientRows[0];
+      if (patient?.id) {
+        if (patient.is_pregnant !== true) {
+          await prisma.$executeRawUnsafe(
+            `UPDATE users SET is_pregnant = TRUE WHERE id = $1::int`,
+            patient.id,
+          );
+        }
+        let recorderId = null;
+        if (recorded_by) {
+          const rRows = await prisma.$queryRawUnsafe(
+            `SELECT id FROM users WHERE uid = $1::uuid LIMIT 1`,
+            String(recorded_by),
+          );
+          recorderId = rRows[0]?.id ?? null;
+        }
+        const vitalsForCheck = {};
+        if (bp_systolic != null) vitalsForCheck.systolic_bp = Number(bp_systolic);
+        if (bp_diastolic != null) vitalsForCheck.diastolic_bp = Number(bp_diastolic);
+        alerts = await checkVitalAnomalies(patient.id, vitalsForCheck, {
+          recordedBy: recorderId,
+        });
+      }
+    } catch (err) {
+      logger.warn(`ANC pre-eclampsia check failed for pregnancy=${pregnancy_id}: ${err.message}`);
+    }
+  }
+
+  return { ...visit, alerts };
 }
 
 // ── A7 — ANC operational helpers (migration 181) ────────────────────
