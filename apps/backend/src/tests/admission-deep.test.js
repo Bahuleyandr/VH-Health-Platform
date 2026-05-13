@@ -271,12 +271,35 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       expect(res.statusCode).toBe(400);
     });
 
+    it('blocks home discharge when no finalized invoice exists', async () => {
+      // Drive cascade pre-reqs only — no billing_closed_at, no invoices —
+      // and assert the NO_INVOICE blocker fires.
+      await prisma.$executeRawUnsafe(
+        `UPDATE admissions
+            SET discharge_initiated_at = NOW(),
+                summary_signed_at = NOW(),
+                discharge_drugs_dispensed_at = NOW(),
+                billing_closed_at = NULL
+          WHERE id = $1`,
+        admissionId,
+      );
+      const res = await admin.post(`/api/v1/emr/${admissionId}/discharge`).send({
+        discharge_type: 'home',
+        discharge_summary: { notes: 'attempt without invoice' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.body.code || res.body.details?.code || '').toBe('DISCHARGE_NOT_READY');
+      const types = (res.body.details?.blockers || []).map((b) => b.type);
+      expect(types).toContain('NO_INVOICE');
+    });
+
     it('discharges, releases the bed, and records audit', async () => {
       await prisma.$executeRawUnsafe(
         `UPDATE admissions
             SET discharge_initiated_at = NOW(),
                 summary_signed_at = NOW(),
-                discharge_drugs_dispensed_at = NOW()
+                discharge_drugs_dispensed_at = NOW(),
+                billing_closed_at = NOW()
           WHERE id = $1`,
         admissionId,
       );
