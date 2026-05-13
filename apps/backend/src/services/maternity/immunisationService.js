@@ -125,6 +125,111 @@ export async function recordDose({
   return rows[0];
 }
 
+// Allowed age groups for the up-to-date shortcut. Mirrors the IAP/UIP
+// schedule milestones the receptionist + paeds-OPD nurse routinely
+// affirm: at-birth (BCG/OPV0/HepB), six-week, ten-week, fourteen-week,
+// nine-month (MMR), fifteen-month (MMR2/DPT-booster), and the catch-
+// all 'current'. Free text rejected to keep the surface bounded.
+const VALID_IMMUNISATION_AGE_GROUPS = new Set([
+  'birth', '6_week', '10_week', '14_week', '6_month',
+  '9_month', '12_month', '15_month', '18_month',
+  '2_year', '5_year', '10_year', 'current',
+]);
+
+/**
+ * Workflow shortcut — record that a patient's immunisation schedule
+ * is up to date as of a given date without writing one
+ * `newborn_immunisations` row per scheduled vaccine. Used by the
+ * paediatric OPD nurse at chart-open when the parent affirms "all
+ * caught up" but doesn't have the exact per-dose dates.
+ *
+ * The row lands in `clinical_notes` with `note_type='immunisation_review'`
+ * and content carrying status / as_of / age_group / signed_by_name.
+ * The patient app's immunisation card surface reads the most recent
+ * such note via the partial index added in migration 212.
+ *
+ * Finding:
+ *   2026-05-10-pediatric-opd-nurse-immunisation-up-to-date-requires-29-writes
+ */
+export async function markScheduleUpToDate({
+  tenantId, patient_uid, as_of, age_group, signed_by, signed_by_name, notes,
+}) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  if (!signed_by) throw AppError.badRequest('signed_by (staff uid) is required');
+
+  const today = new Date().toISOString().split('T')[0];
+  const asOfDate = as_of && /^\d{4}-\d{2}-\d{2}$/.test(String(as_of)) ? String(as_of) : today;
+  const ageGroup = age_group && VALID_IMMUNISATION_AGE_GROUPS.has(String(age_group))
+    ? String(age_group)
+    : 'current';
+
+  // Defensive existence check on the patient — clinical_notes.patient_uid
+  // is NOT NULL but has no FK in the baseline; without this probe a
+  // typo would persist a dangling note.
+  const patientRow = await prisma.$queryRawUnsafe(
+    `SELECT uid FROM users WHERE uid = $1::uuid LIMIT 1`,
+    String(patient_uid),
+  );
+  if (!patientRow.length) throw AppError.notFound('Patient not found');
+
+  const content = {
+    status: 'up_to_date',
+    as_of: asOfDate,
+    age_group: ageGroup,
+    signed_by_name: signed_by_name || null,
+    notes: notes || null,
+    tenant_id: tenantId,
+  };
+
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_notes
+       (patient_uid, author_uid, author_role, note_type, title, content,
+        is_signed, signed_at, signed_by, status)
+     VALUES ($1::uuid, $2::uuid, $3, 'immunisation_review',
+             'Immunisation up to date', $4::jsonb,
+             true, NOW(), $2::uuid, 'current')
+     RETURNING id, patient_uid, author_uid, author_role, note_type,
+               title, content, is_signed, signed_at, signed_by, created_at`,
+    String(patient_uid),
+    String(signed_by),
+    'STAFF',
+    JSON.stringify(content),
+  );
+  return rows[0];
+}
+
+/**
+ * Patient-facing immunisation status — the patient app's immunisation
+ * card calls this to compute "up-to-date as of X" without scanning
+ * the full newborn_immunisations table. Returns the most recent
+ * immunisation_review note for the patient (if any).
+ */
+export async function getImmunisationStatus({ patient_uid }) {
+  if (!patient_uid) throw AppError.badRequest('patient_uid is required');
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, content, signed_at, signed_by, created_at
+       FROM clinical_notes
+      WHERE patient_uid = $1::uuid
+        AND note_type = 'immunisation_review'
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    String(patient_uid),
+  );
+  if (!rows.length) return { status: 'unknown', reviewed: false };
+  const row = rows[0];
+  const content = typeof row.content === 'string' ? JSON.parse(row.content) : (row.content || {});
+  return {
+    status: content.status || 'unknown',
+    as_of: content.as_of || null,
+    age_group: content.age_group || null,
+    signed_by_name: content.signed_by_name || null,
+    signed_by: row.signed_by,
+    signed_at: row.signed_at,
+    note_id: row.id,
+    reviewed: true,
+  };
+}
+
 /**
  * Cron-friendly: list doses due / overdue across the tenant. Useful
  * for the "well-baby clinic" reminder fan-out.
