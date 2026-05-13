@@ -1246,6 +1246,37 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
       logger.warn(`Discharge readiness: pending-radiology check skipped (${e.message})`);
     }
 
+    // Final discharge for `home`/`transfer`/`aor` types must have an
+    // open or scheduled follow-up plan for this admission (matched by
+    // patient_uid + encounter_id where present, falling back to patient_uid
+    // for legacy admissions with no encounter linkage). POD1 review is
+    // mandatory after most day-care procedures (cataract being the
+    // canonical example) and patient handoff without one shipped twice.
+    // Finding:
+    //   2026-05-10-surgical-day-care-discharge-followup-not-in-readiness
+    try {
+      const followupRows = await prisma.$queryRawUnsafe(
+        `SELECT id, due_at, appointment_id, status
+           FROM follow_up_plans
+          WHERE patient_uid = $1::uuid
+            AND status IN ('open', 'scheduled')
+            AND ($2::int IS NULL OR encounter_id IS NULL OR encounter_id = $2::int)
+            AND ($3::timestamptz IS NULL OR COALESCE(due_at, created_at) >= $3::timestamptz)
+          LIMIT 1`,
+        admissionPre.patient_uid,
+        Number.isFinite(admissionPre.encounter_id) ? admissionPre.encounter_id : null,
+        admissionPre.admitted_at ? new Date(admissionPre.admitted_at).toISOString() : null,
+      );
+      if (followupRows.length === 0) {
+        blockers.push({
+          type: 'FOLLOWUP_NOT_BOOKED',
+          message: 'Final discharge requires a booked follow-up plan (e.g., POD1 review) for this admission. Create one via POST /admin/follow-ups before final discharge.',
+        });
+      }
+    } catch (e) {
+      logger.warn(`Discharge readiness: follow-up check skipped (${e.message})`);
+    }
+
     if (blockers.length > 0) {
       const err = AppError.badRequest('Discharge blocked — readiness gate not met. Pass `override_readiness_gate: true` with a reason in discharge_summary to override.');
       err.code = 'DISCHARGE_NOT_READY';
