@@ -3,9 +3,17 @@ import expressRateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { RATE_LIMIT_PROFILES } from '../config/rateLimitProfiles.js';
 
 /**
- * Prefer keying by authenticated UID, then API key, else IP (IPv6-safe).
+ * Prefer keying by authenticated UID, then per-account identity for login-
+ * shaped requests, then API key, else IP (IPv6-safe).
+ *
  * Mobile and admin clients share app-level API keys; once JWT auth has run,
  * the user identity is the right bucket to avoid cross-user throttling.
+ * For pre-auth login-shaped requests (which carry employeeId/email/username
+ * in the body), key by IP+account so one staff member's failed attempts do
+ * not throttle a different staff member from the same API key — the bug
+ * surfaced during the ER reassessment role-switch in finding
+ * 2026-05-10-emergency-walk-in-doctor-staff-login-global-rate-limit.
+ *
  * Uses ipKeyGenerator(req) to satisfy express-rate-limit's IPv6 validation.
  */
 const defaultKeyGenerator = (req) => {
@@ -15,8 +23,18 @@ const defaultKeyGenerator = (req) => {
     req.header?.('x-api-key');
 
   const uid = req.user?.uid || req.user?.id;
-
   if (uid) return `u:${String(uid)}`;
+
+  // Pre-auth account identifier from login payload — keeps EMP-1004's
+  // login attempts from sharing a bucket with EMP-1007 at the umbrella
+  // limiter wrapping /api/v1/auth.
+  const account =
+    req.body?.employeeId ||
+    req.body?.employee_id ||
+    req.body?.username ||
+    req.body?.email;
+  if (account) return `acct:${ipKeyGenerator(req)}:${String(account).toLowerCase()}`;
+
   if (apiKey) return `k:${String(apiKey)}`;
 
   // Fallback MUST use ipKeyGenerator for IPv6 safety

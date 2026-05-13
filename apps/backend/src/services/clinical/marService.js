@@ -7,7 +7,28 @@ import { AppError } from '../../utils/AppError.js';
 // Medication Administration Record (MAR) Service
 // ===================================================================
 
-const VALID_ROUTES = ['oral', 'iv', 'im', 'sc', 'topical', 'inhaled'];
+// Route allowlist mirrors the MAR clinical reference set; aliases ('sl' for
+// sublingual, 'sq' for subcutaneous) are normalised before the includes check
+// below so a nurse can chart GTN as either 'sublingual' or 'sl' without the
+// chart silently storing the wrong route. Finding:
+// 2026-05-09-emergency-walk-in-nurse-mar-route-enum-missing-sublingual.
+const VALID_ROUTES = [
+  'oral', 'iv', 'im', 'sc', 'topical', 'inhaled',
+  'sublingual', 'buccal', 'transdermal', 'rectal', 'intranasal', 'ophthalmic',
+];
+const ROUTE_ALIASES = {
+  sl: 'sublingual',
+  sq: 'sc',
+  subq: 'sc',
+  po: 'oral',
+  pr: 'rectal',
+  td: 'transdermal',
+  inh: 'inhaled',
+};
+function normalizeRoute(raw) {
+  const key = String(raw || '').trim().toLowerCase();
+  return ROUTE_ALIASES[key] || key;
+}
 
 /**
  * Schedule medications for a patient.
@@ -28,7 +49,8 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
       throw AppError.badRequest('Each medication must have medication_name, dose, route, and scheduled_time');
     }
 
-    if (!VALID_ROUTES.includes(med.route.toLowerCase())) {
+    const normalizedRoute = normalizeRoute(med.route);
+    if (!VALID_ROUTES.includes(normalizedRoute)) {
       throw AppError.badRequest(`Invalid route: ${med.route}. Must be one of: ${VALID_ROUTES.join(', ')}`);
     }
 
@@ -63,7 +85,7 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
         prescriptionId || null,
         med.medication_name,
         med.dose,
-        med.route.toLowerCase(),
+        normalizedRoute,
         med.scheduled_time,
         med.notes || null,
 

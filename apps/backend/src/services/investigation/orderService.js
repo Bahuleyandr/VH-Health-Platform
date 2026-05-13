@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import {
   INVESTIGATION_TYPES,
   PRIORITY_LEVELS,
+  PRIORITY_TURNAROUND_HOURS,
 } from '../../config/investigationConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
@@ -20,6 +21,7 @@ const INVESTIGATION_SELECT = {
   uid: true,
   phone: true,
   patient_id: true,
+  patient_uid: true,
   test_name: true,
   test_type: true,
   status: true,
@@ -58,7 +60,7 @@ export const createInvestigationOrder = async (orderData) => {
   // typo like `.findUnique({ where: { user_id: ... } })` fails loudly.
   const patient = await prisma.users.findUnique({
     where: { id: parseInt(patient_id) },
-    select: { id: true, name: true, phone: true },
+    select: { id: true, uid: true, name: true, phone: true },
   });
   if (!patient) throw new Error('PATIENT_NOT_FOUND');
 
@@ -108,18 +110,35 @@ export const createInvestigationOrder = async (orderData) => {
     if (!Number.isNaN(d.getTime())) parsedDeadline = d;
   }
 
+  // STAT/URGENT door-to-decision orders need an hours-scale clock at the
+  // worklist, not the catch-all 24h default. Drive turnaround_target_hours
+  // from priority so the lab worklist sort by SLA puts the chest-pain
+  // troponin above a routine fasting glucose ordered an hour earlier.
+  // patient_uid mirrors the integer patient_id so downstream timelines
+  // (ER visits, admissions, telemetry) keyed off UUID can join cleanly.
+  // Both gaps were observed when ER STAT orders dropped notes + UID and
+  // showed as generic URGENT/24h rows in the lab-facing view. Finding:
+  // 2026-05-10-emergency-walk-in-doctor-stat-investigation-context-lost.
+  const priorityUpper = priority.toUpperCase();
+  const turnaroundHours = PRIORITY_TURNAROUND_HOURS[priorityUpper] ?? 24;
+  const trimmedNotes = notes != null && String(notes).trim()
+    ? String(notes).trim()
+    : null;
+
   const investigation = await prisma.investigations.create({
     data: {
       phone: patient.phone || 'unknown',
       patient_id: parseInt(patient_id),
+      patient_uid: patient.uid || null,
       test_name,
       test_code: resolvedTestCode,
       test_type: type.toUpperCase(),
       status: 'REQUESTED',
-      priority: priority.toUpperCase(),
+      priority: priorityUpper,
+      turnaround_target_hours: turnaroundHours,
       requested_by: requesterUuid,
       updated_at: now,
-      notes: notes && String(notes).trim() ? String(notes).trim() : null,
+      notes: trimmedNotes,
       collection_location: collection_location
         ? String(collection_location).trim().slice(0, 255)
         : null,

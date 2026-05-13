@@ -33,7 +33,13 @@ export const VISIT_STATUSES = [
 export const TRIAGE_PRIORITIES = [
   'esi_1', 'esi_2', 'esi_3', 'esi_4', 'esi_5',
   'manchester_red', 'manchester_orange', 'manchester_yellow', 'manchester_green', 'manchester_blue',
-  'ctas_1', 'ctas_2', 'ctas_3', 'ctas_4', 'ctas_5', 'unassigned',
+  'ctas_1', 'ctas_2', 'ctas_3', 'ctas_4', 'ctas_5',
+  // ATS (Australian Triage Scale): added 2026-05-13 so nurses who chart an
+  // `assessment_kind: 'australian'` can set the corresponding visit
+  // priority without falling back to a CTAS approximation. Finding:
+  // 2026-05-09-emergency-walk-in-nurse-triage-priority-no-queue-effect.
+  'ats_1', 'ats_2', 'ats_3', 'ats_4', 'ats_5',
+  'unassigned',
 ];
 export const DISPOSITIONS = [
   'discharged_home', 'admitted_ward', 'admitted_icu', 'admitted_hdu',
@@ -342,11 +348,24 @@ export async function listEmergencyVisits({
     filters.push(`is_mlc = $${params.length}`);
   }
   const safeLimit = normalizeLimit(limit);
+  // Order by clinical urgency first (ATS-1 / CTAS-1 / ESI-1 / Manchester-red
+  // = rank 1, most urgent) and arrival_at second so a critical patient who
+  // walked in 10 minutes ago beats a CTAS-4 patient who arrived two
+  // minutes ago. NULL priority is treated as the lowest urgency so
+  // not-yet-triaged visits stay at the bottom of the queue. Finding:
+  // 2026-05-09-emergency-walk-in-nurse-triage-priority-no-queue-effect.
+  const PRIORITY_RANK_SQL = `CASE triage_priority
+    WHEN 'esi_1' THEN 1 WHEN 'manchester_red' THEN 1 WHEN 'ctas_1' THEN 1 WHEN 'ats_1' THEN 1
+    WHEN 'esi_2' THEN 2 WHEN 'manchester_orange' THEN 2 WHEN 'ctas_2' THEN 2 WHEN 'ats_2' THEN 2
+    WHEN 'esi_3' THEN 3 WHEN 'manchester_yellow' THEN 3 WHEN 'ctas_3' THEN 3 WHEN 'ats_3' THEN 3
+    WHEN 'esi_4' THEN 4 WHEN 'manchester_green' THEN 4 WHEN 'ctas_4' THEN 4 WHEN 'ats_4' THEN 4
+    WHEN 'esi_5' THEN 5 WHEN 'manchester_blue' THEN 5 WHEN 'ctas_5' THEN 5 WHEN 'ats_5' THEN 5
+    ELSE 9 END`;
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT ${VISIT_RETURNING} FROM emergency_visits
        WHERE ${filters.join(' AND ')}
-       ORDER BY arrival_at DESC
+       ORDER BY ${PRIORITY_RANK_SQL} ASC, arrival_at DESC
        LIMIT $${params.length + 1}`,
       ...params, safeLimit,
     );
