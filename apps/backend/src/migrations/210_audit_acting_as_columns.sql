@@ -1,0 +1,1 @@
+-- 210_audit_acting_as_columns.sql — reserved (acting-as delegation chip)
