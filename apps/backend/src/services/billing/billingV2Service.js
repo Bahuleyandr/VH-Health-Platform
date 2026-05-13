@@ -527,9 +527,35 @@ export async function issueInvoice(invoiceId) {
   if (items[0].c === 0) throw AppError.badRequest('Cannot issue an invoice with no items');
 
   const number = await nextInvoiceNumber(inv[0].tenant_id);
+  // GST compliance: backfill recipient name/phone and (for IP) issuing
+  // doctor + department at issue time. These are statutory snapshot
+  // fields — a B2C tax invoice with null recipient name is not a valid
+  // tax document, and joining at read time loses the value if the
+  // patient/admission row changes later. Finding:
+  //   2026-05-09-inpatient-admission-billing-invoice-missing-patient-fields
   await prisma.$executeRawUnsafe(
     `UPDATE billing_invoices
-        SET invoice_number = $1, status = 'ISSUED', issued_at = NOW(), updated_at = NOW()
+        SET invoice_number = $1,
+            status = 'ISSUED',
+            issued_at = NOW(),
+            updated_at = NOW(),
+            patient_name = COALESCE(
+              billing_invoices.patient_name,
+              (SELECT u.name FROM users u WHERE u.uid = billing_invoices.patient_uid LIMIT 1)
+            ),
+            patient_phone = COALESCE(
+              billing_invoices.patient_phone,
+              (SELECT u.phone FROM users u WHERE u.uid = billing_invoices.patient_uid LIMIT 1)
+            ),
+            doctor_uid = COALESCE(
+              billing_invoices.doctor_uid,
+              (SELECT a.attending_doctor FROM admissions a WHERE a.id = billing_invoices.admission_id LIMIT 1),
+              (SELECT a.admitting_doctor FROM admissions a WHERE a.id = billing_invoices.admission_id LIMIT 1)
+            ),
+            department = COALESCE(
+              billing_invoices.department,
+              (SELECT a.department FROM admissions a WHERE a.id = billing_invoices.admission_id LIMIT 1)
+            )
       WHERE id = $2::int`,
     number, Number(invoiceId),
   );
