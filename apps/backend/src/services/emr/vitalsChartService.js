@@ -17,6 +17,19 @@ const VALID_IO_TYPES = ['intake', 'output'];
 const VALID_IO_CATEGORIES = ['oral', 'iv', 'blood', 'urine', 'drain', 'vomit', 'stool', 'other'];
 const VALID_CONSCIOUSNESS = ['A', 'C', 'V', 'P', 'U'];
 
+// Parse an encounter id that may arrive as int (POST body) or string (GET query).
+// Returns null for empty/undefined, throws 400 for non-numeric strings so the caller
+// gets a clean validation error instead of a Prisma 500.
+function toEncounterIdInt(raw) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  if (typeof raw === 'number' && Number.isInteger(raw)) return raw;
+  const n = Number.parseInt(String(raw), 10);
+  if (!Number.isInteger(n)) {
+    throw AppError.badRequest('encounterId must be an integer');
+  }
+  return n;
+}
+
 // Urine dipstick (migration 211). Five-step scale used on both the
 // vitals_chart entry and the ANC visit composer. Stored as plain text
 // so the strip-reader UI can round-trip the value without an enum
@@ -404,7 +417,10 @@ export async function getIOBalance(patientUid, encounterId, date) {
     patient_uid: patientUid,
     recorded_at: { gte: dayStart, lt: dayEnd },
   };
-  if (encounterId) where.encounter_id = encounterId;
+  // encounterId arrives from the query string as a string; intake_output.encounter_id
+  // is Int? in Prisma, so passing the raw string trips a validation error and a 500.
+  const encounterIdInt = toEncounterIdInt(encounterId);
+  if (encounterIdInt != null) where.encounter_id = encounterIdInt;
 
   // Aggregate intake/output sums via groupBy + JS reduction (one query).
   const [groups, entries] = await Promise.all([
@@ -447,7 +463,8 @@ export async function getIOBalance(patientUid, encounterId, date) {
 
 export async function getIOChart(patientUid, encounterId, dateFrom, dateTo) {
   const where = { patient_uid: patientUid };
-  if (encounterId) where.encounter_id = encounterId;
+  const encounterIdInt = toEncounterIdInt(encounterId);
+  if (encounterIdInt != null) where.encounter_id = encounterIdInt;
   if (dateFrom || dateTo) {
     where.recorded_at = {};
     if (dateFrom) where.recorded_at.gte = new Date(dateFrom);
