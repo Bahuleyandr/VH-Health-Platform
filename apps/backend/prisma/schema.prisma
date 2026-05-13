@@ -382,8 +382,8 @@ model admissions {
   package_code                    String?              @db.VarChar(40)
   package_estimated_cost_minor    BigInt?
   emergency_visit                 emergency_visits?    @relation("AdmissionFromErVisit", fields: [from_er_visit_id], references: [id], onUpdate: NoAction)
-  insurance_policy                insurance_policies?  @relation(fields: [policy_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
-  package                         packages?            @relation(fields: [package_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  package                         packages?            @relation(fields: [package_id], references: [id], onUpdate: NoAction)
+  insurance_policy                insurance_policies?  @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
   advance_deposits                advance_deposits[]
   attendant_passes                attendant_passes[]
   discharge_consults              discharge_consults[]
@@ -394,9 +394,6 @@ model admissions {
   @@index([room_category], map: "idx_admissions_room_category")
   @@index([discharge_initiated_at], map: "idx_admissions_discharge_initiated")
   @@index([billing_closed_at], map: "idx_admissions_billing_closed")
-  @@index([policy_id], map: "idx_admissions_policy_id")
-  @@index([package_id], map: "idx_admissions_package_id")
-  @@index([package_code], map: "idx_admissions_package_code")
 }
 
 model discharge_consults {
@@ -4990,7 +4987,6 @@ model insurance_claims {
 model insurance_claim_caps {
   id              Int               @id @default(autoincrement())
   claim_id        Int?
-  tpa_claim_id    Int?
   category        String            @db.VarChar(60)
   max_amount      Decimal           @db.Decimal(10, 2)
   currency        String            @default("INR") @db.VarChar(3)
@@ -4999,15 +4995,12 @@ model insurance_claim_caps {
   created_by      String            @db.Uuid
   created_at      DateTime          @default(now()) @db.Timestamptz(6)
   updated_at      DateTime          @default(now()) @db.Timestamptz(6)
+  tpa_claim_id    Int?
   insurance_claim insurance_claims? @relation(fields: [claim_id], references: [id], onDelete: Cascade)
-  tpa_claim       tpa_claims?       @relation(fields: [tpa_claim_id], references: [id], onDelete: Cascade)
+  tpa_claim       tpa_claims?       @relation(fields: [tpa_claim_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  // Uniqueness is enforced by two partial unique indexes added in
-  // migration 197 — Prisma can't express partial-unique declaratively,
-  // so the indexes don't appear here. `prisma db pull` will leave them
-  // out of this model; do not re-add @@unique([claim_id, category]).
+  @@unique([claim_id, category])
   @@index([claim_id], map: "idx_insurance_claim_caps_claim")
-  @@index([tpa_claim_id], map: "idx_insurance_claim_caps_tpa_claim")
   @@index([category, claim_id], map: "idx_insurance_claim_caps_category")
 }
 
@@ -8364,8 +8357,6 @@ model users {
   is_unidentified                                                             Boolean                        @default(false)
   chronic_medications                                                         Json                           @default("[]")
   chronic_medications_updated_at                                              DateTime?                      @db.Timestamptz(6)
-  guardian_user                                                               users?                         @relation("users_guardian_user_fk", fields: [guardian_user_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
-  dependents                                                                  users[]                        @relation("users_guardian_user_fk")
   abdm_consents                                                               abdm_consents[]
   abdm_data_requests                                                          abdm_data_requests[]
   annual_review_reminders                                                     annual_review_reminders[]
@@ -8458,6 +8449,8 @@ model users {
   staff_onboarding_tasks                                                      staff_onboarding_tasks[]
   staff_performance_reviews                                                   staff_performance_reviews[]
   staff_salary                                                                staff_salary?
+  guardian_user                                                               users?                         @relation("users_guardian_user_fk", fields: [guardian_user_id], references: [id], onUpdate: NoAction, map: "users_guardian_user_fk")
+  dependents                                                                  users[]                        @relation("users_guardian_user_fk")
   tenants                                                                     tenants                        @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([preferred_language], map: "idx_users_preferred_language")
@@ -8467,6 +8460,7 @@ model users {
   @@index([phone])
   @@index([role])
   @@index([uid])
+  @@index([chronic_medications], map: "idx_users_chronic_medications_gin", type: Gin)
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -8569,7 +8563,6 @@ model vitals_chart {
   id               Int       @id @default(autoincrement())
   patient_uid      String    @db.Uuid
   encounter_id     Int?
-  encounter_uid    String?   @db.Uuid
   heart_rate       Decimal?  @db.Decimal(6, 2)
   systolic_bp      Decimal?  @db.Decimal(6, 2)
   diastolic_bp     Decimal?  @db.Decimal(6, 2)
@@ -8590,9 +8583,9 @@ model vitals_chart {
   recorded_by      String?   @db.Uuid
   recorded_at      DateTime? @default(now()) @db.Timestamptz(6)
   created_at       DateTime? @default(now()) @db.Timestamptz(6)
+  encounter_uid    String?   @db.Uuid
 
   @@index([patient_uid, recorded_at(sort: Desc)], map: "idx_vitals_chart_patient_recorded")
-  @@index([encounter_uid, recorded_at(sort: Desc)], map: "idx_vitals_chart_encounter_uid")
 }
 
 model wards {
@@ -8960,13 +8953,12 @@ model billing_invoice_items {
   igst_amount      Decimal          @default(0) @db.Decimal(12, 2)
   line_total       Decimal          @db.Decimal(12, 2)
   notes            String?          @db.VarChar(255)
+  created_at       DateTime?        @default(now()) @db.Timestamptz(6)
   source_ref_type  String?          @db.VarChar(40)
   source_ref_id    Int?
-  created_at       DateTime?        @default(now()) @db.Timestamptz(6)
   billing_invoices billing_invoices @relation(fields: [invoice_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([invoice_id], map: "idx_invoice_items_invoice")
-  @@index([source_ref_type, source_ref_id], map: "idx_billing_invoice_items_source_ref")
 }
 
 model billing_invoices {
@@ -9347,9 +9339,9 @@ model insurance_policies {
   tenant_id           String              @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   created_at          DateTime            @default(now()) @db.Timestamptz(6)
   updated_at          DateTime            @default(now()) @db.Timestamptz(6)
+  admissions          admissions[]
   payers              payers?             @relation(fields: [payer_id], references: [id], onUpdate: NoAction)
   tpas                tpas?               @relation(fields: [tpa_id], references: [id], onUpdate: NoAction)
-  admissions          admissions[]
   insurance_preauth   insurance_preauth[]
   tpa_claims          tpa_claims[]
 
@@ -10081,9 +10073,9 @@ model tpa_claims {
   tenant_id                String                     @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   created_at               DateTime                   @default(now()) @db.Timestamptz(6)
   updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  insurance_claim_caps     insurance_claim_caps[]
   tpa_claim_correspondence tpa_claim_correspondence[]
   tpa_claim_documents      tpa_claim_documents[]
-  insurance_claim_caps     insurance_claim_caps[]
   billing_invoices         billing_invoices?          @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
   insurance_policies       insurance_policies         @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
   insurance_preauth        insurance_preauth?         @relation(fields: [preauth_id], references: [id], onUpdate: NoAction)
