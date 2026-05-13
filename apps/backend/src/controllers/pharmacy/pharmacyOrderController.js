@@ -1036,7 +1036,9 @@ export const getCatalog = async (req, res) => {
     }
 
     const result = await prisma.$queryRawUnsafe(
-      `SELECT id, name, category, price, stock, is_available, description, created_at
+      `SELECT id, name, category, price,
+              COALESCE(stock_quantity, stock) AS stock,
+              is_available, description, created_at
        FROM pharmacy_catalog ${where} ORDER BY category, name`,
       ...params
     );
