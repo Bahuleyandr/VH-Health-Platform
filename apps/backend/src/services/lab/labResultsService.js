@@ -278,6 +278,18 @@ export async function recordResultManual({ tenantId, performed_by, result }) {
   for (const f of ['patient_uid', 'test_code', 'test_name']) {
     if (!result[f]) throw AppError.badRequest(`${f} is required`);
   }
+  // value_text is required — a result row with no value is not a result.
+  // Previously the column was nullable in the payload and the row would
+  // be inserted with value_text=null + value_numeric=null, which the
+  // critical-detection loop silently skips (it gates on value_numeric).
+  // That manifested as "lab endpoint accepts garbage, never fires
+  // critical alerts" — see finding
+  // 2026-05-08-lab-walk-in-lab-tech-results-no-validation-no-critical-alert.
+  if (result.value_text === undefined || result.value_text === null
+      || String(result.value_text).trim() === '') {
+    throw AppError.badRequest('value_text is required');
+  }
+
   // B-3 — lab techs cannot finalise a result by setting status='final'
   // in the manual-entry payload. The signoff path is the only way to
   // flip the status, and that path checks pathologist tier. The caller-
@@ -288,8 +300,50 @@ export async function recordResultManual({ tenantId, performed_by, result }) {
   if (sanitised.status === 'final' || sanitised.status === 'corrected') {
     sanitised.status = 'preliminary';
   }
-  const values = fields.map((f) => sanitised[f] ?? null);
+  // lab_results.status is NOT NULL with a DB default of 'preliminary'; an
+  // explicit INSERT that lists the column overrides the default, so an
+  // omitted caller status would have landed null and tripped 23502.
+  // Mirror the DB default in the service so the route caller doesn't
+  // need to know the storage detail.
+  if (sanitised.status === undefined || sanitised.status === null
+      || sanitised.status === '') {
+    sanitised.status = 'preliminary';
+  }
   const numeric = asNumericOrNull(sanitised.value_text);
+
+  // If the test has a configured critical threshold (LOINC or test_code
+  // match in lab_critical_thresholds), a non-numeric value_text is
+  // unacceptable — the critical-detection loop only fires when
+  // value_numeric is set, so accepting "elevated" / "positive" /
+  // free-text for a troponin or potassium would silently bypass the
+  // critical-value alarm. Reject up-front so the lab tech corrects
+  // the entry instead of losing the alert. Free-text values remain
+  // valid for tests without a configured threshold (cultures,
+  // microscopy, etc.). Finding:
+  // 2026-05-08-lab-walk-in-lab-tech-results-no-validation-no-critical-alert.
+  if (numeric === null) {
+    const { loincCodes, testCodes } = criticalThresholdLookupKeys(sanitised);
+    const thresholdRows = await prisma.$queryRawUnsafe(
+      `SELECT 1
+         FROM lab_critical_thresholds
+        WHERE tenant_id = $1::uuid
+          AND is_active = true
+          AND (
+            (loinc_code IS NOT NULL AND loinc_code = ANY($2::text[])) OR
+            (test_code IS NOT NULL AND UPPER(test_code) = ANY($3::text[]))
+          )
+        LIMIT 1`,
+      tenantId, loincCodes, testCodes,
+    );
+    if (thresholdRows.length > 0) {
+      throw AppError.badRequest(
+        `value_text for ${sanitised.test_code || sanitised.loinc_code || 'this test'} must be numeric — a configured critical threshold cannot be evaluated against a free-text value.`,
+        'NON_NUMERIC_FOR_CRITICAL_THRESHOLD',
+      );
+    }
+  }
+
+  const values = fields.map((f) => sanitised[f] ?? null);
   values.push(numeric, performed_by ? String(performed_by) : null, tenantId);
 
   const rows = await prisma.$queryRawUnsafe(
@@ -494,5 +548,91 @@ export async function listIpdLabWorklist({ tenantId: _tenantId, limit = 100 } = 
         i.requested_at ASC
       LIMIT $1::int`,
     lim,
+  );
+}
+
+/**
+ * General lab worklist — surfaces every open investigation regardless
+ * of admission state, so an ER STAT troponin (no admission yet) or an
+ * OPD walk-in CBC shows up alongside the IPD orders. The IPD-only
+ * worklist had filtered them out via the inner join on admissions,
+ * leaving the lab tech blind to anything ordered before admission.
+ *
+ * Joined left to admissions so the ward / bed columns are present
+ * when the patient is admitted (helpful for sample-collection routing)
+ * and null otherwise. The `source` column distinguishes ER / IPD /
+ * OPD so the lab UI can colour-code the row. STAT/URGENT orders sort
+ * to the top regardless of source.
+ *
+ * Findings:
+ *   2026-05-10-emergency-walk-in-lab-tech-stat-er-order-not-on-worklist
+ *   2026-05-08-obstetric-anc-lab-tech-no-worklist-endpoint
+ */
+export async function listLabWorklist({
+  tenantId: _tenantId,
+  limit = 100,
+  priority,
+  source,
+} = {}) {
+  const lim = Math.max(1, Math.min(500, Number(limit) || 100));
+  const params = [];
+  const filters = [`i.status NOT IN ('COMPLETED', 'CANCELLED')`];
+
+  if (priority) {
+    params.push(String(priority).toUpperCase());
+    filters.push(`UPPER(COALESCE(i.priority, 'NORMAL')) = $${params.length}`);
+  }
+  if (source) {
+    const src = String(source).toLowerCase();
+    if (!['ipd', 'er', 'opd'].includes(src)) {
+      throw AppError.badRequest('source must be one of: ipd, er, opd');
+    }
+    if (src === 'ipd') {
+      filters.push(`a.id IS NOT NULL AND a.status IN ('admitted', 'transferred')`);
+    } else if (src === 'er') {
+      filters.push(`ev.id IS NOT NULL`);
+    } else {
+      filters.push(
+        `a.id IS NULL AND ev.id IS NULL`,
+      );
+    }
+  }
+
+  params.push(lim);
+  const limitPos = params.length;
+
+  return prisma.$queryRawUnsafe(
+    `SELECT i.id, i.test_name, i.test_type, i.status, i.priority,
+            i.requested_at, i.created_at,
+            u.name AS patient_name, u.phone AS patient_phone, u.uid AS patient_uid,
+            a.id AS admission_id, a.ward, a.bed_number, a.room_category,
+            a.attending_doctor,
+            ev.id AS er_visit_id, ev.visit_number AS er_visit_number,
+            CASE
+              WHEN a.id IS NOT NULL AND a.status IN ('admitted', 'transferred') THEN 'ipd'
+              WHEN ev.id IS NOT NULL THEN 'er'
+              ELSE 'opd'
+            END AS source
+       FROM investigations i
+       JOIN users u ON u.id = i.patient_id
+  LEFT JOIN admissions a
+         ON a.patient_uid = u.uid
+        AND a.status IN ('admitted', 'transferred')
+  LEFT JOIN emergency_visits ev
+         ON ev.patient_uid = u.uid
+        AND ev.status NOT IN ('discharged', 'transferred', 'left_against_advice',
+                              'lwbs', 'expired', 'archived')
+      WHERE ${filters.join(' AND ')}
+      ORDER BY
+        CASE UPPER(COALESCE(i.priority, 'NORMAL'))
+          WHEN 'URGENT' THEN 1
+          WHEN 'STAT' THEN 1
+          WHEN 'HIGH' THEN 2
+          WHEN 'NORMAL' THEN 3
+          ELSE 4
+        END,
+        i.requested_at ASC
+      LIMIT $${limitPos}::int`,
+    ...params,
   );
 }
