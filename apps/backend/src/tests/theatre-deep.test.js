@@ -196,7 +196,33 @@ describe('Theatre scheduling — deep integration', () => {
         JSON.stringify([{ item: 'patient_procedure_site_confirmed', confirmed: true }]),
       );
 
-      for (const target of ['in_progress', 'post_op', 'completed']) {
+      // Wave-2 case-close gate (`theatreService._assertReadyForClosure`)
+      // requires a finalized + signed anaesthesia record, a finalized +
+      // signed intraop note, and all three count flags true before any
+      // transition to post_op or completed. Insert all three prerequisites
+      // here so the in_progress → post_op → completed transitions land.
+      const firstTransition = await admin.put(`/api/v1/theatre/${scheduleId}/status`).send({ status: 'in_progress' });
+      expect(firstTransition.statusCode).toBe(200);
+      expect(firstTransition.body.data.status).toBe('in_progress');
+
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO anesthesia_records
+           (tenant_id, ot_schedule_id, patient_uid, anesthetist, status,
+            finalized_by, finalized_at, updated_at)
+         VALUES ($1::uuid, $2, $3::uuid, $4::uuid, 'finalized', $4::uuid, NOW(), NOW())`,
+        DEFAULT_TENANT_ID, scheduleId, PATIENT_UID, ANESTHETIST_UID,
+      );
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO intraop_notes
+           (tenant_id, ot_schedule_id, patient_uid, surgeon, status,
+            sponge_count_correct, sharp_count_correct, instrument_count_correct,
+            finalized_by, finalized_at, updated_at)
+         VALUES ($1::uuid, $2, $3::uuid, $4::uuid, 'finalized',
+                 true, true, true, $4::uuid, NOW(), NOW())`,
+        DEFAULT_TENANT_ID, scheduleId, PATIENT_UID, SURGEON_UID,
+      );
+
+      for (const target of ['post_op', 'completed']) {
         const res = await admin.put(`/api/v1/theatre/${scheduleId}/status`).send({ status: target });
         expect(res.statusCode).toBe(200);
         expect(res.body.data.status).toBe(target);
