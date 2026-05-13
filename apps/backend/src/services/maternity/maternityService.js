@@ -371,6 +371,104 @@ export async function recordSupplement({
   return rows[0];
 }
 
+// Map common medication names → supplement enum used by maternity_supplements.
+// The match runs against the medication's `name` field as written on the
+// prescription (free text). One name can map to multiple supplements
+// because OB combo drugs are routine (e.g. "Calcium 500mg + Vitamin D3
+// 250IU" → calcium + vitamin_d).
+const SUPPLEMENT_PATTERNS = [
+  { kind: 'iron',       re: /\b(iron|ferrous|ferric)\b/i },
+  { kind: 'folic_acid', re: /\b(folic\s*acid|folate)\b/i },
+  { kind: 'calcium',    re: /\bcalcium\b/i },
+  { kind: 'vitamin_d',  re: /\b(vit(?:amin)?\s*d3?|cholecalciferol)\b/i },
+  { kind: 'b_complex',  re: /\b(b[\s-]?complex|vit(?:amin)?\s*b)\b/i },
+];
+
+// Map prescription-form frequency labels (OD/BD/TDS/QID + long forms)
+// to maternity_supplements.frequency enum. Anything unrecognised falls
+// back to once_daily — better to schedule a reminder at 09:00 than to
+// silently drop the supplement.
+const FREQ_MAP = {
+  od: 'once_daily', 'qd': 'once_daily', daily: 'once_daily', 'once_daily': 'once_daily', 'once daily': 'once_daily',
+  bd: 'twice_daily', bid: 'twice_daily', 'twice_daily': 'twice_daily', 'twice daily': 'twice_daily',
+  tds: 'thrice_daily', tid: 'thrice_daily', 'thrice_daily': 'thrice_daily', 'thrice daily': 'thrice_daily',
+  qid: 'thrice_daily', // 4x maps onto thrice_daily — closest valid bucket
+  weekly: 'weekly',
+  sos: 'as_needed', prn: 'as_needed', 'as_needed': 'as_needed', 'as needed': 'as_needed',
+};
+
+/**
+ * Propagate pregnancy-relevant medications from a prescription into
+ * maternity_supplements so the patient app's reminder pipeline fires.
+ *
+ * Called from the prescription create flow as Phase 1.5 best-effort —
+ * any error inside MUST be caught by the caller. Returns the rows it
+ * inserted (possibly empty); idempotent on a per-pregnancy basis: if
+ * an active row already exists for the same supplement kind, the
+ * medication is skipped instead of duplicated.
+ *
+ * Finding: 2026-05-09-obstetric-anc-patient-supplements-missing.
+ */
+export async function maybePropagateAncSupplements({
+  tenantId, patient_uid, medications, prescribed_by,
+}) {
+  if (!patient_uid || !prescribed_by) return [];
+  if (!Array.isArray(medications) || medications.length === 0) return [];
+
+  const pregRows = await prisma.$queryRawUnsafe(
+    `SELECT id FROM maternity_pregnancies
+       WHERE patient_uid = $1::uuid AND status = 'ongoing'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    String(patient_uid),
+  );
+  if (!pregRows.length) return [];
+  const pregnancyId = Number(pregRows[0].id);
+  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+
+  const created = [];
+  for (const med of medications) {
+    if (!med || typeof med !== 'object') continue;
+    const name = String(med.name || med.medication || med.medicine || '').trim();
+    if (!name) continue;
+
+    const matches = SUPPLEMENT_PATTERNS
+      .filter(({ re }) => re.test(name))
+      .map(({ kind }) => kind);
+    if (!matches.length) continue;
+
+    const freqRaw = String(med.frequency || med.freq || '').toLowerCase().trim();
+    const frequency = FREQ_MAP[freqRaw] || 'once_daily';
+    const dose = String(med.dose || med.dosage || med.strength || '').trim() || null;
+
+    for (const supplement of matches) {
+      const existing = await prisma.$queryRawUnsafe(
+        `SELECT id FROM maternity_supplements
+           WHERE pregnancy_id = $1::int
+             AND supplement = $2
+             AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+           LIMIT 1`,
+        pregnancyId, supplement,
+      );
+      if (existing.length) continue;
+
+      const inserted = await prisma.$queryRawUnsafe(
+        `INSERT INTO maternity_supplements
+           (pregnancy_id, supplement, dose, frequency, route,
+            reminder_enabled, notes, prescribed_by, tenant_id)
+         VALUES ($1::int, $2, $3, $4, 'oral', TRUE,
+                 'Auto-propagated from prescription', $5::uuid, $6::uuid)
+         RETURNING id, supplement, dose, frequency, start_date`,
+        pregnancyId, supplement, dose, frequency,
+        String(prescribed_by), tid,
+      );
+      created.push(inserted[0]);
+    }
+  }
+
+  return created;
+}
+
 export async function listSupplements({ tenantId, pregnancy_id, activeOnly = false }) {
   const id = Number.parseInt(pregnancy_id, 10);
   if (!Number.isInteger(id) || id <= 0) {

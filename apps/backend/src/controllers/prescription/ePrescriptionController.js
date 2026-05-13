@@ -7,6 +7,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
+import { maybePropagateAncSupplements } from '../../services/maternity/maternityService.js';
 import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -470,6 +471,27 @@ export const createPrescription = async (req, res) => {
           err: followUpErr?.message,
         });
       }
+    }
+
+    // Phase 1.5 — best-effort ANC supplement propagation. Iron / folic
+    // acid / calcium / vitamin D / B-complex prescribed for a patient
+    // with an ongoing pregnancy must land in `maternity_supplements`,
+    // because that's the source the patient-app medication-reminder
+    // projection reads. Without this, prescribing supplements in the
+    // standard Rx flow leaves the reminder pipeline silent. Finding:
+    //   2026-05-09-obstetric-anc-patient-supplements-missing.
+    try {
+      await maybePropagateAncSupplements({
+        tenantId: req.user?.tenantId || '00000000-0000-4000-8000-000000000001',
+        patient_uid: patientUid,
+        medications,
+        prescribed_by: doctorUid,
+      });
+    } catch (suppErr) {
+      logger.warn('ANC supplement propagation failed:', {
+        prescription_id: prescription.id,
+        err: suppErr?.message,
+      });
     }
 
     success(res, prescription, `Prescription ${prescription.prescription_number} created`, HTTP_STATUS.CREATED);
