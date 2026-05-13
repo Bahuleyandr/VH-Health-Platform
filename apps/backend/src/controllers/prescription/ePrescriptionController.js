@@ -755,7 +755,12 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     if (!Number.isInteger(id)) {
       return error(res, 'Invalid prescription id', HTTP_STATUS.BAD_REQUEST);
     }
-    const { delivery_type = 'delivery', delivery_address, delivery_phone } = req.body;
+    // Accept `dispense_type` as a back-compat alias for `delivery_type` so a
+    // pharmacist passing the older field name still routes the order through
+    // the counter/delivery flow they intended, instead of silently defaulting
+    // to delivery. Canonical name is `delivery_type` (matches Wave 1.5 ship).
+    const { delivery_address, delivery_phone } = req.body;
+    const delivery_type = req.body.delivery_type ?? req.body.dispense_type ?? 'delivery';
 
     // Fetch prescription
     const rxResult = await prisma.$queryRawUnsafe(
