@@ -19,6 +19,9 @@ for kubeconfig setup. Commands assume your current context is
 | Code Blue alert fired but shouldn't have | [`code-blue-misfire.md`](./code-blue-misfire.md) | **P0** (patient safety) |
 | Chatbot LLM provider outage / key rotation | [`chatbot-provider-switch.md`](./chatbot-provider-switch.md) | **P2** (degraded feature) |
 | Clinical AI provider switch / disable | [`clinical-ai-provider-switch.md`](./clinical-ai-provider-switch.md) | **P2** (degraded draft generation) |
+| Cashier shift-close drawer reconciliation stuck | [`cashier-shift-close.md`](./cashier-shift-close.md) | **P2** (degraded billing) |
+| TPA enhancement chain stuck or cap-alert missing | [`tpa-enhancement-stuck.md`](./tpa-enhancement-stuck.md) | **P2** (degraded TPA workflow) |
+| Patient portal PDF / clinical-notes endpoints failing | [`patient-portal-pdf-fail.md`](./patient-portal-pdf-fail.md) | **P2** (degraded patient experience) |
 
 ## How to use a runbook
 
