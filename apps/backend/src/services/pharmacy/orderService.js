@@ -39,8 +39,11 @@ const ORDER_LIST_SELECT = {
 };
 
 export const createOrder = async (orderData) => {
-  const { phone, order_note, file_key, urgent, requestedBy, requestedByRole } = orderData;
+  const { phone, order_note, file_key, urgent, delivery_type, requestedBy, requestedByRole } = orderData;
   const priority = urgent ? 'urgent' : 'normal';
+  // Controller is authoritative for the enum; fall back to the DB
+  // default ('delivery') when the caller didn't pass it.
+  const resolvedDeliveryType = delivery_type === 'counter' ? 'counter' : 'delivery';
 
   // Resolve phone → patient_id (users.id). Match against both the canonical
   // E.164 form (`+91…`) and the bare 10-digit national form so a staff user
@@ -67,14 +70,14 @@ export const createOrder = async (orderData) => {
   const order = await prisma.$queryRaw`
     INSERT INTO pharmacy_orders (
       phone, patient_id, patient_name, order_note, file_key,
-      priority, status, prescribed_by, ordered_at, updated_at
+      priority, status, prescribed_by, delivery_type, ordered_at, updated_at
     ) VALUES (
       ${phone}, ${patientId}, ${patientName}, ${order_note},
       ${file_key ?? null}, ${priority}, ${ORDER_STATUS.PENDING},
-      ${prescribedBy}::uuid, NOW(), NOW()
+      ${prescribedBy}::uuid, ${resolvedDeliveryType}, NOW(), NOW()
     )
     RETURNING id, uid, phone, patient_id, patient_name, order_note, file_key,
-      priority, status, prescribed_by, ordered_at, updated_at
+      priority, status, prescribed_by, delivery_type, ordered_at, updated_at
   `;
 
   logger.info(`Pharmacy order created: ${order[0].id} for ${phone}`);

@@ -6,15 +6,35 @@ import { success, error } from '../../utils/responseHelper.js';
 import { broadcast } from '../../utils/websocket/wsServer.js';
 
 // Place pharmacy order
+const VALID_DELIVERY_TYPES = new Set(['delivery', 'counter']);
+
 export const placeOrder = async (req, res) => {
   try {
     const phone = normalizePhone(req.body.phone || req.body.phoneNumber);
-    const { order_note, file_key, prescription_id, urgent } = req.body;
+    const { order_note, file_key, prescription_id, urgent, delivery_type } = req.body;
     const requestedBy = req.user?.uid || 'system';
     const requestedByRole = req.user?.role || 'unknown';
 
     if (!phone || !order_note) {
       return error(res, 'Phone and order note are required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // `delivery_type` was previously dropped silently, so the counter-
+    // dispense short-circuit (POST /:id/dispense-counter) refused every
+    // walk-in order placed via this endpoint. Accept it now, default to
+    // 'delivery' for backwards-compat. Finding:
+    //   2026-05-09-pediatric-opd-pharmacy-counter-delivery-type-ignored.
+    let resolvedDeliveryType = 'delivery';
+    if (delivery_type != null && delivery_type !== '') {
+      const dtNorm = String(delivery_type).toLowerCase().trim();
+      if (!VALID_DELIVERY_TYPES.has(dtNorm)) {
+        return error(
+          res,
+          `delivery_type must be one of: ${[...VALID_DELIVERY_TYPES].join(', ')}`,
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+      resolvedDeliveryType = dtNorm;
     }
 
     const order = await orderService.createOrder({
@@ -23,6 +43,7 @@ export const placeOrder = async (req, res) => {
       file_key,
       prescription_id,
       urgent,
+      delivery_type: resolvedDeliveryType,
       requestedBy,
       requestedByRole
     });
