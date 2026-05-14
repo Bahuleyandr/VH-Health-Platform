@@ -271,6 +271,50 @@ describe('Appointment booking + lifecycle — deep integration', () => {
       });
       expect(res.statusCode).toBe(403);
     });
+
+    // Finding: 2026-05-09-follow-up-opd-doctor-no-edit-after-complete
+    // Once an appointment is COMPLETED, a doctor must still be able
+    // to append a brief clinical note as a late addendum. Locking the
+    // record contradicts the natural OPD flow (see patient → mark
+    // complete → write note). Date/time/visit_type stay locked.
+    it('doctor can append a late clinical addendum (notes/reason) on a COMPLETED appointment', async () => {
+      const res = await doctor.put(`/api/v1/appointments/${apptId}`).send({
+        notes: 'Late addendum: BP 130/82 noted on exit.',
+        reason: 'Follow-up of seasonal allergy',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.addendum).toBe(true);
+      expect(res.body.data.appointment.notes).toMatch(/Late addendum/);
+
+      const audit = await prisma.$queryRawUnsafe(
+        `SELECT action, resource_id, metadata
+           FROM audit_logs
+          WHERE resource = 'appointment' AND resource_id = $1
+            AND action = 'APPOINTMENT_ADDENDUM'
+          ORDER BY id DESC LIMIT 1`,
+        String(apptId),
+      );
+      expect(audit).toHaveLength(1);
+      expect(audit[0].metadata?.fields).toEqual(
+        expect.arrayContaining(['notes', 'reason']),
+      );
+    });
+
+    it('rejects date/time changes on a COMPLETED appointment', async () => {
+      const res = await doctor.put(`/api/v1/appointments/${apptId}`).send({
+        appointment_time: '17:00',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.body.message).toMatch(/Can only update scheduled appointments/);
+    });
+
+    it('rejects a patient trying to use the addendum path on a COMPLETED appointment', async () => {
+      const res = await patient.put(`/api/v1/appointments/${apptId}`).send({
+        notes: 'Patient-side note',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.body.message).toMatch(/Can only update scheduled appointments/);
+    });
   });
 
   describe('deleteAppointment (cancel) + IDOR', () => {

@@ -155,6 +155,17 @@ export async function recordAncVisit({
   );
   const nextNumber = Number(nextNumberRow?.[0]?.next_number) || 1;
 
+  // UPSERT on (pregnancy_id, visit_date). Clinically there is at most
+  // one ANC visit per pregnancy per calendar day — additional readings
+  // taken later that day belong on the same row, not a duplicate. Pre-
+  // migration 222 the absence of a unique constraint let the nurse's
+  // pre-eclampsia threshold test insert a ghost row that polluted the
+  // timeline (BP 142/92 with all other clinical fields NULL). EXCLUDED
+  // fields overwrite the existing row only when non-null, so an
+  // amendment that supplies only BP doesn't blank out previously
+  // recorded weight / fundal height / FHR. visit_number stays on the
+  // original row. Finding:
+  //   2026-05-09-obstetric-anc-patient-duplicate-anc-visit-alarming-bp
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO maternity_anc_visits
        (pregnancy_id, visit_date, visit_number, gestational_age_weeks,
@@ -171,6 +182,27 @@ export async function recordAncVisit({
              $14::numeric, $15, $16,
              $17, $18, $19,
              $20::date, $21, $22::uuid, $23::uuid)
+     ON CONFLICT (pregnancy_id, visit_date) DO UPDATE SET
+       gestational_age_weeks  = COALESCE(EXCLUDED.gestational_age_weeks, maternity_anc_visits.gestational_age_weeks),
+       weight_kg              = COALESCE(EXCLUDED.weight_kg, maternity_anc_visits.weight_kg),
+       bp_systolic            = COALESCE(EXCLUDED.bp_systolic, maternity_anc_visits.bp_systolic),
+       bp_diastolic           = COALESCE(EXCLUDED.bp_diastolic, maternity_anc_visits.bp_diastolic),
+       pulse_bpm              = COALESCE(EXCLUDED.pulse_bpm, maternity_anc_visits.pulse_bpm),
+       fundal_height_cm       = COALESCE(EXCLUDED.fundal_height_cm, maternity_anc_visits.fundal_height_cm),
+       fetal_heart_rate_bpm   = COALESCE(EXCLUDED.fetal_heart_rate_bpm, maternity_anc_visits.fetal_heart_rate_bpm),
+       fetal_movements_felt   = COALESCE(EXCLUDED.fetal_movements_felt, maternity_anc_visits.fetal_movements_felt),
+       presentation           = COALESCE(EXCLUDED.presentation, maternity_anc_visits.presentation),
+       edema                  = COALESCE(EXCLUDED.edema, maternity_anc_visits.edema),
+       pallor                 = COALESCE(EXCLUDED.pallor, maternity_anc_visits.pallor),
+       hb_gm_dl               = COALESCE(EXCLUDED.hb_gm_dl, maternity_anc_visits.hb_gm_dl),
+       urine_albumin          = COALESCE(EXCLUDED.urine_albumin, maternity_anc_visits.urine_albumin),
+       urine_sugar            = COALESCE(EXCLUDED.urine_sugar, maternity_anc_visits.urine_sugar),
+       iron_folic_acid_given  = maternity_anc_visits.iron_folic_acid_given OR EXCLUDED.iron_folic_acid_given,
+       calcium_given          = maternity_anc_visits.calcium_given OR EXCLUDED.calcium_given,
+       tt_dose                = COALESCE(EXCLUDED.tt_dose, maternity_anc_visits.tt_dose),
+       next_visit_date        = COALESCE(EXCLUDED.next_visit_date, maternity_anc_visits.next_visit_date),
+       notes                  = COALESCE(EXCLUDED.notes, maternity_anc_visits.notes),
+       recorded_by            = COALESCE(EXCLUDED.recorded_by, maternity_anc_visits.recorded_by)
      RETURNING *`,
     Number(pregnancy_id), visit_date,
     gestational_age_weeks ? Number(gestational_age_weeks) : null,

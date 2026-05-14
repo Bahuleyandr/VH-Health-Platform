@@ -79,6 +79,7 @@ async function pickTemplate({ tenantId, template_code, specialty }) {
 export async function createDraft({
   tenantId, admission_id, patient_uid,
   patient_name, age_years, sex,
+  patient_name_snapshot, age_years_snapshot, sex_snapshot,
   hospital_number, admitted_at, discharged_at, ward_at_discharge,
   primary_diagnosis, secondary_diagnoses, icd10_codes, procedures_performed,
   template_code, specialty, created_by,
@@ -86,21 +87,37 @@ export async function createDraft({
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   const template = await pickTemplate({ tenantId, template_code, specialty });
 
+  // Accept both naming styles: callers may send the bare field
+  // (`patient_name`) or the explicit snapshot column name
+  // (`patient_name_snapshot`). Whichever is present wins; if neither
+  // is supplied, the INSERT's COALESCE backfills from the users row.
+  // A discharge summary is a medico-legal document — patient name,
+  // age, and sex are mandatory header fields and must never be NULL.
+  // Finding:
+  //   2026-05-09-inpatient-admission-discharge-summary-patient-fields-dropped
   const headerRows = await prisma.$queryRawUnsafe(
     `INSERT INTO discharge_summaries
        (admission_id, patient_uid, patient_name_snapshot, age_years_snapshot,
         sex_snapshot, hospital_number, admitted_at, discharged_at,
         ward_at_discharge, primary_diagnosis, secondary_diagnoses,
         icd10_codes, procedures_performed, status, created_by, tenant_id)
-     VALUES ($1::int, $2::uuid, $3, $4::int, $5, $6, $7::timestamptz,
+     VALUES ($1::int, $2::uuid,
+             COALESCE($3, (SELECT u.name FROM users u WHERE u.uid = $2::uuid LIMIT 1)),
+             COALESCE($4::int,
+               (SELECT (EXTRACT(YEAR FROM AGE(u.birthday)))::int
+                  FROM users u WHERE u.uid = $2::uuid AND u.birthday IS NOT NULL LIMIT 1)),
+             COALESCE($5, (SELECT u.gender FROM users u WHERE u.uid = $2::uuid LIMIT 1)),
+             $6, $7::timestamptz,
              $8::timestamptz, $9, $10, $11::text[], $12::text[], $13::text[],
              'draft', $14::uuid, $15::uuid)
      RETURNING *`,
     admission_id ? Number(admission_id) : null,
     String(patient_uid),
-    patient_name || null,
-    age_years ? Number(age_years) : null,
-    sex || null,
+    patient_name_snapshot ?? patient_name ?? null,
+    (age_years_snapshot ?? age_years) != null
+      ? Number(age_years_snapshot ?? age_years)
+      : null,
+    sex_snapshot ?? sex ?? null,
     hospital_number || null,
     admitted_at || null,
     discharged_at || null,

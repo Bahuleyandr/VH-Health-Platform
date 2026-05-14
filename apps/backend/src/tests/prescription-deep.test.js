@@ -51,6 +51,14 @@ async function cleanupFixtures(patientId, doctorId) {
         resolvedDoctorId || -1
       )
       .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM appointments
+       WHERE patient_id = $1 OR doctor_id = $2`,
+        resolvedPatientId || -1,
+        resolvedDoctorId || -1
+      )
+      .catch(() => {});
   }
   await prisma
     .$executeRawUnsafe(
@@ -160,5 +168,50 @@ describe('E-prescriptions — deep integration', () => {
       medication_name: 'Cetirizine',
       pulse: '72'
     });
+  });
+
+  // Finding: 2026-05-09-inpatient-admission-patient-discharge-rx-unlinked-to-followup
+  // When the doctor enters a follow_up_date on a prescription that has
+  // no source-visit appointment_id (the discharge-desk path is the
+  // canonical case), the auto-booked follow-up appointment must be
+  // linked back to the prescription so the patient app can render
+  // "your follow-up is on X — here are the meds to take until then"
+  // as a single card.
+  it('back-links the auto-booked follow-up appointment to a discharge-style prescription', async () => {
+    const res = await staffAs(staffId)
+      .post('/api/v1/prescriptions/create')
+      .send({
+        patient_id: patientId,
+        doctor_id: doctorId,
+        // No appointment_id — mimics the discharge desk
+        diagnosis: 'IPD discharge — electrolyte review',
+        clinical_notes: 'Review serum electrolytes; repeat CBC.',
+        medications: [
+          { name: 'Tab Pan-40', dosage: '40mg', frequency: 'OD', duration: '7 days' },
+          { name: 'Syp K-Lyte', dosage: '15mL', frequency: 'TDS', duration: '5 days' }
+        ],
+        follow_up_date: '2026-05-20',
+        follow_up_notes: 'Review in 1 week. Repeat serum electrolytes.'
+      });
+
+    expect(res.statusCode).toBe(201);
+    const prescriptionId = res.body.data.id;
+    expect(prescriptionId).toBeTruthy();
+
+    const linked = await prisma.$queryRawUnsafe(
+      `SELECT ep.appointment_id,
+              a.visit_type,
+              a.appointment_date::text AS appointment_date,
+              a.status
+         FROM e_prescriptions ep
+         LEFT JOIN appointments a ON a.id = ep.appointment_id
+        WHERE ep.id = $1`,
+      prescriptionId
+    );
+    expect(linked).toHaveLength(1);
+    expect(linked[0].appointment_id).not.toBeNull();
+    expect(linked[0].visit_type).toBe('FOLLOW_UP');
+    expect(linked[0].appointment_date).toBe('2026-05-20');
+    expect(['SCHEDULED', 'CONFIRMED', 'BOOKED']).toContain(linked[0].status);
   });
 });
