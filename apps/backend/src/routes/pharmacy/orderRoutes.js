@@ -42,10 +42,26 @@ wrapAutoRBAC(router, 'pharmacyPatientOrderRoutes', {
   ]
 });
 
+// Stage-4-C — GET /:id was previously shadowed by the legacy
+// GET /:phone block below, so any integer path segment was
+// misinterpreted as a phone number and returned {orders:[], phone:"5"}
+// instead of the order. We can't use Express-style :id(\d+) in path
+// strings under Express 5 / path-to-regexp v8, so we register /:id in
+// the lifecycle block (declared before /:phone) and guard the handler:
+// if the param isn't a plain integer it calls next('route') to fall
+// through to the legacy /:phone matcher, preserving back-compat for
+// patient-app callers still using phone-keyed lookups.
+// Finding: 2026-05-09-walk-in-opd-pharmacy-order-route-shadowed
+function orderIdGuard(req, res, next) {
+  if (!/^\d+$/.test(req.params.id || '')) return next('route');
+  next();
+}
+
 // Pharmacist lifecycle actions
 wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
   get: [
     ['/:id/detail', [], pharmacyOrderController.getOrderDetail],
+    ['/:id', [orderIdGuard], pharmacyOrderController.getOrderDetail],
     // Dispense label / receipt for printing or in-app display. Available
     // once the order has been DISPENSED or DELIVERED. Wave-3 batch-1.
     ['/:id/label', [], pharmacyOrderController.getDispenseLabel],

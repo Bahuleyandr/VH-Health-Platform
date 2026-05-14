@@ -7,6 +7,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { ICU_BED_TYPES, canAllocateIcu } from '../../utils/roleHelpers.js';
 
 class BedManagementService {
   // =========================================================================
@@ -62,18 +63,24 @@ class BedManagementService {
   // =========================================================================
   // admitPatient — Admit patient to a specific bed (transaction)
   // =========================================================================
-  async admitPatient(bedId, patientUid, expectedDischarge) {
+  async admitPatient(bedId, patientUid, expectedDischarge, actorRole = null) {
     // prisma.$transaction runs the callback inside BEGIN/COMMIT — thrown
     // errors (including AppError) trigger automatic ROLLBACK before
     // propagating to the caller.
     const result = await prisma.$transaction(async (tx) => {
       const bedRows = await tx.$queryRawUnsafe(
-        `SELECT id, status, bed_number FROM beds WHERE id = $1 FOR UPDATE`,
+        `SELECT id, status, bed_number, bed_type FROM beds WHERE id = $1 FOR UPDATE`,
         bedId
       );
 
       if (!bedRows.length) {
         throw AppError.notFound('Bed not found');
+      }
+
+      // Stage-4-C — same tier gate as bedService.admitPatient.
+      // Finding: 2026-05-09-emergency-walk-in-admission-no-icu-rbac-tier
+      if (ICU_BED_TYPES.has(bedRows[0].bed_type) && !canAllocateIcu(actorRole)) {
+        throw AppError.forbidden('ICU/CCU bed allocation requires physician or admission-officer authorisation');
       }
 
       if (bedRows[0].status !== 'available') {
@@ -168,7 +175,7 @@ class BedManagementService {
   // =========================================================================
   // transferPatient — Move patient from current bed to a new bed
   // =========================================================================
-  async transferPatient(patientUid, toBedId, reason, transferredBy) {
+  async transferPatient(patientUid, toBedId, reason, transferredBy, actorRole = null) {
     const result = await prisma.$transaction(async (tx) => {
       const currentBedRows = await tx.$queryRawUnsafe(
         `SELECT id, bed_number FROM beds WHERE patient_uid = $1::uuid AND status = 'occupied' FOR UPDATE`,
@@ -182,12 +189,18 @@ class BedManagementService {
       const fromBedId = currentBedRows[0].id;
 
       const targetBedRows = await tx.$queryRawUnsafe(
-        `SELECT id, status, bed_number FROM beds WHERE id = $1 FOR UPDATE`,
+        `SELECT id, status, bed_number, bed_type FROM beds WHERE id = $1 FOR UPDATE`,
         toBedId
       );
 
       if (!targetBedRows.length) {
         throw AppError.notFound('Target bed not found');
+      }
+
+      // Stage-4-C — transferring INTO ICU/CCU is an allocation event and
+      // must enforce the same tier as direct admit.
+      if (ICU_BED_TYPES.has(targetBedRows[0].bed_type) && !canAllocateIcu(actorRole)) {
+        throw AppError.forbidden('Transfer to ICU/CCU requires physician or admission-officer authorisation');
       }
 
       if (targetBedRows[0].status !== 'available') {

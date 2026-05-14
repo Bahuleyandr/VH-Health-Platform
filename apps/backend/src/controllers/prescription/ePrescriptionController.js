@@ -797,6 +797,15 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     if (!Number.isInteger(id)) {
       return error(res, 'Invalid prescription id', HTTP_STATUS.BAD_REQUEST);
     }
+    // Stage-4-C — same handler backs both POST /:id/order-pharmacy and
+    // POST /:id/refill. Detect which path was hit so the refill route
+    // can repeat-dispense a fulfilled prescription instead of being
+    // rejected by the first-time-order guard.
+    // Findings:
+    //   2026-05-10-pediatric-opd-pharmacy-refill-endpoint-blocks-fulfilled-rx
+    //   2026-05-10-walk-in-opd-pharmacy-refill-blocked-after-fulfillment
+    const isRefill = (req.route?.path || req.path || '').includes('refill');
+
     // Accept `dispense_type` as a back-compat alias for `delivery_type` so a
     // pharmacist passing the older field name still routes the order through
     // the counter/delivery flow they intended, instead of silently defaulting
@@ -817,8 +826,24 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     }
     const rx = rxResult[0];
 
-    if (rx.pharmacy_opted) {
-      return error(res, 'Pharmacy order already placed for this prescription', HTTP_STATUS.BAD_REQUEST);
+    if (isRefill) {
+      // Refill flow: only allow when the previous order is *complete*
+      // (e_prescriptions.status='fulfilled' AND pharmacy_order_id set).
+      // Anything else means a previous order is still in-flight or no
+      // order was ever placed — both are operationally unsafe to
+      // refill from the same endpoint.
+      if (rx.status !== 'fulfilled' || !rx.pharmacy_order_id) {
+        return error(
+          res,
+          'Refill not allowed: original pharmacy order is not yet fulfilled. Use /order-pharmacy for first-time dispense or wait for the in-flight order to complete.',
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+      // Refill proceeds — pharmacy_opted stays true on the row (it has
+      // already been opted in once); the UPDATE below repoints
+      // pharmacy_order_id to the new repeat order.
+    } else if (rx.pharmacy_opted) {
+      return error(res, 'Pharmacy order already placed for this prescription. Use /refill for a repeat dispense.', HTTP_STATUS.BAD_REQUEST);
     }
 
     // Build items list from medications + catalog prices.
@@ -924,15 +949,22 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     //      pharmacyOrderController and broke confirm/dispatch flows.
     const phone = delivery_phone || rx.patient_phone;
     const orderNumber = `PO-${randomUUID().replace(/-/g, '')}`;
+    // Stage-4-C — `patient_phone` is a distinct column from `phone`
+    // (delivery-channel identifier) and is what /pharmacy/orders/queue +
+    // /pharmacy/orders/:id/detail surface to the counter pharmacist for
+    // ready-call SMS. The previous INSERT only set `phone` + delivery_phone,
+    // leaving patient_phone NULL even when the patient row had a number.
+    // Finding: 2026-05-09-inpatient-admission-pharmacy-patient-phone-null-in-order
     const orderResult = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_orders
-        (phone, patient_id, patient_name, order_note, delivery_type, delivery_address, delivery_phone,
+        (phone, patient_id, patient_name, patient_phone, order_note, delivery_type, delivery_address, delivery_phone,
          items_list, total_amount, status, order_number, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, 'PENDING', $10, NOW())
-       RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at, order_number, delivery_type`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, 'PENDING', $11, NOW())
+       RETURNING id, uid, patient_id, patient_name, patient_phone, status, order_note, total_amount, created_at, updated_at, order_number, delivery_type`,
       phone,
       rx.patient_id,
       rx.patient_name,
+      rx.patient_phone || null,
       `Auto-order from prescription ${rx.prescription_number}`,
       delivery_type,
       delivery_address || null,
@@ -943,7 +975,9 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     );
     const pharmacyOrder = orderResult[0];
 
-    // Link back to prescription
+    // Link back to prescription. For a refill, repoint pharmacy_order_id
+    // to the new order and re-arm the Rx for the new fulfillment cycle
+    // (status flips back to pharmacy_linked from fulfilled).
     await prisma.$queryRawUnsafe(
       `UPDATE e_prescriptions
        SET pharmacy_order_id = $1, pharmacy_opted = TRUE, pharmacy_opt_type = $2,
@@ -955,13 +989,17 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     // Notify pharmacy staff
     dispatch({
       userId: 'pharmacy', // will fail gracefully — intended for in-app
-      title: '🛒 New Rx Pharmacy Order',
-      body: `Order ${pharmacyOrder.order_number} from prescription ${rx.prescription_number}`,
+      title: isRefill ? '🔁 Rx Refill Order' : '🛒 New Rx Pharmacy Order',
+      body: `Order ${pharmacyOrder.order_number}${isRefill ? ' (refill)' : ''} from prescription ${rx.prescription_number}`,
       channels: ['inapp'],
       type: 'pharmacy_order',
     }).catch(e => logger.warn('Pharmacy staff notification failed:', e.message));
 
-    success(res, pharmacyOrder, `Pharmacy order ${pharmacyOrder.order_number} created from prescription`);
+    success(
+      res,
+      pharmacyOrder,
+      `Pharmacy ${isRefill ? 'refill order' : 'order'} ${pharmacyOrder.order_number} created from prescription`,
+    );
   } catch (err) {
     logger.error('Order pharmacy from prescription error:', err);
     error(res, 'Failed to create pharmacy order', HTTP_STATUS.INTERNAL_SERVER_ERROR);

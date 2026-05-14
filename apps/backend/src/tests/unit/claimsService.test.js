@@ -8,6 +8,7 @@ import {
   createClaim,
   extractPreauthCaps,
   FINAL_CASHLESS_REQUIRED_DOC_TYPES,
+  recordPreauthResponse,
 } from '../../services/insurance/claimsService.js';
 
 describe('createPreauth validation', () => {
@@ -160,5 +161,50 @@ describe('FINAL_CASHLESS_REQUIRED_DOC_TYPES', () => {
     expect([...FINAL_CASHLESS_REQUIRED_DOC_TYPES].sort()).toEqual([
       'discharge_summary', 'final_bill',
     ]);
+  });
+});
+
+// Stage-4-C input-validation gate. Fires before getPreauth() touches the DB
+// so we can exercise it as a unit test.
+// Finding: 2026-05-09-tpa-insurance-claim-billing-preauth-response-500-wrong-field
+describe('recordPreauthResponse boundary validation', () => {
+  const base = {
+    tenantId: '00000000-0000-4000-8000-000000000001',
+    preauth_id: 1,
+    sanctioned_amount: 50000,
+  };
+
+  it('rejects empty body with 400 listing valid response_type values', async () => {
+    await expect(recordPreauthResponse({ ...base })).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringMatching(/response_type is required/i),
+    });
+  });
+
+  it('rejects unknown response_type with 400', async () => {
+    await expect(
+      recordPreauthResponse({ ...base, response_type: 'maybe' }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringMatching(/Invalid response_type/i),
+    });
+  });
+
+  it('accepts intuitive alias decision: "partial" and proceeds past validation', async () => {
+    // Past validation getPreauth() throws — that's downstream and not the
+    // gate under test. We only care that the 400 alias-rejection no
+    // longer fires for `decision: partial`. Any non-400-with-"response_type"
+    // error means we passed the validation gate.
+    let err;
+    try {
+      await recordPreauthResponse({ ...base, decision: 'partial' });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeDefined();
+    if (err.statusCode === 400) {
+      expect(err.message).not.toMatch(/response_type is required/i);
+      expect(err.message).not.toMatch(/Invalid response_type/i);
+    }
   });
 });

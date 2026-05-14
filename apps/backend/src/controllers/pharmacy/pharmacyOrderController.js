@@ -235,6 +235,21 @@ export const confirmOrder = async (req, res) => {
 
     success(res, result[0], 'Order confirmed');
   } catch (err) {
+    // Stage-4-C — surface real cause. The previous catch-all "Failed to
+    // confirm order" hid the actual DB / validation error so the
+    // pharmacist couldn't tell whether the order was missing, already
+    // confirmed, or hit a constraint. AppErrors keep their statusCode
+    // + message; Postgres errors (FK violation 23503, unique 23505) map
+    // to 400 with the constraint name so the operator at least knows
+    // which input was wrong.
+    // Finding: 2026-05-09-pediatric-opd-pharmacy-confirm-500
+    if (err && typeof err.statusCode === 'number') {
+      return error(res, err.message, err.statusCode, err.details);
+    }
+    if (err && typeof err.code === 'string' && err.code.startsWith('23')) {
+      logger.error('Confirm pharmacy order DB constraint:', { code: err.code, detail: err.detail, constraint: err.constraint });
+      return error(res, `Confirm rejected by database constraint ${err.constraint || err.code}`, HTTP_STATUS.BAD_REQUEST);
+    }
     logger.error('Confirm pharmacy order error:', err);
     error(res, 'Failed to confirm order', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
