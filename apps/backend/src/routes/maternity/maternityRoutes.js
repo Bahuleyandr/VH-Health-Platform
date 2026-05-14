@@ -308,4 +308,26 @@ router.get('/fetal-kicks/pregnancy/:pregnancyId', requireStaffOrAdmin, wrap(asyn
   }),
 ));
 
+// ── Maternity packages ──────────────────────────────────────────────
+// Staff/admin pricing-quote surface. The patient-readable view is
+// /api/v1/portal/maternity/packages (this router is staff/admin
+// gated). Finding:
+// 2026-05-09-walk-in-opd-patient-maternity-package-forbidden.
+router.get('/packages', requireStaffOrAdmin, wrap(async (req) =>
+  mat.listMaternityPackages({ tenantId: tenantOf(req) }),
+));
+
+// ── ANC trimester advice ────────────────────────────────────────────
+// Staff/admin view of the trimester ANC advice content (the editable
+// source the clinical team reviews). Patient-facing view is
+// /api/v1/portal/maternity/anc-advice. Finding:
+// 2026-05-10-obstetric-anc-patient-no-kick-counter-or-ob-advice.
+router.get('/anc-advice', requireStaffOrAdmin, wrap(async (req) =>
+  mat.getAncAdvice({
+    tenantId: tenantOf(req),
+    trimester: req.query.trimester || null,
+    language: req.query.language || 'hi',
+  }),
+));
+
 export default router;

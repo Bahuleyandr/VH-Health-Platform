@@ -11296,3 +11296,21 @@ model knowledge_retrieval_logs {
   @@index([retrieved_for_module_key, retrieved_at(sort: Desc)], map: "idx_knowledge_retrieval_module_time")
   @@index([tenant_id, retrieved_at(sort: Desc)], map: "idx_knowledge_retrieval_tenant_time")
 }
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model maternity_anc_advice {
+  id            Int      @id @default(autoincrement())
+  trimester     Int
+  language      String   @default("hi") @db.VarChar(8)
+  category      String   @db.VarChar(40)
+  title         String?  @db.VarChar(160)
+  content       String
+  display_order Int      @default(0)
+  active        Boolean  @default(true)
+  tenant_id     String   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([tenant_id, trimester, language, category], map: "maternity_anc_advice_uniq")
+  @@index([tenant_id, language, trimester, active], map: "idx_maternity_anc_advice_lookup")
+}

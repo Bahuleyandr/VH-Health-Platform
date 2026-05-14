@@ -823,6 +823,72 @@ export async function listFetalKicks({ tenantId, pregnancy_id, fromDate = null, 
   );
 }
 
+/**
+ * Maternity / delivery packages for the patient pre-booking surface
+ * and the receptionist pricing quote. Reads the obstetrics rows from
+ * the shared `packages` master (seeded by migration 226). Prices are
+ * NULL until the hospital's finance team fills them in — the response
+ * carries the price_status placeholder so the UI shows "pricing under
+ * review" rather than a fabricated number. Finding:
+ * 2026-05-09-walk-in-opd-patient-maternity-package-forbidden.
+ */
+export async function listMaternityPackages({ tenantId }) {
+  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, package_code, display_name, description,
+            base_specialty, base_procedure_code, duration_days,
+            fixed_price_minor, currency, status,
+            inclusion_notes, exclusion_notes, metadata
+       FROM packages
+      WHERE tenant_id = $1::uuid
+        AND base_specialty = 'obstetrics'
+        AND status = 'active'
+      ORDER BY display_name`,
+    tid,
+  );
+  return rows.map((r) => ({
+    ...r,
+    // fixed_price_minor is a Postgres bigint → Prisma returns BigInt,
+    // which JSON.stringify cannot serialise. Coerce to Number; NULL
+    // (price not yet set) stays NULL.
+    fixed_price_minor: r.fixed_price_minor == null ? null : Number(r.fixed_price_minor),
+    price_status: r.metadata?.price_status
+      ?? (r.fixed_price_minor == null
+        ? '[PLACEHOLDER — clinical/financial review required]'
+        : null),
+  }));
+}
+
+/**
+ * Trimester-specific patient ANC advice (danger signs, fetal-movement
+ * guidance, foods to avoid, when to contact the hospital). Reads
+ * maternity_anc_advice (migration 226). Scoped to one trimester when
+ * given, else all three. Seeded content is a review placeholder — the
+ * clinical team owns the real Hindi copy. Finding:
+ * 2026-05-10-obstetric-anc-patient-no-kick-counter-or-ob-advice.
+ */
+export async function getAncAdvice({ tenantId, trimester = null, language = 'hi' }) {
+  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const lang = language || 'hi';
+  const params = [tid, lang];
+  let trimesterClause = '';
+  if (trimester != null && trimester !== '') {
+    const t = Number.parseInt(trimester, 10);
+    if (!Number.isInteger(t) || t < 1 || t > 3) {
+      throw AppError.badRequest('trimester must be 1, 2, or 3');
+    }
+    params.push(t);
+    trimesterClause = ` AND trimester = $${params.length}::int`;
+  }
+  return prisma.$queryRawUnsafe(
+    `SELECT id, trimester, language, category, title, content, display_order
+       FROM maternity_anc_advice
+      WHERE tenant_id = $1::uuid AND language = $2 AND active = true${trimesterClause}
+      ORDER BY trimester, display_order`,
+    ...params,
+  );
+}
+
 export async function setSupplementReminder({
   tenantId, pregnancy_id, supplement_id, reminder_enabled,
 }) {
