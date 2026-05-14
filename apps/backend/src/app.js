@@ -790,8 +790,11 @@ app.use('/api/v1/quality', qualityRoutes);
 // Referral Management (route-level role checks)
 app.use('/api/v1/referrals', phiAccessLogger('REFERRAL'), referralRoutes);
 
-// Inter-staff messaging
-app.use('/api/v1/messaging', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'GENERAL_STAFF', 'DELIVERY_STAFF', 'RECEPTIONIST'), messagingRoutes);
+// Inter-staff messaging — open to every staff role. Stage-5 added the
+// billing / TPA / admission-counter desk roles; the role-workflow sweep
+// caught all four 403ing here because this hand-maintained allowlist was
+// never updated for them.
+app.use('/api/v1/messaging', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'GENERAL_STAFF', 'DELIVERY_STAFF', 'RECEPTIONIST', 'BILLING_STAFF', 'INSURANCE_COORDINATOR', 'ADMISSION_OFFICER', 'IPD_COUNSELLOR'), messagingRoutes);
 
 // Compliance: Breach Notification + Audit Search (admin only)
 app.use('/api/v1/compliance', requireRole('ADMIN', 'SUPER_ADMIN'), adminRateLimiter, breachRoutes);
