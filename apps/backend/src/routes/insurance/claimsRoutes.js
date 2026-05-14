@@ -7,6 +7,7 @@ import { Router } from 'express';
 import logger from '../../logging/logger.js';
 import * as claims from '../../services/insurance/claimsService.js';
 import * as capsService from '../../services/insurance/claimCapsService.js';
+import * as packages from '../../services/insurance/packagesService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 
@@ -52,6 +53,34 @@ router.get('/policies/patient/:patientUid', requireStaffOrAdmin, wrap(async (req
     tenantId: tenantOf(req),
     patient_uid: req.params.patientUid,
   }),
+));
+
+// ── Package master + cost estimator ─────────────────────────────────
+// Admission-counter surface: derive a package-based estimate instead of
+// free-texting estimated_cost / expected_cost into the admission + the
+// TPA pre-auth. Finding:
+// 2026-05-09-tpa-insurance-claim-admission-no-estimated-cost-package-calculator
+router.get('/packages', requireStaffOrAdmin, wrap(async (req) =>
+  packages.listPackages({
+    tenantId: tenantOf(req),
+    specialty: req.query.specialty,
+    status: req.query.status,
+    q: req.query.q,
+  }),
+));
+
+router.post('/packages/estimate', requireStaffOrAdmin, wrap(async (req) =>
+  packages.estimatePackageCost({
+    tenantId: tenantOf(req),
+    package_id: req.body.package_id,
+    package_code: req.body.package_code,
+    room_category: req.body.room_category,
+    los_days: req.body.los_days,
+  }),
+));
+
+router.get('/packages/:id', requireStaffOrAdmin, wrap(async (req) =>
+  packages.getPackage({ tenantId: tenantOf(req), id: req.params.id }),
 ));
 
 // ── Pre-authorization ────────────────────────────────────────────────
