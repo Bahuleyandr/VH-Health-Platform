@@ -57,7 +57,15 @@ $accounts = @(
   @{ employeeId = "EMP-1005"; role = "HR_STAFF"; label = "HR" },
   @{ employeeId = "EMP-1006"; role = "ADMIN"; label = "Admin" },
   @{ employeeId = "EMP-1007"; role = "SUPER_ADMIN"; label = "Super admin" },
-  @{ employeeId = "EMP-1008"; role = "GENERAL_STAFF"; label = "General staff" }
+  @{ employeeId = "EMP-1008"; role = "GENERAL_STAFF"; label = "General staff" },
+  # Stage-5 desk roles (EMP-1016..1019, seeded by seed-test-staff-accounts.mjs).
+  # The original 1001..1008 matrix never exercised the billing / TPA-insurance /
+  # admission-counter surfaces that the Stage-5 fix chips actually changed, so a
+  # green sweep was blind to the cluster of findings Stage 5 closed.
+  @{ employeeId = "EMP-1016"; role = "BILLING_STAFF"; label = "Billing" },
+  @{ employeeId = "EMP-1017"; role = "INSURANCE_COORDINATOR"; label = "Insurance coordinator" },
+  @{ employeeId = "EMP-1018"; role = "ADMISSION_OFFICER"; label = "Admission officer" },
+  @{ employeeId = "EMP-1019"; role = "IPD_COUNSELLOR"; label = "IPD counsellor" }
 )
 
 function Get-ApiUri {
@@ -359,6 +367,33 @@ function Invoke-RoleChecks {
       Invoke-StaffRequest $role "hr_shift" "GET" "/staff/hr/shift" -Token $Token | Out-Null
       Invoke-StaffRequest $role "leave_balance" "GET" "/staff/hr/leave/balance" -Token $Token | Out-Null
       Invoke-StaffRequest $role "payroll_payslips" "GET" "/staff/hr/payroll/my-payslips?limit=5" -Token $Token | Out-Null
+    }
+    # Stage-5 desk roles. Paths + role gates verified against app.js mounts:
+    #   /billing   => requireRole(... 'BILLING_STAFF' ...)            (app.js)
+    #   /insurance => requireRole(... 'INSURANCE_COORDINATOR' ...)    (app.js)
+    #   /emr       => requireRole(...CLINICAL_STAFF_ROLES) and that
+    #                 list includes ADMISSION_OFFICER + IPD_COUNSELLOR (app.js)
+    # All checks are no-param GET list/report surfaces touched by the
+    # Stage-5 fix chips (billing per-insurer breakdown, TPA package master /
+    # pre-auth SLA / enhancement template, admissions list + review-due queue).
+    "BILLING_STAFF" {
+      Invoke-StaffRequest $role "billing_revenue_report" "GET" "/billing/revenue" -Token $Token | Out-Null
+      Invoke-StaffRequest $role "billing_insurance_claims" "GET" "/billing/insurance/claims" -Token $Token | Out-Null
+    }
+    "INSURANCE_COORDINATOR" {
+      Invoke-StaffRequest $role "insurance_packages" "GET" "/insurance/packages" -Token $Token | Out-Null
+      Invoke-StaffRequest $role "insurance_preauth_pending" "GET" "/insurance/preauth/pending" -Token $Token | Out-Null
+      Invoke-StaffRequest $role "insurance_claims_list" "GET" "/insurance/claims" -Token $Token | Out-Null
+      Invoke-StaffRequest $role "insurance_enhancement_template" "GET" "/insurance/enhancement-justification-template" -Token $Token | Out-Null
+    }
+    "ADMISSION_OFFICER" {
+      Invoke-StaffRequest $role "emr_admissions_list" "GET" "/emr/admissions?page=1&limit=10" -Token $Token | Out-Null
+      Invoke-StaffRequest $role "emr_admissions_stats" "GET" "/emr/admissions/stats" -Token $Token | Out-Null
+    }
+    "IPD_COUNSELLOR" {
+      Invoke-StaffRequest $role "emr_admissions_list" "GET" "/emr/admissions?page=1&limit=10" -Token $Token | Out-Null
+      Invoke-StaffRequest $role "emr_admissions_review_due" "GET" "/emr/admissions?review_due=true&page=1&limit=10" -Token $Token | Out-Null
+      Invoke-StaffRequest $role "emr_admissions_stats" "GET" "/emr/admissions/stats" -Token $Token | Out-Null
     }
   }
 }
