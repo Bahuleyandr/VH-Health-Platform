@@ -18,7 +18,15 @@ import { AppError } from '../../utils/AppError.js';
 // deposit row carries amount=0 with payment_method='deferred' and the
 // purpose discriminates further. Finding:
 //   2026-05-09-emergency-walk-in-admission-advance-deposit-no-deferred-mode
-const VALID_PAYMENT_METHODS = new Set(['cash', 'card', 'upi', 'cheque', 'online', 'bank_transfer', 'deferred']);
+//
+// Stage-4-C — 'corporate_tpa' is the IRDAI cashless-advance mode for
+// corporate-policy IPD patients. Without it the clerk had to record TPA
+// pre-authorised advances as `bank_transfer`, corrupting reconciliation
+// against the TPA's settlement file (the same `corporate_tpa` value is
+// already accepted by the pharmacy counter, see pharmacyOrderController).
+// Finding:
+//   2026-05-09-dynamic-acute-abdomen-admission-no-tpa-payment-method
+const VALID_PAYMENT_METHODS = new Set(['cash', 'card', 'upi', 'cheque', 'online', 'bank_transfer', 'deferred', 'corporate_tpa']);
 const VALID_DEPOSIT_PURPOSES = new Set([
   'admission_advance', 'package_advance', 'attendant_deposit', 'security_deposit',
   // Wave-4B-1 — emergency-deferred path for unidentified/RTA admits.
