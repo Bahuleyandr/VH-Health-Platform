@@ -343,6 +343,12 @@ const VALID_FREQUENCIES = new Set([
   'once_daily', 'twice_daily', 'thrice_daily', 'weekly', 'as_needed',
 ]);
 
+// maternity_supplements.dose is VARCHAR(60). Reject longer values with a
+// 400 + field-level message instead of letting the INSERT raise a generic
+// 500 ("value too long for type character varying(60)"). Finding:
+// 2026-05-10-obstetric-anc-doctor-supplement-dose-500.
+const DOSE_MAX_LEN = 60;
+
 export async function recordSupplement({
   tenantId, pregnancy_id, supplement, dose, frequency, route, start_date,
   end_date, reminder_enabled, notes, prescribed_by,
@@ -353,6 +359,12 @@ export async function recordSupplement({
   }
   if (frequency && !VALID_FREQUENCIES.has(frequency)) {
     throw AppError.badRequest(`Invalid frequency: ${frequency}`);
+  }
+  if (dose != null && typeof dose === 'string' && dose.length > DOSE_MAX_LEN) {
+    throw AppError.badRequest(
+      `dose must be ${DOSE_MAX_LEN} characters or fewer (got ${dose.length}). ` +
+      `Use a short form like "Iron 60mg + FA 500mcg".`,
+    );
   }
   if (!prescribed_by) throw AppError.badRequest('prescribed_by is required');
 

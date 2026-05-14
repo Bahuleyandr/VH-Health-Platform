@@ -11,8 +11,13 @@ export const createLegacyAppointment = async (req, res) => {
     const phone = normalizePhone(req.body.phone || req.body.phoneNumber);
     const { doctor_name, date, time, department } = req.body;
 
+    // appointments.updated_at is NOT NULL with no DEFAULT — the legacy
+    // INSERT above used to omit it and Postgres rejected the row with a
+    // generic 500. Explicitly set updated_at = NOW() so the discharge
+    // follow-up booking path stops failing with "Database error". Finding:
+    // 2026-05-09-inpatient-admission-discharge-followup-api-500.
     const result = await prisma.$queryRawUnsafe(
-      'INSERT INTO appointments (phone, doctor_name, appointment_date, appointment_time) VALUES ($1, $2, $3, $4) RETURNING id, uid, phone, patient_name, doctor_name, appointment_date, appointment_time, status, created_at',
+      'INSERT INTO appointments (phone, doctor_name, appointment_date, appointment_time, updated_at) VALUES ($1, $2, $3, $4, NOW()) RETURNING id, uid, phone, patient_name, doctor_name, appointment_date, appointment_time, status, created_at',
       phone, doctor_name, date, time
     );
 

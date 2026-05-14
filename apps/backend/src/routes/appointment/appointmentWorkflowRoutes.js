@@ -30,7 +30,14 @@ router.get('/queue/today/mine', (req, _res, next) => {
 router.get('/pending', workflowController.getPendingAppointments);
 router.get('/doctors/options', workflowController.getDoctorOptions);
 router.get('/slots', workflowController.getAvailableSlots);
-router.post('/walk-in', requiredString('patient_name', 255), validate, workflowController.registerWalkIn);
+// Don't unconditionally require `patient_name`. When the caller supplies
+// `patient_phone` (or `patient_id`) for a returning patient the backend
+// already has the name on file, and forcing the receptionist to re-type
+// the child's name on every paeds follow-up adds 15-20s of friction per
+// registration. The controller falls back to the stored name when
+// patient_name is absent. Finding:
+// 2026-05-09-pediatric-opd-receptionist-patient-name-required-for-returning.
+router.post('/walk-in', validate, workflowController.registerWalkIn);
 
 // Patient records
 router.get('/patient/records/all', docController.getPatientAllRecords);

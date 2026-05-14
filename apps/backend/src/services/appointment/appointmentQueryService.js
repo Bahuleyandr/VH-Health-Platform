@@ -234,12 +234,18 @@ export class AppointmentQueryService {
 
   async getDoctorAppointments(doctorId, filters = {}) {
     try {
-      const status = (filters.status || APPOINTMENT_CONFIG.STATUSES.SCHEDULED).toUpperCase();
-
-      const where = {
-        doctor_id: parseInt(doctorId),
-        status,
-      };
+      // Don't default-filter by status — a doctor's worklist should surface
+      // SCHEDULED + CONFIRMED + COMPLETED (and anything else not cancelled).
+      // The prior default of SCHEDULED-only hid CONFIRMED walk-ins, so this
+      // endpoint returned empty while /queue/today/mine returned the same
+      // rows. Finding:
+      // 2026-05-09-dynamic-acute-abdomen-doctor-worklist-doctor-endpoint-returns-empty.
+      const where = { doctor_id: parseInt(doctorId) };
+      if (filters.status) {
+        where.status = filters.status.toUpperCase();
+      } else {
+        where.status = { notIn: ['CANCELLED', 'NO_SHOW'] };
+      }
       if (filters.date) where.appointment_date = dateRangeFilter(filters.date);
 
       const rows = await prisma.appointments.findMany({
@@ -252,6 +258,9 @@ export class AppointmentQueryService {
           reason: true,
           notes: true,
           patient_id: true,
+          token_number: true,
+          visit_no: true,
+          department: true,
           users_appointments_patient_idTousers: PATIENT_INCLUDE,
         },
         orderBy: [{ appointment_date: 'asc' }, { appointment_time: 'asc' }],
@@ -288,6 +297,14 @@ export class AppointmentQueryService {
           reason: true,
           notes: true,
           doctor_id: true,
+          // Surface the human-readable visit identifiers the patient app
+          // needs to match the in-hand paper/SMS slip. Without these the
+          // patient sees a generic "Walk-in" card with no token number,
+          // visit_no, or department. Finding:
+          // 2026-05-10-walk-in-opd-patient-visit-identifiers-missing.
+          token_number: true,
+          visit_no: true,
+          department: true,
           created_at: true,
           updated_at: true,
           users_appointments_doctor_idTousers: DOCTOR_INCLUDE,
@@ -296,7 +313,9 @@ export class AppointmentQueryService {
       });
 
       // Only doctor_* + specialty/department aliases needed — no patient_*
-      // (this view is scoped to one patient).
+      // (this view is scoped to one patient). Prefer the appointment's own
+      // `department` column; fall back to the doctor's profile department
+      // for legacy rows where department was never written on the row.
       return rows.map((r) => {
         const d = r[REL_DOCTOR] ?? null;
         const profile = d?.doctors?.[0] ?? null;
@@ -305,7 +324,7 @@ export class AppointmentQueryService {
         flat.doctor_name = d?.name ?? null;
         flat.doctor_phone = d?.phone ?? null;
         flat.specialty = profile?.specialty ?? null;
-        flat.department = profile?.department ?? null;
+        flat.department = r.department ?? profile?.department ?? null;
         return flat;
       });
     } catch (error) {
@@ -382,6 +401,18 @@ export class AppointmentQueryService {
           status: true,
           reason: true,
           notes: true,
+          // Surface the appointment's own department and walk-in identifiers
+          // on the detail view — receptionists/admins use this endpoint to
+          // route ANC vs OPD, and patients use it to match the printed slip.
+          // Without department in the SELECT, the flatten step always fell
+          // back to the doctor's profile department, which is wrong for
+          // doctors who cover multiple departments. Finding:
+          // 2026-05-09-obstetric-anc-receptionist-appt-detail-strips-department.
+          department: true,
+          token_number: true,
+          visit_no: true,
+          visit_type: true,
+          confirmed_at: true,
           created_at: true,
           updated_at: true,
           users_appointments_patient_idTousers: PATIENT_INCLUDE,
@@ -407,7 +438,10 @@ export class AppointmentQueryService {
       flat.doctor_phone = doctor?.phone ?? null;
       flat.doctor_email = doctor?.email ?? null;
       flat.specialty = profile?.specialty ?? null;
-      flat.department = profile?.department ?? null;
+      // Prefer the row's own department over the doctor's profile so
+      // ANC appointments don't get re-routed to the doctor's home
+      // department.
+      flat.department = row.department ?? profile?.department ?? null;
 
       // E-10 — completed-visit clinical summary. Patient app calling
       // GET /appointments/:id on a COMPLETED visit previously got an

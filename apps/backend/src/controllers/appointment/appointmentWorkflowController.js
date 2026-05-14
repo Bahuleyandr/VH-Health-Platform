@@ -5,6 +5,7 @@ import logger from '../../logging/logger.js';
 import { sendAppointmentConfirmationSMS } from '../../services/smsService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { logAudit } from '../../utils/logAudit.js';
+import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
@@ -778,7 +779,16 @@ export const registerWalkIn = async (req, res) => {
       unidentified === true ||
       (visitTypeUpper === 'EMERGENCY' && !patient_phone && !patient_id);
     const isUnidentifiedMode = unidentifiedSignal && departmentLooksEmergency;
-    let resolvedPhone = patient_phone;
+    // Normalize the inbound phone to E.164 before any de-dupe / INSERT
+    // path runs. The admin walk-in dialog asks for a "10-digit mobile",
+    // but every other code path (Firebase OTP, SMS service, dependent
+    // linking) keys on +91XXXXXXXXXX. Without normalization, the same
+    // patient can register once as `9812605791` and once as
+    // `+919812605791`, producing two distinct rows. Finding:
+    // 2026-05-10-walk-in-opd-receptionist-phone-format-misleading.
+    let resolvedPhone = patient_phone && !String(patient_phone).startsWith('UNIDENT-')
+      ? (normalizePhone(patient_phone) || patient_phone)
+      : patient_phone;
     let isUnidentifiedFlag = false;
     if (isUnidentifiedMode && !patient_phone && !patient_id) {
       // 13 chars: "UNIDENT-EMER-" prefix + 13-digit ms timestamp would

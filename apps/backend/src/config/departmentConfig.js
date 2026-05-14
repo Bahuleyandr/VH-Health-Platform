@@ -1,9 +1,15 @@
 // src/config/departmentConfig.js
 export const DEPARTMENT_CONFIG = {
-  // Pagination
+  // Pagination — the admin walk-in dialog fetches the full department
+  // list in one shot for the dropdown (well under 500 rows for a
+  // hospital). Capping at 100 forced it to choose between paginating a
+  // dropdown (UX nightmare) and a hard-coded `?limit=200` that the
+  // validator then rejected, leaving receptionists without a department
+  // selector. Finding:
+  // 2026-05-10-emergency-walk-in-receptionist-department-dropdown-limit.
   DEFAULT_PAGE: 1,
   DEFAULT_LIMIT: 20,
-  MAX_LIMIT: 100,
+  MAX_LIMIT: 500,
 
   // Validation
   NAME_MIN_LENGTH: 3,

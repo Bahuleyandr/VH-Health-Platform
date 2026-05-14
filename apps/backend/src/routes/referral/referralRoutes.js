@@ -32,11 +32,22 @@ function isReferralAdmin(role) {
 /**
  * POST /referrals
  * Create a new referral — DOCTOR only
+ *
+ * Accepts either `referred_to_department` (canonical, matches DB column)
+ * or `to_department` (legacy alias). Earlier the route-level validator
+ * required `to_department` and the service required `referred_to_department`,
+ * forcing every caller to send both. Finding:
+ * 2026-05-09-dynamic-acute-abdomen-doctor-referral-dual-field-validation-conflict.
  */
-router.post('/', requiredUUID('patient_uid'), requiredString('to_department', 100), requiredString('reason', 1000), validate, async (req, res, next) => {
+router.post('/', requiredUUID('patient_uid'), requiredString('reason', 1000), validate, async (req, res, next) => {
   try {
     if (!canManageReferrals(req.user?.role)) {
       return error(res, 'Only doctors can create referrals', 403);
+    }
+
+    const department = req.body.referred_to_department || req.body.to_department;
+    if (!department || typeof department !== 'string' || !department.trim()) {
+      return error(res, 'referred_to_department (or to_department) is required', 400);
     }
 
     const referralData = {
@@ -44,7 +55,7 @@ router.post('/', requiredUUID('patient_uid'), requiredString('to_department', 10
       encounter_id: req.body.encounter_id,
       referring_doctor: req.user?.uid,
       referred_to_doctor: req.body.referred_to_doctor,
-      referred_to_department: req.body.referred_to_department,
+      referred_to_department: department,
       referral_type: req.body.referral_type,
       reason: req.body.reason,
       urgency: req.body.urgency,

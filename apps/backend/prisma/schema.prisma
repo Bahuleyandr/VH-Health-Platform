@@ -689,7 +689,7 @@ model appointment_status_history {
 
 model appointments {
   id                                   Int                          @id @default(autoincrement())
-  uid                                  String?                      @db.Uuid
+  uid                                  String                       @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   phone                                String                       @db.VarChar(15)
   patient_id                           Int?
   doctor_id                            Int?
