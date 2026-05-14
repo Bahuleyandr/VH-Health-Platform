@@ -99,9 +99,11 @@ const ORDER_RETURNING_SELECT = {
 };
 
 /**
- * Generate a unique order number: ORD-YYYYMMDD-XXXX
+ * Generate `count` sequential unique order numbers: ORD-YYYYMMDD-XXXX.
+ * One DB read seeds the base sequence; the rest increment in memory so a
+ * batch insert doesn't re-read (and collide) per order.
  */
-async function generateOrderNumber() {
+async function generateOrderNumbers(count) {
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const prefix = `ORD-${today}-`;
 
@@ -118,7 +120,19 @@ async function generateOrderNumber() {
     if (!isNaN(lastSeq)) seq = lastSeq + 1;
   }
 
-  return `${prefix}${String(seq).padStart(4, '0')}`;
+  const numbers = [];
+  for (let i = 0; i < count; i += 1) {
+    numbers.push(`${prefix}${String(seq + i).padStart(4, '0')}`);
+  }
+  return numbers;
+}
+
+/**
+ * Generate a unique order number: ORD-YYYYMMDD-XXXX
+ */
+async function generateOrderNumber() {
+  const [number] = await generateOrderNumbers(1);
+  return number;
 }
 
 /**
@@ -162,16 +176,13 @@ function normalizeOrderRoute(rawRoute) {
   return ROUTE_SYNONYMS[trimmed.toLowerCase()] || trimmed;
 }
 
-// ===================================================================
-// createOrder
-// ===================================================================
-
 /**
- * Create a clinical order.
- * @param {Object} data - { encounter_id?, patient_uid, order_type, priority?, details, ordered_by, start_date?, end_date?, notes? }
- * @returns {Object} Created order with CDS check results
+ * Normalise + validate a single order payload. Pure (no DB) so the bulk
+ * path can validate every item up front before opening a transaction.
+ * Throws AppError.badRequest on any invalid field.
+ * @returns {Object} normalised order fields ready for prisma.clinical_orders.create
  */
-export async function createOrder(data) {
+function normalizeOrderInput(data) {
   const {
     encounter_id,
     patient_uid,
@@ -222,9 +233,9 @@ export async function createOrder(data) {
   }
 
   // Structured medication route (migration 229). Accept it top-level or
-  // nested in details; validate against the route enum and mirror the
-  // normalised value back into details.route so the MAR scheduler — which
-  // still reads details.route — sees the canonical form.
+  // nested in details; normalise to a canonical form and mirror it back
+  // into details.route so the MAR scheduler — which still reads
+  // details.route — sees the canonical value.
   const route = normalizeOrderRoute(
     data.route ?? (details && typeof details === 'object' ? details.route : null),
   );
@@ -232,62 +243,42 @@ export async function createOrder(data) {
     details = { ...details, route };
   }
 
-  // Run CDS safety checks
-  const cdsResult = await runCDSChecks(patient_uid, order_type, details);
+  return {
+    encounter_id: encounter_id ?? null,
+    patient_uid,
+    order_type,
+    priority,
+    details,
+    route,
+    ordered_by,
+    start_date: start_date ?? null,
+    end_date: end_date ?? null,
+    notes: notes ?? null,
+  };
+}
 
-  // If there are blockers, reject the order. Each blocker from
-  // validatePrescriptionSafety is a shaped object — joining the array
-  // directly would render every blocker as the literal "[object Object]"
-  // and leave the prescribing doctor with no actionable detail
-  // (`message:"Order blocked by safety checks: [object Object]"`). Map
-  // each blocker through its renderable string field, and surface the
-  // structured array as `details` so the staff-app CDS modal can show
-  // per-blocker context + the override flow.
-  // Findings:
-  //   2026-05-10-inpatient-admission-doctor-medication-orders-cds-blocked
-  //   2026-05-10-inpatient-admission-doctor-medication-cpoe-blocks-oral-switch-object-object
-  //   2026-05-10-dynamic-acute-abdomen-doctor-medication-order-paths-blocked
-  if (cdsResult.blockers.length > 0) {
-    const renderedBlockers = cdsResult.blockers.map((b) => {
-      if (typeof b === 'string') return b;
-      if (b && typeof b === 'object') {
-        return b.message || b.reason || b.type || JSON.stringify(b);
-      }
-      return String(b);
-    });
-    throw AppError.badRequest(
-      `Order blocked by safety checks: ${renderedBlockers.join('; ')}`,
-      'CDS_BLOCKER',
-      {
-        blockers: cdsResult.blockers,
-        warnings: cdsResult.warnings,
-      },
-    );
+// Each blocker from validatePrescriptionSafety is a shaped object —
+// joining the array directly renders every blocker as "[object Object]"
+// and leaves the prescribing doctor with no actionable detail. Map each
+// through its renderable string field. Findings:
+//   2026-05-10-inpatient-admission-doctor-medication-orders-cds-blocked
+//   2026-05-10-inpatient-admission-doctor-medication-cpoe-blocks-oral-switch-object-object
+//   2026-05-10-dynamic-acute-abdomen-doctor-medication-order-paths-blocked
+function renderBlocker(b) {
+  if (typeof b === 'string') return b;
+  if (b && typeof b === 'object') {
+    return b.message || b.reason || b.type || JSON.stringify(b);
   }
+  return String(b);
+}
 
-  const orderNumber = await generateOrderNumber();
-
-  // `details` is a Json column — pass the object directly (Prisma serialises).
-  // `status` defaults to 'ordered' in the schema; pre-ORM SQL set it explicitly,
-  // so we preserve that for clarity.
-  const order = await prisma.clinical_orders.create({
-    data: {
-      order_number: orderNumber,
-      encounter_id: encounter_id ?? null,
-      patient_uid,
-      order_type,
-      priority,
-      details,
-      route,
-      status: 'ordered',
-      ordered_by,
-      start_date: start_date ? new Date(start_date) : null,
-      end_date: end_date ? new Date(end_date) : null,
-      notes: notes ?? null,
-    },
-    select: ORDER_RETURNING_SELECT,
-  });
-
+/**
+ * Post-commit best-effort side effects for a freshly created order: ward
+ * indent for IPD medication orders, downstream integration dispatch, and
+ * a STAT push. All failures are logged, never thrown — shared by the
+ * single-order and bulk paths.
+ */
+async function dispatchPostCreateSideEffects(order) {
   if (order.order_type === 'medication' && order.encounter_id) {
     await createWardIndentForClinicalMedicationOrder(order).catch((err) => {
       logger.error(`Failed to create ward indent for medication order ${order.order_number}: ${err.message}`);
@@ -300,25 +291,168 @@ export async function createOrder(data) {
   });
 
   // STAT orders — push notification to relevant staff
-  if (priority === 'stat') {
+  if (order.priority === 'stat') {
     notificationOutbox.queue({
       type: 'push',
       recipientId: null, // broadcast to relevant staff
       title: 'STAT Order',
-      body: `STAT ${order_type} order ${orderNumber} for patient`,
-      data: { order_id: order.id, order_number: orderNumber, order_type, priority },
+      body: `STAT ${order.order_type} order ${order.order_number} for patient`,
+      data: {
+        order_id: order.id,
+        order_number: order.order_number,
+        order_type: order.order_type,
+        priority: order.priority,
+      },
       channel: 'clinical_alert',
     }).catch((err) => {
-      logger.warn(`Failed to queue STAT notification for order ${orderNumber}: ${err.message}`);
+      logger.warn(`Failed to queue STAT notification for order ${order.order_number}: ${err.message}`);
     });
   }
+}
 
-  logger.info(`Order created: ${orderNumber}, type=${order_type}, priority=${priority}, patient=${patient_uid}, by=${ordered_by}`);
+// ===================================================================
+// createOrder
+// ===================================================================
+
+/**
+ * Create a clinical order.
+ * @param {Object} data - { encounter_id?, patient_uid, order_type, priority?, details, ordered_by, start_date?, end_date?, notes? }
+ * @returns {Object} Created order with CDS check results
+ */
+export async function createOrder(data) {
+  const n = normalizeOrderInput(data);
+
+  // Run CDS safety checks. Blockers reject the order — surface the
+  // structured array as `details` so the staff-app CDS modal can show
+  // per-blocker context + the override flow.
+  const cdsResult = await runCDSChecks(n.patient_uid, n.order_type, n.details);
+  if (cdsResult.blockers.length > 0) {
+    throw AppError.badRequest(
+      `Order blocked by safety checks: ${cdsResult.blockers.map(renderBlocker).join('; ')}`,
+      'CDS_BLOCKER',
+      { blockers: cdsResult.blockers, warnings: cdsResult.warnings },
+    );
+  }
+
+  const orderNumber = await generateOrderNumber();
+
+  // `details` is a Json column — pass the object directly (Prisma serialises).
+  // `status` defaults to 'ordered' in the schema; pre-ORM SQL set it explicitly,
+  // so we preserve that for clarity.
+  const order = await prisma.clinical_orders.create({
+    data: {
+      order_number: orderNumber,
+      encounter_id: n.encounter_id,
+      patient_uid: n.patient_uid,
+      order_type: n.order_type,
+      priority: n.priority,
+      details: n.details,
+      route: n.route,
+      status: 'ordered',
+      ordered_by: n.ordered_by,
+      start_date: n.start_date ? new Date(n.start_date) : null,
+      end_date: n.end_date ? new Date(n.end_date) : null,
+      notes: n.notes,
+    },
+    select: ORDER_RETURNING_SELECT,
+  });
+
+  await dispatchPostCreateSideEffects(order);
+
+  logger.info(`Order created: ${orderNumber}, type=${n.order_type}, priority=${n.priority}, patient=${n.patient_uid}, by=${n.ordered_by}`);
 
   return {
     order,
     cds_warnings: cdsResult.warnings,
   };
+}
+
+// ===================================================================
+// createOrdersBulk
+// ===================================================================
+
+/**
+ * Create multiple clinical orders atomically. An admission round enters
+ * a routine bundle (IV fluids + a few meds + labs + imaging) as one
+ * clinical action — firing N single-order POSTs meant N round-trips and
+ * no rollback if the Nth failed. This validates + runs CDS for every
+ * item up front (Phase 0), inserts all rows in one transaction
+ * (Phase 1), then fires per-order side effects post-commit (Phase 1.5).
+ * Any validation/CDS failure aborts the whole batch before a row is
+ * written; the offending item index is surfaced to the caller.
+ * @param {Array<Object>} items - order payloads (same shape as createOrder's `data`)
+ * @param {Object} ctx - { ordered_by }
+ * @returns {Array<{ order, cds_warnings }>}
+ * Finding 2026-05-08-inpatient-admission-doctor-no-batch-ordering.
+ */
+export async function createOrdersBulk(items, { ordered_by } = {}) {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw AppError.badRequest('orders must be a non-empty array');
+  }
+  if (!ordered_by) {
+    throw AppError.badRequest('ordered_by is required');
+  }
+
+  // Phase 0 — validate every item + run CDS, all up front. Any failure
+  // aborts the batch before a row is written.
+  const prepared = [];
+  for (let i = 0; i < items.length; i += 1) {
+    let normalized;
+    try {
+      normalized = normalizeOrderInput({ ...items[i], ordered_by });
+    } catch (err) {
+      throw AppError.badRequest(`Order #${i + 1}: ${err.message}`, err.code, err.details);
+    }
+    const cdsResult = await runCDSChecks(normalized.patient_uid, normalized.order_type, normalized.details);
+    if (cdsResult.blockers.length > 0) {
+      throw AppError.badRequest(
+        `Order #${i + 1} blocked by safety checks: ${cdsResult.blockers.map(renderBlocker).join('; ')}`,
+        'CDS_BLOCKER',
+        { order_index: i, blockers: cdsResult.blockers, warnings: cdsResult.warnings },
+      );
+    }
+    prepared.push({ normalized, cds_warnings: cdsResult.warnings });
+  }
+
+  // One DB read seeds the whole batch's order numbers.
+  const orderNumbers = await generateOrderNumbers(prepared.length);
+
+  // Phase 1 — atomic insert. Every row or none; no best-effort calls
+  // inside the transaction (a swallowed Prisma error would abort the tx).
+  const createdRows = await prisma.$transaction(async (tx) => {
+    const rows = [];
+    for (let i = 0; i < prepared.length; i += 1) {
+      const n = prepared[i].normalized;
+      const row = await tx.clinical_orders.create({
+        data: {
+          order_number: orderNumbers[i],
+          encounter_id: n.encounter_id,
+          patient_uid: n.patient_uid,
+          order_type: n.order_type,
+          priority: n.priority,
+          details: n.details,
+          route: n.route,
+          status: 'ordered',
+          ordered_by: n.ordered_by,
+          start_date: n.start_date ? new Date(n.start_date) : null,
+          end_date: n.end_date ? new Date(n.end_date) : null,
+          notes: n.notes,
+        },
+        select: ORDER_RETURNING_SELECT,
+      });
+      rows.push(row);
+    }
+    return rows;
+  });
+
+  // Phase 1.5 — post-commit best-effort side effects per order.
+  for (const order of createdRows) {
+    await dispatchPostCreateSideEffects(order);
+  }
+
+  logger.info(`Bulk order create: ${createdRows.length} orders, encounter=${createdRows[0]?.encounter_id ?? 'none'}, by=${ordered_by}`);
+
+  return createdRows.map((order, i) => ({ order, cds_warnings: prepared[i].cds_warnings }));
 }
 
 /**
@@ -829,6 +963,7 @@ export async function createOrderSet(data) {
 
 export default {
   createOrder,
+  createOrdersBulk,
   verifyOrder,
   completeOrder,
   cancelOrder,
