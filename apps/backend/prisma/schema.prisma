@@ -3906,6 +3906,7 @@ model clinical_orders {
   cancelled_by  String?   @db.Uuid
   completed_at  DateTime? @db.Timestamptz(6)
   completed_by  String?   @db.Uuid
+  route         String?   @db.VarChar(20)
 
   @@index([encounter_id, created_at(sort: Desc)], map: "idx_clinical_orders_encounter")
   @@index([order_type, created_at(sort: Desc)], map: "idx_clinical_orders_medication_created")

@@ -31,3 +31,30 @@ CREATE INDEX IF NOT EXISTS idx_e_prescriptions_admission_id
   WHERE admission_id IS NOT NULL;
 
 COMMIT;
+
+-- ─── Section 2 — clinical_orders: structured medication route ─────────
+-- Closes finding:
+--   2026-05-08-inpatient-admission-doctor-no-route-or-imaging-typing
+--
+-- The CPOE order schema stuffed the IV/PO/IM route into the free-text
+-- `details` JSON with no structure — two doctors writing "IV" vs
+-- "i.v." vs "Intravenous" left the MAR / pharmacy unable to group
+-- medication orders by route. Add a structured `route` column;
+-- orderEntryService normalises the value to a canonical form on write
+-- (case- and spelling-insensitive) and mirrors it back into
+-- details.route for the existing MAR scheduler.
+--
+-- Imaging note: the same finding also flagged imaging being conflated
+-- with `investigation`. Verified sufficient as-is — the platform has a
+-- dedicated radiology subsystem (`radiology_orders`, /api/v1/radiology
+-- worklist + modality typing), and Stage-4's ORDER_TYPE_ALIASES already
+-- maps radiology/imaging → investigation so a quick CPOE order doesn't
+-- 400. A separate CPOE `imaging` order_type would just duplicate the
+-- radiology module, so no order_type change is made here.
+
+BEGIN;
+
+ALTER TABLE clinical_orders
+  ADD COLUMN IF NOT EXISTS route VARCHAR(20);
+
+COMMIT;

@@ -30,6 +30,28 @@ import { createWardIndentForClinicalMedicationOrder } from '../ipd/ipdSupportSer
 const VALID_ORDER_TYPES = ['medication', 'investigation', 'nursing', 'diet', 'activity', 'consultation'];
 const VALID_PRIORITIES = ['stat', 'urgent', 'routine', 'prn'];
 
+// Structured medication route (migration 229). Maps the free-text
+// spellings clinicians actually write onto a canonical value so the MAR
+// / pharmacy can group orders by route instead of treating "IV" /
+// "i.v." / "Intravenous" as three different things. Keys are lower-cased
+// at lookup; values are the canonical forms. Anything not mapped is
+// passed through trimmed (still lands in the typed column) — strict
+// rejection would regress applyOrderSet, whose seeded payloads carry
+// historical free-text routes like "PO chewed".
+// Finding 2026-05-08-inpatient-admission-doctor-no-route-or-imaging-typing.
+const ROUTE_SYNONYMS = {
+  iv: 'IV', 'i.v.': 'IV', intravenous: 'IV',
+  po: 'PO', 'p.o.': 'PO', oral: 'PO', 'by mouth': 'PO', 'per oral': 'PO',
+  im: 'IM', 'i.m.': 'IM', intramuscular: 'IM',
+  sc: 'SC', 'sub-cut': 'SC', subcut: 'SC', subcutaneous: 'SC',
+  sl: 'SL', sublingual: 'SL',
+  pr: 'PR', rectal: 'PR', 'per rectum': 'PR',
+  ng: 'NG', nasogastric: 'NG', 'ng tube': 'NG',
+  topical: 'topical', top: 'topical',
+  inhaled: 'inhaled', inhalation: 'inhaled', nebulised: 'inhaled', nebulized: 'inhaled', neb: 'inhaled',
+  transdermal: 'transdermal', patch: 'transdermal',
+};
+
 // Doctor-facing convention is "lab" / "radiology" / "imaging" for
 // diagnostic orders; the persisted enum on `clinical_orders.order_type`
 // is `investigation`. Map the colloquial form down so clinicians (and
@@ -61,6 +83,7 @@ const ORDER_RETURNING_SELECT = {
   order_type: true,
   priority: true,
   details: true,
+  route: true,
   status: true,
   ordered_by: true,
   verified_by: true,
@@ -125,6 +148,20 @@ async function runCDSChecks(patientUid, orderType, details) {
   return result;
 }
 
+/**
+ * Normalise a medication route to its canonical form. Case-insensitive
+ * ("intravenous" → "IV"); returns null when no route was supplied;
+ * passes unrecognised values through trimmed so they still land in the
+ * typed `route` column.
+ */
+function normalizeOrderRoute(rawRoute) {
+  if (rawRoute === undefined || rawRoute === null || String(rawRoute).trim() === '') {
+    return null;
+  }
+  const trimmed = String(rawRoute).trim();
+  return ROUTE_SYNONYMS[trimmed.toLowerCase()] || trimmed;
+}
+
 // ===================================================================
 // createOrder
 // ===================================================================
@@ -138,12 +175,12 @@ export async function createOrder(data) {
   const {
     encounter_id,
     patient_uid,
-    details,
     ordered_by,
     start_date,
     end_date,
     notes,
   } = data;
+  let { details } = data;
 
   // Clinicians write priority in upper case ("STAT" / "URGENT") — that's
   // the universal medical convention. Lower-case server-side before
@@ -182,6 +219,17 @@ export async function createOrder(data) {
         'encounter_id must be a UUID. Pass null for OPD visits without an admission, or look up admissions.encounter_id for IPD orders.',
       );
     }
+  }
+
+  // Structured medication route (migration 229). Accept it top-level or
+  // nested in details; validate against the route enum and mirror the
+  // normalised value back into details.route so the MAR scheduler — which
+  // still reads details.route — sees the canonical form.
+  const route = normalizeOrderRoute(
+    data.route ?? (details && typeof details === 'object' ? details.route : null),
+  );
+  if (route && details && typeof details === 'object' && !Array.isArray(details)) {
+    details = { ...details, route };
   }
 
   // Run CDS safety checks
@@ -230,6 +278,7 @@ export async function createOrder(data) {
       order_type,
       priority,
       details,
+      route,
       status: 'ordered',
       ordered_by,
       start_date: start_date ? new Date(start_date) : null,
