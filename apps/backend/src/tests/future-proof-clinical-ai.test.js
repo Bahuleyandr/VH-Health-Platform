@@ -2761,6 +2761,47 @@ describe('future-proof clinical AI and privacy foundations', () => {
     ).catch(() => {});
   });
 
+  it('still translates a generation whose status was flipped to signed by the discharge sign workflow', async () => {
+    await enableModule('patient_communication_translation');
+    await enableModule('patient_aftercare_instructions');
+
+    // Generate + accept an aftercare draft, then simulate the discharge
+    // sign workflow flipping the generation status from 'accepted' to
+    // 'signed' (see services/emr/dischargeSummaryGenerator.js#signDischargeSummary).
+    // Translation must still be allowed — a signed generation is past
+    // the reviewer-acceptance gate, so blocking it is a UX regression.
+    // Finding: 2026-05-10-surgical-day-care-discharge-tamil-translation-blocked-after-sign.
+    const aftercare = await doctor.post(`/api/v1/emr/${admissionId}/aftercare-instructions`).send({});
+    expectStatus(aftercare, 200, 'signed-source aftercare draft');
+    const generationId = aftercare.body.data.generation_id;
+
+    const reviews = await admin.get(`/api/v1/admin/clinical-ai/reviews?module_key=patient_aftercare_instructions`);
+    expectStatus(reviews, 200, 'list signed-source reviews');
+    const review = reviews.body.data.reviews.find((row) => row.generation_id === generationId);
+    expect(review).toBeTruthy();
+    const accepted = await admin.patch(`/api/v1/admin/clinical-ai/reviews/${review.id}`).send({
+      decision: 'accepted',
+      edited_draft: aftercare.body.data.draft,
+    });
+    expectStatus(accepted, 200, 'accept signed-source review');
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE clinical_ai_generations SET status = 'signed', updated_at = NOW() WHERE id = $1`,
+      generationId
+    );
+
+    const translated = await doctor.post(`/api/v1/emr/generations/${generationId}/translate`).send({
+      target_language: 'ta',
+    });
+    expectStatus(translated, 200, 'tamil translation of signed generation');
+    expect(translated.body.data.target_language).toBe('ta');
+
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_ai_translations WHERE source_generation_id = $1`,
+      generationId
+    ).catch(() => {});
+  });
+
   it('transcribes voice notes with mock STT and generates a SOAP draft into the review queue', async () => {
     const previousProvider = process.env.CLINICAL_AI_STT_PROVIDER;
     process.env.CLINICAL_AI_STT_PROVIDER = 'mock';

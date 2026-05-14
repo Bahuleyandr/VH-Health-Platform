@@ -189,7 +189,15 @@ export async function translateGeneration({
   );
   const generation = rows[0];
   if (!generation) throw AppError.notFound('Generation not found');
-  if (generation.status !== 'accepted') {
+  // 'signed' is reached via the discharge sign workflow
+  // (services/emr/dischargeSummaryGenerator.js#signDischargeSummary), which
+  // flips the underlying clinical_ai_generations row from 'accepted' to
+  // 'signed' when the discharge note is signed. A signed generation is
+  // strictly more authoritative than an accepted-but-unsigned draft, so
+  // it must remain translatable for patient-facing distribution. Finding:
+  // 2026-05-10-surgical-day-care-discharge-tamil-translation-blocked-after-sign.
+  const TRANSLATABLE_SOURCE_STATUSES = new Set(['accepted', 'signed']);
+  if (!TRANSLATABLE_SOURCE_STATUSES.has(generation.status)) {
     throw AppError.forbidden(
       `Translation requires a reviewer-accepted source. Current status: ${generation.status}`
     );
