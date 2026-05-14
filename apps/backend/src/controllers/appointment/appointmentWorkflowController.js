@@ -733,6 +733,23 @@ export const registerWalkIn = async (req, res) => {
       // appointment. Finding:
       // 2026-05-08-obstetric-anc-receptionist-walkin-drops-anc-fields.
       lmp_date, edd_date, gravida, parity, living_children, abortions,
+      // Stage-5 — medico-legal-case flag for emergency walk-ins. RTA /
+      // assault / poisoning victims brought by police must be tagged MLC
+      // at first contact for legal + insurance handling. The
+      // emergency_visits.is_mlc column already exists; the walk-in
+      // controller just never wrote to it. mlc_number / mlc_notes are
+      // optional (the police FIR number is often not known at intake).
+      // Finding:
+      //   2026-05-09-emergency-walk-in-receptionist-no-mlc-flag-at-registration.
+      mlc, is_mlc, mlc_number, mlc_notes,
+      // Stage-5 — structured payer / category / scheme fields. Corporate-TPA
+      // and govt-scheme-eligible walk-ins previously had nowhere but
+      // appointments.notes to record insurer / policy / scheme, which broke
+      // claim preparation and eligibility warnings downstream. Findings:
+      //   2026-05-10-walk-in-opd-receptionist-no-tpa-fields
+      //   2026-05-11-dynamic-acute-abdomen-receptionist-6b6a9d03
+      payer_type, patient_category, insurer_name, insurer, tpa_name,
+      policy_number, scheme_name, scheme,
     } = req.body;
     // Resolved time honours either field; falls back to 'Walk-in' only
     // when nothing was supplied. `appointments.appointment_time` is
@@ -757,6 +774,42 @@ export const registerWalkIn = async (req, res) => {
     const resolvedVisitType = visit_type && VALID_VISIT_TYPES.has(String(visit_type).toUpperCase())
       ? String(visit_type).toUpperCase()
       : null;
+
+    // Stage-5 — MLC flag. Accept `mlc` or `is_mlc`; coerce the common
+    // truthy string forms a walk-in dialog / direct API caller might send.
+    // Written onto emergency_visits.is_mlc below — only EMER walk-ins
+    // create that row, and MLC is by definition an emergency-context
+    // concept (RTA / assault / poisoning brought by police).
+    const mlcRaw = mlc ?? is_mlc;
+    const mlcFlag = mlcRaw === true ||
+      ['true', '1', 'yes', 'mlc'].includes(String(mlcRaw ?? '').trim().toLowerCase());
+    const mlcNumber = mlc_number ? String(mlc_number).trim().slice(0, 80) : null;
+    const mlcNotes = mlc_notes ? String(mlc_notes).trim().slice(0, 2000) : null;
+
+    // Stage-5 — structured payer fields persisted on the appointment row.
+    // `patient_category` is validated against the funding-source enum;
+    // the rest are length-capped free text. Aliases (`insurer`, `tpa_name`,
+    // `scheme`) are accepted so the admin walk-in dialog and direct API
+    // callers can both submit without an exact-key contract.
+    const VALID_PATIENT_CATEGORIES = new Set([
+      'cash', 'corporate', 'insurance', 'tpa', 'scheme',
+    ]);
+    const patientCategoryNorm = patient_category
+      ? String(patient_category).trim().toLowerCase().replace(/[\s-]+/g, '_')
+      : null;
+    const resolvedPatientCategory = patientCategoryNorm
+      ? (VALID_PATIENT_CATEGORIES.has(patientCategoryNorm)
+          ? patientCategoryNorm
+          // `corporate_tpa` is the receptionist's common label for a
+          // corporate group's TPA-administered cover — normalise to `tpa`.
+          : (patientCategoryNorm === 'corporate_tpa' ? 'tpa' : null))
+      : null;
+    const resolvedPayerType = payer_type ? String(payer_type).trim().slice(0, 30) : null;
+    const resolvedInsurerName = (insurer_name || insurer || tpa_name)
+      ? String(insurer_name || insurer || tpa_name).trim().slice(0, 160) : null;
+    const resolvedPolicyNumber = policy_number ? String(policy_number).trim().slice(0, 80) : null;
+    const resolvedSchemeName = (scheme_name || scheme)
+      ? String(scheme_name || scheme).trim().slice(0, 120) : null;
 
     // Wave-3 batch-2 — unidentified-ER walk-in. Honours either
     // `mode === 'unidentified'` or a top-level `unidentified: true`,
@@ -1079,12 +1132,15 @@ export const registerWalkIn = async (req, res) => {
         `INSERT INTO appointments
            (patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
             status, confirmed_at, token_number, visit_no, department, created_by, updated_at,
-            visit_type, parent_appointment_id)
+            visit_type, parent_appointment_id,
+            payer_type, patient_category, insurer_name, policy_number, scheme_name)
          VALUES ($1, $2, NOW(), $3, $4, $5, $6, 'CONFIRMED', NOW(), $7, $8, $9, $10::uuid, NOW(),
-                 $11, $12)
+                 $11, $12,
+                 $13, $14, $15, $16, $17)
          RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
                    status, confirmed_at, token_number, visit_no, department, created_at,
-                   visit_type, parent_appointment_id`,
+                   visit_type, parent_appointment_id,
+                   payer_type, patient_category, insurer_name, policy_number, scheme_name`,
         patientId,
         doctor_id || null,
         resolvedTime,
@@ -1101,6 +1157,12 @@ export const registerWalkIn = async (req, res) => {
         staffUid,
         resolvedVisitType,
         parent_appointment_id ? parseInt(parent_appointment_id, 10) || null : null,
+        // Stage-5 — structured payer / category / scheme columns (migration 228).
+        resolvedPayerType,
+        resolvedPatientCategory,
+        resolvedInsurerName,
+        resolvedPolicyNumber,
+        resolvedSchemeName,
       );
       const appt = apptRows[0];
 
@@ -1177,15 +1239,25 @@ export const registerWalkIn = async (req, res) => {
         );
         const patientUid = patientRow[0]?.uid ?? null;
         const tenantId = req.user?.tenantId ?? '00000000-0000-4000-8000-000000000001';
+        // Stage-5 — carry the receptionist's MLC flag onto the ED visit.
+        // mlc_number / mlc_notes (often not known until the police FIR is
+        // filed) ride along in metadata so the full mlc_records workflow
+        // can pick them up later without losing what was captured at
+        // intake. Finding:
+        //   2026-05-09-emergency-walk-in-receptionist-no-mlc-flag-at-registration.
+        const erMetadata = (mlcNumber || mlcNotes)
+          ? JSON.stringify({ mlc_number: mlcNumber, mlc_notes: mlcNotes })
+          : '{}';
         const erRows = await tx.$queryRawUnsafe(
           `INSERT INTO emergency_visits
              (tenant_id, visit_number, patient_uid, arrival_mode,
-              chief_complaint, status, created_by)
-           VALUES ($1::uuid, $2, $3::uuid, 'walk_in', $4, 'arriving', $5::uuid)
+              chief_complaint, status, is_mlc, metadata, created_by)
+           VALUES ($1::uuid, $2, $3::uuid, 'walk_in', $4, 'arriving', $5, $6::jsonb, $7::uuid)
            ON CONFLICT (tenant_id, visit_number) DO NOTHING
-           RETURNING id, visit_number, patient_uid, arrival_at, status`,
+           RETURNING id, visit_number, patient_uid, arrival_at, status, is_mlc`,
           tenantId, visitNo, patientUid,
           reason || 'Walk-in registration',
+          mlcFlag, erMetadata,
           staffUid,
         );
         erVisit = erRows[0] || null;
@@ -1197,6 +1269,10 @@ export const registerWalkIn = async (req, res) => {
         visit_no: visitNo,
         er_visit_id: erVisit?.id ?? null,
         er_visit_number: erVisit?.visit_number ?? null,
+        // Stage-5 — echo the MLC flag back so the ER admin UI can banner
+        // "Medico-legal case" without an extra fetch. Null on non-EMER
+        // walk-ins (no emergency_visits row is created).
+        er_is_mlc: erVisit?.is_mlc ?? null,
         returning_patient: returningPatient,
         prior_visit_count: priorVisitCount,
         last_visit_at: lastVisitAt,
