@@ -904,15 +904,22 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     //      pharmacyOrderController and broke confirm/dispatch flows.
     const phone = delivery_phone || rx.patient_phone;
     const orderNumber = `PO-${randomUUID().replace(/-/g, '')}`;
+    // Stage-4-C — `patient_phone` is a distinct column from `phone`
+    // (delivery-channel identifier) and is what /pharmacy/orders/queue +
+    // /pharmacy/orders/:id/detail surface to the counter pharmacist for
+    // ready-call SMS. The previous INSERT only set `phone` + delivery_phone,
+    // leaving patient_phone NULL even when the patient row had a number.
+    // Finding: 2026-05-09-inpatient-admission-pharmacy-patient-phone-null-in-order
     const orderResult = await prisma.$queryRawUnsafe(
       `INSERT INTO pharmacy_orders
-        (phone, patient_id, patient_name, order_note, delivery_type, delivery_address, delivery_phone,
+        (phone, patient_id, patient_name, patient_phone, order_note, delivery_type, delivery_address, delivery_phone,
          items_list, total_amount, status, order_number, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, 'PENDING', $10, NOW())
-       RETURNING id, uid, patient_id, patient_name, status, order_note, total_amount, created_at, updated_at, order_number, delivery_type`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, 'PENDING', $11, NOW())
+       RETURNING id, uid, patient_id, patient_name, patient_phone, status, order_note, total_amount, created_at, updated_at, order_number, delivery_type`,
       phone,
       rx.patient_id,
       rx.patient_name,
+      rx.patient_phone || null,
       `Auto-order from prescription ${rx.prescription_number}`,
       delivery_type,
       delivery_address || null,
