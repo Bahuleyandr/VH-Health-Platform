@@ -75,6 +75,9 @@ const ADMISSION_RETURNING_SELECT = {
   // the insurance-counsellor worklist can read it off the row directly.
   govt_scheme: true,
   govt_scheme_status: true,
+  // Rounding cadence (migration 229) — surfaced so the ward-round queue
+  // and discharge/handover payloads can read when the patient is next due.
+  next_review_at: true,
 };
 
 // Map ESI/ATS triage acuity onto admissions.priority. Used when the admit
@@ -145,6 +148,9 @@ async function admitPatient(data) {
     //   2026-05-09-inpatient-admission-admission-no-cmchis-flag-no-tamil-consent.
     govt_scheme,
     govt_scheme_status,
+    // Optional rounding cadence at admit time (migration 229). Most
+    // admits set this later via PUT /:id/next-review, after orders.
+    next_review_at,
   } = data;
 
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
@@ -182,6 +188,16 @@ async function admitPatient(data) {
     resolvedGovtSchemeStatus = s;
   } else if (resolvedGovtScheme) {
     resolvedGovtSchemeStatus = 'pending_verification';
+  }
+
+  // Optional review-after timestamp (migration 229). Validate up front so
+  // a malformed value fails clean instead of as an opaque Prisma error.
+  let nextReviewAt = null;
+  if (next_review_at !== undefined && next_review_at !== null && next_review_at !== '') {
+    nextReviewAt = new Date(next_review_at);
+    if (Number.isNaN(nextReviewAt.getTime())) {
+      throw AppError.badRequest('next_review_at must be a valid timestamp (ISO 8601)');
+    }
   }
 
   // ER-linkage validation. Resolve the ER visit up-front so we can also
@@ -454,6 +470,8 @@ async function admitPatient(data) {
         // Stage-5 — govt-scheme eligibility flag (migration 228).
         govt_scheme: resolvedGovtScheme,
         govt_scheme_status: resolvedGovtSchemeStatus,
+        // Optional rounding cadence at admit time (migration 229).
+        next_review_at: nextReviewAt,
       },
       select: ADMISSION_RETURNING_SELECT,
     });
@@ -1651,7 +1669,7 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
 }
 
 async function getActiveAdmissions(filters = {}) {
-  const { ward, doctor, department, status } = filters;
+  const { ward, doctor, department, status, review_due } = filters;
   const listQuery = parseListQuery(filters, {
     defaultLimit: 20,
     maxLimit: 100,
@@ -1671,6 +1689,13 @@ async function getActiveAdmissions(filters = {}) {
       { admitting_doctor: doctor },
       { attending_doctor: doctor },
     ];
+  }
+  // Ward-round queue: only admissions whose review time has arrived
+  // (next_review_at <= now). Prisma's `lte` already excludes NULLs, so
+  // admissions with no review set are left out. Finding
+  // 2026-05-08-inpatient-admission-doctor-no-review-after.
+  if (review_due === true || review_due === 'true') {
+    where.next_review_at = { lte: new Date() };
   }
 
   const [total, rows] = await Promise.all([
@@ -1696,6 +1721,7 @@ async function getActiveAdmissions(filters = {}) {
         allergies: true,
         admitted_at: true,
         expected_los_days: true,
+        next_review_at: true,
       },
       orderBy: { admitted_at: 'desc' },
       take: listQuery.limit,
@@ -1927,6 +1953,62 @@ async function updateAttendingDoctor(admissionId, doctorUid, updatedBy) {
   });
 }
 
+// Set (or clear) the next ward-round review time on an admission
+// (migration 229). The inpatient-admission journey asks the consultant
+// to "set review-after" once orders are in — this is the persist path,
+// surfaced via PUT /emr/admission/:id/next-review. Pass null to clear.
+// Finding 2026-05-08-inpatient-admission-doctor-no-review-after.
+async function updateNextReviewAt(admissionId, nextReviewAt, updatedBy) {
+  if (!updatedBy) throw AppError.badRequest('updatedBy is required');
+
+  // null / '' clears the review; anything else must parse to a real date.
+  let parsed = null;
+  if (nextReviewAt !== undefined && nextReviewAt !== null && nextReviewAt !== '') {
+    parsed = new Date(nextReviewAt);
+    if (Number.isNaN(parsed.getTime())) {
+      throw AppError.badRequest('next_review_at must be a valid timestamp (ISO 8601), or null to clear');
+    }
+  }
+
+  return prisma.$transaction(async (tx) => {
+    // FOR UPDATE lock on admission row.
+    const admRows = await tx.$queryRaw`
+      SELECT id, next_review_at, patient_uid, status
+      FROM admissions WHERE id = ${admissionId} FOR UPDATE
+    `;
+    if (!admRows.length) throw AppError.notFound('Admission not found');
+    if (!['admitted', 'transferred'].includes(admRows[0].status)) {
+      throw AppError.badRequest('Cannot set a review time for a non-active admission');
+    }
+
+    const previous = admRows[0].next_review_at;
+
+    const updated = await tx.admissions.update({
+      where: { id: admissionId },
+      data: { next_review_at: parsed, updated_at: new Date() },
+      select: ADMISSION_RETURNING_SELECT,
+    });
+
+    await tx.audit_logs.create({
+      data: {
+        uid: updatedBy,
+        action: 'UPDATE_NEXT_REVIEW_AT',
+        resource: 'admission',
+        resource_id: String(admissionId),
+        metadata: {
+          previous: previous ? new Date(previous).toISOString() : null,
+          new: parsed ? parsed.toISOString() : null,
+          patient_uid: admRows[0].patient_uid,
+        },
+        ip_address: null,
+      },
+    });
+
+    logger.info(`Admission #${admissionId} next review set: ${previous ? new Date(previous).toISOString() : 'none'} -> ${parsed ? parsed.toISOString() : 'cleared'}`);
+    return updated;
+  });
+}
+
 async function getAdmissionStats(dateFrom, dateTo) {
   // Date filter for admissions.admitted_at — preserved bounds: [dateFrom, dateTo].
   const admittedAtFilter = {};
@@ -2094,6 +2176,7 @@ export default {
   getPatientAdmissionHistory,
   updateCodeStatus,
   updateAttendingDoctor,
+  updateNextReviewAt,
   getAdmissionStats,
   // Wave 4B-2 — staff-app admit-sheet shim helpers.
   findPatientByPhoneOrName,

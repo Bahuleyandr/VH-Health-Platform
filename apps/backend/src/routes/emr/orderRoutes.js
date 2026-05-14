@@ -7,6 +7,61 @@ import { success, error } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 
+// The staff Orders sheet posts the medication / lab / radiology fields
+// flat on the body (medication, dosage, route, frequency, duration,
+// instructions, investigation, reason, …). The canonical contract is a
+// nested `details` object. Accept both shapes — when `details` is
+// missing or empty, derive it from the well-known type-specific flat
+// fields so a doctor on an older staff build doesn't lose the order to
+// a 400. Finding 2026-05-12-inpatient-admission-doctor-dee11e39.
+// Shared by POST /orders and POST /orders/bulk.
+const isEmptyDetails = (v) =>
+  v === undefined || v === null ||
+  (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
+
+function resolveOrderDetails(body) {
+  let { details } = body;
+  if (!isEmptyDetails(details)) return details;
+
+  const t = String(body.order_type || '').toLowerCase();
+  if (t === 'medication') {
+    details = {
+      medication_name: body.medication ?? body.medication_name ?? null,
+      dose: body.dosage ?? body.dose ?? null,
+      route: body.route ?? null,
+      frequency: body.frequency ?? null,
+      duration: body.duration ?? null,
+      instructions: body.instructions ?? null,
+      stat: body.stat === true || body.stat === 'true',
+    };
+  } else if (t === 'investigation' || t === 'lab' || t === 'radiology') {
+    details = {
+      test_name: body.investigation ?? body.test_name ?? null,
+      test_code: body.test_code ?? null,
+      reason: body.reason ?? body.clinical_indication ?? null,
+      fasting_required: body.fasting_required ?? null,
+    };
+  } else if (t === 'consult' || t === 'consultation' || t === 'referral') {
+    details = {
+      specialty: body.specialty ?? null,
+      reason: body.reason ?? null,
+    };
+  } else if (t === 'nursing') {
+    details = {
+      description: body.description ?? null,
+      frequency: body.frequency ?? null,
+      instructions: body.instructions ?? null,
+    };
+  }
+  // Drop nulls so the service doesn't persist empty fields.
+  if (details && typeof details === 'object') {
+    details = Object.fromEntries(
+      Object.entries(details).filter(([, v]) => v !== null && v !== ''),
+    );
+  }
+  return details;
+}
+
 // ===================================================================
 // POST /emr/orders — Create a clinical order
 // ===================================================================
@@ -15,62 +70,15 @@ router.post('/orders', requireIdempotencyKey({ required: false, scope: 'clinical
   try {
     const {
       encounter_id, er_visit_id, patient_uid, order_type, priority,
-      start_date, end_date, notes, stat,
+      start_date, end_date, notes,
     } = req.body;
-    let { details } = req.body;
+    // resolveOrderDetails (chip stage-5-6) folds body.stat + the
+    // structured route into the details payload, so `stat` no longer
+    // needs its own destructure. er_visit_id stays — the createOrder
+    // call below passes it through (chip stage-5-1, ER-encounter linkage).
+    const details = resolveOrderDetails(req.body);
 
-    // The staff Orders sheet posts the medication / lab / radiology
-    // fields flat on the body (medication, dosage, route, frequency,
-    // duration, instructions, investigation, reason, …). The canonical
-    // contract is a nested `details` object. Accept both shapes — when
-    // `details` is missing or empty, derive it from the well-known
-    // type-specific flat fields so a doctor on an older staff build
-    // doesn't lose the order to a 400.
-    // Finding 2026-05-12-inpatient-admission-doctor-dee11e39.
-    const isEmpty = (v) =>
-      v === undefined || v === null ||
-      (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
-
-    if (isEmpty(details)) {
-      const t = String(order_type || '').toLowerCase();
-      if (t === 'medication') {
-        details = {
-          medication_name: req.body.medication ?? req.body.medication_name ?? null,
-          dose: req.body.dosage ?? req.body.dose ?? null,
-          route: req.body.route ?? null,
-          frequency: req.body.frequency ?? null,
-          duration: req.body.duration ?? null,
-          instructions: req.body.instructions ?? null,
-          stat: stat === true || stat === 'true',
-        };
-      } else if (t === 'investigation' || t === 'lab' || t === 'radiology') {
-        details = {
-          test_name: req.body.investigation ?? req.body.test_name ?? null,
-          test_code: req.body.test_code ?? null,
-          reason: req.body.reason ?? req.body.clinical_indication ?? null,
-          fasting_required: req.body.fasting_required ?? null,
-        };
-      } else if (t === 'consult' || t === 'consultation' || t === 'referral') {
-        details = {
-          specialty: req.body.specialty ?? null,
-          reason: req.body.reason ?? null,
-        };
-      } else if (t === 'nursing') {
-        details = {
-          description: req.body.description ?? null,
-          frequency: req.body.frequency ?? null,
-          instructions: req.body.instructions ?? null,
-        };
-      }
-      // Drop nulls so the service doesn't persist empty fields.
-      if (details && typeof details === 'object') {
-        details = Object.fromEntries(
-          Object.entries(details).filter(([, v]) => v !== null && v !== ''),
-        );
-      }
-    }
-
-    if (!patient_uid || !order_type || isEmpty(details)) {
+    if (!patient_uid || !order_type || isEmptyDetails(details)) {
       return error(res, 'patient_uid, order_type, and details are required', 400);
     }
 
@@ -133,6 +141,73 @@ router.post('/orders/apply-set', async (req, res, next) => {
     });
 
     return success(res, result, 'Order set applied', 201);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ===================================================================
+// POST /emr/orders/bulk — Create multiple clinical orders atomically
+// ===================================================================
+//
+// An admission round enters a routine bundle (IV fluids + a few meds +
+// labs + imaging) as one clinical action. Without this, that was N
+// single-order POSTs — N round-trips, N CDS runs, and no rollback if
+// the Nth failed. The service validates + runs CDS for every item up
+// front, then inserts all rows in one transaction.
+// Finding 2026-05-08-inpatient-admission-doctor-no-batch-ordering.
+
+router.post('/orders/bulk', requireIdempotencyKey({ required: false, scope: 'clinical_order_bulk' }), async (req, res, next) => {
+  try {
+    const { encounter_id, orders } = req.body;
+
+    if (!Array.isArray(orders) || orders.length === 0) {
+      return error(res, 'orders must be a non-empty array', 400);
+    }
+    if (orders.length > 50) {
+      return error(res, 'orders array too large — max 50 per batch', 400);
+    }
+
+    // Each item accepts the same flat-or-nested shape as POST /orders. A
+    // batch-level encounter_id is the default; an item may still carry
+    // its own. The service runs full per-item validation + CDS up front.
+    const items = orders.map((o) => {
+      const body = { ...o };
+      if (body.encounter_id === undefined && encounter_id !== undefined) {
+        body.encounter_id = encounter_id;
+      }
+      return {
+        encounter_id: body.encounter_id || null,
+        patient_uid: body.patient_uid,
+        order_type: body.order_type,
+        priority: body.priority,
+        details: resolveOrderDetails(body),
+        start_date: body.start_date,
+        end_date: body.end_date,
+        notes: body.notes,
+      };
+    });
+
+    const result = await orderEntryService.createOrdersBulk(items, {
+      ordered_by: req.user.uid,
+    });
+
+    // PHI log per distinct patient — a batch is normally one admission,
+    // but log each patient touched so the audit trail is complete.
+    const distinctPatients = [...new Set(items.map((it) => it.patient_uid).filter(Boolean))];
+    for (const patientUid of distinctPatients) {
+      logPhiAccess({
+        userId: req.user.uid,
+        userRole: req.user.role,
+        patientId: patientUid,
+        recordType: 'clinical_order:bulk',
+        action: 'CREATE',
+        ip: req.ip,
+        requestId: req.id,
+      });
+    }
+
+    return success(res, result, `${result.length} orders created`, 201);
   } catch (err) {
     next(err);
   }

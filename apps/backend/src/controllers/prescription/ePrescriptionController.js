@@ -23,6 +23,11 @@ const FREQ_LABELS = {
   STAT: 'Immediately',
 };
 
+// Visit-type discriminator on e_prescriptions (migration 229). An IPD
+// prescription carries 'inpatient' so the pharmacy queue / nursing MAR
+// can split it from OPD scripts; everything else is 'outpatient'.
+const VALID_VISIT_TYPES = ['outpatient', 'inpatient'];
+
 function parseJsonField(value, fallback = null) {
   if (value === undefined || value === null || value === '') return fallback;
   if (typeof value !== 'string') return value;
@@ -246,6 +251,8 @@ export const createPrescription = async (req, res) => {
   try {
     const {
       appointment_id,
+      admission_id,
+      visit_type,
       patient_id,
       doctor_id,
       diagnosis,
@@ -259,6 +266,7 @@ export const createPrescription = async (req, res) => {
     const patientId = parseIntegerField(patient_id);
     const doctorId = parseIntegerField(doctor_id);
     const appointmentId = parseIntegerField(appointment_id);
+    const admissionId = parseIntegerField(admission_id);
     const medications = parseJsonField(rawMedications, []);
     const vitals = parseJsonField(rawVitals, null);
     const override = parseJsonField(req.body.override, null); // { reason, approvedBy? }
@@ -269,6 +277,17 @@ export const createPrescription = async (req, res) => {
     if (appointment_id && !Number.isInteger(appointmentId)) {
       return error(res, 'appointment_id must be a valid integer', HTTP_STATUS.BAD_REQUEST);
     }
+    // IPD prescriptions link to an admission instead of (or alongside) an
+    // OPD appointment. admission_id implies visit_type 'inpatient';
+    // otherwise honour an explicit visit_type, defaulting to 'outpatient'.
+    if (admission_id && !Number.isInteger(admissionId)) {
+      return error(res, 'admission_id must be a valid integer', HTTP_STATUS.BAD_REQUEST);
+    }
+    const rawVisitType = visit_type ? String(visit_type).toLowerCase().trim() : null;
+    if (rawVisitType && !VALID_VISIT_TYPES.includes(rawVisitType)) {
+      return error(res, `visit_type must be one of: ${VALID_VISIT_TYPES.join(', ')}`, HTTP_STATUS.BAD_REQUEST);
+    }
+    const resolvedVisitType = admissionId ? 'inpatient' : (rawVisitType || 'outpatient');
     if (!medications || !Array.isArray(medications) || medications.length === 0) {
       return error(res, 'At least one medication is required', HTTP_STATUS.BAD_REQUEST);
     }
@@ -338,6 +357,23 @@ export const createPrescription = async (req, res) => {
     const patientUid = patientRow[0].uid ?? null;
     const doctorUid = doctorRow[0].uid ?? null;
 
+    // Validate the linked admission exists and belongs to this patient —
+    // an admission_id pointing at a different patient's stay is exactly
+    // the IPD/OPD mix-up that routes an IV order to the wrong bed.
+    if (admissionId) {
+      const admCheck = await prisma.$queryRawUnsafe(
+        'SELECT id, patient_uid FROM admissions WHERE id=$1',
+        admissionId,
+      );
+      if (admCheck.length === 0) {
+        return error(res, 'Admission not found', HTTP_STATUS.NOT_FOUND);
+      }
+      if (admCheck[0].patient_uid && patientUid
+          && String(admCheck[0].patient_uid) !== String(patientUid)) {
+        return error(res, 'admission_id belongs to a different patient', HTTP_STATUS.BAD_REQUEST);
+      }
+    }
+
     // Insert prescription.
     // The table has `clinical_notes` (not `notes`); patient_uid + doctor_uid
     // are populated explicitly so downstream uid-based lookups work.
@@ -345,12 +381,15 @@ export const createPrescription = async (req, res) => {
       `INSERT INTO e_prescriptions
         (appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
          diagnosis, clinical_notes, medications,
-         follow_up_date, follow_up_notes, vitals, handwritten_photo_key, created_by)
-       VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6, $7, $8::jsonb, $9::date, $10, $11::jsonb, $12, $13)
+         follow_up_date, follow_up_notes, vitals, handwritten_photo_key, created_by,
+         admission_id, visit_type)
+       VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6, $7, $8::jsonb, $9::date, $10, $11::jsonb, $12, $13,
+               $14, $15)
        RETURNING id, appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
                  medications, status, created_at,
                  prescription_number, diagnosis, clinical_notes, vitals,
-                 follow_up_date, follow_up_notes, pdf_key, handwritten_photo_key`,
+                 follow_up_date, follow_up_notes, pdf_key, handwritten_photo_key,
+                 admission_id, visit_type`,
       appointmentId || null,
       patientId,
       doctorId,
@@ -364,6 +403,8 @@ export const createPrescription = async (req, res) => {
       vitals ? JSON.stringify(vitals) : null,
       handwritten_photo_key,
       created_by,
+      admissionId || null,
+      resolvedVisitType,
     );
 
     const prescription = insertResult[0];
