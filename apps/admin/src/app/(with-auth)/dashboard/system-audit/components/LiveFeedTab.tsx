@@ -23,11 +23,14 @@ export function LiveFeedTab() {
   const fetch = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getJSON<{ data: AuditSummary }>(
+      // getJSON already unwraps the success envelope's `.data` — reading
+      // `res.data` again double-unwrapped to undefined, leaving the whole
+      // Live Feed blank even when the backend returned a full summary.
+      const res = await getJSON<AuditSummary>(
         "/api/v1/admin/audit/summary",
         { hours }
       );
-      setData(res.data ?? null);
+      setData(res ?? null);
       setLastRefresh(new Date());
     } catch {
       // ignore
