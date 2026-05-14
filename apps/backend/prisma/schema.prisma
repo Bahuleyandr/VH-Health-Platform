@@ -9422,6 +9422,8 @@ model insurance_preauth {
   tpa_claim_correspondence    tpa_claim_correspondence[]
   tpa_claim_documents         tpa_claim_documents[]
   tpa_claims                  tpa_claims[]
+  submit_due_at               DateTime?                     @db.Timestamptz(6)
+  submit_reminder_sent        Boolean                       @default(false)
 
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_insurance_preauth_patient")
   @@index([status, created_at(sort: Desc)], map: "idx_insurance_preauth_status")

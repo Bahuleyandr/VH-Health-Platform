@@ -331,11 +331,16 @@ router.post(
         return error(res, 'Invalid claim ID', 400);
       }
 
-      const { enhancement_amount, justification } = req.body;
+      // `clinical_justification` is the structured template object;
+      // `justification` is the legacy free-text string. The service
+      // normalises whichever is supplied. Finding:
+      // 2026-05-09-tpa-insurance-claim-doctor-no-clinical-justification-template
+      const { enhancement_amount, justification, clinical_justification } = req.body;
       const created = await billingService.createEnhancementClaim({
         parentClaimId,
         enhancementAmount: enhancement_amount,
         justification: justification ?? null,
+        clinicalJustification: clinical_justification ?? null,
         actorUid: req.user?.uid ?? null,
       });
       return success(res, created, 'Enhancement claim opened', 201);

@@ -27,6 +27,7 @@ import { Router } from 'express';
 import logger from '../../logging/logger.js';
 import prisma from '../../lib/prisma.js';
 import * as claims from '../../services/insurance/claimsService.js';
+import { normalizeClinicalJustification } from '../../services/insurance/clinicalJustificationTemplate.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // mergeParams: true — `:admissionId` is declared on the parent mount in
@@ -143,14 +144,18 @@ router.get('/', async (req, res) => {
 
 // POST /api/v1/admissions/:admissionId/tpa-enhancement
 //
-// Body: { expected_cost, justification, primary_diagnosis?,
-//         proposed_procedure?, expected_los_days?,
-//         icd10_codes?, procedure_codes? }
+// Body: { expected_cost, primary_diagnosis?, proposed_procedure?,
+//         expected_los_days?, icd10_codes?, procedure_codes?,
+//         clinical_justification? | justification? }
 //
 // Creates a child preauth (request_type='enhancement',
 // parent_preauth_id=parent.id) under the admission's active parent
-// preauth. The consultant's `justification` is folded into `notes`
-// so it lands on the clinical-justification side of the TPA submission.
+// preauth. The clinical justification can be a structured object
+// matching the enhancement justification template (see
+// GET /api/v1/insurance/enhancement-justification-template) or a legacy
+// free-text `justification` string — either way it is normalised to a
+// readable form and folded into `notes` so it lands on the
+// clinical-justification side of the TPA submission.
 router.post('/', async (req, res) => {
   try {
     const tenantId = tenantOf(req);
@@ -162,12 +167,23 @@ router.post('/', async (req, res) => {
     const {
       expected_cost,
       justification,
+      clinical_justification,
       primary_diagnosis,
       proposed_procedure,
       expected_los_days,
       icd10_codes,
       procedure_codes,
     } = req.body || {};
+
+    let normalizedJustification;
+    try {
+      normalizedJustification = normalizeClinicalJustification(
+        clinical_justification ?? justification,
+      );
+    } catch (e) {
+      if (e.statusCode) return error(res, e.message, e.statusCode);
+      throw e;
+    }
 
     const parent = await resolveParentPreauth(tenantId, admissionId);
     if (!parent) {
@@ -192,13 +208,21 @@ router.post('/', async (req, res) => {
       treating_doctor_name: req.user?.name || null,
       expected_los_days: expected_los_days || null,
       expected_cost,
-      notes: justification || null,
+      notes: normalizedJustification.text || null,
       created_by: req.user?.uid || null,
     });
 
     return success(
       res,
-      { admission_id: admissionId, parent_preauth_id: parent.id, enhancement: created },
+      {
+        admission_id: admissionId,
+        parent_preauth_id: parent.id,
+        enhancement: created,
+        clinical_justification: {
+          format: normalizedJustification.format,
+          structured: normalizedJustification.structured,
+        },
+      },
       'Enhancement preauth opened',
       201,
     );

@@ -23,6 +23,185 @@ const DISCHARGE_MED_SECTION_KEYS = new Set([
   'discharge_meds',
 ]);
 
+// ── Section auto-population ─────────────────────────────────────────
+//
+// Clinical sections we can fill from structured visit data at draft
+// time, so the discharge officer edits instead of typing from scratch.
+// Sections that need clinician-authored prose (chief_complaint, hpi,
+// follow_up, diet_advice, condition_at_discharge, …) are deliberately
+// NOT in this set — they keep the template default and we never
+// fabricate clinical narrative.
+// Finding: 2026-05-09-tpa-insurance-claim-discharge-summary-sections-not-auto-populated
+const AUTO_SECTION_KEYS = new Set([
+  'course_in_hospital',
+  'treatment_given',
+  'investigations',
+  'past_history',
+]);
+
+const AUTO_BANNER =
+  '[Auto-populated from visit data — review and edit before sign-off]';
+
+function isAutoPopulatableKey(key) {
+  const k = String(key || '').toLowerCase();
+  return AUTO_SECTION_KEYS.has(k) || DISCHARGE_MED_SECTION_KEYS.has(k);
+}
+
+/**
+ * Build bodies for the auto-populatable discharge-summary sections from
+ * structured visit data — progress notes + clinical orders (scoped to
+ * the admission encounter), lab results (patient + admission window),
+ * and the patient's structured chronic-medication list. Returns a map
+ * keyed by lower-cased section_key; only keys with real data appear, so
+ * the caller falls back to the template default for everything else.
+ *
+ * Best-effort: any failure logs and yields an empty map — a discharge
+ * draft must still be creatable when the EMR side has nothing yet.
+ */
+async function buildAutoSectionBodies({
+  admission_id, patient_uid, admitted_at, discharged_at, neededKeys,
+}) {
+  try {
+    // clinical_notes / clinical_orders scope precisely by encounter_id
+    // (uuid); lab_results + the chronic-med list scope by patient_uid
+    // (labs additionally bounded by the admission window).
+    let encounterId = null;
+    let winStart = admitted_at || null;
+    let winEnd = discharged_at || null;
+    if (admission_id) {
+      const aRows = await prisma.$queryRawUnsafe(
+        `SELECT encounter_id, admitted_at, discharged_at
+           FROM admissions WHERE id = $1::int LIMIT 1`,
+        Number(admission_id),
+      );
+      if (aRows.length) {
+        encounterId = aRows[0].encounter_id || null;
+        winStart = winStart || aRows[0].admitted_at;
+        winEnd = winEnd || aRows[0].discharged_at;
+      }
+    }
+    // No encounter id and no lower window bound → nothing safe to scope
+    // to. Leave every section on its template default rather than
+    // pulling unbounded patient history.
+    if (!encounterId && !winStart) return {};
+    const windowEnd = winEnd || new Date().toISOString();
+
+    const out = {};
+
+    // course_in_hospital ← progress notes for the encounter.
+    if (neededKeys.has('course_in_hospital') && encounterId) {
+      const notes = await prisma.$queryRawUnsafe(
+        `SELECT created_at,
+                COALESCE(title, type, note_type) AS heading,
+                COALESCE(notes, content->>'text', content->>'summary',
+                         content->>'body') AS body_text
+           FROM clinical_notes
+          WHERE encounter_id = $1::uuid
+            AND (LOWER(COALESCE(note_type, '')) LIKE '%progress%'
+                 OR LOWER(COALESCE(type, '')) LIKE '%progress%')
+          ORDER BY created_at ASC`,
+        String(encounterId),
+      );
+      const usable = notes.filter((n) => n.body_text && String(n.body_text).trim());
+      if (usable.length) {
+        out.course_in_hospital = `${AUTO_BANNER}\n\n` + usable.map((n) => {
+          const d = n.created_at
+            ? new Date(n.created_at).toISOString().slice(0, 10) : '';
+          return `${d} — ${n.heading || 'Progress note'}\n${String(n.body_text).trim()}`;
+        }).join('\n\n');
+      }
+    }
+
+    // treatment_given ← clinical orders raised during the encounter.
+    if (neededKeys.has('treatment_given') && encounterId) {
+      const orders = await prisma.$queryRawUnsafe(
+        `SELECT order_type, status, created_at,
+                COALESCE(notes, details->>'name', details->>'text',
+                         details->>'summary') AS detail
+           FROM clinical_orders
+          WHERE encounter_id = $1::uuid
+          ORDER BY created_at ASC`,
+        String(encounterId),
+      );
+      if (orders.length) {
+        out.treatment_given = `${AUTO_BANNER}\n\n` + orders.map((o) => {
+          const bits = [o.order_type, o.detail, o.status ? `(${o.status})` : null]
+            .filter(Boolean);
+          return `- ${bits.join(' — ')}`;
+        }).join('\n');
+      }
+    }
+
+    // investigations ← lab results in the admission window.
+    if (neededKeys.has('investigations') && patient_uid && winStart) {
+      const labs = await prisma.$queryRawUnsafe(
+        `SELECT test_name,
+                COALESCE(value_text, value_numeric::text) AS value,
+                unit, abnormal_flag, performed_at
+           FROM lab_results
+          WHERE patient_uid = $1::uuid
+            AND COALESCE(performed_at, received_at, created_at)
+                BETWEEN $2::timestamptz AND $3::timestamptz
+          ORDER BY performed_at ASC NULLS LAST, id ASC`,
+        String(patient_uid), winStart, windowEnd,
+      );
+      if (labs.length) {
+        out.investigations = `${AUTO_BANNER}\n\n` + labs.map((l) => {
+          const val = [l.value, l.unit].filter(Boolean).join(' ');
+          const flag = l.abnormal_flag && l.abnormal_flag !== 'N'
+            ? ` [${l.abnormal_flag}]` : '';
+          return `- ${l.test_name}: ${val || '—'}${flag}`;
+        }).join('\n');
+      }
+    }
+
+    // past_history + discharge_medications ← the patient's structured
+    // chronic-medication list (continue-on-discharge reconciliation).
+    const needsPastHx = neededKeys.has('past_history');
+    const medKey = [...neededKeys].find((k) => DISCHARGE_MED_SECTION_KEYS.has(k));
+    if ((needsPastHx || medKey) && patient_uid) {
+      const uRows = await prisma.$queryRawUnsafe(
+        `SELECT chronic_medications FROM users WHERE uid = $1::uuid LIMIT 1`,
+        String(patient_uid),
+      );
+      const chronic = Array.isArray(uRows[0]?.chronic_medications)
+        ? uRows[0].chronic_medications
+        : [];
+      if (needsPastHx && chronic.length) {
+        const indications = [...new Set(
+          chronic.map((m) => m && (m.indication || m.condition))
+            .filter(Boolean).map((s) => String(s).trim()),
+        )];
+        if (indications.length) {
+          out.past_history = `${AUTO_BANNER}\n\n`
+            + 'Known conditions (from chronic medication list):\n'
+            + indications.map((i) => `- ${i}`).join('\n')
+            + '\n\n[PLACEHOLDER — clinician to add surgical / non-pharmacological history]';
+        }
+      }
+      if (medKey && chronic.length) {
+        const lines = chronic.map((m) => {
+          if (!m) return null;
+          const bits = [m.name, m.dose, m.frequency].filter(Boolean);
+          return bits.length ? `- ${bits.join(' ')} (continue)` : null;
+        }).filter(Boolean);
+        if (lines.length) {
+          out[medKey] = `${AUTO_BANNER}\n\n`
+            + 'Chronic medications to continue (reconcile against takeaway script):\n'
+            + lines.join('\n')
+            + '\n\n[PLACEHOLDER — clinician to confirm takeaway medications, doses, '
+            + 'and duration before sign-off]';
+        }
+      }
+    }
+
+    return out;
+  } catch (e) {
+    logger.warn(`buildAutoSectionBodies failed: ${e.message}`);
+    return {};
+  }
+}
+
 // ── Templates ───────────────────────────────────────────────────────
 
 export async function listTemplates({ tenantId, specialty }) {
@@ -131,10 +310,31 @@ export async function createDraft({
   );
   const summary = headerRows[0];
 
-  // Materialise sections from the template.
+  // Materialise sections from the template, auto-filling the clinical
+  // sections that have structured visit data behind them. Sections that
+  // need clinician-authored prose keep the template default — we never
+  // fabricate clinical narrative. Auto-population only runs when the
+  // template actually declares an auto-populatable section, so a
+  // section-less template stays a zero-extra-query path.
+  // Finding: 2026-05-09-tpa-insurance-claim-discharge-summary-sections-not-auto-populated
   const sections = Array.isArray(template.sections) ? template.sections : [];
+  const neededKeys = new Set(
+    sections
+      .map((s) => String(s?.section_key || '').toLowerCase())
+      .filter((k) => isAutoPopulatableKey(k)),
+  );
+  let autoBodies = {};
+  if (neededKeys.size > 0) {
+    autoBodies = await buildAutoSectionBodies({
+      admission_id, patient_uid, admitted_at, discharged_at, neededKeys,
+    });
+  }
   for (const s of sections) {
     if (!s?.section_key || !s?.section_title) continue;
+    const autoBody = autoBodies[String(s.section_key).toLowerCase()];
+    const body = autoBody != null
+      ? autoBody
+      : (s.default_body ? String(s.default_body) : null);
     await prisma.$executeRawUnsafe(
       `INSERT INTO discharge_summary_sections
          (discharge_summary_id, section_key, section_title, display_order, body)
@@ -143,7 +343,7 @@ export async function createDraft({
       String(s.section_key),
       String(s.section_title),
       Number(s.display_order ?? 0),
-      s.default_body ? String(s.default_body) : null,
+      body,
     );
   }
 

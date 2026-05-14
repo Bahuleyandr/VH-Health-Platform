@@ -5,6 +5,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { normalizeClinicalJustification } from '../insurance/clinicalJustificationTemplate.js';
 
 const VALID_INVOICE_TYPES = ['consultation', 'investigation', 'pharmacy', 'procedure', 'room_charge'];
 const VALID_PAYMENT_METHODS = ['cash', 'card', 'upi', 'insurance', 'cheque'];
@@ -508,16 +509,28 @@ class BillingService {
    * @param {Object} args
    * @param {number} args.parentClaimId  Original preauth claim id
    * @param {number} args.enhancementAmount  Additional amount being requested
-   * @param {string} [args.justification]  Clinical reason for enhancement
+   * @param {string} [args.justification]  Legacy free-text clinical reason
+   * @param {Object} [args.clinicalJustification]  Structured justification
+   *   matching the enhancement justification template — preferred over the
+   *   free-text `justification`. Finding:
+   *   2026-05-09-tpa-insurance-claim-doctor-no-clinical-justification-template
    * @param {string} [args.actorUid]
    * @returns {Object} new child claim row
    */
-  async createEnhancementClaim({ parentClaimId, enhancementAmount, justification = null, actorUid = null }) {
+  async createEnhancementClaim({
+    parentClaimId, enhancementAmount, justification = null,
+    clinicalJustification = null, actorUid = null,
+  }) {
     if (!parentClaimId) throw AppError.badRequest('parentClaimId is required');
     const amount = Number(enhancementAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       throw AppError.badRequest('enhancementAmount must be a positive number');
     }
+    // Accept either the structured template object or a legacy free-text
+    // string. Throws AppError.badRequest on a malformed structured body.
+    const normalizedJustification = normalizeClinicalJustification(
+      clinicalJustification ?? justification,
+    );
 
     // Probe both tables. `insurance_claims` is the legacy billing-side
     // surface this endpoint writes to; `tpa_claims` is the Sprint 5 TPA
@@ -557,10 +570,13 @@ class BillingService {
     // prior `prisma.insurance_claims.create({ data: { ... } })` path
     // returned 500 — see finding
     // 2026-05-09-tpa-insurance-claim-doctor-enhancement-api-500).
-    const docsJson = justification
+    const docsJson = normalizedJustification.format !== 'none'
       ? JSON.stringify({
           enhancement: {
-            justification,
+            justification: normalizedJustification.text,
+            justification_format: normalizedJustification.format,
+            justification_structured: normalizedJustification.structured,
+            template_version: normalizedJustification.template_version ?? null,
             requested_by: actorUid ?? null,
             requested_at: new Date().toISOString(),
           },
