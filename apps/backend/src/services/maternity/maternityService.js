@@ -355,10 +355,40 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
   ]);
   if (!pregnancy.length) throw AppError.notFound(`Pregnancy ${id} not found`);
   const p = pregnancy[0];
+
+  // Carry forward active supplement prescriptions onto the ANC
+  // schedule so prior IFA / calcium courses surface as continued
+  // orders the doctor can keep, not retype. Deduped against
+  // structured maternity_supplements rows (and within itself) by
+  // supplement kind so the same course isn't listed twice. Best-
+  // effort: a scan failure must not break the timeline read. Finding:
+  // 2026-05-10-obstetric-anc-doctor-supplements-not-carried-forward.
+  const carriedForward = [];
+  try {
+    const activeRx = await prisma.$queryRawUnsafe(
+      `SELECT id, prescription_number, medications, created_at
+         FROM e_prescriptions
+        WHERE patient_uid = $1::uuid
+          AND COALESCE(status, 'active') = 'active'
+        ORDER BY created_at DESC
+        LIMIT 50`,
+      String(p.patient_uid),
+    );
+    const covered = new Set(supplements.map((s) => s.supplement));
+    for (const s of extractCarriedForwardSupplements(activeRx)) {
+      if (covered.has(s.supplement)) continue;
+      covered.add(s.supplement);
+      carriedForward.push(s);
+    }
+  } catch (e) {
+    logger.warn(`ANC carry-forward supplement scan failed for pregnancy=${id}: ${e.message}`);
+  }
+
   return {
     pregnancy: { ...p, gestational_age: computeGestationalAge(p.lmp_date) },
     visits,
     supplements,
+    carried_forward_supplements: carriedForward,
     fetal_kicks: kicks,
   };
 }
@@ -445,6 +475,52 @@ const FREQ_MAP = {
   weekly: 'weekly',
   sos: 'as_needed', prn: 'as_needed', 'as_needed': 'as_needed', 'as needed': 'as_needed',
 };
+
+/**
+ * Extract pregnancy-relevant supplements from a set of e_prescriptions
+ * rows so the ANC supplement schedule can surface prior IFA / calcium
+ * courses as continued orders the doctor can keep instead of retyping.
+ * Each entry carries the source prescription so the timeline can show
+ * a "from last visit" / "active" indicator. Reuses the same name and
+ * frequency mapping as maybePropagateAncSupplements. Finding:
+ * 2026-05-10-obstetric-anc-doctor-supplements-not-carried-forward.
+ */
+export function extractCarriedForwardSupplements(prescriptions) {
+  const out = [];
+  for (const rx of prescriptions || []) {
+    const meds = Array.isArray(rx?.medications) ? rx.medications : [];
+    for (const med of meds) {
+      if (!med || typeof med !== 'object') continue;
+      const name = String(med.name || med.medication || med.medicine || '').trim();
+      if (!name) continue;
+
+      const matches = SUPPLEMENT_PATTERNS
+        .filter(({ re }) => re.test(name))
+        .map(({ kind }) => kind);
+      if (!matches.length) continue;
+
+      const freqRaw = String(med.frequency || med.freq || '').toLowerCase().trim();
+      const frequency = FREQ_MAP[freqRaw] || 'once_daily';
+      const dose = String(med.dose || med.dosage || med.strength || '').trim() || null;
+
+      for (const supplement of matches) {
+        out.push({
+          supplement,
+          dose,
+          frequency,
+          route: 'oral',
+          source: 'prescription',
+          carried_forward: true,
+          prescription_id: rx.id,
+          prescription_number: rx.prescription_number,
+          prescribed_on: rx.created_at,
+          medication_name: name,
+        });
+      }
+    }
+  }
+  return out;
+}
 
 /**
  * Propagate pregnancy-relevant medications from a prescription into
