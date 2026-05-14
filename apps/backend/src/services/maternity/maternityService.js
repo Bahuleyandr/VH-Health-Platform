@@ -55,6 +55,52 @@ export function computeGestationalAge(lmpDate, onDate = null) {
   };
 }
 
+// Standard ANC visit schedule (target GA week → milestone). Drives the
+// forward care plan rendered on the ANC timeline. These are scheduling
+// milestone labels only — the clinical content of each visit is owned
+// elsewhere, not invented here.
+const ANC_SCHEDULE = [
+  { label: 'Booking visit', ga_weeks: 12, trimester: 1 },
+  { label: 'Second ANC visit', ga_weeks: 16, trimester: 2 },
+  { label: 'Anomaly scan window', ga_weeks: 20, trimester: 2 },
+  { label: 'Glucose screening window', ga_weeks: 26, trimester: 2 },
+  { label: 'Third trimester visit', ga_weeks: 32, trimester: 3 },
+  { label: 'Growth scan window', ga_weeks: 36, trimester: 3 },
+  { label: 'Term assessment', ga_weeks: 39, trimester: 3 },
+];
+
+/**
+ * Compute the ANC schedule milestones from LMP. Each milestone gets a
+ * target date (LMP + ga_weeks) and a past / current / upcoming status
+ * relative to the reference date. "current" = within 2 weeks before
+ * the target week. Returns [] when LMP is unknown.
+ */
+export function computeAncScheduleMilestones(lmpDate, onDate = null) {
+  if (!lmpDate) return [];
+  const lmp = new Date(lmpDate);
+  if (Number.isNaN(lmp.getTime())) return [];
+  const today = onDate ? new Date(onDate) : new Date();
+  const currentGa = computeGestationalAge(lmpDate, onDate);
+  const currentWeeks = currentGa ? currentGa.weeks : null;
+  return ANC_SCHEDULE.map((m) => {
+    const targetDate = new Date(lmp.getTime() + m.ga_weeks * 7 * 86400000);
+    let status = 'upcoming';
+    if (currentWeeks != null) {
+      if (currentWeeks > m.ga_weeks) status = 'past';
+      else if (currentWeeks >= m.ga_weeks - 2) status = 'current';
+    } else if (targetDate < today) {
+      status = 'past';
+    }
+    return {
+      label: m.label,
+      ga_weeks: m.ga_weeks,
+      trimester: m.trimester,
+      target_date: targetDate.toISOString().slice(0, 10),
+      status,
+    };
+  });
+}
+
 export async function createPregnancy({
   tenantId, patient_uid, pregnancy_number = 1,
   lmp_date, edd_date, edd_method,
@@ -384,9 +430,46 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
     logger.warn(`ANC carry-forward supplement scan failed for pregnancy=${id}: ${e.message}`);
   }
 
+  // Booked ANC appointments — the timeline previously showed only
+  // recorded maternity_anc_visits, so a booked-but-not-yet-attended
+  // visit (e.g. today's 24-week appointment) was invisible. Scope to
+  // OB/ANC appointments within the pregnancy window. Best-effort.
+  // Finding:
+  // 2026-05-10-obstetric-anc-receptionist-anc-timeline-omits-booked-visit.
+  let bookedVisits = [];
+  try {
+    bookedVisits = await prisma.$queryRawUnsafe(
+      `SELECT a.id, a.appointment_date, a.appointment_time, a.status,
+              a.reason, a.department, a.token_number, a.visit_no, a.visit_type
+         FROM appointments a
+         JOIN users u ON u.id = a.patient_id
+        WHERE u.uid = $1::uuid
+          AND a.status NOT IN ('CANCELLED', 'NO_SHOW')
+          AND a.appointment_date >= COALESCE($2::date, a.appointment_date)
+          AND (
+            a.visit_no LIKE 'ANC-%'
+            OR a.department ILIKE '%obstet%'
+            OR a.department ILIKE '%gyn%'
+            OR a.department ILIKE '%antenatal%'
+            OR a.department ILIKE '%anc%'
+          )
+        ORDER BY a.appointment_date DESC, a.appointment_time DESC
+        LIMIT 50`,
+      String(p.patient_uid), p.lmp_date || null,
+    );
+  } catch (e) {
+    logger.warn(`ANC booked-visit scan failed for pregnancy=${id}: ${e.message}`);
+  }
+
+  // Forward/back ANC care schedule computed from LMP, so the timeline
+  // shows where the current visit sits in the plan and what's next.
+  const scheduleMilestones = computeAncScheduleMilestones(p.lmp_date);
+
   return {
     pregnancy: { ...p, gestational_age: computeGestationalAge(p.lmp_date) },
     visits,
+    booked_visits: bookedVisits,
+    schedule_milestones: scheduleMilestones,
     supplements,
     carried_forward_supplements: carriedForward,
     fetal_kicks: kicks,
