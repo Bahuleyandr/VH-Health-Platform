@@ -159,6 +159,49 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
     });
   });
 
+  describe('temperature_route (migration 225)', () => {
+    it('persists temperature_route alongside the temperature value', async () => {
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PATIENT_UID,
+        temperature: 38.5,
+        temperature_route: 'axillary',
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.body.data.vitals.temperature_route).toBe('axillary');
+      const row = await prisma.$queryRawUnsafe(
+        `SELECT temperature_route FROM vitals_chart WHERE id = $1`, res.body.data.vitals.id);
+      expect(row[0].temperature_route).toBe('axillary');
+    });
+
+    it('lowercases and trims the recorded route', async () => {
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PATIENT_UID,
+        temperature: 37.0,
+        temperature_route: '  Oral ',
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.body.data.vitals.temperature_route).toBe('oral');
+    });
+
+    it('rejects an unknown temperature route', async () => {
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PATIENT_UID,
+        temperature: 37.0,
+        temperature_route: 'forehead',
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('leaves temperature_route null when omitted', async () => {
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PATIENT_UID,
+        temperature: 36.9,
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.body.data.vitals.temperature_route).toBeNull();
+    });
+  });
+
   describe('anomaly detection', () => {
     it('flags a CRITICAL low SpO2 and persists a clinical_alert', async () => {
       const res = await doctor.post('/api/v1/emr/vitals').send({

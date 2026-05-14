@@ -6,6 +6,7 @@ import logger from '../../logging/logger.js';
 import * as pointService from '../../services/gamification/pointService.js';
 import * as healthRecordService from '../../services/health/healthRecordService.js';
 import * as patientHealthService from '../../services/health/patientHealthService.js';
+import { normaliseTemperatureRoute } from '../../utils/clinical/temperatureRoute.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { success, error } from '../../utils/responseHelper.js';
 
@@ -327,6 +328,17 @@ export async function recordStaffVitals(req, res) {
     const spO2 = numberOrNull(vitalSigns.spo2 ?? vitalSigns.spO2, Number.parseInt);
     const weight = numberOrNull(measurementValues.weight);
 
+    // Temperature route (axillary/oral/rectal/tympanic) — axillary runs
+    // ~0.5 C below oral, so the route changes a paediatric fever band.
+    // Finding: 2026-05-09-pediatric-opd-nurse-no-temperature-route-field.
+    const routeResult = normaliseTemperatureRoute(
+      vitalSigns.temperature_route ?? vitalSigns.temperatureRoute
+    );
+    if (routeResult.error) {
+      return error(res, routeResult.error, HTTP_STATUS.BAD_REQUEST);
+    }
+    const temperatureRoute = routeResult.value;
+
     if (!bloodPressure && heartRate == null && temperature == null &&
         bloodSugar == null && weight == null && spO2 == null) {
       return error(res, 'At least one vital sign or measurement is required', HTTP_STATUS.BAD_REQUEST);
@@ -334,13 +346,14 @@ export async function recordStaffVitals(req, res) {
 
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO patient_vitals
-         (patient_uid, blood_pressure, heart_rate, temperature, blood_sugar, weight, spo2, source)
-       VALUES ($1::uuid, $2::jsonb, $3, $4, $5, $6, $7, 'manual')
+         (patient_uid, blood_pressure, heart_rate, temperature, temperature_route, blood_sugar, weight, spo2, source)
+       VALUES ($1::uuid, $2::jsonb, $3, $4, $5, $6, $7, $8, 'manual')
        RETURNING id, recorded_at, source`,
       patient[0].uid,
       bloodPressure ? JSON.stringify(bloodPressure) : null,
       heartRate,
       temperature,
+      temperatureRoute,
       bloodSugar,
       weight,
       spO2

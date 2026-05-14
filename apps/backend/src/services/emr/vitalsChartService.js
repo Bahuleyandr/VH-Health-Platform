@@ -3,6 +3,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
+import { normaliseTemperatureRoute } from '../../utils/clinical/temperatureRoute.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import * as news2Service from '../clinical/news2Service.js';
 
@@ -57,6 +58,7 @@ const VITAL_SELECT = {
   systolic_bp: true,
   diastolic_bp: true,
   temperature: true,
+  temperature_route: true,
   spo2: true,
   respiratory_rate: true,
   blood_glucose: true,
@@ -166,7 +168,7 @@ function toCelsius(value, unit) {
 export async function recordVitals(data) {
   const {
     patient_uid, encounter_id, encounter_uid, heart_rate, systolic_bp, diastolic_bp, temperature,
-    temperature_unit, spo2, respiratory_rate, blood_glucose, pain_score, weight_kg,
+    temperature_unit, temperature_route, spo2, respiratory_rate, blood_glucose, pain_score, weight_kg,
     height_cm, gcs_score, supplemental_o2, o2_flow_rate, consciousness, notes,
     fhr, fundal_height_cm,
     urine_albumin, urine_sugar, urine_ketones,
@@ -184,6 +186,13 @@ export async function recordVitals(data) {
   const normalizedEncounterId = normalizedEncounter.encounter_id;
   const normalizedEncounterUid = normalizedEncounter.encounter_uid;
   const normalizedTemperature = toCelsius(temperature, temperature_unit);
+
+  // Temperature route (axillary/oral/rectal/tympanic) — clinically
+  // load-bearing in paediatrics. Finding:
+  // 2026-05-09-pediatric-opd-nurse-no-temperature-route-field.
+  const routeResult = normaliseTemperatureRoute(temperature_route);
+  if (routeResult.error) throw AppError.badRequest(routeResult.error);
+  const normalizedTemperatureRoute = routeResult.value;
 
   const normalizedAlbumin = normaliseDipstick(urine_albumin, 'urine_albumin');
   const normalizedSugar = normaliseDipstick(urine_sugar, 'urine_sugar');
@@ -223,6 +232,7 @@ export async function recordVitals(data) {
       systolic_bp: systolic_bp ?? null,
       diastolic_bp: diastolic_bp ?? null,
       temperature: normalizedTemperature ?? null,
+      temperature_route: normalizedTemperatureRoute,
       spo2: spo2 ?? null,
       respiratory_rate: respiratory_rate ?? null,
       blood_glucose: blood_glucose ?? null,
