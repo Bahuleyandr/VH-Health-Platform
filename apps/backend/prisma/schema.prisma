@@ -388,11 +388,11 @@ model admissions {
   emergency_visit                 emergency_visits?    @relation("AdmissionFromErVisit", fields: [from_er_visit_id], references: [id], onUpdate: NoAction)
   package                         packages?            @relation(fields: [package_id], references: [id], onUpdate: NoAction)
   insurance_policy                insurance_policies?  @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
+  prior_admission                 admissions?          @relation("AdmissionReadmissionChain", fields: [prior_admission_id], references: [id], onUpdate: NoAction)
+  readmissions                    admissions[]         @relation("AdmissionReadmissionChain")
   advance_deposits                advance_deposits[]
   attendant_passes                attendant_passes[]
   discharge_consults              discharge_consults[]
-  prior_admission                 admissions?          @relation("AdmissionReadmissionChain", fields: [prior_admission_id], references: [id], onUpdate: NoAction)
-  readmissions                    admissions[]         @relation("AdmissionReadmissionChain")
 
   @@index([status, ward, admitted_at(sort: Desc)], map: "idx_admissions_status_ward_admitted")
   @@index([from_er_visit_id], map: "idx_admissions_from_er_visit")
@@ -400,7 +400,6 @@ model admissions {
   @@index([room_category], map: "idx_admissions_room_category")
   @@index([discharge_initiated_at], map: "idx_admissions_discharge_initiated")
   @@index([billing_closed_at], map: "idx_admissions_billing_closed")
-  @@index([prior_admission_id], map: "idx_admissions_prior_admission")
 }
 
 model discharge_consults {
@@ -8603,34 +8602,34 @@ model virtual_ward_escalations {
 }
 
 model vitals_chart {
-  id               Int       @id @default(autoincrement())
-  patient_uid      String    @db.Uuid
-  encounter_id     Int?
-  heart_rate       Decimal?  @db.Decimal(6, 2)
-  systolic_bp      Decimal?  @db.Decimal(6, 2)
-  diastolic_bp     Decimal?  @db.Decimal(6, 2)
-  temperature      Decimal?  @db.Decimal(5, 2)
-  spo2             Decimal?  @db.Decimal(5, 2)
-  respiratory_rate Decimal?  @db.Decimal(5, 2)
-  blood_glucose    Decimal?  @db.Decimal(8, 2)
-  pain_score       Decimal?  @db.Decimal(4, 1)
-  weight_kg        Decimal?  @db.Decimal(6, 2)
-  height_cm        Decimal?  @db.Decimal(6, 2)
-  gcs_score        Int?
-  supplemental_o2  Boolean?  @default(false)
-  o2_flow_rate     Decimal?  @db.Decimal(6, 2)
-  consciousness    String?   @db.VarChar(5)
-  notes            String?
-  fhr              Int?
-  fundal_height_cm Decimal?  @db.Decimal(5, 2)
-  recorded_by      String?   @db.Uuid
-  recorded_at      DateTime? @default(now()) @db.Timestamptz(6)
-  created_at       DateTime? @default(now()) @db.Timestamptz(6)
-  encounter_uid    String?   @db.Uuid
-  urine_albumin    String?   @db.VarChar(10)
-  urine_sugar      String?   @db.VarChar(10)
-  urine_ketones    String?   @db.VarChar(10)
-  temperature_route String?  @db.VarChar(10)
+  id                Int       @id @default(autoincrement())
+  patient_uid       String    @db.Uuid
+  encounter_id      Int?
+  heart_rate        Decimal?  @db.Decimal(6, 2)
+  systolic_bp       Decimal?  @db.Decimal(6, 2)
+  diastolic_bp      Decimal?  @db.Decimal(6, 2)
+  temperature       Decimal?  @db.Decimal(5, 2)
+  spo2              Decimal?  @db.Decimal(5, 2)
+  respiratory_rate  Decimal?  @db.Decimal(5, 2)
+  blood_glucose     Decimal?  @db.Decimal(8, 2)
+  pain_score        Decimal?  @db.Decimal(4, 1)
+  weight_kg         Decimal?  @db.Decimal(6, 2)
+  height_cm         Decimal?  @db.Decimal(6, 2)
+  gcs_score         Int?
+  supplemental_o2   Boolean?  @default(false)
+  o2_flow_rate      Decimal?  @db.Decimal(6, 2)
+  consciousness     String?   @db.VarChar(5)
+  notes             String?
+  fhr               Int?
+  fundal_height_cm  Decimal?  @db.Decimal(5, 2)
+  recorded_by       String?   @db.Uuid
+  recorded_at       DateTime? @default(now()) @db.Timestamptz(6)
+  created_at        DateTime? @default(now()) @db.Timestamptz(6)
+  encounter_uid     String?   @db.Uuid
+  urine_albumin     String?   @db.VarChar(10)
+  urine_sugar       String?   @db.VarChar(10)
+  urine_ketones     String?   @db.VarChar(10)
+  temperature_route String?   @db.VarChar(10)
 
   @@index([patient_uid, recorded_at(sort: Desc)], map: "idx_vitals_chart_patient_recorded")
 }
@@ -9435,6 +9434,8 @@ model insurance_preauth {
   tenant_id                   String                        @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
   updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  submit_due_at               DateTime?                     @db.Timestamptz(6)
+  submit_reminder_sent        Boolean                       @default(false)
   insurance_preauth           insurance_preauth?            @relation("insurance_preauthToinsurance_preauth", fields: [parent_preauth_id], references: [id], onUpdate: NoAction)
   other_insurance_preauth     insurance_preauth[]           @relation("insurance_preauthToinsurance_preauth")
   insurance_policies          insurance_policies            @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
@@ -9442,8 +9443,6 @@ model insurance_preauth {
   tpa_claim_correspondence    tpa_claim_correspondence[]
   tpa_claim_documents         tpa_claim_documents[]
   tpa_claims                  tpa_claims[]
-  submit_due_at               DateTime?                     @db.Timestamptz(6)
-  submit_reminder_sent        Boolean                       @default(false)
 
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_insurance_preauth_patient")
   @@index([status, created_at(sort: Desc)], map: "idx_insurance_preauth_status")
