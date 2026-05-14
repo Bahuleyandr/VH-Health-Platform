@@ -381,6 +381,8 @@ model admissions {
   package_id                      Int?
   package_code                    String?              @db.VarChar(40)
   package_estimated_cost_minor    BigInt?
+  govt_scheme                     String?              @db.VarChar(60)
+  govt_scheme_status              String?              @db.VarChar(30)
   emergency_visit                 emergency_visits?    @relation("AdmissionFromErVisit", fields: [from_er_visit_id], references: [id], onUpdate: NoAction)
   package                         packages?            @relation(fields: [package_id], references: [id], onUpdate: NoAction)
   insurance_policy                insurance_policies?  @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
@@ -719,6 +721,11 @@ model appointments {
   advised_for_admission_note           String?
   parent_appointment_id                Int?
   visit_no                             String?                      @db.VarChar(50)
+  payer_type                           String?                      @db.VarChar(30)
+  patient_category                     String?                      @db.VarChar(30)
+  insurer_name                         String?                      @db.VarChar(160)
+  policy_number                        String?                      @db.VarChar(80)
+  scheme_name                          String?                      @db.VarChar(120)
   appointment_documents                appointment_documents[]
   appointment_status_history           appointment_status_history[]
   users_appointments_doctor_idTousers  users?                       @relation("appointments_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction)
@@ -6076,6 +6083,10 @@ model patient_consents {
   data_categories Json      @default("[]")
   version         String    @default("v1") @db.VarChar(30)
   source          String    @default("portal") @db.VarChar(50)
+  consent_method  String?   @db.VarChar(20)
+  witness_name    String?   @db.VarChar(160)
+  witness_uid     String?   @db.Uuid
+  form_language   String?   @db.VarChar(20)
 
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_patient_consents_patient_created")
   @@index([consent_type, status], map: "idx_patient_consents_type_status")

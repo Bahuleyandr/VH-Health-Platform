@@ -70,6 +70,11 @@ const ADMISSION_RETURNING_SELECT = {
   package_id: true,
   package_code: true,
   package_estimated_cost_minor: true,
+  // Stage-5 (migration 228) — govt-scheme eligibility flag (CMCHIS /
+  // Ayushman Bharat). Surfaced so the admission detail/list payloads and
+  // the insurance-counsellor worklist can read it off the row directly.
+  govt_scheme: true,
+  govt_scheme_status: true,
 };
 
 // Map ESI/ATS triage acuity onto admissions.priority. Used when the admit
@@ -133,6 +138,13 @@ async function admitPatient(data) {
     package_id: packageIdArg,
     package_code: packageCodeArg,
     package_estimated_cost_minor: packageEstimatedCostMinorArg,
+    // Stage-5 — govt-scheme eligibility flag (CMCHIS / Ayushman Bharat).
+    // A rural / low-income patient flagged here at the admission counter
+    // gets routed to the insurance counsellor instead of being silently
+    // admitted as cash-paying. Migration 228. Finding:
+    //   2026-05-09-inpatient-admission-admission-no-cmchis-flag-no-tamil-consent.
+    govt_scheme,
+    govt_scheme_status,
   } = data;
 
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
@@ -150,6 +162,26 @@ async function admitPatient(data) {
   if (roomCategoryArg !== undefined && roomCategoryArg !== null && roomCategoryArg !== '' &&
       !VALID_ROOM_CATEGORIES.includes(roomCategoryArg)) {
     throw AppError.badRequest(`Invalid room_category: ${roomCategoryArg}. Must be one of: ${VALID_ROOM_CATEGORIES.join(', ')}`);
+  }
+
+  // Stage-5 — govt-scheme eligibility (migration 228). Both columns are
+  // optional and nullable; validate the status enum when supplied so the
+  // insurance-counsellor worklist filter stays meaningful. When a scheme
+  // name is given without a status, default to pending_verification so it
+  // still surfaces on the counsellor's queue.
+  const VALID_GOVT_SCHEME_STATUSES = ['eligible', 'pending_verification', 'enrolled', 'not_eligible'];
+  const resolvedGovtScheme = govt_scheme ? String(govt_scheme).trim().slice(0, 60) : null;
+  let resolvedGovtSchemeStatus = null;
+  if (govt_scheme_status !== undefined && govt_scheme_status !== null && govt_scheme_status !== '') {
+    const s = String(govt_scheme_status).trim().toLowerCase().replace(/[\s-]+/g, '_');
+    if (!VALID_GOVT_SCHEME_STATUSES.includes(s)) {
+      throw AppError.badRequest(
+        `Invalid govt_scheme_status: ${govt_scheme_status}. Must be one of: ${VALID_GOVT_SCHEME_STATUSES.join(', ')}`,
+      );
+    }
+    resolvedGovtSchemeStatus = s;
+  } else if (resolvedGovtScheme) {
+    resolvedGovtSchemeStatus = 'pending_verification';
   }
 
   // ER-linkage validation. Resolve the ER visit up-front so we can also
@@ -270,8 +302,26 @@ async function admitPatient(data) {
   //   2026-05-08-inpatient-admission-doctor-emergency-admit-blocked-by-treatment-consent.
   const isEmergencyConsentBypassEligible = admission_type === 'emergency' && priority === 'emergent';
   let emergencyBypass = null;
+  // Consent gate. An active `treatment` consent satisfies it outright. A
+  // `procedure` consent — captured at the pre-op OPD visit for a
+  // scheduled day-care / surgical patient — also satisfies it, provided
+  // it was granted within the carry-over window, so the patient isn't
+  // made to re-consent at the admission counter on the morning of
+  // surgery. Finding:
+  //   2026-05-09-surgical-day-care-admission-consent-no-preop-carryover.
+  const PREOP_CONSENT_CARRYOVER_DAYS = 30;
+  const preopConsentWindowStart = new Date(
+    Date.now() - PREOP_CONSENT_CARRYOVER_DAYS * 24 * 60 * 60 * 1000,
+  );
   const consent = await prisma.patient_consents.findFirst({
-    where: { patient_uid, consent_type: 'treatment', status: 'active' },
+    where: {
+      patient_uid,
+      status: 'active',
+      OR: [
+        { consent_type: 'treatment' },
+        { consent_type: 'procedure', granted_at: { gte: preopConsentWindowStart } },
+      ],
+    },
     select: { id: true },
   });
   if (!consent) {
@@ -401,6 +451,9 @@ async function admitPatient(data) {
         package_id: resolvedPackageId,
         package_code: resolvedPackageCode,
         package_estimated_cost_minor: resolvedPackageEstMinor,
+        // Stage-5 — govt-scheme eligibility flag (migration 228).
+        govt_scheme: resolvedGovtScheme,
+        govt_scheme_status: resolvedGovtSchemeStatus,
       },
       select: ADMISSION_RETURNING_SELECT,
     });
