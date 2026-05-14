@@ -4282,6 +4282,8 @@ model e_prescriptions {
   pharmacy_order_id             Int?
   pharmacy_opted                Boolean                         @default(false)
   pharmacy_opt_type             String?                         @db.VarChar(50)
+  admission_id                  Int?
+  visit_type                    String?                         @default("outpatient") @db.VarChar(20)
   prescription_safety_overrides prescription_safety_overrides[]
 
   @@index([pharmacy_order_id], map: "idx_e_prescriptions_pharmacy_order")
