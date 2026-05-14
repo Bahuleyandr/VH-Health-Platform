@@ -43,6 +43,19 @@ function requireStaffOrAdmin(req, res, next) {
 router.post('/admissions', requireStaffOrAdmin, wrap(async (req) =>
   icu.createAdmission({ tenantId: tenantOf(req), ...req.body })));
 
+// Admit a patient to ICU directly from an emergency visit — the new
+// admission inherits the ER patient context, links back via er_visit_id,
+// and carries the ER's active medication orders into the ICU MAR.
+// Findings:
+//   2026-05-08-emergency-walk-in-doctor-er-to-icu-no-continuation
+//   2026-05-08-emergency-walk-in-nurse-no-fasting-no-io-no-mar-handoff
+router.post('/admissions/from-er/:emergencyVisitId', requireStaffOrAdmin, wrap(async (req) =>
+  icu.createAdmissionFromEr({
+    ...req.body,
+    tenantId: tenantOf(req),
+    emergencyVisitId: req.params.emergencyVisitId,
+  })));
+
 router.get('/admissions', requireStaffOrAdmin, wrap(async (req) =>
   icu.listAdmissions({
     tenantId: tenantOf(req),
@@ -64,6 +77,20 @@ router.patch('/admissions/:id/monitoring-interval', requireStaffOrAdmin, wrap(as
   icu.updateMonitoringInterval({
     tenantId: tenantOf(req), id: req.params.id,
     monitoring_interval_minutes: req.body.monitoring_interval_minutes,
+  })));
+
+// Update the pre-op / fasting window on a live ICU admission. NPO orders
+// are placed after admit, so the npo_from / fasting_until / pre_op_status
+// fields need a mutation path — without one they were dead columns.
+// An omitted body key leaves its column untouched; an explicit null
+// clears it. Finding:
+// 2026-05-09-emergency-walk-in-nurse-icu-no-npo-patch-route.
+router.patch('/admissions/:id', requireStaffOrAdmin, wrap(async (req) =>
+  icu.updateAdmissionFasting({
+    tenantId: tenantOf(req), id: req.params.id,
+    npo_from: req.body.npo_from,
+    fasting_until: req.body.fasting_until,
+    pre_op_status: req.body.pre_op_status,
   })));
 
 router.post('/admissions/:id/discharge', requireStaffOrAdmin, wrap(async (req) =>
