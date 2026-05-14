@@ -747,9 +747,14 @@ async function maybeEmitTpaCapAlerts({ admissionId, patientUid, tenantId, totalA
 export async function resolveAdmissionTpaCap(admissionId, tenantId) {
   if (!admissionId) return null;
   const tenant = tenantId || '00000000-0000-4000-8000-000000000001';
+  // Stage-4-C — also expose the root preauth's status, denial_reason,
+  // sanctioned_amount, and policy_id so the cashier screen can show
+  // "TPA: denied" / "approved ₹50,000" / "pending insurer response"
+  // directly on the invoice, without a separate insurance lookup.
+  // Finding: 2026-05-10-inpatient-admission-billing-tpa-status-not-on-invoice
   const rows = await prisma.$queryRawUnsafe(
     `WITH active_root AS (
-       SELECT id, preauth_number, status
+       SELECT id, preauth_number, status, denial_reason, sanctioned_amount, policy_id
          FROM insurance_preauth
         WHERE tenant_id = $2::uuid
           AND admission_id = $1::int
@@ -761,6 +766,10 @@ export async function resolveAdmissionTpaCap(admissionId, tenantId) {
      SELECT
         (SELECT id FROM active_root) AS root_preauth_id,
         (SELECT preauth_number FROM active_root) AS root_preauth_number,
+        (SELECT status FROM active_root) AS root_preauth_status,
+        (SELECT denial_reason FROM active_root) AS root_preauth_denial_reason,
+        (SELECT sanctioned_amount FROM active_root) AS root_preauth_sanctioned_amount,
+        (SELECT policy_id FROM active_root) AS policy_id,
         COALESCE((
           SELECT SUM(CASE WHEN status IN ('approved','partially_approved')
                           THEN COALESCE(sanctioned_amount, 0) ELSE 0 END)::numeric
@@ -776,6 +785,10 @@ export async function resolveAdmissionTpaCap(admissionId, tenantId) {
   return {
     root_preauth_id: row.root_preauth_id,
     root_preauth_number: row.root_preauth_number,
+    root_preauth_status: row.root_preauth_status,
+    root_preauth_denial_reason: row.root_preauth_denial_reason,
+    root_preauth_sanctioned_amount: row.root_preauth_sanctioned_amount != null ? Number(row.root_preauth_sanctioned_amount) : null,
+    policy_id: row.policy_id,
     cumulative_approved: Number(row.cumulative_approved ?? 0),
   };
 }
@@ -807,22 +820,41 @@ export async function getInvoice(invoiceId) {
   // no preauth (cash invoice).
   const tpaCap = await resolveAdmissionTpaCap(inv[0].admission_id, inv[0].tenant_id);
   let tpaUtilisation = null;
-  if (tpaCap && tpaCap.cumulative_approved > 0) {
-    const total = Number(inv[0].total_amount ?? 0);
-    const utilisationPct = (total / tpaCap.cumulative_approved) * 100;
-    let status = 'within_cap';
-    if (utilisationPct >= 100) status = 'over_cap';
-    else if (utilisationPct >= 90) status = 'near_limit';
-    else if (utilisationPct >= 80) status = 'approaching_limit';
-    tpaUtilisation = {
-      root_preauth_id: tpaCap.root_preauth_id,
-      root_preauth_number: tpaCap.root_preauth_number,
-      cumulative_approved: tpaCap.cumulative_approved,
-      total_charged: total,
-      remaining: Math.max(0, tpaCap.cumulative_approved - total),
-      utilisation_pct: Math.round(utilisationPct * 10) / 10,
-      status,
+  let tpaPreauth = null;
+  if (tpaCap) {
+    // Stage-4-C — surface preauth identity + status on every invoice for
+    // an admission that has one, even if cumulative_approved is 0
+    // (denied / pending / queried). The cashier needs to see the TPA
+    // state on the bill screen to know whether to collect cash, wait,
+    // or submit a claim — separate insurance lookup was an extra step
+    // that delayed discharge.
+    // Finding: 2026-05-10-inpatient-admission-billing-tpa-status-not-on-invoice
+    tpaPreauth = {
+      preauth_id: tpaCap.root_preauth_id,
+      preauth_number: tpaCap.root_preauth_number,
+      tpa_status: tpaCap.root_preauth_status,
+      denial_reason: tpaCap.root_preauth_denial_reason,
+      sanctioned_amount: tpaCap.root_preauth_sanctioned_amount,
+      policy_id: tpaCap.policy_id,
     };
+
+    if (tpaCap.cumulative_approved > 0) {
+      const total = Number(inv[0].total_amount ?? 0);
+      const utilisationPct = (total / tpaCap.cumulative_approved) * 100;
+      let status = 'within_cap';
+      if (utilisationPct >= 100) status = 'over_cap';
+      else if (utilisationPct >= 90) status = 'near_limit';
+      else if (utilisationPct >= 80) status = 'approaching_limit';
+      tpaUtilisation = {
+        root_preauth_id: tpaCap.root_preauth_id,
+        root_preauth_number: tpaCap.root_preauth_number,
+        cumulative_approved: tpaCap.cumulative_approved,
+        total_charged: total,
+        remaining: Math.max(0, tpaCap.cumulative_approved - total),
+        utilisation_pct: Math.round(utilisationPct * 10) / 10,
+        status,
+      };
+    }
   }
 
   return {
@@ -831,6 +863,7 @@ export async function getInvoice(invoiceId) {
     payments,
     advance_settlements: settlements,
     tpa_utilisation: tpaUtilisation,
+    tpa_preauth: tpaPreauth,
   };
 }
 
