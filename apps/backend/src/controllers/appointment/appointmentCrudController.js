@@ -210,9 +210,39 @@ export const updateAppointment = async (req, res) => {
     // Update the appointment
     const updatedAppointment = await appointmentService.updateAppointment(id, updateData);
 
+    // Late clinical addendum on a COMPLETED appointment — record the
+    // who/what/when separately so audit can distinguish a "real" update
+    // from a post-completion note. Best-effort: failure here must not
+    // break the user-facing update. Finding:
+    //   2026-05-09-follow-up-opd-doctor-no-edit-after-complete
+    if (validation.isAddendum) {
+      try {
+        await prisma.audit_logs.create({
+          data: {
+            uid: req.user?.uid || null,
+            action: 'APPOINTMENT_ADDENDUM',
+            resource: 'appointment',
+            resource_id: String(id),
+            metadata: {
+              fields: Object.keys(updateData).filter(
+                (k) => updateData[k] !== undefined && updateData[k] !== null
+              ),
+              patient_id: appointment.patient_id,
+              doctor_id: appointment.doctor_id,
+              prior_status: appointment.status,
+            },
+            ip_address: req.ip || null,
+          },
+        });
+      } catch (e) {
+        logger.warn(`Appointment ${id} addendum audit log failed: ${e.message}`);
+      }
+    }
+
     success(res, {
       appointment: updatedAppointment,
-      updated_by: req.user?.name
+      updated_by: req.user?.name,
+      addendum: validation.isAddendum || false,
     }, APPOINTMENT_CONFIG.MESSAGES.APPOINTMENT_UPDATED);
   } catch (err) {
     logger.error('Error updating appointment:', err);

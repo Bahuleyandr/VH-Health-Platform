@@ -1,6 +1,21 @@
 import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
 import appointmentService from './appointmentService.js';
 
+// Fields that can be amended on a COMPLETED appointment as a late
+// clinical addendum. The doctor's natural flow is mark complete then
+// write the note; we keep clinical context on the appointment record
+// rather than forcing it onto the progress-notes path. Anything else
+// (date/time/visit_type) would re-open a finalized appointment.
+const ADDENDUM_FIELDS = new Set(['notes', 'reason']);
+
+function isAddendumOnlyUpdate(updateData) {
+  const supplied = Object.entries(updateData || {})
+    .filter(([, v]) => v !== undefined && v !== null)
+    .map(([k]) => k);
+  if (supplied.length === 0) return false;
+  return supplied.every((field) => ADDENDUM_FIELDS.has(field));
+}
+
 export class AppointmentValidationService {
   // Validate appointment booking request
   async validateBookingRequest(bookingData, user) {
@@ -61,6 +76,7 @@ export class AppointmentValidationService {
   // Validate appointment update request
   async validateUpdateRequest(appointmentId, updateData, user) {
     const errors = [];
+    let isAddendum = false;
 
     // Get existing appointment
     const appointment = await appointmentService.getAppointmentById(appointmentId);
@@ -69,9 +85,29 @@ export class AppointmentValidationService {
       return { valid: false, errors };
     }
 
-    // Check if appointment is scheduled
-    if (appointment.status !== APPOINTMENT_CONFIG.STATUSES.SCHEDULED) {
-      errors.push('Can only update scheduled appointments');
+    // Check if appointment is scheduled. Late clinical addendum exception:
+    // a doctor's natural OPD flow is see patient → mark complete → write
+    // note. If we hard-lock the record on COMPLETED, the note has to be
+    // entered before status change — which contradicts how clinicians
+    // actually work and forces clinical context onto the separate
+    // progress-notes path (which has its own friction).
+    // Allow notes/reason to be updated on COMPLETED appointments by
+    // clinical staff (not patients); date/time/visit_type stay locked
+    // since those would re-open a finalized appointment. Finding:
+    //   2026-05-09-follow-up-opd-doctor-no-edit-after-complete
+    const isScheduled = appointment.status === APPOINTMENT_CONFIG.STATUSES.SCHEDULED;
+    if (!isScheduled) {
+      const addendumOnly = isAddendumOnlyUpdate(updateData);
+      const isClinical = ['DOCTOR', 'ADMIN', 'NURSING_STAFF', 'NURSE', 'RECEPTIONIST'].includes(user.role);
+      if (
+        appointment.status === APPOINTMENT_CONFIG.STATUSES.COMPLETED
+        && addendumOnly
+        && isClinical
+      ) {
+        isAddendum = true;
+      } else {
+        errors.push('Can only update scheduled appointments');
+      }
     }
 
     // P1 IDOR: compare appointment.patient_id to caller's int id (uid→id fallback
@@ -110,7 +146,8 @@ export class AppointmentValidationService {
     return {
       valid: errors.length === 0,
       errors,
-      appointment
+      appointment,
+      isAddendum
     };
   }
 
