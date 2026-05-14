@@ -37,7 +37,10 @@ lib/
       theme_provider.dart      # Light/dark/system theme, custom ThemeData
       language_provider.dart   # Locale switching (en/hi/ta/te/ml)
       notification_provider.dart # Notification badge count, fetch/mark-read
-      user_provider.dart       # User phone/name state (replaces AppRouter statics)
+      user_provider.dart       # Signed-in patient identity (phone/name) — single source of truth
+      session_timeout_provider.dart # Idle-timeout tracking → forced logout
+      dependents_provider.dart # Dependent-profile roster + active-profile switcher
+      websocket_provider.dart  # App-local realtime events (appointment status, etc.)
     theme/
       app_theme.dart           # ThemeData construction
       theme_colors.dart        # Brand color palette
@@ -66,50 +69,39 @@ lib/
     offline/
       record_cache_manager.dart  # Offline record caching
       record_cache_manifest.dart # Cache manifest tracking
-  features/
+  features/                    # One folder per feature. Each follows the
+                               # docs/FEATURE_STRUCTURE.md shape: screens/
+                               # (route-level widgets), widgets/ (feature-
+                               # internal UI), models/, controllers/,
+                               # services/ — only screens/ is mandatory.
+    abdm/                      # ABDM (Ayushman Bharat Digital Mission) linkage
     about/                     # About Us screen (contact info, map, emergency numbers)
-    appointments/              # Book appointments (dept/doctor fetch, slot picker, my appointments)
-    auth/
-      screens/                 # LoginScreen, TermsDisclaimerScreen
-      services/otp_service.dart # Firebase OTP verification
-      widgets/                 # LoginForm, OTP UI components
-    bootstrap/
-      permission_gate.dart     # Runtime permission gate on first launch
+    appointments/              # Book appointments + My Appointments (two tab widgets, shared models/)
+    auth/                      # LoginScreen, TermsDisclaimerScreen, Firebase OTP flow
+    bootstrap/                 # permission_gate.dart — runtime permission gate on first launch
     calendar/                  # Calendar view (appointments + investigations + pharmacy orders)
-    dashboard/                 # Home screen: circular dial, contextual widgets (active orders, prescriptions, follow-ups)
-    departments/               # Browse departments + doctors (search with debounce, detail sheets)
+    chatbot/                   # Symptom checker
+    dashboard/                 # Home screen: circular dial + contextual smart widgets
+    departments/               # Browse departments + doctors (search, doctor-detail sheet)
+    family/                    # Family-member roster (add / list / remove)
     feedback/                  # Ask a Doubt (submit questions) + Feedback History
-    investigations/
-      screens/
-        investigations_screen.dart      # Upload investigation files, view results, download
-        book_investigation_screen.dart  # Book investigations (catalog, slip upload, home/walk-in)
-        my_bookings_screen.dart         # View investigation bookings
+    gamification/              # Health Points (milestones, summary)
+    investigations/            # 3-tab screen: My Bookings / Upload / Results, plus booking wizard
+    maternity/                 # ANC timeline (antenatal-care visit schedule)
+    medications/               # Medication reminders (CRUD + local notification scheduling)
     notifications/             # View + mark-read notifications with deep-linking
-    pharmacy/
-      screens/pharmacy_screen.dart      # Tab coordinator (Order + My Orders)
-      widgets/
-        order_form_tab.dart             # Prescription upload + order form
-        order_list_tab.dart             # Order list + order detail sheet
-        order_status_widgets.dart       # Status chips, trackers, delivery option cards
-    profile/
-      screens/
-        profile_setup_screen.dart  # New user onboarding profile
-        profile_edit_screen.dart   # Edit all profile fields
-    records/                   # Hospital documents + patient uploads
-    settings/                  # Theme, language, font size, biometrics
-      controllers/settings_controller.dart
-      widgets/settings_sections.dart
-    splash/                    # Splash screen with auth state check
+    pharmacy/                  # Tab coordinator (Order + My Orders)
+    portal/                    # Patient self-service portal (Sprint 10): bills + bill detail,
+                               # lab orders, lab results, TPA claims + detail, secure messages + thread
+    prescriptions/             # Refill requests
+    profile/                   # ProfileSetupScreen, ProfileEditScreen, AddDependentScreen
+    records/                   # Redirects to your_health (Hospital Docs tab)
+    settings/                  # Theme, language, font size, biometrics (controller + section widgets)
+    splash/                    # Splash screen — hydrates UserProvider, routes on auth state
+    steps/                     # Step Challenge: GPS/pedometer walk, history, leaderboard, rewards
     trivia/                    # Health trivia
-    your_health/
-      screens/your_health_screen.dart   # Tab coordinator (6 tabs) + Health Records tab
-      widgets/
-        prescriptions_tab.dart          # Prescription list, detail sheet, order medicines
-        consultations_tab.dart          # Consultation list with doctor/diagnosis
-        health_summary_tab.dart         # Summary, allergies, conditions
-        hospital_documents_tab.dart     # Hospital records using shared RecordCard
-        my_uploads_tab.dart             # User uploads with CRUD + upload sheet
-        record_card.dart                # Shared record card widget
+    vitals/                    # Log vitals + vitals history (two tab widgets)
+    your_health/               # 6-tab hub: prescriptions, consultations, summary, docs, uploads, records
   gen/                         # flutter_gen asset/font accessors (auto-generated)
   generated/                   # Generated l10n files (auto-generated)
   l10n/                        # ARB localisation source files + extensions
@@ -120,7 +112,7 @@ lib/
 - **ApiConfig** lives in `vhhealth_core` — re-exported by `lib/core/config/api_config.dart`. Base URL: `https://api.vhhealth.app/api/v1`
 - **BackendApiService** is the only service that does NOT use ApiClient (it handles unauthenticated login requests)
 - **DataStateBuilder** (`lib/core/widgets/data_state_builder.dart`) eliminates loading/error/empty boilerplate across screens
-- **UserProvider** holds user phone/name in the Provider tree — AppRouter reads from it via `context.read<UserProvider>()` with static fallback for backward compat
+- **UserProvider** is the single source of truth for the signed-in patient's identity (phone/name). The splash screen hydrates it from secure storage before navigating off; route-level screens read it via `context.read<UserProvider>()` instead of taking `phone`/`name` constructor params, and the router does not thread identity into builders. `UserProvider.instance` exposes the live provider to context-free service code (logout, the 401 handler in `main.dart`).
 - **SOS services** (`sos_api_service.dart`) throw `SosException` on critical failures (triggerAlert, cancelAlert) so callers can show user feedback — SOS must never fail silently
 - **Firebase OTP** is the only patient auth mechanism — no username/password
 - **ShellRoute** wraps the 4 bottom-nav tabs (Home, Health, Notifications, Settings); feature screens render full-screen outside the shell
@@ -158,15 +150,18 @@ final response = await ApiClient.multipart('/upload',
 7. All subsequent API calls include `Authorization: Bearer <jwt>` (handled by ApiClient)
 
 ## Routes
+Identity is read from `UserProvider`, so no route passes `phone`/`name`.
+Builders are param-free unless noted.
+
 | Path | Screen | Shell? |
 |------|--------|--------|
 | `/` | SplashScreen | No |
 | `/login` | LoginScreen | No |
 | `/terms` | TermsDisclaimerScreen | No |
-| `/profile-setup` | ProfileSetupScreen | No |
+| `/profile-setup` | ProfileSetupScreen (phone via `state.extra`) | No |
 | `/profile-edit` | ProfileEditScreen | No |
 | `/home` | DashboardScreen | Yes (bottom nav) |
-| `/health` | YourHealthScreen | Yes (bottom nav) |
+| `/health` | YourHealthScreen (`initialTab` via `state.extra`) | Yes (bottom nav) |
 | `/notifications` | NotificationsScreen | Yes (bottom nav) |
 | `/settings` | SettingsScreen | Yes (bottom nav) |
 | `/appointments` | AppointmentsScreen | No |
@@ -178,12 +173,25 @@ final response = await ApiClient.multipart('/upload',
 | `/trivia` | TriviaScreen | No |
 | `/departments` | DepartmentsScreen | No |
 | `/about-us` | AboutUsScreen | No |
+| `/chatbot` | SymptomCheckerScreen | No |
 | `/calendar` | CalendarScreen | No |
 | `/steps` | StepChallengeScreen | No |
 | `/vitals` | VitalsScreen | No |
 | `/refill` | RefillScreen | No |
 | `/family` | FamilyScreen | No |
+| `/add-dependent` | AddDependentScreen | No |
+| `/reminders` | MedicationRemindersScreen | No |
 | `/abdm` | AbdmScreen | No |
+| `/health-points` | HealthPointsScreen | No |
+| `/portal/bills` | BillsScreen | No |
+| `/portal/bills/:id` | BillDetailScreen | No |
+| `/portal/lab-orders` | LabOrdersScreen | No |
+| `/portal/lab-results` | LabResultsScreen | No |
+| `/portal/maternity/timeline` | AncTimelineScreen | No |
+| `/portal/tpa/claims` | TpaClaimsScreen | No |
+| `/portal/tpa/claims/:id` | TpaClaimDetailScreen | No |
+| `/portal/messages` | MessagesScreen | No |
+| `/portal/messages/:id` | MessageThreadScreen | No |
 | `/records` → `/health` | Redirect | — |
 | `/your-health` → `/health` | Redirect | — |
 | `/dashboard` → `/home` | Redirect | — |
@@ -283,6 +291,18 @@ final response = await ApiClient.multipart('/upload',
 | Heartbeat | `/devices/heartbeat` | POST |
 | Update token | `/devices/update-token` | POST |
 | Unregister | `/devices/unregister` | DELETE |
+| **Patient portal** (Sprint 10) | | |
+| Bills list / detail | `/portal/bills`, `/portal/bills/:id` | GET |
+| Lab orders | `/portal/lab-orders` | GET |
+| Lab results | `/portal/lab-results` | GET |
+| TPA claims / detail | `/portal/tpa/claims`, `/portal/tpa/claims/:id` | GET |
+| Secure messages / thread | `/portal/messages`, `/portal/messages/:id` | GET |
+| Mark thread read | `/portal/messages/:id/read` | POST |
+| **Maternity** | | |
+| ANC timeline | `/portal/maternity/timeline` | GET |
+| **Gamification** | | |
+| Health-points summary | `/gamification/summary` | GET |
+| Health-points milestones | `/gamification/milestones` | GET |
 
 ## CI/CD
 GitHub Actions workflows at the monorepo root:
@@ -331,7 +351,7 @@ The five separate source repos these were merged from are archived on GitHub as 
 - Dead code files have `.dead` extension (not deleted, for reference)
 - `FeatureScreenScaffold` requires `icon`, `color`, and `child` parameters
 - Route navigation: use `context.go('/path')` for tab switches, `context.push('/path')` for feature screens
-- User phone/name: prefer `context.read<UserProvider>()` in widgets; `AppRouter._phone(context)` in route builders
+- User phone/name: read from `context.read<UserProvider>()` — route-level screens do not take `phone`/`name` constructor params, and the router does not thread them into builders. Pre-login screens that genuinely receive data via `state.extra` (OTP widgets, `ProfileSetupScreen`) keep their params
 - Always check `mounted` before `setState` after any `await`
 - Use theme colors (`theme.colorScheme.*`) instead of hardcoded `Colors.*` for dark mode support
 - Debounce search inputs (300ms) to avoid excessive rebuilds
