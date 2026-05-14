@@ -623,12 +623,18 @@ export const getPrescription = async (req, res) => {
       }
     }
 
-    // Sign URLs
+    // Sign URLs — pass the request-derived baseUrl so the pdf/photo URL
+    // points back at whatever host the client actually used. Without this
+    // the URL falls back to PUBLIC_BASE_URL (default `localhost:5000`),
+    // which is the wrong port in the QA env and the wrong host on a
+    // patient phone. Finding:
+    // 2026-05-09-follow-up-opd-patient-pdf-url-wrong-base.
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
     if (rx.pdf_key) {
-      try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key); } catch (e) { logger.warn('Signed URL generation failed for PDF:', e.message); }
+      try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key, 3600, { baseUrl }); } catch (e) { logger.warn('Signed URL generation failed for PDF:', e.message); }
     }
     if (rx.handwritten_photo_key) {
-      try { rx.handwritten_photo_url = await getSignedFileUrl(rx.handwritten_photo_key); } catch (e) { logger.warn('Signed URL generation failed for handwritten photo:', e.message); }
+      try { rx.handwritten_photo_url = await getSignedFileUrl(rx.handwritten_photo_key, 3600, { baseUrl }); } catch (e) { logger.warn('Signed URL generation failed for handwritten photo:', e.message); }
     }
 
     success(res, rx, 'Prescription detail');
@@ -644,6 +650,15 @@ export const getPrescription = async (req, res) => {
 export const getPrescriptionByAppointment = async (req, res) => {
   try {
     const { appointmentId } = req.params;
+    // Cast the bound param to int — Postgres won't auto-coerce when the
+    // route param arrives as text and the column is integer, surfacing as
+    // a generic 500 even when no row exists. Parse + reject malformed ids
+    // up front and use `$1::int` so the operator matches `appointment_id`.
+    // Finding: 2026-05-09-follow-up-opd-patient-prescription-by-appointment-500.
+    const apptIdInt = parseInt(appointmentId, 10);
+    if (!Number.isInteger(apptIdInt) || apptIdInt <= 0) {
+      return error(res, 'appointmentId must be a positive integer', HTTP_STATUS.BAD_REQUEST);
+    }
     const result = await prisma.$queryRawUnsafe(
       `SELECT ep.*,
               p.name AS patient_name, p.phone AS patient_phone,
@@ -652,9 +667,9 @@ export const getPrescriptionByAppointment = async (req, res) => {
        JOIN users p ON p.id = ep.patient_id
        JOIN users d ON d.id = ep.doctor_id
        LEFT JOIN doctors doc ON doc.user_id = ep.doctor_id
-       WHERE ep.appointment_id = $1
+       WHERE ep.appointment_id = $1::int
        ORDER BY ep.created_at DESC LIMIT 1`,
-      appointmentId
+      apptIdInt
     );
     if (result.length === 0) {
       return error(res, 'No prescription found for this appointment', HTTP_STATUS.NOT_FOUND);
@@ -662,7 +677,8 @@ export const getPrescriptionByAppointment = async (req, res) => {
 
     const rx = result[0];
     if (rx.pdf_key) {
-      try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key); } catch (e) { logger.warn('Signed URL generation failed for PDF:', e.message); }
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key, 3600, { baseUrl }); } catch (e) { logger.warn('Signed URL generation failed for PDF:', e.message); }
     }
 
     success(res, rx, 'Prescription for appointment');
@@ -693,10 +709,14 @@ export const getMyPrescriptions = async (req, res) => {
       userId
     );
 
-    // Sign PDF URLs
+    // Sign PDF URLs — pass request-derived baseUrl so the patient app
+    // can fetch the PDF from the host it actually reached the API on
+    // (not the hardcoded PUBLIC_BASE_URL fallback). Same finding as
+    // getPrescriptionByAppointment above.
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
     for (const rx of result) {
       if (rx.pdf_key) {
-        try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key); } catch (e) { logger.warn('Signed URL generation failed for PDF:', e.message); }
+        try { rx.pdf_url = await getSignedFileUrl(rx.pdf_key, 3600, { baseUrl }); } catch (e) { logger.warn('Signed URL generation failed for PDF:', e.message); }
       }
     }
 
@@ -964,7 +984,8 @@ export const downloadPrescriptionPDF = async (req, res) => {
       return error(res, 'PDF not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    const url = await getSignedFileUrl(result[0].pdf_key);
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const url = await getSignedFileUrl(result[0].pdf_key, 3600, { baseUrl });
     success(res, { url }, 'PDF URL');
   } catch (err) {
     logger.error('Download prescription PDF error:', err);

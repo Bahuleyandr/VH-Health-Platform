@@ -243,7 +243,18 @@ export class UserService {
     const conditions = [];
 
     if (role) {
-      conditions.push(Prisma.sql`u.role = ${role.toUpperCase()}`);
+      const upper = role.toUpperCase();
+      // For DOCTOR, accept either users.role='DOCTOR' OR a present, active
+      // doctors row. Some seeded clinicians have users.role='PATIENT' with
+      // their actual identity in the `doctors` table — without this branch
+      // the receptionist's `/users?role=DOCTOR` lookup omits most of the
+      // active roster, breaking paediatric/ANC handoff. Finding:
+      // 2026-05-09-pediatric-opd-receptionist-no-paediatric-doctor-in-users-api.
+      if (upper === 'DOCTOR') {
+        conditions.push(Prisma.sql`(u.role = 'DOCTOR' OR (d.id IS NOT NULL AND d.is_active = true))`);
+      } else {
+        conditions.push(Prisma.sql`u.role = ${upper}`);
+      }
     }
 
     // Receptionist duplicate-detection lookup. Match both the E.164 form
