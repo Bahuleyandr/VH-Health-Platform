@@ -450,9 +450,14 @@ class _LabBookingsScreenState extends State<LabBookingsScreen>
                   onPressed: _showCreateBookingDialog,
                   icon: const Icon(Icons.add, color: Colors.white),
                   label: const Text('New'),
+                  // The app theme gives ElevatedButton a full-width
+                  // (double.infinity) minimumSize — right for buttons stacked
+                  // in a Column, but it forces an infinite width inside this
+                  // header Row and crashes layout. Override to size-to-content.
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.primaryBlue,
                     foregroundColor: Colors.white,
+                    minimumSize: const Size(0, 44),
                   ),
                 ),
               ],
