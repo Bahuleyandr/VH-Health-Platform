@@ -186,7 +186,69 @@ export function computePercentile({ sex, ageInDays, metric, value } = {}) {
   };
 }
 
+// Map a free-text users.gender value to the M/F the WHO tables key on.
+// Returns null for anything we can't confidently classify (intersex,
+// 'unknown', empty) — the caller then skips percentile computation
+// rather than guessing a cohort.
+export function normaliseSex(gender) {
+  if (!gender) return null;
+  const g = String(gender).trim().toLowerCase();
+  if (g === 'm' || g === 'male') return 'M';
+  if (g === 'f' || g === 'female') return 'F';
+  return null;
+}
+
+// Whole days between a date of birth and `asOf` (default now). Returns
+// null for a missing / unparseable / future DOB so a caller can treat
+// the percentile as simply unavailable rather than erroring.
+export function ageInDaysFrom(birthday, asOf = new Date()) {
+  if (!birthday) return null;
+  const dob = birthday instanceof Date ? birthday : new Date(birthday);
+  if (!Number.isFinite(dob.getTime())) return null;
+  const days = Math.floor((asOf.getTime() - dob.getTime()) / 86400000);
+  return days >= 0 ? days : null;
+}
+
+/**
+ * Given a patient's sex + DOB and a freshly-recorded weight / height,
+ * compute the WHO growth percentiles for whichever measurements are
+ * present. This is the wiring that lets the vitals recording flow
+ * surface percentiles inline instead of forcing a separate
+ * POST /clinical/assessments/growth call. Findings:
+ *   2026-05-09-pediatric-opd-nurse-growth-chart-not-linked-to-vitals
+ *   2026-05-11-pediatric-opd-nurse-4354eb08
+ *
+ * Returns null when the cohort can't be resolved — no DOB/sex on file,
+ * an age outside the embedded WHO 0-5 table, or no usable measurement —
+ * so callers can treat the growth block as best-effort and never block
+ * the vitals save on it.
+ *
+ * @returns {{ sex, age_in_days, reference_dataset, metrics } | null}
+ */
+export function computeGrowthSnapshot({ gender, birthday, weightKg, heightCm, asOf } = {}) {
+  const sex = normaliseSex(gender);
+  const ageInDays = ageInDaysFrom(birthday, asOf instanceof Date ? asOf : new Date());
+  if (!sex || ageInDays == null) return null;
+
+  const metrics = {};
+  for (const [metric, value] of [['weight_kg', weightKg], ['height_cm', heightCm]]) {
+    if (value === null || value === undefined || value === '') continue;
+    try {
+      const r = computePercentile({ sex, ageInDays, metric, value: Number(value) });
+      if (r && r.percentile != null) metrics[metric] = r;
+    } catch (_e) {
+      // A bad single measurement (negative, non-numeric) shouldn't sink
+      // the other metric or the vitals save — skip it.
+    }
+  }
+  if (Object.keys(metrics).length === 0) return null;
+  return { sex, age_in_days: ageInDays, reference_dataset: 'WHO_0_5', metrics };
+}
+
 export default {
   computeZScoreLMS,
   computePercentile,
+  normaliseSex,
+  ageInDaysFrom,
+  computeGrowthSnapshot,
 };
