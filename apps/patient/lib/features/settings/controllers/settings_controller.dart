@@ -1,7 +1,7 @@
-// setttings_controller.dart
+// settings_controller.dart
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:vhhealth/core/navigation/app_router.dart';
+import 'package:provider/provider.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -10,6 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import 'package:vhhealth/core/providers/language_provider.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
+import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/device_service.dart';
 import 'package:vhhealth/core/services/firebase_session_service.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
@@ -37,10 +38,9 @@ class SettingsController {
 
   bool _initialized = false;
 
-  // ✅ Fixed: Removed context from constructor
+  // Context is passed later via initialize() — not the constructor.
   SettingsController(this.phone, this.name, this.refresh);
 
-  // ✅ Fixed: Pass context when actually needed
   void initialize(BuildContext ctx) {
     if (_initialized) return;
     context = ctx;
@@ -185,8 +185,8 @@ class SettingsController {
       }
       await _secureStorage.deleteAll();
       await FirebaseAuth.instance.signOut();
-      AppRouter.clearUserData();
       if (context.mounted) {
+        context.read<UserProvider>().clear();
         context.go('/login');
       }
     }

@@ -9,12 +9,13 @@ import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/features/departments/widgets/departments_empty_state.dart';
+import 'package:vhhealth/features/departments/widgets/doctor_card.dart';
+import 'package:vhhealth/features/departments/widgets/doctor_detail_sheet.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 class DepartmentsScreen extends StatefulWidget {
-  final String phone;
-  final String? name;
-  const DepartmentsScreen({super.key, required this.phone, this.name});
+  const DepartmentsScreen({super.key});
 
   @override
   State<DepartmentsScreen> createState() => _DepartmentsScreenState();
@@ -144,266 +145,19 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
   }
 
   void _showDoctorDetail(Map<String, dynamic> doctor, String deptName) {
-    final cs = _theme.colorScheme;
-    final qualifications = doctor['qualifications'] as List<dynamic>? ?? [];
-    final availDays = doctor['available_days'] as List<dynamic>? ?? [];
-    final availHours = doctor['available_hours'] as Map<String, dynamic>? ?? {};
-    final fee = doctor['consultation_fee'];
-    final exp = doctor['experience_years'];
-    final bio = doctor['bio'] as String? ?? '';
-    final education = doctor['education'] as String? ?? '';
     final docName = (doctor['name'] ?? _loc.departmentsDoctor).toString();
-
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.75,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        builder: (_, controller) => Container(
-          decoration: BoxDecoration(
-            color: _theme.scaffoldBackgroundColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: ListView(
-            controller: controller,
-            padding: const EdgeInsets.all(20),
-            children: [
-              // Handle
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: cs.onSurface.withAlpha(51),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              // Avatar + Name
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 36,
-                    backgroundColor: cs.primaryContainer,
-                    child: Icon(
-                      Icons.person,
-                      size: 36,
-                      color: cs.onPrimaryContainer,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          docName,
-                          style: _theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          doctor['specialization']?.toString() ?? '',
-                          style: _theme.textTheme.bodyMedium?.copyWith(
-                            color: cs.primary,
-                          ),
-                        ),
-                        Text(
-                          deptName,
-                          style: _theme.textTheme.bodySmall?.copyWith(
-                            color: cs.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Quick stats
-              Row(
-                children: [
-                  if (exp != null)
-                    _StatChip(
-                      icon: Icons.work_outline,
-                      label: '$exp yrs',
-                      theme: _theme,
-                    ),
-                  if (fee != null)
-                    _StatChip(
-                      icon: Icons.currency_rupee,
-                      label: '₹$fee',
-                      theme: _theme,
-                    ),
-                  if (_isDoctorAvailableToday(doctor))
-                    _StatChip(
-                      icon: Icons.check_circle,
-                      label: 'Available Today',
-                      theme: _theme,
-                      isGreen: true,
-                    ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Bio
-              if (bio.isNotEmpty) ...[
-                Text(
-                  'About',
-                  style: _theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(bio, style: _theme.textTheme.bodyMedium),
-                const SizedBox(height: 16),
-              ],
-
-              // Education
-              if (education.isNotEmpty) ...[
-                Text(
-                  'Education',
-                  style: _theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(education, style: _theme.textTheme.bodyMedium),
-                const SizedBox(height: 16),
-              ],
-
-              // Qualifications
-              if (qualifications.isNotEmpty) ...[
-                Text(
-                  'Qualifications',
-                  style: _theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: qualifications
-                      .map(
-                        (q) => Chip(
-                          label: Text(
-                            q.toString(),
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
-                          visualDensity: VisualDensity.compact,
-                          backgroundColor: cs.secondaryContainer,
-                          labelStyle: TextStyle(color: cs.onSecondaryContainer),
-                        ),
-                      )
-                      .toList(),
-                ),
-                const SizedBox(height: 16),
-              ],
-
-              // Schedule
-              if (availDays.isNotEmpty) ...[
-                Text(
-                  'Schedule',
-                  style: _theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                ...availDays.map((day) {
-                  final dayStr = day.toString();
-                  final h = availHours[dayStr] as Map<String, dynamic>?;
-                  final timeStr = h != null
-                      ? '${h['start']} – ${h['end']}'
-                      : '';
-                  final isToday = dayStr == _getTodayName();
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 90,
-                          child: Text(
-                            dayStr,
-                            style: _theme.textTheme.bodySmall?.copyWith(
-                              fontWeight: isToday
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                              color: isToday ? cs.primary : cs.onSurface,
-                            ),
-                          ),
-                        ),
-                        Text(
-                          timeStr,
-                          style: _theme.textTheme.bodySmall?.copyWith(
-                            color: isToday ? cs.primary : cs.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }),
-                const SizedBox(height: 16),
-              ],
-
-              // Consultation fee
-              if (fee != null)
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: cs.primaryContainer.withAlpha(51),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        AppLocalizations.of(
-                          context,
-                        )!.departmentsConsultationFee,
-                        style: _theme.textTheme.bodyMedium,
-                      ),
-                      Text(
-                        '₹$fee',
-                        style: _theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: cs.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              const SizedBox(height: 20),
-
-              // Book button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.of(ctx).pop();
-                    _bookDoctor(deptName, docName);
-                  },
-                  icon: const Icon(Icons.calendar_today),
-                  label: Text(_loc.departmentsBook),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+      builder: (ctx) => DoctorDetailSheet(
+        doctor: doctor,
+        deptName: deptName,
+        isAvailableToday: _isDoctorAvailableToday(doctor),
+        onBook: () {
+          Navigator.of(ctx).pop();
+          _bookDoctor(deptName, docName);
+        },
       ),
     );
   }
@@ -499,7 +253,11 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
                   color: cs.primary,
                   backgroundColor: _theme.scaffoldBackgroundColor,
                   child: filtered.isEmpty
-                      ? _EmptyState(loc: _loc, colorScheme: cs, theme: _theme)
+                      ? DepartmentsEmptyState(
+                          loc: _loc,
+                          colorScheme: cs,
+                          theme: _theme,
+                        )
                       : ListView.builder(
                           padding: const EdgeInsets.only(bottom: 80),
                           itemCount: filtered.length,
@@ -645,7 +403,7 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
                                       ]
                                     : doctors
                                           .map(
-                                            (d) => _DoctorCard(
+                                            (d) => DoctorCard(
                                               doctor: d as Map<String, dynamic>,
                                               deptName: deptName,
                                               theme: _theme,
@@ -672,279 +430,6 @@ class _DepartmentsScreenState extends State<DepartmentsScreen> {
             ],
           );
         },
-      ),
-    );
-  }
-}
-
-class _DoctorCard extends StatelessWidget {
-  final Map<String, dynamic> doctor;
-  final String deptName;
-  final ThemeData theme;
-  final AppLocalizations loc;
-  final bool isAvailableToday;
-  final VoidCallback onTap;
-  final VoidCallback onBook;
-
-  const _DoctorCard({
-    required this.doctor,
-    required this.deptName,
-    required this.theme,
-    required this.loc,
-    required this.isAvailableToday,
-    required this.onTap,
-    required this.onBook,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = theme.colorScheme;
-    final docName = (doctor['name'] ?? loc.departmentsDoctor).toString();
-    final specialization = (doctor['specialization'] ?? '').toString();
-    final exp = doctor['experience_years'];
-    final fee = doctor['consultation_fee'];
-    final qualifications = doctor['qualifications'] as List<dynamic>? ?? [];
-
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Avatar
-            CircleAvatar(
-              radius: 24,
-              backgroundColor: cs.secondaryContainer,
-              foregroundColor: cs.onSecondaryContainer,
-              child: const Icon(Icons.person_outline, size: 24),
-            ),
-            const SizedBox(width: 12),
-            // Info
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Name + availability badge
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          docName,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      if (isAvailableToday) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withAlpha(25),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: Colors.green.withAlpha(100),
-                            ),
-                          ),
-                          child: const Text(
-                            'Available',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.green,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  // Specialization
-                  if (specialization.isNotEmpty)
-                    Text(
-                      specialization,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: cs.primary,
-                      ),
-                    ),
-                  const SizedBox(height: 4),
-                  // Experience + fee
-                  Row(
-                    children: [
-                      if (exp != null) ...[
-                        Icon(
-                          Icons.work_outline,
-                          size: 12,
-                          color: cs.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 3),
-                        Text(
-                          '$exp yrs',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: cs.onSurfaceVariant,
-                            fontSize: 11,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                      ],
-                      if (fee != null) ...[
-                        Icon(
-                          Icons.currency_rupee,
-                          size: 12,
-                          color: cs.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          '₹$fee',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: cs.onSurfaceVariant,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  // Qualification chips
-                  if (qualifications.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Wrap(
-                        spacing: 4,
-                        runSpacing: 4,
-                        children: qualifications
-                            .take(4)
-                            .map(
-                              (q) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: cs.surfaceContainerHighest,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  q.toString(),
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: cs.onSurfaceVariant,
-                                  ),
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            // Book button
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: SizedBox(
-                height: 32,
-                child: ElevatedButton(
-                  onPressed: onBook,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    textStyle: const TextStyle(fontSize: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: Text(loc.departmentsBook),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _StatChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final ThemeData theme;
-  final bool isGreen;
-
-  const _StatChip({
-    required this.icon,
-    required this.label,
-    required this.theme,
-    this.isGreen = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isGreen ? Colors.green : theme.colorScheme.primary;
-    return Container(
-      margin: const EdgeInsets.only(right: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withAlpha(20),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: color,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  final AppLocalizations loc;
-  final ColorScheme colorScheme;
-  final ThemeData theme;
-
-  const _EmptyState({
-    required this.loc,
-    required this.colorScheme,
-    required this.theme,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.list_alt_outlined,
-              size: 60,
-              color: colorScheme.onSurface.withAlpha(127),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              loc.departmentsNoneFound,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

@@ -3,7 +3,6 @@ import 'dart:developer' as developer;
 
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
-import 'package:vhhealth/core/navigation/app_router.dart';
 import 'package:vhhealth_core/config/api_config.dart';
 
 import 'package:flutter/cupertino.dart';
@@ -113,9 +112,9 @@ class _LoginFormState extends State<LoginForm> {
       await _secureStorage.write(key: 'isNewUser', value: isNewUser.toString());
 
       if (!mounted) return;
-      AppRouter.setUserData(phone, name);
-      // Sync UserProvider too — pages that read it directly (Your Health
-      // guest-gate) treat empty as "not logged in" otherwise.
+      // UserProvider is the single source of truth for identity — pages
+      // that read it directly (Your Health guest-gate) treat empty as
+      // "not logged in" otherwise.
       await context.read<UserProvider>().setUser(phone, name);
       if (!mounted) return;
       // /profile-setup needs the phone via state.extra so the form's
@@ -223,11 +222,10 @@ class _LoginFormState extends State<LoginForm> {
       }
 
       if (mounted) {
-        // Store user data before navigation
-        final phoneNumber = user.phoneNumber ?? '';
-        AppRouter.setUserData(phoneNumber, 'User');
-        // Sync UserProvider so guest-gated pages (Your Health) treat the
+        // Store user data before navigation. UserProvider is the single
+        // source of truth — guest-gated pages (Your Health) treat the
         // user as logged-in immediately, not "Guest".
+        final phoneNumber = user.phoneNumber ?? '';
         await context.read<UserProvider>().setUser(phoneNumber, 'User');
         if (!mounted) return;
 

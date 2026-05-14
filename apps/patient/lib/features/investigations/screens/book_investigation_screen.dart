@@ -1,3 +1,7 @@
+// Book-investigation wizard. This screen owns the form state and business
+// logic (catalog fetch, slip-photo capture, multipart submit); each of the
+// three Stepper steps + the success view render from features/
+// investigations/widgets/.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -10,6 +14,10 @@ import 'package:intl/intl.dart';
 
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/input_sanitizer.dart';
+import 'package:vhhealth/features/investigations/widgets/booking_success_view.dart';
+import 'package:vhhealth/features/investigations/widgets/book_investigation_step_choose.dart';
+import 'package:vhhealth/features/investigations/widgets/book_investigation_step_collection.dart';
+import 'package:vhhealth/features/investigations/widgets/book_investigation_step_review.dart';
 
 class BookInvestigationScreen extends StatefulWidget {
   const BookInvestigationScreen({super.key});
@@ -250,13 +258,12 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final l = AppLocalizations.of(context)!;
 
     return Scaffold(
       appBar: AppBar(title: Text(l.bookInvestigationTitle), elevation: 0),
       body: _bookingResult != null
-          ? _buildSuccessView(theme)
+          ? BookingSuccessView(bookingResult: _bookingResult!)
           : Stepper(
               currentStep: _currentStep,
               onStepContinue: () {
@@ -324,7 +331,40 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
                   state: _currentStep > 0
                       ? StepState.complete
                       : StepState.indexed,
-                  content: _buildStep1(theme),
+                  content: BookInvestigationStepChoose(
+                    loadingCatalog: _loadingCatalog,
+                    groupedCatalog: _groupedCatalog,
+                    selectedTestIds: _selectedTestIds,
+                    customTestController: _customTestController,
+                    slipPhoto: _slipPhoto,
+                    slipPhotoName: _slipPhotoName,
+                    estimatedCost: _estimatedCost,
+                    onSearchChanged: (v) {
+                      _searchDebounce?.cancel();
+                      _searchDebounce = Timer(
+                        const Duration(milliseconds: 300),
+                        () {
+                          if (mounted) setState(() => _searchQuery = v);
+                        },
+                      );
+                    },
+                    onTestToggle: (id, selected) {
+                      setState(() {
+                        if (selected == true) {
+                          _selectedTestIds.add(id);
+                        } else {
+                          _selectedTestIds.remove(id);
+                        }
+                      });
+                    },
+                    onCustomTestChanged: () => setState(() {}),
+                    onPickCamera: _pickSlipPhoto,
+                    onPickGallery: _pickSlipFromGallery,
+                    onRemoveSlip: () => setState(() {
+                      _slipPhoto = null;
+                      _slipPhotoName = null;
+                    }),
+                  ),
                 ),
                 Step(
                   title: Text(l.bookInvestigationStepCollection),
@@ -337,476 +377,42 @@ class _BookInvestigationScreenState extends State<BookInvestigationScreen> {
                   state: _currentStep > 1
                       ? StepState.complete
                       : StepState.indexed,
-                  content: _buildStep2(theme),
+                  content: BookInvestigationStepCollection(
+                    collectionType: _collectionType,
+                    addressController: _addressController,
+                    landmarkController: _landmarkController,
+                    notesController: _notesController,
+                    preferredDate: _preferredDate,
+                    preferredTimeSlot: _preferredTimeSlot,
+                    timeSlots: _timeSlots,
+                    timeSlotLabels: _timeSlotLabels,
+                    onCollectionTypeChanged: (v) =>
+                        setState(() => _collectionType = v),
+                    onAddressChanged: () => setState(() {}),
+                    onDatePicked: (d) => setState(() => _preferredDate = d),
+                    onTimeSlotChanged: (s) =>
+                        setState(() => _preferredTimeSlot = s),
+                  ),
                 ),
                 Step(
                   title: Text(l.bookInvestigationStepReview),
                   isActive: _currentStep >= 2,
                   state: StepState.indexed,
-                  content: _buildStep3(theme),
-                ),
-              ],
-            ),
-    );
-  }
-
-  // ─── Step 1: Choose Tests ───────────────────────────────────────────
-
-  Widget _buildStep1(ThemeData theme) {
-    final l = AppLocalizations.of(context)!;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Search
-        TextField(
-          decoration: InputDecoration(
-            hintText: 'Search tests...',
-            prefixIcon: const Icon(Icons.search),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            isDense: true,
-          ),
-          onChanged: (v) {
-            _searchDebounce?.cancel();
-            _searchDebounce = Timer(const Duration(milliseconds: 300), () {
-              if (mounted) setState(() => _searchQuery = v);
-            });
-          },
-        ),
-        const SizedBox(height: 12),
-
-        // Test catalog
-        if (_loadingCatalog)
-          const Center(child: CircularProgressIndicator())
-        else ...[
-          ..._groupedCatalog.entries.map((entry) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text(
-                    entry.key.toUpperCase(),
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                ...entry.value.map((test) {
-                  final id = test['id'] as int;
-                  final selected = _selectedTestIds.contains(id);
-                  final cost = test['default_cost'] ?? 0;
-                  return CheckboxListTile(
-                    value: selected,
-                    onChanged: (v) {
-                      setState(() {
-                        if (v == true) {
-                          _selectedTestIds.add(id);
-                        } else {
-                          _selectedTestIds.remove(id);
-                        }
-                      });
-                    },
-                    title: Text(test['name'] ?? ''),
-                    subtitle: Text(
-                      '₹$cost${test['requires_fasting'] == true ? ' • Fasting required' : ''}',
-                      style: TextStyle(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    controlAffinity: ListTileControlAffinity.leading,
-                  );
-                }),
-              ],
-            );
-          }),
-        ],
-
-        const Divider(height: 24),
-
-        // Custom test names
-        Text(l.bookInvestigationOrType, style: theme.textTheme.titleSmall),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _customTestController,
-          decoration: InputDecoration(
-            hintText: 'e.g. CBC, Sugar test, Thyroid',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            isDense: true,
-          ),
-          maxLines: 2,
-          onChanged: (_) => setState(() {}),
-        ),
-
-        const Divider(height: 24),
-
-        // Upload prescription slip
-        Text(
-          l.bookInvestigationOrUploadSlip,
-          style: theme.textTheme.titleSmall,
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            OutlinedButton.icon(
-              onPressed: _pickSlipPhoto,
-              icon: const Icon(Icons.camera_alt),
-              label: const Text('Camera'),
-            ),
-            const SizedBox(width: 8),
-            OutlinedButton.icon(
-              onPressed: _pickSlipFromGallery,
-              icon: const Icon(Icons.photo_library),
-              label: const Text('Gallery'),
-            ),
-          ],
-        ),
-        if (_slipPhoto != null) ...[
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Icon(Icons.check_circle, color: Colors.green, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  _slipPhotoName ?? 'Photo selected',
-                  style: theme.textTheme.bodySmall,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close, size: 18),
-                onPressed: () => setState(() {
-                  _slipPhoto = null;
-                  _slipPhotoName = null;
-                }),
-              ),
-            ],
-          ),
-        ],
-
-        // Estimated cost
-        if (_selectedTestIds.isNotEmpty) ...[
-          const Divider(height: 24),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  l.bookInvestigationEstimatedCost,
-                  style: theme.textTheme.titleSmall,
-                ),
-                Text(
-                  '₹${_estimatedCost.toStringAsFixed(0)}',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.primary,
+                  content: BookInvestigationStepReview(
+                    selectedTests: _catalog
+                        .where((t) => _selectedTestIds.contains(t['id']))
+                        .toList(),
+                    customTestNames: _customTestController.text.trim(),
+                    hasSlipPhoto: _slipPhoto != null,
+                    collectionType: _collectionType,
+                    collectionAddress: _addressController.text.trim(),
+                    preferredDate: _preferredDate,
+                    preferredTimeSlot: _preferredTimeSlot,
+                    estimatedCost: _estimatedCost,
                   ),
                 ),
               ],
             ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  // ─── Step 2: Collection Preference ──────────────────────────────────
-
-  Widget _buildStep2(ThemeData theme) {
-    final l = AppLocalizations.of(context)!;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Collection type
-        SegmentedButton<String>(
-          segments: [
-            ButtonSegment(
-              value: 'home',
-              label: Text(l.bookInvestigationHomeCollection),
-              icon: const Icon(Icons.home),
-            ),
-            ButtonSegment(
-              value: 'walk_in',
-              label: Text(l.bookInvestigationVisitLab),
-              icon: const Icon(Icons.local_hospital),
-            ),
-          ],
-          selected: {_collectionType},
-          onSelectionChanged: (v) => setState(() => _collectionType = v.first),
-        ),
-        const SizedBox(height: 16),
-
-        if (_collectionType == 'home') ...[
-          TextField(
-            controller: _addressController,
-            decoration: InputDecoration(
-              labelText: 'Collection Address *',
-              hintText: 'Enter your full address',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              isDense: true,
-            ),
-            maxLines: 2,
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _landmarkController,
-            decoration: InputDecoration(
-              labelText: 'Landmark',
-              hintText: 'Near/opposite...',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              isDense: true,
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
-
-        // Date picker
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.calendar_today),
-          title: Text(
-            _preferredDate != null
-                ? DateFormat('EEEE, d MMM yyyy').format(_preferredDate!)
-                : 'Preferred Date',
-          ),
-          subtitle: _preferredDate == null
-              ? Text(l.bookInvestigationTapToSelect)
-              : null,
-          onTap: () async {
-            final picked = await showDatePicker(
-              context: context,
-              initialDate: DateTime.now().add(const Duration(days: 1)),
-              firstDate: DateTime.now(),
-              lastDate: DateTime.now().add(const Duration(days: 30)),
-            );
-            if (picked != null) setState(() => _preferredDate = picked);
-          },
-        ),
-
-        // Time slot
-        const SizedBox(height: 8),
-        Text(
-          l.bookInvestigationPreferredTimeSlot,
-          style: theme.textTheme.titleSmall,
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          children: List.generate(_timeSlots.length, (i) {
-            final selected = _preferredTimeSlot == _timeSlots[i];
-            return ChoiceChip(
-              label: Text(_timeSlotLabels[i]),
-              selected: selected,
-              onSelected: (v) {
-                setState(() => _preferredTimeSlot = v ? _timeSlots[i] : null);
-              },
-            );
-          }),
-        ),
-
-        const SizedBox(height: 16),
-        TextField(
-          controller: _notesController,
-          decoration: InputDecoration(
-            labelText: 'Notes (optional)',
-            hintText: 'Any special instructions...',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            isDense: true,
-          ),
-          maxLines: 2,
-        ),
-      ],
-    );
-  }
-
-  // ─── Step 3: Review & Book ──────────────────────────────────────────
-
-  Widget _buildStep3(ThemeData theme) {
-    final l = AppLocalizations.of(context)!;
-    final selectedTests = _catalog
-        .where((t) => _selectedTestIds.contains(t['id']))
-        .toList();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          l.bookInvestigationReviewBooking,
-          style: theme.textTheme.titleMedium,
-        ),
-        const SizedBox(height: 12),
-
-        if (selectedTests.isNotEmpty) ...[
-          Text(
-            l.bookInvestigationSelectedTests,
-            style: theme.textTheme.titleSmall,
-          ),
-          ...selectedTests.map(
-            (t) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Row(
-                children: [
-                  const Icon(Icons.check, size: 16, color: Colors.green),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(t['name'] ?? '')),
-                  Text('₹${t['default_cost'] ?? 0}'),
-                ],
-              ),
-            ),
-          ),
-          const Divider(height: 16),
-        ],
-
-        if (_customTestController.text.trim().isNotEmpty) ...[
-          Text(
-            l.bookInvestigationCustomTests,
-            style: theme.textTheme.titleSmall,
-          ),
-          Text(_customTestController.text.trim()),
-          const Divider(height: 16),
-        ],
-
-        if (_slipPhoto != null) ...[
-          Row(
-            children: [
-              const Icon(Icons.photo, size: 16),
-              const SizedBox(width: 8),
-              Text(
-                l.bookInvestigationSlipAttached,
-                style: theme.textTheme.bodyMedium,
-              ),
-            ],
-          ),
-          const Divider(height: 16),
-        ],
-
-        // Collection info
-        Row(
-          children: [
-            Icon(
-              _collectionType == 'home' ? Icons.home : Icons.local_hospital,
-              size: 18,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              _collectionType == 'home'
-                  ? l.bookInvestigationHomeCollection
-                  : l.bookInvestigationVisitLab,
-              style: theme.textTheme.titleSmall,
-            ),
-          ],
-        ),
-        if (_collectionType == 'home' &&
-            _addressController.text.trim().isNotEmpty) ...[
-          const SizedBox(height: 4),
-          Text(
-            '📍 ${_addressController.text.trim()}',
-            style: theme.textTheme.bodySmall,
-          ),
-        ],
-        if (_preferredDate != null) ...[
-          const SizedBox(height: 4),
-          Text(
-            '📅 ${DateFormat('d MMM yyyy').format(_preferredDate!)}${_preferredTimeSlot != null ? ' • $_preferredTimeSlot' : ''}',
-            style: theme.textTheme.bodySmall,
-          ),
-        ],
-
-        if (_selectedTestIds.isNotEmpty) ...[
-          const Divider(height: 16),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  l.bookInvestigationEstimatedCost,
-                  style: theme.textTheme.titleSmall,
-                ),
-                Text(
-                  '₹${_estimatedCost.toStringAsFixed(0)}',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  // ─── Success View ───────────────────────────────────────────────────
-
-  Widget _buildSuccessView(ThemeData theme) {
-    final l = AppLocalizations.of(context)!;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.check_circle,
-              size: 80,
-              color: theme.colorScheme.primary,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              l.bookInvestigationBooked,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _bookingResult?['booking_number'] ?? '',
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            if (_bookingResult?['estimated_cost'] != null)
-              Text(
-                '${l.bookInvestigationEstimatedCost}: ₹${_bookingResult!['estimated_cost']}',
-                style: theme.textTheme.bodyLarge,
-              ),
-            const SizedBox(height: 16),
-            Text(
-              l.bookInvestigationConfirmationNote,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 32),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(l.bookInvestigationBackButton),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

@@ -1,5 +1,4 @@
 import 'package:go_router/go_router.dart';
-import 'package:vhhealth/core/navigation/app_router.dart';
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
@@ -19,6 +18,7 @@ import 'package:provider/provider.dart';
 import 'package:vhhealth/core/services/sos_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
+import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/features/dashboard/widgets/dashboard_header.dart';
 import 'package:vhhealth/features/dashboard/widgets/dashboard_section.dart';
 import 'package:vhhealth/features/dashboard/widgets/feature_grid.dart';
@@ -38,18 +38,7 @@ import 'package:vhhealth/features/dashboard/widgets/stats_strip.dart';
 import 'package:vhhealth/features/profile/widgets/profile_switcher.dart';
 
 class DashboardScreen extends StatefulWidget {
-  final String name;
-  final String phone;
-  final String? lastAppointment;
-  final String? nextAppointment;
-
-  const DashboardScreen({
-    super.key,
-    required this.name,
-    required this.phone,
-    this.lastAppointment,
-    this.nextAppointment,
-  });
+  const DashboardScreen({super.key});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -57,6 +46,8 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final _secureStorage = const FlutterSecureStorage();
+  late final String _phone;
+  late final String _name;
   String? lastAppointment;
   String? nextAppointment;
   String? cachedName;
@@ -96,10 +87,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    final user = context.read<UserProvider>();
+    _phone = user.phone;
+    _name = user.name;
     _features = _initializeFeatures();
-    lastAppointment = widget.lastAppointment;
-    nextAppointment = widget.nextAppointment;
-    cachedName = widget.name;
+    cachedName = _name;
 
     _connectivitySub = ConnectivityService.onChange.listen((isOnline) {
       if (isOnline && mounted) {
@@ -516,9 +508,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ]);
       if (mounted) {
         setState(() {
-          lastAppointment = results[0] ?? widget.lastAppointment;
-          nextAppointment = results[1] ?? widget.nextAppointment;
-          cachedName = results[2] ?? widget.name;
+          lastAppointment = results[0];
+          nextAppointment = results[1];
+          cachedName = results[2] ?? _name;
         });
       }
     } catch (e) {
@@ -541,14 +533,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final result = await ApiClient.cachedGet(
         '/dashboard',
-        queryParameters: {'phone': widget.phone},
+        queryParameters: {'phone': _phone},
         timeout: const Duration(seconds: 10),
       );
       if (!mounted) return;
 
       if (result.isSuccess) {
         final data = result.data ?? {};
-        final name = data['name'] ?? widget.name;
+        final name = data['name'] ?? _name;
         final last = data['lastAppointment'];
         final next = data['nextAppointment'];
         final nextDetail =
@@ -577,7 +569,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           if (!mounted) return;
           if (fresh.isSuccess) {
             final freshData = fresh.data ?? {};
-            final freshName = freshData['name'] ?? widget.name;
+            final freshName = freshData['name'] ?? _name;
             final freshLast = freshData['lastAppointment'];
             final freshNext = freshData['nextAppointment'];
             final nextDetail =
@@ -601,9 +593,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _openFeature(BuildContext context, String routeName) {
-    if (routeName == '/departments') {
-      AppRouter.setUserData(widget.phone, cachedName ?? widget.name);
-    }
     if (routeName == '/your-health') {
       context.push('/health');
     } else if (routeName == '/records') {
@@ -637,7 +626,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final nameToShow = cachedName ?? widget.name;
+    final nameToShow = cachedName ?? _name;
     final isGuest = nameToShow == 'Guest';
     final unread = !isGuest
         ? context.watch<NotificationProvider>().unreadCount

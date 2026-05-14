@@ -1,15 +1,16 @@
 import 'package:go_router/go_router.dart';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 class AskADoubtScreen extends StatefulWidget {
-  final String phone;
-  const AskADoubtScreen({super.key, required this.phone});
+  const AskADoubtScreen({super.key});
 
   @override
   State<AskADoubtScreen> createState() => _AskADoubtScreenState();
@@ -26,9 +27,9 @@ class _AskADoubtScreenState extends State<AskADoubtScreen> {
   @override
   void initState() {
     super.initState();
-    _isGuest =
-        widget.phone.toLowerCase() == 'guest' || widget.phone.trim().isEmpty;
-    _phoneController.text = _isGuest ? '' : widget.phone;
+    final phone = context.read<UserProvider>().phone;
+    _isGuest = phone.toLowerCase() == 'guest' || phone.trim().isEmpty;
+    _phoneController.text = _isGuest ? '' : phone;
   }
 
   @override

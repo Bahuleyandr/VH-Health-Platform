@@ -1,15 +1,14 @@
 // settings_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/features/settings/widgets/settings_sections.dart';
 import 'package:vhhealth/features/settings/controllers/settings_controller.dart';
 
 class SettingsScreen extends StatefulWidget {
-  final String phone;
-  final String name;
-
-  const SettingsScreen({super.key, required this.phone, required this.name});
+  const SettingsScreen({super.key});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -22,8 +21,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    // ✅ Fixed: No context passed to constructor
-    controller = SettingsController(widget.phone, widget.name, refresh);
+    // Context is passed to controller.initialize() later (see didChangeDependencies).
+    final user = context.read<UserProvider>();
+    controller = SettingsController(user.phone, user.name, refresh);
   }
 
   @override
