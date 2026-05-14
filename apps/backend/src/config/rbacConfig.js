@@ -7,7 +7,11 @@ import {
   LAB_STAFF,
   DOCTOR,
   GENERAL_STAFF,
-  HR_STAFF
+  HR_STAFF,
+  BILLING_STAFF,
+  INSURANCE_COORDINATOR,
+  ADMISSION_OFFICER,
+  IPD_COUNSELLOR
 } from '../utils/roles.js';
 
 export default {
@@ -35,8 +39,10 @@ export default {
   // Bell-icon endpoints — every authenticated user (patient + every staff
   // role) needs `GET /notifications/my`. Pharmacy/Lab/HR previously got
   // 403 because they weren't listed; the staff app shows a perpetual
-  // empty notifications panel until they're allowed.
-  notificationRoutes: [PATIENT, GENERAL_STAFF, ADMIN, DOCTOR, NURSING_STAFF, PHARMACY_STAFF, LAB_STAFF, HR_STAFF],
+  // empty notifications panel until they're allowed. Stage-5 added the
+  // billing / TPA / admission-counter desk roles — same treatment (the
+  // role-workflow sweep caught all four 403ing on /notifications/my).
+  notificationRoutes: [PATIENT, GENERAL_STAFF, ADMIN, DOCTOR, NURSING_STAFF, PHARMACY_STAFF, LAB_STAFF, HR_STAFF, BILLING_STAFF, INSURANCE_COORDINATOR, ADMISSION_OFFICER, IPD_COUNSELLOR],
   pharmacyRoutes: [PHARMACY_STAFF, NURSING_STAFF, DOCTOR, ADMIN],
   // If you use a separate key for /pharmacy-orders in wrappers:
   pharmacyOrdersRoutes: [PATIENT, PHARMACY_STAFF, NURSING_STAFF, DOCTOR, ADMIN],

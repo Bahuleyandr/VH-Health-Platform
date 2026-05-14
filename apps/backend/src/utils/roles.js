@@ -35,6 +35,12 @@ export const EMERGENCY_RESPONDER = 'EMERGENCY_RESPONDER';
 export const BILLING_STAFF        = 'BILLING_STAFF';
 export const INSURANCE_COORDINATOR = 'INSURANCE_COORDINATOR';
 
+// Admissions desk (Stage-5 — seeded by seed-test-staff-accounts.mjs;
+// already referenced by app.js CLINICAL_STAFF_ROLES + /ipd + /bed-inspections
+// route gates, but were missing from this constants file).
+export const ADMISSION_OFFICER    = 'ADMISSION_OFFICER';
+export const IPD_COUNSELLOR       = 'IPD_COUNSELLOR';
+
 // Quality & safety
 export const QUALITY_OFFICER          = 'QUALITY_OFFICER';
 export const INFECTION_CONTROL_OFFICER = 'INFECTION_CONTROL_OFFICER';
@@ -77,6 +83,8 @@ export const ALL_ROLES = [
   EMERGENCY_RESPONDER,
   BILLING_STAFF,
   INSURANCE_COORDINATOR,
+  ADMISSION_OFFICER,
+  IPD_COUNSELLOR,
   QUALITY_OFFICER,
   INFECTION_CONTROL_OFFICER,
   OT_STAFF,

@@ -146,12 +146,17 @@ router.post('/invoice/:id/payment', requireIdempotencyKey({ required: false, sco
 
 /**
  * GET /billing/revenue
- * Get revenue statistics (admin only)
+ * Get revenue statistics (admin + billing staff)
+ *
+ * BILLING_STAFF runs the cashier/collection desk and needs the daily
+ * revenue figures; the role-workflow sweep caught this route 403ing
+ * them because the guard was admin-only. INSURANCE_COORDINATOR is
+ * deliberately NOT added — that desk works claims, not collections.
  */
 router.get('/revenue', async (req, res, next) => {
   try {
-    if (!isAdmin(req.user?.role)) {
-      return error(res, 'Only admin can access revenue stats', 403);
+    if (!isAdmin(req.user?.role) && req.user?.role !== 'BILLING_STAFF') {
+      return error(res, 'Only admin or billing staff can access revenue stats', 403);
     }
 
     const { date_from, date_to } = req.query;
