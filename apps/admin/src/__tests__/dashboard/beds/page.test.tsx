@@ -29,6 +29,28 @@ describe("<BedsPage />", () => {
           { id: 2, bed_number: "B-102", status: "available", ward_id: 1, ward_name: "Ward A", patient_name: null },
         ] as never;
       }
+      // BedsPage gained an /beds/occupancy summary fetch (page.tsx:95-103);
+      // the component renders occupancy.overall.total behind a truthy
+      // `occupancy ?` guard, so a missing mock case fell through to the
+      // `return []` default and `[].overall.total` threw. Provide the
+      // real OccupancySummary shape, consistent with the 2 beds above.
+      if (!init && endpoint === "/beds/occupancy") {
+        return {
+          overall: {
+            total: 2,
+            occupied: 1,
+            available: 1,
+            reserved: 0,
+            maintenance: 0,
+            cleaning: 0,
+            occupancy_rate: 50,
+          },
+          by_ward: [
+            { ward_id: 1, ward_name: "Ward A", floor: 2, total: 2, occupied: 1, available: 1 },
+          ],
+          by_type: [],
+        } as never;
+      }
       if (!init && endpoint === "/wards") {
         return [{ id: 1, name: "Ward A", floor: 2 }] as never;
       }
@@ -46,32 +68,41 @@ describe("<BedsPage />", () => {
     await screen.findByText("B-101");
     expect(screen.getByText("B-102")).toBeInTheDocument();
 
+    // page.tsx renders the Status <select> first, the Ward <select>
+    // second — selects[0] is the status filter.
     const selects = screen.getAllByRole("combobox");
-    await user.selectOptions(selects[1], "occupied");
+    await user.selectOptions(selects[0], "occupied");
 
     expect(screen.getByText("B-101")).toBeInTheDocument();
     expect(screen.queryByText("B-102")).not.toBeInTheDocument();
   });
 
-  it("opens edit modal and saves updated status through PUT", async () => {
+  // BedsPage has no edit-status modal / Save button / PUT /beds/:id —
+  // the component drives status changes through per-bed action buttons
+  // (Admit / Transfer / Discharge / Ready) hitting POST endpoints. The
+  // old "edit modal + Save + PUT" test was written against a UI that no
+  // longer exists. This replacement exercises the real Discharge action
+  // on the seeded occupied bed (B-101): window.confirm → POST
+  // /beds/:id/discharge.
+  it("discharges an occupied bed through POST /beds/:id/discharge", async () => {
     const user = userEvent.setup();
-    renderWithQuery(<BedsPage />);
+    const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(true);
+    try {
+      renderWithQuery(<BedsPage />);
 
-    await screen.findByText("B-101");
-    await user.click(screen.getByText("B-101"));
+      await screen.findByText("B-101");
+      // B-101 is occupied → its tile exposes a "Discharge" button.
+      await user.click(screen.getByRole("button", { name: "Discharge" }));
 
-    await screen.findByRole("button", { name: "Save" });
-    const statusSelect = screen.getAllByRole("combobox")[2];
-    await user.selectOptions(statusSelect, "reserved");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => {
-      expect(mockedFetchAdminAPI).toHaveBeenCalledWith(
-        "/beds/1",
-        expect.objectContaining({
-          method: "PUT",
-        }),
-      );
-    });
+      await waitFor(() => {
+        expect(mockedFetchAdminAPI).toHaveBeenCalledWith(
+          "/beds/1/discharge",
+          expect.objectContaining({ method: "POST" }),
+        );
+      });
+      expect(confirmSpy).toHaveBeenCalled();
+    } finally {
+      confirmSpy.mockRestore();
+    }
   });
 });
