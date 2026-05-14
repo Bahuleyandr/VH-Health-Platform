@@ -1144,9 +1144,25 @@ export async function dailyCollection({ date, mode, shift, collected_by } = {}) 
   const target = date || new Date().toISOString().slice(0, 10);
   const params = [target];
   const where = [`DATE(collected_at AT TIME ZONE 'Asia/Kolkata') = $1::date`];
-  if (mode) { params.push(mode); where.push(`mode = $${params.length}`); }
-  if (shift) { params.push(shift); where.push(`shift = $${params.length}`); }
-  if (collected_by) { params.push(String(collected_by)); where.push(`collected_by = $${params.length}::uuid`); }
+  // bpWhere mirrors `where` with a `bp.` table alias for the insurer
+  // breakdown query below (which joins billing_payments to the claim
+  // tables). Same param positions — the two share `params`.
+  const bpWhere = [`DATE(bp.collected_at AT TIME ZONE 'Asia/Kolkata') = $1::date`];
+  if (mode) {
+    params.push(mode);
+    where.push(`mode = $${params.length}`);
+    bpWhere.push(`bp.mode = $${params.length}`);
+  }
+  if (shift) {
+    params.push(shift);
+    where.push(`shift = $${params.length}`);
+    bpWhere.push(`bp.shift = $${params.length}`);
+  }
+  if (collected_by) {
+    params.push(String(collected_by));
+    where.push(`collected_by = $${params.length}::uuid`);
+    bpWhere.push(`bp.collected_by = $${params.length}::uuid`);
+  }
 
   const items = await prisma.$queryRawUnsafe(
     `SELECT id, invoice_id, patient_uid, amount, mode, reference, denominations,
@@ -1166,7 +1182,57 @@ export async function dailyCollection({ date, mode, shift, collected_by } = {}) 
       ORDER BY net_amount DESC`,
     ...params,
   );
-  return { date: target, summary, items };
+
+  // Per-insurer breakdown for INSURANCE-mode payments. Finance reconciles
+  // end-of-day TPA credits against bank advice per insurer — the mode-only
+  // summary lumps every insurer into one bucket, which is unusable for
+  // that. Resolve the insurer per payment through the invoice, preferring
+  // the Sprint-5 tpa_claims surface and falling back to the legacy
+  // insurance_claims row. Finding:
+  // 2026-05-09-tpa-insurance-claim-billing-collection-no-insurer-breakdown
+  const insurer_breakdown = await prisma.$queryRawUnsafe(
+    `SELECT
+        COALESCE(ins.insurer, 'Unattributed') AS insurer,
+        ins.policy_number,
+        ins.claim_number,
+        COUNT(*)::int AS payment_count,
+        SUM(CASE WHEN bp.reversed THEN 0 ELSE bp.amount END)::numeric AS net_amount,
+        SUM(bp.amount)::numeric AS gross_amount
+       FROM billing_payments bp
+       LEFT JOIN LATERAL (
+         SELECT insurer, policy_number, claim_number
+           FROM (
+             SELECT 1 AS pri,
+                    COALESCE(py.display_name, t.display_name, 'Unknown insurer') AS insurer,
+                    ip.policy_number,
+                    tc.claim_number,
+                    tc.created_at AS ts
+               FROM tpa_claims tc
+               JOIN insurance_policies ip ON ip.id = tc.policy_id
+               LEFT JOIN payers py ON py.id = ip.payer_id
+               LEFT JOIN tpas t ON t.id = ip.tpa_id
+              WHERE tc.invoice_id = bp.invoice_id
+             UNION ALL
+             SELECT 2 AS pri,
+                    ic.insurance_provider AS insurer,
+                    ic.policy_number,
+                    ic.claim_number,
+                    ic.created_at AS ts
+               FROM insurance_claims ic
+              WHERE ic.invoice_id = bp.invoice_id
+           ) cand
+          ORDER BY pri, ts DESC
+          LIMIT 1
+       ) ins ON true
+      WHERE ${bpWhere.join(' AND ')}
+        AND bp.mode = 'INSURANCE'
+      GROUP BY COALESCE(ins.insurer, 'Unattributed'),
+               ins.policy_number, ins.claim_number
+      ORDER BY net_amount DESC`,
+    ...params,
+  );
+
+  return { date: target, summary, insurer_breakdown, items };
 }
 
 // ─── Wave-5 batch-3 — admission invoice auto-itemizer ─────────────────
