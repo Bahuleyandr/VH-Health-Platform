@@ -30,11 +30,62 @@ function normalizeRoute(raw) {
   return ROUTE_ALIASES[key] || key;
 }
 
+// Frequency-to-schedule expansion. Doctors store prescriptions with a
+// frequency string (e.g. "8-hourly", "BD") and a duration_days, but MAR
+// scheduling expects an explicit `scheduled_time` per dose. Without
+// server-side expansion the doctor or nurse had to compute every dose
+// timestamp by hand — at 30+ IPD patients per ward, a real source of
+// missed/double dosing. Finding:
+// 2026-05-09-inpatient-admission-doctor-mar-route-format-mismatch.
+const FREQUENCY_HOURLY_MAP = {
+  od: 24, 'once-daily': 24, 'once daily': 24, daily: 24, qd: 24, hs: 24,
+  bd: 12, bid: 12, 'twice-daily': 12, 'twice daily': 12, 'twice a day': 12, '12-hourly': 12,
+  tds: 8, tid: 8, 'three-times-daily': 8, '8-hourly': 8, 'every 8 hours': 8,
+  qid: 6, 'four-times-daily': 6, '6-hourly': 6, 'every 6 hours': 6,
+  q4h: 4, '4-hourly': 4, 'every 4 hours': 4,
+  q2h: 2, '2-hourly': 2, 'every 2 hours': 2,
+  q1h: 1, hourly: 1, 'every hour': 1,
+};
+
+function hoursForFrequency(raw) {
+  if (raw == null) return null;
+  const key = String(raw).trim().toLowerCase();
+  if (FREQUENCY_HOURLY_MAP[key] != null) return FREQUENCY_HOURLY_MAP[key];
+  const everyMatch = key.match(/^every\s+(\d+)\s*h/);
+  if (everyMatch) return Number(everyMatch[1]);
+  const hourlyMatch = key.match(/^(\d+)[-\s]?hourly$/);
+  if (hourlyMatch) return Number(hourlyMatch[1]);
+  return null;
+}
+
+// Expand a (frequency, start_time, duration_days) tuple into an array
+// of explicit scheduled_time ISO strings. Returns null when the
+// frequency is unrecognised — the caller falls back to requiring an
+// explicit scheduled_time so the error stays loud.
+function expandSchedule(frequency, startTime, durationDays) {
+  const interval = hoursForFrequency(frequency);
+  if (interval == null) return null;
+  const start = startTime ? new Date(startTime) : new Date();
+  if (Number.isNaN(start.getTime())) return null;
+  const days = Math.max(1, Math.min(Number(durationDays) || 1, 14));
+  const totalDoses = Math.ceil((days * 24) / interval);
+  const out = [];
+  for (let i = 0; i < totalDoses; i += 1) {
+    const t = new Date(start.getTime() + i * interval * 60 * 60 * 1000);
+    out.push(t.toISOString());
+  }
+  return out;
+}
+
 /**
  * Schedule medications for a patient.
  * @param {string} patientUid
  * @param {number|null} prescriptionId
  * @param {Array} medications - [{ medication_name, dose, route, scheduled_time, notes? }]
+ *   - `drug_name` is accepted as an alias for `medication_name` (prescriptions
+ *     use the same column name but some upstream callers send `drug_name`).
+ *   - When `scheduled_time` is omitted, the service expands `frequency` +
+ *     optional `start_time` + `duration_days` into an array of doses.
  * @returns {Array} Created medication_administration records
  */
 export async function scheduleMedications(patientUid, prescriptionId, medications) {
@@ -42,11 +93,38 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
     throw AppError.badRequest('At least one medication entry is required');
   }
 
+  // Expand frequency-only entries into a flat list of (medication, scheduled_time)
+  // tuples before the row-by-row write loop. Done up front so a malformed
+  // frequency surfaces as a single 400 instead of partial rows.
+  const expandedMeds = [];
+  for (const med of medications) {
+    const medicationName = med.medication_name || med.drug_name;
+    if (!medicationName) {
+      throw AppError.badRequest('Each medication must have medication_name (or drug_name)');
+    }
+    const base = { ...med, medication_name: medicationName };
+    if (med.scheduled_time) {
+      expandedMeds.push(base);
+      continue;
+    }
+    if (med.frequency) {
+      const times = expandSchedule(med.frequency, med.start_time, med.duration_days);
+      if (!times) {
+        throw AppError.badRequest(
+          `Cannot expand frequency "${med.frequency}". Supply explicit scheduled_time entries or use one of: OD, BD, TDS, QID, 8-hourly, 12-hourly, etc.`,
+        );
+      }
+      for (const t of times) expandedMeds.push({ ...base, scheduled_time: t });
+      continue;
+    }
+    expandedMeds.push(base);
+  }
+
   const results = [];
 
-  for (const med of medications) {
+  for (const med of expandedMeds) {
     if (!med.medication_name || !med.dose || !med.route || !med.scheduled_time) {
-      throw AppError.badRequest('Each medication must have medication_name, dose, route, and scheduled_time');
+      throw AppError.badRequest('Each medication must have medication_name (or drug_name), dose, route, and scheduled_time (or frequency)');
     }
 
     const normalizedRoute = normalizeRoute(med.route);
