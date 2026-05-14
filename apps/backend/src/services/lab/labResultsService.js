@@ -337,6 +337,7 @@ export async function recordResultManual({ tenantId, performed_by, result }) {
   const fields = [
     'booking_id', 'investigation_id', 'patient_uid', 'patient_name', 'loinc_code',
     'test_code', 'test_name', 'value_text', 'unit', 'reference_range',
+    'reference_range_low', 'reference_range_high',
     'abnormal_flag', 'status', 'comments',
   ];
   for (const f of ['patient_uid', 'test_code', 'test_name']) {
@@ -427,10 +428,12 @@ export async function recordResultManual({ tenantId, performed_by, result }) {
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO lab_results
       (booking_id, investigation_id, patient_uid, patient_name, loinc_code, test_code,
-       test_name, value_text, unit, reference_range, abnormal_flag,
-       status, comments, value_numeric, performed_by_lab, tenant_id)
-     VALUES ($1, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-             $13, $14::numeric, $15, $16::uuid)
+       test_name, value_text, unit, reference_range,
+       reference_range_low, reference_range_high,
+       abnormal_flag, status, comments, value_numeric, performed_by_lab, tenant_id)
+     VALUES ($1, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10,
+             $11::numeric, $12::numeric,
+             $13, $14, $15, $16::numeric, $17, $18::uuid)
      RETURNING *`,
     ...values,
   );
@@ -450,7 +453,25 @@ export async function recordResultManual({ tenantId, performed_by, result }) {
   }
 
   const alerts = await detectCriticalsForResults({ tenantId, results: [created] });
-  return { result: created, alerts };
+
+  // detectCriticalsForResults UPDATEs lab_results.is_critical as a side
+  // effect when a threshold breach fires. The `created` row returned
+  // here is the pre-update snapshot from the INSERT, so without re-
+  // reading it would expose is_critical=false to clients even when an
+  // alert just fired — a mobile app or QA tool inspecting `result.is_critical`
+  // alone would miss the panic value. Re-read so the response reflects
+  // post-detection state. Finding:
+  // 2026-05-09-obstetric-anc-lab-tech-critical-flag-stale-in-response.
+  let finalResult = created;
+  if (alerts.length > 0) {
+    const refreshed = await prisma.$queryRawUnsafe(
+      `SELECT * FROM lab_results WHERE id = $1::int LIMIT 1`,
+      created.id,
+    );
+    if (refreshed.length) finalResult = refreshed[0];
+  }
+
+  return { result: finalResult, alerts };
 }
 
 // ── Pathologist worklist ──────────────────────────────────────────────
@@ -618,6 +639,18 @@ export async function getResultsForPatient({
  * patients only. Joins investigations -> admissions(active) so the
  * lab tech sees only inpatients, not the OPD walk-ins. Finding:
  * 2026-05-08-inpatient-admission-lab-tech-ipd-orders-not-on-worklist.
+ *
+ * Excludes radiology orders — without the test_type filter the lab
+ * worklist surfaced ultrasounds/CT scans alongside CBC samples, forcing
+ * the lab tech to triage radiology work that wasn't theirs. Findings:
+ *   2026-05-10-inpatient-admission-lab-tech-ipd-worklist-includes-radiology
+ *   2026-05-12-dynamic-acute-abdomen-lab-tech-a1b49f2b
+ *
+ * COALESCEs bed_number from admissions.bed_number (legacy) → beds.bed_number
+ * (current source-of-truth, since IPD admit flow stores bed_id rather
+ * than the bed_number string). Without this the phlebotomist hit a
+ * null bed_number on the worklist even when bed assignment was complete.
+ * Finding: 2026-05-12-inpatient-admission-lab-tech-48e85048.
  */
 // TODO: tenantId is accepted but not yet scoped into the query — see
 // the in-flight finding about tenant isolation on lab worklists.
@@ -627,13 +660,19 @@ export async function listIpdLabWorklist({ tenantId: _tenantId, limit = 100 } = 
     `SELECT i.id, i.test_name, i.test_type, i.status, i.priority,
             i.requested_at, i.created_at,
             u.name AS patient_name, u.phone AS patient_phone, u.uid AS patient_uid,
-            a.id AS admission_id, a.ward, a.bed_number, a.room_category,
-            a.attending_doctor
+            a.id AS admission_id, a.ward,
+            COALESCE(a.bed_number, b.bed_number) AS bed_number,
+            a.bed_id, a.room_category, a.attending_doctor
        FROM investigations i
        JOIN users u ON u.id = i.patient_id
        JOIN admissions a ON a.patient_uid = u.uid
             AND a.status IN ('admitted', 'transferred')
+  LEFT JOIN beds b ON b.id = a.bed_id
       WHERE i.status NOT IN ('COMPLETED', 'CANCELLED')
+        AND UPPER(COALESCE(i.test_type, 'LAB')) IN ('LAB', 'PATHOLOGY', 'BLOOD',
+                                                     'BIOCHEM', 'BIOCHEMISTRY',
+                                                     'HEMATOLOGY', 'HAEMATOLOGY',
+                                                     'MICROBIOLOGY', 'SEROLOGY', 'URINE')
       ORDER BY
         CASE i.priority WHEN 'URGENT' THEN 1 WHEN 'HIGH' THEN 2
                        WHEN 'NORMAL' THEN 3 ELSE 4 END,
@@ -668,7 +707,25 @@ export async function listLabWorklist({
 } = {}) {
   const lim = Math.max(1, Math.min(500, Number(limit) || 100));
   const params = [];
-  const filters = [`i.status NOT IN ('COMPLETED', 'CANCELLED')`];
+  // Lab worklist is lab-only — radiology orders belong on the radiology
+  // worklist, and surfacing them here forces lab techs to triage work
+  // that isn't theirs. Same defence as listIpdLabWorklist. Finding:
+  // 2026-05-10-inpatient-admission-lab-tech-ipd-worklist-includes-radiology.
+  const filters = [
+    `i.status NOT IN ('COMPLETED', 'CANCELLED')`,
+    // Lab worklist allowlist — matches what the manual driver findings
+    // call "laboratory/pathology" while preserving the legacy lowercase
+    // 'blood' / 'urine' values older test seeds and walk-in tooling
+    // emit. Default of LAB so investigations with NULL test_type still
+    // land on the lab worklist (historic OPD walk-ins where the column
+    // was never populated). Excludes RADIOLOGY/CARDIOLOGY/PULMONARY/
+    // ENDOSCOPY, which have their own worklists.
+    `UPPER(COALESCE(i.test_type, 'LAB')) IN ('LAB', 'PATHOLOGY', 'BLOOD',
+                                              'BIOCHEM', 'BIOCHEMISTRY',
+                                              'HEMATOLOGY', 'HAEMATOLOGY',
+                                              'MICROBIOLOGY', 'SEROLOGY',
+                                              'URINE')`,
+  ];
 
   if (priority) {
     params.push(String(priority).toUpperCase());
@@ -697,8 +754,9 @@ export async function listLabWorklist({
     `SELECT i.id, i.test_name, i.test_type, i.status, i.priority,
             i.requested_at, i.created_at,
             u.name AS patient_name, u.phone AS patient_phone, u.uid AS patient_uid,
-            a.id AS admission_id, a.ward, a.bed_number, a.room_category,
-            a.attending_doctor,
+            a.id AS admission_id, a.ward,
+            COALESCE(a.bed_number, b.bed_number) AS bed_number,
+            a.bed_id, a.room_category, a.attending_doctor,
             ev.id AS er_visit_id, ev.visit_number AS er_visit_number,
             CASE
               WHEN a.id IS NOT NULL AND a.status IN ('admitted', 'transferred') THEN 'ipd'
@@ -710,6 +768,7 @@ export async function listLabWorklist({
   LEFT JOIN admissions a
          ON a.patient_uid = u.uid
         AND a.status IN ('admitted', 'transferred')
+  LEFT JOIN beds b ON b.id = a.bed_id
   LEFT JOIN emergency_visits ev
          ON ev.patient_uid = u.uid
         AND ev.status NOT IN ('discharged', 'transferred', 'left_against_advice',

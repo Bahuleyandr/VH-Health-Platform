@@ -42,7 +42,17 @@ const INV_LIST_SELECT_BASE = {
   scheduled_date: true,
   time_slot: true,
 };
-const INV_LIST_SELECT_WITH_RESULTS = { ...INV_LIST_SELECT_BASE, results: true };
+// Staff list view exposes `results` plus the human-readable summary +
+// pathologist interpretation, so a doctor scanning a panel of 5 lab
+// results sees "Amylase: 892 U/L [H]" inline instead of having to
+// fan out one GET /investigations/:id per row. Finding:
+// 2026-05-09-dynamic-acute-abdomen-lab-tech-list-missing-result-summary.
+const INV_LIST_SELECT_WITH_RESULTS = {
+  ...INV_LIST_SELECT_BASE,
+  results: true,
+  result_summary: true,
+  interpretation: true,
+};
 
 /**
  * Build a Prisma `include`-like select object for the related columns a
@@ -659,11 +669,25 @@ export const addResults = async (id, resultData, userId) => {
                 : '';
               const flag = obj.abnormal_flag || obj.flag;
               const flagStr = flag && flag !== 'N' ? ` [${flag}]` : '';
-              lines.push(`${label || 'Result'}: ${v}${unit}${range}${flagStr}`);
+              // Prefer an explicit analyte name on the row over the object
+              // key — when results is an array of analyte objects
+              // ([{name:'Hemoglobin',value:'16.8',...}, ...]) the key is
+              // just the array index "0" / "1" / ..., which renders as
+              // "0: 16.8 g/dL" and is unsafe for verbal handoff. Finding:
+              // 2026-05-13-inpatient-admission-lab-tech-1af0d92d.
+              const analyteName = obj.name || obj.test_name || obj.analyte || obj.parameter;
+              lines.push(`${analyteName || label || 'Result'}: ${v}${unit}${range}${flagStr}`);
               return;
             }
             for (const [k, child] of Object.entries(obj)) {
-              if (child && typeof child === 'object') visit(child, k);
+              if (child && typeof child === 'object') {
+                // When walking into a child object, prefer a name-like
+                // field on the child over the parent's index/key.
+                const childLabel = (child && typeof child === 'object'
+                  && (child.name || child.test_name || child.analyte || child.parameter))
+                  || k;
+                visit(child, childLabel);
+              }
             }
           };
           visit(results);

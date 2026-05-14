@@ -30,6 +30,24 @@ import { createWardIndentForClinicalMedicationOrder } from '../ipd/ipdSupportSer
 const VALID_ORDER_TYPES = ['medication', 'investigation', 'nursing', 'diet', 'activity', 'consultation'];
 const VALID_PRIORITIES = ['stat', 'urgent', 'routine', 'prn'];
 
+// Doctor-facing convention is "lab" / "radiology" / "imaging" for
+// diagnostic orders; the persisted enum on `clinical_orders.order_type`
+// is `investigation`. Map the colloquial form down so clinicians (and
+// any external integration emitting the human label) don't 400-loop on
+// a CBC order during an OPD/IPD round. Finding:
+// 2026-05-09-walk-in-opd-doctor-lab-order-type-mismatch.
+const ORDER_TYPE_ALIASES = {
+  lab: 'investigation',
+  laboratory: 'investigation',
+  pathology: 'investigation',
+  radiology: 'investigation',
+  imaging: 'investigation',
+  diagnostic: 'investigation',
+  med: 'medication',
+  medication_order: 'medication',
+  consult: 'consultation',
+};
+
 // Columns returned by the pre-batch-56 `RETURNING` clauses. Mirrored as
 // a Prisma `select` so the public response shape is unchanged. The full
 // shape covers every column any state-transition mutator returned —
@@ -120,7 +138,6 @@ export async function createOrder(data) {
   const {
     encounter_id,
     patient_uid,
-    order_type,
     details,
     ordered_by,
     start_date,
@@ -134,12 +151,20 @@ export async function createOrder(data) {
   // See finding 2026-05-08-emergency-walk-in-doctor-priority-case-sensitive.
   const priority = String(data.priority ?? 'routine').toLowerCase();
 
+  // Coerce clinical-vernacular aliases ("lab"/"radiology"/"imaging") to
+  // the persisted `investigation` enum value. See ORDER_TYPE_ALIASES.
+  const rawOrderType = String(data.order_type ?? '').toLowerCase().trim();
+  const order_type = ORDER_TYPE_ALIASES[rawOrderType] || rawOrderType;
+
   if (!patient_uid || !order_type || !details || !ordered_by) {
     throw AppError.badRequest('patient_uid, order_type, details, and ordered_by are required');
   }
 
   if (!VALID_ORDER_TYPES.includes(order_type)) {
-    throw AppError.badRequest(`Invalid order_type: ${order_type}. Must be one of: ${VALID_ORDER_TYPES.join(', ')}`);
+    throw AppError.badRequest(
+      `Invalid order_type: ${data.order_type}. Must be one of: ${VALID_ORDER_TYPES.join(', ')} `
+      + `(aliases accepted: lab/laboratory/pathology/radiology/imaging/diagnostic → investigation, med → medication, consult → consultation)`,
+    );
   }
 
   if (!VALID_PRIORITIES.includes(priority)) {

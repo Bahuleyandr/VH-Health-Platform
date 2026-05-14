@@ -727,6 +727,7 @@ model appointments {
   users_appointments_patient_idTousers users?                       @relation("appointments_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
   bed_inspections                      bed_inspections[]
   teleconsultations                    teleconsultations[]
+  investigation_bookings               investigation_bookings[]
 
   @@index([appointment_date])
   @@index([doctor_id])
@@ -5209,6 +5210,8 @@ model investigation_bookings {
   created_at                                          DateTime                        @default(now()) @db.Timestamp(6)
   updated_at                                          DateTime                        @default(now()) @db.Timestamp(6)
   sla_confirm_target                                  DateTime?                       @db.Timestamptz(6)
+  appointment_id                                      Int?
+  appointments                                        appointments?                   @relation(fields: [appointment_id], references: [id], onUpdate: NoAction, map: "investigation_bookings_appointment_fk")
   investigation_booking_history                       investigation_booking_history[]
   investigations                                      investigations?                 @relation(fields: [investigation_id], references: [id], onUpdate: NoAction, map: "investigation_bookings_investigation_fk")
   users_investigation_bookings_patient_idTousers      users                           @relation("investigation_bookings_patient_idTousers", fields: [patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "investigation_bookings_patient_fk")
@@ -5217,6 +5220,7 @@ model investigation_bookings {
   @@index([created_at], map: "idx_invbook_created_at")
   @@index([patient_id], map: "idx_invbook_patient_id")
   @@index([status], map: "idx_invbook_status")
+  @@index([appointment_id], map: "idx_invbook_appointment_id")
 }
 
 model investigation_files {

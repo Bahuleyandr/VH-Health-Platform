@@ -85,20 +85,51 @@ export const applyTemplate = async (templateId, patientId, doctorId, orderedBy) 
   }
 
   const templateType = templateRows[0].type;
+
+  // Resolve the patient's UID + phone once so each insert can populate
+  // the canonical columns (patient_uid, phone, requested_by, test_type)
+  // alongside the legacy ones (patient_id, doctor_id, type). Without
+  // this every template-applied investigation ended up with patient_uid
+  // = NULL, which broke `POST /lab/results` (requires patient_uid) and
+  // every UUID-keyed audit trail. Finding:
+  // 2026-05-09-inpatient-admission-lab-tech-ipd-orders-patient-uid-null.
+  const patient = await prisma.users.findUnique({
+    where: { id: parseInt(patientId) },
+    select: { id: true, uid: true, phone: true },
+  });
+  const patientUid = patient?.uid || null;
+  const patientPhone = patient?.phone || 'unknown';
+
+  // doctorId is the integer users.id; the canonical investigations
+  // requester is `requested_by` UUID → users.uid. Resolve to uid so
+  // both legacy + canonical FKs are set.
+  let requesterUid = null;
+  if (doctorId != null && doctorId !== '') {
+    const doctor = await prisma.users.findUnique({
+      where: { id: parseInt(doctorId) },
+      select: { uid: true },
+    });
+    requesterUid = doctor?.uid || null;
+  }
+
   const investigations = [];
 
   for (const test of templateRows) {
     const [inv] = await prisma.$queryRaw`
       INSERT INTO investigations (
-        patient_id, doctor_id, test_name, test_code, type,
-        normal_range, unit, cost, status, requested_at, created_by
+        patient_id, patient_uid, phone, doctor_id, requested_by,
+        test_name, test_code, type, test_type,
+        normal_range, unit, cost, status, requested_at, updated_at, created_by
       ) VALUES (
-        ${parseInt(patientId)}, ${parseInt(doctorId)},
-        ${test.test_name}, ${test.test_code ?? null}, ${templateType},
+        ${parseInt(patientId)}, ${patientUid}::uuid, ${patientPhone},
+        ${parseInt(doctorId)}, ${requesterUid}::uuid,
+        ${test.test_name}, ${test.test_code ?? null},
+        ${templateType}, ${templateType ? String(templateType).toUpperCase() : null},
         ${test.normal_range ?? null}, ${test.unit ?? null}, ${test.cost ?? null},
-        'PENDING', NOW(), ${orderedBy ?? null}
+        'PENDING', NOW(), NOW(), ${orderedBy ?? null}
       )
-      RETURNING id, patient_id, doctor_id, test_name, test_code, type,
+      RETURNING id, patient_id, patient_uid, doctor_id, requested_by,
+        test_name, test_code, type, test_type,
         normal_range, unit, cost, status, requested_at, created_by
     `;
     investigations.push(inv);

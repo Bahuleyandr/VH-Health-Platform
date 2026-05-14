@@ -176,9 +176,33 @@ export const createInvestigationOrder = async (orderData) => {
 
 export const createLegacyInvestigation = async ({ phone, test_name, file_key, createdBy }) => {
   const now = new Date();
+
+  // Resolve patient by phone so legacy investigation rows still get
+  // patient_id + patient_uid populated. Without these, results filed
+  // via /lab/results (which requires patient_uid) couldn't be linked
+  // back to the row. Best-effort: a stale legacy caller may pass a
+  // phone with no matching users row; we keep the row but leave the
+  // FKs null in that case. Finding:
+  // 2026-05-09-inpatient-admission-lab-tech-ipd-orders-patient-uid-null.
+  let patientId = null;
+  let patientUid = null;
+  if (phone) {
+    const patient = await prisma.users.findFirst({
+      where: { phone },
+      select: { id: true, uid: true },
+      orderBy: { id: 'asc' },
+    });
+    if (patient) {
+      patientId = patient.id;
+      patientUid = patient.uid || null;
+    }
+  }
+
   const investigation = await prisma.investigations.create({
     data: {
       phone,
+      patient_id: patientId,
+      patient_uid: patientUid,
       test_name,
       file_key: file_key ?? null,
       status: 'REQUESTED',
@@ -188,6 +212,8 @@ export const createLegacyInvestigation = async ({ phone, test_name, file_key, cr
     select: {
       id: true,
       phone: true,
+      patient_id: true,
+      patient_uid: true,
       test_name: true,
       file_key: true,
       status: true,
