@@ -19,20 +19,29 @@ import { API_KEY, generateTestToken } from './testClient.js';
 const SEED_PATIENT_UID = 'a5555555-5555-4555-8555-55555555fc01';
 const STAFF_UID = 'a5555555-5555-4555-8555-55555555fc02';
 const TEST_DEPARTMENT = `WalkInTest-${Date.now() % 100000}`;
-const SEED_PHONE = `99994${Date.now() % 100000}`.slice(0, 10);
-const NEW_WALKIN_PHONE = `99995${Date.now() % 100000}`.slice(0, 10);
+// Deterministically 10 digits so registerWalkIn's normalizePhone() always
+// rewrites NEW_WALKIN_PHONE (which goes through the endpoint) to the +91
+// form. A `.slice(0, 10)` of a variable-length string sometimes yielded 9
+// digits — which normalizePhone leaves untouched — making the leak
+// intermittent rather than deterministic.
+const RUN_SUFFIX = String(Date.now() % 100000).padStart(5, '0');
+const SEED_PHONE = `99994${RUN_SUFFIX}`;
+const NEW_WALKIN_PHONE = `99995${RUN_SUFFIX}`;
+// registerWalkIn stores phones normalized to E.164 (+91XXXXXXXXXX), so
+// cleanup has to match the +91 form too — matching only the raw 10-digit
+// input missed the walk-in patient's row and leaked a (globally UNIQUE)
+// visit_no, which then collided on the next run against a reused DB.
+const PHONE_FORMS = [SEED_PHONE, `+91${SEED_PHONE}`, NEW_WALKIN_PHONE, `+91${NEW_WALKIN_PHONE}`];
 
 async function cleanupFixtures() {
   const userRows = await prisma
     .$queryRawUnsafe(
       `SELECT id FROM users
        WHERE uid IN ($1::uuid, $2::uuid)
-          OR phone = $3
-          OR phone = $4`,
+          OR phone = ANY($3::text[])`,
       SEED_PATIENT_UID,
       STAFF_UID,
-      SEED_PHONE,
-      NEW_WALKIN_PHONE
+      PHONE_FORMS
     )
     .catch(() => []);
   const userIds = userRows.map(r => r.id);
@@ -57,12 +66,10 @@ async function cleanupFixtures() {
     .$executeRawUnsafe(
       `DELETE FROM users
        WHERE uid IN ($1::uuid, $2::uuid)
-          OR phone = $3
-          OR phone = $4`,
+          OR phone = ANY($3::text[])`,
       SEED_PATIENT_UID,
       STAFF_UID,
-      SEED_PHONE,
-      NEW_WALKIN_PHONE
+      PHONE_FORMS
     )
     .catch(() => {});
 }
