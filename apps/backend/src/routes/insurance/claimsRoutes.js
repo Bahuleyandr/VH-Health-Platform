@@ -8,6 +8,7 @@ import logger from '../../logging/logger.js';
 import * as claims from '../../services/insurance/claimsService.js';
 import * as capsService from '../../services/insurance/claimCapsService.js';
 import * as packages from '../../services/insurance/packagesService.js';
+import { ENHANCEMENT_JUSTIFICATION_TEMPLATE } from '../../services/insurance/clinicalJustificationTemplate.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 
@@ -213,6 +214,14 @@ router.delete('/claims/:id/caps/:category', requireStaffOrAdmin, wrap(async (req
 // the live caps before posting.
 router.post('/claims/:id/caps/apply', requireStaffOrAdmin, wrap(async (req) =>
   capsService.applyCapsToInvoiceLines(req.params.id, req.body.lines || []),
+));
+
+// ── Enhancement clinical-justification template ─────────────────────
+// Structured template the chart + billing enhancement surfaces validate
+// against. Finding:
+// 2026-05-09-tpa-insurance-claim-doctor-no-clinical-justification-template
+router.get('/enhancement-justification-template', requireStaffOrAdmin, wrap(async () =>
+  ENHANCEMENT_JUSTIFICATION_TEMPLATE,
 ));
 
 // ── Documents + correspondence ──────────────────────────────────────
