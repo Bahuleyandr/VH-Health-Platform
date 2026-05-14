@@ -118,11 +118,15 @@ export const deleteBed = async (req, res) => {
 
 export const admitPatient = async (req, res) => {
   try {
-    const bed = await bedService.admitPatient(req.params.id, req.body);
+    const bed = await bedService.admitPatient(req.params.id, req.body, req.user?.role);
     if (!bed) return error(res, 'Bed not available for admission', HTTP_STATUS.BAD_REQUEST);
     emitBedEvent('patient-admitted', bed);
     success(res, { bed }, 'Patient admitted');
   } catch (err) {
+    // Surface AppError (e.g. ICU tier forbidden) so the actor sees the real reason.
+    if (err && typeof err.statusCode === 'number') {
+      return error(res, err.message, err.statusCode, err.details);
+    }
     logger.error('Error admitting patient:', err);
     error(res, 'Failed to admit patient', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

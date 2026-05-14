@@ -68,7 +68,8 @@ router.post(
     const bed = await bedManagementService.admitPatient(
       bedId,
       patient_uid,
-      expected_discharge || null
+      expected_discharge || null,
+      req.user?.role || null,
     );
     success(res, { bed }, 'Patient admitted', HTTP_STATUS.CREATED);
   })
@@ -107,7 +108,8 @@ router.post(
       patient_uid,
       parseInt(to_bed_id, 10),
       reason || null,
-      transferredBy
+      transferredBy,
+      req.user?.role || null,
     );
     success(res, result, 'Patient transferred');
   })

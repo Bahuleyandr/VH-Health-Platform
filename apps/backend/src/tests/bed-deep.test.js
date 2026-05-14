@@ -224,4 +224,50 @@ describe('Bed + ward management — deep integration', () => {
       expect([401, 403]).toContain(res.statusCode);
     });
   });
+
+  // Stage-4-C — ICU/CCU tier gate.
+  // Finding: 2026-05-09-emergency-walk-in-admission-no-icu-rbac-tier
+  describe('ICU tier gate', () => {
+    let icuBedId;
+
+    beforeAll(async () => {
+      const created = await prisma.$queryRawUnsafe(
+        `INSERT INTO beds (ward_id, bed_number, status, bed_type)
+         VALUES ($1, 'BD-DEEP-ICU-001', 'available', 'icu')
+         RETURNING id`,
+        wardId,
+      );
+      icuBedId = created[0].id;
+    });
+
+    function nurseAs() {
+      const token = generateTestToken('NURSING_STAFF', {
+        uid: 'a8888888-8888-4888-8888-888888888a02',
+        id: 990801,
+      });
+      return {
+        post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
+      };
+    }
+
+    it('forbids NURSING_STAFF from allocating an ICU bed', async () => {
+      const nurse = nurseAs();
+      const res = await nurse.post(`/api/v1/beds/${icuBedId}/admit`).send({
+        patient_name: 'ICU Test',
+      });
+      expect(res.statusCode).toBe(403);
+
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT status FROM beds WHERE id = $1`, icuBedId);
+      expect(rows[0].status).toBe('available');
+    });
+
+    it('allows ADMIN to allocate the same ICU bed', async () => {
+      const res = await admin.post(`/api/v1/beds/${icuBedId}/admit`).send({
+        patient_name: 'ICU Test Admin',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.bed.status).toBe('occupied');
+    });
+  });
 });

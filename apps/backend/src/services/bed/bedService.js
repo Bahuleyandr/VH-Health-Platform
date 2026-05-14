@@ -1,5 +1,7 @@
 // src/services/bed/bedService.js
 import prisma from '../../lib/prisma.js';
+import { AppError } from '../../utils/AppError.js';
+import { ICU_BED_TYPES, canAllocateIcu } from '../../utils/roleHelpers.js';
 
 const BED_RETURNING = `id, ward_id, bed_number, status, patient_id, patient_name,
     admitted_at, notes, assigned_at, created_at, updated_at`;
@@ -178,7 +180,18 @@ class BedService {
     return rows[0] ?? null;
   }
 
-  async admitPatient(bedId, { patient_id, patient_name, notes }) {
+  async admitPatient(bedId, { patient_id, patient_name, notes }, actorRole = null) {
+    // Stage-4-C — ICU/CCU beds require physician/admin sign-off; a ward
+    // nurse cannot independently allocate an intensive-care bed. Probe
+    // bed_type first; throw forbidden when the actor lacks the tier.
+    // Finding: 2026-05-09-emergency-walk-in-admission-no-icu-rbac-tier
+    const typeRows = await prisma.$queryRawUnsafe(
+      `SELECT bed_type FROM beds WHERE id = $1`, parseInt(bedId)
+    );
+    if (typeRows.length && ICU_BED_TYPES.has(typeRows[0].bed_type) && !canAllocateIcu(actorRole)) {
+      throw AppError.forbidden('ICU/CCU bed allocation requires physician or admission-officer authorisation');
+    }
+
     const rows = await prisma.$queryRawUnsafe(
       `UPDATE beds SET
          status = 'occupied',

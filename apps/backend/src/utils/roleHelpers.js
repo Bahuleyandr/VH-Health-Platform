@@ -150,6 +150,17 @@ export const canAccessRadiology = (role) => [ROLES.DOCTOR, ROLES.CONSULTANT, ROL
 export const canAccessOT = (role) => [ROLES.DOCTOR, ROLES.CONSULTANT, ROLES.JUNIOR_DOCTOR, ROLES.OT_STAFF, ROLES.ANESTHETIST, ROLES.ADMIN, ROLES.CMO].includes(role);
 export const canAccessBloodBank = (role) => [ROLES.DOCTOR, ROLES.CONSULTANT, ROLES.JUNIOR_DOCTOR, ROLES.NURSING_STAFF, ROLES.BLOOD_BANK_TECHNICIAN, ROLES.ADMIN].includes(role);
 
+// Stage-4-C — ICU/CCU bed allocation requires physician sign-off or an
+// admission-officer override. NURSING_STAFF can move a patient within
+// general/semi/private/deluxe wards (the broader `requireRole` gate
+// catches that), but cannot independently allocate an ICU bed — that
+// step belongs to the doctor or the admission counter. Backed by the
+// hospital's standing-order policy and the regulator's ICU-admission
+// audit trail expectations.
+// Finding: 2026-05-09-emergency-walk-in-admission-no-icu-rbac-tier
+export const ICU_BED_TYPES = new Set(['icu', 'ccu']);
+export const canAllocateIcu = (role) => isDoctor(role) || isAdmin(role) || role === 'SUPER_ADMIN';
+
 // Specialty-role gates (Phase F1)
 export const canManageIntegrations = (role) => isIntegrationAdmin(role) || isAdmin(role);
 export const canManageAiGovernance = (role) => isAiGovernanceAdmin(role) || isAdmin(role);
