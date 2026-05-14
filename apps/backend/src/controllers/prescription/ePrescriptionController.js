@@ -444,13 +444,15 @@ export const createPrescription = async (req, res) => {
             LIMIT 1`,
           patientId, doctorId, follow_up_date,
         );
-        if (!existing.length) {
-          await prisma.$queryRawUnsafe(
+        let followUpApptId = existing[0]?.id ?? null;
+        if (!followUpApptId) {
+          const created = await prisma.$queryRawUnsafe(
             `INSERT INTO appointments
                (patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
                 status, visit_type, parent_appointment_id, created_by, updated_at)
              VALUES ($1::int, $2::int, $3::date, $4, $5, $6, $7,
-                     'SCHEDULED', 'FOLLOW_UP', $8, $9::uuid, NOW())`,
+                     'SCHEDULED', 'FOLLOW_UP', $8, $9::uuid, NOW())
+             RETURNING id`,
             patientId, doctorId, follow_up_date,
             // appointment_time is VARCHAR(10) NOT NULL. The Rx didn't
             // capture a slot time — the receptionist will assign one
@@ -463,6 +465,25 @@ export const createPrescription = async (req, res) => {
             appointmentId || null,
             req.user?.uid || null,
           );
+          followUpApptId = created[0]?.id ?? null;
+        }
+        // Link the prescription back to the follow-up appointment when
+        // the prescription itself wasn't tied to a source visit (the
+        // discharge-desk path: discharge meds prescribed with no current
+        // appointment, but a follow-up scheduled). With the link, the
+        // patient app can render "your follow-up is on X — here are the
+        // meds to take until then" as a single card. Without it, the two
+        // cards appear unrelated. Don't overwrite a real source-visit
+        // appointment_id (walk-in OPD case). Finding:
+        //   2026-05-09-inpatient-admission-patient-discharge-rx-unlinked-to-followup
+        if (followUpApptId && !appointmentId) {
+          await prisma.$executeRawUnsafe(
+            `UPDATE e_prescriptions
+                SET appointment_id = $1::int, updated_at = NOW()
+              WHERE id = $2::int AND appointment_id IS NULL`,
+            followUpApptId, prescription.id,
+          );
+          prescription.appointment_id = followUpApptId;
         }
       } catch (followUpErr) {
         // Non-blocking — the prescription is already saved.
