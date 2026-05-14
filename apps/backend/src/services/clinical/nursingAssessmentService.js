@@ -268,6 +268,26 @@ export async function recordAssessment({
     ? new Date(Date.now() + reassessMins * 60_000).toISOString()
     : null;
 
+  // Snapshot the recording nurse's display name at write time. The route
+  // never asks the client for assessed_by_name (it's derived from the
+  // signed-in user), so without this lookup `assessed_by_name` lands as
+  // null and the printed handover sheet shows a blank "recorded by"
+  // field — a JCI/NABH governance gap. Finding:
+  // 2026-05-09-inpatient-admission-nurse-assessed-by-name-null.
+  let resolvedAssessedByName = assessed_by_name || null;
+  if (!resolvedAssessedByName && assessed_by) {
+    try {
+      const user = await prisma.users.findUnique({
+        where: { uid: String(assessed_by) },
+        select: { name: true },
+      });
+      resolvedAssessedByName = user?.name || null;
+    } catch {
+      // Best-effort snapshot — falling through leaves the column null,
+      // which matches the pre-fix behaviour rather than blocking the write.
+    }
+  }
+
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO nursing_assessments
        (patient_uid, admission_id, assessment_kind, inputs, total_score,
@@ -286,7 +306,7 @@ export async function recordAssessment({
     result.recommended_actions ?? null,
     notes || null,
     assessed_by ? String(assessed_by) : null,
-    assessed_by_name || null,
+    resolvedAssessedByName,
     nextDueAt,
     tenantId,
   );
