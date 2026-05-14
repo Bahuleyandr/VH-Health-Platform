@@ -197,12 +197,14 @@ function normalizeOrderRoute(rawRoute) {
 }
 
 /**
- * Normalise + validate a single order payload. Pure (no DB) so the bulk
- * path can validate every item up front before opening a transaction.
- * Throws AppError.badRequest on any invalid field.
- * @returns {Object} normalised order fields ready for prisma.clinical_orders.create
+ * Normalise + validate a single order payload. Async — does one DB read
+ * to resolve `er_visit_id` → the ER visit's `encounter_id` (chip
+ * stage-5-1); otherwise no DB writes. The bulk path still validates
+ * every item up front (await per item) before opening the transaction.
+ * Throws AppError.badRequest / AppError.notFound on any invalid field.
+ * @returns {Promise<Object>} normalised order fields ready for prisma.clinical_orders.create
  */
-function normalizeOrderInput(data) {
+async function normalizeOrderInput(data) {
   const {
     patient_uid,
     ordered_by,
@@ -211,13 +213,10 @@ function normalizeOrderInput(data) {
     notes,
     er_visit_id,
   } = data;
-<<<<<<< HEAD
-  // `encounter_id` may be re-derived from `er_visit_id` below, so it is a
-  // `let` rather than part of the const destructure.
-  let { encounter_id } = data;
-=======
-  let { details } = data;
->>>>>>> chip/stage-5-6-ipd-orders
+  // Both are `let`, not part of the const destructure: `encounter_id` may
+  // be re-derived from `er_visit_id` below (chip stage-5-1), and `details`
+  // is re-shaped with the structured route (chip stage-5-6).
+  let { encounter_id, details } = data;
 
   // Clinicians write priority in upper case ("STAT" / "URGENT") — that's
   // the universal medical convention. Lower-case server-side before
@@ -370,7 +369,7 @@ async function dispatchPostCreateSideEffects(order) {
  * @returns {Object} Created order with CDS check results
  */
 export async function createOrder(data) {
-  const n = normalizeOrderInput(data);
+  const n = await normalizeOrderInput(data);
 
   // Run CDS safety checks. Blockers reject the order — surface the
   // structured array as `details` so the staff-app CDS modal can show
@@ -449,7 +448,7 @@ export async function createOrdersBulk(items, { ordered_by } = {}) {
   for (let i = 0; i < items.length; i += 1) {
     let normalized;
     try {
-      normalized = normalizeOrderInput({ ...items[i], ordered_by });
+      normalized = await normalizeOrderInput({ ...items[i], ordered_by });
     } catch (err) {
       throw AppError.badRequest(`Order #${i + 1}: ${err.message}`, err.code, err.details);
     }
