@@ -10,8 +10,38 @@
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
+import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
+import logger from '../../logging/logger.js';
 
 // ── helpers ──────────────────────────────────────────────────────────
+
+// Pre-auth submission SLA windows (hours from creation), keyed by
+// request_type. Cashless TPA pre-auth has a hard insurer TAT — a draft
+// that's never submitted means the patient is billed cash despite valid
+// cover. Deliberately a flat lookup, not an SLA engine.
+// Finding: 2026-05-09-tpa-insurance-claim-admission-preauth-draft-not-auto-submitted
+const PREAUTH_SUBMIT_SLA_HOURS = {
+  emergency: 6,
+  enhancement: 12,
+  planned: 48,
+};
+const DEFAULT_PREAUTH_SUBMIT_SLA_HOURS = 24;
+
+function preauthSubmitSlaHours(requestType) {
+  const key = String(requestType || '').toLowerCase();
+  return PREAUTH_SUBMIT_SLA_HOURS[key] ?? DEFAULT_PREAUTH_SUBMIT_SLA_HOURS;
+}
+
+// A draft pre-auth is overdue once its submission deadline has passed.
+// Submitted/decided rows keep submit_due_at as a historical SLA record
+// but are never "overdue".
+function isSubmitOverdue(row) {
+  return (
+    row?.status === 'draft' &&
+    row?.submit_due_at != null &&
+    new Date(row.submit_due_at).getTime() < Date.now()
+  );
+}
 
 function fiscalYearOf(d = new Date()) {
   // Indian FY: Apr 1 → Mar 31. FY24-25 covers Apr 2024 – Mar 2025.
@@ -180,6 +210,12 @@ export async function createPreauth({
 
   const preauth_number = await nextSeq('insurance_preauth_counter', 'PA', tenantId);
 
+  // Stamp a submission deadline at create time so the draft can't sit
+  // forgotten. The interval is parameterised (never templated) per the
+  // backend SQL rule. Finding:
+  // 2026-05-09-tpa-insurance-claim-admission-preauth-draft-not-auto-submitted
+  const slaHours = preauthSubmitSlaHours(request_type);
+
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO insurance_preauth
        (policy_id, patient_uid, admission_id, preauth_number,
@@ -187,13 +223,15 @@ export async function createPreauth({
         primary_diagnosis, icd10_codes, proposed_procedure, procedure_codes,
         treating_doctor_uid, treating_doctor_name,
         expected_admission_date, expected_los_days,
-        expected_cost, cost_breakdown, notes, created_by, tenant_id)
+        expected_cost, cost_breakdown, notes, created_by, tenant_id,
+        submit_due_at)
      VALUES ($1::int, $2::uuid, $3::int, $4,
              $5, $6::int,
              $7, $8::text[], $9, $10::text[],
              $11::uuid, $12,
              $13::date, $14::int,
-             $15::numeric, $16::jsonb, $17, $18::uuid, $19::uuid)
+             $15::numeric, $16::jsonb, $17, $18::uuid, $19::uuid,
+             NOW() + ($20::int * INTERVAL '1 hour'))
      RETURNING *`,
     Number(policy_id), String(patient_uid),
     admission_id ? Number(admission_id) : null,
@@ -211,8 +249,34 @@ export async function createPreauth({
     JSON.stringify(cost_breakdown || {}),
     notes || null,
     created_by ? String(created_by) : null, tenantId,
+    slaHours,
   );
-  return rows[0];
+  const created = rows[0];
+
+  // Nudge the insurance desk that a draft pre-auth needs submitting to
+  // the insurer. Best-effort and post-insert — notificationOutbox.queue
+  // swallows its own errors, but guard anyway so pre-auth creation never
+  // fails on the outbox.
+  try {
+    await notificationOutbox.queue({
+      type: 'push',
+      title: 'TPA pre-auth awaiting submission',
+      body:
+        `Pre-auth ${created.preauth_number} is in draft and must be ` +
+        `submitted to the insurer by ${new Date(created.submit_due_at).toISOString()}.`,
+      data: {
+        kind: 'preauth_submit_due',
+        preauth_id: created.id,
+        preauth_number: created.preauth_number,
+        submit_due_at: created.submit_due_at,
+        admission_id: created.admission_id,
+      },
+    });
+  } catch (e) {
+    logger.warn(`createPreauth: submit-due nudge failed for #${created.id}: ${e.message}`);
+  }
+
+  return created;
 }
 
 /**
@@ -311,6 +375,7 @@ export async function getPreauth({ tenantId, id }) {
     conditions: latest_response?.conditions ?? rows[0].query_text ?? null,
     raw_response: latest_response?.raw_response ?? null,
     caps,
+    submit_overdue: isSubmitOverdue(rows[0]),
   };
 }
 
@@ -566,10 +631,18 @@ async function emitRoomCapAlertIfNeeded({ preauth_id, admission_id, conditions_t
 }
 
 export async function listPendingPreauths({ tenantId, limit = 100 }) {
+  // submit_due_at + submit_overdue surface the SLA on the pending list
+  // so the insurance coordinator can see at a glance which drafts have
+  // blown their submission window. Overdue drafts sort to the top.
+  // Finding: 2026-05-09-tpa-insurance-claim-admission-preauth-draft-not-auto-submitted
   return prisma.$queryRawUnsafe(
     `SELECT pa.id, pa.preauth_number, pa.patient_uid, pa.primary_diagnosis,
             pa.expected_cost, pa.sanctioned_amount, pa.status,
             pa.submitted_at, pa.created_at,
+            pa.submit_due_at,
+            (pa.status = 'draft'
+             AND pa.submit_due_at IS NOT NULL
+             AND pa.submit_due_at < NOW()) AS submit_overdue,
             p.policy_number, py.display_name AS payer_name, t.display_name AS tpa_name
        FROM insurance_preauth pa
        JOIN insurance_policies p ON p.id = pa.policy_id
@@ -577,7 +650,10 @@ export async function listPendingPreauths({ tenantId, limit = 100 }) {
        LEFT JOIN tpas t ON t.id = p.tpa_id
       WHERE pa.tenant_id = $1::uuid
         AND pa.status IN ('draft','submitted','queried')
-      ORDER BY pa.created_at DESC
+      ORDER BY (pa.status = 'draft'
+                AND pa.submit_due_at IS NOT NULL
+                AND pa.submit_due_at < NOW()) DESC,
+               pa.created_at DESC
       LIMIT $2::int`,
     tenantId, Number(limit),
   );
