@@ -261,9 +261,9 @@ router.post(
 router.get(
   '/admissions',
   wrapAsync(async (req, res) => {
-    const { ward, doctor, department, status, page, limit } = req.query;
+    const { ward, doctor, department, status, review_due, page, limit } = req.query;
     const result = await admissionService.getActiveAdmissions({
-      ward, doctor, department, status,
+      ward, doctor, department, status, review_due,
       page: page || 1,
       limit: limit || 20,
     });
@@ -357,6 +357,29 @@ router.put(
     const updatedBy = req.user?.uid;
     const admission = await admissionService.updateAttendingDoctor(admissionId, doctor_uid, updatedBy);
     success(res, { admission }, 'Attending doctor updated');
+  })
+);
+
+// ---------------------------------------------------------------------------
+// PUT /:id/next-review — Set or clear the next ward-round review time.
+// The inpatient-admission journey asks the consultant to "set
+// review-after" once orders are in. Body: { next_review_at: ISO | null }.
+// ---------------------------------------------------------------------------
+router.put(
+  '/:id/next-review',
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const updatedBy = req.user?.uid;
+    const admission = await admissionService.updateNextReviewAt(
+      admissionId,
+      req.body?.next_review_at ?? null,
+      updatedBy,
+    );
+    success(res, { admission }, 'Next review time updated');
   })
 );
 

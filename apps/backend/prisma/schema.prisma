@@ -381,6 +381,7 @@ model admissions {
   package_id                      Int?
   package_code                    String?              @db.VarChar(40)
   package_estimated_cost_minor    BigInt?
+  next_review_at                  DateTime?            @db.Timestamptz(6)
   emergency_visit                 emergency_visits?    @relation("AdmissionFromErVisit", fields: [from_er_visit_id], references: [id], onUpdate: NoAction)
   package                         packages?            @relation(fields: [package_id], references: [id], onUpdate: NoAction)
   insurance_policy                insurance_policies?  @relation(fields: [policy_id], references: [id], onUpdate: NoAction)

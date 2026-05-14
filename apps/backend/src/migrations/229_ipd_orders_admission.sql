@@ -58,3 +58,28 @@ ALTER TABLE clinical_orders
   ADD COLUMN IF NOT EXISTS route VARCHAR(20);
 
 COMMIT;
+
+-- ─── Section 3 — admissions: next_review_at (rounding cadence) ────────
+-- Closes finding:
+--   2026-05-08-inpatient-admission-doctor-no-review-after
+--
+-- The inpatient-admission journey explicitly asks the consultant to
+-- "set review-after: 12 hours" after orders, but no field, endpoint or
+-- task could persist it — on-call cross-cover at shift change had
+-- nothing to anchor on. Add a nullable next_review_at on the admission;
+-- admitPatient accepts it, PUT /emr/admission/:id/next-review sets it
+-- post-rounds, and GET /emr/admissions?review_due=true filters the
+-- ward-round queue. Partial index — only admissions with a pending
+-- review are queried — and, like the indexes above, invisible to
+-- `prisma db pull`.
+
+BEGIN;
+
+ALTER TABLE admissions
+  ADD COLUMN IF NOT EXISTS next_review_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_admissions_next_review_at
+  ON admissions(next_review_at)
+  WHERE next_review_at IS NOT NULL;
+
+COMMIT;
