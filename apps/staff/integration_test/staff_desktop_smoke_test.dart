@@ -104,13 +104,36 @@ void main() {
       );
     }
 
-    await tester.scrollUntilVisible(
-      finder,
-      520,
-      maxScrolls: 24,
-      scrollable: scrollables.first,
+    // scrollUntilVisible re-resolves `scrollable.single` on every internal
+    // drag step. A route change or an ExpansionTile expand animation can
+    // briefly rebuild the tree so that for one frame no Scrollable exists,
+    // and that race throws `StateError: Bad state: No element` from inside
+    // flutter_test rather than a clean "not found". Retry across that
+    // transient — a genuinely missing target still fails after the retries
+    // (scrollUntilVisible exhausts maxScrolls and throws), so this hardens
+    // the harness without masking a real missing-widget bug.
+    StateError? lastTransient;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        await tester.scrollUntilVisible(
+          finder,
+          520,
+          maxScrolls: 24,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.pump(const Duration(milliseconds: 150));
+        return;
+      } on StateError catch (e) {
+        // "No element" / "Too many elements" from the transient scrollable
+        // resolution — settle a few frames and try again.
+        lastTransient = e;
+        await pumpFor(tester, const Duration(milliseconds: 400));
+      }
+    }
+    throw StateError(
+      'scrollToText("$label") failed after 3 attempts — last error: '
+      '${lastTransient?.message}',
     );
-    await tester.pump(const Duration(milliseconds: 150));
   }
 
   Future<void> tapVisibleText(
@@ -133,7 +156,15 @@ void main() {
     await pumpFor(tester, const Duration(seconds: 2));
   }
 
-  Future<void> expandMoreTools(WidgetTester tester) async {
+  /// Ensures the "More tools" ExpansionTile is open so [targetLabel] is in
+  /// the tree. The dashboard tab is kept alive by the router shell, so the
+  /// ExpansionTile *retains* its expanded state across a goHome — a blind
+  /// tap therefore toggles it and can collapse an already-open section
+  /// (this is exactly why the first More-tools probe passed but the second
+  /// failed: fresh-collapsed vs. retained-expanded). So: only tap when the
+  /// target tile isn't already present, and re-tap once if a tap closed it.
+  Future<void> expandMoreTools(WidgetTester tester, String targetLabel) async {
+    if (find.text(targetLabel).evaluate().isNotEmpty) return; // already open
     final moreTools = find.text('More tools');
     await scrollToText(tester, 'More tools');
     await waitFor(
@@ -146,6 +177,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 150));
     await tester.tap(moreTools.last);
     await pumpFor(tester, const Duration(milliseconds: 600));
+    // If the section was already open and the tap closed it, re-open.
+    if (find.text(targetLabel).evaluate().isEmpty) {
+      await tester.tap(moreTools.last);
+      await pumpFor(tester, const Duration(milliseconds: 600));
+    }
   }
 
   Future<void> goHome(WidgetTester tester) async {
@@ -309,7 +345,7 @@ void main() {
       for (final label in moreToolsLabels) {
         await probeWithDeadline(label, () async {
           await goHome(tester);
-          await expandMoreTools(tester);
+          await expandMoreTools(tester, label);
           await tapVisibleText(tester, label);
           expectCleanScreen(tester, 'more tools "$label"');
         });

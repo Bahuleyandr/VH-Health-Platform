@@ -10,6 +10,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite_ffi;
 import 'firebase_options.dart';
+import 'core/platform_info.dart';
 import 'core/navigation/app_router.dart';
 import 'core/providers/notification_provider.dart';
 import 'core/providers/theme_provider.dart';
@@ -59,8 +60,19 @@ void main() async {
     sqflite_ffi.databaseFactory = sqflite_ffi.databaseFactoryFfi;
   }
 
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  const disableCrashlytics = bool.fromEnvironment('VH_DISABLE_CRASHLYTICS');
+  // Firebase (core init + messaging + crashlytics) has no Flutter desktop
+  // implementation — skip the whole stack on Windows/Linux/macOS. Desktop
+  // staff workstations get realtime delivery over the WebSocket fabric.
+  if (!isDesktopPlatform) {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  }
+  // Crashlytics is disabled when explicitly opted out OR on any desktop
+  // build (no platform implementation) — folding both into one flag means
+  // every `!disableCrashlytics` guard below covers desktop automatically.
+  final disableCrashlytics =
+      const bool.fromEnvironment('VH_DISABLE_CRASHLYTICS') || isDesktopPlatform;
 
   // Route non-fatal errors from core + app through the same Crashlytics-backed
   // reporter. Fatal errors are still handled via FlutterError.onError below.
@@ -70,7 +82,11 @@ void main() async {
 
   // Register the terminated/background Code Blue handler *before* any foreground
   // plumbing so notifications fire even if the app hasn't been opened this session.
-  FirebaseMessaging.onBackgroundMessage(_fcmBackgroundHandler);
+  // firebase_messaging has no desktop implementation — desktop staff
+  // workstations receive Code Blue over the WebSocket staff:code-blue channel.
+  if (!isDesktopPlatform) {
+    FirebaseMessaging.onBackgroundMessage(_fcmBackgroundHandler);
+  }
   await CodeBlueNotifier.instance.initialize();
 
   // Strip potential PHI from error messages before sending to Crashlytics.
