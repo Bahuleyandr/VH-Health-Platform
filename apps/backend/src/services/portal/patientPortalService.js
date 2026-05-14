@@ -39,17 +39,56 @@ async function fcmTokensForPatient(patient_uid) {
 export async function listMyBills({ tenantId, patient_uid, status }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   const params = [tenantId, String(patient_uid)];
-  let where = `tenant_id = $1::uuid AND patient_uid = $2::uuid`;
+  let invoiceStatusClause = '';
+  let pharmacyStatusClause = '';
   if (status) {
     params.push(status);
-    where += ` AND status = $${params.length}`;
+    invoiceStatusClause = ` AND status = $${params.length}`;
+    // pharmacy_orders tracks settlement on `payment_status`, not
+    // `status` — match the same filter value against it (case-
+    // insensitive: invoice statuses are upper-case, pharmacy
+    // payment_status is lower-case) so ?status=pending narrows both.
+    pharmacyStatusClause = ` AND LOWER(po.payment_status) = LOWER($${params.length})`;
   }
+  // A DISPENSED pharmacy order with payment_status=pending and no
+  // billing_invoices row never surfaced on the patient's Bills tab —
+  // the patient could see the payable charge nowhere and could not
+  // self-serve payment or claim a receipt for TPA paperwork. UNION the
+  // unsettled, un-invoiced pharmacy-order charges into the list so they
+  // show alongside formal invoices; `source` discriminates the two so
+  // the patient app can branch on tap. Finding
+  // 2026-05-10-walk-in-opd-patient-bills-empty-despite-pending-pharmacy-charge.
   return prisma.$queryRawUnsafe(
     `SELECT id, invoice_number, issued_at, created_at, invoice_type, status,
             subtotal, cgst_amount, sgst_amount, igst_amount,
-            discount_amount, total_amount, amount_paid, amount_due
+            discount_amount, total_amount, amount_paid, amount_due,
+            'invoice' AS source
        FROM billing_invoices
-      WHERE ${where}
+      WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid${invoiceStatusClause}
+      UNION ALL
+     SELECT po.id, po.order_number AS invoice_number,
+            po.ordered_at::timestamptz AS issued_at,
+            po.created_at::timestamptz AS created_at,
+            'pharmacy_order' AS invoice_type,
+            po.payment_status AS status,
+            po.total_amount AS subtotal,
+            0::numeric AS cgst_amount, 0::numeric AS sgst_amount,
+            0::numeric AS igst_amount, 0::numeric AS discount_amount,
+            po.total_amount,
+            0::numeric AS amount_paid,
+            po.total_amount AS amount_due,
+            'pharmacy_order' AS source
+       FROM pharmacy_orders po
+       JOIN users u ON u.id = po.patient_id
+      WHERE u.uid = $2::uuid
+        AND po.total_amount > 0
+        AND LOWER(po.payment_status) NOT IN ('paid', 'waived', 'cancelled')
+        AND UPPER(po.status) <> 'CANCELLED'
+        AND NOT EXISTS (
+          SELECT 1 FROM billing_invoice_items bii
+           WHERE bii.source_ref_type = 'pharmacy_order'
+             AND bii.source_ref_id = po.id
+        )${pharmacyStatusClause}
       ORDER BY COALESCE(issued_at, created_at) DESC, id DESC
       LIMIT 200`,
     ...params,
@@ -557,7 +596,8 @@ async function fetchDischargeSummaryWithSections({ tenantId, patient_uid, where,
             ward_at_discharge, primary_diagnosis, secondary_diagnoses,
             icd10_codes, procedures_performed,
             status, signed_by_name, signed_by_reg, signed_at,
-            delivered_at, delivery_method, created_at, updated_at
+            delivered_at, delivery_method, summary_language,
+            created_at, updated_at
        FROM discharge_summaries
       WHERE ${where}
         AND tenant_id = $1::uuid
@@ -572,8 +612,11 @@ async function fetchDischargeSummaryWithSections({ tenantId, patient_uid, where,
     throw AppError.notFound('Discharge summary not found');
   }
   const summary = rows[0];
+  // `body_translations` carries the language-tagged section bodies
+  // (e.g. {"ta": "..."}) so a Tamil-speaking patient's app can render
+  // the discharge instructions in their own language. Migration 231.
   const sections = await prisma.$queryRawUnsafe(
-    `SELECT section_key, section_title, display_order, body
+    `SELECT section_key, section_title, display_order, body, body_translations
        FROM discharge_summary_sections
       WHERE discharge_summary_id = $1::int
       ORDER BY display_order, id`,

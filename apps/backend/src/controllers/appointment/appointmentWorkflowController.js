@@ -777,6 +777,16 @@ export const registerWalkIn = async (req, res) => {
       //   2026-05-11-dynamic-acute-abdomen-receptionist-6b6a9d03
       payer_type, patient_category, insurer_name, insurer, tpa_name,
       policy_number, scheme_name, scheme,
+      // Stage-5 — lab-only walk-in panel ordering. A LAB_ONLY walk-in (cash
+      // patient booking CBC + Lipid etc. with no consult) used to be
+      // saved as a bare visit, forcing the receptionist to a second
+      // /investigations/order screen — and the patient could reach the
+      // lab counter with a visit number but no order waiting. `lab_tests`
+      // is an array of test-name strings or {test_name,test_type,
+      // priority} objects; the investigation rows are created in the
+      // SAME transaction as the visit so they commit together. Finding:
+      // 2026-05-10-lab-walk-in-receptionist-no-panel-order-on-register.
+      lab_tests,
     } = req.body;
     // Resolved time honours either field; falls back to 'Walk-in' only
     // when nothing was supplied. `appointments.appointment_time` is
@@ -1209,6 +1219,48 @@ export const registerWalkIn = async (req, res) => {
       // visit_no was computed pre-INSERT and persisted on the appointments
       // row (migration 217). Use it for the ER visit_number FK below.
 
+      // Lab-only panel ordering — create the requested investigation
+      // rows in the same transaction so the visit and its CBC + Lipid
+      // (etc.) panel commit atomically and the response can hand the
+      // receptionist both the visit number and the lab order IDs for
+      // the printed slip. Finding:
+      // 2026-05-10-lab-walk-in-receptionist-no-panel-order-on-register.
+      const labOrders = [];
+      if (Array.isArray(lab_tests) && lab_tests.length > 0) {
+        const patientRow = await tx.$queryRawUnsafe(
+          'SELECT uid, phone FROM users WHERE id = $1::int LIMIT 1',
+          patientId,
+        );
+        const patientUid = patientRow[0]?.uid ?? null;
+        // investigations.phone is VARCHAR(15) NOT NULL — fall back to the
+        // resolved walk-in phone, then a placeholder, and always clamp.
+        const investigationPhone = String(
+          patientRow[0]?.phone || resolvedPhone || 'unknown',
+        ).slice(0, 15);
+        for (const entry of lab_tests) {
+          const testName = (typeof entry === 'string'
+            ? entry
+            : String(entry?.test_name ?? entry?.name ?? '')).trim();
+          if (!testName) continue;
+          const testType = (typeof entry === 'object' && entry?.test_type
+            ? String(entry.test_type)
+            : 'LAB').toUpperCase().slice(0, 100);
+          const testPriority = (typeof entry === 'object' && entry?.priority
+            ? String(entry.priority)
+            : 'NORMAL').toUpperCase().slice(0, 20);
+          const invRows = await tx.$queryRawUnsafe(
+            `INSERT INTO investigations
+               (phone, patient_id, patient_uid, test_name, test_type,
+                status, priority, requested_by, requested_at, updated_at)
+             VALUES ($1, $2::int, $3::uuid, $4, $5, 'REQUESTED', $6, $7::uuid, NOW(), NOW())
+             RETURNING id, test_name, test_type, status, priority`,
+            investigationPhone, patientId, patientUid,
+            testName.slice(0, 255), testType, testPriority, staffUid,
+          );
+          labOrders.push(invRows[0]);
+        }
+      }
+
       // E-12 — ANC walk-ins also need a maternity_pregnancies row so
       // the OB doctor's chart open + the new prior-orders endpoint
       // have a pregnancy_id to attach to. Skipped if lmp_date is
@@ -1304,6 +1356,11 @@ export const registerWalkIn = async (req, res) => {
         // "Medico-legal case" without an extra fetch. Null on non-EMER
         // walk-ins (no emergency_visits row is created).
         er_is_mlc: erVisit?.is_mlc ?? null,
+        // Stage-5 — lab panel ordered in the same save — the receptionist's
+        // printed slip carries these so the patient reaches the lab
+        // counter with the CBC + Lipid order already waiting.
+        lab_order_ids: labOrders.map((o) => o.id),
+        lab_orders: labOrders,
         returning_patient: returningPatient,
         prior_visit_count: priorVisitCount,
         last_visit_at: lastVisitAt,
