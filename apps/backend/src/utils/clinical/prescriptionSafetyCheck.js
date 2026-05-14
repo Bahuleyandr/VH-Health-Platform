@@ -155,6 +155,175 @@ async function loadPaediatricContext(patientId) {
 }
 
 /**
+ * Antithrombotic drug classes for bleeding-risk interaction screening.
+ * Generic names plus the common brand names seen on Indian prescriptions
+ * (the platform is ABDM / India-first), matched case-insensitive
+ * substring against the medication name — same approach as
+ * PAEDIATRIC_MG_PER_KG and BETA_LACTAM_DRUGS above.
+ *
+ * This is a curated, well-attested table, NOT a general drug-interaction
+ * engine. Scope is deliberately limited to the bleeding-risk
+ * antithrombotic class flagged in finding
+ * 2026-05-10-emergency-walk-in-doctor-safety-check-misses-dapt-anticoag-bleeding-risk.
+ * Where it is uncertain whether a drug belongs in a class, it is left
+ * out rather than guessed.
+ *
+ *  - antiplatelet:  aspirin + the P2Y12 inhibitors (clopidogrel,
+ *                   ticagrelor, prasugrel)
+ *  - anticoagulant: vitamin-K antagonist (warfarin), heparins
+ *                   (unfractionated heparin, enoxaparin LMWH), and the
+ *                   DOACs apixaban / rivaroxaban / dabigatran
+ *  - nsaid:         non-selective NSAIDs — not antithrombotics
+ *                   themselves, but well-attested amplifiers of
+ *                   anticoagulant bleeding risk (platelet inhibition +
+ *                   GI mucosal injury)
+ *
+ * Aspirin is classed antiplatelet only (its role at the cardiac /
+ * secondary-prevention doses these rules target), never nsaid, so every
+ * drug maps to exactly one class.
+ */
+const ANTITHROMBOTIC_DRUGS = [
+  // Antiplatelets
+  { generic: 'aspirin', klass: 'antiplatelet', aliases: ['aspirin', 'acetylsalicylic', 'ecosprin', 'disprin'] },
+  { generic: 'clopidogrel', klass: 'antiplatelet', aliases: ['clopidogrel', 'plavix', 'clopilet', 'deplatt'] },
+  { generic: 'ticagrelor', klass: 'antiplatelet', aliases: ['ticagrelor', 'brilinta'] },
+  { generic: 'prasugrel', klass: 'antiplatelet', aliases: ['prasugrel', 'effient'] },
+  // Anticoagulants
+  { generic: 'warfarin', klass: 'anticoagulant', aliases: ['warfarin', 'coumadin'] },
+  { generic: 'enoxaparin', klass: 'anticoagulant', aliases: ['enoxaparin', 'clexane', 'lovenox'] },
+  { generic: 'heparin', klass: 'anticoagulant', aliases: ['heparin'] },
+  { generic: 'apixaban', klass: 'anticoagulant', aliases: ['apixaban', 'eliquis'] },
+  { generic: 'rivaroxaban', klass: 'anticoagulant', aliases: ['rivaroxaban', 'xarelto'] },
+  { generic: 'dabigatran', klass: 'anticoagulant', aliases: ['dabigatran', 'pradaxa'] },
+  // NSAIDs — bleeding-risk amplifiers
+  { generic: 'ibuprofen', klass: 'nsaid', aliases: ['ibuprofen', 'brufen'] },
+  { generic: 'naproxen', klass: 'nsaid', aliases: ['naproxen'] },
+  { generic: 'diclofenac', klass: 'nsaid', aliases: ['diclofenac', 'voveran'] },
+  { generic: 'aceclofenac', klass: 'nsaid', aliases: ['aceclofenac'] },
+  { generic: 'ketorolac', klass: 'nsaid', aliases: ['ketorolac'] },
+  { generic: 'indomethacin', klass: 'nsaid', aliases: ['indomethacin'] },
+  { generic: 'mefenamic', klass: 'nsaid', aliases: ['mefenamic'] },
+  { generic: 'piroxicam', klass: 'nsaid', aliases: ['piroxicam'] },
+];
+
+function classifyAntithromboticDrug(medName) {
+  const name = String(medName || '').toLowerCase();
+  if (!name) return null;
+  for (const entry of ANTITHROMBOTIC_DRUGS) {
+    if (entry.aliases.some((alias) => name.includes(alias))) {
+      return { generic: entry.generic, klass: entry.klass };
+    }
+  }
+  return null;
+}
+
+/**
+ * Screen a medication list for bleeding-risk antithrombotic interactions.
+ * Pure function — no DB, no patient context — so it is unit-testable in
+ * isolation. Returns the same { warnings, blockers } issue shape the
+ * allergy / duplicate / paediatric-dose checks use.
+ *
+ * Clinically-attested rules (bleeding-risk antithrombotic class only):
+ *   1. Two or more antiplatelets — dual antiplatelet therapy (DAPT) → WARNING
+ *   2. Antiplatelet + anticoagulant                                → BLOCKER
+ *   3. DAPT + anticoagulant ("triple therapy")                     → BLOCKER
+ *   4. Anticoagulant + NSAID                                       → WARNING
+ *
+ * Concurrent antithrombotics multiply bleeding risk: adding an
+ * antiplatelet to an anticoagulant roughly doubles the major-bleeding
+ * rate, and "triple therapy" (DAPT + anticoagulant) carries the highest
+ * bleeding risk of any antithrombotic combination — ESC/ACC guidance
+ * caps its duration for exactly that reason. NSAIDs amplify
+ * anticoagulant bleeding risk via platelet inhibition and GI mucosal
+ * injury. Per the finding above and standard antithrombotic-stewardship
+ * practice, antiplatelet+anticoagulant and triple therapy are hard
+ * blockers: the prescriber can still proceed for a genuine indication
+ * (NSTEMI, mechanical valve + ACS, etc.) through the same
+ * override-with-reason path createPrescription already enforces for the
+ * allergy / paediatric-dose blockers.
+ *
+ * @param {Array} medications - [{ name | medication_name, ... }]
+ * @returns {{ warnings: Array, blockers: Array }}
+ */
+export function checkAntithromboticInteractions(medications) {
+  const warnings = [];
+  const blockers = [];
+  if (!Array.isArray(medications)) return { warnings, blockers };
+
+  const antiplatelets = [];
+  const anticoagulants = [];
+  const nsaids = [];
+  for (const med of medications) {
+    const name = med?.name || med?.medication_name || '';
+    const hit = classifyAntithromboticDrug(name);
+    if (!hit) continue;
+    if (hit.klass === 'antiplatelet') antiplatelets.push(name);
+    else if (hit.klass === 'anticoagulant') anticoagulants.push(name);
+    else if (hit.klass === 'nsaid') nsaids.push(name);
+  }
+
+  const hasDapt = antiplatelets.length >= 2;
+  const hasAntiplatelet = antiplatelets.length >= 1;
+  const hasAnticoagulant = anticoagulants.length >= 1;
+
+  // The antiplatelet-axis rules are mutually exclusive and ordered by
+  // severity — triple therapy subsumes both DAPT and the lone
+  // antiplatelet+anticoagulant pairing, so only the most severe fires.
+  if (hasDapt && hasAnticoagulant) {
+    blockers.push({
+      type: 'ANTITHROMBOTIC_INTERACTION',
+      interaction: 'TRIPLE_THERAPY',
+      severity: 'HIGH',
+      medications: [...antiplatelets, ...anticoagulants],
+      message:
+        `Triple antithrombotic therapy — dual antiplatelets (${antiplatelets.join(', ')}) `
+        + `combined with anticoagulant (${anticoagulants.join(', ')}) carry the highest bleeding `
+        + 'risk of any antithrombotic combination. Confirm the indication and minimum duration, '
+        + 'or override with reason.',
+    });
+  } else if (hasAntiplatelet && hasAnticoagulant) {
+    blockers.push({
+      type: 'ANTITHROMBOTIC_INTERACTION',
+      interaction: 'ANTIPLATELET_ANTICOAGULANT',
+      severity: 'HIGH',
+      medications: [...antiplatelets, ...anticoagulants],
+      message:
+        `Antiplatelet (${antiplatelets.join(', ')}) combined with anticoagulant `
+        + `(${anticoagulants.join(', ')}) — high bleeding risk. Confirm the indication, `
+        + 'or override with reason.',
+    });
+  } else if (hasDapt) {
+    warnings.push({
+      type: 'ANTITHROMBOTIC_INTERACTION',
+      interaction: 'DUAL_ANTIPLATELET',
+      severity: 'MODERATE',
+      medications: [...antiplatelets],
+      message:
+        `Dual antiplatelet therapy (${antiplatelets.join(', ')}) — increased bleeding risk. `
+        + 'Expected after ACS or stent placement; confirm the indication and planned duration.',
+    });
+  }
+
+  // The NSAID rule is orthogonal to the antiplatelet axis above — a
+  // triple-therapy patient who is also on an NSAID gets both findings.
+  if (hasAnticoagulant && nsaids.length >= 1) {
+    warnings.push({
+      type: 'ANTITHROMBOTIC_INTERACTION',
+      interaction: 'ANTICOAGULANT_NSAID',
+      severity: 'MODERATE',
+      medications: [...anticoagulants, ...nsaids],
+      message:
+        `NSAID (${nsaids.join(', ')}) with anticoagulant (${anticoagulants.join(', ')}) — `
+        + 'NSAIDs amplify anticoagulant bleeding risk via platelet inhibition and GI mucosal '
+        + 'injury. Prefer paracetamol; if an NSAID is clinically required, add gastroprotection '
+        + 'and monitor.',
+    });
+  }
+
+  return { warnings, blockers };
+}
+
+/**
  * Validate a prescription against patient allergies and active medications.
  * Call before saving any new prescription.
  * @param {number} patientId
@@ -353,6 +522,20 @@ export async function validatePrescriptionSafety(patientId, medications) {
       }
     }
 
+    // 4. Antithrombotic (bleeding-risk) interaction screen. Pure, no DB —
+    //    inspects the prescribed list itself for the well-attested
+    //    bleeding-risk combinations the allergy / duplicate / dose checks
+    //    above don't catch. Before this, aspirin + clopidogrel +
+    //    enoxaparin (dual antiplatelet + anticoagulant) returned
+    //    safe:true with zero warnings. Antiplatelet+anticoagulant and
+    //    triple therapy land in blockers[] (override-with-reason via
+    //    createPrescription); DAPT-alone and anticoagulant+NSAID are
+    //    warnings. See finding
+    //    2026-05-10-emergency-walk-in-doctor-safety-check-misses-dapt-anticoag-bleeding-risk.
+    const antithrombotic = checkAntithromboticInteractions(medications);
+    warnings.push(...antithrombotic.warnings);
+    blockers.push(...antithrombotic.blockers);
+
   } catch (err) {
     // Fail CLOSED on safety-check failure. Returning safe:true silently
     // allowed an allergy/dup-Rx lookup to be bypassed by triggering the
@@ -376,4 +559,4 @@ export async function validatePrescriptionSafety(patientId, medications) {
   };
 }
 
-export default { validatePrescriptionSafety };
+export default { validatePrescriptionSafety, checkAntithromboticInteractions };
