@@ -366,6 +366,44 @@ router.patch('/maternity/supplements/:id/reminder', requirePatient, wrap(async (
   });
 }));
 
+// ── Maternity packages (patient pre-booking surface) ────────────────
+// ANC patients ask about delivery package pricing at registration.
+// The /api/v1/maternity/* router is staff/admin-gated, so the
+// patient-readable view lives here. Prices are placeheld until
+// finance review (migration 226). Finding:
+// 2026-05-09-walk-in-opd-patient-maternity-package-forbidden.
+router.get('/maternity/packages', requirePatient, wrap(async (req) =>
+  maternity.listMaternityPackages({ tenantId: tenantOf(req) }),
+));
+
+// ── ANC trimester advice (patient self-monitoring surface) ──────────
+// Danger signs, reduced-fetal-movement guidance, foods to avoid, when
+// to contact the hospital. Decorated with the patient's current
+// trimester when they have an active pregnancy so the app can
+// highlight the relevant section. Content is review-placeheld
+// (migration 226). The patient fetal-kick counter routes already
+// exist above (GET/POST /maternity/fetal-kicks). Finding:
+// 2026-05-10-obstetric-anc-patient-no-kick-counter-or-ob-advice.
+router.get('/maternity/anc-advice', requirePatient, wrap(async (req) => {
+  const active = await maternity.getActivePregnancyForPatient({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+  });
+  let currentTrimester = null;
+  const weeks = active?.gestational_age?.weeks;
+  if (weeks != null) currentTrimester = weeks < 14 ? 1 : weeks < 28 ? 2 : 3;
+  const advice = await maternity.getAncAdvice({
+    tenantId: tenantOf(req),
+    trimester: req.query.trimester ?? null,
+    language: req.query.language || 'hi',
+  });
+  return {
+    current_trimester: currentTrimester,
+    gestational_age: active?.gestational_age ?? null,
+    advice,
+  };
+}));
+
 // ── Secure messaging ────────────────────────────────────────────────
 router.get('/messages', requirePatient, wrap(async (req) =>
   portal.listMyThreads({

@@ -2,6 +2,7 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { computeGestationalAge } from '../../services/maternity/maternityService.js';
 import { sendAppointmentConfirmationSMS } from '../../services/smsService.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { logAudit } from '../../utils/logAudit.js';
@@ -412,12 +413,29 @@ export const getTodayQueue = async (req, res) => {
         WHERE DATE(arrival_at) = CURRENT_DATE
           AND COALESCE(disposition, '') NOT IN ('discharged', 'lama', 'expired')
         ORDER BY patient_uid, arrival_at DESC
+      ),
+      -- ANC context for the queue. One ongoing pregnancy per patient
+      -- (DISTINCT ON mirrors ed_today). lmp_date drives the GA the
+      -- receptionist confirms verbally at check-in. Finding:
+      -- 2026-05-09-obstetric-anc-receptionist-walkin-response-missing-ga.
+      anc_preg AS (
+        SELECT DISTINCT ON (patient_uid)
+          id AS pregnancy_id,
+          patient_uid,
+          lmp_date,
+          edd_date
+        FROM maternity_pregnancies
+        WHERE status = 'ongoing'
+        ORDER BY patient_uid, created_at DESC
       )
       SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date, a.appointment_time,
         a.status, a.reason, a.notes, a.token_number, a.department, a.confirmed_at, a.created_at, a.updated_at,
         p.name as patient_name, p.phone as patient_phone, p.blood_group, p.uid as patient_uid,
         d.name as doctor_display_name, doc.specialty AS specialization,
         doc.department as doctor_department,
+        mp.pregnancy_id,
+        mp.lmp_date  AS anc_lmp_date,
+        mp.edd_date  AS anc_edd_date,
         ed.emergency_visit_id,
         ed.triage_priority,
         ed.ed_status,
@@ -439,6 +457,7 @@ export const getTodayQueue = async (req, res) => {
       LEFT JOIN users d ON a.doctor_id = d.id
       LEFT JOIN doctors doc ON doc.user_id = a.doctor_id
       LEFT JOIN ed_today ed ON ed.patient_uid = p.uid
+      LEFT JOIN anc_preg mp ON mp.patient_uid = p.uid
       ${where}
       ORDER BY
         CASE
@@ -454,7 +473,15 @@ export const getTodayQueue = async (req, res) => {
         a.appointment_time
     `, ...params);
 
-    success(res, result, "Today's queue fetched");
+    // Decorate ANC rows with computed GA so the receptionist queue can
+    // render "GA 24+0" without each client repeating the LMP math.
+    const enriched = result.map((row) => (
+      row.anc_lmp_date
+        ? { ...row, gestational_age: computeGestationalAge(row.anc_lmp_date) }
+        : row
+    ));
+
+    success(res, enriched, "Today's queue fetched");
   } catch (err) {
     logger.error('Get Queue Error:', err);
     error(res, 'Failed to fetch queue', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -1211,6 +1238,14 @@ export const registerWalkIn = async (req, res) => {
         is_unidentified: isUnidentifiedFlag,
       };
     });
+
+    // ANC walk-in — echo gestational age in the response so the
+    // receptionist can verbally confirm GA + which ANC visit this is
+    // at registration, without a follow-up /maternity call. Finding:
+    // 2026-05-09-obstetric-anc-receptionist-walkin-response-missing-ga.
+    if (lmp_date && deptPrefix(result.department) === 'ANC') {
+      result.gestational_age = computeGestationalAge(lmp_date);
+    }
 
     success(res, result, `Walk-in registered. Visit ${result.visit_no}`);
   } catch (err) {

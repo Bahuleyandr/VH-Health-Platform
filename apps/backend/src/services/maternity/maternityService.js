@@ -55,6 +55,52 @@ export function computeGestationalAge(lmpDate, onDate = null) {
   };
 }
 
+// Standard ANC visit schedule (target GA week → milestone). Drives the
+// forward care plan rendered on the ANC timeline. These are scheduling
+// milestone labels only — the clinical content of each visit is owned
+// elsewhere, not invented here.
+const ANC_SCHEDULE = [
+  { label: 'Booking visit', ga_weeks: 12, trimester: 1 },
+  { label: 'Second ANC visit', ga_weeks: 16, trimester: 2 },
+  { label: 'Anomaly scan window', ga_weeks: 20, trimester: 2 },
+  { label: 'Glucose screening window', ga_weeks: 26, trimester: 2 },
+  { label: 'Third trimester visit', ga_weeks: 32, trimester: 3 },
+  { label: 'Growth scan window', ga_weeks: 36, trimester: 3 },
+  { label: 'Term assessment', ga_weeks: 39, trimester: 3 },
+];
+
+/**
+ * Compute the ANC schedule milestones from LMP. Each milestone gets a
+ * target date (LMP + ga_weeks) and a past / current / upcoming status
+ * relative to the reference date. "current" = within 2 weeks before
+ * the target week. Returns [] when LMP is unknown.
+ */
+export function computeAncScheduleMilestones(lmpDate, onDate = null) {
+  if (!lmpDate) return [];
+  const lmp = new Date(lmpDate);
+  if (Number.isNaN(lmp.getTime())) return [];
+  const today = onDate ? new Date(onDate) : new Date();
+  const currentGa = computeGestationalAge(lmpDate, onDate);
+  const currentWeeks = currentGa ? currentGa.weeks : null;
+  return ANC_SCHEDULE.map((m) => {
+    const targetDate = new Date(lmp.getTime() + m.ga_weeks * 7 * 86400000);
+    let status = 'upcoming';
+    if (currentWeeks != null) {
+      if (currentWeeks > m.ga_weeks) status = 'past';
+      else if (currentWeeks >= m.ga_weeks - 2) status = 'current';
+    } else if (targetDate < today) {
+      status = 'past';
+    }
+    return {
+      label: m.label,
+      ga_weeks: m.ga_weeks,
+      trimester: m.trimester,
+      target_date: targetDate.toISOString().slice(0, 10),
+      status,
+    };
+  });
+}
+
 export async function createPregnancy({
   tenantId, patient_uid, pregnancy_number = 1,
   lmp_date, edd_date, edd_method,
@@ -355,10 +401,77 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
   ]);
   if (!pregnancy.length) throw AppError.notFound(`Pregnancy ${id} not found`);
   const p = pregnancy[0];
+
+  // Carry forward active supplement prescriptions onto the ANC
+  // schedule so prior IFA / calcium courses surface as continued
+  // orders the doctor can keep, not retype. Deduped against
+  // structured maternity_supplements rows (and within itself) by
+  // supplement kind so the same course isn't listed twice. Best-
+  // effort: a scan failure must not break the timeline read. Finding:
+  // 2026-05-10-obstetric-anc-doctor-supplements-not-carried-forward.
+  const carriedForward = [];
+  try {
+    const activeRx = await prisma.$queryRawUnsafe(
+      `SELECT id, prescription_number, medications, created_at
+         FROM e_prescriptions
+        WHERE patient_uid = $1::uuid
+          AND COALESCE(status, 'active') = 'active'
+        ORDER BY created_at DESC
+        LIMIT 50`,
+      String(p.patient_uid),
+    );
+    const covered = new Set(supplements.map((s) => s.supplement));
+    for (const s of extractCarriedForwardSupplements(activeRx)) {
+      if (covered.has(s.supplement)) continue;
+      covered.add(s.supplement);
+      carriedForward.push(s);
+    }
+  } catch (e) {
+    logger.warn(`ANC carry-forward supplement scan failed for pregnancy=${id}: ${e.message}`);
+  }
+
+  // Booked ANC appointments — the timeline previously showed only
+  // recorded maternity_anc_visits, so a booked-but-not-yet-attended
+  // visit (e.g. today's 24-week appointment) was invisible. Scope to
+  // OB/ANC appointments within the pregnancy window. Best-effort.
+  // Finding:
+  // 2026-05-10-obstetric-anc-receptionist-anc-timeline-omits-booked-visit.
+  let bookedVisits = [];
+  try {
+    bookedVisits = await prisma.$queryRawUnsafe(
+      `SELECT a.id, a.appointment_date, a.appointment_time, a.status,
+              a.reason, a.department, a.token_number, a.visit_no, a.visit_type
+         FROM appointments a
+         JOIN users u ON u.id = a.patient_id
+        WHERE u.uid = $1::uuid
+          AND a.status NOT IN ('CANCELLED', 'NO_SHOW')
+          AND a.appointment_date >= COALESCE($2::date, a.appointment_date)
+          AND (
+            a.visit_no LIKE 'ANC-%'
+            OR a.department ILIKE '%obstet%'
+            OR a.department ILIKE '%gyn%'
+            OR a.department ILIKE '%antenatal%'
+            OR a.department ILIKE '%anc%'
+          )
+        ORDER BY a.appointment_date DESC, a.appointment_time DESC
+        LIMIT 50`,
+      String(p.patient_uid), p.lmp_date || null,
+    );
+  } catch (e) {
+    logger.warn(`ANC booked-visit scan failed for pregnancy=${id}: ${e.message}`);
+  }
+
+  // Forward/back ANC care schedule computed from LMP, so the timeline
+  // shows where the current visit sits in the plan and what's next.
+  const scheduleMilestones = computeAncScheduleMilestones(p.lmp_date);
+
   return {
     pregnancy: { ...p, gestational_age: computeGestationalAge(p.lmp_date) },
     visits,
+    booked_visits: bookedVisits,
+    schedule_milestones: scheduleMilestones,
     supplements,
+    carried_forward_supplements: carriedForward,
     fetal_kicks: kicks,
   };
 }
@@ -445,6 +558,52 @@ const FREQ_MAP = {
   weekly: 'weekly',
   sos: 'as_needed', prn: 'as_needed', 'as_needed': 'as_needed', 'as needed': 'as_needed',
 };
+
+/**
+ * Extract pregnancy-relevant supplements from a set of e_prescriptions
+ * rows so the ANC supplement schedule can surface prior IFA / calcium
+ * courses as continued orders the doctor can keep instead of retyping.
+ * Each entry carries the source prescription so the timeline can show
+ * a "from last visit" / "active" indicator. Reuses the same name and
+ * frequency mapping as maybePropagateAncSupplements. Finding:
+ * 2026-05-10-obstetric-anc-doctor-supplements-not-carried-forward.
+ */
+export function extractCarriedForwardSupplements(prescriptions) {
+  const out = [];
+  for (const rx of prescriptions || []) {
+    const meds = Array.isArray(rx?.medications) ? rx.medications : [];
+    for (const med of meds) {
+      if (!med || typeof med !== 'object') continue;
+      const name = String(med.name || med.medication || med.medicine || '').trim();
+      if (!name) continue;
+
+      const matches = SUPPLEMENT_PATTERNS
+        .filter(({ re }) => re.test(name))
+        .map(({ kind }) => kind);
+      if (!matches.length) continue;
+
+      const freqRaw = String(med.frequency || med.freq || '').toLowerCase().trim();
+      const frequency = FREQ_MAP[freqRaw] || 'once_daily';
+      const dose = String(med.dose || med.dosage || med.strength || '').trim() || null;
+
+      for (const supplement of matches) {
+        out.push({
+          supplement,
+          dose,
+          frequency,
+          route: 'oral',
+          source: 'prescription',
+          carried_forward: true,
+          prescription_id: rx.id,
+          prescription_number: rx.prescription_number,
+          prescribed_on: rx.created_at,
+          medication_name: name,
+        });
+      }
+    }
+  }
+  return out;
+}
 
 /**
  * Propagate pregnancy-relevant medications from a prescription into
@@ -660,6 +819,72 @@ export async function listFetalKicks({ tenantId, pregnancy_id, fromDate = null, 
       WHERE tenant_id = $1::uuid AND pregnancy_id = $2::int${dateClause}
       ORDER BY log_date DESC
       LIMIT 90`,
+    ...params,
+  );
+}
+
+/**
+ * Maternity / delivery packages for the patient pre-booking surface
+ * and the receptionist pricing quote. Reads the obstetrics rows from
+ * the shared `packages` master (seeded by migration 226). Prices are
+ * NULL until the hospital's finance team fills them in — the response
+ * carries the price_status placeholder so the UI shows "pricing under
+ * review" rather than a fabricated number. Finding:
+ * 2026-05-09-walk-in-opd-patient-maternity-package-forbidden.
+ */
+export async function listMaternityPackages({ tenantId }) {
+  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, package_code, display_name, description,
+            base_specialty, base_procedure_code, duration_days,
+            fixed_price_minor, currency, status,
+            inclusion_notes, exclusion_notes, metadata
+       FROM packages
+      WHERE tenant_id = $1::uuid
+        AND base_specialty = 'obstetrics'
+        AND status = 'active'
+      ORDER BY display_name`,
+    tid,
+  );
+  return rows.map((r) => ({
+    ...r,
+    // fixed_price_minor is a Postgres bigint → Prisma returns BigInt,
+    // which JSON.stringify cannot serialise. Coerce to Number; NULL
+    // (price not yet set) stays NULL.
+    fixed_price_minor: r.fixed_price_minor == null ? null : Number(r.fixed_price_minor),
+    price_status: r.metadata?.price_status
+      ?? (r.fixed_price_minor == null
+        ? '[PLACEHOLDER — clinical/financial review required]'
+        : null),
+  }));
+}
+
+/**
+ * Trimester-specific patient ANC advice (danger signs, fetal-movement
+ * guidance, foods to avoid, when to contact the hospital). Reads
+ * maternity_anc_advice (migration 226). Scoped to one trimester when
+ * given, else all three. Seeded content is a review placeholder — the
+ * clinical team owns the real Hindi copy. Finding:
+ * 2026-05-10-obstetric-anc-patient-no-kick-counter-or-ob-advice.
+ */
+export async function getAncAdvice({ tenantId, trimester = null, language = 'hi' }) {
+  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const lang = language || 'hi';
+  const params = [tid, lang];
+  let trimesterClause = '';
+  if (trimester != null && trimester !== '') {
+    const t = Number.parseInt(trimester, 10);
+    if (!Number.isInteger(t) || t < 1 || t > 3) {
+      throw AppError.badRequest('trimester must be 1, 2, or 3');
+    }
+    params.push(t);
+    trimesterClause = ` AND trimester = $${params.length}::int`;
+  }
+  return prisma.$queryRawUnsafe(
+    `SELECT id, trimester, language, category, title, content, display_order
+       FROM maternity_anc_advice
+      WHERE tenant_id = $1::uuid AND language = $2 AND active = true${trimesterClause}
+      ORDER BY trimester, display_order`,
     ...params,
   );
 }
