@@ -2,9 +2,9 @@
 
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
-import 'package:dio/dio.dart';
+import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
-import 'package:flutter/foundation.dart'; // ✅ needed for debugPrint
+import 'package:flutter/foundation.dart'; // needed for debugPrint
 
 class CacheFileUtils {
   static Future<String> _getCacheDirPath() async {
@@ -29,8 +29,10 @@ class CacheFileUtils {
   static Future<File?> downloadAndCacheFile(String fileKey, String url) async {
     try {
       final file = await _getLocalFile(fileKey);
-      final response = await Dio().download(url, file.path);
+      final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
+        // Only persist on success — never leave a partial file in the cache.
+        await file.writeAsBytes(response.bodyBytes);
         return file;
       }
     } catch (e) {
