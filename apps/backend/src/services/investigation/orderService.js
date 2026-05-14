@@ -125,6 +125,53 @@ export const createInvestigationOrder = async (orderData) => {
     ? String(notes).trim()
     : null;
 
+  // Soft duplicate-order guard — warn, never block. OB investigation
+  // order sets are gestational-age-specific (18w anomaly scan, 24w GDM
+  // screen, growth scans): a doctor opening the 24-week visit screen
+  // with no "done at 18w" indicator will re-order the anomaly scan.
+  // Keyed on patient + test (code when present, else name) within a
+  // 60-day window. Best-effort — a check failure must not block the
+  // order. Finding:
+  // 2026-05-09-obstetric-anc-doctor-no-duplicate-order-guard.
+  let duplicateWarning = null;
+  try {
+    const priorRows = await prisma.$queryRawUnsafe(
+      `SELECT id, test_name, test_code, test_type, status,
+              requested_at, completed_at
+         FROM investigations
+        WHERE patient_id = $1::int
+          AND requested_at >= NOW() - INTERVAL '60 days'
+          AND status <> 'CANCELLED'
+          AND (
+            ($2::text IS NOT NULL AND LOWER(test_code) = LOWER($2))
+            OR LOWER(test_name) = LOWER($3)
+          )
+        ORDER BY requested_at DESC
+        LIMIT 1`,
+      parseInt(patient_id, 10),
+      resolvedTestCode,
+      String(test_name).trim(),
+    );
+    if (priorRows.length) {
+      const prior = priorRows[0];
+      const when = new Date(prior.completed_at || prior.requested_at)
+        .toISOString().slice(0, 10);
+      duplicateWarning = {
+        recent_order_id: prior.id,
+        test_name: prior.test_name,
+        test_code: prior.test_code,
+        status: prior.status,
+        requested_at: prior.requested_at,
+        completed_at: prior.completed_at,
+        message: `A similar test ("${prior.test_name}") was `
+          + `${prior.status === 'COMPLETED' ? 'completed' : 'ordered'} for `
+          + `this patient on ${when}. Confirm this re-order is intentional.`,
+      };
+    }
+  } catch (err) {
+    logger.warn(`investigation duplicate-order check failed: ${err.message}`);
+  }
+
   const investigation = await prisma.investigations.create({
     data: {
       phone: patient.phone || 'unknown',
@@ -171,6 +218,7 @@ export const createInvestigationOrder = async (orderData) => {
   return {
     investigation,
     patient_name: patient.name,
+    duplicate_warning: duplicateWarning,
   };
 };
 
