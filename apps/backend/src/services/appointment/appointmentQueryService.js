@@ -7,6 +7,7 @@
 import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { computeGestationalAge } from '../maternity/maternityService.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
 // Base set of appointment columns every list view returns.
@@ -56,15 +57,52 @@ const DOCTOR_INCLUDE = {
   },
 };
 
-// Patient relation — appointments.patient_id → users.id.
+// Patient relation — appointments.patient_id → users.id. `uid` is
+// selected so the detail view can resolve the patient's ANC pregnancy
+// (and the COMPLETED-visit clinical-summary join below) without a
+// second round-trip.
 const PATIENT_INCLUDE = {
   select: {
     id: true,
+    uid: true,
     name: true,
     phone: true,
     email: true,
   },
 };
+
+// Resolve the ANC pregnancy context for a patient (ongoing pregnancy
+// only). Returns null when the patient has no active pregnancy — the
+// common case for non-ANC appointments. Best-effort: a lookup failure
+// must never break the appointment read. Finding:
+// 2026-05-09-obstetric-anc-receptionist-walkin-response-missing-ga.
+async function resolvePregnancyContext(patientUid) {
+  if (!patientUid) return null;
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, lmp_date, edd_date, gravida, parity, high_risk
+         FROM maternity_pregnancies
+        WHERE patient_uid = $1::uuid AND status = 'ongoing'
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      String(patientUid),
+    );
+    if (!rows.length) return null;
+    const p = rows[0];
+    return {
+      pregnancy_id: p.id,
+      lmp_date: p.lmp_date,
+      edd_date: p.edd_date,
+      gravida: p.gravida,
+      parity: p.parity,
+      high_risk: p.high_risk,
+      gestational_age: computeGestationalAge(p.lmp_date),
+    };
+  } catch (e) {
+    logger.warn('Pregnancy context lookup failed:', e?.message);
+    return null;
+  }
+}
 
 // Format a date range filter for `DATE(appointment_date) = $d` — Prisma's
 // Date equality on an appointment_date Date column needs the whole day
@@ -442,6 +480,14 @@ export class AppointmentQueryService {
       // ANC appointments don't get re-routed to the doctor's home
       // department.
       flat.department = row.department ?? profile?.department ?? null;
+
+      // ANC context — when the patient has an ongoing pregnancy, surface
+      // gestational age + pregnancy id inline so the receptionist can
+      // confirm GA from the appointment screen instead of stitching a
+      // separate /maternity/pregnancies/active call. Null for the
+      // common non-ANC case. Finding:
+      // 2026-05-09-obstetric-anc-receptionist-walkin-response-missing-ga.
+      flat.pregnancy_context = await resolvePregnancyContext(patient?.uid);
 
       // E-10 — completed-visit clinical summary. Patient app calling
       // GET /appointments/:id on a COMPLETED visit previously got an
