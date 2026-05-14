@@ -144,8 +144,22 @@ async function runCDSChecks(patientUid, orderType, details) {
 
   try {
     if (orderType === 'medication' && details.medication_name) {
+      // validatePrescriptionSafety is integer-keyed — its queries join
+      // users.id / patient_allergies.patient_id / e_prescriptions.patient_id
+      // as ints. CPOE orders only carry the UUID patient_uid, so resolve it
+      // to the int users.id first. Passing the UUID straight through made
+      // every medication order's safety check fail closed with a generic
+      // blocker (`operator does not exist: integer = text`).
+      const patientRow = await prisma.users.findUnique({
+        where: { uid: patientUid },
+        select: { id: true },
+      });
+      if (!patientRow) {
+        result.warnings.push('CDS safety check skipped — patient not found');
+        return result;
+      }
       // Check drug interactions and allergies via existing prescription safety checker
-      const safetyResult = await validatePrescriptionSafety(patientUid, [
+      const safetyResult = await validatePrescriptionSafety(patientRow.id, [
         { name: details.medication_name },
       ]);
 
