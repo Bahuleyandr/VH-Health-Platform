@@ -103,16 +103,63 @@ router.get('/news2/patient/:patientUid', async (req, res, next) => {
 // This alias delegates to clinicalNotesService.createNote so the path
 // people expect actually works. Finding:
 // 2026-05-08-follow-up-opd-doctor-no-progress-note-api.
+//
+// Normalise note_type aliases (consultant_round, ward_round, daily_note,
+// round → progress) and wrap plain-text bodies into the structured
+// content shape the validator expects. Without this, a doctor calling
+// the discoverability alias with the natural "consultant_round" type
+// and a plain text body got a 400 even though the same content posts
+// fine via /api/v1/emr/notes. Findings:
+// 2026-05-10-inpatient-admission-doctor-progress-note-alias-rejects-normal-note.
+const PROGRESS_NOTE_ALIASES = new Map([
+  ['consultant_round', 'progress'],
+  ['ward_round', 'progress'],
+  ['daily_note', 'progress'],
+  ['round', 'progress'],
+  ['note', 'progress'],
+]);
+
+function normaliseProgressNoteType(raw) {
+  if (!raw) return 'progress';
+  const key = String(raw).trim().toLowerCase();
+  return PROGRESS_NOTE_ALIASES.get(key) || key;
+}
+
+function buildProgressNoteContent(rawContent, summaryHint) {
+  // Already structured object — pass through (validator catches missing
+  // required fields). Same shape /api/v1/emr/notes accepts.
+  if (rawContent && typeof rawContent === 'object' && !Array.isArray(rawContent)) {
+    return rawContent;
+  }
+  const text = String(rawContent ?? '').trim();
+  if (!text) return rawContent ?? null;
+  // Plain text → fill the three required progress-note fields with the
+  // same body so the validator passes. Doctors writing a brief consultant
+  // round note shouldn't need to memorise the SOAP-adjacent schema.
+  return {
+    summary: summaryHint ? String(summaryHint).slice(0, 200) : text.slice(0, 200),
+    current_status: text,
+    plan: text,
+    text,
+  };
+}
+
 router.post('/progress-notes', async (req, res, next) => {
   try {
     const { default: clinicalNotesService } = await import('../../services/emr/clinicalNotesService.js');
+    const rawType = req.body.note_type || req.body.type;
+    const noteType = normaliseProgressNoteType(rawType);
+    const rawContent = req.body.content ?? req.body.note ?? req.body.body ?? req.body.text;
+    const content = noteType === 'progress'
+      ? buildProgressNoteContent(rawContent, req.body.summary)
+      : rawContent;
     const note = await clinicalNotesService.createNote({
       encounter_id: req.body.encounter_id || req.body.appointment_id || null,
       patient_uid: req.body.patient_uid,
       author_uid: req.user?.uid,
       author_role: req.body.author_role || req.user?.role,
-      note_type: req.body.note_type || 'progress',
-      content: req.body.content || req.body.note || req.body.body,
+      note_type: noteType,
+      content,
     });
     return success(res, note, 'Progress note filed', 201);
   } catch (err) {
