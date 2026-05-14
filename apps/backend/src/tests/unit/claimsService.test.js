@@ -3,11 +3,6 @@
 // derivation logic. The full submit/decision/payment state-machine
 // is covered by the e2e Playwright suite against a seeded DB.
 
-// `jest` is not a global under --experimental-vm-modules (ESM Jest); the
-// other unit tests in this file only use describe/it/expect (auto-globals)
-// so they don't need it. The prisma-stubbed alias-acceptance block below
-// uses jest.spyOn — must be imported explicitly.
-import { jest } from '@jest/globals';
 import prisma from '../../lib/prisma.js';
 import {
   createPreauth,
@@ -198,26 +193,37 @@ describe('recordPreauthResponse boundary validation', () => {
 
   // The "alias accepted" check needs to call recordPreauthResponse
   // past its synchronous validator, which then invokes getPreauth()
-  // → prisma.$queryRawUnsafe(). In the unit-test env that connection
-  // is live (prisma is a singleton), so an unstubbed call hangs the
-  // suite when jest.teardown tries to disconnect. Per backend
-  // CLAUDE.md: "For test mocking, import and stub the prisma
-  // singleton directly". jest.spyOn lets us return [] for the next
-  // call (so getPreauth throws "Pre-auth not found" fast), and
-  // restores the original on afterEach so we don't pollute sibling
-  // tests / unit suites that share the Prisma singleton.
+  // → prisma.$queryRawUnsafe(). In this unit-test env the prisma
+  // singleton has a live connection; an unstubbed call hangs the
+  // suite when jest.teardown tries to disconnect.
+  //
+  // Why monkey-patch instead of jest.spyOn? Under Jest's ESM mode
+  // (--experimental-vm-modules), spies returned by jest.spyOn don't
+  // expose the convenience helpers (.mockResolvedValue, etc) the
+  // way classic CommonJS Jest does — calling them throws
+  // "TypeError: jest.spyOn(...).mockResolvedValue is not a
+  // function". Direct property replacement is the lowest-common-
+  // denominator pattern that always works, and it lines up with
+  // backend CLAUDE.md's guidance ("import and stub the prisma
+  // singleton directly").
   describe('alias acceptance (with prisma stub)', () => {
-    let queryRawSpy;
+    let originalQueryRaw;
+    let stubCallCount;
     beforeEach(() => {
+      stubCallCount = 0;
+      originalQueryRaw = prisma.$queryRawUnsafe;
       // Empty result → getPreauth's `if (!rows.length) throw notFound`
       // fires synchronously after the stub resolves.
-      queryRawSpy = jest.spyOn(prisma, '$queryRawUnsafe').mockResolvedValue([]);
+      prisma.$queryRawUnsafe = async () => {
+        stubCallCount += 1;
+        return [];
+      };
     });
     afterEach(() => {
-      queryRawSpy.mockRestore();
+      prisma.$queryRawUnsafe = originalQueryRaw;
     });
 
-    it.each([
+    const cases = [
       ['decision', 'partial'],
       ['decision', 'partial_approval'],
       ['decision', 'partially_approved'],
@@ -226,21 +232,24 @@ describe('recordPreauthResponse boundary validation', () => {
       ['response_type', 'denied'],
       ['response_type', 'queried'],
       ['response_type', 'enhancement_request'],
-    ])('accepts %s: "%s" past the validator (proven by reaching getPreauth)', async (field, value) => {
-      let err;
-      try {
-        await recordPreauthResponse({ ...base, [field]: value });
-      } catch (e) {
-        err = e;
-      }
-      expect(err).toBeDefined();
-      // 404 "Pre-auth not found" from the stub proves we passed
-      // the alias gate. A 400 with `response_type` complaint would
-      // mean the gate rejected — that's what we're guarding against.
-      expect(err.statusCode).toBe(404);
-      expect(err.message).toMatch(/pre-auth not found/i);
-      expect(queryRawSpy).toHaveBeenCalled();
-    });
+    ];
+    for (const [field, value] of cases) {
+      it(`accepts ${field}: "${value}" past the validator (proven by reaching getPreauth)`, async () => {
+        let err;
+        try {
+          await recordPreauthResponse({ ...base, [field]: value });
+        } catch (e) {
+          err = e;
+        }
+        expect(err).toBeDefined();
+        // 404 "Pre-auth not found" from the stub proves we passed
+        // the alias gate. A 400 with `response_type` complaint would
+        // mean the gate rejected — that's what we're guarding against.
+        expect(err.statusCode).toBe(404);
+        expect(err.message).toMatch(/pre-auth not found/i);
+        expect(stubCallCount).toBeGreaterThan(0);
+      });
+    }
 
     it('still rejects truly invalid alias even with prisma stubbed (gate-isolation sanity check)', async () => {
       await expect(
@@ -250,7 +259,7 @@ describe('recordPreauthResponse boundary validation', () => {
         message: expect.stringMatching(/Invalid response_type/i),
       });
       // Prisma must NOT have been called — the gate fires first.
-      expect(queryRawSpy).not.toHaveBeenCalled();
+      expect(stubCallCount).toBe(0);
     });
   });
 });
