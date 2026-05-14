@@ -76,7 +76,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
                 const InvestigationBookingsTab(),
                 InvestigationUploadTab(
                   onUploaded: () {
-                    _tabController.animateTo(1);
+                    _tabController.animateTo(2);
                     _resultsKey.currentState?.refresh();
                   },
                 ),
