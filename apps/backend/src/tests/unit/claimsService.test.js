@@ -3,6 +3,11 @@
 // derivation logic. The full submit/decision/payment state-machine
 // is covered by the e2e Playwright suite against a seeded DB.
 
+// `jest` is not a global under --experimental-vm-modules (ESM Jest); the
+// other unit tests in this file only use describe/it/expect (auto-globals)
+// so they don't need it. The prisma-stubbed alias-acceptance block below
+// uses jest.spyOn — must be imported explicitly.
+import { jest } from '@jest/globals';
 import prisma from '../../lib/prisma.js';
 import {
   createPreauth,
