@@ -85,6 +85,32 @@ router.get('/deep', async (_req, res) => {
     checks.database = { status: 'error', message: 'Database check failed' };
   }
 
+  // Database target — surface host/port/database (NEVER user/password) so
+  // QA orchestrators / swarm drivers can verify the backend is connected
+  // to the same DB they intend to verify against. Silent target mismatch
+  // (backend writing to dev :5433/vhhealth while the swarm verifies on
+  // QA :55432/vhhealth_test) was a recurring class of false negatives —
+  // see swarm finding 2026-05-11-pediatric-opd-receptionist-80e83c7f.
+  // Parsed from DATABASE_URL on every call (not cached) so a runtime
+  // env-flip surfaces immediately. Best-effort: if URL is unparseable,
+  // we surface the error rather than crashing the deep-health endpoint.
+  try {
+    const dbUrl = process.env.DATABASE_URL;
+    if (dbUrl) {
+      const u = new URL(dbUrl);
+      checks.database_target = {
+        status: 'ok',
+        host: u.hostname,
+        port: u.port || '5432',
+        database: u.pathname.replace(/^\//, '') || null,
+      };
+    } else {
+      checks.database_target = { status: 'not_configured' };
+    }
+  } catch (_err) {
+    checks.database_target = { status: 'error', message: 'DATABASE_URL parse failed' };
+  }
+
   // Redis — check if ioredis client is available
   try {
     if (global.__redisClient && typeof global.__redisClient.ping === 'function') {
