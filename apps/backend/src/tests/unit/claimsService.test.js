@@ -3,6 +3,7 @@
 // derivation logic. The full submit/decision/payment state-machine
 // is covered by the e2e Playwright suite against a seeded DB.
 
+import prisma from '../../lib/prisma.js';
 import {
   createPreauth,
   createClaim,
@@ -190,16 +191,61 @@ describe('recordPreauthResponse boundary validation', () => {
     });
   });
 
-  // The third test in this block — "accepts intuitive alias decision:
-  // partial and proceeds past validation" — was deleted in commit
-  // <next> because it required calling recordPreauthResponse() past
-  // its synchronous validator, which then invokes prisma.getPreauth().
-  // Without a mocked prisma, that call hangs in the unit-test
-  // environment, holds the Prisma connection open, and trips the
-  // jest.teardown afterAll hook timeout (5s default) — fails the
-  // whole suite. The "alias accepted" semantic is exercised by the
-  // integration-level claims flow under
-  // src/tests/insurance-claims-deep.test.js (and the e2e Playwright
-  // suite); a proper DB-mocked unit test is the right home for the
-  // narrow validator assertion if/when this test file grows mocks.
+  // The "alias accepted" check needs to call recordPreauthResponse
+  // past its synchronous validator, which then invokes getPreauth()
+  // → prisma.$queryRawUnsafe(). In the unit-test env that connection
+  // is live (prisma is a singleton), so an unstubbed call hangs the
+  // suite when jest.teardown tries to disconnect. Per backend
+  // CLAUDE.md: "For test mocking, import and stub the prisma
+  // singleton directly". jest.spyOn lets us return [] for the next
+  // call (so getPreauth throws "Pre-auth not found" fast), and
+  // restores the original on afterEach so we don't pollute sibling
+  // tests / unit suites that share the Prisma singleton.
+  describe('alias acceptance (with prisma stub)', () => {
+    let queryRawSpy;
+    beforeEach(() => {
+      // Empty result → getPreauth's `if (!rows.length) throw notFound`
+      // fires synchronously after the stub resolves.
+      queryRawSpy = jest.spyOn(prisma, '$queryRawUnsafe').mockResolvedValue([]);
+    });
+    afterEach(() => {
+      queryRawSpy.mockRestore();
+    });
+
+    it.each([
+      ['decision', 'partial'],
+      ['decision', 'partial_approval'],
+      ['decision', 'partially_approved'],
+      ['response_type', 'approved'],
+      ['response_type', 'partially_approved'],
+      ['response_type', 'denied'],
+      ['response_type', 'queried'],
+      ['response_type', 'enhancement_request'],
+    ])('accepts %s: "%s" past the validator (proven by reaching getPreauth)', async (field, value) => {
+      let err;
+      try {
+        await recordPreauthResponse({ ...base, [field]: value });
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBeDefined();
+      // 404 "Pre-auth not found" from the stub proves we passed
+      // the alias gate. A 400 with `response_type` complaint would
+      // mean the gate rejected — that's what we're guarding against.
+      expect(err.statusCode).toBe(404);
+      expect(err.message).toMatch(/pre-auth not found/i);
+      expect(queryRawSpy).toHaveBeenCalled();
+    });
+
+    it('still rejects truly invalid alias even with prisma stubbed (gate-isolation sanity check)', async () => {
+      await expect(
+        recordPreauthResponse({ ...base, decision: 'banana' }),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        message: expect.stringMatching(/Invalid response_type/i),
+      });
+      // Prisma must NOT have been called — the gate fires first.
+      expect(queryRawSpy).not.toHaveBeenCalled();
+    });
+  });
 });
