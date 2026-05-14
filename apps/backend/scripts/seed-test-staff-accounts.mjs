@@ -13,7 +13,8 @@
 //     { "employeeId": "EMP-100X", "password": "<seed-password>" }
 //
 // EMP-1001..EMP-1003 are pre-existing e2e_test seeds (Nurse/Pharmacy/Lab).
-// EMP-1004..EMP-1008 are added by this script.
+// EMP-1004..EMP-1019 are added by this script (clinical + support + desk
+// roles — see the inline comments on each entry for why it was added).
 //
 // Note: the staff app's login form regex requires the hyphenated `EMP-NNN`
 // format; do NOT switch to `EMP1004`-style or the client won't even POST.
@@ -60,6 +61,21 @@ const ACCOUNTS = [
   { emp: 'EMP-1014', name: 'Test Radiologist',         role: 'RADIOLOGIST',    phone: '+919999990014', dept: 'Radiology',           designation: 'Radiologist',     position: 'Radiology Consultant' },
   // E-13 — Test ICU Nurse (E-4 ICU tier RBAC).
   { emp: 'EMP-1015', name: 'Test ICU Nurse',           role: 'ICU_NURSE',      phone: '+919999990015', dept: 'ICU',                 designation: 'ICU Nurse',       position: 'ICU Nurse' },
+  // Stage-5 C-bucket — TPA desk roles. /api/v1/insurance is gated behind
+  // ADMIN/SUPER_ADMIN/BILLING_STAFF/INSURANCE_COORDINATOR (app.js); only the
+  // admin-tier accounts were seeded, so the TPA/billing journey could only
+  // run with admin privileges — masking cashier-vs-finance-vs-TPA scope
+  // boundaries. Finding: 2026-05-10-tpa-insurance-claim-billing-no-tpa-role-seed.
+  { emp: 'EMP-1016', name: 'Test Billing Staff',       role: 'BILLING_STAFF',         phone: '+919999990016', dept: 'Billing',          designation: 'Billing Executive',     position: 'Cashier' },
+  { emp: 'EMP-1017', name: 'Test Insurance Coord',     role: 'INSURANCE_COORDINATOR', phone: '+919999990017', dept: 'Insurance Desk',   designation: 'Insurance Coordinator', position: 'TPA Desk' },
+  // Stage-5 C-bucket — admission-counter roles. ADMISSION_OFFICER and
+  // IPD_COUNSELLOR appear in app.js route gates (bed-inspections, admission
+  // flows) but are absent from the ROLES enum AND unseeded — so admission-
+  // counter RBAC could only be tested by borrowing an admin/clinical token,
+  // masking counter-role defects. Finding:
+  // 2026-05-10-surgical-day-care-admission-no-admission-officer-seed.
+  { emp: 'EMP-1018', name: 'Test Admission Officer',   role: 'ADMISSION_OFFICER',     phone: '+919999990018', dept: 'Admissions',       designation: 'Admission Officer',     position: 'Admission Counter' },
+  { emp: 'EMP-1019', name: 'Test IPD Counsellor',      role: 'IPD_COUNSELLOR',        phone: '+919999990019', dept: 'Admissions',       designation: 'IPD Counsellor',        position: 'IPD Counsellor' },
 ];
 
 async function main() {
