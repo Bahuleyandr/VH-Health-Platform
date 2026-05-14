@@ -585,10 +585,16 @@ export async function listPendingPreauths({ tenantId, limit = 100 }) {
 
 // ── Final claim ──────────────────────────────────────────────────────
 
+// Stage-4-C — tpa_claims.stage + parent_claim_id (migration 221).
+// Valid stage values; defaults to 'final' for back-compat.
+// Finding: 2026-05-09-tpa-insurance-claim-discharge-final-claim-stage-dropped
+const VALID_CLAIM_STAGES = ['preauth', 'enhancement', 'final', 'reimbursement'];
+
 export async function createClaim({
   tenantId, policy_id, preauth_id, invoice_id, patient_uid, admission_id,
   claim_type = 'cashless', total_billed, patient_copay = 0,
   non_payable_amount = 0, claimed_amount, notes, created_by,
+  stage = null, parent_claim_id = null,
 }) {
   if (!policy_id) throw AppError.badRequest('policy_id is required');
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
@@ -597,6 +603,9 @@ export async function createClaim({
   }
   const claimAmt = Number(claimed_amount ?? (Number(total_billed) - Number(patient_copay) - Number(non_payable_amount)));
   if (claimAmt <= 0) throw AppError.badRequest('claimed_amount must be > 0');
+  if (stage !== null && stage !== undefined && !VALID_CLAIM_STAGES.includes(stage)) {
+    throw AppError.badRequest(`Invalid stage "${stage}". Must be one of: ${VALID_CLAIM_STAGES.join(', ')}`);
+  }
 
   const claim_number = await nextSeq('tpa_claim_counter', 'CL', tenantId);
 
@@ -604,10 +613,12 @@ export async function createClaim({
     `INSERT INTO tpa_claims
        (claim_number, policy_id, preauth_id, invoice_id, patient_uid,
         admission_id, claim_type, total_billed, patient_copay,
-        non_payable_amount, claimed_amount, notes, created_by, tenant_id)
+        non_payable_amount, claimed_amount, notes, created_by, tenant_id,
+        stage, parent_claim_id)
      VALUES ($1, $2::int, $3::int, $4::int, $5::uuid, $6::int, $7,
              $8::numeric, $9::numeric, $10::numeric, $11::numeric,
-             $12, $13::uuid, $14::uuid)
+             $12, $13::uuid, $14::uuid,
+             $15, $16::int)
      RETURNING *`,
     claim_number, Number(policy_id),
     preauth_id ? Number(preauth_id) : null,
@@ -618,6 +629,8 @@ export async function createClaim({
     Number(non_payable_amount), claimAmt,
     notes || null,
     created_by ? String(created_by) : null, tenantId,
+    stage || 'final',
+    parent_claim_id ? Number(parent_claim_id) : null,
   );
   return rows[0];
 }

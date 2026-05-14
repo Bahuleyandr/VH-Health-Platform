@@ -10100,6 +10100,12 @@ model tpa_claims {
   created_at               DateTime                   @default(now()) @db.Timestamptz(6)
   updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
   disallowed_amount        Decimal?                   @db.Decimal(14, 2)
+  // Migration 221 — hand-placed at end so a future `prisma db pull`
+  // doesn't reorder them into the middle of the model. Self-referential
+  // FK for the preauth → enhancement → final claim chain.
+  // Finding: 2026-05-09-tpa-insurance-claim-discharge-final-claim-stage-dropped
+  stage                    String?                    @default("final") @db.VarChar(20)
+  parent_claim_id          Int?
   insurance_claim_caps     insurance_claim_caps[]
   tpa_claim_correspondence tpa_claim_correspondence[]
   tpa_claim_documents      tpa_claim_documents[]
@@ -10107,9 +10113,12 @@ model tpa_claims {
   billing_invoices         billing_invoices?          @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
   insurance_policies       insurance_policies         @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
   insurance_preauth        insurance_preauth?         @relation(fields: [preauth_id], references: [id], onUpdate: NoAction)
+  parent_claim             tpa_claims?                @relation("tpa_claim_hierarchy", fields: [parent_claim_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  child_claims             tpa_claims[]               @relation("tpa_claim_hierarchy")
 
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_tpa_claims_patient")
   @@index([status, created_at(sort: Desc)], map: "idx_tpa_claims_status")
+  @@index([parent_claim_id], map: "idx_tpa_claims_parent_claim")
 }
 
 model tpa_claim_line_decisions {
