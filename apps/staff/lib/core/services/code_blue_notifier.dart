@@ -3,6 +3,8 @@ import 'dart:ui' show Color;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import '../platform_info.dart';
+
 /// Full-screen-intent Code Blue notifier for the staff app.
 ///
 /// The in-app dialog in [CodeBlueListener] covers the foreground case. This
@@ -90,9 +92,15 @@ class CodeBlueNotifier {
     // Wire the FCM data-message handler (foreground path — backend already
     // delivers via staff:code-blue WS on foreground, but showing the full
     // notification here too is cheap and makes the two channels convergent).
-    FirebaseMessaging.onMessage.listen((msg) {
-      if (_isCodeBlue(msg)) showForMessage(msg);
-    });
+    // firebase_messaging has no desktop implementation; on Windows/Linux/macOS
+    // the WebSocket staff:code-blue channel is the sole delivery path, so the
+    // local-notification plumbing above is still wired but the FCM listener
+    // is skipped.
+    if (!isDesktopPlatform) {
+      FirebaseMessaging.onMessage.listen((msg) {
+        if (_isCodeBlue(msg)) showForMessage(msg);
+      });
+    }
   }
 
   bool _isCodeBlue(RemoteMessage msg) =>

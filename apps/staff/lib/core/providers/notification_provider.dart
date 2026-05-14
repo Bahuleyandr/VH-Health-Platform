@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import '../config/api_config.dart';
+import '../platform_info.dart';
 import '../services/hr_api_service.dart';
 
 class NotificationItem {
@@ -33,6 +34,11 @@ class NotificationProvider extends ChangeNotifier {
   Future<void> initialize() async {
     if (_initialized) return;
     _initialized = true;
+
+    // FCM has no desktop implementation. On Windows/Linux/macOS the panel
+    // is populated solely via the API-backed fetchNotifications() path —
+    // skip the FCM setup entirely rather than relying on the catch below.
+    if (isDesktopPlatform) return;
 
     try {
       final messaging = FirebaseMessaging.instance;
