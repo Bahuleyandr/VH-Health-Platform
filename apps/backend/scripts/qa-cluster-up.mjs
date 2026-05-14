@@ -163,12 +163,29 @@ async function ensureDatabaseAndRole() {
   await client.connect();
   try {
     const dbRes = await client.query(
-      `SELECT 1 FROM pg_database WHERE datname = $1`,
+      `SELECT 1, datname,
+              pg_encoding_to_char(encoding) AS enc
+         FROM pg_database
+        WHERE datname = $1`,
       [DB_NAME]
     );
     if (dbRes.rowCount === 0) {
-      log(`creating database ${DB_NAME}`);
-      await client.query(`CREATE DATABASE ${DB_NAME}`);
+      // Pin ENCODING=UTF8 + TEMPLATE template0 so the new DB inherits
+      // UTF-8 regardless of what template1 happens to be on this host.
+      // Non-UTF8 storage silently corrupts multibyte clinical text
+      // (em dashes, °C, μg, Tamil/Hindi script) to U+FFFD on read.
+      // Finding: 2026-05-09-surgical-day-care-nurse-non-ascii-theatre-checklist.
+      log(`creating database ${DB_NAME} with ENCODING 'UTF8'`);
+      await client.query(`CREATE DATABASE ${DB_NAME} ENCODING 'UTF8' TEMPLATE template0`);
+    } else if (dbRes.rows[0].enc && String(dbRes.rows[0].enc).toUpperCase() !== 'UTF8') {
+      // Refuse to proceed against a non-UTF8 DB — re-creating it loses
+      // data, but silently using it corrupts clinical text. Operator
+      // recovery: drop & recreate (or re-run after dropping the stray DB).
+      fatal(
+        `existing database ${DB_NAME} has encoding=${dbRes.rows[0].enc}, not UTF8. ` +
+          `Multibyte clinical chars will silently corrupt to U+FFFD. ` +
+          `Drop the DB ('DROP DATABASE ${DB_NAME}') and re-run, or pick a different DB_NAME.`
+      );
     }
 
     const roleRes = await client.query(

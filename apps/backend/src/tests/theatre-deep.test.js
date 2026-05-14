@@ -158,6 +158,47 @@ describe('Theatre scheduling — deep integration', () => {
       expect(row[0].pre_op_checklist.antibiotic_prophylaxis).toBe('Cefazolin 2g IV');
     });
 
+    // Non-ASCII preservation gate. Em dashes, °C, mg/dL, μg, and Tamil
+    // chars are common in nurses' clinical shorthand on the diabetic
+    // protocol / vitals notes. If the DB or any stage of the request
+    // pipeline coerces to a single-byte encoding (LATIN1, SQL_ASCII),
+    // multibyte characters are silently corrupted to U+FFFD (the
+    // replacement character) — a patient-safety regression on the
+    // anaesthesia record. Finding:
+    // 2026-05-09-surgical-day-care-nurse-non-ascii-theatre-checklist.
+    it('preserves non-ASCII chars (em dash, °C, μg, Tamil) through jsonb round-trip', async () => {
+      const checklist = {
+        diabetic_protocol_note: 'Metformin 500mg BD — last dose previous evening',
+        temperature_note: 'Pre-op 37.2°C; target 36.5–37.5°C',
+        microdose_note: 'Fentanyl 50μg test dose ready',
+        tamil_consent_note: 'நோயாளி கையெழுத்து வாங்கப்பட்டது',
+        ot_ready: false,
+      };
+      const res = await admin.put(`/api/v1/theatre/${scheduleId}/checklist`).send({ checklist });
+      expect(res.statusCode).toBe(200);
+      const responded = res.body.data.pre_op_checklist;
+      expect(responded.diabetic_protocol_note).toBe(checklist.diabetic_protocol_note);
+      expect(responded.temperature_note).toBe(checklist.temperature_note);
+      expect(responded.microdose_note).toBe(checklist.microdose_note);
+      expect(responded.tamil_consent_note).toBe(checklist.tamil_consent_note);
+      // U+FFFD must never appear — its presence proves silent corruption.
+      for (const value of Object.values(responded)) {
+        if (typeof value === 'string') {
+          expect(value.includes('�')).toBe(false);
+        }
+      }
+
+      // DB round-trip check — confirm what Postgres stored, not just what
+      // the controller echoed back.
+      const row = await prisma.$queryRawUnsafe(
+        `SELECT pre_op_checklist FROM ot_schedules WHERE id = $1`, scheduleId);
+      const stored = row[0].pre_op_checklist;
+      expect(stored.diabetic_protocol_note).toBe(checklist.diabetic_protocol_note);
+      expect(stored.temperature_note).toBe(checklist.temperature_note);
+      expect(stored.microdose_note).toBe(checklist.microdose_note);
+      expect(stored.tamil_consent_note).toBe(checklist.tamil_consent_note);
+    });
+
     it('rejects SCHEDULED → IN_PROGRESS (must go via pre_op)', async () => {
       const res = await admin.put(`/api/v1/theatre/${scheduleId}/status`).send({
         status: 'in_progress',
