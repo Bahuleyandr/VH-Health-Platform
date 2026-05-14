@@ -288,9 +288,14 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
       id, tid,
     ),
     prisma.$queryRawUnsafe(
+      // Urine dipstick: surface BOTH albumin (pre-eclampsia screen) and
+      // sugar (gestational diabetes screen) on the ANC timeline — the
+      // dipstick is a single tap on the nurse-recorded visit and both
+      // results are part of the same clinical decision. Finding:
+      // 2026-05-10-obstetric-anc-nurse-urine-glucose-hidden.
       `SELECT id, visit_date, visit_number, gestational_age_weeks,
               weight_kg, bp_systolic, bp_diastolic, fundal_height_cm,
-              fetal_heart_rate_bpm, hb_gm_dl, urine_albumin,
+              fetal_heart_rate_bpm, hb_gm_dl, urine_albumin, urine_sugar,
               iron_folic_acid_given, calcium_given, tt_dose,
               next_visit_date, notes
          FROM maternity_anc_visits
