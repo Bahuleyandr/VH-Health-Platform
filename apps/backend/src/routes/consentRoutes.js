@@ -22,6 +22,12 @@ const VALID_CONSENT_TYPES = [
   'data_access',
   'data_sharing',
   'treatment',
+  // `procedure` — consent for a specific procedure/surgery, typically
+  // captured at the pre-op OPD visit. The admission gate accepts a recent
+  // `procedure` consent so a scheduled day-care/surgical patient doesn't
+  // have to re-consent at the admission counter. Finding:
+  //   2026-05-09-surgical-day-care-admission-consent-no-preop-carryover.
+  'procedure',
   'research',
   'marketing',
   'telehealth',
@@ -30,6 +36,13 @@ const VALID_CONSENT_TYPES = [
   'insurance',
   'ai_documentation',
 ];
+
+// Stage-5 — how consent was obtained. `thumbprint` / `verbal` are
+// first-class for illiterate patients (NABH requires the method plus a
+// witness on record); `signature` is the literate-patient default.
+// Finding:
+//   2026-05-09-inpatient-admission-admission-no-thumbprint-consent-illiterate.
+const VALID_CONSENT_METHODS = ['signature', 'thumbprint', 'verbal'];
 
 const VALID_DATA_RIGHT_TYPES = ['export', 'erasure', 'correction', 'restriction', 'consent_review'];
 const VALID_DATA_RIGHT_STATUSES = ['submitted', 'in_review', 'completed', 'rejected', 'cancelled'];
@@ -267,7 +280,7 @@ router.patch('/data-rights/:id', async (req, res, next) => {
  */
 router.post('/grant', requiredUUID('patient_uid'), requiredString('consent_type', 100), validate, async (req, res, next) => {
   try {
-    const { patient_uid, consent_type, notes } = req.body;
+    const { patient_uid, consent_type, notes, witness_name, witness_uid, form_language } = req.body;
 
     if (!patient_uid || !consent_type) {
       return error(res, 'patient_uid and consent_type are required', 400);
@@ -281,6 +294,41 @@ router.post('/grant', requiredUUID('patient_uid'), requiredString('consent_type'
     if (!VALID_CONSENT_TYPES.includes(consent_type)) {
       return error(res, `Invalid consent_type. Must be one of: ${VALID_CONSENT_TYPES.join(', ')}`, 400);
     }
+
+    // Stage-5 — consent capture method. Optional; defaults to `signature`
+    // (the literate-patient case). `thumbprint` / `verbal` make consent
+    // obtained from an illiterate patient first-class instead of forcing
+    // staff to improvise in the free-text `notes` field.
+    const consentMethod = req.body.consent_method
+      ? String(req.body.consent_method).trim().toLowerCase()
+      : 'signature';
+    if (!VALID_CONSENT_METHODS.includes(consentMethod)) {
+      return error(res, `Invalid consent_method. Must be one of: ${VALID_CONSENT_METHODS.join(', ')}`, 400);
+    }
+    // A thumbprint or verbal consent is medico-legally contestable
+    // without a named witness — NABH requires one on record.
+    const witnessName = witness_name ? String(witness_name).trim().slice(0, 160) : null;
+    if ((consentMethod === 'thumbprint' || consentMethod === 'verbal') && !witnessName) {
+      return error(res, `consent_method '${consentMethod}' requires witness_name`, 400);
+    }
+    // witness_uid is optional — only set when the witness is a system
+    // user (a staff member). Validate the UUID shape if provided.
+    let witnessUid = null;
+    if (witness_uid !== undefined && witness_uid !== null && String(witness_uid).trim() !== '') {
+      const w = String(witness_uid).trim();
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(w)) {
+        return error(res, 'witness_uid must be a valid UUID', 400);
+      }
+      witnessUid = w;
+    }
+    // Stage-5 — record which language the consent form was presented in,
+    // so a Tamil-only patient's consent isn't silently assumed to be in
+    // English. The translated consent-form *text* itself is out of scope
+    // here — [PLACEHOLDER - legal/translation review required]. Finding:
+    //   2026-05-09-inpatient-admission-admission-no-cmchis-flag-no-tamil-consent.
+    const formLanguage = form_language
+      ? String(form_language).trim().toLowerCase().slice(0, 20)
+      : null;
 
     const grantedBy = req.user?.role?.toLowerCase() || 'patient';
     const ip = req.ip || req.headers['x-forwarded-for'] || null;
@@ -300,11 +348,15 @@ router.post('/grant', requiredUUID('patient_uid'), requiredString('consent_type'
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO patient_consents
         (patient_uid, consent_type, granted, status, granted_at, granted_by, ip_address,
-         notes, purpose, data_categories, expires_at, created_at, updated_at)
+         notes, purpose, data_categories, expires_at,
+         consent_method, witness_name, witness_uid, form_language,
+         created_at, updated_at)
        VALUES ($1::uuid, $2, true, 'active', NOW(), $3, $4, $5, $6, $7::jsonb,
-               $8::timestamptz, NOW(), NOW())
+               $8::timestamptz, $9, $10, $11::uuid, $12,
+               NOW(), NOW())
        RETURNING id, patient_uid, consent_type, granted, status, granted_at, granted_by,
-                 ip_address, notes, purpose, data_categories, expires_at, created_at`,
+                 ip_address, notes, purpose, data_categories, expires_at,
+                 consent_method, witness_name, witness_uid, form_language, created_at`,
       patient_uid,
       consent_type,
       grantedBy,
@@ -312,7 +364,11 @@ router.post('/grant', requiredUUID('patient_uid'), requiredString('consent_type'
       notes || null,
       req.body.purpose || null,
       JSON.stringify(req.body.data_categories || []),
-      req.body.expires_at || null
+      req.body.expires_at || null,
+      consentMethod,
+      witnessName,
+      witnessUid,
+      formLanguage
     );
 
     logPhiAccess({
