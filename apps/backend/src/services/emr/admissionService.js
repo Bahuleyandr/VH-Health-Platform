@@ -70,6 +70,10 @@ const ADMISSION_RETURNING_SELECT = {
   package_id: true,
   package_code: true,
   package_estimated_cost_minor: true,
+  // Re-admission continuity link (migration 230). Surfaced so the
+  // admissions detail/list payloads can render the prior-discharge
+  // continuity context.
+  prior_admission_id: true,
 };
 
 // Map ESI/ATS triage acuity onto admissions.priority. Used when the admit
@@ -299,6 +303,28 @@ async function admitPatient(data) {
     throw AppError.conflict('Patient already has an active admission');
   }
 
+  // Re-admission continuity (migration 230). If this patient was
+  // discharged from a prior admission within the last 7 days, link the
+  // new admission to it so the discharge desk and clinicians can pull
+  // the recent summary, medication changes, and unresolved follow-up.
+  // Pre-flight on plain `prisma` (Phase 0) — outside the transaction.
+  // 'discharged' and 'lama' both mean the patient left and may return;
+  // 'expired' is excluded. See finding
+  // 2026-05-10-surgical-day-care-discharge-readmit-continuity-unlinked.
+  const READMISSION_WINDOW_DAYS = 7;
+  const priorDischarge = await prisma.admissions.findFirst({
+    where: {
+      patient_uid,
+      status: { in: ['discharged', 'lama'] },
+      discharged_at: {
+        gte: new Date(Date.now() - READMISSION_WINDOW_DAYS * 86400000),
+      },
+    },
+    orderBy: { discharged_at: 'desc' },
+    select: { id: true },
+  });
+  const priorAdmissionId = priorDischarge?.id ?? null;
+
   // Wave-4B-1 — resolve policy / package references against their masters
   // up front so the transaction doesn't have to roundtrip. Both are
   // optional; an unmatched code returns null and is treated as not-linked.
@@ -401,6 +427,9 @@ async function admitPatient(data) {
         package_id: resolvedPackageId,
         package_code: resolvedPackageCode,
         package_estimated_cost_minor: resolvedPackageEstMinor,
+        // Re-admission continuity link (migration 230). Null unless a
+        // prior discharge for this patient falls within the 7-day window.
+        prior_admission_id: priorAdmissionId,
       },
       select: ADMISSION_RETURNING_SELECT,
     });
@@ -1704,7 +1733,7 @@ async function getAdmissionDetail(admissionId, requestContext = {}) {
   // only need the display name.
   const doctorUids = [admission.admitting_doctor, admission.attending_doctor]
     .filter(Boolean);
-  const [patient, bed, doctors] = await Promise.all([
+  const [patient, bed, doctors, priorAdmission] = await Promise.all([
     admission.patient_uid
       ? prisma.users.findUnique({
           where: { uid: admission.patient_uid },
@@ -1723,6 +1752,23 @@ async function getAdmissionDetail(admissionId, requestContext = {}) {
           select: { uid: true, name: true },
         })
       : [],
+    // Re-admission continuity (migration 230). When this admission is
+    // linked to a prior discharge, surface enough of that admission for
+    // the discharge desk / clinicians to see the continuity context.
+    admission.prior_admission_id != null
+      ? prisma.admissions.findUnique({
+          where: { id: admission.prior_admission_id },
+          select: {
+            id: true,
+            encounter_id: true,
+            admitted_at: true,
+            discharged_at: true,
+            discharge_type: true,
+            discharge_disposition: true,
+            admitting_diagnosis: true,
+          },
+        })
+      : null,
   ]);
 
   const doctorByUid = new Map(doctors.map((d) => [d.uid, d.name]));
@@ -1743,6 +1789,15 @@ async function getAdmissionDetail(admissionId, requestContext = {}) {
       : null,
   };
   row.los_days = computeLos(row.admitted_at, row.discharged_at);
+  // Re-admission continuity (migration 230). prior_admission_id is
+  // already on `row` via the spread; attach the resolved prior-admission
+  // summary (with its own los_days) when the link is set.
+  row.prior_admission = priorAdmission
+    ? {
+        ...priorAdmission,
+        los_days: computeLos(priorAdmission.admitted_at, priorAdmission.discharged_at),
+      }
+    : null;
 
   if (requestContext.userId) {
     logPhiAccess({

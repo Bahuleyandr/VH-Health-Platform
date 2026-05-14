@@ -1,30 +1,43 @@
 -- 230_daycare_ophthalmology_template_and_readmission_link.sql
 --
--- Day-care ophthalmology discharge template (Stage-5 chip 7, findings
--- 2026-05-10-surgical-day-care-discharge-no-daycare-ophthalmology-template
--- and 2026-05-10-surgical-day-care-patient-postop-restriction-duration-missing
--- — same root cause).
+-- Two surgical-day-care gaps from the 2026-05-10 triage cluster
+-- (Stage-5 chip 7):
 --
--- The discharge summary builder (migration 159) only seeds
--- GENERAL_MEDICINE_V1, SURGICAL_V1, and MATERNITY_V1. A same-day
--- cataract / day-care eye patient has no concise eye-specific template,
--- so staff fall back to the generic surgical template and inherit wrong
--- defaults (suture removal, wound care) — and post-op restrictions like
--- the 1-week dust/bending avoidance have nowhere structured to live.
--- This seeds DAYCARE_OPHTHALMOLOGY_V1.
+--  1. Day-care ophthalmology discharge template. Findings
+--     2026-05-10-surgical-day-care-discharge-no-daycare-ophthalmology-template
+--     and 2026-05-10-surgical-day-care-patient-postop-restriction-duration-missing
+--     (same root cause). The discharge summary builder (migration 159)
+--     only seeds GENERAL_MEDICINE_V1 / SURGICAL_V1 / MATERNITY_V1, so a
+--     same-day cataract / day-care eye patient has no concise
+--     eye-specific template — staff fall back to the generic surgical
+--     template and inherit wrong defaults (suture removal, wound care),
+--     and post-op restrictions like the 1-week dust/bending avoidance
+--     have nowhere structured to live. This seeds
+--     DAYCARE_OPHTHALMOLOGY_V1.
 --
--- IMPORTANT — clinical content is a DRAFT, not final. The section
--- STRUCTURE (which sections exist, their order and titles) is final.
--- Every clinical instruction / duration in a section default_body is
--- wrapped as "[PLACEHOLDER — ophthalmology clinical review required]"
--- and carries the triage finding's *suggested* value clearly marked as
--- a draft. An ophthalmologist must review and sign off the wording and
--- the durations before the template is used unedited — a wrong "1 week"
--- vs "2 weeks" is a patient-safety error.
+--     IMPORTANT — clinical content is a DRAFT, not final. The section
+--     STRUCTURE (which sections exist, their order and titles) is
+--     final. Every clinical instruction / duration in a section
+--     default_body is wrapped "[PLACEHOLDER — ophthalmology clinical
+--     review required]" and carries the triage finding's *suggested*
+--     value clearly marked as a draft. An ophthalmologist must review
+--     and sign off the wording and the durations before the template
+--     is used unedited — a wrong "1 week" vs "2 weeks" is a
+--     patient-safety error.
+--
+--  2. Re-admission continuity link. Finding
+--     2026-05-10-surgical-day-care-discharge-readmit-continuity-unlinked.
+--     admissions has from_er_visit_id but no way to link a re-admission
+--     to the prior discharge. A patient re-admitted within 7 days of
+--     discharge loses the continuity thread (recent summary, medication
+--     changes, unresolved follow-up). This adds a nullable
+--     self-referential prior_admission_id FK;
+--     admissionService.admitPatient populates it when a recent prior
+--     discharge exists for the same patient.
 
 BEGIN;
 
--- ── Day-care ophthalmology discharge summary template ───────────────
+-- ── 1. Day-care ophthalmology discharge summary template ────────────
 -- Mirrors the shape of the migration-159 seeds (SURGICAL_V1 etc.).
 -- specialty='ophthalmology' so listTemplates/pickTemplate resolve it
 -- for cataract / same-day eye discharges.
@@ -48,5 +61,19 @@ WHERE NOT EXISTS (
    WHERE code = 'DAYCARE_OPHTHALMOLOGY_V1'
      AND tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
 );
+
+-- ── 2. Re-admission continuity link on admissions ───────────────────
+ALTER TABLE admissions
+  -- Self-referential FK to the prior admission. ON DELETE SET NULL
+  -- preserves the re-admission row's audit trail if the prior
+  -- admission is ever deleted/archived. Mirrors from_er_visit_id
+  -- (migration 170). Populated by admissionService.admitPatient when a
+  -- recent prior discharge for the same patient is found.
+  ADD COLUMN IF NOT EXISTS prior_admission_id INTEGER
+    REFERENCES admissions(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_admissions_prior_admission
+  ON admissions(prior_admission_id)
+  WHERE prior_admission_id IS NOT NULL;
 
 COMMIT;

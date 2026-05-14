@@ -389,4 +389,41 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       });
     });
   });
+
+  describe('re-admission continuity (migration 230)', () => {
+    // After the dischargePatient suite, `admissionId` is a discharged
+    // admission for PATIENT_UID with discharged_at ≈ now. A re-admission
+    // within the 7-day window must back-link to it via prior_admission_id.
+    // Finding: 2026-05-10-surgical-day-care-discharge-readmit-continuity-unlinked.
+    let readmissionId;
+
+    it('links a re-admission within 7 days to the prior discharge', async () => {
+      const res = await admin.post('/api/v1/emr/admit').send({
+        patient_uid: PATIENT_UID,
+        admitting_doctor: DOCTOR_UID,
+        chief_complaint: 'post-op review — eye pain',
+        // Bedless emergency-emergent admit so this case is independent of
+        // the bed state left behind by the transfer/discharge suites.
+        admission_type: 'emergency',
+        priority: 'emergent',
+      });
+      expect(res.statusCode).toBe(201);
+      readmissionId = res.body.data?.admission?.id;
+      expect(readmissionId).toBeDefined();
+      expect(readmissionId).not.toBe(admissionId);
+      expect(res.body.data.admission.prior_admission_id).toBe(admissionId);
+    });
+
+    it('surfaces the linked prior admission on the admission detail read', async () => {
+      const res = await admin.get(`/api/v1/emr/admission/${readmissionId}`);
+      expect(res.statusCode).toBe(200);
+      const detail = res.body.data?.admission;
+      expect(detail.prior_admission_id).toBe(admissionId);
+      expect(detail.prior_admission).toMatchObject({
+        id: admissionId,
+        discharge_type: 'home',
+      });
+      expect(detail.prior_admission.discharged_at).not.toBeNull();
+    });
+  });
 });

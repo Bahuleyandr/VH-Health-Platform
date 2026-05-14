@@ -381,12 +381,15 @@ model admissions {
   package_id                      Int?
   package_code                    String?              @db.VarChar(40)
   package_estimated_cost_minor    BigInt?
+  prior_admission_id              Int?
   emergency_visit                 emergency_visits?    @relation("AdmissionFromErVisit", fields: [from_er_visit_id], references: [id], onUpdate: NoAction)
   package                         packages?            @relation(fields: [package_id], references: [id], onUpdate: NoAction)
   insurance_policy                insurance_policies?  @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
   advance_deposits                advance_deposits[]
   attendant_passes                attendant_passes[]
   discharge_consults              discharge_consults[]
+  prior_admission                 admissions?          @relation("AdmissionReadmissionChain", fields: [prior_admission_id], references: [id], onUpdate: NoAction)
+  readmissions                    admissions[]         @relation("AdmissionReadmissionChain")
 
   @@index([status, ward, admitted_at(sort: Desc)], map: "idx_admissions_status_ward_admitted")
   @@index([from_er_visit_id], map: "idx_admissions_from_er_visit")
@@ -394,6 +397,7 @@ model admissions {
   @@index([room_category], map: "idx_admissions_room_category")
   @@index([discharge_initiated_at], map: "idx_admissions_discharge_initiated")
   @@index([billing_closed_at], map: "idx_admissions_billing_closed")
+  @@index([prior_admission_id], map: "idx_admissions_prior_admission")
 }
 
 model discharge_consults {
