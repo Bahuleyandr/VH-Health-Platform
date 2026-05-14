@@ -428,7 +428,8 @@ function Invoke-CreateChecks {
     -Method "POST" `
     -Path "/appointments/walk-in" `
     -Token $token `
-    -Body $walkInBody
+    -Body $walkInBody `
+    -ExpectedStatus @(200, 201)
 
   $apptData = Get-JsonField $walkIn.json "data"
   if ($apptData) {
@@ -457,7 +458,8 @@ function Invoke-CreateChecks {
       preferred_date = (Get-Date).ToString("yyyy-MM-dd")
       preferred_time_slot = "Morning"
       notes = "Role workflow smoke"
-    }
+    } `
+    -ExpectedStatus @(200, 201)
   $investigationData = Get-JsonField $investigation.json "data"
   if ($investigationData) {
     $script:Context.createdInvestigationId = Get-JsonField $investigationData "id"
@@ -492,7 +494,8 @@ function Invoke-CreateChecks {
             instructions = "After food"
           }
         )
-      }
+      } `
+      -ExpectedStatus @(200, 201)
     $rxData = Get-JsonField $rx.json "data"
     if ($rxData) {
       $script:Context.createdPrescriptionId = Get-JsonField $rxData "id"
