@@ -165,7 +165,7 @@ router.get('/vitals/:patientUid/chart', async (req, res, next) => {
 
 router.post('/io', async (req, res, next) => {
   try {
-    const { patient_uid, encounter_id, io_type, category, amount_ml, description } = req.body;
+    const { patient_uid, encounter_id, encounter_uid, io_type, category, amount_ml, description } = req.body;
 
     if (!patient_uid || !io_type || !category || amount_ml === undefined) {
       return error(res, 'patient_uid, io_type, category, and amount_ml are required', 400);
@@ -173,7 +173,12 @@ router.post('/io', async (req, res, next) => {
 
     const result = await vitalsChartService.recordIntakeOutput({
       patient_uid,
-      encounter_id: encounter_id || null,
+      // Pass raw — service normalises into the int + uuid split. Stripping
+      // to `|| null` here drops legitimate `encounter_id: 0` (rare) and
+      // can't distinguish int vs uuid strings anyway. Finding:
+      // 2026-05-09-inpatient-admission-nurse-io-encounter-uuid-500.
+      encounter_id: encounter_id ?? null,
+      encounter_uid: encounter_uid ?? null,
       io_type,
       category,
       amount_ml,
