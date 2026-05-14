@@ -74,16 +74,16 @@ Future<void> main() async {
     AppRouter.router.go('/login');
   };
 
-  // Initialize local notification scheduler for medication reminders.
-  await NotificationScheduler.initialize();
-
-  // Sync medication reminders from backend and reschedule local notifications.
-  // Fire-and-forget: never block runApp() on this. Even with a JWT in storage,
-  // a slow / unreachable backend would otherwise stall the splash for the full
-  // VHHttpClient retry budget (~30s). The dashboard reschedules reminders
-  // post-login anyway, so a missed pre-runApp sync is recoverable.
+  // Local notifications: initialize the scheduler, then sync medication
+  // reminders from the backend. Both run off the critical path — neither is
+  // needed for the first frame (the splash screen), and even with a JWT in
+  // storage a slow / unreachable backend would otherwise stall the splash for
+  // the full VHHttpClient retry budget (~30s). NotificationScheduler's public
+  // methods self-initialize, so any later caller (dashboard reschedule,
+  // logout cancelAll) is safe even before this block finishes.
   unawaited(() async {
     try {
+      await NotificationScheduler.initialize();
       final jwt = await const FlutterSecureStorage().read(key: 'jwt');
       if (jwt == null || jwt.isEmpty) return;
       final remindersResp = await ApiClient.get('/reminders/medication');
@@ -93,7 +93,7 @@ Future<void> main() async {
         await NotificationScheduler.rescheduleAll(reminders);
       }
     } catch (e) {
-      debugPrint('Medication reminder sync skipped: $e');
+      debugPrint('Medication reminder setup skipped: $e');
     }
   }());
 

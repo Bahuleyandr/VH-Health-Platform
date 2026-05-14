@@ -110,6 +110,17 @@ class AppRouter {
       // user OR a JWT in secure storage.
       final currentUser = FirebaseAuth.instance.currentUser;
       bool isLoggedIn = currentUser != null;
+      // Fast path: UserProvider is hydrated by the splash screen and the
+      // login flows, and cleared by every logout / 401 path, so a non-empty
+      // phone is a reliable in-memory "we have a session" signal. It spares
+      // the keystore-backed storage read below on every navigation of a
+      // dev-login or Firebase-token-expired session (where currentUser is
+      // null but the JWT is still valid).
+      if (!isLoggedIn && (userProvider?.phone.isNotEmpty ?? false)) {
+        isLoggedIn = true;
+      }
+      // Cold-start / partial-storage backstop: when neither in-memory signal
+      // said yes, confirm against the JWT in secure storage.
       if (!isLoggedIn) {
         try {
           final jwt = await const FlutterSecureStorage().read(key: 'jwt');
