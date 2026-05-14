@@ -726,8 +726,8 @@ model appointments {
   other_appointments                   appointments[]               @relation("appointmentsToappointments")
   users_appointments_patient_idTousers users?                       @relation("appointments_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
   bed_inspections                      bed_inspections[]
-  teleconsultations                    teleconsultations[]
   investigation_bookings               investigation_bookings[]
+  teleconsultations                    teleconsultations[]
 
   @@index([appointment_date])
   @@index([doctor_id])
@@ -5028,8 +5028,6 @@ model intake_output {
   recorded_by   String    @db.Uuid
   recorded_at   DateTime? @default(now()) @db.Timestamptz(6)
   created_at    DateTime? @default(now()) @db.Timestamptz(6)
-
-  @@index([encounter_uid, recorded_at(sort: Desc)], map: "idx_intake_output_encounter_uid")
 }
 
 model integration_credentials {
@@ -5214,8 +5212,8 @@ model investigation_bookings {
   updated_at                                          DateTime                        @default(now()) @db.Timestamp(6)
   sla_confirm_target                                  DateTime?                       @db.Timestamptz(6)
   appointment_id                                      Int?
-  appointments                                        appointments?                   @relation(fields: [appointment_id], references: [id], onUpdate: NoAction, map: "investigation_bookings_appointment_fk")
   investigation_booking_history                       investigation_booking_history[]
+  appointments                                        appointments?                   @relation(fields: [appointment_id], references: [id], onUpdate: NoAction, map: "investigation_bookings_appointment_fk")
   investigations                                      investigations?                 @relation(fields: [investigation_id], references: [id], onUpdate: NoAction, map: "investigation_bookings_investigation_fk")
   users_investigation_bookings_patient_idTousers      users                           @relation("investigation_bookings_patient_idTousers", fields: [patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "investigation_bookings_patient_fk")
   users_investigation_bookings_phlebotomist_idTousers users?                          @relation("investigation_bookings_phlebotomist_idTousers", fields: [phlebotomist_id], references: [id], onUpdate: NoAction, map: "investigation_bookings_phlebotomist_fk")
@@ -10108,10 +10106,6 @@ model tpa_claims {
   created_at               DateTime                   @default(now()) @db.Timestamptz(6)
   updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
   disallowed_amount        Decimal?                   @db.Decimal(14, 2)
-  // Migration 221 — hand-placed at end so a future `prisma db pull`
-  // doesn't reorder them into the middle of the model. Self-referential
-  // FK for the preauth → enhancement → final claim chain.
-  // Finding: 2026-05-09-tpa-insurance-claim-discharge-final-claim-stage-dropped
   stage                    String?                    @default("final") @db.VarChar(20)
   parent_claim_id          Int?
   insurance_claim_caps     insurance_claim_caps[]
@@ -10119,10 +10113,10 @@ model tpa_claims {
   tpa_claim_documents      tpa_claim_documents[]
   tpa_claim_line_decisions tpa_claim_line_decisions[]
   billing_invoices         billing_invoices?          @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
+  parent_claim             tpa_claims?                @relation("tpa_claim_hierarchy", fields: [parent_claim_id], references: [id], onUpdate: NoAction)
+  child_claims             tpa_claims[]               @relation("tpa_claim_hierarchy")
   insurance_policies       insurance_policies         @relation(fields: [policy_id], references: [id], onUpdate: NoAction)
   insurance_preauth        insurance_preauth?         @relation(fields: [preauth_id], references: [id], onUpdate: NoAction)
-  parent_claim             tpa_claims?                @relation("tpa_claim_hierarchy", fields: [parent_claim_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
-  child_claims             tpa_claims[]               @relation("tpa_claim_hierarchy")
 
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_tpa_claims_patient")
   @@index([status, created_at(sort: Desc)], map: "idx_tpa_claims_status")

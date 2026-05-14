@@ -136,3 +136,27 @@ _Keyed by Prisma model name. `__top_level__` holds comments outside any model._
 > FINANCE_INCHARGE / ADMIN signs it off. Within tolerance, the close
 > handler auto-stamps `reviewed_at` and flips to `reviewed`.
 
+
+## model:tpa_claims
+
+### Migration 221 — `stage` + `parent_claim_id` (self-referential FK)
+
+Final claim API accepts `stage` and `parent_claim_id` in the request body
+but the columns didn't exist on `tpa_claims`, so they were silently
+dropped. Without the link the TPA portal can't auto-correlate the
+final claim with the originating preauth/enhancement and the auditor
+can't reconstruct the full episode chain.
+
+`stage` is one of `'preauth' | 'enhancement' | 'final' | 'reimbursement'`
+(default `'final'` for backward compat with existing rows, since they're
+all final claims by construction). `parent_claim_id` is a FK to
+`tpa_claims(id)` with `ON DELETE SET NULL` — the migration creates the
+constraint, but Prisma's introspection drops the `onDelete: SetNull`
+annotation on self-referential nullable FKs (the DB-level behaviour is
+preserved regardless). Index `idx_tpa_claims_parent_claim` on
+`parent_claim_id` for parent-traversal queries.
+
+The chip hint about `insurance_preauth.parent_preauth_id` covers the
+mid-stay enhancement hop; this migration adds the *claim*-level link
+so a final claim row also knows its predecessor preauth-claim.
+Finding: `2026-05-09-tpa-insurance-claim-discharge-final-claim-stage-dropped`.
