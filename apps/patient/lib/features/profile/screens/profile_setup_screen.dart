@@ -1,10 +1,11 @@
 import 'package:go_router/go_router.dart';
-import 'package:vhhealth/core/navigation/app_router.dart';
+import 'package:provider/provider.dart';
 
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/backend_api_service.dart';
 import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
@@ -121,16 +122,19 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       const storage = FlutterSecureStorage();
       await storage.write(key: 'user_name', value: _nameController.text.trim());
       await storage.write(key: 'isNewUser', value: 'false');
-      AppRouter.setUserData(widget.phone, _nameController.text.trim());
       if (mounted) {
-        context.go('/home'); // ignore: use_build_context_synchronously
+        context.read<UserProvider>().setUser(
+          widget.phone,
+          _nameController.text.trim(),
+        );
+        context.go('/home');
       }
     }
     if (mounted) setState(() => _isSubmitting = false);
   }
 
   void _skip() {
-    AppRouter.setUserData(widget.phone, 'User');
+    context.read<UserProvider>().setUser(widget.phone, 'User');
     context.go('/home');
   }
 

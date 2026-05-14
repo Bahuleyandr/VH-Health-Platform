@@ -7,7 +7,9 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
 
+import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/offline/record_cache_manager.dart';
@@ -23,9 +25,8 @@ import 'package:vhhealth/features/your_health/widgets/hospital_documents_tab.dar
 import 'package:vhhealth/features/your_health/widgets/my_uploads_tab.dart';
 
 class YourHealthScreen extends StatefulWidget {
-  final String phone;
   final int initialTab;
-  const YourHealthScreen({super.key, required this.phone, this.initialTab = 0});
+  const YourHealthScreen({super.key, this.initialTab = 0});
 
   @override
   State<YourHealthScreen> createState() => _YourHealthScreenState();
@@ -40,6 +41,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
   bool _newestFirst = true;
 
   late final bool _isGuest;
+  late final String _phone;
   late final Color _color;
   late TabController _tabController;
 
@@ -49,13 +51,13 @@ class _YourHealthScreenState extends State<YourHealthScreen>
   @override
   void initState() {
     super.initState();
+    _phone = context.read<UserProvider>().phone;
     _tabController = TabController(
       length: 6,
       vsync: this,
       initialIndex: widget.initialTab,
     );
-    _isGuest =
-        widget.phone.trim().isEmpty || widget.phone.toLowerCase() == 'guest';
+    _isGuest = _phone.trim().isEmpty || _phone.toLowerCase() == 'guest';
   }
 
   @override
@@ -101,7 +103,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
 
     try {
       final response = await ApiClient.get(
-        '/records/health-records/${widget.phone}',
+        '/records/health-records/$_phone',
         queryParameters: queryParams.isNotEmpty ? queryParams : null,
       );
       if (!mounted) return;
@@ -112,7 +114,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
             ? rawData
             : (rawData is Map ? (rawData['records'] ?? rawData ?? []) : [])
                   as List<dynamic>;
-        await RecordCacheManager.saveManifest(widget.phone, data);
+        await RecordCacheManager.saveManifest(_phone, data);
         if (!mounted) return;
         setState(() {
           records = _newestFirst ? data : data.reversed.toList();
@@ -132,7 +134,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
     ThemeData theme,
     String errorMsg,
   ) async {
-    final cached = await RecordCacheManager.loadManifest(widget.phone);
+    final cached = await RecordCacheManager.loadManifest(_phone);
     if (!mounted) return;
     final l10n = AppLocalizations.of(context)!;
 
@@ -339,7 +341,7 @@ class _YourHealthScreenState extends State<YourHealthScreen>
                   _buildRecordsTab(theme, cs, l10n),
                   const HospitalDocumentsTab(),
                   MyUploadsTab(key: _myUploadsKey),
-                  PrescriptionsTab(phone: widget.phone),
+                  PrescriptionsTab(phone: _phone),
                   const ConsultationsTab(),
                   const HealthSummaryTab(),
                 ],

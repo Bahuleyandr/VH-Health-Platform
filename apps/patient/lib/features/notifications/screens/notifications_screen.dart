@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
+import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/offline_banner.dart';
@@ -9,9 +11,7 @@ import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 class NotificationsScreen extends StatefulWidget {
-  final String phone;
-
-  const NotificationsScreen({super.key, required this.phone});
+  const NotificationsScreen({super.key});
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
@@ -22,10 +22,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   bool loading = true;
   String? _error;
   String? _staleLabel;
+  late final String _phone;
 
   @override
   void initState() {
     super.initState();
+    _phone = context.read<UserProvider>().phone;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _fetchNotifications();
     });
@@ -38,7 +40,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     });
 
     // Check for guest users
-    if (widget.phone == 'guest' || widget.phone.isEmpty) {
+    if (_phone == 'guest' || _phone.isEmpty) {
       setState(() {
         notifications = [];
         loading = false;

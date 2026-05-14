@@ -7,8 +7,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 
 class FamilyScreen extends StatefulWidget {
-  final String phone;
-  const FamilyScreen({super.key, required this.phone});
+  const FamilyScreen({super.key});
 
   @override
   State<FamilyScreen> createState() => _FamilyScreenState();

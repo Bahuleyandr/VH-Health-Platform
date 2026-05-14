@@ -5,7 +5,6 @@ import 'dart:developer' as developer;
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
-import 'package:vhhealth/core/navigation/app_router.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth_core/config/api_config.dart';
 
@@ -133,8 +132,7 @@ class _SplashScreenState extends State<SplashScreen>
       await _secureStorage.write(key: 'isNewUser', value: isNewUser.toString());
 
       if (!mounted) return;
-      AppRouter.setUserData(phone, name);
-      // Sync the Provider tree so the dashboard greeting + dashboard's
+      // Populate the Provider tree so the dashboard greeting + dashboard's
       // /dashboard?phone= probe see the right value on first paint.
       try {
         // ignore: use_build_context_synchronously
@@ -218,11 +216,18 @@ class _SplashScreenState extends State<SplashScreen>
         key: 'biometric_enabled',
       );
 
+      // Populate UserProvider from storage before navigating off the splash,
+      // so route-level screens can read identity from the Provider tree
+      // instead of being threaded phone/name through their constructors.
+      // No-op for fresh installs (keys absent → provider stays Guest).
+      if (mounted) {
+        await context.read<UserProvider>().loadFromStorage();
+      }
+
       // ── 1. Firebase + JWT available → check profile, then dashboard ──
       if (firebaseUser != null && jwt != null && mounted) {
         final name = await _secureStorage.read(key: 'user_name');
         final isNewUser = await _secureStorage.read(key: 'isNewUser');
-        AppRouter.setUserData(phone ?? '', name ?? 'User');
 
         // Profile completion gate: new users or users without a name
         if (isNewUser == 'true' ||
@@ -251,7 +256,6 @@ class _SplashScreenState extends State<SplashScreen>
             if (didAuth && mounted) {
               final name = await _secureStorage.read(key: 'user_name');
               final isNewUser = await _secureStorage.read(key: 'isNewUser');
-              AppRouter.setUserData(phone, name ?? 'User');
 
               if (isNewUser == 'true' || name == null) {
                 if (!mounted) return;

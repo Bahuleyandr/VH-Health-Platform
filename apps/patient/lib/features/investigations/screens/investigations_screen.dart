@@ -9,8 +9,10 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
 
 import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
@@ -22,8 +24,7 @@ import 'package:vhhealth/features/investigations/widgets/result_gauge_widget.dar
 import 'package:vhhealth/generated/app_localizations.dart';
 
 class InvestigationsScreen extends StatefulWidget {
-  final String phone;
-  const InvestigationsScreen({super.key, required this.phone});
+  const InvestigationsScreen({super.key});
 
   @override
   State<InvestigationsScreen> createState() => _InvestigationsScreenState();
@@ -55,14 +56,15 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
   final _secureStorage = const FlutterSecureStorage();
 
   late final bool _isGuest;
+  late final String _phone;
   late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
-    _isGuest =
-        widget.phone.toLowerCase() == 'guest' || widget.phone.trim().isEmpty;
-    _phoneController.text = _isGuest ? '' : widget.phone;
+    _phone = context.read<UserProvider>().phone;
+    _isGuest = _phone.toLowerCase() == 'guest' || _phone.trim().isEmpty;
+    _phoneController.text = _isGuest ? '' : _phone;
     _tabController = TabController(length: 3, vsync: this);
     if (!_isGuest) {
       _loadPatientIdAndFetch();
@@ -263,7 +265,7 @@ class _InvestigationsScreenState extends State<InvestigationsScreen>
     // Prefer patient_id-based fetch; fall back to phone-based
     final path = _patientId != null
         ? '/investigations/patient/$_patientId'
-        : '/investigations/${widget.phone}';
+        : '/investigations/$_phone';
 
     try {
       final response = await ApiClient.get(path);

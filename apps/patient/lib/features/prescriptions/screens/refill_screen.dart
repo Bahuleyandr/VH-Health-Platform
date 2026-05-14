@@ -7,8 +7,7 @@ import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 
 class RefillScreen extends StatefulWidget {
-  final String phone;
-  const RefillScreen({super.key, required this.phone});
+  const RefillScreen({super.key});
 
   @override
   State<RefillScreen> createState() => _RefillScreenState();

@@ -31,10 +31,8 @@ List<Widget> buildSettingsSections(SettingsController c) {
               color: cs.onSurfaceVariant,
             ),
             onTap: () {
-              c.context.push(
-                '/profile-edit',
-                extra: {'phone': c.phone, 'name': c.name},
-              );
+              // ProfileEditScreen reads identity from UserProvider — no extra.
+              c.context.push('/profile-edit');
             },
           ),
           const Divider(height: 1),

@@ -70,7 +70,7 @@ Future<void> main() async {
 
   // Wire 401 handler: when any API call returns Unauthorized, redirect to login.
   ApiClient.onSessionExpired = (message) {
-    AppRouter.clearUserData();
+    UserProvider.instance?.clear();
     AppRouter.router.go('/login');
   };
 

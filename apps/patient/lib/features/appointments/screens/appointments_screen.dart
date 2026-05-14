@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth/core/providers/websocket_provider.dart';
+import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/utils/calendar_utils.dart';
@@ -71,8 +72,7 @@ class _AppointmentInfo {
 // ─── Screen ─────────────────────────────────────────────────────────────────
 
 class AppointmentsScreen extends StatefulWidget {
-  final String phone;
-  const AppointmentsScreen({super.key, required this.phone});
+  const AppointmentsScreen({super.key});
 
   @override
   State<AppointmentsScreen> createState() => _AppointmentsScreenState();
@@ -112,10 +112,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
   @override
   void initState() {
     super.initState();
+    final phone = context.read<UserProvider>().phone;
     _tabController = TabController(length: 2, vsync: this);
-    _isGuest =
-        widget.phone.trim().isEmpty || widget.phone.toLowerCase() == 'guest';
-    _phoneController.text = _isGuest ? '' : widget.phone;
+    _isGuest = phone.trim().isEmpty || phone.toLowerCase() == 'guest';
+    _phoneController.text = _isGuest ? '' : phone;
     _loadPatientId();
     _fetchDepartments();
 

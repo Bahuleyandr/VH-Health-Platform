@@ -5,18 +5,12 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:badges/badges.dart' as badges;
 import 'package:provider/provider.dart';
 import 'package:vhhealth/core/providers/notification_provider.dart';
+import 'package:vhhealth/core/providers/user_provider.dart';
 
 class MainScaffoldGoRouter extends StatefulWidget {
   final Widget child;
-  final String phone;
-  final String name;
 
-  const MainScaffoldGoRouter({
-    super.key,
-    required this.child,
-    required this.phone,
-    required this.name,
-  });
+  const MainScaffoldGoRouter({super.key, required this.child});
 
   @override
   State<MainScaffoldGoRouter> createState() => _MainScaffoldGoRouterState();
@@ -24,9 +18,12 @@ class MainScaffoldGoRouter extends StatefulWidget {
 
 class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
     with WidgetsBindingObserver {
+  late final String _phone;
+
   @override
   void initState() {
     super.initState();
+    _phone = context.read<UserProvider>().phone;
     WidgetsBinding.instance.addObserver(this);
     _fetchNotifications();
   }
@@ -40,14 +37,14 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
-      context.read<NotificationProvider>().fetchUnreadCount(widget.phone);
+      context.read<NotificationProvider>().fetchUnreadCount(_phone);
     }
   }
 
   void _fetchNotifications() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        context.read<NotificationProvider>().fetchUnreadCount(widget.phone);
+        context.read<NotificationProvider>().fetchUnreadCount(_phone);
       }
     });
   }
@@ -72,7 +69,7 @@ class _MainScaffoldGoRouterState extends State<MainScaffoldGoRouter>
       case 2:
         context.go('/notifications');
         // Mark notifications as read
-        context.read<NotificationProvider>().markAllAsRead(widget.phone);
+        context.read<NotificationProvider>().markAllAsRead(_phone);
         break;
       case 3:
         context.go('/settings');

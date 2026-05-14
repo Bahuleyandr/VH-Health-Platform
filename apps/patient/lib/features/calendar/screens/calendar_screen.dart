@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/permissions_service.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 class CalendarScreen extends StatefulWidget {
-  final String uid;
-  const CalendarScreen({super.key, required this.uid});
+  const CalendarScreen({super.key});
 
   @override
   State<CalendarScreen> createState() => _CalendarScreenState();
@@ -21,10 +22,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   bool permissionsGranted = false;
   bool _isLoadingEvents = false;
+  late final String _uid;
 
   @override
   void initState() {
     super.initState();
+    _uid = context.read<UserProvider>().phone;
     _checkPermissionsAndLoad();
   }
 
@@ -39,7 +42,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         permissionsGranted = true;
         _isLoadingEvents = true;
       });
-      await _loadBackendEvents(widget.uid);
+      await _loadBackendEvents(_uid);
       if (mounted) {
         setState(() => _isLoadingEvents = false);
       }
@@ -198,7 +201,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
             onPressed: () {
               if (permissionsGranted && !_isLoadingEvents) {
                 setState(() => _isLoadingEvents = true);
-                _loadBackendEvents(widget.uid).whenComplete(() {
+                _loadBackendEvents(_uid).whenComplete(() {
                   if (mounted) setState(() => _isLoadingEvents = false);
                 });
               }

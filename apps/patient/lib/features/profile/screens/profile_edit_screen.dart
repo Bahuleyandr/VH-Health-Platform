@@ -2,17 +2,16 @@
 import 'package:go_router/go_router.dart';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/input_sanitizer.dart';
 import 'package:vhhealth/core/widgets/logo_background.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 class ProfileEditScreen extends StatefulWidget {
-  final String phone;
-  final String name;
-
-  const ProfileEditScreen({super.key, required this.phone, required this.name});
+  const ProfileEditScreen({super.key});
 
   @override
   State<ProfileEditScreen> createState() => _ProfileEditScreenState();
@@ -20,6 +19,9 @@ class ProfileEditScreen extends StatefulWidget {
 
 class _ProfileEditScreenState extends State<ProfileEditScreen> {
   final _formKey = GlobalKey<FormState>();
+
+  late final String _phone;
+  late final String _name;
 
   late final TextEditingController _nameController;
   final _emailController = TextEditingController();
@@ -51,7 +53,10 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.name);
+    final user = context.read<UserProvider>();
+    _phone = user.phone;
+    _name = user.name;
+    _nameController = TextEditingController(text: _name);
     _fetchProfile();
   }
 
@@ -71,7 +76,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   // ───────────────────────────── Fetch Profile ──────────────────────────────
   Future<void> _fetchProfile() async {
     try {
-      final response = await ApiClient.get('/users/${widget.phone}');
+      final response = await ApiClient.get('/users/$_phone');
 
       if (!mounted) return;
 
@@ -79,7 +84,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         final data = response.dataAsMap();
         final user = data['user'] as Map<String, dynamic>? ?? data;
 
-        _nameController.text = user['name']?.toString() ?? widget.name;
+        _nameController.text = user['name']?.toString() ?? _name;
         _emailController.text = user['email']?.toString() ?? '';
         _addressController.text = user['address']?.toString() ?? '';
         _allergiesController.text = user['allergies']?.toString() ?? '';
@@ -148,7 +153,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       final ecText = _emergencyContactController.text.trim();
 
       final response = await ApiClient.put(
-        '/users/${widget.phone}',
+        '/users/$_phone',
         body: {
           'name': InputSanitizer.sanitizeName(_nameController.text.trim()),
           'email': _emailController.text.trim().isNotEmpty
@@ -239,7 +244,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       ),
     );
 
-    debugPrint('SOS Triggered for phone: ${widget.phone}');
+    debugPrint('SOS Triggered for phone: $_phone');
   }
 
   // ─────────────────────────── Gender display label ─────────────────────────

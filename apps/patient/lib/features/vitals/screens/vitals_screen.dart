@@ -2,16 +2,17 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/intl.dart';
+import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/services/health_sync_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 
 class VitalsScreen extends StatefulWidget {
-  final String phone;
-  const VitalsScreen({super.key, required this.phone});
+  const VitalsScreen({super.key});
 
   @override
   State<VitalsScreen> createState() => _VitalsScreenState();
@@ -20,10 +21,12 @@ class VitalsScreen extends StatefulWidget {
 class _VitalsScreenState extends State<VitalsScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  late final String _phone;
 
   @override
   void initState() {
     super.initState();
+    _phone = context.read<UserProvider>().phone;
     _tabController = TabController(length: 2, vsync: this);
   }
 
@@ -57,10 +60,10 @@ class _VitalsScreenState extends State<VitalsScreen>
               controller: _tabController,
               children: [
                 _VitalsFormTab(
-                  phone: widget.phone,
+                  phone: _phone,
                   onSubmitted: () => _tabController.animateTo(1),
                 ),
-                _VitalsHistoryTab(phone: widget.phone),
+                _VitalsHistoryTab(phone: _phone),
               ],
             ),
           ),

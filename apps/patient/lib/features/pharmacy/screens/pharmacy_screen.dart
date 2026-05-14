@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/features/pharmacy/widgets/order_form_tab.dart';
 import 'package:vhhealth/features/pharmacy/widgets/order_list_tab.dart';
 
 class PharmacyScreen extends StatefulWidget {
-  final String phone;
-  const PharmacyScreen({super.key, required this.phone});
+  const PharmacyScreen({super.key});
 
   @override
   State<PharmacyScreen> createState() => _PharmacyScreenState();
@@ -15,11 +16,13 @@ class PharmacyScreen extends StatefulWidget {
 class _PharmacyScreenState extends State<PharmacyScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  late final String _phone;
   final _orderListKey = GlobalKey<OrderListTabState>();
 
   @override
   void initState() {
     super.initState();
+    _phone = context.read<UserProvider>().phone;
     _tabController = TabController(length: 2, vsync: this);
   }
 
@@ -57,7 +60,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
               controller: _tabController,
               children: [
                 OrderFormTab(
-                  phone: widget.phone,
+                  phone: _phone,
                   onOrderPlaced: _onOrderPlaced,
                 ),
                 OrderListTab(key: _orderListKey),

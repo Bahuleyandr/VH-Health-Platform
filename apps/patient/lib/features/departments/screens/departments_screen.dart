@@ -12,9 +12,7 @@ import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 
 class DepartmentsScreen extends StatefulWidget {
-  final String phone;
-  final String? name;
-  const DepartmentsScreen({super.key, required this.phone, this.name});
+  const DepartmentsScreen({super.key});
 
   @override
   State<DepartmentsScreen> createState() => _DepartmentsScreenState();

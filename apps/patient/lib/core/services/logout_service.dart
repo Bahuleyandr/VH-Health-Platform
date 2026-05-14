@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
-import 'package:vhhealth/core/navigation/app_router.dart';
+import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
 
@@ -44,7 +44,8 @@ class LogoutService {
       debugPrint('LogoutService: cache clear failed: $e');
     }
 
-    // 5. Clear AppRouter static user data
-    AppRouter.clearUserData();
+    // 5. Clear in-memory user identity. UserProvider is the single source
+    //    of truth; its backing storage keys were wiped in step 3 above.
+    UserProvider.instance?.clear();
   }
 }

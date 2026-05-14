@@ -50,24 +50,6 @@ class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
   static final _shellNavigatorKey = GlobalKey<NavigatorState>();
 
-  // Legacy static cache — kept for redirect (which has no Provider context).
-  // Route builders should prefer context.read<UserProvider>() instead.
-  static String? _userPhone;
-  static String? _userName;
-
-  static void setUserData(String phone, String name) {
-    _userPhone = phone;
-    _userName = name;
-  }
-
-  static void clearUserData() {
-    _userPhone = null;
-    _userName = null;
-  }
-
-  static String? get userPhone => _userPhone;
-  static String? get userName => _userName;
-
   /// Shape-check a JWT: header.payload.signature, each part non-empty.
   /// Cheaper than verification, but rules out garbage values that an
   /// attacker (or a corrupted storage write) could leave in
@@ -77,31 +59,6 @@ class AppRouter {
     if (jwt == null || jwt.isEmpty) return false;
     final parts = jwt.split('.');
     return parts.length == 3 && parts.every((part) => part.isNotEmpty);
-  }
-
-  /// Read user phone from Provider (preferred) with static fallback.
-  /// Treats an *empty* Provider value as a miss — login flows that only
-  /// update the static (dev login, legacy OTP) need to fall through.
-  static String _phone(BuildContext context) {
-    try {
-      final fromProvider = context.read<UserProvider>().phone;
-      if (fromProvider.isNotEmpty) return fromProvider;
-    } catch (e) {
-      debugPrint('AppRouter._phone provider fallback: $e');
-    }
-    return _userPhone ?? '';
-  }
-
-  /// Read user name from Provider (preferred) with static fallback.
-  /// Same empty-aware fallback as [_phone].
-  static String _name(BuildContext context) {
-    try {
-      final fromProvider = context.read<UserProvider>().name;
-      if (fromProvider.isNotEmpty) return fromProvider;
-    } catch (e) {
-      debugPrint('AppRouter._name provider fallback: $e');
-    }
-    return _userName ?? 'Guest';
   }
 
   /// Wraps a page in a [CustomTransitionPage] with a short cross-fade.
@@ -187,25 +144,17 @@ class AppRouter {
         return '/login';
       }
 
-      // If logged in and on login, load user data and redirect to home
+      // If logged in and on login, ensure identity is hydrated, then go home.
       if (isLoggedIn && location == '/login') {
         // Start idle timer now that we know the user is authenticated
         if (sessionProvider != null) {
           sessionProvider.startTracking();
         }
 
-        // Load user data from secure storage if not already loaded
-        if (_userPhone == null || _userName == null) {
-          const storage = FlutterSecureStorage();
-          final phone = await storage.read(key: 'user_phone') ?? '';
-          final name = await storage.read(key: 'user_name') ?? 'User';
-          if (phone.isNotEmpty) {
-            setUserData(phone, name);
-            // Sync to UserProvider if available
-            if (userProvider != null) {
-              userProvider.setUser(phone, name);
-            }
-          }
+        // Hydrate UserProvider from storage in case this route was reached
+        // without passing through the splash screen (which normally does it).
+        if (userProvider != null && userProvider.phone.isEmpty) {
+          await userProvider.loadFromStorage();
         }
         return '/home';
       }
@@ -253,34 +202,19 @@ class AppRouter {
       ),
       GoRoute(
         path: '/profile-edit',
-        builder: (context, state) {
-          final extra = state.extra as Map<String, dynamic>?;
-          return ProfileEditScreen(
-            phone: extra?['phone'] ?? _phone(context),
-            name: extra?['name'] ?? _name(context),
-          );
-        },
+        builder: (context, state) => const ProfileEditScreen(),
       ),
 
       // Main app with bottom navigation
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
-        builder: (context, state, child) {
-          return MainScaffoldGoRouter(
-            phone: _phone(context),
-            name: _name(context),
-            child: child,
-          );
-        },
+        builder: (context, state, child) =>
+            MainScaffoldGoRouter(child: child),
         routes: [
           GoRoute(
             path: '/home',
-            pageBuilder: (context, state) => NoTransitionPage(
-              child: DashboardScreen(
-                phone: _phone(context),
-                name: _name(context),
-              ),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: DashboardScreen()),
           ),
           GoRoute(
             path: '/health',
@@ -288,7 +222,6 @@ class AppRouter {
               final extra = state.extra as Map<String, dynamic>?;
               return NoTransitionPage(
                 child: YourHealthScreen(
-                  phone: _phone(context),
                   initialTab: extra?['tab'] as int? ?? 0,
                 ),
               );
@@ -296,18 +229,13 @@ class AppRouter {
           ),
           GoRoute(
             path: '/notifications',
-            pageBuilder: (context, state) => NoTransitionPage(
-              child: NotificationsScreen(phone: _phone(context)),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: NotificationsScreen()),
           ),
           GoRoute(
             path: '/settings',
-            pageBuilder: (context, state) => NoTransitionPage(
-              child: SettingsScreen(
-                phone: _phone(context),
-                name: _name(context),
-              ),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: SettingsScreen()),
           ),
         ],
       ),
@@ -315,14 +243,11 @@ class AppRouter {
       // Feature routes (outside shell for full screen)
       GoRoute(
         path: '/appointments',
-        builder: (context, state) {
-          final extra = state.extra as Map<String, dynamic>?;
-          return AppointmentsScreen(phone: extra?['phone'] ?? _phone(context));
-        },
+        builder: (context, state) => const AppointmentsScreen(),
       ),
       GoRoute(
         path: '/pharmacy',
-        builder: (context, state) => PharmacyScreen(phone: _phone(context)),
+        builder: (context, state) => const PharmacyScreen(),
       ),
 
       // Patient self-service portal (Sprint 10)
@@ -369,8 +294,7 @@ class AppRouter {
       ),
       GoRoute(
         path: '/investigations',
-        builder: (context, state) =>
-            InvestigationsScreen(phone: _phone(context)),
+        builder: (context, state) => const InvestigationsScreen(),
       ),
       GoRoute(
         path: '/book-investigation',
@@ -378,7 +302,7 @@ class AppRouter {
       ),
       GoRoute(
         path: '/ask-a-doubt',
-        builder: (context, state) => AskADoubtScreen(phone: _phone(context)),
+        builder: (context, state) => const AskADoubtScreen(),
       ),
       GoRoute(
         path: '/feedback-history',
@@ -390,8 +314,7 @@ class AppRouter {
       ),
       GoRoute(
         path: '/departments',
-        builder: (context, state) =>
-            DepartmentsScreen(phone: _phone(context), name: _name(context)),
+        builder: (context, state) => const DepartmentsScreen(),
       ),
       GoRoute(
         path: '/about-us',
@@ -403,7 +326,7 @@ class AppRouter {
       ),
       GoRoute(
         path: '/calendar',
-        builder: (context, state) => CalendarScreen(uid: _phone(context)),
+        builder: (context, state) => const CalendarScreen(),
       ),
       GoRoute(
         path: '/steps',
@@ -411,15 +334,15 @@ class AppRouter {
       ),
       GoRoute(
         path: '/vitals',
-        builder: (context, state) => VitalsScreen(phone: _phone(context)),
+        builder: (context, state) => const VitalsScreen(),
       ),
       GoRoute(
         path: '/refill',
-        builder: (context, state) => RefillScreen(phone: _phone(context)),
+        builder: (context, state) => const RefillScreen(),
       ),
       GoRoute(
         path: '/family',
-        builder: (context, state) => FamilyScreen(phone: _phone(context)),
+        builder: (context, state) => const FamilyScreen(),
       ),
       GoRoute(
         path: '/add-dependent',
