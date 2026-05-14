@@ -207,7 +207,7 @@ const VISIT_RETURNING = `id, tenant_id, facility_id, visit_number, patient_uid,
   attending_doctor_uid, triage_priority, status, bed_assigned_id,
   disposition, triage_started_at, treatment_started_at,
   disposition_at, departure_at, is_mlc, metadata,
-  created_by, created_at, updated_at`;
+  created_by, created_at, updated_at, encounter_id`;
 
 export async function createEmergencyVisit({
   tenantId = null,
