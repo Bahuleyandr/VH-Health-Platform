@@ -46,8 +46,11 @@ function formatTime(t: string) {
 }
 
 function shiftDuration(start: string, end: string): string {
-  const [sh, sm] = start.split(':').map(Number);
-  const [eh, em] = end.split(':').map(Number);
+  // Guard against a non-HH:MM:SS value (e.g. an ISO timestamp slipping
+  // through) — without this, a bad input renders as "NaNh NaNm".
+  const [sh, sm] = (start ?? '').split(':').map(Number);
+  const [eh, em] = (end ?? '').split(':').map(Number);
+  if ([sh, sm, eh, em].some(Number.isNaN)) return '—';
   let mins = (eh * 60 + em) - (sh * 60 + sm);
   if (mins < 0) mins += 24 * 60; // overnight
   const h = Math.floor(mins / 60);
