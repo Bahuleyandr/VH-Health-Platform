@@ -216,28 +216,34 @@ export async function logFlowsheet({ tenantId, icu_admission_id, ...body }) {
             $43, $44,
             $45::uuid, $46, $47::uuid)
     RETURNING *`;
+  // Numeric clinical measurements use `?? null` so an explicit zero is
+  // stored as zero. A nurse documenting `urine_output_ml: 0` is recording
+  // measured anuria (oliguria), which is clinically distinct from `null`
+  // (not measured). The same applies to vasopressor rates (a 0 mcg/kg/min
+  // entry means the drip is held), oral intake, and other I/O totals.
+  // Finding: 2026-05-09-emergency-walk-in-nurse-icu-urine-zero-stored-null.
   const rows = await prisma.$queryRawUnsafe(sql,
     parseInt(icu_admission_id, 10), body.recorded_at || null,
-    body.hr || null, body.sbp || null, body.dbp || null, body.map || null,
-    body.cvp || null, body.spo2 || null, body.rr || null,
-    body.temp_c || null, body.cap_refill_sec || null,
-    body.gcs_eye || null, body.gcs_verbal || null, body.gcs_motor || null,
+    body.hr ?? null, body.sbp ?? null, body.dbp ?? null, body.map ?? null,
+    body.cvp ?? null, body.spo2 ?? null, body.rr ?? null,
+    body.temp_c ?? null, body.cap_refill_sec ?? null,
+    body.gcs_eye ?? null, body.gcs_verbal ?? null, body.gcs_motor ?? null,
     computed.gcs_total,
-    body.pupils_left_size_mm || null, body.pupils_right_size_mm || null,
-    body.pupils_reactive || null,
-    body.vent_mode || null, body.fio2_pct || null, body.peep_cmh2o || null,
-    body.tidal_volume_ml || null, body.resp_rate_set || null,
-    body.airway_pressure_peak || null, body.airway_pressure_plateau || null,
-    body.pf_ratio || null,
-    body.noradrenaline_mcg_kg_min || null, body.adrenaline_mcg_kg_min || null,
-    body.vasopressin_units_hr || null, body.dobutamine_mcg_kg_min || null,
-    body.propofol_mcg_kg_min || null, body.midazolam_mg_hr || null,
-    body.fentanyl_mcg_hr || null, body.insulin_units_hr || null,
+    body.pupils_left_size_mm ?? null, body.pupils_right_size_mm ?? null,
+    body.pupils_reactive ?? null,
+    body.vent_mode || null, body.fio2_pct ?? null, body.peep_cmh2o ?? null,
+    body.tidal_volume_ml ?? null, body.resp_rate_set ?? null,
+    body.airway_pressure_peak ?? null, body.airway_pressure_plateau ?? null,
+    body.pf_ratio ?? null,
+    body.noradrenaline_mcg_kg_min ?? null, body.adrenaline_mcg_kg_min ?? null,
+    body.vasopressin_units_hr ?? null, body.dobutamine_mcg_kg_min ?? null,
+    body.propofol_mcg_kg_min ?? null, body.midazolam_mg_hr ?? null,
+    body.fentanyl_mcg_hr ?? null, body.insulin_units_hr ?? null,
     body.other_drips ? JSON.stringify(body.other_drips) : null,
-    body.iv_fluids_ml || null, body.oral_intake_ml || null,
-    body.blood_products_ml || null, body.urine_output_ml || null,
-    body.drain_output_ml || null, body.ng_aspirate_ml || null,
-    body.stool_count || null,
+    body.iv_fluids_ml ?? null, body.oral_intake_ml ?? null,
+    body.blood_products_ml ?? null, body.urine_output_ml ?? null,
+    body.drain_output_ml ?? null, body.ng_aspirate_ml ?? null,
+    body.stool_count ?? null,
     computed.net_balance_ml, body.event_note || null,
     body.recorded_by || null, body.recorded_by_name || null, tenantOr(tenantId));
   return unwrap(rows);
