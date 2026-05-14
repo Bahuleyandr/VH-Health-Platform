@@ -202,6 +202,58 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
     });
   });
 
+  describe('paediatric growth percentile (growth-not-linked-to-vitals + 4354eb08)', () => {
+    const PAEDS_UID = 'a2222222-2222-4222-8222-222222222a03';
+
+    beforeAll(async () => {
+      await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PAEDS_UID);
+      await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PAEDS_UID);
+      // ~2-year-old (730 days) male — the Baby Aarav cohort from 4354eb08.
+      const dob = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10);
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO users (uid, phone, name, role, gender, birthday, is_active, updated_at)
+         VALUES ($1::uuid, '9000020003', 'Growth Test Toddler', 'PATIENT', 'Male', $2::date, true, NOW())`,
+        PAEDS_UID, dob);
+    });
+
+    afterAll(async () => {
+      await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PAEDS_UID).catch(() => {});
+      await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PAEDS_UID).catch(() => {});
+    });
+
+    it('auto-computes WHO weight + height percentiles in the vitals response', async () => {
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PAEDS_UID,
+        weight_kg: 12.5,
+        height_cm: 87,
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.body.data.growth).not.toBeNull();
+      expect(res.body.data.growth.reference_dataset).toBe('WHO_0_5');
+      expect(res.body.data.growth.metrics.weight_kg.percentile).toBeGreaterThan(0);
+      expect(res.body.data.growth.metrics.weight_kg.percentile).toBeLessThan(100);
+      expect(res.body.data.growth.metrics.height_cm.percentile).toBeGreaterThan(0);
+    });
+
+    it('returns growth: null for a patient with no DOB/sex on file', async () => {
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PATIENT_UID,
+        weight_kg: 12.5,
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.body.data.growth).toBeNull();
+    });
+
+    it('omits the growth block when no weight/height is recorded', async () => {
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PAEDS_UID,
+        heart_rate: 110,
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.body.data.growth).toBeNull();
+    });
+  });
+
   describe('anomaly detection', () => {
     it('flags a CRITICAL low SpO2 and persists a clinical_alert', async () => {
       const res = await doctor.post('/api/v1/emr/vitals').send({

@@ -3,6 +3,7 @@ import { HEALTH_MESSAGES } from '../../config/healthConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { computeGrowthSnapshot } from '../../services/clinical/growthPercentileService.js';
 import * as pointService from '../../services/gamification/pointService.js';
 import * as healthRecordService from '../../services/health/healthRecordService.js';
 import * as patientHealthService from '../../services/health/patientHealthService.js';
@@ -300,7 +301,7 @@ export async function recordStaffVitals(req, res) {
     }
 
     const patient = await prisma.$queryRawUnsafe(
-      'SELECT id, uid FROM users WHERE id = $1 AND COALESCE(is_active, true) = true LIMIT 1',
+      'SELECT id, uid, birthday, gender FROM users WHERE id = $1 AND COALESCE(is_active, true) = true LIMIT 1',
       patientId
     );
     if (patient.length === 0) {
@@ -327,6 +328,9 @@ export async function recordStaffVitals(req, res) {
     );
     const spO2 = numberOrNull(vitalSigns.spo2 ?? vitalSigns.spO2, Number.parseInt);
     const weight = numberOrNull(measurementValues.weight);
+    // height isn't a patient_vitals column, but the nurse may still send it
+    // in measurements — read it so the growth percentile can use it.
+    const heightCm = numberOrNull(measurementValues.height_cm ?? measurementValues.height);
 
     // Temperature route (axillary/oral/rectal/tympanic) — axillary runs
     // ~0.5 C below oral, so the route changes a paediatric fever band.
@@ -369,12 +373,31 @@ export async function recordStaffVitals(req, res) {
       requestId: req.id
     });
 
+    // Paediatric growth percentile — compute WHO percentiles from the
+    // weight/height the nurse just entered so the value surfaces in this
+    // same response instead of requiring a separate growth-chart POST.
+    // Best-effort: never blocks the vitals save. Findings:
+    //   2026-05-09-pediatric-opd-nurse-growth-chart-not-linked-to-vitals
+    //   2026-05-11-pediatric-opd-nurse-4354eb08
+    let growth = null;
+    try {
+      growth = computeGrowthSnapshot({
+        gender: patient[0].gender,
+        birthday: patient[0].birthday,
+        weightKg: weight,
+        heightCm,
+      });
+    } catch (err) {
+      logger.warn('Growth percentile computation failed', { error: err.message });
+    }
+
     success(res, {
       id: result[0].id,
       patientId: patient[0].id,
       patientUid: patient[0].uid,
       recordedAt: result[0].recorded_at,
       source: result[0].source || 'manual',
+      growth,
     }, 'Vitals recorded successfully');
   } catch (err) {
     logger.error('Record staff vitals error:', err);

@@ -5,6 +5,7 @@ import { AppError } from '../../utils/AppError.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
 import { normaliseTemperatureRoute } from '../../utils/clinical/temperatureRoute.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { computeGrowthSnapshot } from '../clinical/growthPercentileService.js';
 import * as news2Service from '../clinical/news2Service.js';
 
 
@@ -300,9 +301,36 @@ export async function recordVitals(data) {
     logger.warn(`Vital anomaly check failed for patient=${patient_uid}: ${err.message}`);
   }
 
+  // Paediatric growth percentile — when weight/height is recorded for a
+  // child who has a DOB + sex on file, auto-compute the WHO percentile
+  // so the nurse doesn't need a separate POST /clinical/assessments/growth
+  // call. Best-effort: a patient with no DOB/sex, or an age outside the
+  // WHO 0-5 table, simply yields growth: null. Findings:
+  //   2026-05-09-pediatric-opd-nurse-growth-chart-not-linked-to-vitals
+  //   2026-05-11-pediatric-opd-nurse-4354eb08
+  let growth = null;
+  if (weight_kg != null || height_cm != null) {
+    try {
+      const patient = await prisma.users.findUnique({
+        where: { uid: patient_uid },
+        select: { birthday: true, gender: true },
+      });
+      if (patient) {
+        growth = computeGrowthSnapshot({
+          gender: patient.gender,
+          birthday: patient.birthday,
+          weightKg: weight_kg,
+          heightCm: height_cm,
+        });
+      }
+    } catch (err) {
+      logger.warn(`Growth percentile computation failed for patient=${patient_uid}: ${err.message}`);
+    }
+  }
+
   logger.info(`Vitals recorded: id=${record.id}, patient=${patient_uid}, by=${recorded_by}`);
 
-  return { vitals: record, news2: news2Result, alerts: alerts || [] };
+  return { vitals: record, news2: news2Result, alerts: alerts || [], growth };
 }
 
 export async function getVitalsTrend(patientUid, vitalType, dateFrom, dateTo) {
