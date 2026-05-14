@@ -103,10 +103,7 @@ class BookInvestigationStepReview extends StatelessWidget {
         ),
         if (collectionType == 'home' && collectionAddress.isNotEmpty) ...[
           const SizedBox(height: 4),
-          Text(
-            '📍 $collectionAddress',
-            style: theme.textTheme.bodySmall,
-          ),
+          Text('📍 $collectionAddress', style: theme.textTheme.bodySmall),
         ],
         if (preferredDate != null) ...[
           const SizedBox(height: 4),

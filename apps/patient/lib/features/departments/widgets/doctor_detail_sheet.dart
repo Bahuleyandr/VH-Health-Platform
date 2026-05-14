@@ -175,8 +175,7 @@ class DoctorDetailSheet extends StatelessWidget {
                           q.toString(),
                           style: const TextStyle(fontSize: 12),
                         ),
-                        materialTapTargetSize:
-                            MaterialTapTargetSize.shrinkWrap,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         visualDensity: VisualDensity.compact,
                         backgroundColor: cs.secondaryContainer,
                         labelStyle: TextStyle(color: cs.onSecondaryContainer),
@@ -199,9 +198,7 @@ class DoctorDetailSheet extends StatelessWidget {
               ...availDays.map((day) {
                 final dayStr = day.toString();
                 final h = availHours[dayStr] as Map<String, dynamic>?;
-                final timeStr = h != null
-                    ? '${h['start']} – ${h['end']}'
-                    : '';
+                final timeStr = h != null ? '${h['start']} – ${h['end']}' : '';
                 final isToday = dayStr == _todayName;
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 2),

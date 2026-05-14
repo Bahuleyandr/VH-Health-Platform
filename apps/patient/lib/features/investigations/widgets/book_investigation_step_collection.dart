@@ -128,8 +128,7 @@ class BookInvestigationStepCollection extends StatelessWidget {
             return ChoiceChip(
               label: Text(timeSlotLabels[i]),
               selected: selected,
-              onSelected: (v) =>
-                  onTimeSlotChanged(v ? timeSlots[i] : null),
+              onSelected: (v) => onTimeSlotChanged(v ? timeSlots[i] : null),
             );
           }),
         ),

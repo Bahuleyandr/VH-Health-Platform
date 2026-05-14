@@ -208,8 +208,7 @@ class AppRouter {
       // Main app with bottom navigation
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
-        builder: (context, state, child) =>
-            MainScaffoldGoRouter(child: child),
+        builder: (context, state, child) => MainScaffoldGoRouter(child: child),
         routes: [
           GoRoute(
             path: '/home',
@@ -221,9 +220,7 @@ class AppRouter {
             pageBuilder: (context, state) {
               final extra = state.extra as Map<String, dynamic>?;
               return NoTransitionPage(
-                child: YourHealthScreen(
-                  initialTab: extra?['tab'] as int? ?? 0,
-                ),
+                child: YourHealthScreen(initialTab: extra?['tab'] as int? ?? 0),
               );
             },
           ),

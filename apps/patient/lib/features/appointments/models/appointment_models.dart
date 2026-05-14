@@ -5,22 +5,14 @@ class DeptInfo {
   final int id;
   final String name;
   final List<DoctorInfo> doctors;
-  const DeptInfo({
-    required this.id,
-    required this.name,
-    required this.doctors,
-  });
+  const DeptInfo({required this.id, required this.name, required this.doctors});
 }
 
 class DoctorInfo {
   final int id;
   final String name;
   final String? specialization;
-  const DoctorInfo({
-    required this.id,
-    required this.name,
-    this.specialization,
-  });
+  const DoctorInfo({required this.id, required this.name, this.specialization});
 }
 
 class AppointmentInfo {

@@ -59,10 +59,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
             child: TabBarView(
               controller: _tabController,
               children: [
-                OrderFormTab(
-                  phone: _phone,
-                  onOrderPlaced: _onOrderPlaced,
-                ),
+                OrderFormTab(phone: _phone, onOrderPlaced: _onOrderPlaced),
                 OrderListTab(key: _orderListKey),
               ],
             ),

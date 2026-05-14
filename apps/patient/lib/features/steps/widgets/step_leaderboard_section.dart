@@ -82,7 +82,8 @@ class StepLeaderboardSection extends StatelessWidget {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: leaderboard.length,
-                itemBuilder: (ctx, i) => _LeaderboardTile(entry: leaderboard[i]),
+                itemBuilder: (ctx, i) =>
+                    _LeaderboardTile(entry: leaderboard[i]),
               ),
       ],
     );
