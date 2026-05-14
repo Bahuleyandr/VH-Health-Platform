@@ -7,8 +7,9 @@
 import { Router } from 'express';
 import logger from '../../logging/logger.js';
 import * as lab from '../../services/lab/labResultsService.js';
+import * as investigationOrderService from '../../services/investigation/orderService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
+import { isAdmin, isClinical, isStaff } from '../../utils/roleHelpers.js';
 
 const router = Router();
 
@@ -49,6 +50,61 @@ router.post('/oru/ingest', requireStaffOrAdmin, wrap(async (req) => {
     tenantId: tenantOf(req),
     source: source || req.user?.role || 'manual',
   });
+}));
+
+// ── Doctor-facing lab order shortcut ──────────────────────────────────
+// `/api/v1/lab/orders` is the documented endpoint the staff app expects;
+// it didn't exist before, so doctors trying to place a CBC/electrolytes
+// order from the IPD chart hit a 404 and had to discover the actual
+// `/api/v1/investigations/order` path by trial-and-error (plus the
+// payload shape mismatch). Delegate to the investigation order service
+// so both endpoints behave identically — same notes persistence, same
+// patient_uid resolution, same priority + type coercion. Findings:
+//   2026-05-10-dynamic-acute-abdomen-doctor-lab-order-endpoint-missing-notes-dropped
+//   2026-05-10-inpatient-admission-doctor-lab-orders-notes-dropped-no-batch
+function requireOrderingStaff(req, res, next) {
+  const role = req.user?.role;
+  if (!isClinical(role) && !isAdmin(role)) {
+    return error(res, 'Lab ordering requires clinical staff or admin role', 403);
+  }
+  next();
+}
+
+router.post('/orders', requireOrderingStaff, wrap(async (req) => {
+  const body = req.body || {};
+  // Resolve patient_id from patient_uid if the caller used the UUID
+  // form (the documented lab-order shape per the swarm finding) — the
+  // investigations service expects patient_id (int). Pass through
+  // notes / priority / clinical context unchanged.
+  let patientId = body.patient_id;
+  if (!patientId && body.patient_uid) {
+    const { default: prisma } = await import('../../lib/prisma.js');
+    const row = await prisma.users.findUnique({
+      where: { uid: String(body.patient_uid) },
+      select: { id: true },
+    });
+    patientId = row?.id;
+    if (!patientId) {
+      throw Object.assign(new Error('patient_uid does not match any user'), { statusCode: 404 });
+    }
+  }
+  const result = await investigationOrderService.createInvestigationOrder({
+    patient_id: patientId,
+    doctor_uid: req.user?.uid,
+    orderedBy: req.user?.uid,
+    test_name: body.test_name,
+    test_code: body.test_code,
+    // /lab/orders is lab-only by definition; default the type so callers
+    // don't have to pass `type: "LAB"` again.
+    type: body.type || 'LAB',
+    priority: body.priority,
+    notes: body.notes ?? body.clinical_note ?? body.clinical_notes,
+    collection_location: body.collection_location,
+    collection_deadline_at: body.collection_deadline_at,
+    fasting_required: body.fasting_required,
+    fasting_instructions: body.fasting_instructions,
+  });
+  return result;
 }));
 
 // ── Manual result entry (when no analyzer integration) ───────────────
