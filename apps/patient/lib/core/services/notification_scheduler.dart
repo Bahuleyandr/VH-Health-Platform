@@ -15,12 +15,18 @@ class NotificationScheduler {
   NotificationScheduler._();
 
   static final _plugin = FlutterLocalNotificationsPlugin();
-  static bool _initialized = false;
 
-  /// Call once at app startup.
-  static Future<void> initialize() async {
-    if (_initialized) return;
+  /// Shared one-shot init future. The first caller kicks off [_doInitialize];
+  /// every later caller — and every public method below, via [initialize] —
+  /// awaits the same future. Methods are therefore safe to call in any order
+  /// without remembering to initialize first, and `main()` can kick init off
+  /// the critical path.
+  static Future<void>? _initFuture;
 
+  /// Idempotent and concurrency-safe; cheap to await once initialised.
+  static Future<void> initialize() => _initFuture ??= _doInitialize();
+
+  static Future<void> _doInitialize() async {
     tz.initializeTimeZones();
 
     const androidSettings = AndroidInitializationSettings(
@@ -56,8 +62,6 @@ class NotificationScheduler {
             importance: Importance.high,
           ),
         );
-
-    _initialized = true;
   }
 
   /// Schedule daily notifications for a medication reminder.
@@ -73,6 +77,7 @@ class NotificationScheduler {
     String? endDate,
     required bool isActive,
   }) async {
+    await initialize();
     if (!isActive) return;
 
     if (endDate != null && endDate.isNotEmpty) {
@@ -124,6 +129,7 @@ class NotificationScheduler {
 
   /// Cancel all notifications for a given reminder.
   static Future<void> cancelReminder(int reminderId) async {
+    await initialize();
     for (var i = 0; i < 100; i++) {
       await _plugin.cancel(id: reminderId * 100 + i);
     }
@@ -133,6 +139,7 @@ class NotificationScheduler {
   static Future<void> rescheduleAll(
     List<Map<String, dynamic>> reminders,
   ) async {
+    await initialize();
     await cancelAll();
     for (final r in reminders) {
       await scheduleReminder(
@@ -152,6 +159,7 @@ class NotificationScheduler {
 
   /// Cancel all scheduled notifications.
   static Future<void> cancelAll() async {
+    await initialize();
     await _plugin.cancelAll();
   }
 
