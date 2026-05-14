@@ -751,8 +751,12 @@ export const registerWalkIn = async (req, res) => {
     // walk-in endpoint silently dropped the field and the visit
     // could only be classified by the free-text department. Finding:
     // 2026-05-10-lab-walk-in-receptionist-lab-only-visit-type-dropped.
+    // PAEDIATRIC_OPD distinguishes a paediatric visit from adult OPD so
+    // billing / reporting / weight-based-dosing prompts can branch on it
+    // instead of every child registering as a plain NEW visit. Finding:
+    // 2026-05-09-pediatric-opd-receptionist-no-paediatric-visit-type.
     const VALID_VISIT_TYPES = new Set([
-      'NEW', 'FOLLOW_UP', 'EMERGENCY', 'TELE', 'LAB_ONLY',
+      'NEW', 'FOLLOW_UP', 'EMERGENCY', 'TELE', 'LAB_ONLY', 'PAEDIATRIC_OPD',
     ]);
     const resolvedVisitType = visit_type && VALID_VISIT_TYPES.has(String(visit_type).toUpperCase())
       ? String(visit_type).toUpperCase()
