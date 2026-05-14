@@ -34,6 +34,16 @@ paths = [
   '''(^|/)scripts/scan-secrets\.mjs$''',
   '''(^|/)firebase_options\.dart$''',
   '''(^|/)google-services\.json$''',
+  # Local-only working-directory artifacts. The `worktree` scan
+  # (`gitleaks dir .`) walks the whole tree including .gitignored
+  # files, so local DB dumps and Winston log files trip the
+  # generic-api-key heuristic on hash/token-shaped substrings. Both
+  # paths are gitignored and never reach the repo; treat them like
+  # the generated build dirs above. A pg_dump of a populated DB will
+  # always look credential-ish — scanning it for source secrets is
+  # category error, not security coverage.
+  '''(^|/)apps/backend/backups/''',
+  '''(^|/)apps/backend/src/logs/''',
 ]
 regexes = [
   '''test-api-key''',
