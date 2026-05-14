@@ -1,6 +1,6 @@
 # Staff Role Workflow Sweep
 
-Last generated: 2026-05-06 23:38:01 +05:30
+Last generated: 2026-05-14 16:24:10 +05:30
 
 Target: `https://dalekdefender.hippocampus-monitor.ts.net:8444/api/v1`
 
@@ -8,8 +8,8 @@ This is a live contract smoke for the seeded staff accounts. It verifies login, 
 
 ## Summary
 
-- Total checks: 122
-- Passed: 122
+- Total checks: 169
+- Passed: 169
 - Required failures: 0
 - Optional failures/skips: 0
 - Create-flow checks: True
@@ -133,59 +133,72 @@ This is a live contract smoke for the seeded staff accounts. It verifies login, 
 | GENERAL_STAFF | hr_shift | GET | `/staff/hr/shift` | 200 | pass | Shift fetched |
 | GENERAL_STAFF | leave_balance | GET | `/staff/hr/leave/balance` | 200 | pass | Leave balance retrieved successfully |
 | GENERAL_STAFF | payroll_payslips | GET | `/staff/hr/payroll/my-payslips?limit=5` | 200 | pass | Payslips fetched |
+| BILLING_STAFF | login | POST | `/auth/staff/login` | 200 | pass | Staff login successful |
+| BILLING_STAFF | login_role_matches_seed | ASSERT | `(token payload)` | ASSERT | pass | expected=BILLING_STAFF; actual=BILLING_STAFF |
+| BILLING_STAFF | profile | GET | `/auth/staff/profile` | 200 | pass | Staff profile retrieved |
+| BILLING_STAFF | attendance_today | GET | `/auth/staff/attendance/today` | 200 | pass | Today's attendance retrieved |
+| BILLING_STAFF | attendance_history | GET | `/auth/staff/attendance/history?limit=5` | 200 | pass | Attendance history retrieved |
+| BILLING_STAFF | campus_locations | GET | `/config/campus-locations` | 200 | pass | Campus configuration retrieved |
+| BILLING_STAFF | notifications_my | GET | `/notifications/my?limit=5` | 200 | pass | Notifications fetched successfully |
+| BILLING_STAFF | messages_unread | GET | `/messaging/unread-count` | 200 | pass | Unread count retrieved |
+| BILLING_STAFF | messages_inbox | GET | `/messaging/inbox?limit=5` | 200 | pass | Inbox retrieved |
+| BILLING_STAFF | billing_revenue_report | GET | `/billing/revenue?date_from=2026-04-14&date_to=2026-05-14` | 200 | pass | Revenue statistics retrieved |
+| BILLING_STAFF | billing_insurance_claims | GET | `/billing/insurance/claims` | 200 | pass | Insurance claims retrieved |
+| INSURANCE_COORDINATOR | login | POST | `/auth/staff/login` | 200 | pass | Staff login successful |
+| INSURANCE_COORDINATOR | login_role_matches_seed | ASSERT | `(token payload)` | ASSERT | pass | expected=INSURANCE_COORDINATOR; actual=INSURANCE_COORDINATOR |
+| INSURANCE_COORDINATOR | profile | GET | `/auth/staff/profile` | 200 | pass | Staff profile retrieved |
+| INSURANCE_COORDINATOR | attendance_today | GET | `/auth/staff/attendance/today` | 200 | pass | Today's attendance retrieved |
+| INSURANCE_COORDINATOR | attendance_history | GET | `/auth/staff/attendance/history?limit=5` | 200 | pass | Attendance history retrieved |
+| INSURANCE_COORDINATOR | campus_locations | GET | `/config/campus-locations` | 200 | pass | Campus configuration retrieved |
+| INSURANCE_COORDINATOR | notifications_my | GET | `/notifications/my?limit=5` | 200 | pass | Notifications fetched successfully |
+| INSURANCE_COORDINATOR | messages_unread | GET | `/messaging/unread-count` | 200 | pass | Unread count retrieved |
+| INSURANCE_COORDINATOR | messages_inbox | GET | `/messaging/inbox?limit=5` | 200 | pass | Inbox retrieved |
+| INSURANCE_COORDINATOR | insurance_packages | GET | `/insurance/packages` | 200 | pass | Success |
+| INSURANCE_COORDINATOR | insurance_preauth_pending | GET | `/insurance/preauth/pending` | 200 | pass | Success |
+| INSURANCE_COORDINATOR | insurance_claims_list | GET | `/insurance/claims` | 200 | pass | Success |
+| INSURANCE_COORDINATOR | insurance_enhancement_template | GET | `/insurance/enhancement-justification-template` | 200 | pass | Success |
+| ADMISSION_OFFICER | login | POST | `/auth/staff/login` | 200 | pass | Staff login successful |
+| ADMISSION_OFFICER | login_role_matches_seed | ASSERT | `(token payload)` | ASSERT | pass | expected=ADMISSION_OFFICER; actual=ADMISSION_OFFICER |
+| ADMISSION_OFFICER | profile | GET | `/auth/staff/profile` | 200 | pass | Staff profile retrieved |
+| ADMISSION_OFFICER | attendance_today | GET | `/auth/staff/attendance/today` | 200 | pass | Today's attendance retrieved |
+| ADMISSION_OFFICER | attendance_history | GET | `/auth/staff/attendance/history?limit=5` | 200 | pass | Attendance history retrieved |
+| ADMISSION_OFFICER | campus_locations | GET | `/config/campus-locations` | 200 | pass | Campus configuration retrieved |
+| ADMISSION_OFFICER | notifications_my | GET | `/notifications/my?limit=5` | 200 | pass | Notifications fetched successfully |
+| ADMISSION_OFFICER | messages_unread | GET | `/messaging/unread-count` | 200 | pass | Unread count retrieved |
+| ADMISSION_OFFICER | messages_inbox | GET | `/messaging/inbox?limit=5` | 200 | pass | Inbox retrieved |
+| ADMISSION_OFFICER | emr_admissions_list | GET | `/emr/admissions?page=1&limit=10` | 200 | pass | Active admissions retrieved |
+| ADMISSION_OFFICER | emr_admissions_stats | GET | `/emr/admissions/stats` | 200 | pass | Admission statistics retrieved |
+| IPD_COUNSELLOR | login | POST | `/auth/staff/login` | 200 | pass | Staff login successful |
+| IPD_COUNSELLOR | login_role_matches_seed | ASSERT | `(token payload)` | ASSERT | pass | expected=IPD_COUNSELLOR; actual=IPD_COUNSELLOR |
+| IPD_COUNSELLOR | profile | GET | `/auth/staff/profile` | 200 | pass | Staff profile retrieved |
+| IPD_COUNSELLOR | attendance_today | GET | `/auth/staff/attendance/today` | 200 | pass | Today's attendance retrieved |
+| IPD_COUNSELLOR | attendance_history | GET | `/auth/staff/attendance/history?limit=5` | 200 | pass | Attendance history retrieved |
+| IPD_COUNSELLOR | campus_locations | GET | `/config/campus-locations` | 200 | pass | Campus configuration retrieved |
+| IPD_COUNSELLOR | notifications_my | GET | `/notifications/my?limit=5` | 200 | pass | Notifications fetched successfully |
+| IPD_COUNSELLOR | messages_unread | GET | `/messaging/unread-count` | 200 | pass | Unread count retrieved |
+| IPD_COUNSELLOR | messages_inbox | GET | `/messaging/inbox?limit=5` | 200 | pass | Inbox retrieved |
+| IPD_COUNSELLOR | emr_admissions_list | GET | `/emr/admissions?page=1&limit=10` | 200 | pass | Active admissions retrieved |
+| IPD_COUNSELLOR | emr_admissions_review_due | GET | `/emr/admissions?review_due=true&page=1&limit=10` | 200 | pass | Active admissions retrieved |
+| IPD_COUNSELLOR | emr_admissions_stats | GET | `/emr/admissions/stats` | 200 | pass | Admission statistics retrieved |
 | NURSING_STAFF | doctor_options_for_create | GET | `/appointments/doctors/options?limit=1` | 200 | pass | Appointment doctor options retrieved successfully |
-| NURSING_STAFF | create_walk_in_appointment | POST | `/appointments/walk-in` | 200 | pass | Walk-in registered. Token #3 |
-| NURSING_STAFF | search_created_patient | GET | `/patients/search?q=88990506233801&limit=5` | 200 | pass | Patient search results |
-| NURSING_STAFF | created_appointment_in_list | GET | `/appointments/list?search=88990506233801&page=1&limit=5` | 200 | pass | Appointments retrieved successfully |
-| NURSING_STAFF | create_investigation_booking | POST | `/investigations/bookings/create` | 200 | pass | Investigation booked. INV-20260506-00006 |
+| NURSING_STAFF | create_walk_in_appointment | POST | `/appointments/walk-in` | 200 | pass | Walk-in registered. Visit OPD-20260514-003 |
+| NURSING_STAFF | search_created_patient | GET | `/patients/search?q=88990514162410&limit=5` | 200 | pass | Patient search results |
+| NURSING_STAFF | created_appointment_in_list | GET | `/appointments/list?search=88990514162410&page=1&limit=5` | 200 | pass | Appointments retrieved successfully |
+| NURSING_STAFF | create_investigation_booking | POST | `/investigations/bookings/create` | 200 | pass | Investigation booked. INV-20260514-00009 |
 | PHARMACY_STAFF | created_investigation_visible_to_lab_not_pharmacy_queue_guard | GET | `/pharmacy-orders/orders/queue?limit=5` | 200 | pass | Order queue |
-| DOCTOR | create_prescription | POST | `/prescriptions/create` | 200 | pass | Prescription RX-8fb3e18ce9d647378e9ccc9b9b372844 created |
+| DOCTOR | create_prescription | POST | `/prescriptions/create` | 201 | pass | Prescription RX-5d8ee6ab6f44411ea8322185fb980179 created |
 
 ## Create Context
 
-- `appointmentId`: 15
-- `patientId`: 102
-- `patientPhone`: 88990506233801
-- `patientName`: Smoke Patient 0506233801
+- `appointmentId`: 18
+- `patientId`: 116
+- `patientPhone`: 88990514162410
+- `patientName`: Smoke Patient 0514162410
 - `doctorId`: 88
 - `doctorName`: Dr. Aadarsh Raghavan
-- `createdAppointmentId`: 15
-- `createdInvestigationId`: 6
-- `createdPrescriptionId`: 4
-
-## Desktop App Smoke Note
-
-The live API role matrix above passed for all eight seeded roles and includes
-representative create paths. The Windows Flutter desktop route smoke remains a
-diagnostic, not a release gate, but the previous Lab Bookings hang has now
-been mapped to a harness bug rather than the screen itself.
-
-Root cause: `_buildClinicalServiceTabs` in `apps/staff/lib/features/dashboard/
-screens/dashboard_screen.dart` renders the OP and IP service tabs through an
-`AnimatedSwitcher`, so only the selected tab's tile set is mounted in the
-widget tree. The previous integration harness iterated through a flat list of
-labels and called `goHome` between each; that reset `_clinicalServiceTabIndex`
-to OP, leaving every IP-only label (`Lab Bookings (IP)`, `Bed Board`, `Operating
-Theatre`, `Radiology`, `Blood Bank`, `Dietary`, `IP Patient Records`,
-`Pharmacy (IP)`, `Lab Results (IP)`, plus the IP-side `Upload Results`)
-unfindable, so `scrollUntilVisible` chewed up the suite-level 8-minute budget
-trying to scroll the dashboard.
-
-Fix landed in `integration_test/staff_desktop_smoke_test.dart`:
-
-- The label list is now grouped into four phases — bottom nav, always-visible
-  quick actions, OP/IP service tabs, and More tools — instead of one flat
-  loop.
-- A new `selectServiceTab(tabLabel)` helper taps the OP/IP tab button before
-  every tile probe, defensively re-selecting on every iteration so a
-  `goHome` cannot mask an IP-only label.
-- A `probeWithDeadline(label, body)` wrapper enforces a 45-second per-step
-  deadline so a single screen that hangs (typically a screen issuing a
-  network call without a timeout) reports the offending label clearly
-  instead of silently consuming the suite budget.
-
-Re-running the desktop smoke against a fresh Dalekdefender deploy is still
-the verification step before promoting it back to release-gate status.
+- `createdAppointmentId`: 18
+- `createdInvestigationId`: 9
+- `createdPrescriptionId`: 7
 
 ## Run Command
 

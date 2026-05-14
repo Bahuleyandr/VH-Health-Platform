@@ -377,7 +377,10 @@ function Invoke-RoleChecks {
     # Stage-5 fix chips (billing per-insurer breakdown, TPA package master /
     # pre-auth SLA / enhancement template, admissions list + review-due queue).
     "BILLING_STAFF" {
-      Invoke-StaffRequest $role "billing_revenue_report" "GET" "/billing/revenue" -Token $Token | Out-Null
+      # /billing/revenue requires date_from + date_to — a bare call 400s.
+      $revFrom = (Get-Date).AddDays(-30).ToString("yyyy-MM-dd")
+      $revTo = (Get-Date).ToString("yyyy-MM-dd")
+      Invoke-StaffRequest $role "billing_revenue_report" "GET" "/billing/revenue?date_from=$revFrom&date_to=$revTo" -Token $Token | Out-Null
       Invoke-StaffRequest $role "billing_insurance_claims" "GET" "/billing/insurance/claims" -Token $Token | Out-Null
     }
     "INSURANCE_COORDINATOR" {
