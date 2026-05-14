@@ -86,7 +86,8 @@ export const createBooking = async (req, res) => {
       collection_type,
       collection_address, collection_landmark, collection_lat, collection_lng,
       preferred_date, preferred_time_slot,
-      notes
+      notes,
+      appointment_id,
     } = req.body;
 
     // Parse selected_tests if it comes as a string (multipart form)
@@ -126,6 +127,20 @@ export const createBooking = async (req, res) => {
       } catch (e) { logger.warn('Slip upload failed:', e.message); }
     }
 
+    // Migration 219 — appointment_id links the booking back to the
+    // visit that triggered it, so the lab worklist can surface the
+    // ordering appointment (visit_no / token) and the receptionist can
+    // verbally tell the lab counter "patient X's visit appointment NN
+    // links to booking …". Without this the lab order is disconnected
+    // from the clinical visit context entirely. Finding:
+    // 2026-05-09-lab-walk-in-receptionist-booking-not-linked-to-appointment.
+    const parsedAppointmentId = appointment_id != null && appointment_id !== ''
+      ? parseInt(appointment_id, 10)
+      : null;
+    const resolvedAppointmentId = Number.isFinite(parsedAppointmentId) && parsedAppointmentId > 0
+      ? parsedAppointmentId
+      : null;
+
     const result = await prisma.$queryRawUnsafe(`
       INSERT INTO investigation_bookings (
         patient_id, patient_phone, patient_name,
@@ -133,20 +148,20 @@ export const createBooking = async (req, res) => {
         collection_type, collection_address, collection_landmark,
         collection_lat, collection_lng,
         preferred_date, preferred_time_slot,
-        estimated_cost
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::date,$14,$15)
+        estimated_cost, appointment_id
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::date,$14,$15,$16)
       RETURNING id, booking_number, patient_id, patient_name, patient_phone,
         selected_tests, custom_test_names, slip_photo_key, notes,
         collection_type, collection_address, collection_landmark,
         preferred_date, preferred_time_slot, estimated_cost,
-        status, created_at, updated_at
-    `, 
+        appointment_id, status, created_at, updated_at
+    `,
       patientId, patientRow?.phone, patientRow?.name,
       parsedTests || null, custom_test_names || null, slipPhotoKey, notes || null,
       collection_type || 'home', collection_address || null, collection_landmark || null,
       collection_lat || null, collection_lng || null,
       preferred_date || null, preferred_time_slot || null,
-      estimatedCost || null
+      estimatedCost || null, resolvedAppointmentId
     );
 
     // Log status
@@ -196,7 +211,11 @@ export const getMyBookings = async (req, res) => {
         ib.selected_tests, ib.custom_test_names, ib.status, ib.notes,
         ib.collection_type, ib.collection_address, ib.collection_landmark,
         ib.preferred_date, ib.preferred_time_slot, ib.estimated_cost, ib.final_cost,
-        ib.slip_photo_key, ib.result_file_key, ib.created_at, ib.updated_at,
+        ib.slip_photo_key, ib.result_file_key,
+        ib.result_notes, ib.result_uploaded_at,
+        ib.collection_notes, ib.collected_at,
+        ib.appointment_id,
+        ib.created_at, ib.updated_at,
         (SELECT json_agg(t) FROM investigation_test_catalog t WHERE t.id = ANY(COALESCE(ib.selected_tests, ARRAY[]::int[]))) as test_details
       FROM investigation_bookings ib
       WHERE ib.patient_id = $1
@@ -518,7 +537,7 @@ export const getBookingDetail = async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const booking = await prisma.$queryRawUnsafe(`
-      SELECT ib.id, ib.booking_number, ib.investigation_id,
+      SELECT ib.id, ib.booking_number, ib.investigation_id, ib.appointment_id,
         ib.patient_id, ib.patient_name, ib.patient_phone,
         ib.test_name, ib.selected_tests, ib.actual_tests, ib.custom_test_names,
         ib.status, ib.notes, ib.confirmation_notes, ib.collection_notes, ib.result_notes,

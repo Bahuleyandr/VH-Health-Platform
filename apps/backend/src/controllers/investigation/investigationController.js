@@ -442,7 +442,25 @@ export const getInvestigationsByUID = async (req, res) => {
     const { uid } = req.params;
     const userRole = req.user?.role?.toUpperCase();
     const requestedBy = req.user?.uid;
-    
+
+    // Validate the UID shape BEFORE the ::uuid cast. The endpoint is
+    // exposed to phlebotomists scanning sample barcodes — a misread or
+    // malformed scan ("NOT-A-BARCODE", a sample-collection code, a
+    // smudged QR string) previously reached the Postgres uuid cast and
+    // raised `invalid input syntax for type uuid`, surfacing as a 500.
+    // Reject up-front with a clean 400 so the lab tech sees a real
+    // validation message instead of an opaque backend error. Finding:
+    // 2026-05-10-obstetric-anc-lab-tech-malformed-barcode-500.
+    const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uid || !UUID_PATTERN.test(String(uid))) {
+      return error(
+        res,
+        'Invalid UID — must be a UUID (sample barcode misread?). Re-scan and retry.',
+        HTTP_STATUS.BAD_REQUEST,
+        { code: 'INVALID_UID' },
+      );
+    }
+
     // Access control
     if (userRole === 'PATIENT' && uid !== req.user.uid) {
       return error(res, 'Access denied: Cannot view other patient records', 403);

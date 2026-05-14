@@ -78,12 +78,19 @@ export const getFiles = async (req, res) => {
     // Patients can only view files for their own investigations
     if (userRole === 'PATIENT') {
       // Verify the investigation belongs to this patient
+      // Cast $1 to int explicitly — investigations.id is integer but
+      // `id` comes off req.params as a string, and Prisma binds string
+      // JS args as Postgres text. Postgres has no implicit text→integer
+      // cast in 14+, so `WHERE i.id = $1` raised "operator does not
+      // exist: integer = text" and surfaced as a generic 500 on every
+      // patient-side GET /investigations/:id/files request. Finding:
+      // 2026-05-10-walk-in-opd-patient-investigation-files-500.
       const investigationCheck = await prisma.$queryRawUnsafe(`
-        SELECT patient_id 
+        SELECT patient_id
         FROM investigations i
         JOIN users u ON i.patient_id = u.id
-        WHERE i.id = $1 AND u.uid = $2
-      `, id, requestedBy);
+        WHERE i.id = $1::int AND u.uid = $2::uuid
+      `, parseInt(id, 10), requestedBy);
       
       if (investigationCheck.length === 0) {
         return error(res, 'Access denied: Cannot view files for other patients', 403);
@@ -118,12 +125,19 @@ export const downloadFile = async (req, res) => {
     
     // Access control similar to getFiles
     if (userRole === 'PATIENT') {
+      // Cast $1 to int explicitly — investigations.id is integer but
+      // `id` comes off req.params as a string, and Prisma binds string
+      // JS args as Postgres text. Postgres has no implicit text→integer
+      // cast in 14+, so `WHERE i.id = $1` raised "operator does not
+      // exist: integer = text" and surfaced as a generic 500 on every
+      // patient-side GET /investigations/:id/files request. Finding:
+      // 2026-05-10-walk-in-opd-patient-investigation-files-500.
       const investigationCheck = await prisma.$queryRawUnsafe(`
-        SELECT patient_id 
+        SELECT patient_id
         FROM investigations i
         JOIN users u ON i.patient_id = u.id
-        WHERE i.id = $1 AND u.uid = $2
-      `, id, requestedBy);
+        WHERE i.id = $1::int AND u.uid = $2::uuid
+      `, parseInt(id, 10), requestedBy);
       
       if (investigationCheck.length === 0) {
         return error(res, 'Access denied', 403);

@@ -744,7 +744,15 @@ export const registerWalkIn = async (req, res) => {
     const resolvedTime = rawResolvedTime.length > 0 && rawResolvedTime.length <= 10
       ? rawResolvedTime
       : 'Walk-in';
-    const VALID_VISIT_TYPES = new Set(['NEW', 'FOLLOW_UP', 'EMERGENCY', 'TELE']);
+    // LAB_ONLY routes a walk-in directly to the lab counter without
+    // creating doctor workload — needed for cash patients booking a
+    // CBC / lipid panel etc. without a consult. Without it the
+    // walk-in endpoint silently dropped the field and the visit
+    // could only be classified by the free-text department. Finding:
+    // 2026-05-10-lab-walk-in-receptionist-lab-only-visit-type-dropped.
+    const VALID_VISIT_TYPES = new Set([
+      'NEW', 'FOLLOW_UP', 'EMERGENCY', 'TELE', 'LAB_ONLY',
+    ]);
     const resolvedVisitType = visit_type && VALID_VISIT_TYPES.has(String(visit_type).toUpperCase())
       ? String(visit_type).toUpperCase()
       : null;
