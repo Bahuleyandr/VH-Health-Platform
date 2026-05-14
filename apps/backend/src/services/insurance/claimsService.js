@@ -373,11 +373,42 @@ export async function submitPreauth({
   return getPreauth({ tenantId, id });
 }
 
+// Stage-4-C — TPA portals and IRDAI forms use the field name `decision`
+// with values like `partial`, `approve`, `deny`. The service contract
+// uses `response_type` with the canonical enum. Normalise at the
+// boundary so the TPA desk clerk gets a 400 with the right field name
+// instead of a 500 from the NOT NULL constraint downstream.
+// Finding: 2026-05-09-tpa-insurance-claim-billing-preauth-response-500-wrong-field
+const VALID_RESPONSE_TYPES = ['approved', 'partially_approved', 'denied', 'queried', 'enhancement_request'];
+const RESPONSE_TYPE_ALIASES = {
+  approve: 'approved',
+  approved: 'approved',
+  partial: 'partially_approved',
+  partially_approved: 'partially_approved',
+  partial_approval: 'partially_approved',
+  deny: 'denied',
+  denied: 'denied',
+  query: 'queried',
+  queried: 'queried',
+  enhancement: 'enhancement_request',
+  enhancement_request: 'enhancement_request',
+};
+
 export async function recordPreauthResponse({
-  tenantId, preauth_id, response_type, sanctioned_amount, validity_until,
+  tenantId, preauth_id, response_type, decision, sanctioned_amount, validity_until,
   conditions, query_text, denial_reason, raw_response,
   decided_by_tpa_user, decided_at, recorded_by,
 }) {
+  const rawValue = response_type ?? decision;
+  if (rawValue === undefined || rawValue === null || rawValue === '') {
+    throw AppError.badRequest(`response_type is required and must be one of: ${VALID_RESPONSE_TYPES.join(', ')}`);
+  }
+  const normalised = RESPONSE_TYPE_ALIASES[String(rawValue).trim().toLowerCase()];
+  if (!normalised) {
+    throw AppError.badRequest(`Invalid response_type "${rawValue}". Must be one of: ${VALID_RESPONSE_TYPES.join(', ')}`);
+  }
+  response_type = normalised;
+
   const pre = await getPreauth({ tenantId, id: preauth_id });
   if (!['submitted', 'queried', 'approved', 'partially_approved'].includes(pre.status)) {
     throw AppError.badRequest(`Cannot record response on ${pre.status} pre-auth`);
