@@ -5,7 +5,7 @@ import * as adminController from '../../controllers/appointment/appointmentAdmin
 import * as docController from '../../controllers/appointment/appointmentDocumentController.js';
 import * as workflowController from '../../controllers/appointment/appointmentWorkflowController.js';
 import { upload, validateFileContent, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
-import { requiredString, paramId } from '../../validators/sharedValidators.js';
+import { paramId } from '../../validators/sharedValidators.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
