@@ -31,8 +31,9 @@ export async function getStaffShift(staffId) {
   const id = await resolveStaffIntId(staffId);
   if (!Number.isInteger(id)) return null;
   const res = await prisma.$queryRawUnsafe(`
-    SELECT ss.id, ss.name, ss.start_time, ss.end_time, ss.is_active,
-           ss.is_preset, ss.grace_minutes, ss.grace_period_minutes,
+    SELECT ss.id, ss.name,
+           ss.start_time::text AS start_time, ss.end_time::text AS end_time,
+           ss.is_active, ss.is_preset, ss.grace_minutes, ss.grace_period_minutes,
            ss.late_threshold_minutes, ss.absent_threshold_minutes,
            ss.created_at
     FROM staff_shifts ss
@@ -98,8 +99,18 @@ export function calculateOvertime(shift, checkInTime, checkOutTime) {
  * List all active shifts — presets first, then custom sorted by name
  */
 export async function getAllShifts() {
+  // start_time / end_time are PG TIME columns — Prisma's raw client returns
+  // them as epoch-dated Date objects, which JSON-serialize to "1970-01-01T..."
+  // and break the admin UI's HH:MM:SS parsing. Cast to text so the wire
+  // contract is a plain "HH:MM:SS" string. Also select the threshold +
+  // department columns the admin Shift Management page actually reads
+  // (it expects grace_period_minutes, not grace_minutes).
   const res = await prisma.$queryRawUnsafe(`
-    SELECT id, name, start_time, end_time, is_active, is_preset, grace_minutes, created_at FROM staff_shifts
+    SELECT id, name,
+           start_time::text AS start_time, end_time::text AS end_time,
+           is_active, is_preset, grace_period_minutes, grace_minutes,
+           late_threshold_minutes, absent_threshold_minutes, department, created_at
+    FROM staff_shifts
     WHERE is_active = true
     ORDER BY is_preset DESC, start_time ASC
   `);
@@ -111,7 +122,13 @@ export async function getAllShifts() {
  */
 export async function getPresetShifts() {
   const res = await prisma.$queryRawUnsafe(`
-    SELECT id, name, start_time, end_time, is_active, is_preset, grace_minutes, created_at FROM staff_shifts WHERE is_active = true AND is_preset = true ORDER BY start_time
+    SELECT id, name,
+           start_time::text AS start_time, end_time::text AS end_time,
+           is_active, is_preset, grace_period_minutes, grace_minutes,
+           late_threshold_minutes, absent_threshold_minutes, department, created_at
+    FROM staff_shifts
+    WHERE is_active = true AND is_preset = true
+    ORDER BY start_time
   `);
   return res;
 }
@@ -131,8 +148,8 @@ export async function createCustomShift({ name, start_time, end_time, grace_peri
   const res = await prisma.$queryRawUnsafe(`
     INSERT INTO staff_shifts (name, start_time, end_time, grace_period_minutes, late_threshold_minutes, absent_threshold_minutes, department, is_preset, is_active)
     VALUES ($1, $2, $3, $4, $5, $6, $7, false, true)
-    RETURNING id, name, start_time, end_time, is_active, is_preset, grace_minutes, created_at
-  `, 
+    RETURNING id, name, start_time::text AS start_time, end_time::text AS end_time, is_active, is_preset, grace_period_minutes, grace_minutes, late_threshold_minutes, absent_threshold_minutes, department, created_at
+  `,
     name.trim(),
     start_time,
     end_time,
@@ -161,7 +178,7 @@ export async function updateCustomShift(shiftId, updates) {
   const values = fields.map(f => updates[f]);
 
   const res = await prisma.$queryRawUnsafe(
-    `UPDATE staff_shifts SET ${setClauses} WHERE id = $1 RETURNING id, name, start_time, end_time, is_active, is_preset, grace_minutes, created_at`,
+    `UPDATE staff_shifts SET ${setClauses} WHERE id = $1 RETURNING id, name, start_time::text AS start_time, end_time::text AS end_time, is_active, is_preset, grace_period_minutes, grace_minutes, late_threshold_minutes, absent_threshold_minutes, department, created_at`,
     shiftId, ...values
   );
   return res[0];
@@ -176,7 +193,7 @@ export async function deactivateShift(shiftId) {
   if (existing[0].is_preset) throw new Error('Preset shifts cannot be deleted');
 
   const res = await prisma.$queryRawUnsafe(
-    'UPDATE staff_shifts SET is_active = false WHERE id = $1 RETURNING id, name, start_time, end_time, is_active, is_preset, grace_minutes, created_at',
+    'UPDATE staff_shifts SET is_active = false WHERE id = $1 RETURNING id, name, start_time::text AS start_time, end_time::text AS end_time, is_active, is_preset, grace_period_minutes, grace_minutes, late_threshold_minutes, absent_threshold_minutes, department, created_at',
     shiftId
   );
   return res[0];

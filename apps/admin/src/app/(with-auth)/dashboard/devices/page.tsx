@@ -166,12 +166,15 @@ export default function DevicesPage() {
     return matchesSearch && matchesType;
   });
 
-  // Stats
+  // Stats — patient/staff counts are derived from the device list by
+  // user_type. Previously `patients` was hardcoded 0 and `staff` used
+  // `unique_users` (total distinct users, not staff devices), so the cards
+  // never agreed with the table.
   const stats = {
     total: deviceStats?.overview?.total_devices ?? devices?.length ?? 0,
     active: deviceStats?.overview?.active_7_days ?? devices?.filter((d) => d.fcm_status === "active").length ?? 0,
-    patients: 0,
-    staff: deviceStats?.overview?.unique_users ?? devices?.filter((d) => d.user_type === "staff" || d.user_type === "doctor").length ?? 0,
+    patients: devices?.filter((d) => d.user_type === "patient").length ?? 0,
+    staff: devices?.filter((d) => d.user_type === "staff" || d.user_type === "doctor" || d.user_type === "admin").length ?? 0,
   };
 
   return (

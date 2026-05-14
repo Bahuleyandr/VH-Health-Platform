@@ -440,8 +440,8 @@ export const API_ENDPOINTS = {
   // Analytics (general) — mounted under /api/v1/admin/analytics
   analytics: {
     dashboard: "/api/v1/admin/analytics/dashboard", // GET
-    userGrowth: "/api/v1/admin/analytics/registrations", // GET
-    appointmentTrends: "/api/v1/admin/analytics/trends", // GET
+    userGrowth: "/api/v1/admin/analytics/trends", // GET — pass ?metric=users (no /registrations route exists)
+    appointmentTrends: "/api/v1/admin/analytics/trends", // GET — pass ?metric=appointments
     departmentUtilization: "/api/v1/admin/analytics/departments", // GET
     satisfaction: "/api/v1/admin/analytics/satisfaction", // GET
     usage: "/api/v1/admin/analytics/usage", // GET

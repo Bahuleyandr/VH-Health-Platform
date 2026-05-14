@@ -13,20 +13,25 @@ import { Spinner } from "@/components/ui/spinner";
 
 /* ---------- Types ---------- */
 
+// GET /admin/analytics/trends returns rows keyed by `period` + `count`
+// (the SQL TO_CHAR period bucket). count is a bigint → arrives as string.
 interface GrowthPoint {
-  date: string;
-  count: number;
+  period: string;
+  count: number | string;
 }
 
 interface TrendPoint {
-  date: string;
-  count: number;
+  period: string;
+  count: number | string;
 }
 
-interface DepartmentUtil {
-  departmentId: number;
-  name: string;
-  utilization: number;
+// GET /admin/analytics/departments returns per-department appointment
+// stats — there is no precomputed "utilization", so the card derives a
+// completion ratio from real counts rather than inventing a metric.
+interface DepartmentRow {
+  department: string;
+  total_appointments: number | string;
+  completed_appointments: number | string;
 }
 
 interface SatisfactionData {
@@ -103,7 +108,7 @@ export default function AnalyticsPage() {
 
   const [growth, setGrowth] = useState<GrowthPoint[]>([]);
   const [trends, setTrends] = useState<TrendPoint[]>([]);
-  const [departments, setDepartments] = useState<DepartmentUtil[]>([]);
+  const [departments, setDepartments] = useState<DepartmentRow[]>([]);
   const [satisfaction, setSatisfaction] = useState<SatisfactionData | null>(null);
   const [usage, setUsage] = useState<UsageData | null>(null);
 
@@ -114,16 +119,21 @@ export default function AnalyticsPage() {
       const params = { days: range };
 
       const [growthRes, trendsRes, deptRes, satRes, usageRes] = await Promise.all([
-        getUserGrowthAnalytics<{ data: GrowthPoint[] }>(params).catch(() => ({ data: [] })),
-        getAppointmentTrends<{ data: TrendPoint[] }>(params).catch(() => ({ data: [] })),
-        getDepartmentUtilization<{ data: DepartmentUtil[] }>(params).catch(() => ({ data: [] })),
+        // /trends differentiates by ?metric (users vs appointments). The
+        // payload key is `trends` — requestJSON already unwrapped the
+        // success envelope's `.data`, so reading `.data` here double-unwrapped
+        // and always yielded "No data".
+        getUserGrowthAnalytics<{ trends: GrowthPoint[] }>({ ...params, metric: "users" }).catch(() => ({ trends: [] })),
+        getAppointmentTrends<{ trends: TrendPoint[] }>({ ...params, metric: "appointments" }).catch(() => ({ trends: [] })),
+        // /departments reads `timeframe` ("30d"), not `days`; payload key is `departments`.
+        getDepartmentUtilization<{ departments: DepartmentRow[] }>({ timeframe: `${range}d` }).catch(() => ({ departments: [] })),
         getPatientSatisfaction<SatisfactionData>(params).catch(() => null),
         getUsageAnalytics<UsageData>(params).catch(() => null),
       ]);
 
-      setGrowth(growthRes?.data ?? []);
-      setTrends(trendsRes?.data ?? []);
-      setDepartments(deptRes?.data ?? []);
+      setGrowth(growthRes?.trends ?? []);
+      setTrends(trendsRes?.trends ?? []);
+      setDepartments(deptRes?.departments ?? []);
       // Normalize satisfaction — backend may return { overallSatisfaction: { average_rating, total_feedback, ... } }
       const satRaw = satRes as Record<string, unknown> | null;
       const satInner = (satRaw?.overallSatisfaction ?? satRaw) as Record<string, unknown> | null;
@@ -225,13 +235,13 @@ export default function AnalyticsPage() {
         {/* User Growth */}
         <div style={cardStyle}>
           <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>User Growth</h2>
-          <SimpleBarChart data={growth as unknown as Record<string, unknown>[]} labelKey="date" valueKey="count" />
+          <SimpleBarChart data={growth as unknown as Record<string, unknown>[]} labelKey="period" valueKey="count" />
         </div>
 
         {/* Appointment Trends */}
         <div style={cardStyle}>
           <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Appointment Trends</h2>
-          <SimpleBarChart data={trends as unknown as Record<string, unknown>[]} labelKey="date" valueKey="count" />
+          <SimpleBarChart data={trends as unknown as Record<string, unknown>[]} labelKey="period" valueKey="count" />
         </div>
 
         {/* Department Utilization */}
@@ -241,43 +251,53 @@ export default function AnalyticsPage() {
             <p style={{ color: "var(--text-secondary, #888)" }}>No data</p>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
-              {departments.map((dept) => (
-                <div
-                  key={dept.departmentId}
-                  style={{
-                    padding: 16,
-                    borderRadius: 8,
-                    border: "1px solid var(--border-color, #e2e8f0)",
-                    background: "var(--bg-tertiary, #f8fafc)",
-                  }}
-                >
-                  <div style={{ fontSize: 13, color: "var(--text-secondary, #888)", marginBottom: 4 }}>{dept.name}</div>
-                  <div style={{ fontSize: 28, fontWeight: 700 }}>{dept.utilization}%</div>
+              {departments.map((dept, i) => {
+                // The backend has no precomputed utilization figure — derive a
+                // completion ratio from the real appointment counts it returns.
+                const total = Number(dept.total_appointments) || 0;
+                const completed = Number(dept.completed_appointments) || 0;
+                const completionPct = total > 0 ? Math.round((completed / total) * 100) : 0;
+                return (
                   <div
+                    key={dept.department ?? i}
                     style={{
-                      marginTop: 8,
-                      height: 6,
-                      borderRadius: 3,
-                      background: "var(--border-color, #e2e8f0)",
-                      overflow: "hidden",
+                      padding: 16,
+                      borderRadius: 8,
+                      border: "1px solid var(--border-color, #e2e8f0)",
+                      background: "var(--bg-tertiary, #f8fafc)",
                     }}
                   >
+                    <div style={{ fontSize: 13, color: "var(--text-secondary, #888)", marginBottom: 4 }}>{dept.department}</div>
+                    <div style={{ fontSize: 28, fontWeight: 700 }}>{total}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-secondary, #888)", marginTop: 2 }}>
+                      {completed} of {total} appointments completed ({completionPct}%)
+                    </div>
                     <div
                       style={{
-                        width: `${Math.min(dept.utilization, 100)}%`,
-                        height: "100%",
+                        marginTop: 8,
+                        height: 6,
                         borderRadius: 3,
-                        background:
-                          dept.utilization > 90
-                            ? "#ef4444"
-                            : dept.utilization > 70
-                            ? "#f59e0b"
-                            : "#22c55e",
+                        background: "var(--border-color, #e2e8f0)",
+                        overflow: "hidden",
                       }}
-                    />
+                    >
+                      <div
+                        style={{
+                          width: `${Math.min(completionPct, 100)}%`,
+                          height: "100%",
+                          borderRadius: 3,
+                          background:
+                            completionPct >= 70
+                              ? "#22c55e"
+                              : completionPct >= 40
+                              ? "#f59e0b"
+                              : "#ef4444",
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

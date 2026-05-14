@@ -32,8 +32,8 @@ export function LogSearchTab() {
   const LIMIT = 100;
 
   useEffect(() => {
-    getJSON<{ data: ModulesResponse }>("/api/v1/admin/audit/modules")
-      .then((r) => setModules(r.data ?? { modules: [], actions: [] }))
+    getJSON<ModulesResponse>("/api/v1/admin/audit/modules")
+      .then((r) => setModules(r ?? { modules: [], actions: [] }))
       .catch(() => {});
   }, []);
 
@@ -52,11 +52,11 @@ export function LogSearchTab() {
       if (filters.to) params.to = filters.to;
       if (filters.search) params.search = filters.search;
 
-      const res = await getJSON<{ data: LogsResponse }>(
+      const res = await getJSON<LogsResponse>(
         "/api/v1/admin/audit/logs",
         params as Record<string, string | number | boolean | undefined | null>
       );
-      setData(res.data ?? null);
+      setData(res ?? null);
     } catch {
       // ignore
     } finally {

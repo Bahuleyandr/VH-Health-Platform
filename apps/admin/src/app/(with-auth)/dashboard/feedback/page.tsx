@@ -20,6 +20,11 @@ interface FeedbackItem {
   id?: number;
   patient_id?: string;
   patient_name?: string;
+  // The backend list query aliases the patient as `user_name` and the
+  // department as `department_name`; kept here so the queryFn can normalize
+  // them onto patient_name / department, which the table renders.
+  user_name?: string;
+  department_name?: string;
   doctor_id?: string;
   doctor_name?: string;
   department?: string;
@@ -108,7 +113,14 @@ export default function FeedbackPage() {
     queryFn: async () => {
       const res = await fetchAdminAPI<unknown>("/feedback");
       const data = unwrap<{ feedback?: FeedbackItem[] } | FeedbackItem[]>(res);
-      return Array.isArray(data) ? data : data.feedback ?? [];
+      const rows = Array.isArray(data) ? data : data.feedback ?? [];
+      // Normalize the backend's user_name / department_name aliases onto the
+      // patient_name / department fields the table + filters + detail panel read.
+      return rows.map((r) => ({
+        ...r,
+        patient_name: r.patient_name ?? r.user_name,
+        department: r.department ?? r.department_name,
+      }));
     },
   });
 

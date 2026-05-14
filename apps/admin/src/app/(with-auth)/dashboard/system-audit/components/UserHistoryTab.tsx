@@ -25,11 +25,11 @@ export function UserHistoryTab() {
     setLoading(true);
     setSearched(true);
     try {
-      const res = await getJSON<{ data: UserHistory }>(
+      const res = await getJSON<UserHistory>(
         `/api/v1/admin/audit/user/${encodeURIComponent(userId.trim())}`,
         { days }
       );
-      setData(res.data ?? null);
+      setData(res ?? null);
     } catch {
       setData(null);
     } finally {
