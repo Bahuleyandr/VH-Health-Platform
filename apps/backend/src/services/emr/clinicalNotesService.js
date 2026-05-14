@@ -10,7 +10,13 @@ import { getPatientTimeline as getUnifiedPatientTimeline } from './clinicalTimel
 // Clinical Notes Service — SOAP, Progress, Procedure, Discharge, etc.
 // ===================================================================
 
-const VALID_NOTE_TYPES = ['soap', 'progress', 'procedure', 'discharge', 'nursing_assessment', 'consultation_note'];
+// `admission_note` (admission H&P), `er_note` (ED encounter note), and
+// `transfer_note` (ward/unit transfer) are first-class types: an
+// admission H&P is a distinct medico-legal document from a daily
+// progress SOAP note, and coding/discharge-summary generation keys off
+// the typed note rather than inspecting SOAP content. Finding:
+// 2026-05-09-emergency-walk-in-doctor-no-admission-note-type.
+const VALID_NOTE_TYPES = ['soap', 'progress', 'procedure', 'discharge', 'nursing_assessment', 'consultation_note', 'admission_note', 'er_note', 'transfer_note'];
 
 /**
  * Required content fields per note type.
@@ -23,6 +29,9 @@ const REQUIRED_CONTENT_FIELDS = {
   discharge: ['hospital_course', 'discharge_diagnosis', 'discharge_condition', 'medications_on_discharge', 'follow_up_instructions'],
   nursing_assessment: ['pain_level', 'mobility', 'plan_of_care'],
   consultation_note: ['summary', 'assessment', 'plan'],
+  admission_note: ['chief_complaint', 'history_of_present_illness', 'assessment', 'plan'],
+  er_note: ['chief_complaint', 'assessment', 'plan'],
+  transfer_note: ['reason_for_transfer', 'clinical_summary', 'plan'],
 };
 
 // Column projection used by every read/write that returns a full note row.
@@ -101,13 +110,16 @@ export async function createNote(data) {
 
   validateNoteContent(note_type, content);
 
-  // If encounter_id is provided, verify it exists. admissions.encounter_id is uuid.
+  // If encounter_id is provided, verify it belongs to an admission OR an
+  // emergency visit. IPD notes scope to admissions.encounter_id; ER notes
+  // (er_note) scope to emergency_visits.encounter_id (migration 224).
+  // Both are UUID keys.
   if (encounter_id) {
-    const enc = await prisma.admissions.findFirst({
-      where: { encounter_id },
-      select: { id: true },
-    });
-    if (!enc) {
+    const [admissionEnc, erEnc] = await Promise.all([
+      prisma.admissions.findFirst({ where: { encounter_id }, select: { id: true } }),
+      prisma.emergency_visits.findFirst({ where: { encounter_id }, select: { id: true } }),
+    ]);
+    if (!admissionEnc && !erEnc) {
       throw AppError.notFound('Encounter not found');
     }
   }

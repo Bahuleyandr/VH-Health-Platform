@@ -5,7 +5,9 @@
 // SPREAD args (per Phase 0.5 convention).
 
 import prisma from '../../lib/prisma.js';
+import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { scheduleMedications } from './marService.js';
 import {
   gcsTotal, netBalance, camPositive, bundleComplete, bundlePct,
 } from './icuComputations.js';
@@ -38,10 +40,11 @@ export async function createAdmission({ tenantId, ...body }) {
        apache_ii_score, apache_ii_at, sofa_score,
        predicted_mortality_pct, expected_los_days,
        code_status, code_status_set_at, code_status_set_by, tenant_id,
-       monitoring_interval_minutes, npo_from, fasting_until, pre_op_status)
+       monitoring_interval_minutes, npo_from, fasting_until, pre_op_status,
+       er_visit_id)
     VALUES ($1::uuid, $2, $3, $4, $5::uuid, $6, $7, $8, $9, $10,
             $11, $12, $13, COALESCE($14, 'full_code'), $15, $16::uuid, $17::uuid,
-            $18, $19::timestamptz, $20::timestamptz, $21)
+            $18, $19::timestamptz, $20::timestamptz, $21, $22)
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
     body.patient_uid, body.admission_id || null,
@@ -61,7 +64,11 @@ export async function createAdmission({ tenantId, ...body }) {
     body.monitoring_interval_minutes ?? 60,
     body.npo_from || null,
     body.fasting_until || null,
-    body.pre_op_status || null);
+    body.pre_op_status || null,
+    // Stage 5 — nullable link back to the ER visit this ICU admission
+    // was admitted from (migration 224). Set by createAdmissionFromEr;
+    // null for direct ICU admits.
+    body.er_visit_id ? parseInt(body.er_visit_id, 10) : null);
   return unwrap(rows);
 }
 
@@ -156,6 +163,47 @@ export async function updateAdmissionCodeStatus({ tenantId, id, code_status, set
   return row;
 }
 
+// Update the pre-op / fasting fields on a live ICU admission. NPO orders
+// are placed *after* admit (e.g. when a cath-lab pre-op NPO is ordered at
+// T+30min), and the only earlier mutators were code-status and
+// monitoring-interval — there was no path to change npo_from /
+// fasting_until / pre_op_status without deleting and re-creating the
+// admission (which would orphan every FKed flowsheet entry). Partial
+// update: an omitted field (`undefined`) is left untouched; an explicit
+// `null` clears the column (NPO order cancelled). Finding:
+// 2026-05-09-emergency-walk-in-nurse-icu-no-npo-patch-route.
+export async function updateAdmissionFasting({ tenantId, id, npo_from, fasting_until, pre_op_status }) {
+  const sets = [];
+  const args = [];
+  if (npo_from !== undefined) {
+    args.push(npo_from || null);
+    sets.push(`npo_from = $${args.length}::timestamptz`);
+  }
+  if (fasting_until !== undefined) {
+    args.push(fasting_until || null);
+    sets.push(`fasting_until = $${args.length}::timestamptz`);
+  }
+  if (pre_op_status !== undefined) {
+    args.push(pre_op_status || null);
+    sets.push(`pre_op_status = $${args.length}`);
+  }
+  if (!sets.length) {
+    throw AppError.badRequest(
+      'At least one of npo_from, fasting_until, pre_op_status must be provided');
+  }
+  args.push(parseInt(id, 10));
+  args.push(tenantOr(tenantId));
+  const sql = `
+    UPDATE icu_admissions
+    SET ${sets.join(', ')}, updated_at = NOW()
+    WHERE id = $${args.length - 1} AND tenant_id = $${args.length}::uuid
+    RETURNING *`;
+  const rows = await prisma.$queryRawUnsafe(sql, ...args);
+  const row = unwrap(rows);
+  if (!row) throw AppError.notFound('ICU admission not found');
+  return withNextVitalsDue(row);
+}
+
 export async function dischargeAdmission({ tenantId, id, disposition, outcome_notes }) {
   const sql = `
     UPDATE icu_admissions
@@ -173,6 +221,109 @@ export async function dischargeAdmission({ tenantId, id, disposition, outcome_no
   const row = unwrap(rows);
   if (!row) throw AppError.notFound('ICU admission not found');
   return row;
+}
+
+// Carry the ER visit's active medication orders into the ICU MAR so the
+// receiving nurse can confirm "ER drugs given" without a phone handover.
+// medication_administrations is patient-keyed, so an ER order placed
+// through /emr/orders already scheduled its MAR row — but scheduleMedications
+// is idempotent (it dedups on patient + medication + scheduled_time), so
+// re-running this on admission is safe and also picks up any ER medication
+// order that never reached the MAR. Finding:
+// 2026-05-08-emergency-walk-in-nurse-no-fasting-no-io-no-mar-handoff.
+async function carryErMedicationsToMar(visit) {
+  if (!visit?.encounter_id || !visit?.patient_uid) return [];
+  const orders = await prisma.clinical_orders.findMany({
+    where: {
+      encounter_id: visit.encounter_id,
+      order_type: 'medication',
+      status: { notIn: ['cancelled', 'discontinued'] },
+    },
+    select: { id: true, details: true, start_date: true, created_at: true },
+  });
+  const meds = [];
+  for (const order of orders) {
+    const d = typeof order.details === 'string'
+      ? JSON.parse(order.details)
+      : (order.details || {});
+    const medication_name = d.medication_name || d.drug_name;
+    const dose = d.dose || d.dosage;
+    const route = d.route;
+    // scheduleMedications requires name + dose + route; skip ER orders
+    // that were filed without a chartable shape rather than 400 the whole
+    // carry-over.
+    if (!medication_name || !dose || !route) continue;
+    const when = order.start_date || order.created_at || new Date();
+    meds.push({
+      medication_name,
+      dose,
+      route,
+      scheduled_time: new Date(when).toISOString(),
+      notes: 'Carried over from ER visit on ICU admission',
+    });
+  }
+  if (!meds.length) return [];
+  return scheduleMedications(visit.patient_uid, null, meds);
+}
+
+// "Admit from ER" — create an ICU admission that inherits the ER visit's
+// patient context and links back to it via er_visit_id, instead of a
+// standalone row keyed only by patient_uid. The ER episode (triage, ER
+// orders, results) stays reachable through emergency_visits.id for PHI
+// audit, TPA pre-auth packets, and clinical handover. Active ER
+// medication orders are carried into the ICU MAR (best-effort). Findings:
+//   2026-05-08-emergency-walk-in-doctor-er-to-icu-no-continuation
+//   2026-05-08-emergency-walk-in-nurse-no-fasting-no-io-no-mar-handoff
+export async function createAdmissionFromEr({ tenantId, emergencyVisitId, ...body }) {
+  const visitId = parseInt(emergencyVisitId, 10);
+  if (!Number.isInteger(visitId)) {
+    throw AppError.badRequest('A numeric emergency visit id is required');
+  }
+
+  // Phase 0 — pre-flight on plain prisma: the ER visit must exist and
+  // carry a registered patient before it can be admitted to ICU.
+  const visitRows = await prisma.$queryRawUnsafe(
+    `SELECT id, encounter_id, patient_uid, chief_complaint, attending_doctor_uid
+       FROM emergency_visits
+      WHERE id = $1 AND tenant_id = $2::uuid`,
+    visitId, tenantOr(tenantId));
+  const visit = unwrap(visitRows);
+  if (!visit) throw AppError.notFound('Emergency visit not found');
+  if (!visit.patient_uid) {
+    throw AppError.badRequest(
+      'Emergency visit has no registered patient — register the patient before ICU admission');
+  }
+
+  // ER context pre-fills; an explicit value in the request body wins.
+  // patient_uid and er_visit_id are authoritative from the ER visit and
+  // cannot be overridden by the body.
+  const admission = await createAdmission({
+    tenantId,
+    ...body,
+    patient_uid: visit.patient_uid,
+    er_visit_id: visit.id,
+    reason_for_icu: body.reason_for_icu || visit.chief_complaint || null,
+    admitting_doctor_uid: body.admitting_doctor_uid || visit.attending_doctor_uid || null,
+  });
+
+  // Phase 1.5 — best-effort MAR carry-over. A handoff failure must not
+  // block the admission itself.
+  let carried_mar = [];
+  try {
+    carried_mar = await carryErMedicationsToMar(visit);
+  } catch (err) {
+    logger.warn(`ER→ICU MAR carry-over failed for emergency visit ${visit.id}: ${err.message}`);
+  }
+
+  return {
+    admission,
+    er_visit: {
+      id: visit.id,
+      encounter_id: visit.encounter_id,
+      patient_uid: visit.patient_uid,
+    },
+    carried_mar,
+  };
 }
 
 // ════════════════════════════════════════════════════════════════════

@@ -13,7 +13,10 @@ const router = express.Router();
 
 router.post('/orders', requireIdempotencyKey({ required: false, scope: 'clinical_order' }), async (req, res, next) => {
   try {
-    const { encounter_id, patient_uid, order_type, priority, start_date, end_date, notes, stat } = req.body;
+    const {
+      encounter_id, er_visit_id, patient_uid, order_type, priority,
+      start_date, end_date, notes, stat,
+    } = req.body;
     let { details } = req.body;
 
     // The staff Orders sheet posts the medication / lab / radiology
@@ -73,6 +76,7 @@ router.post('/orders', requireIdempotencyKey({ required: false, scope: 'clinical
 
     const result = await orderEntryService.createOrder({
       encounter_id: encounter_id || null,
+      er_visit_id: er_visit_id || null,
       patient_uid,
       order_type,
       priority,

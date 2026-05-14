@@ -27,22 +27,28 @@ import { createWardIndentForClinicalMedicationOrder } from '../ipd/ipdSupportSer
 // Order Entry (CPOE) Service
 // ===================================================================
 
-const VALID_ORDER_TYPES = ['medication', 'investigation', 'nursing', 'diet', 'activity', 'consultation'];
+// `ecg`, `radiology`, and `procedure` are first-class types, not aliases
+// to `investigation`: collapsing them loses the machine-readable
+// differentiation the receiving department's worklist needs — a STAT ECG
+// (door-to-balloon clock) must not land in the same bucket as a routine
+// blood test. Finding: 2026-05-09-emergency-walk-in-doctor-no-ecg-order-type.
+const VALID_ORDER_TYPES = ['medication', 'investigation', 'nursing', 'diet', 'activity', 'consultation', 'ecg', 'radiology', 'procedure'];
 const VALID_PRIORITIES = ['stat', 'urgent', 'routine', 'prn'];
 
-// Doctor-facing convention is "lab" / "radiology" / "imaging" for
-// diagnostic orders; the persisted enum on `clinical_orders.order_type`
-// is `investigation`. Map the colloquial form down so clinicians (and
-// any external integration emitting the human label) don't 400-loop on
-// a CBC order during an OPD/IPD round. Finding:
-// 2026-05-09-walk-in-opd-doctor-lab-order-type-mismatch.
+// Doctor-facing convention is "lab" for blood/pathology work — map the
+// colloquial form down to the persisted `investigation` enum so
+// clinicians (and any external integration emitting the human label)
+// don't 400-loop on a CBC order during an OPD/IPD round. `radiology` is
+// now a first-class order_type (see VALID_ORDER_TYPES above), so it is
+// no longer aliased away; `imaging` resolves to it. Findings:
+//   2026-05-09-walk-in-opd-doctor-lab-order-type-mismatch
+//   2026-05-09-emergency-walk-in-doctor-no-ecg-order-type
 const ORDER_TYPE_ALIASES = {
   lab: 'investigation',
   laboratory: 'investigation',
   pathology: 'investigation',
-  radiology: 'investigation',
-  imaging: 'investigation',
   diagnostic: 'investigation',
+  imaging: 'radiology',
   med: 'medication',
   medication_order: 'medication',
   consult: 'consultation',
@@ -136,14 +142,17 @@ async function runCDSChecks(patientUid, orderType, details) {
  */
 export async function createOrder(data) {
   const {
-    encounter_id,
     patient_uid,
     details,
     ordered_by,
     start_date,
     end_date,
     notes,
+    er_visit_id,
   } = data;
+  // `encounter_id` may be re-derived from `er_visit_id` below, so it is a
+  // `let` rather than part of the const destructure.
+  let { encounter_id } = data;
 
   // Clinicians write priority in upper case ("STAT" / "URGENT") — that's
   // the universal medical convention. Lower-case server-side before
@@ -163,12 +172,36 @@ export async function createOrder(data) {
   if (!VALID_ORDER_TYPES.includes(order_type)) {
     throw AppError.badRequest(
       `Invalid order_type: ${data.order_type}. Must be one of: ${VALID_ORDER_TYPES.join(', ')} `
-      + `(aliases accepted: lab/laboratory/pathology/radiology/imaging/diagnostic → investigation, med → medication, consult → consultation)`,
+      + `(aliases accepted: lab/laboratory/pathology/diagnostic → investigation, imaging → radiology, med → medication, consult → consultation)`,
     );
   }
 
   if (!VALID_PRIORITIES.includes(priority)) {
     throw AppError.badRequest(`Invalid priority: ${data.priority}. Must be one of: ${VALID_PRIORITIES.join(', ')} (case-insensitive)`);
+  }
+
+  // An ER order attaches to its emergency visit one of two ways: pass the
+  // ER encounter UUID directly as `encounter_id`, or pass the ER visit's
+  // integer id as `er_visit_id` and let the service resolve the UUID. The
+  // latter matches what the doctor actually has on hand (the visit row
+  // id) — before this, ER orders without a formal admission had to be
+  // filed with `encounter_id: null`, losing visit-level grouping. Finding:
+  // 2026-05-09-emergency-walk-in-doctor-er-encounter-id-gap.
+  const encounterIdMissing = encounter_id === undefined || encounter_id === null || encounter_id === '';
+  const erVisitIdProvided = er_visit_id !== undefined && er_visit_id !== null && er_visit_id !== '';
+  if (encounterIdMissing && erVisitIdProvided) {
+    const visitId = Number(er_visit_id);
+    if (!Number.isInteger(visitId)) {
+      throw AppError.badRequest('er_visit_id must be an integer emergency_visits id');
+    }
+    const visit = await prisma.emergency_visits.findUnique({
+      where: { id: visitId },
+      select: { encounter_id: true },
+    });
+    if (!visit) {
+      throw AppError.notFound('Emergency visit not found');
+    }
+    encounter_id = visit.encounter_id;
   }
 
   // `clinical_orders.encounter_id` is `Uuid?` — silently dropping non-UUID

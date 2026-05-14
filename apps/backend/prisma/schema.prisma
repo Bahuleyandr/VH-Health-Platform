@@ -4312,6 +4312,7 @@ model emergency_visits {
   created_by           String?              @db.Uuid
   created_at           DateTime             @default(now()) @db.Timestamptz(6)
   updated_at           DateTime             @default(now()) @db.Timestamptz(6)
+  encounter_id         String               @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   admissions           admissions[]         @relation("AdmissionFromErVisit")
   tenants              tenants              @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   mlc_records          mlc_records[]
@@ -10564,6 +10565,7 @@ model icu_admissions {
   npo_from                    DateTime?               @db.Timestamptz(6)
   fasting_until               DateTime?               @db.Timestamptz(6)
   pre_op_status               String?                 @db.VarChar(40)
+  er_visit_id                 Int?
   icu_assessments             icu_assessments[]
   icu_daily_bundles           icu_daily_bundles[]
   icu_flowsheet_entries       icu_flowsheet_entries[]
