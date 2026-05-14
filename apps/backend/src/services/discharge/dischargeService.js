@@ -157,7 +157,8 @@ export async function getOne({ tenantId, id }) {
   );
   if (!rows.length) throw AppError.notFound('Discharge summary not found');
   const sections = await prisma.$queryRawUnsafe(
-    `SELECT id, section_key, section_title, display_order, body, edited_by, edited_at
+    `SELECT id, section_key, section_title, display_order, body,
+            body_translations, edited_by, edited_at
        FROM discharge_summary_sections
       WHERE discharge_summary_id = $1::int
       ORDER BY display_order, id`,
@@ -193,6 +194,66 @@ export async function updateSection({
     throw AppError.notFound(`Section ${section_key} not found on this summary`);
   }
   // Bump parent updated_at to track edit recency.
+  await prisma.$executeRawUnsafe(
+    `UPDATE discharge_summaries SET updated_at = NOW() WHERE id = $1::int`,
+    Number(id),
+  );
+  return getOne({ tenantId, id });
+}
+
+// ── Language-tagged discharge summary (translation mechanism) ────────
+//
+// The discharge summary is authored in English. For a Tamil-speaking
+// (often illiterate) patient an English printout is functionally no
+// discharge instruction at all. This builds the *mechanism*, not the
+// translation: `discharge_summaries.summary_language` tags the
+// authored language, and `discharge_summary_sections.body_translations`
+// holds per-language bodies keyed by ISO code, e.g. {"ta": "..."}.
+//
+// It deliberately does NOT machine-translate — clinical text (drug
+// schedules, red flags, follow-up dates) must be reviewed by a human
+// translator. Calling setSectionTranslation without a `body` stores the
+// review placeholder so the section lands in a translator's queue
+// instead of silently staying English. Finding
+// 2026-05-09-inpatient-admission-discharge-no-tamil-summary-no-sms-followup.
+export const TRANSLATION_PLACEHOLDER = '[PLACEHOLDER — translation review required]';
+
+export async function setSectionTranslation({
+  tenantId, id, section_key, language, body, edited_by,
+}) {
+  const lang = String(language || '').trim().toLowerCase();
+  if (!/^[a-z]{2,5}$/.test(lang)) {
+    throw AppError.badRequest('language must be a 2-5 char ISO code (e.g. "ta" for Tamil)');
+  }
+  if (lang === 'en') {
+    throw AppError.badRequest('English is the authored language — edit the section body directly, not as a translation');
+  }
+  // Verify ownership before edit (prevents cross-tenant tampering).
+  const owner = await prisma.$queryRawUnsafe(
+    `SELECT id, status FROM discharge_summaries
+      WHERE id = $1::int AND tenant_id = $2::uuid`,
+    Number(id), tenantId,
+  );
+  if (!owner.length) throw AppError.notFound('Discharge summary not found');
+
+  // No human translation supplied → store the review placeholder so the
+  // section is discoverable as "needs translation" rather than missing.
+  const translatedBody = body && String(body).trim()
+    ? String(body)
+    : TRANSLATION_PLACEHOLDER;
+
+  const result = await prisma.$executeRawUnsafe(
+    `UPDATE discharge_summary_sections
+        SET body_translations = body_translations || jsonb_build_object($1::text, $2::text),
+            edited_by = $3::uuid, edited_at = NOW()
+      WHERE discharge_summary_id = $4::int AND section_key = $5`,
+    lang, translatedBody,
+    edited_by ? String(edited_by) : null,
+    Number(id), String(section_key),
+  );
+  if (Number(result) === 0) {
+    throw AppError.notFound(`Section ${section_key} not found on this summary`);
+  }
   await prisma.$executeRawUnsafe(
     `UPDATE discharge_summaries SET updated_at = NOW() WHERE id = $1::int`,
     Number(id),
@@ -396,7 +457,12 @@ async function materialiseDischargeMedsAsPrescription({
 export async function markDelivered({
   tenantId, id, delivery_method,
 }) {
-  const allowed = ['printed', 'email', 'whatsapp', 'abdm'];
+  // `sms` added to the delivery channels so a feature-phone patient
+  // (no smartphone, no email, no WhatsApp) gets a plain-text discharge
+  // notification. discharge_summaries.delivery_method is a free
+  // VARCHAR(20) — no DB enum change needed. Finding
+  // 2026-05-09-inpatient-admission-discharge-no-tamil-summary-no-sms-followup.
+  const allowed = ['printed', 'email', 'whatsapp', 'abdm', 'sms'];
   if (!allowed.includes(delivery_method)) {
     throw AppError.badRequest(
       `delivery_method must be one of: ${allowed.join(', ')}`,
@@ -407,7 +473,7 @@ export async function markDelivered({
         SET status = 'delivered', delivered_at = NOW(),
             delivery_method = $1, updated_at = NOW()
       WHERE id = $2::int AND tenant_id = $3::uuid AND status = 'signed'
-      RETURNING id`,
+      RETURNING id, admission_id, patient_uid, primary_diagnosis`,
     delivery_method, Number(id), tenantId,
   );
   if (!rows.length) {
@@ -415,7 +481,53 @@ export async function markDelivered({
       'Discharge summary must be signed before it can be marked delivered',
     );
   }
+
+  // SMS delivery: persist the intent to the notification outbox. No SMS
+  // gateway is wired yet (smsService is dry-run) — the outbox row IS
+  // the delivery intent, drained by a future gateway integration.
+  // fix-deferred: SMS gateway integration. Best-effort: a queue failure
+  // must not un-deliver the summary.
+  if (delivery_method === 'sms') {
+    await queueDischargeSms(rows[0]).catch((e) =>
+      logger.warn(
+        `dischargeService.markDelivered: SMS queue failed for summary ${id}: ${e.message}`,
+      ),
+    );
+  }
+
   return getOne({ tenantId, id });
+}
+
+// Queue a plain-SMS discharge notification through the notification
+// outbox. The body is intentionally short, instruction-oriented, and
+// language-neutral — the structured (and, where available, translated)
+// summary is what the patient reads; this is just the "your summary is
+// ready" nudge for a feature phone.
+async function queueDischargeSms(summary) {
+  const patientRows = await prisma.$queryRawUnsafe(
+    `SELECT id, name, phone FROM users WHERE uid = $1::uuid LIMIT 1`,
+    String(summary.patient_uid),
+  );
+  const patient = patientRows[0];
+  if (!patient?.phone) {
+    logger.warn(
+      `dischargeService.queueDischargeSms: no phone on file for patient ${summary.patient_uid}`,
+    );
+    return;
+  }
+  const { default: outbox } = await import(
+    '../../utils/notifications/notificationOutbox.js'
+  );
+  await outbox.queue({
+    type: 'sms',
+    recipientId: patient.id,
+    recipientPhone: patient.phone,
+    title: 'Discharge summary ready',
+    body:
+      'Your discharge summary from Venkataeswara Hospitals is ready. '
+      + 'Please follow the printed instructions and attend your follow-up appointment.',
+    data: { type: 'discharge_summary', discharge_summary_id: summary.id },
+  });
 }
 
 export async function listForPatient({ tenantId, patient_uid, limit = 50 }) {

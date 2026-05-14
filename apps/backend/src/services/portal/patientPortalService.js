@@ -596,7 +596,8 @@ async function fetchDischargeSummaryWithSections({ tenantId, patient_uid, where,
             ward_at_discharge, primary_diagnosis, secondary_diagnoses,
             icd10_codes, procedures_performed,
             status, signed_by_name, signed_by_reg, signed_at,
-            delivered_at, delivery_method, created_at, updated_at
+            delivered_at, delivery_method, summary_language,
+            created_at, updated_at
        FROM discharge_summaries
       WHERE ${where}
         AND tenant_id = $1::uuid
@@ -611,8 +612,11 @@ async function fetchDischargeSummaryWithSections({ tenantId, patient_uid, where,
     throw AppError.notFound('Discharge summary not found');
   }
   const summary = rows[0];
+  // `body_translations` carries the language-tagged section bodies
+  // (e.g. {"ta": "..."}) so a Tamil-speaking patient's app can render
+  // the discharge instructions in their own language. Migration 231.
   const sections = await prisma.$queryRawUnsafe(
-    `SELECT section_key, section_title, display_order, body
+    `SELECT section_key, section_title, display_order, body, body_translations
        FROM discharge_summary_sections
       WHERE discharge_summary_id = $1::int
       ORDER BY display_order, id`,

@@ -115,4 +115,19 @@ router.post('/:id/deliver', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
+// Set (or request) a per-section translation. Omitting `body` stores
+// the translation-review placeholder so the section is queued for a
+// human translator rather than silently staying English. Never
+// machine-translates clinical text.
+router.patch('/:id/sections/:key/translation', requireStaffOrAdmin, wrap(async (req) =>
+  discharge.setSectionTranslation({
+    tenantId: tenantOf(req),
+    id: req.params.id,
+    section_key: req.params.key,
+    language: req.body.language,
+    body: req.body.body,
+    edited_by: req.user?.uid,
+  }),
+));
+
 export default router;
