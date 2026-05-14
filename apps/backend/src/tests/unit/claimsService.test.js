@@ -191,13 +191,22 @@ describe('recordPreauthResponse boundary validation', () => {
   });
 
   it('accepts intuitive alias decision: "partial" and proceeds past validation', async () => {
-    // Past validation getPreauth() throws — that's downstream and not the
-    // gate under test. We only care that the 400 alias-rejection no
-    // longer fires for `decision: partial`. Any non-400-with-"response_type"
-    // error means we passed the validation gate.
+    // Past validation getPreauth() runs against prisma — and in this
+    // unit-test environment (no DB connection) it hangs. We only care
+    // that the 400 alias-rejection no longer fires for
+    // `decision: partial`. Race the call against a short timeout: if
+    // we time out, validation passed (otherwise it would have rejected
+    // synchronously with the 400). Either path proves the gate
+    // accepted the alias. This test sat above the 5s default Jest
+    // timeout in CI before the race was added.
     let err;
     try {
-      await recordPreauthResponse({ ...base, decision: 'partial' });
+      await Promise.race([
+        recordPreauthResponse({ ...base, decision: 'partial' }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('PAST_VALIDATION_TIMEOUT')), 250),
+        ),
+      ]);
     } catch (e) {
       err = e;
     }

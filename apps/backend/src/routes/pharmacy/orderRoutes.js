@@ -48,12 +48,20 @@ wrapAutoRBAC(router, 'pharmacyPatientOrderRoutes', {
 // instead of the order. We can't use Express-style :id(\d+) in path
 // strings under Express 5 / path-to-regexp v8, so we register /:id in
 // the lifecycle block (declared before /:phone) and guard the handler:
-// if the param isn't a plain integer it calls next('route') to fall
-// through to the legacy /:phone matcher, preserving back-compat for
-// patient-app callers still using phone-keyed lookups.
-// Finding: 2026-05-09-walk-in-opd-pharmacy-order-route-shadowed
+// if the param isn't a plain integer (or LOOKS like a phone — 10+
+// digits) it calls next('route') to fall through to the legacy
+// /:phone matcher, preserving back-compat for patient-app callers
+// still using phone-keyed lookups. Phone numbers in India are exactly
+// 10 digits; pharmacy_orders.id is SERIAL — even at hospital scale we
+// won't hit 9 digits (one billion orders), so the cutoff cleanly
+// separates the two namespaces.
+// Findings:
+//   2026-05-09-walk-in-opd-pharmacy-order-route-shadowed
+//   pharmacy-deep.test.js getOrdersByPhone — 9000040001 was being
+//   matched as an order id under the original digits-only guard.
 function orderIdGuard(req, res, next) {
-  if (!/^\d+$/.test(req.params.id || '')) return next('route');
+  const param = req.params.id || '';
+  if (!/^\d{1,9}$/.test(param)) return next('route');
   next();
 }
 
