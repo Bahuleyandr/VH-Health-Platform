@@ -88,6 +88,7 @@ const IO_SELECT = {
   id: true,
   patient_uid: true,
   encounter_id: true,
+  encounter_uid: true,
   io_type: true,
   category: true,
   amount_ml: true,
@@ -368,7 +369,7 @@ export async function getVitalsChart(patientUid, encounterId, pagination = {}) {
 }
 
 export async function recordIntakeOutput(data) {
-  const { patient_uid, encounter_id, io_type, category, amount_ml, description, recorded_by } = data;
+  const { patient_uid, encounter_id, encounter_uid, io_type, category, amount_ml, description, recorded_by } = data;
 
   if (!patient_uid || !io_type || !category || amount_ml === undefined || !recorded_by) {
     throw AppError.badRequest('patient_uid, io_type, category, amount_ml, and recorded_by are required');
@@ -383,10 +384,19 @@ export async function recordIntakeOutput(data) {
     throw AppError.badRequest('amount_ml must be a non-negative number');
   }
 
+  // Wave-4B-2 (migration 223) — admission encounter_id is a UUID; the
+  // pre-admission HL7 visit_no path is int. Split the input across both
+  // columns so a nurse copying the admission's encounter UUID into the
+  // I/O chart doesn't hit a Prisma 500. Mirrors the vitals/encounter_uid
+  // split from migration 208. Finding:
+  // 2026-05-09-inpatient-admission-nurse-io-encounter-uuid-500.
+  const normalizedEncounter = normalizeEncounter(encounter_id ?? encounter_uid ?? null);
+
   const created = await prisma.intake_output.create({
     data: {
       patient_uid,
-      encounter_id: encounter_id ?? null,
+      encounter_id: normalizedEncounter.encounter_id,
+      encounter_uid: normalizedEncounter.encounter_uid,
       io_type,
       category,
       amount_ml,

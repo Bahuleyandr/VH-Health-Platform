@@ -5017,16 +5017,19 @@ model insurance_claim_caps {
 }
 
 model intake_output {
-  id           Int       @id @default(autoincrement())
-  patient_uid  String    @db.Uuid
-  encounter_id Int?
-  io_type      String    @db.VarChar(20)
-  category     String    @db.VarChar(50)
-  amount_ml    Decimal   @db.Decimal(10, 2)
-  description  String?
-  recorded_by  String    @db.Uuid
-  recorded_at  DateTime? @default(now()) @db.Timestamptz(6)
-  created_at   DateTime? @default(now()) @db.Timestamptz(6)
+  id            Int       @id @default(autoincrement())
+  patient_uid   String    @db.Uuid
+  encounter_id  Int?
+  encounter_uid String?   @db.Uuid
+  io_type       String    @db.VarChar(20)
+  category      String    @db.VarChar(50)
+  amount_ml     Decimal   @db.Decimal(10, 2)
+  description   String?
+  recorded_by   String    @db.Uuid
+  recorded_at   DateTime? @default(now()) @db.Timestamptz(6)
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([encounter_uid, recorded_at(sort: Desc)], map: "idx_intake_output_encounter_uid")
 }
 
 model integration_credentials {

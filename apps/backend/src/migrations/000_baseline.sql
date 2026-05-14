@@ -10482,6 +10482,7 @@ CREATE TABLE public.intake_output (
     id integer NOT NULL,
     patient_uid uuid NOT NULL,
     encounter_id integer,
+    encounter_uid uuid,
     io_type character varying(20) NOT NULL,
     category character varying(50) NOT NULL,
     amount_ml numeric(10,2) NOT NULL,

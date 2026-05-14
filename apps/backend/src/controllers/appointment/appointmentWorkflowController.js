@@ -1303,7 +1303,11 @@ export const adviseForAdmission = async (req, res) => {
       note,
     }).catch(() => {});
 
-    success(res, rows[0], 'Patient advised for admission — admission counter notified');
+    // ASCII-only message: downstream consumers (PowerShell/curl on Windows
+    // terminals, log shippers) routinely re-decode JSON bodies as cp1252
+    // and render UTF-8 em-dash bytes as mojibake. Finding:
+    // 2026-05-09-inpatient-admission-receptionist-response-mojibake.
+    success(res, rows[0], 'Patient advised for admission - admission counter notified');
   } catch (err) {
     logger.error('adviseForAdmission error:', { requestId: req.id, err: err?.message, stack: err?.stack });
     error(res, 'Failed to advise for admission', HTTP_STATUS.INTERNAL_SERVER_ERROR, {

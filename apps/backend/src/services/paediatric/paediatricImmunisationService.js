@@ -82,10 +82,18 @@ export async function seedScheduleForPatient({ patientUid, dob, tenantId }) {
 /**
  * List all immunisation rows for a patient, joined to catalogue for
  * display fields. Defaults to chronological by due_date.
+ *
+ * Derives `display_status` from `(status, due_date, given_at)` so the
+ * nurse-facing UI can distinguish a past-due birth dose from an
+ * upcoming MMR booster without a status-mutation cron job. Stored
+ * `status` stays 'scheduled' until a clinician records the dose;
+ * `display_status` collapses to 'overdue' when due_date is in the past
+ * and no dose has been recorded yet. Finding:
+ * 2026-05-09-pediatric-opd-nurse-immunisation-schedule-all-scheduled.
  */
 export async function listForPatient(patientUid) {
   if (!patientUid) throw AppError.badRequest('patientUid is required');
-  return prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `SELECT pi.id, pi.patient_uid, pi.vaccine_catalogue_id, pi.due_date,
             pi.status, pi.given_at, pi.given_by, pi.given_by_name,
             pi.batch_number, pi.manufacturer, pi.site_of_injection,
@@ -99,6 +107,30 @@ export async function listForPatient(patientUid) {
       ORDER BY pi.due_date ASC, vc.code ASC, vc.dose_number ASC NULLS FIRST`,
     patientUid,
   );
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  for (const row of rows) {
+    row.display_status = computeDisplayStatus(row, today);
+  }
+  return rows;
+}
+
+function computeDisplayStatus(row, today) {
+  if (row.status === 'given') return 'given';
+  if (row.status === 'missed') return 'missed';
+  if (row.status === 'refused') return 'refused';
+  if (row.status === 'contraindicated') return 'contraindicated';
+  if (!row.due_date) return row.status;
+  const due = new Date(row.due_date);
+  due.setHours(0, 0, 0, 0);
+  if (Number.isNaN(due.getTime())) return row.status;
+  if (due.getTime() < today.getTime() && !row.given_at) return 'overdue';
+  // Within the catalogue's window_days of due_date: vaccine is "due now".
+  const windowMs = Number(row.window_days || 0) * 24 * 60 * 60 * 1000;
+  if (windowMs > 0 && due.getTime() <= today.getTime() + windowMs && due.getTime() >= today.getTime() - windowMs) {
+    return 'due';
+  }
+  return 'scheduled';
 }
 
 /**
