@@ -1134,14 +1134,28 @@ export const registerWalkIn = async (req, res) => {
         }
       }
 
-      // Atomic token number — scoped by (date, department). A global-per-day
+      // Atomic token number — scoped by (date, deptPrefix). A global-per-day
       // counter would mean the EMER walk-in and the OPD walk-in compete for
       // the same #8, but the receptionist on the ER counter expects
-      // EMER-prefix tokens. E-2 fix. Findings:
+      // EMER-prefix tokens.
+      //
+      // The earlier implementation (E-2) scoped by raw `department` text,
+      // which broke when multiple departments mapped to the same prefix —
+      // e.g. NULL-department and 'General Medicine' both produce visit_no
+      // OPD-YYYYMMDD-NNN, but ran independent counters from 1, so the
+      // second department's first INSERT collided on visit_no's UNIQUE
+      // constraint (idx_appointments_visit_no_unique) and 500'd. Switching
+      // the scope to the LIKE-prefix of the visit_no we're about to compose
+      // makes the counter consistent with what we'll actually persist.
+      // Findings:
       //   2026-05-08-emergency-walk-in-receptionist-token-not-dept-scoped
       //   2026-05-08-emergency-walk-in-receptionist-visit-no-format
       //   2026-05-08-lab-walk-in-receptionist-no-dept-scoped-visit-no
       //   2026-05-08-dynamic-acute-abdomen-receptionist-walkin-token-not-dept-scoped
+      //   2026-05-15-dynamic-acute-abdomen-receptionist-6e92df1b
+      const today = new Date();
+      const yyyymmdd = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+      const visitNoLikePrefix = `${deptPrefix(appointmentDepartment)}-${yyyymmdd}-`;
       const tokenResult = await tx.$queryRawUnsafe(
         `SELECT COALESCE(MAX(NULLIF(token_number, '')::int), 0) + 1 AS next_token
          FROM appointments
@@ -1149,8 +1163,8 @@ export const registerWalkIn = async (req, res) => {
            AND confirmed_at IS NOT NULL
            AND token_number IS NOT NULL
            AND token_number ~ '^[0-9]+$'
-           AND COALESCE(department, '') = COALESCE($1::text, '')`,
-        appointmentDepartment || null,
+           AND visit_no LIKE $1 || '%'`,
+        visitNoLikePrefix,
       );
       const tokenNumber = String(parseInt(tokenResult[0].next_token));
 
@@ -1161,7 +1175,7 @@ export const registerWalkIn = async (req, res) => {
       // 2026-05-10-inpatient-admission-receptionist-visit-no-not-persisted.
       const visitNo = composeVisitNo({
         department: appointmentDepartment,
-        date: new Date(),
+        date: today,
         tokenNumber,
       });
 
