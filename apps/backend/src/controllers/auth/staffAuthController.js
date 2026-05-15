@@ -14,9 +14,8 @@ import { success, error } from '../../utils/responseHelper.js';
 // Staff login with employee ID and password
 export const login = async (req, res) => {
   try {
-    const { employeeId, password } = req.body;
-    // ✅ FIX: Called the static method on the StaffAuthService class
-    const result = await StaffAuthService.authenticateStaff(employeeId, password, req);
+    const { employeeId, password, deviceType } = req.body;
+    const result = await StaffAuthService.authenticateStaff(employeeId, password, req, { deviceType });
     success(res, result, 'Staff login successful');
   } catch (err) {
     logger.error('Staff Login Error:', err);
@@ -27,9 +26,8 @@ export const login = async (req, res) => {
 // Staff login with employee ID and PIN
 export const pinLogin = async (req, res) => {
   try {
-    const { employeeId, pin } = req.body;
-    // This will call a new method in your service for PIN authentication
-    const result = await StaffAuthService.authenticateStaffWithPin(employeeId, pin, req);
+    const { employeeId, pin, deviceType } = req.body;
+    const result = await StaffAuthService.authenticateStaffWithPin(employeeId, pin, req, { deviceType });
     success(res, result, 'Staff login with PIN successful');
   } catch (err) {
     logger.error('Staff PIN Login Error:', err);
@@ -40,9 +38,8 @@ export const pinLogin = async (req, res) => {
 // Register device for quick access
 export const registerDevice = async (req, res) => {
   try {
-    const { employeeId, password, deviceInfo } = req.body;
-    // ✅ FIX: All subsequent calls are updated to use StaffAuthService
-    const result = await StaffAuthService.registerStaffDevice(employeeId, password, deviceInfo, req);
+    const { employeeId, password, deviceInfo, deviceType } = req.body;
+    const result = await StaffAuthService.registerStaffDevice(employeeId, password, deviceInfo, req, { deviceType });
     success(res, result, 'Device registered successfully');
   } catch (err) {
     logger.error('Device Registration Error:', err);
@@ -53,8 +50,8 @@ export const registerDevice = async (req, res) => {
 // Quick login with PIN or biometric
 export const quickLogin = async (req, res) => {
   try {
-    const { deviceToken, pin, biometric, location } = req.body;
-    const result = await StaffAuthService.quickLogin(deviceToken, pin, biometric, location, req);
+    const { deviceToken, pin, biometric, location, deviceType } = req.body;
+    const result = await StaffAuthService.quickLogin(deviceToken, pin, biometric, location, req, { deviceType });
     success(res, result, 'Quick login successful');
   } catch (err) {
     logger.error('Quick Login Error:', err);

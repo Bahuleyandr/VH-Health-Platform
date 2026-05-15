@@ -10,6 +10,7 @@ import logger from '../../logging/logger.js';
 import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
+import { issueAccessTokenAndClaimSession } from './loginSessionHelper.js';
 
 
 // Thin wrapper around prisma raw that returns the `pg`-style shape
@@ -73,7 +74,7 @@ export class StaffAuthService {
   // PRIMARY AUTHENTICATION METHODS
   // =================================================================
 
-  static async authenticateStaff(employeeId, password, req) {
+  static async authenticateStaff(employeeId, password, req, { deviceType } = {}) {
     try {
       await this._checkStaffLockout(employeeId, req, '/api/v1/auth/staff/login');
 
@@ -132,7 +133,13 @@ export class StaffAuthService {
 
       await this.logAuthAttempt(employeeId, 'STAFF_LOGIN', true, null, 'password', req);
 
-      const accessToken = this.generateAccessToken(staff);
+      const { accessToken } = await issueAccessTokenAndClaimSession({
+        userUid: staff.uid,
+        tokenPayload: { id: staff.id, uid: staff.uid, role: staff.role },
+        expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
+        deviceType,
+        req,
+      });
       const refreshToken = this.generateRefreshToken(staff);
 
       await query('UPDATE users SET last_sign_in_at = NOW() WHERE id = $1', [staff.id]);
@@ -158,10 +165,11 @@ export class StaffAuthService {
     }
   }
 
-  static async registerStaffDevice(employeeId, password, deviceInfo, req) {
+  static async registerStaffDevice(employeeId, password, deviceInfo, req, { deviceType } = {}) {
     try {
-      // ✅ FIX: Re-uses the result from authenticateStaff, avoiding extra DB calls.
-      const authResult = await this.authenticateStaff(employeeId, password, req);
+      // Re-uses the result from authenticateStaff, avoiding extra DB calls.
+      // The inner call already claims the single active session.
+      const authResult = await this.authenticateStaff(employeeId, password, req, { deviceType });
       const staff = authResult.staff;
       const userId = staff.id;
 
@@ -214,7 +222,7 @@ export class StaffAuthService {
     }
   }
 
-  static async quickLogin(deviceToken, pin, biometric, location, req) {
+  static async quickLogin(deviceToken, pin, biometric, location, req, { deviceType } = {}) {
     try {
       const deviceResult = await query(`
         SELECT 
@@ -272,7 +280,17 @@ export class StaffAuthService {
 
       await this.logAuthAttempt(deviceAndStaff.employee_id, 'QUICK_LOGIN', true, null, authMethod, req);
 
-      const accessToken = this.generateAccessToken(deviceAndStaff);
+      const { accessToken } = await issueAccessTokenAndClaimSession({
+        userUid: deviceAndStaff.uid,
+        tokenPayload: {
+          id: deviceAndStaff.staff_id,
+          uid: deviceAndStaff.uid,
+          role: deviceAndStaff.role,
+        },
+        expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
+        deviceType,
+        req,
+      });
       const refreshToken = this.generateRefreshToken(deviceAndStaff);
 
       await this.createSession(deviceAndStaff.staff_id, deviceAndStaff.device_id, refreshToken, req);
@@ -361,7 +379,7 @@ export class StaffAuthService {
 
 // Add this new method right after the 'authenticateStaff' method
 
-  static async authenticateStaffWithPin(employeeId, pin, req) {
+  static async authenticateStaffWithPin(employeeId, pin, req, { deviceType } = {}) {
     try {
       await this._checkStaffLockout(employeeId, req, '/api/v1/auth/staff/login-pin');
 
@@ -427,7 +445,13 @@ export class StaffAuthService {
 
       await this.logAuthAttempt(employeeId, 'STAFF_PIN_LOGIN', true, null, 'pin', req);
 
-      const accessToken = this.generateAccessToken(staff);
+      const { accessToken } = await issueAccessTokenAndClaimSession({
+        userUid: staff.uid,
+        tokenPayload: { id: staff.id, uid: staff.uid, role: staff.role },
+        expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
+        deviceType,
+        req,
+      });
       const refreshToken = this.generateRefreshToken(staff);
 
       await query('UPDATE users SET last_sign_in_at = NOW() WHERE id = $1', [staff.id]);

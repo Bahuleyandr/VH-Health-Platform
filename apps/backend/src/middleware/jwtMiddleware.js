@@ -179,6 +179,13 @@ export default async function jwtMiddleware(req, res, next) {
   const scope = decoded.scope === 'mfa_setup' ? 'mfa_setup' : 'full';
   const rawRole = String(roleRaw || '').trim().toUpperCase();
 
+  // Device-type claim, set at login by every auth realm (staff/admin/patient).
+  // Read here so route-level middleware like `requireDeviceType('mobile')` can
+  // gate sensitive actions (e.g. attendance must be marked from the phone).
+  // Old tokens issued before this claim was introduced have `deviceType` =
+  // null; the gate middleware then rejects with a clear "please re-login" 403.
+  const deviceType = decoded.deviceType ?? null;
+
   req.user = {
     uid: String(uidRaw),
     role,
@@ -189,6 +196,8 @@ export default async function jwtMiddleware(req, res, next) {
     id: idInt,
     tenant_id: tenantId,
     scope,
+    deviceType,
+    jti: decoded.jti ?? null,
   };
 
   logger.info(`JWT OK: uid=${req.user.uid} role=${req.user.role} scope=${scope}`);

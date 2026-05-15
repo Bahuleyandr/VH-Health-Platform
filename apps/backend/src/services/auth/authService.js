@@ -14,14 +14,15 @@ import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
 import { blacklistToken, isTokenBlacklisted, revokeAllUserTokens } from '../../utils/tokenBlacklist.js';
 import { generateChallengeToken } from '../../utils/totpUtils.js';
 import * as firebaseAuthService from './firebaseAuthService.js';
+import { issueAccessTokenAndClaimSession } from './loginSessionHelper.js';
 import * as otpService from './otpService.js';
 
 // ✅ Use your real Firebase service
 
 export class AuthService {
   /* ======================= Firebase (pass-through) ======================= */
-  static async authenticateWithFirebase(idToken, deviceInfo, req) {
-    return firebaseAuthService.authenticateWithFirebase(idToken, deviceInfo, req);
+  static async authenticateWithFirebase(idToken, deviceInfo, req, opts = {}) {
+    return firebaseAuthService.authenticateWithFirebase(idToken, deviceInfo, req, opts);
   }
 
   static async completeUserProfile(profileData) {
@@ -173,7 +174,7 @@ export class AuthService {
   }
 
   /* =================== Admin Auth (matches admin_users) ================== */
-  static async adminLogin(identity, password) {
+  static async adminLogin(identity, password, req, { deviceType } = {}) {
     try {
       const admin = await prisma.admins.findFirst({
         where: {
@@ -313,14 +314,24 @@ export class AuthService {
         }
       }
 
-      const token = generateToken({
-        uid: admin.uid,
-        role: String(admin.role).toUpperCase(),
-        email: admin.email ?? undefined,
-        sub: admin.uid,
-        iss: 'vh-health-backend',
-        aud: 'vh-health-admin',
-      }, SECURITY_CONFIG.jwt.adminExpiry);
+      // Issue the admin JWT and register it as the single active session for
+      // this admin. Any previously-active admin session is blacklisted and a
+      // `session:revoked` event is pushed to that admin's WS sockets — so a
+      // second browser tab / device is bounced to login.
+      const { accessToken: token } = await issueAccessTokenAndClaimSession({
+        userUid: admin.uid,
+        tokenPayload: {
+          uid: admin.uid,
+          role: String(admin.role).toUpperCase(),
+          email: admin.email ?? undefined,
+          sub: admin.uid,
+          iss: 'vh-health-backend',
+          aud: 'vh-health-admin',
+        },
+        expiresIn: SECURITY_CONFIG.jwt.adminExpiry,
+        deviceType,
+        req,
+      });
 
       return {
         token,

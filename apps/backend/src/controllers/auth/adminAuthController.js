@@ -33,9 +33,9 @@ export const login = async (req, res) => {
 
   try {
     const identity = pickIdentity(req.body);
-    const { password } = req.body;
+    const { password, deviceType } = req.body;
 
-    const result = await AuthService.adminLogin(identity, password);
+    const result = await AuthService.adminLogin(identity, password, req, { deviceType });
     if (result?.requiresMfaSetup) {
       logger.info(`Admin login requires MFA setup: ${identity}`);
       return success(res, result, 'MFA setup required before full access');
