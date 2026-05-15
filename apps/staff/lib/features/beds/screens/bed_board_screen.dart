@@ -395,9 +395,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                           ward['occupied'] ??
                           ward['occupied_count'] ??
                           0;
-                      final totalInt = totalBeds is num
-                          ? totalBeds.toInt()
-                          : 0;
+                      final totalInt = totalBeds is num ? totalBeds.toInt() : 0;
                       final occupiedInt = occupied is num
                           ? occupied.toInt()
                           : 0;
