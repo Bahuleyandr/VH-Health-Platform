@@ -378,11 +378,33 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                           ward['name'] ??
                           ward['wardName'] ??
                           '${s.bedBoardWardFallback} ${index + 1}';
-                      final totalBeds = ward['totalBeds'] ?? ward['total'] ?? 0;
-                      final available =
-                          ward['availableBeds'] ?? ward['available'] ?? 0;
+                      // Backend `/wards` returns snake_case (`bed_count`,
+                      // `occupied_count`, `total_beds`); older mocks used
+                      // the camelCase aliases. Read both shapes so the
+                      // outer ward list stops showing 0/0/0 when the
+                      // detail view (which counts beds directly) shows
+                      // real numbers.
+                      final totalBeds =
+                          ward['totalBeds'] ??
+                          ward['total'] ??
+                          ward['bed_count'] ??
+                          ward['total_beds'] ??
+                          0;
                       final occupied =
-                          ward['occupiedBeds'] ?? ward['occupied'] ?? 0;
+                          ward['occupiedBeds'] ??
+                          ward['occupied'] ??
+                          ward['occupied_count'] ??
+                          0;
+                      final totalInt = totalBeds is num
+                          ? totalBeds.toInt()
+                          : 0;
+                      final occupiedInt = occupied is num
+                          ? occupied.toInt()
+                          : 0;
+                      final available =
+                          ward['availableBeds'] ??
+                          ward['available'] ??
+                          (totalInt - occupiedInt).clamp(0, totalInt);
                       final wardId =
                           (ward['id'] ?? ward['_id'] ?? ward['wardId'] ?? '')
                               .toString();
