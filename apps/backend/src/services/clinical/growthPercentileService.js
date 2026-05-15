@@ -30,6 +30,7 @@
 //   where Φ is the standard normal CDF.
 
 import { AppError } from '../../utils/AppError.js';
+import logger from '../../logging/logger.js';
 
 const VALID_METRICS = ['height_cm', 'weight_kg', 'head_circumference_cm', 'bmi'];
 const VALID_SEXES = ['M', 'F'];
@@ -236,9 +237,15 @@ export function computeGrowthSnapshot({ gender, birthday, weightKg, heightCm, as
     try {
       const r = computePercentile({ sex, ageInDays, metric, value: Number(value) });
       if (r && r.percentile != null) metrics[metric] = r;
-    } catch (_e) {
+    } catch (err) {
       // A bad single measurement (negative, non-numeric) shouldn't sink
-      // the other metric or the vitals save — skip it.
+      // the other metric or the vitals save — skip it. Warn so an
+      // incomplete percentile block in the response can be told apart
+      // from "metric not submitted" by anyone reading the logs.
+      // Surfaced by the 2026-05-15 weekly error-scan (Finding 1).
+      logger.warn(
+        `growthPercentileService: skipping ${metric} percentile (sex=${sex}, ageInDays=${ageInDays}, value=${value}): ${err?.message ?? err}`,
+      );
     }
   }
   if (Object.keys(metrics).length === 0) return null;
