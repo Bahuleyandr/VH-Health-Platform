@@ -402,6 +402,72 @@ export function extractPreauthCaps(rawResponse) {
   return Object.keys(flat).length ? flat : null;
 }
 
+// Documents the insurer expects in every cashless TPA pre-auth packet.
+// Auto-attached (as virtual vh:// references — the TPA desk dereferences
+// them to live admission state at the moment the portal pulls) inside
+// submitPreauth, idempotent: only doc_types that aren't already on the
+// pre-auth are added, so a desk that hand-uploaded one of these (e.g.
+// a scanned advice letter) doesn't get a duplicate row. Finding:
+// 2026-05-15-tpa-insurance-claim-billing-77e939fd — a submitted packet
+// shipped with only admission_note attached; the insurer queried it
+// back for missing advice letter + record bundle, and the desk thought
+// the case was in flight when the platform had effectively shipped a
+// one-document packet.
+const TPA_PREAUTH_STANDARD_DOCS = [
+  {
+    doc_type: 'admission_note',
+    file_name: (admissionId) => `admission-${admissionId}-summary.txt`,
+    file_url: (admissionId) => `vh://admissions/${admissionId}/admission-summary`,
+    mime_type: 'text/plain',
+  },
+  {
+    doc_type: 'advice_letter',
+    file_name: (admissionId) => `advice-${admissionId}.txt`,
+    file_url: (admissionId) => `vh://admissions/${admissionId}/advice-letter`,
+    mime_type: 'text/plain',
+  },
+  {
+    doc_type: 'record_bundle',
+    file_name: (admissionId) => `records-${admissionId}.json`,
+    file_url: (admissionId) => `vh://admissions/${admissionId}/record-bundle`,
+    mime_type: 'application/json',
+  },
+];
+
+async function ensurePreauthDocumentBundle({ preauthId, admissionId, uploadedBy }) {
+  if (!admissionId) return [];
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT doc_type FROM tpa_claim_documents WHERE preauth_id = $1::int`,
+    preauthId,
+  );
+  const existingTypes = new Set(existing.map((r) => r.doc_type));
+  const attached = [];
+  for (const spec of TPA_PREAUTH_STANDARD_DOCS) {
+    if (existingTypes.has(spec.doc_type)) continue;
+    try {
+      const row = await attachDocument({
+        preauth_id: preauthId,
+        doc_type: spec.doc_type,
+        file_name: spec.file_name(admissionId),
+        file_url: spec.file_url(admissionId),
+        mime_type: spec.mime_type,
+        uploaded_by: uploadedBy,
+        notes: 'auto-attached at preauth submission',
+      });
+      attached.push(row.doc_type);
+    } catch (err) {
+      // Best-effort: a single auto-attach failure should not block the
+      // submission attempt — the doc-count gate below still fires if
+      // the packet ends up genuinely empty. Log so the desk can see
+      // which auto-attach didn't take.
+      logger.warn(
+        `ensurePreauthDocumentBundle: ${spec.doc_type} attach failed for preauth=${preauthId}: ${err.message}`,
+      );
+    }
+  }
+  return attached;
+}
+
 export async function submitPreauth({
   tenantId, id, submitted_by, submission_channel = 'portal', tpa_reference_id,
 }) {
@@ -409,6 +475,16 @@ export async function submitPreauth({
   if (pre.status !== 'draft') {
     throw AppError.badRequest(`Pre-auth in ${pre.status} cannot be submitted`);
   }
+
+  // Auto-attach the standard 3-document bundle (admission_note,
+  // advice_letter, record_bundle) before the doc-count gate runs.
+  // Idempotent — only doc_types missing from the pre-auth are added.
+  await ensurePreauthDocumentBundle({
+    preauthId: pre.id,
+    admissionId: pre.admission_id,
+    uploadedBy: submitted_by,
+  });
+
   // Block submission with no clinical attachment. Without an admission
   // note / advice letter the TPA portal sees a bare claim number and
   // queries it back — the desk thinks the case is in flight when it
