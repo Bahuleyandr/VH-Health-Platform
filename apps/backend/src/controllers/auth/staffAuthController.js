@@ -89,7 +89,7 @@ export const toggleBiometric = async (req, res) => {
 export const refreshSession = async (req, res) => {
   try {
     const { refreshToken, deviceToken } = req.body;
-    const result = await StaffAuthService.refreshStaffSession(refreshToken, deviceToken);
+    const result = await StaffAuthService.refreshStaffSession(refreshToken, deviceToken, req);
     success(res, result, 'Session refreshed successfully');
   } catch (err) {
     logger.error('Refresh Session Error:', err);

@@ -41,8 +41,7 @@ export const refreshToken = async (req, res) => {
       return error(res, 'Authorization token required', HTTP_STATUS.UNAUTHORIZED);
     }
     const token = authHeader.split(' ')[1];
-    // ✅ FIX: Called the static method on the AuthService class
-    const result = await AuthService.refreshToken(token);
+    const result = await AuthService.refreshToken(token, req);
     success(res, result, 'Token refreshed successfully');
   } catch (err) {
     logger.error('Token Refresh Error:', err);

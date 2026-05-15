@@ -11,6 +11,7 @@ import { generateToken, verifyToken } from '../../utils/jwtUtils.js';
 import { trackFailedLogin } from '../../utils/loginAnomalyDetector.js';
 import { logSecurityEvent } from '../../utils/securityAuditLogger.js';
 import { issueAccessTokenAndClaimSession } from './loginSessionHelper.js';
+import { getUserSessionDeviceType } from './userActiveSession.js';
 
 
 // Thin wrapper around prisma raw that returns the `pg`-style shape
@@ -346,7 +347,7 @@ export class StaffAuthService {
     }
   }
 
-  static async refreshStaffSession(refreshToken) {
+  static async refreshStaffSession(refreshToken, _deviceToken, req) {
     try {
       const decoded = verifyToken(refreshToken);
       if (!decoded) throw new Error('Invalid or expired refresh token');
@@ -365,7 +366,23 @@ export class StaffAuthService {
       if (!session.is_active) throw new Error('Account deactivated');
 
       await query('UPDATE staff_auth_sessions SET last_activity = NOW() WHERE id = $1', [session.id]);
-      const accessToken = this.generateAccessToken(session);
+
+      // Mint the new access token *and* rotate the user_active_sessions row
+      // to its jti — same logical session, new token. Without this update
+      // a subsequent login-elsewhere would blacklist the original login's
+      // jti (still in the table) instead of the refreshed one. Preserve
+      // the deviceType from the existing session row; refresh requests
+      // don't carry a deviceType claim of their own. `pushRevoked: false`
+      // because the device must NOT receive its own session:revoked event.
+      const deviceType = await getUserSessionDeviceType(session.uid);
+      const { accessToken } = await issueAccessTokenAndClaimSession({
+        userUid: session.uid,
+        tokenPayload: { id: session.staff_id, uid: session.uid, role: session.role },
+        expiresIn: SECURITY_CONFIG.jwt.staffAccessExpiry,
+        deviceType,
+        req,
+        pushRevoked: false,
+      });
 
       return {
         accessToken,

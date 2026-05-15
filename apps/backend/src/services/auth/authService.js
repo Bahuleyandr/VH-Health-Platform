@@ -758,7 +758,7 @@ export class AuthService {
   }
 
   /* ======================== Tokens / Sessions ======================== */
-  static async refreshToken(token) {
+  static async refreshToken(token, req) {
     try {
       // Refresh must accept a JUST-EXPIRED access token — that's the whole
       // point. We still verify the signature and reject already-revoked
@@ -776,18 +776,30 @@ export class AuthService {
       });
       if (!user) throw new Error('User not found');
 
-      // Token rotation: blacklist the old token before issuing a new one.
-      // For tokens that have already expired, blacklisting is a no-op
-      // (tokenBlacklist.js short-circuits when ttl <= 0) — safe.
+      // Belt-and-suspenders: blacklist the rotated request's jti directly
+      // (in case it diverges from whatever's in user_active_sessions). For
+      // tokens that have already expired, blacklistToken short-circuits.
       if (decoded.jti && decoded.exp) {
         await blacklistToken(decoded.jti, decoded.exp, 'refresh_rotation');
       }
 
-      const newToken = generateToken({
-        uid: user.uid,
-        id: user.id,
-        phone: user.phone,
-        role: user.role,
+      // Mint the new access token *and* rotate the user_active_sessions row
+      // to its jti. Without this update a subsequent login-elsewhere would
+      // blacklist the *original* login's jti (whatever's still in the table)
+      // instead of the refreshed one, and the booted device would survive.
+      // `pushRevoked: false` because this is the same logical session — the
+      // device must NOT receive its own session:revoked event.
+      const { accessToken: newToken } = await issueAccessTokenAndClaimSession({
+        userUid: user.uid,
+        tokenPayload: {
+          uid: user.uid,
+          id: user.id,
+          phone: user.phone,
+          role: user.role,
+        },
+        deviceType: decoded.deviceType,
+        req,
+        pushRevoked: false,
       });
 
       return {
