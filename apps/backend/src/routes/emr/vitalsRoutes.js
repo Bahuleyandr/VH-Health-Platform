@@ -70,6 +70,35 @@ router.post('/vitals', async (req, res, next) => {
 });
 
 // ===================================================================
+// PUT /emr/vitals/:vitalsId — Correct vitals within entry window
+// ===================================================================
+
+router.put('/vitals/:vitalsId', async (req, res, next) => {
+  try {
+    const { vitalsId } = req.params;
+    const result = await vitalsChartService.correctVitals(vitalsId, {
+      ...req.body,
+      corrected_by: req.user.uid,
+      ip_address: req.ip,
+    });
+
+    logPhiAccess({
+      userId: req.user.uid,
+      userRole: req.user.role,
+      patientId: result.patient_uid,
+      recordType: 'vitals',
+      action: 'UPDATE',
+      ip: req.ip,
+      requestId: req.id,
+    });
+
+    return success(res, result, 'Vitals corrected');
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ===================================================================
 // GET /emr/vitals/:patientUid/latest — Latest vitals
 // ===================================================================
 
