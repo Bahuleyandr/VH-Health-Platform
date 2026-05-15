@@ -6,8 +6,9 @@
 //   2. Acquire pg advisory lock so concurrent runs fail fast.
 //   3. Bootstrap schema via apps/backend/scripts/ensure-test-db.mjs (drops + prisma db push + hybrid migrations).
 //   4. Seed via apps/backend/scripts/seed-comprehensive-test-data.mjs.
-//   5. Run scripts/seed-qa-tenant.mjs to add QA-only edge-case fixtures + record qa_seed_meta row.
-//   6. Release advisory lock.
+//   5. Seed staff accounts used by smoke tests (EMP-1001..EMP-1015).
+//   6. Run scripts/seed-qa-tenant.mjs to add QA-only edge-case fixtures + record qa_seed_meta row.
+//   7. Release advisory lock.
 //
 // Refuses to run unless every guardrail passes. By design no flag bypasses
 // any guardrail — fix the env, don't fork the script.
@@ -173,6 +174,7 @@ function computeSeedVersion() {
   // Hash the seeder source files so a finding can be tied to an exact seed.
   const sources = [
     path.join(backendDir, 'scripts', 'seed-comprehensive-test-data.mjs'),
+    path.join(backendDir, 'scripts', 'seed-test-staff-accounts.mjs'),
     path.join(__dirname, 'seed-qa-tenant.mjs'),
   ].filter((p) => fs.existsSync(p));
 
@@ -289,6 +291,9 @@ async function main() {
     // GRANTs to qa_writer were wiped. Re-grant CRUD on the public schema
     // before the QA tenant seed runs (it connects as qa_writer).
     await grantQaWriterPrivs();
+
+    // Staff smoke journeys assume EMP-1001..EMP-1015 exist after reset.
+    runScript('test staff seed', path.join(backendDir, 'scripts', 'seed-test-staff-accounts.mjs'));
 
     // QA tenant seed runs as qa_writer (whatever the orchestrator was given).
     runScript('qa tenant seed', path.join(__dirname, 'seed-qa-tenant.mjs'));
