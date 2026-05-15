@@ -24,6 +24,9 @@ import { claimUserSession } from './userActiveSession.js';
  *                                     present, so old (unupdated) clients that don't send it get tokens
  *                                     without the claim — the requireDeviceType gate then forces re-login.
  * @param {Object} [args.req] - Express request, used for ip + user-agent.
+ * @param {boolean} [args.pushRevoked=true] - Forward to {@link claimUserSession}. Pass `false` when
+ *   minting a refreshed access token: the prior jti must still be blacklisted, but no
+ *   `session:revoked` event should fire (the device is itself, just rotated).
  * @returns {Promise<{ accessToken: string, jti: string }>} The signed token and its jti.
  */
 export async function issueAccessTokenAndClaimSession({
@@ -32,6 +35,7 @@ export async function issueAccessTokenAndClaimSession({
   expiresIn,
   deviceType,
   req,
+  pushRevoked = true,
 }) {
   if (!userUid) throw new Error('issueAccessTokenAndClaimSession: userUid is required');
   if (!tokenPayload) throw new Error('issueAccessTokenAndClaimSession: tokenPayload is required');
@@ -59,6 +63,7 @@ export async function issueAccessTokenAndClaimSession({
     expiresAt,
     ipAddress: req?.ip ?? null,
     userAgent: req?.headers?.['user-agent'] ?? null,
+    pushRevoked,
   });
 
   return { accessToken, jti };

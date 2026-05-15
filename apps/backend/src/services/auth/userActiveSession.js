@@ -22,7 +22,11 @@ import { sendToUser } from '../../utils/websocket/wsServer.js';
 
 /**
  * Replace the user's prior active session (if any) with the new one. Revokes
- * the prior jti and emits a `session:revoked` event to that user.
+ * the prior jti and (by default) emits a `session:revoked` event to that user.
+ *
+ * Pass `pushRevoked: false` for refresh-token rotation: the new jti is the
+ * same logical session, just rotated, so the device should NOT kick itself
+ * to login on receiving its own revoke event.
  *
  * @param {Object} args
  * @param {string} args.userUid - The user's UUID (users.uid). Required.
@@ -32,6 +36,8 @@ import { sendToUser } from '../../utils/websocket/wsServer.js';
  * @param {string} [args.deviceLabel] - Optional human label (e.g. "Pixel 8").
  * @param {string} [args.ipAddress] - req.ip of the new login.
  * @param {string} [args.userAgent] - User-Agent of the new login.
+ * @param {boolean} [args.pushRevoked=true] - Emit `session:revoked` over WS
+ *   for the prior jti. Set false on refresh-token rotation.
  * @returns {Promise<{ revokedPrior: boolean, priorDeviceType: string|null }>}
  */
 export async function claimUserSession({
@@ -42,6 +48,7 @@ export async function claimUserSession({
   deviceLabel = null,
   ipAddress = null,
   userAgent = null,
+  pushRevoked = true,
 }) {
   if (!userUid || !jti || !deviceType || !expiresAt) {
     throw new Error('claimUserSession: userUid, jti, deviceType, expiresAt are required');
@@ -65,22 +72,31 @@ export async function claimUserSession({
     logger.warn('claimUserSession: prior-session lookup failed', { userUid, error: err.message });
   }
 
-  // Step 2: blacklist the prior jti + push a realtime kick to that user.
+  // Step 2: blacklist the prior jti + (by default) push a realtime kick.
+  // On refresh-token rotation the caller passes `pushRevoked: false` — the
+  // jti rotation is invisible to the user and we mustn't tell their own
+  // device to log itself out.
   if (prior && prior.jti && prior.jti !== jti) {
     try {
-      await blacklistToken(prior.jti, Number(prior.expires_at_unix), 'replaced_by_new_login');
+      await blacklistToken(
+        prior.jti,
+        Number(prior.expires_at_unix),
+        pushRevoked ? 'replaced_by_new_login' : 'refresh_rotation',
+      );
     } catch (err) {
       logger.warn('claimUserSession: blacklistToken failed', { userUid, error: err.message });
     }
-    try {
-      sendToUser(userUid, 'session:revoked', {
-        reason: 'new_login_elsewhere',
-        newDeviceType: deviceType,
-        priorDeviceType: prior.device_type,
-        at: new Date().toISOString(),
-      });
-    } catch (err) {
-      logger.warn('claimUserSession: sendToUser failed', { userUid, error: err.message });
+    if (pushRevoked) {
+      try {
+        sendToUser(userUid, 'session:revoked', {
+          reason: 'new_login_elsewhere',
+          newDeviceType: deviceType,
+          priorDeviceType: prior.device_type,
+          at: new Date().toISOString(),
+        });
+      } catch (err) {
+        logger.warn('claimUserSession: sendToUser failed', { userUid, error: err.message });
+      }
     }
   }
 
@@ -117,6 +133,29 @@ export async function claimUserSession({
     revokedPrior: Boolean(prior),
     priorDeviceType: prior?.device_type ?? null,
   };
+}
+
+/**
+ * Look up the device_type recorded for the user's current active session.
+ *
+ * Used by refresh-token rotation paths that need to preserve the deviceType
+ * claim across rotation but don't have it from the (refresh) token.
+ *
+ * @param {string} userUid
+ * @returns {Promise<string|null>} the recorded device_type, or null if no row.
+ */
+export async function getUserSessionDeviceType(userUid) {
+  if (!userUid) return null;
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      'SELECT device_type FROM user_active_sessions WHERE user_uid = $1::uuid LIMIT 1',
+      userUid,
+    );
+    if (rows.length > 0) return rows[0].device_type ?? null;
+  } catch (err) {
+    logger.warn('getUserSessionDeviceType failed', { userUid, error: err.message });
+  }
+  return null;
 }
 
 /**
