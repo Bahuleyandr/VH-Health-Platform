@@ -484,19 +484,18 @@ export const getPendingInvestigations = async (filters) => {
 // running a broken SQL statement.
 export const updateStatus = async (id, status, notes, userId) => {
   const validStatuses = Object.values(INVESTIGATION_STATUS);
-  if (!validStatuses.includes(status.toUpperCase())) {
+  const normalizedStatus = status.toUpperCase();
+  if (!validStatuses.includes(normalizedStatus)) {
     throw new Error('INVALID_STATUS');
   }
 
-  // `userId` is accepted for audit parity with callers but the investigations
-  // schema has no updated_by column — audit is emitted separately via the
-  // phiAccessLogger middleware on the route. Keep the param for signature
-  // stability; intentionally unused here.
-  void userId;
-
-  const data = { status: status.toUpperCase() };
+  const data = { status: normalizedStatus };
   if (notes != null) data.notes = notes;
-  if (status.toUpperCase() === 'COMPLETED') data.completed_at = new Date();
+  if (normalizedStatus === 'COLLECTED') {
+    data.collected_at = new Date();
+    data.collected_by = userId || null;
+  }
+  if (normalizedStatus === 'COMPLETED') data.completed_at = new Date();
   // `updated_at` is @updatedAt in schema.prisma — Prisma auto-bumps on every
   // update, no need to set it manually.
 
@@ -509,6 +508,8 @@ export const updateStatus = async (id, status, notes, userId) => {
     status: true,
     priority: true,
     notes: true,
+    collected_at: true,
+    collected_by: true,
     completed_at: true,
     updated_at: true,
   };
