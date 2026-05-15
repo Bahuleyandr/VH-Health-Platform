@@ -794,7 +794,11 @@ export const getMyPrescriptions = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 export const getAllPrescriptions = async (req, res) => {
   try {
-    const { doctor_id, phone, from_date, to_date, status, page = 1, limit = 50 } = req.query;
+    const {
+      doctor_id, phone, from_date, to_date, status,
+      prescription_number, patient_id, visit_no,
+      page = 1, limit = 50,
+    } = req.query;
     const params = [];
     let where = 'WHERE 1=1';
 
@@ -809,6 +813,36 @@ export const getAllPrescriptions = async (req, res) => {
     if (phone) {
       params.push(phone);
       where += ` AND p.phone = $${params.length}`;
+    }
+    // Pharmacy counter look-ups: dispense-against-the-paper-Rx flow.
+    // Pharmacists often hold just the RX-number, a patient id from the
+    // patient card, or a visit number from the doctor handoff. Pre-fix
+    // all three were silently ignored and the search returned an
+    // unrelated patient's prescription at the top of the list —
+    // wrong-patient-dispensing risk. Each filter resolves to exactly
+    // the one matching row (or zero) when supplied. Finding:
+    // 2026-05-15-pediatric-opd-pharmacy-34cc16a5.
+    if (prescription_number) {
+      params.push(prescription_number);
+      where += ` AND ep.prescription_number = $${params.length}`;
+    }
+    if (patient_id) {
+      const pidInt = parseInt(patient_id, 10);
+      if (Number.isFinite(pidInt)) {
+        params.push(pidInt);
+        where += ` AND ep.patient_id = $${params.length}`;
+      }
+    }
+    // visit_no lives on the appointments table; resolve via the FK that
+    // e_prescriptions already carries. A LEFT-JOIN-with-WHERE would
+    // exclude prescriptions whose appointment_id is null and surprise
+    // the other branches — keeping it a scalar IN keeps every existing
+    // WHERE-branch independent.
+    if (visit_no) {
+      params.push(visit_no);
+      where += ` AND ep.appointment_id IN (
+        SELECT id FROM appointments WHERE visit_no = $${params.length}
+      )`;
     }
     if (from_date) {
       params.push(from_date);
