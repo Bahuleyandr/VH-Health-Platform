@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/api_config.dart';
+import '../platform_info.dart';
 import 'api_client.dart';
 import 'recent_patients_service.dart';
 import 'telemetry_service.dart';
@@ -15,7 +16,15 @@ class AuthService {
   }) async {
     final response = await ApiClient.post(
       '/auth/staff/login',
-      body: {'employeeId': employeeId, 'password': password},
+      body: {
+        'employeeId': employeeId,
+        'password': password,
+        // Pinned by platform — the backend uses this to (1) restrict
+        // attendance-marking to phone-class clients, and (2) record the
+        // device class in user_active_sessions for the new-login-evicts-
+        // old-session policy.
+        'deviceType': currentDeviceType,
+      },
     );
 
     if (response.isSuccess && response.raw is Map) {
@@ -64,7 +73,11 @@ class AuthService {
   }) async {
     final response = await ApiClient.post(
       '/auth/staff/login-pin',
-      body: {'employeeId': employeeId, 'pin': pin},
+      body: {
+        'employeeId': employeeId,
+        'pin': pin,
+        'deviceType': currentDeviceType,
+      },
     );
 
     if (response.isSuccess && response.raw is Map) {
@@ -134,6 +147,7 @@ class AuthService {
         'pin': ?pin,
         'biometricToken': ?biometricToken,
         'deviceToken': ?deviceToken,
+        'deviceType': currentDeviceType,
       },
     );
 

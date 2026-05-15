@@ -107,7 +107,11 @@ class _SplashScreenState extends State<SplashScreen>
           .post(
             url,
             headers: ApiConfig.jsonHeaders,
-            body: jsonEncode({'phone': devPhone, 'name': devName}),
+            body: jsonEncode({
+              'phone': devPhone,
+              'name': devName,
+              'deviceType': 'mobile',
+            }),
           )
           .timeout(const Duration(seconds: 10));
       if (resp.statusCode != 200) {

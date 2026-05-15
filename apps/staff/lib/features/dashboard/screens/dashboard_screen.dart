@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../core/config/api_config.dart';
 import '../../../core/config/role_config.dart';
+import '../../../core/platform_info.dart';
 import '../../../core/providers/websocket_provider.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/auth_service.dart';
@@ -382,13 +383,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Attendance status card
-                          _AttendanceStatusCard(
-                            isCheckedIn: checkedIn,
-                            checkInTime: _attendanceStatus?['checkInTime'],
-                            onTap: () => context.push('/attendance'),
-                          ),
-                          const SizedBox(height: 16),
+                          // Attendance status card — phone-only. The
+                          // backend rejects attendance marking from the
+                          // desktop app (`requireDeviceType('mobile')`),
+                          // so we hide the card on desktop too instead
+                          // of letting users tap into a 403.
+                          if (!isDesktopPlatform) ...[
+                            _AttendanceStatusCard(
+                              isCheckedIn: checkedIn,
+                              checkInTime: _attendanceStatus?['checkInTime'],
+                              onTap: () => context.push('/attendance'),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
 
                           // Pending offline sync banner
                           if (_pendingSyncCount > 0)
@@ -1295,15 +1302,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final s = AppStrings.of(context);
     final actions = <_QuickAction>[];
 
-    // Everyone gets attendance
-    actions.add(
-      _QuickAction(
-        icon: Icons.fingerprint,
-        label: s.dashboardActionCheckInOut,
-        route: '/attendance',
-        color: const Color(0xFF1565C0),
-      ),
-    );
+    // Attendance — phone-only. The backend's requireDeviceType('mobile')
+    // gate rejects desktop attempts; hide the tile on desktop so the user
+    // doesn't get a 403 surprise.
+    if (!isDesktopPlatform) {
+      actions.add(
+        _QuickAction(
+          icon: Icons.fingerprint,
+          label: s.dashboardActionCheckInOut,
+          route: '/attendance',
+          color: const Color(0xFF1565C0),
+        ),
+      );
+    }
 
     // Schedule for all
     actions.add(
