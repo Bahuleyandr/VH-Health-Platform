@@ -987,7 +987,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
         // formulation" mismatch. Limited to 6 rows per medication so
         // the response stays bounded.
         if (medName) {
-          const firstToken = medName.split(/[\s,\/-]/, 1)[0]?.trim();
+          const firstToken = medName.split(/[\s,/-]/, 1)[0]?.trim();
           if (firstToken && firstToken.length >= 3) {
             try {
               const altRes = await prisma.$queryRawUnsafe(
