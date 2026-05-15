@@ -42,6 +42,10 @@ const ADMISSION_RETURNING_SELECT = {
   encounter_id: true,
   patient_uid: true,
   status: true,
+  // admission_type surfaced so Phase 1.5 post-commit branching (e.g.
+  // auto-create day-care OT schedule) doesn't need an extra round trip.
+  admission_type: true,
+  admitting_doctor: true,
   ward: true,
   bed_id: true,
   bed_number: true,
@@ -445,7 +449,7 @@ async function admitPatient(data) {
     }
   }
 
-  return prisma.$transaction(async (tx) => {
+  const admission = await prisma.$transaction(async (tx) => {
     // Resolve patient_uid → users.id (beds.patient_id is int FK)
     const patientUser = await tx.users.findUnique({
       where: { uid: patient_uid },
@@ -653,6 +657,92 @@ async function admitPatient(data) {
 
     return admission;
   });
+
+  // Phase 1.5: day-care surgical OT auto-schedule. A day_care admission
+  // linked to a surgical package (DC-CATARACT-PHACO, DC-LAP-CHOLE, etc.)
+  // implicitly requires an ot_schedules row — without one the bedside
+  // nurse can't open the OT board, can't fill the WHO time-out checklist,
+  // and same-day discharge stalls. Pre-fix, the nurse had to POST
+  // /api/v1/theatre/schedule with the admission details hand-copied
+  // before pre-op work could begin. Finding:
+  //   2026-05-15-surgical-day-care-nurse-6df19b4a.
+  //
+  // Runs OUTSIDE the admit tx so a failure here cannot roll back the
+  // admission (bed allocation, attendant passes, etc.). Best-effort, log
+  // on failure — the manual /theatre/schedule route stays available as
+  // the fallback path.
+  if (admission.admission_type === 'day_care' && admission.package_code) {
+    try {
+      await maybeAutoCreateDayCareOtSchedule(admission);
+    } catch (e) {
+      logger.warn(`admitPatient: day-care OT auto-schedule failed for admission ${admission.id}: ${e.message}`);
+    }
+  }
+
+  return admission;
+}
+
+// Per finding 2026-05-15-surgical-day-care-nurse-6df19b4a. Spawn an
+// ot_schedules row when a day-care admission lands with a surgical
+// package code. Idempotent: if an active schedule already exists for
+// this admission's patient + procedure today, no new row is created.
+//
+// Gated on package_code prefix 'DC-' so non-surgical day-care admissions
+// (chemo, dialysis, transfusion) don't get a spurious OT booking — the
+// nurse on those wards never opens the OT board.
+async function maybeAutoCreateDayCareOtSchedule(admission) {
+  if (!admission?.package_code || !admission.package_code.toUpperCase().startsWith('DC-')) {
+    return null;
+  }
+  const surgeon = admission.attending_doctor || admission.admitting_doctor;
+  if (!surgeon) {
+    logger.info(`maybeAutoCreateDayCareOtSchedule: admission ${admission.id} has no attending/admitting doctor — skipping OT auto-schedule`);
+    return null;
+  }
+  // Look up the package's display name + procedure code. The package
+  // is in the same tenant the admission already filtered to, so no
+  // additional tenant gate is needed beyond the strict package_code +
+  // status='active' lookup.
+  const pkgRow = await prisma.packages.findFirst({
+    where: { package_code: admission.package_code, status: 'active' },
+    select: { display_name: true, base_procedure_code: true },
+  });
+  const procedureName = pkgRow?.display_name || admission.package_code;
+  const procedureCode = pkgRow?.base_procedure_code || null;
+
+  // Idempotency probe: an OT schedule for this patient + procedure today
+  // means a prior call (or a manual POST /theatre/schedule from the
+  // nurse) already covered it. Don't double-book.
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT id FROM ot_schedules
+      WHERE patient_uid = $1::uuid
+        AND procedure_name = $2
+        AND scheduled_date = CURRENT_DATE
+        AND COALESCE(status, '') NOT IN ('cancelled')
+      LIMIT 1`,
+    admission.patient_uid,
+    procedureName,
+  );
+  if (existing.length > 0) {
+    logger.info(`maybeAutoCreateDayCareOtSchedule: admission ${admission.id} already has OT schedule ${existing[0].id} — skipping`);
+    return existing[0];
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO ot_schedules
+       (patient_uid, surgeon, procedure_name, procedure_code,
+        scheduled_date, status, blood_arranged, consent_obtained,
+        created_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, $3, $4, CURRENT_DATE,
+             'scheduled', false, false, NOW(), NOW())
+     RETURNING id`,
+    admission.patient_uid,
+    surgeon,
+    procedureName,
+    procedureCode,
+  );
+  logger.info(`maybeAutoCreateDayCareOtSchedule: created OT schedule ${rows[0].id} for admission ${admission.id} (${procedureName})`);
+  return rows[0];
 }
 
 /**
