@@ -942,6 +942,17 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     // that the right product left the shelf. Finding:
     //   2026-05-10-pediatric-opd-pharmacy-syrup-non-catalog-zero-bill-fulfilled.
     const unmatched = [];
+    // Per-unmatched-name: ranked list of catalog rows that look like a
+    // formulation of the same generic, so the pharmacist's counter UI can
+    // show alternatives and re-submit with an explicit catalog_id instead
+    // of asking the doctor to re-prescribe with the exact brand string.
+    // Closes finding 2026-05-15-walk-in-opd-pharmacy-f095b90a — a generic
+    // 'Paracetamol' Rx for a 2 y/o failed even though four stocked
+    // paediatric syrups existed (Paracetamol Syrup 125mg/5ml etc.). The
+    // exact ILIKE match below is preserved as the happy path; the
+    // alternatives are surfaced only when no exact match exists, with
+    // stock + price so the UI can sort/filter.
+    const suggestions = {};
 
     for (const med of medications) {
       const medName = med.name || med.medication_name || med.drug_name || '';
@@ -970,6 +981,42 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       }
       if (!catalogId) {
         unmatched.push(medName || '(unnamed medication)');
+        // Build the alternative list only when we're going to surface
+        // it — a prefix-ILIKE on pharmacy_catalog with the first token
+        // of the medication name covers the common "generic vs branded
+        // formulation" mismatch. Limited to 6 rows per medication so
+        // the response stays bounded.
+        if (medName) {
+          const firstToken = medName.split(/[\s,\/-]/, 1)[0]?.trim();
+          if (firstToken && firstToken.length >= 3) {
+            try {
+              const altRes = await prisma.$queryRawUnsafe(
+                `SELECT id, name, unit_price, stock_quantity, in_stock
+                   FROM pharmacy_catalog
+                  WHERE name ILIKE $1 || '%'
+                    AND COALESCE(is_active, true) = true
+                  ORDER BY (COALESCE(stock_quantity, 0) > 0) DESC,
+                           COALESCE(stock_quantity, 0) DESC,
+                           name ASC
+                  LIMIT 6`,
+                firstToken,
+              );
+              if (altRes.length > 0) {
+                suggestions[medName] = altRes.map((r) => ({
+                  id: r.id,
+                  name: r.name,
+                  unit_price: parseFloat(r.unit_price) || 0,
+                  stock_quantity: r.stock_quantity ?? 0,
+                  in_stock: Boolean(r.in_stock) && (r.stock_quantity ?? 0) > 0,
+                }));
+              }
+            } catch (suggestErr) {
+              // Best-effort — failure to build alternatives should not
+              // mask the underlying ITEM_NOT_IN_CATALOG error.
+              logger.warn(`pharmacy alt-suggest lookup failed for "${medName}":`, suggestErr.message);
+            }
+          }
+        }
       }
       const qty = toPositiveInt(med.quantity ?? med.qty, 1);
       const lineTotal = Number((price * qty).toFixed(2));
@@ -992,11 +1039,18 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     totalCost = Number(totalCost.toFixed(2));
 
     if (unmatched.length) {
+      const detail = { code: 'ITEM_NOT_IN_CATALOG', unmatched };
+      if (Object.keys(suggestions).length > 0) {
+        detail.suggestions = suggestions;
+      }
+      const hint = Object.keys(suggestions).length > 0
+        ? ' Available alternatives included in `suggestions` — re-submit with the chosen catalog_id.'
+        : ' Add the catalog entry (correct formulation/strength) and retry.';
       return error(
         res,
-        `Cannot create pharmacy order — items not in catalog: ${unmatched.join('; ')}. Add the catalog entry (correct formulation/strength) and retry.`,
+        `Cannot create pharmacy order — items not in catalog: ${unmatched.join('; ')}.${hint}`,
         HTTP_STATUS.BAD_REQUEST,
-        { code: 'ITEM_NOT_IN_CATALOG', unmatched },
+        detail,
       );
     }
 
