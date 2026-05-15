@@ -32,6 +32,7 @@ import 'package:vhhealth/core/services/firebase_crash_reporter.dart';
 import 'package:vhhealth/core/services/health_sync_service.dart';
 import 'package:vhhealth/core/services/notification_scheduler.dart';
 import 'package:vhhealth/core/services/websocket_service.dart';
+import 'package:vhhealth/core/widgets/session_revocation_listener.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
 import 'package:vhhealth/core/offline/mutation_queue.dart';
@@ -203,6 +204,14 @@ class _VHRootState extends State<VHRoot> with WidgetsBindingObserver {
                 GlobalCupertinoLocalizations.delegate,
               ],
               routerConfig: AppRouter.router,
+              // Listens for `session:revoked` realtime events (pushed
+              // when this account just logged in elsewhere) and forces
+              // a clean logout + redirect to /login. Lives in the
+              // MaterialApp builder so a ScaffoldMessenger is reachable
+              // for the snackbar.
+              builder: (context, child) => SessionRevocationListener(
+                child: child ?? const SizedBox.shrink(),
+              ),
             ),
           );
         },

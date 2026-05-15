@@ -55,19 +55,23 @@ export async function POST(request: Request) {
 
   const body = await request.json();
 
-  // Flow 1: Admin login (username + password)
+  // Flow 1: Admin login (username + password). `deviceType: 'web'` is
+  // pinned by this proxy — the admin app is web-only, and the backend
+  // uses the claim to enforce the single-active-session policy and to
+  // gate device-class-restricted routes.
   if (body.username && body.password) {
     return proxyLogin(
       `${API_BASE_URL}/api/v1/auth/admin/login`,
-      { username: body.username, password: body.password },
+      { username: body.username, password: body.password, deviceType: 'web' },
     );
   }
 
-  // Flow 2: Staff login (employeeId + password)
+  // Flow 2: Staff login (employeeId + password) from the admin web. Same
+  // device-type pinning applies.
   if (body.employeeId && body.password) {
     return proxyLogin(
       `${API_BASE_URL}/api/v1/auth/staff/login`,
-      { employeeId: body.employeeId, password: body.password },
+      { employeeId: body.employeeId, password: body.password, deviceType: 'web' },
     );
   }
 

@@ -8,9 +8,9 @@ import { success, error } from '../../utils/responseHelper.js';
 // Firebase ID Token Authentication
 export const firebaseLogin = async (req, res) => {
   try {
-    const { idToken, deviceInfo } = req.body;
-    
-    const result = await firebaseAuthService.authenticateWithFirebase(idToken, deviceInfo, req);
+    const { idToken, deviceInfo, deviceType } = req.body;
+
+    const result = await firebaseAuthService.authenticateWithFirebase(idToken, deviceInfo, req, { deviceType });
     
     success(res, result, result.isNewUser ? 'User registered successfully' : 'Login successful');
   } catch (err) {
@@ -45,10 +45,10 @@ export const completeProfile = async (req, res) => {
 // Link Firebase account to existing user
 export const linkAccount = async (req, res) => {
   try {
-    const { phone, idToken, otp } = req.body;
-    
-    const result = await firebaseAuthService.linkFirebaseAccount(phone, idToken, otp);
-    
+    const { phone, idToken, otp, deviceType } = req.body;
+
+    const result = await firebaseAuthService.linkFirebaseAccount(phone, idToken, otp, req, { deviceType });
+
     success(res, result, 'Account linked successfully');
   } catch (err) {
     logger.error('Account Linking Error:', err);
@@ -144,8 +144,8 @@ export const testRoute = async (req, res) => {
 // Legacy register user (maintained for backward compatibility)
 export const registerUser = async (req, res) => {
   try {
-    const userData = req.body;
-    const result = await firebaseAuthService.legacyRegisterUser(userData);
+    const { deviceType, ...userData } = req.body;
+    const result = await firebaseAuthService.legacyRegisterUser(userData, req, { deviceType });
     success(res, result, 'User registered successfully');
   } catch (err) {
     logger.error('Legacy Register Error:', err);

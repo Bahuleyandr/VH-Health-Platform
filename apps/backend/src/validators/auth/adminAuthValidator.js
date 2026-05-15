@@ -1,5 +1,6 @@
 // validators/auth/adminAuthValidator.js
 import { body, param, oneOf } from 'express-validator';
+import { deviceTypeValidator } from './authValidator.js';
 
 // --- Admin login (username OR email) ---
 export const adminLoginValidator = [
@@ -21,6 +22,7 @@ export const adminLoginValidator = [
   body('password')
     .exists({ checkFalsy: true }).withMessage('Password is required')
     .isLength({ min: 6, max: 100 }).withMessage('Password must be between 6 and 100 characters'),
+  deviceTypeValidator,
 ];
 
 // --- Staff PIN login ---
@@ -33,6 +35,7 @@ export const staffPinLoginValidator = [
     .notEmpty().withMessage('PIN is required')
     .isLength({ min: 4, max: 6 }).withMessage('PIN must be between 4 and 6 digits')
     .isNumeric().withMessage('PIN must contain only numbers'),
+  deviceTypeValidator,
 ];
 
 // --- Change admin password ---

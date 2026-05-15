@@ -5,9 +5,9 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import admin from '../../utils/firebaseAdmin.js';
-import { generateToken } from '../../utils/jwtUtils.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { OTPService } from '../otpService.js';
+import { issueAccessTokenAndClaimSession } from './loginSessionHelper.js';
 
 
 // Local pg-shape shim: returns the raw `rows` array directly for any
@@ -40,7 +40,7 @@ const query = async (sql, params = []) => {
 
 
 // Authenticate with Firebase ID token
-export const authenticateWithFirebase = async (idToken, deviceInfo, req) => {
+export const authenticateWithFirebase = async (idToken, deviceInfo, req, { deviceType } = {}) => {
   // Verify Firebase ID token
   const decodedToken = await admin.auth().verifyIdToken(idToken);
   
@@ -102,13 +102,20 @@ export const authenticateWithFirebase = async (idToken, deviceInfo, req) => {
     logger.info(`🔥 Existing Firebase user logged in: ${phone}`);
   }
   
-  // Generate our JWT token
-  const accessToken = generateToken({
-    uid: user.uid,
-    id: user.id,
-    phone: user.phone,
-    role: user.role,
-    firebaseUid: firebaseUid
+  // Generate our JWT token + register it as this user's single active session.
+  // Any previously-active patient access token for this user is blacklisted
+  // and a `session:revoked` event is pushed to that user_uid's WS sockets.
+  const { accessToken } = await issueAccessTokenAndClaimSession({
+    userUid: user.uid,
+    tokenPayload: {
+      uid: user.uid,
+      id: user.id,
+      phone: user.phone,
+      role: user.role,
+      firebaseUid: firebaseUid,
+    },
+    deviceType,
+    req,
   });
   
   // Store device info if provided
@@ -182,7 +189,7 @@ export const completeUserProfile = async (profileData) => {
 };
 
 // Link Firebase account to existing user
-export const linkFirebaseAccount = async (phone, idToken, otp) => {
+export const linkFirebaseAccount = async (phone, idToken, otp, req, { deviceType } = {}) => {
   if (!idToken || !otp) {
     const error = new Error('Firebase ID token and OTP are required');
     error.statusCode = HTTP_STATUS.BAD_REQUEST;
@@ -222,15 +229,20 @@ export const linkFirebaseAccount = async (phone, idToken, otp) => {
     [firebaseUid, user.uid]
   );
   
-  // Generate new token with Firebase UID
-  const accessToken = generateToken({
-    uid: user.uid,
-    id: user.id,
-    phone: user.phone,
-    role: user.role,
-    firebaseUid: firebaseUid
+  // Generate new token with Firebase UID + register as the single active session.
+  const { accessToken } = await issueAccessTokenAndClaimSession({
+    userUid: user.uid,
+    tokenPayload: {
+      uid: user.uid,
+      id: user.id,
+      phone: user.phone,
+      role: user.role,
+      firebaseUid: firebaseUid,
+    },
+    deviceType,
+    req,
   });
-  
+
   logger.info(`🔗 Firebase account linked to existing user: ${normalizedPhone}`);
   
   return {
@@ -411,7 +423,7 @@ const logFirebaseAuth = async (phone, action, success, failureReason, req) => {
 };
 
 // Legacy register user (for backward compatibility)
-export const legacyRegisterUser = async (userData) => {
+export const legacyRegisterUser = async (userData, req, { deviceType } = {}) => {
   const { phone, name, gender, email, birthday, anniversary, address } = userData;
   const normalizedPhone = normalizePhone(phone);
   
@@ -438,15 +450,20 @@ export const legacyRegisterUser = async (userData) => {
   );
   
   const user = insertResult[0];
-  
-  // Generate token
-  const token = generateToken({
-    uid: user.uid,
-    phone: user.phone,
-    role: user.role,
-    id: user.id
+
+  // Generate token + register as the user's single active session.
+  const { accessToken: token } = await issueAccessTokenAndClaimSession({
+    userUid: user.uid,
+    tokenPayload: {
+      uid: user.uid,
+      phone: user.phone,
+      role: user.role,
+      id: user.id,
+    },
+    deviceType,
+    req,
   });
-  
+
   return {
     token,
     user: {

@@ -21,6 +21,7 @@ import 'core/services/connectivity_sync_service.dart';
 import 'core/services/firebase_crash_reporter.dart';
 import 'core/services/websocket_service.dart';
 import 'core/widgets/patient_search_sheet.dart';
+import 'core/widgets/session_revocation_listener.dart';
 import 'l10n/app_strings.dart';
 import 'package:vhhealth_core/services/crash_reporter.dart';
 import 'package:vhhealth_core/vhhealth_core.dart' show RealtimeProvider;
@@ -337,6 +338,15 @@ class _VHHealthStaffAppState extends State<VHHealthStaffApp>
                   ],
                   supportedLocales: AppStrings.supportedLocales,
                   routerConfig: appRouter,
+                  // Listens for `session:revoked` realtime events (pushed
+                  // when this account just logged in elsewhere) and kicks
+                  // to /login immediately, rather than waiting for the
+                  // next API call to 401. Lives in the MaterialApp
+                  // builder so a ScaffoldMessenger is reachable for the
+                  // snackbar.
+                  builder: (context, child) => SessionRevocationListener(
+                    child: child ?? const SizedBox.shrink(),
+                  ),
                 ),
               ),
             ),

@@ -14,3 +14,18 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 /// to evaluate on web too (where it is always false).
 bool get isDesktopPlatform =>
     !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+
+/// `deviceType` claim the staff app sends at every login (and that the
+/// backend echoes back into the JWT). Drives:
+///   * `requireDeviceType('mobile')` on `/staff/attendance` — desktop staff
+///     workstations are blocked from marking attendance.
+///   * UI gating — the dashboard hides the attendance tile on desktop so
+///     users don't get a 403 surprise.
+///
+/// Values: 'mobile' | 'desktop' | 'web' — matches the backend's
+/// `deviceTypeValidator` allow-list.
+String get currentDeviceType {
+  if (kIsWeb) return 'web';
+  if (isDesktopPlatform) return 'desktop';
+  return 'mobile';
+}

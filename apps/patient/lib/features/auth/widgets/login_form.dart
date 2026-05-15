@@ -69,7 +69,11 @@ class _LoginFormState extends State<LoginForm> {
           .post(
             url,
             headers: ApiConfig.jsonHeaders,
-            body: jsonEncode({'phone': '+919999999999', 'name': 'Dev Patient'}),
+            body: jsonEncode({
+              'phone': '+919999999999',
+              'name': 'Dev Patient',
+              'deviceType': 'mobile',
+            }),
           )
           .timeout(const Duration(seconds: 10));
 

@@ -2,6 +2,16 @@
 
 import { body, query } from 'express-validator';
 
+// `deviceType` is sent by every login flow (Flutter staff/patient + admin
+// web) after the single-active-session change. Marked optional so existing
+// clients without the field still authenticate; their tokens then omit the
+// claim and `requireDeviceType('mobile')` rejects them at the gated route
+// (e.g. attendance), forcing a re-login on an updated build.
+export const deviceTypeValidator = body('deviceType')
+  .optional()
+  .isIn(['mobile', 'desktop', 'web'])
+  .withMessage('deviceType must be one of: mobile, desktop, web');
+
 // Phone validators
 export const phoneValidator = [
   body('phone')
@@ -41,7 +51,8 @@ export const firebaseLoginValidator = [
     .isString()
     .withMessage('ID token must be a string')
     .isLength({ min: 10 })
-    .withMessage('Invalid ID token format')
+    .withMessage('Invalid ID token format'),
+  deviceTypeValidator,
 ];
 
 // User profile validator
@@ -288,7 +299,8 @@ export const staffPasswordLoginValidator = [
     .withMessage('Invalid employee ID format'),
   body('password')
     .notEmpty()
-    .withMessage('Password is required')
+    .withMessage('Password is required'),
+  deviceTypeValidator,
 ];
 
 // Device registration validator
@@ -309,7 +321,8 @@ export const deviceRegistrationValidator = [
     .withMessage('Device name is required'),
   body('deviceInfo.platform')
     .isIn(['ios', 'android'])
-    .withMessage('Platform must be ios or android')
+    .withMessage('Platform must be ios or android'),
+  deviceTypeValidator,
 ];
 
 // PIN setup validator
@@ -337,6 +350,7 @@ export const quickLoginValidator = [
     .optional()
     .isBoolean()
     .withMessage('Biometric must be boolean'),
+  deviceTypeValidator,
   body()
     .custom((value, { req }) => {
       if (!req.body.pin && !req.body.biometric) {
