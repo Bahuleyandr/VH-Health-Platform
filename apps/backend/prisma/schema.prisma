@@ -8263,6 +8263,20 @@ model user_action_logs {
   @@index([user_id])
 }
 
+model user_active_sessions {
+  user_uid     String   @id @db.Uuid
+  jti          String
+  device_type  String
+  device_label String?
+  ip_address   String?
+  user_agent   String?
+  issued_at    DateTime @default(now()) @db.Timestamptz(6)
+  expires_at   DateTime @db.Timestamptz(6)
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([jti], map: "idx_user_active_sessions_jti")
+}
+
 model user_deactivation_log {
   id                  Int      @id @default(autoincrement())
   user_id             String   @db.Uuid
