@@ -132,4 +132,73 @@ describe('GET /prescriptions/all — phone filter regression', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.data).toEqual([]);
   });
+
+  // Regression coverage for finding
+  // 2026-05-15-pediatric-opd-pharmacy-34cc16a5
+  //
+  // Pre-fix, ?prescription_number, ?patient_id, and ?visit_no were
+  // silently ignored — the response leaked unrelated patients' Rx rows.
+  // For pharmacy counter dispense-against-the-paper-Rx flows this is a
+  // wrong-patient-dispensing risk.
+  it('returns only the matching prescription when ?prescription_number is supplied', async () => {
+    const token = generateTestToken('PHARMACY_STAFF', {
+      uid: STAFF_UID,
+      id: staffId,
+      phone: '9999110004'
+    });
+
+    // Find one of the seeded Rx numbers (generated server-side as RX-...).
+    const seededRows = await prisma.$queryRawUnsafe(
+      `SELECT prescription_number, patient_id
+         FROM e_prescriptions
+        WHERE patient_id = $1::int
+        ORDER BY id DESC LIMIT 1`,
+      patientAId,
+    );
+    const rxNumber = seededRows[0].prescription_number;
+
+    const res = await request(app)
+      .get(`/api/v1/prescriptions/all?prescription_number=${encodeURIComponent(rxNumber)}`)
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.length).toBe(1);
+    expect(res.body.data[0].prescription_number).toBe(rxNumber);
+    expect(res.body.data[0].patient_id).toBe(patientAId);
+  });
+
+  it('returns only the matching patient when ?patient_id is supplied', async () => {
+    const token = generateTestToken('PHARMACY_STAFF', {
+      uid: STAFF_UID,
+      id: staffId,
+      phone: '9999110004'
+    });
+
+    const res = await request(app)
+      .get(`/api/v1/prescriptions/all?patient_id=${patientBId}`)
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.statusCode).toBe(200);
+    const patientIds = res.body.data.map(rx => rx.patient_id);
+    expect(patientIds).toContain(patientBId);
+    expect(patientIds).not.toContain(patientAId);
+  });
+
+  it('returns nothing for an unknown prescription_number', async () => {
+    const token = generateTestToken('PHARMACY_STAFF', {
+      uid: STAFF_UID,
+      id: staffId,
+      phone: '9999110004'
+    });
+
+    const res = await request(app)
+      .get('/api/v1/prescriptions/all?prescription_number=RX-does-not-exist-zzzzz')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data).toEqual([]);
+  });
 });
