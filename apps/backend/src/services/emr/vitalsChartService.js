@@ -18,6 +18,13 @@ const VALID_VITAL_TYPES = [
 const VALID_IO_TYPES = ['intake', 'output'];
 const VALID_IO_CATEGORIES = ['oral', 'iv', 'blood', 'urine', 'drain', 'vomit', 'stool', 'other'];
 const VALID_CONSCIOUSNESS = ['A', 'C', 'V', 'P', 'U'];
+const VITAL_CORRECTION_WINDOW_MS = 5 * 60 * 1000;
+const VITAL_CORRECTION_FIELDS = [
+  'heart_rate', 'systolic_bp', 'diastolic_bp', 'temperature', 'spo2',
+  'respiratory_rate', 'blood_glucose', 'pain_score', 'weight_kg',
+  'height_cm', 'gcs_score', 'supplemental_o2', 'o2_flow_rate',
+  'consciousness', 'notes', 'fhr', 'fundal_height_cm',
+];
 
 // Parse an encounter id that may arrive as int (POST body) or string (GET query).
 // Returns null for empty/undefined, throws 400 for non-numeric strings so the caller
@@ -154,6 +161,13 @@ function _normalizeEncounterIdLegacy(raw) {
 function stripNul(s) {
   if (s == null || typeof s !== 'string') return s;
   return s.indexOf('\u0000') === -1 ? s : s.replaceAll('\u0000', '');
+}
+
+function auditValue(value) {
+  if (value && typeof value === 'object' && typeof value.toString === 'function') {
+    return value instanceof Date ? value.toISOString() : value.toString();
+  }
+  return value;
 }
 
 // Convert a temperature value to Celsius, given the unit hint. Default unit
@@ -406,6 +420,95 @@ export async function getVitalsChart(patientUid, encounterId, pagination = {}) {
   };
 }
 
+export async function correctVitals(vitalsId, data) {
+  const id = Number(vitalsId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw AppError.badRequest('vitals id must be a positive integer');
+  }
+
+  const { temperature_unit, corrected_by, ip_address, ...changes } = data;
+  if (!corrected_by) {
+    throw AppError.badRequest('corrected_by is required');
+  }
+
+  if (changes.consciousness && !VALID_CONSCIOUSNESS.includes(changes.consciousness)) {
+    throw AppError.badRequest(`consciousness must be one of: ${VALID_CONSCIOUSNESS.join(', ')}`);
+  }
+  if (changes.pain_score !== undefined && changes.pain_score !== null && (changes.pain_score < 0 || changes.pain_score > 10)) {
+    throw AppError.badRequest('pain_score must be between 0 and 10');
+  }
+  if (changes.gcs_score !== undefined && changes.gcs_score !== null && (changes.gcs_score < 3 || changes.gcs_score > 15)) {
+    throw AppError.badRequest('gcs_score must be between 3 and 15');
+  }
+  if (changes.fhr !== undefined && changes.fhr !== null && (Number(changes.fhr) < 60 || Number(changes.fhr) > 220)) {
+    throw AppError.badRequest('fhr (fetal heart rate) must be between 60 and 220 bpm');
+  }
+  if (changes.fundal_height_cm !== undefined && changes.fundal_height_cm !== null && (Number(changes.fundal_height_cm) < 0 || Number(changes.fundal_height_cm) > 50)) {
+    throw AppError.badRequest('fundal_height_cm must be between 0 and 50 cm');
+  }
+
+  const updateData = {};
+  for (const field of VITAL_CORRECTION_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(changes, field)) {
+      updateData[field] = field === 'temperature'
+        ? toCelsius(changes[field], temperature_unit)
+        : changes[field];
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(updateData, 'notes')) {
+    updateData.notes = stripNul(updateData.notes);
+  }
+
+  if (Object.keys(updateData).length === 0) {
+    throw AppError.badRequest('At least one vitals field is required for correction');
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.vitals_chart.findUnique({
+      where: { id },
+      select: { ...VITAL_SELECT, created_at: true },
+    });
+
+    if (!existing) {
+      throw AppError.notFound('Vitals record not found');
+    }
+
+    const recordedAt = existing.recorded_at ?? existing.created_at;
+    if (!recordedAt) {
+      throw AppError.conflict('Vitals record cannot be corrected without a recorded timestamp');
+    }
+    if (Date.now() - new Date(recordedAt).getTime() > VITAL_CORRECTION_WINDOW_MS) {
+      throw AppError.conflict('Vitals correction window has expired');
+    }
+
+    const updated = await tx.vitals_chart.update({
+      where: { id },
+      data: updateData,
+      select: VITAL_SELECT,
+    });
+
+    await tx.audit_logs.create({
+      data: {
+        uid: corrected_by,
+        action: 'CORRECT_VITALS',
+        resource: 'vitals_chart',
+        resource_id: String(id),
+        metadata: {
+          patient_uid: existing.patient_uid,
+          encounter_id: existing.encounter_id,
+          corrected_fields: Object.keys(updateData),
+          before: Object.fromEntries(Object.keys(updateData).map((field) => [field, auditValue(existing[field])])),
+          after: Object.fromEntries(Object.keys(updateData).map((field) => [field, auditValue(updated[field])])),
+        },
+        ip_address,
+      },
+    });
+
+    logger.info(`Vitals corrected: id=${updated.id}, patient=${updated.patient_uid}, by=${corrected_by}`);
+    return updated;
+  });
+}
+
 export async function recordIntakeOutput(data) {
   const { patient_uid, encounter_id, encounter_uid, io_type, category, amount_ml, description, recorded_by } = data;
 
@@ -539,6 +642,7 @@ export default {
   getVitalsTrend,
   getLatestVitals,
   getVitalsChart,
+  correctVitals,
   recordIntakeOutput,
   getIOBalance,
   getIOChart,

@@ -17,6 +17,7 @@ function doctorAs(uid = RECORDER_UID) {
   return {
     get: (p) => request(app).get(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
+    put: (p) => request(app).put(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
   };
 }
 
@@ -28,6 +29,7 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
     // Cleanup — delete alerts + vitals tied to our fixtures
     await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PATIENT_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM intake_output WHERE patient_uid = $1::uuid`, PATIENT_UID);
+    await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE uid = $1::uuid AND action = 'CORRECT_VITALS'`, RECORDER_UID);
     // clinical_alerts keyed by int patient_id — look it up first, then delete
     const existing = await prisma.$queryRawUnsafe(`SELECT id FROM users WHERE uid = $1::uuid`, PATIENT_UID);
     if (existing.length) {
@@ -51,6 +53,7 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
   afterAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM intake_output WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE uid = $1::uuid AND action = 'CORRECT_VITALS'`, RECORDER_UID).catch(() => {});
     if (patientIntId) {
       await prisma.$executeRawUnsafe(`DELETE FROM clinical_alerts WHERE patient_id = $1`, patientIntId).catch(() => {});
     }
@@ -119,6 +122,31 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
         `SELECT heart_rate, spo2 FROM vitals_chart WHERE id = $1`, normalVitalsId);
       expect(parseFloat(row[0].heart_rate)).toBe(78);
       expect(parseFloat(row[0].spo2)).toBe(98);
+    });
+
+    it('corrects a recent vitals row and records an audit trail', async () => {
+      const res = await doctor.put(`/api/v1/emr/vitals/${normalVitalsId}`).send({
+        temperature: 36.9,
+        notes: 'Corrected within 5 minutes',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(parseFloat(res.body.data.temperature)).toBe(36.9);
+      expect(res.body.data.notes).toBe('Corrected within 5 minutes');
+
+      const latest = await doctor.get(`/api/v1/emr/vitals/${PATIENT_UID}/latest`);
+      expect(latest.statusCode).toBe(200);
+      expect(latest.body.data.id).toBe(normalVitalsId);
+      expect(parseFloat(latest.body.data.temperature)).toBe(36.9);
+
+      const auditRows = await prisma.$queryRawUnsafe(
+        `SELECT action, resource, metadata
+         FROM audit_logs
+         WHERE uid = $1::uuid AND action = 'CORRECT_VITALS' AND resource_id = $2
+         ORDER BY created_at DESC LIMIT 1`,
+        RECORDER_UID, String(normalVitalsId));
+      expect(auditRows.length).toBe(1);
+      expect(auditRows[0].resource).toBe('vitals_chart');
+      expect(auditRows[0].metadata.corrected_fields).toContain('temperature');
     });
   });
 
