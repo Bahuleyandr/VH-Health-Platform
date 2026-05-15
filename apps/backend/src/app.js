@@ -693,6 +693,22 @@ app.use(
   adminRateLimiter,
   tenantRoutes
 );
+// Legacy /api/v1/admin/surgical paths are deprecated — the parallel
+// mount at /api/v1/surgical (declared further down) is the clinical-staff
+// surface for preop / intraop / postop / safety-phase / anesthesia /
+// implants / complications documentation. The legacy paths used to share
+// the admin role gate, which surfaced as a misleading 403 when a nurse
+// or OT staff (legitimately allowed on the new mount) hit the old URL.
+// 308 preserves method + body so a POST stays a POST through the
+// redirect — clients silently roll forward without losing the request.
+// Mounted BEFORE the generic /api/v1/admin admin-role gate below so the
+// redirect fires before any RBAC check rejects the request. Findings:
+//   2026-05-15-surgical-day-care-nurse-43635edf (post-op)
+//   2026-05-15-surgical-day-care-ot-staff-fabb6cdc (WHO time-out + preop)
+app.use('/api/v1/admin/surgical', (req, res) => {
+  const target = req.originalUrl.replace('/api/v1/admin/surgical', '/api/v1/surgical');
+  res.redirect(308, target);
+});
 app.use('/api/v1/admin', requireRole('ADMIN', 'SUPER_ADMIN'), adminIpAllowlist, adminRateLimiter, adminDashboardRoutes);
 app.use('/api/v1/admin/gamification', requireRole('ADMIN', 'SUPER_ADMIN'), adminIpAllowlist, adminRateLimiter, adminGamificationRoutes);
 
@@ -713,16 +729,17 @@ app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSIN
 app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF'), orBoardRoutes);
 app.use('/api/v1/anesthesia', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF'), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
 
-// Surgical documentation — parallel mount at /api/v1/surgical for clinical
-// staff (OT nurses, surgeons, anaesthetists) who own these workflows in
-// real life. The legacy /api/v1/admin/surgical mount still exists for
-// audit/reporting consumers but RBAC-blocks NURSING_STAFF/OT_STAFF/DOCTOR
-// from authoring pre-op checklists, intraop notes, post-op (PACU) notes,
-// and WHO safety phases. Findings:
+// Surgical documentation — mounted at /api/v1/surgical for clinical staff
+// (OT nurses, surgeons, anaesthetists) who own these workflows in real
+// life. The legacy /api/v1/admin/surgical path is deprecated — a 308
+// redirect a few lines above forwards anyone still using the old URL.
+// Findings:
 //   2026-05-09-surgical-day-care-nurse-pacu-note-admin-only
 //   2026-05-10-surgical-day-care-nurse-preop-checklist-admin-only
 //   2026-05-10-surgical-day-care-ot-staff-timeout-recording-admin-only
 //   2026-05-10-surgical-day-care-ot-staff-surgeon-op-notes-admin-only
+//   2026-05-15-surgical-day-care-nurse-43635edf (legacy path → redirect)
+//   2026-05-15-surgical-day-care-ot-staff-fabb6cdc (legacy path → redirect)
 app.use(
   '/api/v1/surgical',
   requireRole(

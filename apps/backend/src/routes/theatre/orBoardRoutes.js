@@ -2,8 +2,8 @@
 //
 // Sprint 6 — operational OR board, room master, procedure catalog, and
 // conflict-aware booking. Mounted at /api/v1/theatre/*. The clinical
-// documentation routes (under /api/v1/admin/surgical/*) cover the
-// per-case docs and are unchanged.
+// documentation routes (under /api/v1/surgical/*) cover the per-case
+// docs and are unchanged.
 
 import { Router } from 'express';
 import logger from '../../logging/logger.js';
