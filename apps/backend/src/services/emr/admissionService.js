@@ -317,14 +317,18 @@ async function admitPatient(data) {
 
   // B-4 — emergency consent bypass (migration 182). Implied-consent
   // doctrine permits life-saving admission without prior written
-  // consent. Bypass fires only when admission_type='emergency' AND
-  // priority='emergent' (matches the admit-without-bed exception
-  // criterion from A2). Caller must supply emergency_consent_bypass_reason
-  // — the chart needs to record WHY consent was bypassed.
+  // consent. Bypass fires for any admission_type='emergency', regardless
+  // of priority — an urgent NSTEMI (troponin+, ESI-2/3) qualifies just
+  // as a resus-level emergent case does. The bedless-admit exception
+  // (isEmergencyExceptionEligible) stays restricted to emergent+bedless
+  // as a separate operational gate. Caller may supply
+  // emergency_consent_bypass_reason; a sensible default is recorded when
+  // omitted so the chart always shows why consent was bypassed.
   // Findings:
   //   2026-05-08-emergency-walk-in-admission-emergency-blocked-by-consent
-  //   2026-05-08-inpatient-admission-doctor-emergency-admit-blocked-by-treatment-consent.
-  const isEmergencyConsentBypassEligible = admission_type === 'emergency' && priority === 'emergent';
+  //   2026-05-08-inpatient-admission-doctor-emergency-admit-blocked-by-treatment-consent
+  //   2026-05-08-emergency-walk-in-doctor-admit-consent-blocks-emergency.
+  const isEmergencyConsentBypassEligible = admission_type === 'emergency';
   let emergencyBypass = null;
   // Consent gate. An active `treatment` consent satisfies it outright. A
   // `procedure` consent — captured at the pre-op OPD visit for a
