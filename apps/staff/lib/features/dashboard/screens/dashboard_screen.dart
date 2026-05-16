@@ -177,7 +177,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
             int count = 0;
             if (raw is Map<String, dynamic>) {
               final data = raw['data'];
-              if (data is Map<String, dynamic>) {
+              // GET /emr/admissions returns `data` as a List directly on the
+              // current backend; older shapes wrap it as { admissions: [...] }
+              // or { items: [...] }. Accept both so the stat doesn't silently
+              // read zero whenever the shape flips.
+              if (data is List) {
+                count = data.length;
+              } else if (data is Map<String, dynamic>) {
                 final list = data['admissions'] ?? data['items'];
                 if (list is List) count = list.length;
               }
