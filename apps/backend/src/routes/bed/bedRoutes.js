@@ -5,7 +5,7 @@ import { requireRole } from '../../middleware/rbacMiddleware.js';
 import {
   createWardValidation, updateWardValidation, deleteWardValidation,
   createBedValidation, updateBedValidation, deleteBedValidation,
-  admitValidation, dischargeValidation, wardIdValidation
+  admitValidation, wardIdValidation
 } from '../../validators/bed/bedValidators.js';
 
 export const bedRouter = express.Router();
@@ -30,7 +30,10 @@ bedRouter.put('/:id', requireClinical, updateBedValidation, bedController.update
 bedRouter.patch('/:id/notes', requireClinical, bedController.updateBedNotes);
 bedRouter.delete('/:id', requireClinical, deleteBedValidation, bedController.deleteBed);
 bedRouter.post('/:id/admit', requireClinical, admitValidation, bedController.admitPatient);
-bedRouter.post('/:id/discharge', requireClinical, dischargeValidation, bedController.dischargePatient);
+// /:id/discharge intentionally omitted — handled exclusively by bedManagementRoutes
+// (mounted after this router at /api/v1/beds). Defining it here shadowed the new
+// handler and bypassed the cleaning-status transition and housekeeping ticket.
+// Finding: 2026-05-16-tpa-insurance-claim-discharge-c4c868fa
 
 // ===== WARD ROUTES =====
 wardRouter.get('/', bedController.listWards);

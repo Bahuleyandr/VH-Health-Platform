@@ -147,11 +147,15 @@ class BedManagementService {
 
       const patientUid = bedRows[0].patient_uid;
 
-      await tx.$executeRawUnsafe(
-        `INSERT INTO bed_transfers (patient_uid, from_bed_id, to_bed_id, reason, transferred_by)
-         VALUES ($1::uuid, $2, $2, 'Discharge', $3::uuid)`,
-        patientUid, bedId, dischargedBy
-      );
+      // bed_transfers.patient_uid is NOT NULL; skip the audit row for beds
+      // admitted via the legacy bedService path (which never writes patient_uid).
+      if (patientUid) {
+        await tx.$executeRawUnsafe(
+          `INSERT INTO bed_transfers (patient_uid, from_bed_id, to_bed_id, reason, transferred_by)
+           VALUES ($1::uuid, $2, $2, 'Discharge', $3::uuid)`,
+          patientUid, bedId, dischargedBy
+        );
+      }
 
       const updated = await tx.$queryRawUnsafe(
         `UPDATE beds
