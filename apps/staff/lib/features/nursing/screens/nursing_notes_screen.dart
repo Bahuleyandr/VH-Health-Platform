@@ -3,6 +3,7 @@ import '../../../core/services/connectivity_sync_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/patient_context_chip.dart';
+import '../../../core/widgets/patient_notes_list.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/success_toast.dart';
 import '../../../core/widgets/voice_dictate_button.dart';
@@ -36,7 +37,10 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    // 3 tabs: Add (new nursing note), Recent (own/this-screen history),
+    // and All Notes (cross-visibility: every author role's notes for the
+    // patient, with read-only rendering and an admin-only edit button).
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -72,6 +76,7 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
               tabs: [
                 Tab(text: s.nursingNotesTabAdd),
                 Tab(text: s.nursingNotesTabRecent),
+                const Tab(text: 'All Notes'),
               ],
             ),
           ),
@@ -84,6 +89,17 @@ class _NursingNotesScreenState extends State<NursingNotesScreen>
                   prefillPhone: widget.prefillPatientPhone,
                 ),
                 const _RecentNotesTab(),
+                // Cross-role visibility: doctor + nurse + every other author
+                // role for this patient, read-only with role badges. Admin
+                // sees an edit pencil on each row (PUT /emr/notes/:id).
+                // If we don't have a patientUid in context (screen opened
+                // standalone, not from the bed board), prompt the user.
+                (widget.prefillPatientUid ?? '').isEmpty
+                    ? _NoPatientContext()
+                    : PatientNotesList(
+                        patientUid: widget.prefillPatientUid!,
+                        patientName: widget.prefillPatientName,
+                      ),
               ],
             ),
           ),
@@ -434,6 +450,32 @@ class _AddNoteTabState extends State<_AddNoteTab> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Placeholder shown in the All-Notes tab when the screen was opened
+/// without a patient context (e.g. bottom nav -> Nursing notes directly,
+/// not via the bed board's per-patient quick action).
+class _NoPatientContext extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.person_search, size: 56, color: AppTheme.textSecondary),
+            const SizedBox(height: 12),
+            Text(
+              'Open this screen from the bed board to see all notes for a patient.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
+          ],
+        ),
       ),
     );
   }

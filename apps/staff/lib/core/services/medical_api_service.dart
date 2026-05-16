@@ -649,6 +649,16 @@ class MedicalApiService {
     return _post('/emr/notes/$id/sign', {});
   }
 
+  /// PUT /emr/notes/:id — ADMIN-only overwrite of a prior note's content.
+  /// Returns 403 ADMIN_ONLY_NOTE_EDIT if the caller is not ADMIN/SUPER_ADMIN.
+  /// Clinical roles must use the addendum endpoint instead.
+  static Future<Map<String, dynamic>> updateClinicalNote(
+    int id,
+    Map<String, dynamic> content,
+  ) async {
+    return _put('/emr/notes/$id', {'content': content});
+  }
+
   // ─── EMR: Orders ──────────────────────────────────────────────────────────
 
   /// POST /emr/orders — create an order (medication, investigation, nursing)
