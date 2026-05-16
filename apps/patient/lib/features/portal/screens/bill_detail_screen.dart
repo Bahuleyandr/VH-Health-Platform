@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
+import 'package:vhhealth/features/portal/screens/tpa_claims_screen.dart';
 
 class BillDetailScreen extends StatefulWidget {
   const BillDetailScreen({super.key, required this.invoiceId});
@@ -354,6 +355,28 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                   style: theme.textTheme.bodySmall,
                 ),
               ],
+            ],
+            if (claim['id'] != null) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () {
+                    final claimId = claim['id'];
+                    final id = claimId is int
+                        ? claimId
+                        : int.tryParse(claimId.toString());
+                    if (id == null) return;
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => TpaClaimDetailScreen(claimId: id),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  label: const Text('View full insurance claim'),
+                ),
+              ),
             ],
           ],
         ),
