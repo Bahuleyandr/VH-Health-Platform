@@ -693,6 +693,14 @@ app.use(
   adminRateLimiter,
   tenantRoutes
 );
+// Legacy /api/v1/admin/ed paths — 308 redirect to the parallel clinical
+// mount at /api/v1/ed (declared further above) so nurses using old URLs
+// are transparently forwarded before the admin-role gate rejects them.
+// Finding: 2026-05-08-emergency-walk-in-nurse-triage-rbac-blocks-nurses
+app.use('/api/v1/admin/ed', (req, res) => {
+  const target = req.originalUrl.replace('/api/v1/admin/ed', '/api/v1/ed');
+  res.redirect(308, target);
+});
 // Legacy /api/v1/admin/surgical paths are deprecated — the parallel
 // mount at /api/v1/surgical (declared further down) is the clinical-staff
 // surface for preop / intraop / postop / safety-phase / anesthesia /
