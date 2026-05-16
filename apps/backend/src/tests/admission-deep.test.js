@@ -36,6 +36,7 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
   let wardId;
   let bed1Id;
   let bed2Id;
+  let bed3Id;
   let patientIntId;
 
   beforeAll(async () => {
@@ -45,7 +46,7 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'admission' AND metadata->>'patient_uid' = $1`, PATIENT_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM patient_consents WHERE patient_uid = $1::uuid`, PATIENT_UID);
-    await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number IN ('DEEP-BED-A','DEEP-BED-B')`);
+    await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number IN ('DEEP-BED-A','DEEP-BED-B','DEEP-BED-C')`);
     await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name = 'DEEP-TEST-WARD'`);
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
       PATIENT_UID, DOCTOR_UID, ADMIN_UID, NO_CONSENT_PATIENT_UID);
@@ -98,15 +99,23 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       `INSERT INTO beds (ward_id, bed_number, status) VALUES ($1, 'DEEP-BED-B', 'available') RETURNING id`,
       wardId);
     bed2Id = bedB[0].id;
+
+    const bedC = await prisma.$queryRawUnsafe(
+      `INSERT INTO beds (ward_id, bed_number, status) VALUES ($1, 'DEEP-BED-C', 'available') RETURNING id`,
+      wardId);
+    bed3Id = bedC[0].id;
   });
 
   afterAll(async () => {
     // Best-effort teardown — mirror beforeAll in FK-safe order
     await prisma.$executeRawUnsafe(`DELETE FROM bed_transfers WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM bed_transfers WHERE patient_uid = $1::uuid`, NO_CONSENT_PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, NO_CONSENT_PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'admission' AND metadata->>'patient_uid' = $1`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE action = 'EMERGENCY_CONSENT_BYPASS' AND resource = 'admissions'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM patient_consents WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number IN ('DEEP-BED-A','DEEP-BED-B')`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number IN ('DEEP-BED-A','DEEP-BED-B','DEEP-BED-C')`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE id = $1`, wardId).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
       PATIENT_UID, DOCTOR_UID, ADMIN_UID, NO_CONSENT_PATIENT_UID).catch(() => {});
@@ -134,16 +143,50 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
         admitting_doctor: DOCTOR_UID,
         chief_complaint: 'chest pain',
         // Elective admission with a real bed so we exercise the consent
-        // gate, not the admit-bed gate. Critically, NOT emergency+emergent:
-        // migration 182 introduced the implied-consent doctrine which
-        // bypasses the consent check for true emergencies. This test
-        // is asserting the default rule for non-emergency admits.
+        // gate, not the admit-bed gate. Critically, NOT emergency:
+        // admission_type='emergency' uses implied-consent bypass (B-4,
+        // migration 182) — any emergency qualifies regardless of priority.
+        // This test asserts the default rule for non-emergency admits.
         bed_id: bed2Id,
         admission_type: 'elective',
         priority: 'routine',
       });
       expect(res.statusCode).toBe(403);
       expect(String(res.body.code || res.body.message || '')).toMatch(/CONSENT|consent/i);
+    });
+
+    it('allows emergency admission without prior consent (implied-consent bypass, priority=urgent)', async () => {
+      // Regression for finding 2026-05-08-emergency-walk-in-doctor-admit-consent-blocks-emergency.
+      // The consent gate must not block admission_type='emergency' regardless of priority level.
+      // Before the fix, only priority='emergent' triggered the bypass; priority='urgent' returned 403.
+      const res = await admin.post('/api/v1/emr/admit').send({
+        patient_uid: NO_CONSENT_PATIENT_UID,
+        admitting_doctor: DOCTOR_UID,
+        chief_complaint: 'NSTEMI — troponin 0.85 ng/mL, chest pain',
+        admitting_diagnosis: 'NSTEMI rule-in',
+        admission_type: 'emergency',
+        priority: 'urgent',
+        bed_id: bed3Id,
+        code_status: 'full_code',
+        emergency_consent_bypass_reason: 'Implied consent — acute coronary syndrome, verbal consent obtained from daughter',
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.body.data?.admission?.id).toBeDefined();
+
+      // Bypass must be recorded on the admission row itself
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT emergency_consent_bypass_at, emergency_consent_bypass_reason
+         FROM admissions WHERE id = $1`,
+        res.body.data.admission.id);
+      expect(rows[0].emergency_consent_bypass_at).not.toBeNull();
+      expect(rows[0].emergency_consent_bypass_reason).toMatch(/implied consent/i);
+
+      // EMERGENCY_CONSENT_BYPASS audit entry must exist for compliance
+      const audits = await prisma.$queryRawUnsafe(
+        `SELECT action FROM audit_logs
+         WHERE action = 'EMERGENCY_CONSENT_BYPASS' AND resource_id = $1`,
+        String(res.body.data.admission.id));
+      expect(audits.length).toBeGreaterThanOrEqual(1);
     });
 
     it('creates admission and occupies the bed', async () => {
