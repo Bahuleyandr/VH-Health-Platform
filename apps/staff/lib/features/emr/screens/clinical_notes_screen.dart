@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/patient_notes_list.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 import '../../productivity/widgets/smart_phrase_field.dart';
@@ -25,7 +26,12 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
+  // First three tabs are typed (filtered by note_type when fetching);
+  // tab 3 (index 3) is the cross-role "All Notes" view rendered by
+  // PatientNotesList — it fetches every note for the patient and shows
+  // author_role badges, plus an admin-only edit pencil.
   static const _noteTypes = ['soap', 'progress', 'procedure'];
+  static const _allNotesTabIndex = 3;
 
   List<String> _tabLabels(BuildContext context) {
     final s = AppStrings.of(context);
@@ -33,6 +39,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       s.clinicalNotesTabSoap,
       s.clinicalNotesTabProgress,
       s.clinicalNotesTabProcedure,
+      'All Notes',
     ];
   }
 
@@ -43,13 +50,17 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: _noteTypes.length, vsync: this);
+    _tabController = TabController(length: _noteTypes.length + 1, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
-        _loadNotesForTab(_tabController.index);
+        // _loadNotesForTab is a no-op for the All-Notes tab (index 3) —
+        // PatientNotesList fetches its own data on init/refresh.
+        if (_tabController.index < _noteTypes.length) {
+          _loadNotesForTab(_tabController.index);
+        }
       }
     });
-    // Load first tab
+    // Load first typed tab
     _loadNotesForTab(0);
   }
 
@@ -922,7 +933,13 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: _noteTypes.map((t) => _buildNoteList(t)).toList(),
+              children: [
+                ..._noteTypes.map((t) => _buildNoteList(t)),
+                // Cross-role visibility tab — every note for this patient,
+                // any author role, read-only with role badges. Admin sees
+                // an edit pencil on each row (PUT /emr/notes/:id).
+                PatientNotesList(patientUid: widget.patientUid),
+              ],
             ),
           ),
         ],

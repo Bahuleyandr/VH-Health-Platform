@@ -161,13 +161,51 @@ router.post('/notes/:id/addendum', async (req, res, next) => {
   }
 });
 
-router.put('/notes/:id', (_req, res) =>
-  error(res, 'Clinical notes are append-only. Add an addendum instead of editing the original note.', 405)
-);
+// PUT / PATCH /emr/notes/:id — ADMIN-ONLY overwrite of prior note content.
+// Clinical roles must use POST /notes/:id/addendum instead. The admin
+// override exists for explicit corrections that must replace the original
+// row (e.g. PHI mis-attribution, transcription replacement) — every other
+// "edit" should be an addendum. Author_uid / author_role / note_type /
+// created_at are preserved; only content + updated_at + version change.
+async function adminUpdateNote(req, res, next) {
+  try {
+    const noteId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(noteId)) {
+      return error(res, 'Invalid note id', 400);
+    }
+    const { content } = req.body;
+    if (!content || typeof content !== 'object' || Object.keys(content).length === 0) {
+      return error(res, 'content (object) is required', 400);
+    }
 
-router.patch('/notes/:id', (_req, res) =>
-  error(res, 'Clinical notes are append-only. Add an addendum instead of editing the original note.', 405)
-);
+    const updated = await clinicalNotesService.updateNote(
+      noteId,
+      content,
+      req.user.uid,
+      req.user.role,
+    );
+
+    // HIPAA audit — log admin overwrite (action=UPDATE) so the legal trail
+    // captures who rewrote the note, even though the original content is
+    // gone from the row itself.
+    logPhiAccess({
+      userId: req.user.uid,
+      userRole: req.user.role,
+      patientId: updated.patient_uid,
+      recordType: `clinical_note:${updated.note_type}`,
+      action: 'UPDATE',
+      ip: req.ip,
+      requestId: req.id,
+    });
+
+    return success(res, updated, 'Clinical note updated');
+  } catch (err) {
+    next(err);
+  }
+}
+
+router.put('/notes/:id', adminUpdateNote);
+router.patch('/notes/:id', adminUpdateNote);
 
 // ===================================================================
 // POST /emr/notes/:id/sign — Sign a clinical note

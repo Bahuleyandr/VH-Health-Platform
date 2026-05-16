@@ -219,6 +219,73 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
 }
 
 // ===================================================================
+// updateNote (admin override)
+// ===================================================================
+
+/**
+ * Overwrite the content of an existing clinical note. Restricted to admin
+ * roles — every other path is append-only via createNote / addAddendum.
+ * The original author_uid / author_role / note_type / created_at are
+ * preserved; only `content` and `updated_at` change, plus the row's
+ * `version` is bumped so downstream readers can detect the rewrite.
+ *
+ * Callers MUST audit the action separately (logPhiAccess with
+ * action='UPDATE') so the legal record of "who rewrote what when" is
+ * retained even though the original content is gone from the row.
+ *
+ * @param {number} noteId
+ * @param {Object} content - New note content (validated against note_type)
+ * @param {string} editorUid - UID of the admin performing the rewrite
+ * @param {string} editorRole - Role of the editor (must be ADMIN)
+ * @returns {Object} Updated note row
+ */
+export async function updateNote(noteId, content, editorUid, editorRole) {
+  if (!editorUid || !editorRole) {
+    throw AppError.badRequest('editorUid and editorRole are required');
+  }
+
+  if (editorRole !== 'ADMIN') {
+    throw AppError.forbidden(
+      'Only ADMIN may overwrite a prior clinical note; clinical roles must use the addendum path',
+      'ADMIN_ONLY_NOTE_EDIT',
+    );
+  }
+
+  if (!content || typeof content !== 'object' || Object.keys(content).length === 0) {
+    throw AppError.badRequest('content is required');
+  }
+
+  const existing = await prisma.clinical_notes.findUnique({
+    where: { id: Number(noteId) },
+    select: { id: true, note_type: true, version: true, content: true, author_uid: true, author_role: true },
+  });
+
+  if (!existing) {
+    throw AppError.notFound('Clinical note not found');
+  }
+
+  // Re-validate the new content against the same note_type the note was
+  // created with. Admin can rewrite the prose, not flip the type.
+  validateNoteContent(existing.note_type, content);
+
+  const now = new Date();
+  const updated = await prisma.clinical_notes.update({
+    where: { id: Number(noteId) },
+    data: {
+      content,
+      version: existing.version + 1,
+      updated_at: now,
+    },
+    select: NOTE_SELECT,
+  });
+
+  logger.info(
+    `Clinical note admin-edited: id=${noteId}, editor=${editorUid}, original_author=${existing.author_uid}, version=${existing.version}->${updated.version}`,
+  );
+  return updated;
+}
+
+// ===================================================================
 // signNote
 // ===================================================================
 
