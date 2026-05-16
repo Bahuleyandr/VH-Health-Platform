@@ -493,7 +493,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         icon: LucideIcons.shieldCheck,
         label: 'Insurance Claims',
         color: const Color(0xFFB2DFDB),
-        description: 'View TPA/cashless claim status, amounts, and disallowance reasons',
+        description:
+            'View TPA/cashless claim status, amounts, and disallowance reasons',
         onTap: (ctx) => _openFeature(ctx, '/portal/tpa/claims'),
       ),
       FeatureIconData(
