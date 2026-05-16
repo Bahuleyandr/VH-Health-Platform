@@ -27,11 +27,11 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   late TabController _tabController;
 
   // First three tabs are typed (filtered by note_type when fetching);
-  // tab 3 (index 3) is the cross-role "All Notes" view rendered by
-  // PatientNotesList — it fetches every note for the patient and shows
-  // author_role badges, plus an admin-only edit pencil.
+  // the 4th tab (index == _noteTypes.length) is the cross-role
+  // "All Notes" view rendered by PatientNotesList — it fetches every
+  // note for the patient and shows author_role badges, plus an
+  // admin-only edit pencil.
   static const _noteTypes = ['soap', 'progress', 'procedure'];
-  static const _allNotesTabIndex = 3;
 
   List<String> _tabLabels(BuildContext context) {
     final s = AppStrings.of(context);

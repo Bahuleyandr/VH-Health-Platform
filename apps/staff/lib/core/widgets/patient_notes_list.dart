@@ -21,7 +21,11 @@ import '../theme/app_theme.dart';
 class PatientNotesList extends StatefulWidget {
   final String patientUid;
   final String? patientName;
-  const PatientNotesList({super.key, required this.patientUid, this.patientName});
+  const PatientNotesList({
+    super.key,
+    required this.patientUid,
+    this.patientName,
+  });
 
   @override
   State<PatientNotesList> createState() => _PatientNotesListState();
@@ -100,8 +104,7 @@ class _PatientNotesListState extends State<PatientNotesList> {
     }
   }
 
-  bool get _isAdmin =>
-      _currentRole == 'ADMIN' || _currentRole == 'SUPER_ADMIN';
+  bool get _isAdmin => _currentRole == 'ADMIN' || _currentRole == 'SUPER_ADMIN';
 
   List<Map<String, dynamic>> get _visibleNotes {
     if (_filter == _NoteFilter.all) return _notes;
@@ -127,9 +130,16 @@ class _PatientNotesListState extends State<PatientNotesList> {
             children: [
               const Icon(Icons.error_outline, color: Colors.red, size: 40),
               const SizedBox(height: 8),
-              Text('Failed to load notes', style: TextStyle(color: AppTheme.textSecondary)),
+              Text(
+                'Failed to load notes',
+                style: TextStyle(color: AppTheme.textSecondary),
+              ),
               const SizedBox(height: 4),
-              Text(_error!, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12),
+              ),
               const SizedBox(height: 12),
               OutlinedButton(onPressed: _load, child: const Text('Retry')),
             ],
@@ -173,7 +183,7 @@ class _PatientNotesListState extends State<PatientNotesList> {
               : ListView.separated(
                   padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
                   itemCount: visible.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (_, i) => _NoteCard(
                     note: visible[i],
                     canEdit: _isAdmin,
@@ -201,7 +211,11 @@ class _NoteCard extends StatelessWidget {
   final Map<String, dynamic> note;
   final bool canEdit;
   final VoidCallback onEdited;
-  const _NoteCard({required this.note, required this.canEdit, required this.onEdited});
+  const _NoteCard({
+    required this.note,
+    required this.canEdit,
+    required this.onEdited,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -241,7 +255,10 @@ class _NoteCard extends StatelessWidget {
                 if (createdAt != null)
                   Text(
                     _formatDate(createdAt),
-                    style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppTheme.textSecondary,
+                    ),
                   ),
                 if (canEdit)
                   IconButton(
@@ -271,7 +288,10 @@ class _NoteCard extends StatelessWidget {
     );
   }
 
-  List<Widget> _renderContent(BuildContext context, Map<String, dynamic> content) {
+  List<Widget> _renderContent(
+    BuildContext context,
+    Map<String, dynamic> content,
+  ) {
     return [
       for (final entry in content.entries)
         if ('${entry.value}'.trim().isNotEmpty)
@@ -293,8 +313,9 @@ class _NoteCard extends StatelessWidget {
     ];
   }
 
-  String _humanLabel(String key) =>
-      key.replaceAll('_', ' ').replaceFirstMapped(RegExp(r'^.'), (m) => m[0]!.toUpperCase());
+  String _humanLabel(String key) => key
+      .replaceAll('_', ' ')
+      .replaceFirstMapped(RegExp(r'^.'), (m) => m[0]!.toUpperCase());
 
   String _formatDate(DateTime t) {
     final l = t.toLocal();
@@ -304,7 +325,11 @@ class _NoteCard extends StatelessWidget {
 
   Color _roleColor(String role) {
     final r = role.toUpperCase();
-    if (r.contains('DOCTOR') || r.contains('CONSULTANT') || r.contains('SURGEON')) return Colors.blue.shade700;
+    if (r.contains('DOCTOR') ||
+        r.contains('CONSULTANT') ||
+        r.contains('SURGEON')) {
+      return Colors.blue.shade700;
+    }
     if (r.contains('NURSE')) return Colors.teal.shade700;
     if (r.contains('ADMIN')) return Colors.purple.shade700;
     return AppTheme.textSecondary;
@@ -341,9 +366,18 @@ class _NoteCard extends StatelessWidget {
                   children: [
                     const Icon(Icons.edit_note, color: Colors.purple),
                     const SizedBox(width: 8),
-                    const Text('Admin edit', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const Text(
+                      'Admin edit',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
                     const Spacer(),
-                    IconButton(onPressed: () => Navigator.pop(sheetCtx), icon: const Icon(Icons.close)),
+                    IconButton(
+                      onPressed: () => Navigator.pop(sheetCtx),
+                      icon: const Icon(Icons.close),
+                    ),
                   ],
                 ),
                 Text(
@@ -352,11 +386,16 @@ class _NoteCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 for (final entry in controllers.entries) ...[
-                  Text(_humanLabel(entry.key), style: const TextStyle(fontWeight: FontWeight.w600)),
+                  Text(
+                    _humanLabel(entry.key),
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
                   const SizedBox(height: 4),
                   TextField(
                     controller: entry.value,
-                    decoration: const InputDecoration(border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                    ),
                     minLines: 2,
                     maxLines: 6,
                   ),
@@ -365,12 +404,16 @@ class _NoteCard extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    TextButton(onPressed: () => Navigator.pop(sheetCtx), child: const Text('Cancel')),
+                    TextButton(
+                      onPressed: () => Navigator.pop(sheetCtx),
+                      child: const Text('Cancel'),
+                    ),
                     const SizedBox(width: 8),
                     FilledButton(
                       onPressed: () {
                         Navigator.pop(sheetCtx, {
-                          for (final e in controllers.entries) e.key: e.value.text,
+                          for (final e in controllers.entries)
+                            e.key: e.value.text,
                         });
                       },
                       child: const Text('Save'),
@@ -395,15 +438,15 @@ class _NoteCard extends StatelessWidget {
       await MedicalApiService.updateClinicalNote(id.toInt(), result);
       onEdited();
       if (ctx.mounted) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          const SnackBar(content: Text('Note updated')),
-        );
+        ScaffoldMessenger.of(
+          ctx,
+        ).showSnackBar(const SnackBar(content: Text('Note updated')));
       }
     } catch (e) {
       if (ctx.mounted) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          SnackBar(content: Text('Update failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          ctx,
+        ).showSnackBar(SnackBar(content: Text('Update failed: $e')));
       }
     }
   }
@@ -425,7 +468,11 @@ class _Badge extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w600),
+        style: TextStyle(
+          fontSize: 10,
+          color: color,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
