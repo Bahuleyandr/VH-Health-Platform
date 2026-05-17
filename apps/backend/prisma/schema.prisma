@@ -753,6 +753,7 @@ model appointments {
   tenant_id                            String                       @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   appointment_documents                appointment_documents[]
   appointment_status_history           appointment_status_history[]
+  clinical_notes                       clinical_notes[]
   users_appointments_doctor_idTousers  users?                       @relation("appointments_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction)
   appointments                         appointments?                @relation("appointmentsToappointments", fields: [parent_appointment_id], references: [id], onUpdate: NoAction)
   other_appointments                   appointments[]               @relation("appointmentsToappointments")
@@ -3867,6 +3868,7 @@ model clinical_longitudinal_risk {
 model clinical_notes {
   id                   Int              @id @default(autoincrement())
   encounter_id         String?          @db.Uuid
+  appointment_id       Int?
   patient_uid          String           @db.Uuid
   author_uid           String?          @db.Uuid
   author_role          String?          @db.VarChar(50)
@@ -3896,11 +3898,13 @@ model clinical_notes {
   clinical_notes       clinical_notes?  @relation("clinical_notesToclinical_notes", fields: [parent_note_id], references: [id], onUpdate: NoAction)
   other_clinical_notes clinical_notes[] @relation("clinical_notesToclinical_notes")
   tenants              tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_clinical_notes_tenant")
+  appointments         appointments?    @relation(fields: [appointment_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "clinical_notes_appointment_id_fk")
 
   @@index([encounter_id, created_at(sort: Desc)], map: "idx_clinical_notes_encounter")
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_clinical_notes_patient_created")
   @@index([note_type], map: "idx_clinical_notes_type")
   @@index([tenant_id], map: "idx_clinical_notes_tenant_id")
+  @@index([appointment_id, created_at(sort: Desc)], map: "idx_clinical_notes_appointment")
 }
 
 model clinical_nursing_ambient_sessions {

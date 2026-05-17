@@ -40,6 +40,7 @@ const REQUIRED_CONTENT_FIELDS = {
 const NOTE_SELECT = {
   id: true,
   encounter_id: true,
+  appointment_id: true,
   patient_uid: true,
   author_uid: true,
   author_role: true,
@@ -98,7 +99,7 @@ function validateNoteContent(noteType, content) {
  * @returns {Object} Created note row
  */
 export async function createNote(data) {
-  const { encounter_id, patient_uid, author_uid, author_role, note_type, content } = data;
+  const { encounter_id, appointment_id, patient_uid, author_uid, author_role, note_type, content } = data;
 
   if (!patient_uid || !author_uid || !author_role || !note_type || !content) {
     throw AppError.badRequest('patient_uid, author_uid, author_role, note_type, and content are required');
@@ -124,11 +125,30 @@ export async function createNote(data) {
     }
   }
 
+  // OPD visits have no encounter row, so walk-in / scheduled OPD notes
+  // bind to the appointment they document via appointment_id (migration
+  // 234) so they can be grouped under the visit in the patient timeline.
+  let appointmentIdNum = null;
+  if (appointment_id !== undefined && appointment_id !== null) {
+    appointmentIdNum = Number(appointment_id);
+    if (!Number.isFinite(appointmentIdNum)) {
+      throw AppError.badRequest('appointment_id must be an integer');
+    }
+    const appt = await prisma.appointments.findUnique({
+      where: { id: appointmentIdNum },
+      select: { id: true },
+    });
+    if (!appt) {
+      throw AppError.notFound('Appointment not found');
+    }
+  }
+
   // Schema defaults: version=1, is_addendum=false, is_signed=false, created_at=now().
   // We pass them explicitly to mirror the pre-ORM INSERT verbatim.
   const created = await prisma.clinical_notes.create({
     data: {
       encounter_id: encounter_id ?? null,
+      appointment_id: appointmentIdNum,
       patient_uid,
       author_uid,
       author_role,
