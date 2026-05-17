@@ -286,7 +286,15 @@ export async function recordPatientVitals(req, res) {
 
 export async function recordStaffVitals(req, res) {
   try {
-    const { patient_id, vital_signs = {}, measurements = {} } = req.body || {};
+    const {
+      patient_id,
+      vital_signs = {},
+      measurements = {},
+      admission_id,
+      admissionId,
+      encounter_id,
+      encounterId,
+    } = req.body || {};
     if (!patient_id) {
       return error(res, 'patient_id is required', HTTP_STATUS.BAD_REQUEST);
     }
@@ -298,6 +306,28 @@ export async function recordStaffVitals(req, res) {
     const patientId = Number.parseInt(patient_id, 10);
     if (!Number.isInteger(patientId) || patientId <= 0) {
       return error(res, 'patient_id must be a positive integer', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // Inpatient encounter linkage. Without these, ward vitals float free
+    // of the admission and the doctor's IPD chart cannot filter "vitals
+    // during this admission".
+    const admissionIdRaw = admission_id ?? admissionId;
+    let admissionIdValue = null;
+    if (admissionIdRaw !== undefined && admissionIdRaw !== null && admissionIdRaw !== '') {
+      const parsedAdmission = Number.parseInt(admissionIdRaw, 10);
+      if (!Number.isInteger(parsedAdmission) || parsedAdmission <= 0) {
+        return error(res, 'admission_id must be a positive integer', HTTP_STATUS.BAD_REQUEST);
+      }
+      admissionIdValue = parsedAdmission;
+    }
+    const encounterIdRaw = encounter_id ?? encounterId;
+    let encounterIdValue = null;
+    if (encounterIdRaw !== undefined && encounterIdRaw !== null && encounterIdRaw !== '') {
+      const candidate = String(encounterIdRaw);
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate)) {
+        return error(res, 'encounter_id must be a UUID', HTTP_STATUS.BAD_REQUEST);
+      }
+      encounterIdValue = candidate;
     }
 
     const patient = await prisma.$queryRawUnsafe(
@@ -350,9 +380,9 @@ export async function recordStaffVitals(req, res) {
 
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO patient_vitals
-         (patient_uid, blood_pressure, heart_rate, temperature, temperature_route, blood_sugar, weight, spo2, source)
-       VALUES ($1::uuid, $2::jsonb, $3, $4, $5, $6, $7, $8, 'manual')
-       RETURNING id, recorded_at, source`,
+         (patient_uid, blood_pressure, heart_rate, temperature, temperature_route, blood_sugar, weight, spo2, source, admission_id, encounter_id)
+       VALUES ($1::uuid, $2::jsonb, $3, $4, $5, $6, $7, $8, 'manual', $9, $10::uuid)
+       RETURNING id, recorded_at, source, admission_id, encounter_id`,
       patient[0].uid,
       bloodPressure ? JSON.stringify(bloodPressure) : null,
       heartRate,
@@ -360,7 +390,9 @@ export async function recordStaffVitals(req, res) {
       temperatureRoute,
       bloodSugar,
       weight,
-      spO2
+      spO2,
+      admissionIdValue,
+      encounterIdValue,
     );
 
     logPhiAccess({
@@ -397,6 +429,8 @@ export async function recordStaffVitals(req, res) {
       patientUid: patient[0].uid,
       recordedAt: result[0].recorded_at,
       source: result[0].source || 'manual',
+      admissionId: result[0].admission_id ?? null,
+      encounterId: result[0].encounter_id ?? null,
       growth,
     }, 'Vitals recorded successfully');
   } catch (err) {
