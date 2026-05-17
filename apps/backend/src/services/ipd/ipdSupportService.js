@@ -529,7 +529,8 @@ export async function listAdmissionPasses(admissionId) {
  * Open a new ward indent in 'requested' state.
  */
 export async function createWardIndent({
-  wardId, indentType = 'pharmacy', items, notes = null, requestedBy,
+  wardId, admissionId = null, encounterId = null, patientUid = null,
+  indentType = 'pharmacy', items, notes = null, requestedBy,
 }) {
   if (!VALID_INDENT_TYPES.has(indentType)) {
     throw AppError.badRequest(`Invalid indent_type: ${indentType}`);
@@ -545,19 +546,59 @@ export async function createWardIndent({
       throw AppError.badRequest(`item ${it.item_name}: quantity_requested must be positive`);
     }
   }
+  if (encounterId != null && !isUuid(encounterId)) {
+    throw AppError.badRequest('encounter_id must be a UUID');
+  }
+  if (patientUid != null && !isUuid(patientUid)) {
+    throw AppError.badRequest('patient_uid must be a UUID');
+  }
+
+  // Closes finding 2026-05-17-inpatient-admission-pharmacy-05748c99.
+  // When admissionId is supplied, look the admission up out of band so a
+  // missing FK surfaces a 404 instead of a generic 500, and snapshot
+  // ward_id / patient_uid / encounter_id from the admission so the
+  // pharmacy queue can filter by patient without trusting the caller.
+  let resolvedWardId = wardId ?? null;
+  let resolvedWardName = null;
+  let resolvedPatientUid = patientUid;
+  let resolvedEncounterId = encounterId;
+  let resolvedAdmissionId = null;
+  if (admissionId != null) {
+    const admissionInt = Number.parseInt(admissionId, 10);
+    if (!Number.isInteger(admissionInt) || admissionInt <= 0) {
+      throw AppError.badRequest('admission_id must be a positive integer');
+    }
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT a.id, a.patient_uid, a.encounter_id, b.ward_id, COALESCE(w.name, b.ward_name, a.ward) AS ward_name
+         FROM admissions a
+         LEFT JOIN beds  b ON b.id = a.bed_id
+         LEFT JOIN wards w ON w.id = b.ward_id
+        WHERE a.id = $1::int`,
+      admissionInt,
+    );
+    const admission = rows[0];
+    if (!admission) throw AppError.notFound('Admission not found');
+    resolvedAdmissionId = admissionInt;
+    if (resolvedWardId == null) resolvedWardId = admission.ward_id ?? null;
+    if (resolvedWardName == null) resolvedWardName = admission.ward_name ?? null;
+    if (resolvedPatientUid == null) resolvedPatientUid = admission.patient_uid ?? null;
+    if (resolvedEncounterId == null) resolvedEncounterId = admission.encounter_id ?? null;
+  }
 
   return prisma.$transaction(async (tx) => {
-    let wardName = null;
-    if (wardId) {
-      const ward = await tx.wards.findUnique({ where: { id: wardId }, select: { name: true } });
-      wardName = ward?.name ?? null;
+    if (resolvedWardId && resolvedWardName == null) {
+      const ward = await tx.wards.findUnique({ where: { id: resolvedWardId }, select: { name: true } });
+      resolvedWardName = ward?.name ?? null;
     }
     const indentNumber = await nextIndentNumber(tx);
     const indent = await tx.ward_indents.create({
       data: {
         indent_number: indentNumber,
-        ward_id: wardId ?? null,
-        ward_name: wardName,
+        ward_id: resolvedWardId,
+        ward_name: resolvedWardName,
+        admission_id: resolvedAdmissionId,
+        encounter_id: resolvedEncounterId,
+        patient_uid: resolvedPatientUid,
         indent_type: indentType,
         status: 'requested',
         requested_by: requestedBy,
@@ -604,7 +645,7 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
     }
 
     const admissions = await tx.$queryRawUnsafe(
-      `SELECT a.id, a.ward AS admission_ward, b.ward_id, COALESCE(w.name, b.ward_name, a.ward) AS ward_name
+      `SELECT a.id, a.ward AS admission_ward, a.encounter_id, a.patient_uid, b.ward_id, COALESCE(w.name, b.ward_name, a.ward) AS ward_name
          FROM admissions a
          LEFT JOIN beds b ON b.id = a.bed_id
          LEFT JOIN wards w ON w.id = b.ward_id
@@ -650,6 +691,9 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
         indent_number: indentNumber,
         ward_id: admission.ward_id ?? null,
         ward_name: admission.ward_name ?? admission.admission_ward ?? null,
+        admission_id: admission.id ?? null,
+        encounter_id: admission.encounter_id ?? order.encounter_id ?? null,
+        patient_uid: admission.patient_uid ?? order.patient_uid ?? null,
         indent_type: 'pharmacy',
         status: 'requested',
         requested_by: order.ordered_by,
@@ -793,12 +837,19 @@ export async function receiveWardIndent({ indentId, receivedBy }) {
   });
 }
 
-export async function listWardIndents({ wardId = null, status = null, limit = 50 } = {}) {
+export async function listWardIndents({
+  wardId = null, status = null, admissionId = null, patientUid = null, limit = 50,
+} = {}) {
   const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+  if (patientUid != null && !isUuid(patientUid)) {
+    throw AppError.badRequest('patient_uid must be a UUID');
+  }
   return prisma.ward_indents.findMany({
     where: {
       ...(wardId ? { ward_id: wardId } : {}),
       ...(status ? { status } : {}),
+      ...(admissionId ? { admission_id: admissionId } : {}),
+      ...(patientUid ? { patient_uid: patientUid } : {}),
     },
     orderBy: { requested_at: 'desc' },
     take: safeLimit,

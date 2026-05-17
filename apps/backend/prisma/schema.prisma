@@ -8928,6 +8928,9 @@ model ward_indents {
   indent_number    String              @unique @db.VarChar(40)
   ward_id          Int?
   ward_name        String?             @db.VarChar(80)
+  admission_id     Int?
+  encounter_id     String?             @db.Uuid
+  patient_uid      String?             @db.Uuid
   indent_type      String              @default("pharmacy") @db.VarChar(40)
   status           String              @default("requested") @db.VarChar(20)
   requested_by     String              @db.Uuid
