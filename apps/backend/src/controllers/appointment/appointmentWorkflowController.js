@@ -1328,6 +1328,45 @@ export const registerWalkIn = async (req, res) => {
         tokenNumber,
       });
 
+      // Auto-assign next-available DOCTOR in the requested department when
+      // the caller didn't pass doctor_id explicitly. Picks the doctor with
+      // the fewest confirmed appointments today (least-loaded) and ties
+      // break on users.id (deterministic). Without this the appointment
+      // row is created with doctor_id=null and the receptionist has no
+      // in-flow way to set it (PUT /appointments/:id is SUPER_ADMIN-only).
+      // Findings:
+      //   2026-05-17-walk-in-opd-receptionist-a99111c4
+      //   2026-05-17-walk-in-opd-receptionist-e00d0e2e
+      //   2026-05-18-dynamic-acute-abdomen-doctor-078cf751
+      //   Paediatric variants where doctor_id stayed null for under-12 visits.
+      let resolvedDoctorIdForInsert = doctor_id || null;
+      if (!resolvedDoctorIdForInsert && appointmentDepartment) {
+        const candidates = await tx.$queryRawUnsafe(
+          `SELECT u.id
+             FROM users u
+             JOIN doctors d ON d.user_id = u.id
+             LEFT JOIN departments dept ON dept.id = d.department_id
+            WHERE u.role = 'DOCTOR'
+              AND u.is_active = true
+              AND d.is_active = true
+              AND (
+                LOWER(COALESCE(dept.name, '')) = LOWER($1)
+                OR LOWER(COALESCE(d.department, '')) = LOWER($1)
+              )
+            ORDER BY (
+              SELECT COUNT(*) FROM appointments a
+               WHERE a.doctor_id = u.id
+                 AND DATE(a.appointment_date) = CURRENT_DATE
+                 AND a.status NOT IN ('CANCELLED', 'NO_SHOW')
+            ) ASC, u.id ASC
+            LIMIT 1`,
+          appointmentDepartment,
+        );
+        if (candidates.length > 0) {
+          resolvedDoctorIdForInsert = candidates[0].id;
+        }
+      }
+
       // appointments has no `confirmed_by` column. created_by is uuid.
       // phone, appointment_date, appointment_time, updated_at are NOT NULL.
       // E-10 — visit_type + parent_appointment_id captured at walk-in time
@@ -1346,7 +1385,7 @@ export const registerWalkIn = async (req, res) => {
                    visit_type, parent_appointment_id,
                    payer_type, patient_category, insurer_name, policy_number, scheme_name`,
         patientId,
-        doctor_id || null,
+        resolvedDoctorIdForInsert,
         resolvedTime,
         // Wave-3 batch-2 — use the resolved phone so an unidentified-ER
         // walk-in's appointment row carries the UNIDENT-* synthetic
