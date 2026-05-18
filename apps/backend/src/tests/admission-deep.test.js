@@ -38,6 +38,7 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
   let bed1Id;
   let bed2Id;
   let bed3Id;
+  let bed4Id;
   let patientIntId;
 
   beforeAll(async () => {
@@ -59,7 +60,7 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
     await prisma.$executeRawUnsafe(
       `DELETE FROM patient_consents WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
       PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID);
-    await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number IN ('DEEP-BED-A','DEEP-BED-B','DEEP-BED-C')`);
+    await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number IN ('DEEP-BED-A','DEEP-BED-B','DEEP-BED-C','DEEP-BED-D')`);
     await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name = 'DEEP-TEST-WARD'`);
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid)`,
       PATIENT_UID, DOCTOR_UID, ADMIN_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID);
@@ -128,6 +129,13 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       `INSERT INTO beds (ward_id, ward_name, bed_number, status) VALUES ($1, 'DEEP-TEST-WARD', 'DEEP-BED-C', 'available') RETURNING id`,
       wardId);
     bed3Id = bedC[0].id;
+    // bed4Id is reserved for the "relocates active attendant passes" test —
+    // the NSTEMI admit test earlier in this file occupies bed3Id, so the
+    // relocates test needs its own fresh bed.
+    const bedD = await prisma.$queryRawUnsafe(
+      `INSERT INTO beds (ward_id, ward_name, bed_number, status) VALUES ($1, 'DEEP-TEST-WARD', 'DEEP-BED-D', 'available') RETURNING id`,
+      wardId);
+    bed4Id = bedD[0].id;
   });
 
   afterAll(async () => {
@@ -145,7 +153,7 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
     await prisma.$executeRawUnsafe(
       `DELETE FROM patient_consents WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
       PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number IN ('DEEP-BED-A','DEEP-BED-B','DEEP-BED-C')`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number IN ('DEEP-BED-A','DEEP-BED-B','DEEP-BED-C','DEEP-BED-D')`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE id = $1`, wardId).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid)`,
       PATIENT_UID, DOCTOR_UID, ADMIN_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID).catch(() => {});
@@ -331,7 +339,7 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       expect(before.every((p) => p.ward_at_issue === 'Emergency Holding')).toBe(true);
 
       const assigned = await admin.post(`/api/v1/emr/${bedlessAdmissionId}/assign-bed`).send({
-        bed_id: bed3Id,
+        bed_id: bed4Id,
       });
       expect(assigned.statusCode).toBe(200);
 

@@ -1,8 +1,7 @@
 // src/routes/clinical/clinicalRoutes.js
 import express from 'express';
-import { param, query } from 'express-validator';
+import { param, query, validationResult } from 'express-validator';
 import multer from 'multer';
-import { validationResult } from 'express-validator';
 import * as handoverService from '../../services/clinical/handoverService.js';
 import * as marService from '../../services/clinical/marService.js';
 import * as marFiveRightsService from '../../services/clinical/marFiveRightsService.js';

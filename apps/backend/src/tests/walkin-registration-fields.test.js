@@ -41,6 +41,8 @@ const UNIDENT_COLLISION_PHONE = `97773${RUN_SUFFIX}`;
 const ALLERGY_PHONE = `97775${RUN_SUFFIX}`;
 const ANC_PHONE = `97776${RUN_SUFFIX}`;
 const MINOR_GUARDIAN_PHONE = `97777${RUN_SUFFIX}`;
+const MINOR_ALIAS_PHONE = `97778${RUN_SUFFIX}`;
+const MINOR_NODOB_PHONE = `97779${RUN_SUFFIX}`;
 const PHONE_FORMS = [
   EMER_PHONE,
   `+91${EMER_PHONE}`,
@@ -54,6 +56,10 @@ const PHONE_FORMS = [
   `+91${ANC_PHONE}`,
   MINOR_GUARDIAN_PHONE,
   `+91${MINOR_GUARDIAN_PHONE}`,
+  MINOR_ALIAS_PHONE,
+  `+91${MINOR_ALIAS_PHONE}`,
+  MINOR_NODOB_PHONE,
+  `+91${MINOR_NODOB_PHONE}`,
 ];
 // `Stage5Emergency-...` → deptPrefix() substring-matches "emergency" → EMER.
 // `Stage5Reception-...` → no map hit → first-4-alpha fallback → STAG.
@@ -476,5 +482,104 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
       policy_number: null,
       scheme_name: null,
     });
+  });
+
+  // Regression: 2026-05-18-pediatric-opd-receptionist-185a6357.
+  // Without these guards a minor registered under an adult's phone
+  // silently merged onto the adult's patient row, dropping name / DOB /
+  // gender / guardian / allergies — a safety-critical paeds prescribing
+  // hazard.
+  it('accepts date_of_birth as alias for patient_birthday and treats a minor with shared guardian phone as a distinct dependent', async () => {
+    const dob = new Date();
+    dob.setFullYear(dob.getFullYear() - 2);
+    const dobIso = dob.toISOString().slice(0, 10);
+    const res = await request(app)
+      .post('/api/v1/appointments/walk-in')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({
+        patient_name: 'Baby Alias',
+        patient_phone: MINOR_ALIAS_PHONE,
+        // Alias names — receptionist dialog + external API callers use these
+        date_of_birth: dobIso,
+        gender: 'M',
+        department: 'Paediatrics',
+        reason: 'Paediatric fever',
+        visit_type: 'PAEDIATRIC_OPD',
+        guardian_name: 'Alias Parent',
+        guardian_phone: MINOR_ALIAS_PHONE,
+        guardian_relationship: 'mother',
+        allergies: 'Cefixime',
+      });
+
+    expect(res.statusCode).toBe(200);
+    // Must NOT have merged onto an existing patient on the same phone.
+    expect(res.body.data.phone).toMatch(/^DEPEND-[A-Z0-9]{8}$/);
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT name, birthday::text AS birthday, gender, allergies,
+              guardian_name, guardian_relationship, is_minor
+         FROM users WHERE id = $1::int`,
+      res.body.data.patient_id,
+    );
+    expect(rows[0]).toMatchObject({
+      name: 'Baby Alias',
+      birthday: dobIso,
+      gender: 'male',
+      allergies: 'Cefixime',
+      guardian_name: 'Alias Parent',
+      guardian_relationship: 'mother',
+      is_minor: true,
+    });
+  });
+
+  it('refuses to merge a minor onto an existing adult patient row even when DOB is omitted (guardian fields suffice as signal)', async () => {
+    // Seed an adult on the shared phone first.
+    const adultRes = await request(app)
+      .post('/api/v1/appointments/walk-in')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({
+        patient_name: 'Existing Adult',
+        patient_phone: MINOR_NODOB_PHONE,
+        patient_gender: 'F',
+        department: OPD_DEPARTMENT,
+        reason: 'Adult walk-in',
+      });
+    expect(adultRes.statusCode).toBe(200);
+    const adultId = adultRes.body.data.patient_id;
+
+    // Now register a "dependent" walk-in under the same phone with NO DOB.
+    // The receptionist forgetting DOB is the common real-world case; we
+    // rely on the guardian fields + phone match to detect the minor flow.
+    const childRes = await request(app)
+      .post('/api/v1/appointments/walk-in')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({
+        patient_name: 'Baby No-DOB',
+        patient_phone: MINOR_NODOB_PHONE,
+        gender: 'M',
+        department: 'Paediatrics',
+        guardian_name: 'Adult Parent',
+        guardian_phone: MINOR_NODOB_PHONE,
+        guardian_relationship: 'mother',
+        allergies: 'Penicillin',
+      });
+
+    expect(childRes.statusCode).toBe(200);
+    expect(childRes.body.data.patient_id).not.toBe(adultId);
+    expect(childRes.body.data.phone).toMatch(/^DEPEND-[A-Z0-9]{8}$/);
+
+    // The adult row must remain untouched.
+    const adultAfter = await prisma.$queryRawUnsafe(
+      `SELECT name, gender, allergies FROM users WHERE id = $1::int`,
+      adultId,
+    );
+    expect(adultAfter[0]).toMatchObject({
+      name: 'Existing Adult',
+      gender: 'female',
+    });
+    expect(adultAfter[0].allergies).not.toBe('Penicillin');
   });
 });

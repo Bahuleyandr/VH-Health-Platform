@@ -123,7 +123,7 @@ async function propagateTriageAcuity({ patientId, patientUid, visitId, triageAcu
       `UPDATE emergency_visits
           SET triage_priority = $1,
               triage_started_at = COALESCE(triage_started_at, NOW()),
-              status = CASE WHEN status = 'arriving' THEN 'triage' ELSE status END,
+              status = CASE WHEN status = 'arriving' THEN 'in_triage' ELSE status END,
               updated_at = NOW()
         WHERE id = $2
           AND patient_uid = $3::uuid
@@ -138,7 +138,7 @@ async function propagateTriageAcuity({ patientId, patientUid, visitId, triageAcu
       `UPDATE emergency_visits
           SET triage_priority = $1,
               triage_started_at = COALESCE(triage_started_at, NOW()),
-              status = CASE WHEN status = 'arriving' THEN 'triage' ELSE status END,
+              status = CASE WHEN status = 'arriving' THEN 'in_triage' ELSE status END,
               updated_at = NOW()
         WHERE id = (
           SELECT id

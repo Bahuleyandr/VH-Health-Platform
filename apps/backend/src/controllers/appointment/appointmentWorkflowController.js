@@ -761,6 +761,21 @@ export const registerWalkIn = async (req, res) => {
     // appointments.created_by is uuid; appointment_status_history.changed_by is int.
     const staffUid = req.user?.uid;
     const staffId = req.user?.id;
+    // Accept common field-name aliases before destructure so callers using
+    // `date_of_birth` / `dob` / `gender` / `birthdate` are not silently
+    // dropped. The Paediatrics walk-in flow hit this — the receptionist
+    // dialog and the swarm both send `date_of_birth`, but the controller
+    // only read `patient_birthday`, so birthdayIndicatesMinor never
+    // fired and minor-with-guardian-phone collapsed onto the adult row.
+    // Finding: 2026-05-18-pediatric-opd-receptionist-185a6357.
+    if (req.body && typeof req.body === 'object') {
+      if (req.body.patient_birthday == null) {
+        req.body.patient_birthday = req.body.date_of_birth ?? req.body.dob ?? req.body.birthdate ?? null;
+      }
+      if (req.body.patient_gender == null) {
+        req.body.patient_gender = req.body.gender ?? null;
+      }
+    }
     const {
       patient_name, patient_phone, patient_id,
       patient_birthday, patient_gender, patient_address,
@@ -826,6 +841,12 @@ export const registerWalkIn = async (req, res) => {
       // SAME transaction as the visit so they commit together. Finding:
       // 2026-05-10-lab-walk-in-receptionist-no-panel-order-on-register.
       lab_tests,
+      // Safety-critical: persist allergies captured at registration so the
+      // chart shows a known allergy on the first consult. Previously the
+      // controller silently dropped the field on the create path, which
+      // for paediatric Cefixime allergies is a prescribing-time hazard.
+      // Finding: 2026-05-18-pediatric-opd-receptionist-185a6357.
+      allergies,
     } = req.body;
     // Resolved time honours either field; falls back to 'Walk-in' only
     // when nothing was supplied. `appointments.appointment_time` is
@@ -949,9 +970,28 @@ export const registerWalkIn = async (req, res) => {
       cutoff.setFullYear(cutoff.getFullYear() - 18);
       return dob > cutoff;
     })();
+    // A minor being registered under the guardian's phone must NEVER merge
+    // onto the guardian's patient row, even when the receptionist omitted DOB.
+    // Triggers when EITHER signal fires:
+    //   (a) DOB-confirmed minor sharing the guardian's phone, OR
+    //   (b) guardian_name + guardian_relationship + guardian_phone all set
+    //       AND guardian_phone matches patient_phone — an unambiguous
+    //       "child being registered under parent's number" pattern.
+    // Without (b), a 2-year-old whose DOB the receptionist forgot to fill in
+    // silently merges onto the adult patient row, dropping name/gender/
+    // allergies/guardian fields. Safety-critical for paeds prescribing.
+    // Finding: 2026-05-18-pediatric-opd-receptionist-185a6357.
+    const guardianRelPresent = Boolean(
+      guardian_relationship && String(guardian_relationship).trim().length > 0,
+    );
+    const guardianNamePresent = Boolean(
+      guardian_name && String(guardian_name).trim().length > 0,
+    );
+    const looksLikeDependentRegistration =
+      guardianNamePresent && guardianRelPresent;
     const minorUsesGuardianPhone = Boolean(
       !patient_id &&
-      birthdayIndicatesMinor &&
+      (birthdayIndicatesMinor || looksLikeDependentRegistration) &&
       normalizedGuardianPhone &&
       resolvedPhone &&
       normalizePhone(resolvedPhone) === normalizedGuardianPhone,
@@ -1196,16 +1236,21 @@ export const registerWalkIn = async (req, res) => {
           const patientPhoneForInsert = minorUsesGuardianPhone
             ? `DEPEND-${Date.now().toString(36).slice(-8).toUpperCase().padStart(8, '0')}`
             : resolvedPhone;
+          const allergiesText = allergies
+            ? String(allergies).trim().slice(0, 1000)
+            : null;
           const newUser = await tx.$queryRawUnsafe(
             `INSERT INTO users (phone, name, birthday, gender, address, role,
                                 guardian_name, guardian_phone, guardian_relationship,
                                 guardian_id_type, guardian_id_reference, guardian_user_id,
                                 weight_kg, is_minor, is_unidentified,
+                                allergies,
                                 updated_at)
              VALUES ($1, $2, $3::date, $4, $5, 'PATIENT',
                      $6, $7, $8,
                      $9, $10, $11,
                      $12, $13, $14,
+                     $15,
                      NOW())
              RETURNING id`,
             patientPhoneForInsert,
@@ -1222,6 +1267,7 @@ export const registerWalkIn = async (req, res) => {
             weightKg,
             isMinor,
             isUnidentifiedFlag,
+            allergiesText,
           );
           patientId = newUser[0].id;
           resolvedPhone = patientPhoneForInsert;
