@@ -53,7 +53,18 @@ router.get(
 router.get(
   '/discharge-summary/:admissionId/pdf',
   wrapAsync(async (req, res) => {
-    const { admissionId } = req.params;
+    // admissions.id is an int; Prisma's findUnique rejects a string here
+    // with PrismaClientValidationError ("Argument `id`: Expected Int,
+    // provided String"), which surfaces as a 500. Parse + validate first.
+    // Finding: 2026-05-08-tpa-insurance-claim-patient-no-discharge-or-final-bill-download
+    // (the upstream backend 500 the patient app was hitting).
+    const admissionId = Number.parseInt(req.params.admissionId, 10);
+    if (!Number.isFinite(admissionId) || admissionId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'admissionId must be a positive integer',
+      });
+    }
 
     logPhiAccess({
       userId: req.user?.uid,
@@ -87,7 +98,13 @@ router.get(
 router.get(
   '/discharge-summary/:admissionId/pdf/persisted',
   wrapAsync(async (req, res) => {
-    const { admissionId } = req.params;
+    const admissionId = Number.parseInt(req.params.admissionId, 10);
+    if (!Number.isFinite(admissionId) || admissionId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'admissionId must be a positive integer',
+      });
+    }
     logPhiAccess({
       userId: req.user?.uid,
       patientId: `admission-${admissionId}`,
