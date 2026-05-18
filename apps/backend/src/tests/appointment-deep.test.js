@@ -121,7 +121,7 @@ describe('Appointment booking + lifecycle — deep integration', () => {
       `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
       PATIENT_UID, OTHER_PATIENT_UID, DOCTOR_UID, ADMIN_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
-  });
+  }, 60000); // Cleanup cascades through prescriptions/notes/diagnoses/appointments — needs more than the 5s default on populated DBs.
 
   describe('createAppointment (POST /book)', () => {
     it('rejects booking without required fields', async () => {
