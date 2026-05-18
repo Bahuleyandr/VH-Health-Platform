@@ -277,6 +277,13 @@ function rewriteAdmissionSurface(req, _res, next) {
     req.url = req.method === 'POST' ? `/admit${query}` : `/admissions${query}`;
   } else if (path === '/stats') {
     req.url = `/admissions/stats${query}`;
+  } else if (path === '/advise') {
+    // OPD→IPD bridge alias. The canonical route is
+    // POST /api/v1/emr/admissions/advise; this rewrite also exposes it
+    // at POST /api/v1/admissions/advise so receptionist tooling can find
+    // it under the public admissions surface. Finding:
+    // 2026-05-17-inpatient-admission-receptionist-30bd3752.
+    req.url = `/admissions/advise${query}`;
   } else if (path.startsWith('/patient/')) {
     req.url = `/admissions${path}${query}`;
   } else if (/^\/\d+$/.test(path)) {

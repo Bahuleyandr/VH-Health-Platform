@@ -25,6 +25,8 @@ import { generateNursingAmbientSession } from '../../services/ai/nursingAmbientD
 import { generateFamilyUpdate } from '../../services/ai/familyUpdateGeneratorService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { canEditDischargeSummary, canSignDischargeSummary } from '../../utils/roleHelpers.js';
+import { adviseForAdmission } from '../../controllers/appointment/appointmentWorkflowController.js';
+import prisma from '../../lib/prisma.js';
 
 const router = express.Router();
 
@@ -122,6 +124,71 @@ router.post(
     const admission = await admissionService.admitPatient(data);
     success(res, { admission }, 'Patient admitted successfully', HTTP_STATUS.CREATED);
   })
+);
+
+// ---------------------------------------------------------------------------
+// POST /admissions/advise — Discoverable OPD→IPD bridge alias.
+//
+// The canonical handler lives on the appointments router
+// (POST /api/v1/appointments/:id/advise-admission) but the swarm + real
+// receptionists keep probing IPD-side paths. This shim accepts either
+// an explicit `appointment_id` or a `patient_uid` (in which case it
+// resolves the patient's most recent OPD appointment of today and
+// advises on that). Delegates to the existing adviseForAdmission so
+// the audit + RBAC + state-machine all stay in one canonical place.
+//
+// Body: { appointment_id?: int, patient_uid?: uuid, note?: string }
+//
+// Mounted reach:
+//   POST /api/v1/emr/admissions/advise
+//   POST /api/v1/admissions/advise   (via admissionAliasRouter rewrite)
+//
+// Finding: 2026-05-17-inpatient-admission-receptionist-30bd3752 (HIGH;
+// duplicate of 2026-05-08-inpatient-admission-receptionist-no-advise-
+// admission-workflow).
+// ---------------------------------------------------------------------------
+router.post(
+  '/admissions/advise',
+  wrapAsync(async (req, res) => {
+    let appointmentId = Number.parseInt(req.body?.appointment_id, 10);
+    if (!Number.isFinite(appointmentId) || appointmentId <= 0) {
+      const patientUid = typeof req.body?.patient_uid === 'string'
+        ? req.body.patient_uid.trim()
+        : null;
+      if (!patientUid) {
+        return error(
+          res,
+          'appointment_id (int) or patient_uid (uuid) is required',
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+      // Resolve the patient's most recent appointment today. Prefer
+      // CONFIRMED/SCHEDULED rows; skip CANCELLED/NO_SHOW.
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT a.id
+           FROM appointments a
+           JOIN users u ON u.id = a.patient_id
+          WHERE u.uid = $1::uuid
+            AND DATE(a.appointment_date) = CURRENT_DATE
+            AND a.status NOT IN ('CANCELLED', 'NO_SHOW')
+          ORDER BY a.created_at DESC
+          LIMIT 1`,
+        patientUid,
+      );
+      if (!rows.length) {
+        return error(
+          res,
+          'No active appointment today for that patient — pass appointment_id explicitly',
+          HTTP_STATUS.NOT_FOUND,
+          { code: 'NO_OPEN_APPOINTMENT_TODAY' },
+        );
+      }
+      appointmentId = rows[0].id;
+    }
+    // Reshape req to match the canonical /:id/advise-admission call.
+    req.params = { ...req.params, id: String(appointmentId) };
+    return adviseForAdmission(req, res);
+  }),
 );
 
 // ---------------------------------------------------------------------------

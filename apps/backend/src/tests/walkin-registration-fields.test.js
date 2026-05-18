@@ -582,4 +582,84 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
     });
     expect(adultAfter[0].allergies).not.toBe('Penicillin');
   });
+
+  // Findings:
+  //   2026-05-17-walk-in-opd-receptionist-a99111c4
+  //   2026-05-17-walk-in-opd-receptionist-e00d0e2e
+  //   plus paediatric / dynamic-acute-abdomen variants of the same shape.
+  // Without auto-assignment the appointment was created with doctor_id=null
+  // and the receptionist had no in-flow path to set it (PUT /appointments/:id
+  // is SUPER_ADMIN only).
+  it('auto-assigns next-available DOCTOR in the requested department when doctor_id is omitted', async () => {
+    // Seed a DOCTOR user + doctors profile linked to a unique department
+    // so we don't collide with whatever the QA fixtures already have.
+    const deptName = `AutoAssign-${RUN_SUFFIX}`;
+    const doctorUid = 'a8888888-8888-4888-8888-88888888fd02';
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM doctors WHERE name = $1`,
+      `Dr. Auto Assign ${RUN_SUFFIX}`,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM users WHERE uid = $1::uuid`,
+      doctorUid,
+    ).catch(() => {});
+    const userRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, $2, $3, 'DOCTOR', true, NOW())
+       RETURNING id`,
+      doctorUid,
+      `+9199998${RUN_SUFFIX}`,
+      `Dr. Auto Assign ${RUN_SUFFIX}`,
+    );
+    const doctorUserId = userRows[0].id;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO doctors (user_id, name, department, specialty, is_active, is_available, available_days, updated_at)
+       VALUES ($1, $2, $3, 'General Practitioner', true, true, ARRAY['Mon','Tue','Wed','Thu','Fri','Sat'], NOW())`,
+      doctorUserId,
+      `Dr. Auto Assign ${RUN_SUFFIX}`,
+      deptName,
+    );
+
+    const autoAssignPhone = `97774${RUN_SUFFIX}`;
+    try {
+      const res = await request(app)
+        .post('/api/v1/appointments/walk-in')
+        .set('x-api-key', API_KEY)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({
+          patient_name: 'Auto-Assign Patient',
+          patient_phone: autoAssignPhone,
+          patient_gender: 'F',
+          department: deptName,
+          reason: 'Auto-assign smoke',
+          // no doctor_id — controller must pick the only doctor in this dept
+        });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.doctor_id).toBe(doctorUserId);
+    } finally {
+      // Best-effort cleanup. department-scoped so we don't drag siblings.
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM appointment_status_history
+           WHERE appointment_id IN (SELECT id FROM appointments WHERE department = $1)`,
+        deptName,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM appointments WHERE department = $1`,
+        deptName,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM users WHERE phone IN ($1, $2)`,
+        autoAssignPhone, `+91${autoAssignPhone}`,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM doctors WHERE user_id = $1`,
+        doctorUserId,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM users WHERE id = $1`,
+        doctorUserId,
+      ).catch(() => {});
+    }
+  });
 });

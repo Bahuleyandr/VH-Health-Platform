@@ -337,9 +337,16 @@ export async function recordVitals(data) {
   const resolvedPatientUid = patientUser.uid;
 
   // Wave-4B-1 (migration 208) — split encounter input across int + uuid.
-  // Caller can pass either `encounter_id` (legacy int / numeric / UUID) or
-  // explicit `encounter_uid`. The admission flow always emits UUIDs.
-  const normalizedEncounter = normalizeEncounter(encounter_id ?? encounter_uid ?? null);
+  // Caller can pass either `encounter_id` (legacy int / numeric / UUID),
+  // explicit `encounter_uid`, or `visit_id` (the field name the nurse-facing
+  // form + swarm drivers use for the appointment/encounter pointer). The
+  // admission flow always emits UUIDs.
+  //
+  // Without the visit_id fallback the vitals row's encounter_id stayed null
+  // even when the caller explicitly supplied visit_id — the doctor's screen
+  // then couldn't tell which vitals belonged to today's consult. Finding:
+  // 2026-05-17-obstetric-anc-nurse-6fe6f592.
+  const normalizedEncounter = normalizeEncounter(encounter_id ?? encounter_uid ?? visit_id ?? null);
   const normalizedEncounterId = normalizedEncounter.encounter_id;
   const normalizedEncounterUid = normalizedEncounter.encounter_uid;
   const normalizedTemperature = toCelsius(temperature, temperature_unit);

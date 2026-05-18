@@ -123,7 +123,7 @@ async function admitPatient(data) {
     bed_id,
     chief_complaint: chiefComplaintArg,
     admitting_diagnosis,
-    admission_type = 'elective',
+    admission_type: admissionTypeArg = 'elective',
     priority: priorityArg,
     insurance_info,
     emergency_contact,
@@ -166,8 +166,25 @@ async function admitPatient(data) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   if (!admitting_doctor) throw AppError.badRequest('admitting_doctor is required');
   if (!created_by) throw AppError.badRequest('created_by is required');
+  // Normalise admission_type case + common synonyms so callers passing
+  // DAY_CARE / DAYCARE / Day-Care / daycare don't crash with
+  // 'Invalid admission_type'. The admin walk-in dialog and external API
+  // consumers send mixed forms; the storage value stays lowercase
+  // snake_case per the enum. Finding:
+  //   POST /api/v1/emr/admit admission_type enum is case-/spelling-inconsistent
+  //   (only lowercase day_care accepted; DAYCARE/DAY_CARE/SCHEDULED rejected).
+  let admission_type = String(admissionTypeArg || 'elective')
+    .trim()
+    .toLowerCase()
+    .replace(/[-\s]+/g, '_');
+  if (admission_type === 'daycare') admission_type = 'day_care';
+  if (admission_type === 'scheduled') admission_type = 'elective';
+  if (admission_type === 'er' || admission_type === 'ed') admission_type = 'emergency';
+  if (admission_type === 'transfer' || admission_type === 'transferin') admission_type = 'transfer_in';
   if (!VALID_ADMISSION_TYPES.includes(admission_type)) {
-    throw AppError.badRequest(`Invalid admission_type: ${admission_type}`);
+    throw AppError.badRequest(
+      `Invalid admission_type: ${admission_type} (accepted: ${VALID_ADMISSION_TYPES.join(', ')})`,
+    );
   }
   if (priorityArg !== undefined && priorityArg !== null && !VALID_PRIORITIES.includes(priorityArg)) {
     throw AppError.badRequest(`Invalid priority: ${priorityArg}`);
