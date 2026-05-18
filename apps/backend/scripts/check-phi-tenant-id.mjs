@@ -33,20 +33,19 @@ const SCHEMA_PATH = path.resolve(__dirname, '..', 'prisma', 'schema.prisma');
 // tenant_id when Phase 1 of the tenant RLS rollout landed (migration 236
 // addressed the 7 highest-value PHI tables: appointments, admissions,
 // clinical_notes, prescriptions, e_prescriptions, investigations,
-// vitals_chart). These 40 are deferred to Phase 2 in
-// docs/GAP_ANALYSIS_TENANT_RLS.md; each migration that closes one entry
-// should remove it from this allowlist.
+// vitals_chart). Migration 238 then moved the next 13 (clinical_alerts,
+// clinical_orders, diagnoses, intake_output, investigation_bookings,
+// medical_records, medication_administrations, news2_scores,
+// nurse_handovers, patient_allergies, patient_records, patient_vitals,
+// pharmacy_orders) out of this allowlist. The 27 below remain in
+// Phase-2 of docs/GAP_ANALYSIS_TENANT_RLS.md — they're master / ops /
+// audit / ABDM / claim-billing tables that either don't need per-tenant
+// scoping or need per-table review.
 //
 // The check still fails on any NEW PHI-shaped table added without
 // tenant_id — the allowlist is closed: contributors must explicitly opt
 // out with a comment explaining why.
 const ALLOWLIST = new Set([
-  // Phase-2b residual — master / ops / audit / billing tables that
-  // either don't need per-tenant scoping or need per-table review.
-  // Migration 238 added tenant_id + RLS to 13 more PHI tables but the
-  // schema.prisma regen needs CI's drift output to land cleanly, so
-  // those 13 stay temporarily allow-listed in THIS commit and get
-  // moved out in the follow-up schema patch.
   'abdm_consents',
   'abdm_data_requests',
   'allergies',
@@ -56,10 +55,6 @@ const ALLOWLIST = new Set([
   'blood_requests',
   'cds_alerts',
   'claim_denials',
-  // Phase-2b migrated, schema patch pending (see migration 238):
-  'clinical_alerts',
-  'clinical_orders',
-  'diagnoses',
   'diet_orders',
   'discharge_consults',
   'downtime_snapshots',
@@ -68,21 +63,11 @@ const ALLOWLIST = new Set([
   'hipaa_access_log',
   'infection_cases',
   'insurance_claims',
-  'intake_output',
-  'investigation_bookings',
   'invoices',
-  'medical_records',
-  'medication_administrations',
   'medication_reminders',
-  'news2_scores',
-  'nurse_handovers',
   'ot_schedules',
-  'patient_allergies',
   'patient_consents',
   'patient_data_rights_requests',
-  'patient_records',
-  'patient_vitals',
-  'pharmacy_orders',
   'prescription_safety_overrides',
   'quality_incidents',
   'radiology_orders',
