@@ -37,6 +37,26 @@
 
 import { PrismaClient } from '@prisma/client';
 import logger from '../logging/logger.js';
+import { getCurrentTenantContext, runInTenantContext } from './tenantContext.js';
+
+// Phase-2 RLS enforcement. When AUTH_ENFORCE_TENANT_RLS=true and an
+// AsyncLocalStorage tenant context is active (set per-request by
+// tenantRlsMiddleware), every $queryRaw / $queryRawUnsafe /
+// $executeRaw / $executeRawUnsafe call on this proxy is auto-wrapped in
+// setTenant(tenantId, ...) so RLS policies (migration 075 + 236) actually
+// fire. Flag off → legacy behaviour (permissive when GUC unset).
+// Recursion is broken by the `inSetTenant: true` marker that setTenant
+// adds to the context before invoking the callback.
+const RAW_QUERY_METHODS = new Set([
+  '$queryRaw',
+  '$queryRawUnsafe',
+  '$executeRaw',
+  '$executeRawUnsafe',
+]);
+
+function isRlsEnforcementEnabled() {
+  return String(process.env.AUTH_ENFORCE_TENANT_RLS || '').toLowerCase() === 'true';
+}
 
 const CIRCUIT_BREAKER_THRESHOLD = 5;
 const CIRCUIT_BREAKER_RESET_MS = 30_000;
@@ -127,6 +147,31 @@ function makeClient(url, tag) {
   return client;
 }
 
+/**
+ * Auto-wrap a raw-SQL call in setTenant when:
+ *   - AUTH_ENFORCE_TENANT_RLS=true,
+ *   - AsyncLocalStorage tenant context is active,
+ *   - we're not already inside a setTenant transaction (recursion guard).
+ *
+ * When all three conditions hold, the call runs inside
+ * `setTenant(ctx.tenantId, async (tx) => tx[methodName](...args))`
+ * so migration 075/236's tenant_isolation policy fires. Otherwise the
+ * call passes through to the underlying client — legacy behaviour
+ * preserved exactly when the flag is off.
+ */
+async function maybeRunUnderTenant(baseClient, methodName, args) {
+  if (!isRlsEnforcementEnabled()) return null;
+  if (!RAW_QUERY_METHODS.has(methodName)) return null;
+  const ctx = getCurrentTenantContext();
+  if (!ctx || ctx.inSetTenant) return null;
+  if (!ctx.tenantId && !ctx.superAdmin) return null;
+  return runInTenantContext(ctx.tenantId, () => setTenant(
+    ctx.tenantId,
+    async (tx) => tx[methodName](...args),
+    { superAdmin: ctx.superAdmin },
+  ), { superAdmin: ctx.superAdmin });
+}
+
 /** Internal — wraps a Prisma raw-SQL method with circuit-breaker bookkeeping. */
 function wrapWithCircuitBreaker(fn, methodName, tag) {
   return async function wrapped(...args) {
@@ -140,6 +185,13 @@ function wrapWithCircuitBreaker(fn, methodName, tag) {
       logger.info(`Prisma[${tag}] circuit breaker half-open — testing connection`);
     }
     try {
+      // Phase-2 RLS: when the env flag + tenant context are both active,
+      // route the call through setTenant so RLS policies actually fire.
+      const tenantWrapped = await maybeRunUnderTenant(this, methodName, args);
+      if (tenantWrapped !== null) {
+        consecutiveFailures = 0;
+        return tenantWrapped;
+      }
       const result = await fn.apply(this, args);
       consecutiveFailures = 0;
       return result;
@@ -227,13 +279,22 @@ export async function setTenant(tenantId, fn, { superAdmin = false } = {}) {
   }
   const gucValue = superAdmin ? 'bypass' : tenantId;
 
-  return prisma.$transaction(async (tx) => {
-    await tx.$queryRawUnsafe(
-      "SELECT set_config('app.current_tenant_id', $1, true)",
-      gucValue,
-    );
-    return fn(tx);
-  });
+  // Mark the context so the auto-wrapper at the top of this file doesn't
+  // re-wrap raw queries that already run inside this transaction (would
+  // recurse and nest $transactions). Calls *outside* this fn (e.g. a
+  // sibling promise after `await setTenant(...)`) see no inSetTenant flag
+  // and behave normally.
+  return runInTenantContext(
+    superAdmin ? null : tenantId,
+    () => prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(
+        "SELECT set_config('app.current_tenant_id', $1, true)",
+        gucValue,
+      );
+      return fn(tx);
+    }),
+    { superAdmin, inSetTenant: true },
+  );
 }
 
 /** Reset circuit-breaker state. Test-only. */

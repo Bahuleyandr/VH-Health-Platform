@@ -1,7 +1,9 @@
 # Tenant RLS Gap Analysis
 
-**Status:** Open, multi-week effort. Deferred from the swarm 2026-05-18 backlog
-pass on a structured plan rather than a one-shot architectural change.
+**Status:** Phases 0, 1, and 2 substrate landed 2026-05-18. Phase 2 enforcement
+is opt-in via `AUTH_ENFORCE_TENANT_RLS=true` (default off — every legacy call
+site keeps working). Remaining work is the production cutover decision and
+auditing the long tail of PHI tables (Phase 2b, listed below).
 
 **Severity in swarm:** medium (does not gate the [`GOAL_2026-06-16`](GOAL_2026-06-16.md)
 milestone, which targets 0 critical/high in-flight only).
@@ -124,26 +126,75 @@ over removing.
 
 ---
 
-## Recommended
+## Recommended (current progress in brackets)
 
-**Path B**, but staged:
+**Path B**, staged:
 
-1. **Phase 0 (this week):** add a CI check that fails when a new
-   PHI-shaped table is added without `tenant_id`. Prevents the gap from
-   widening while a decision is pending. (Probably ~50 lines of glue in
-   `apps/backend/scripts/check-schema-drift.mjs` or a sibling.)
-2. **Phase 1 (1 week):** migration + RLS policies on the 5 highest-value
-   PHI tables. Backfill from `users.tenant_id`. JWT claim added at the
-   `issueAccessTokenAndClaimSession` chokepoint.
-3. **Phase 2 (2 weeks):** call-site audit + `setTenant` wrapping on PHI
-   read/write surfaces. Cron + scheduled jobs get explicit tenant context.
-4. **Phase 3 (1 week):** SUPER_ADMIN override hardening (reason + audit
-   log). Two-tenant deep test in `vhhealth_test`. Remove silent
-   `DEFAULT_TENANT_ID` fallback.
+1. **Phase 0** ✅ **shipped** — `apps/backend/scripts/check-phi-tenant-id.mjs`
+   wired into `npm run lint`. Baselines 40 pre-existing PHI gaps in its
+   allowlist; new PHI-shaped tables added without `tenant_id` fail CI.
+2. **Phase 1** ✅ **shipped** — migration `236_tenant_rls_phi_phase_1.sql`
+   adds `tenant_id` + RLS policy to 8 PHI tables (`appointments`,
+   `admissions`, `clinical_notes`, `prescriptions`, `e_prescriptions`,
+   `investigations`, `vitals_chart`, `emergency_visits`). JWT carries
+   `tenant_id` claim from `loginSessionHelper.issueAccessTokenAndClaimSession`.
+   2-tenant deep test proves cross-tenant blocks work.
+3. **Phase 2 substrate** ✅ **shipped** — `src/lib/tenantContext.js`
+   (AsyncLocalStorage) + `src/middleware/tenantRlsMiddleware.js` seed
+   a per-request tenant context. The prisma proxy at `src/lib/prisma.js`
+   auto-wraps every `$queryRaw*` / `$executeRaw*` call in `setTenant()`
+   when `AUTH_ENFORCE_TENANT_RLS=true` AND the context is set. Recursion
+   broken by the `inSetTenant` marker. 7-case deep test covers the
+   matrix (flag off, flag on + per-tenant context, SUPER_ADMIN bypass,
+   cron-shaped no-context path, WRITE rejection by WITH CHECK).
+4. **Phase 2 cutover** ⏳ **pending** — flip `AUTH_ENFORCE_TENANT_RLS=true`
+   in staging (dalekdefender), let the swarm shake the surface for a
+   week, then flip in prod. Cron jobs that touch PHI need explicit
+   `runInTenantContext()` or `runWithSuperAdmin()` from
+   `src/lib/tenantContext.js` (audit listed below).
+5. **Phase 2b** ⏳ **pending** — convert the 40 allow-listed PHI tables
+   (`apps/backend/scripts/check-phi-tenant-id.mjs::ALLOWLIST`) to carry
+   `tenant_id` + RLS. Each migration removes one entry from the
+   allowlist.
+6. **Phase 3** ⏳ **pending** — SUPER_ADMIN `x-tenant-id` override
+   hardening (require `reason` field + log every override to
+   `audit_logs` with original + target tenant). Remove silent
+   `DEFAULT_TENANT_ID` fallback in `tenantContextMiddleware` once
+   every login path is verified to issue the `tenant_id` claim.
 
 After Phase 3, the platform is honestly multi-tenant for PHI; the residual
 weak spots (analytics, scheduled jobs) are visible in the audit log
 instead of silently sharing data.
+
+### Cron / scheduled-job audit (Phase 2 cutover prerequisite)
+
+The following jobs run outside the Express request scope and therefore
+won't pick up an AsyncLocalStorage tenant context. Each must either
+loop per tenant (`for tenant of tenants: runInTenantContext(tenant.id, fn)`)
+or wrap in `runWithSuperAdmin(fn)` for cross-tenant aggregators.
+Inventory before flipping `AUTH_ENFORCE_TENANT_RLS=true`:
+
+- `src/utils/scheduler.js` (master cron registry)
+- `src/schedulers/appointmentReminderScheduler.js`
+- `src/utils/notifications/appointmentReminderJob.js`
+- `src/utils/notifications/stuckOrderEscalation.js`
+- `src/utils/canaryHealthCheck.js`
+- `src/scripts/sendAppointmentReminders.js`
+- `src/services/appointment/appointmentReaperService.js`
+- Migration runner (`src/utils/migrations/runMigrations.js`) — must
+  stay bypass since it runs as DB owner pre-RLS.
+
+### Phase-2 activation runbook
+
+```bash
+# 1. Roll out the substrate (flag default off — no behaviour change).
+kubectl -n vhhealth set env deploy/vhhealth-backend AUTH_ENFORCE_TENANT_RLS=false
+# 2. Verify legacy behaviour is preserved (run swarm 1-2 ticks).
+# 3. Flip on staging:
+kubectl -n vhhealth set env deploy/vhhealth-backend AUTH_ENFORCE_TENANT_RLS=true
+# 4. Watch for 42501 (RLS violation) errors in logs; fix any cron paths.
+# 5. Repeat for prod cluster.
+```
 
 ---
 
