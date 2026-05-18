@@ -284,9 +284,21 @@ export async function setTenant(tenantId, fn, { superAdmin = false } = {}) {
   // recurse and nest $transactions). Calls *outside* this fn (e.g. a
   // sibling promise after `await setTenant(...)`) see no inSetTenant flag
   // and behave normally.
+  // Test-only escape hatch: when AUTH_TENANT_RLS_TEST_ROLE is set, SET LOCAL
+  // ROLE to that role BEFORE the GUC. This is how the Phase-2 deep test
+  // simulates production (which connects as a non-superuser, non-owner role).
+  // CI Postgres and dev clusters often connect as a superuser/owner, which
+  // bypasses RLS regardless of FORCE — without this hook the deep test
+  // can only run on the local QA cluster's qa_writer role.
+  const testRole = process.env.AUTH_TENANT_RLS_TEST_ROLE;
+
   return runInTenantContext(
     superAdmin ? null : tenantId,
     () => prisma.$transaction(async (tx) => {
+      if (testRole) {
+        // Identifier injection is gated to env config — never user input.
+        await tx.$executeRawUnsafe(`SET LOCAL ROLE ${testRole}`);
+      }
       await tx.$queryRawUnsafe(
         "SELECT set_config('app.current_tenant_id', $1, true)",
         gucValue,
