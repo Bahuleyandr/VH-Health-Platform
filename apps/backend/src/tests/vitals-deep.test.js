@@ -288,6 +288,41 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       expect(rows[0].triage_priority).toBe('esi_2');
       expect(rows[0].appointment_acuity).toBe(2);
     });
+
+    // Finding: 2026-05-17-obstetric-anc-nurse-6fe6f592.
+    // POST /api/v1/emr/vitals previously dropped `visit_id` entirely
+    // (the controller destructured it but the service never used it),
+    // so the persisted vitals_chart row stayed encounter_id=null even
+    // when the nurse explicitly supplied visit_id. The doctor's screen
+    // then couldn't tie the vitals to today's consult.
+    it('persists encounter_id from a supplied visit_id (regression for orphan vitals)', async () => {
+      // Seed a fresh emergency-visits row so visit_id is a valid integer
+      // pointer the controller can resolve.
+      const visitNo = `EMER-VITALS-LINK-${Date.now()}`;
+      const visitRows = await prisma.$queryRawUnsafe(
+        `INSERT INTO emergency_visits
+           (tenant_id, visit_number, patient_uid, arrival_mode, chief_complaint,
+            status, created_by, updated_at)
+         VALUES ('00000000-0000-4000-8000-000000000001'::uuid,
+                 $1, $2::uuid, 'walk_in', 'Acute headache',
+                 'arriving', $3::uuid, NOW())
+         RETURNING id`,
+        visitNo, PATIENT_UID, RECORDER_UID,
+      );
+      const visitId = visitRows[0].id;
+
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_id: patientIntId,
+        visit_id: visitId,
+        heart_rate: 88,
+        systolic_bp: 118,
+        diastolic_bp: 76,
+        respiratory_rate: 16,
+        spo2: 98,
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.body.data.vitals.encounter_id).toBe(visitId);
+    });
   });
 
   describe('OB urine dipstick fields (migration 211)', () => {
