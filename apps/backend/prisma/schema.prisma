@@ -720,7 +720,6 @@ model appointments {
   confirmed_at                         DateTime?                    @db.Timestamptz(6)
   sla_target_at                        DateTime?                    @db.Timestamptz(6)
   visit_type                           String?                      @db.VarChar(50)
-  triage_acuity                        Int?                         @db.SmallInt
   advised_for_admission_at             DateTime?                    @db.Timestamptz(6)
   advised_for_admission_by             String?                      @db.Uuid
   advised_for_admission_note           String?
@@ -731,6 +730,7 @@ model appointments {
   insurer_name                         String?                      @db.VarChar(160)
   policy_number                        String?                      @db.VarChar(80)
   scheme_name                          String?                      @db.VarChar(120)
+  triage_acuity                        Int?                         @db.SmallInt
   appointment_documents                appointment_documents[]
   appointment_status_history           appointment_status_history[]
   users_appointments_doctor_idTousers  users?                       @relation("appointments_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction)
@@ -8645,7 +8645,7 @@ model vitals_chart {
   urine_sugar       String?   @db.VarChar(10)
   urine_ketones     String?   @db.VarChar(10)
   temperature_route String?   @db.VarChar(10)
-  triage_acuity    Int?      @db.SmallInt
+  triage_acuity     Int?      @db.SmallInt
 
   @@index([patient_uid, recorded_at(sort: Desc)], map: "idx_vitals_chart_patient_recorded")
 }
