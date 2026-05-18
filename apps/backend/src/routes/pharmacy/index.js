@@ -7,6 +7,7 @@ import inventoryRoutes from './inventoryRoutes.js';
 import inventoryV2Routes from './inventoryV2Routes.js';
 import medicationRoutes from './medicationRoutes.js';
 import orderRoutes from './orderRoutes.js';
+import wardIndentRoutes from './wardIndentRoutes.js';
 
 const router = express.Router();
 
@@ -44,6 +45,9 @@ router.use('/medications', medicationRoutes);
 router.use('/inventory', inventoryRoutes);
 router.use('/inventory/v2', inventoryV2Routes);
 router.use('/admin', adminRoutes);
+// IPD ward → pharmacy stores indent workflow. Finding:
+// 2026-05-08-inpatient-admission-pharmacy-no-ipd-ward-indent.
+router.use('/ward-indents', wardIndentRoutes);
 
 // Re-route some paths for backward compatibility
 router.use('/category', medicationRoutes);
