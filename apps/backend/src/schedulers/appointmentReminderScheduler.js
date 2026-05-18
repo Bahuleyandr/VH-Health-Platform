@@ -2,6 +2,7 @@
 // Sends push notifications 24 hours before scheduled appointments.
 
 import prisma from '../lib/prisma.js';
+import { runWithSuperAdmin } from '../lib/tenantContext.js';
 import logger from '../logging/logger.js';
 import { dispatch } from '../utils/notifications/notificationDispatcher.js';
 
@@ -12,8 +13,15 @@ import { dispatch } from '../utils/notifications/notificationDispatcher.js';
  * Call from a cron job (e.g., every 30 minutes):
  *   import { runAppointmentReminders } from './schedulers/appointmentReminderScheduler.js';
  *   cron.schedule('0,30 * * * *', () => runAppointmentReminders());
+ *
+ * Phase-2 RLS: cross-tenant aggregator — scans every tenant's upcoming
+ * appointments, so wraps in runWithSuperAdmin to bypass RLS scoping.
  */
 export async function runAppointmentReminders() {
+  return runWithSuperAdmin(async () => runAppointmentRemindersInner());
+}
+
+async function runAppointmentRemindersInner() {
   try {
     // Find appointments 24h ahead that haven't been reminded
     const upcoming = await prisma.$queryRawUnsafe(`

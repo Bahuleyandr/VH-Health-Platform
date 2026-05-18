@@ -20,6 +20,7 @@ import { errorHandlerMiddleware } from './middleware/errorHandlerMiddleware.js';
 import { adminIpAllowlist } from './middleware/ipAllowlistMiddleware.js';
 import jwtAuth, { enforceFullScope } from './middleware/jwtMiddleware.js';
 import tenantContextMiddleware from './middleware/tenantContextMiddleware.js';
+import tenantRlsMiddleware from './middleware/tenantRlsMiddleware.js';
 import tenantRoutes from './routes/admin/tenantRoutes.js';
 import loggingMiddleware from './middleware/loggingMiddleware.js';
 import { normalizeIdentityFields } from './middleware/normalizeIdentityFields.js';
@@ -467,6 +468,7 @@ app.use(jwtAuth);  // Single JWT middleware for all authenticated routes
 // route past this line gets the inverse guard.
 app.use(enforceFullScope);
 app.use(tenantContextMiddleware);  // Resolves req.tenantId after JWT auth
+app.use(tenantRlsMiddleware);      // Phase-2: seed AsyncLocalStorage so prisma auto-applies setTenant when AUTH_ENFORCE_TENANT_RLS=true
 app.use(normalizeIdentityFields); // runs AFTER JWT auth
 
 // ====================================

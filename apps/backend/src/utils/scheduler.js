@@ -6,10 +6,19 @@ import backupDb from '../../admin/backup-db.js';
 import { cleanupOldBackups as cleanupBackups } from '../../admin/cleanup-backups.js';
 import purgeArchives from '../../admin/purge-archives.js';
 import prisma from '../lib/prisma.js';
+import { runWithSuperAdmin } from '../lib/tenantContext.js';
 import logger from '../logging/logger.js';
 
 const runningJobs = new Set();
 
+// Phase-2 RLS: scheduled jobs run outside the Express request scope, so
+// they have no AsyncLocalStorage tenant context. Wrapping every job body
+// in runWithSuperAdmin marks the work as a cross-tenant aggregator —
+// the prisma proxy at src/lib/prisma.js then auto-applies
+// setTenant(null, fn, { superAdmin: true }) so RLS policies (075 + 236)
+// allow the scan when AUTH_ENFORCE_TENANT_RLS=true. Jobs that need
+// per-tenant scoping should loop over tenants with runInTenantContext
+// inside their own body.
 function withJobLock(jobName, fn) {
   return async () => {
     if (runningJobs.has(jobName)) {
@@ -19,7 +28,7 @@ function withJobLock(jobName, fn) {
     runningJobs.add(jobName);
     const start = Date.now();
     try {
-      await fn();
+      await runWithSuperAdmin(fn);
       logger.info(`Job ${jobName} completed in ${Date.now() - start}ms`);
     } catch (err) {
       logger.error(`Job ${jobName} failed after ${Date.now() - start}ms:`, err);

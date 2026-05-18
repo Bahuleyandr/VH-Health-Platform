@@ -1,8 +1,10 @@
 import prisma from '../lib/prisma.js';
+import { runWithSuperAdmin } from '../lib/tenantContext.js';
 import logger from '../logging/logger.js';
 import { sendPushNotification } from '../utils/notifications/sendPushNotification.js';
 
-const sendAppointmentReminders = async () => {
+// Phase-2 RLS: cross-tenant script. See src/lib/tenantContext.js.
+const sendAppointmentReminders = async () => runWithSuperAdmin(async () => {
   try {
     const today = new Date();
     const yyyyMMdd = today.toISOString().split('T')[0];
@@ -38,6 +40,6 @@ const sendAppointmentReminders = async () => {
   } catch (err) {
     logger.error('❌ Error sending appointment reminders:', err);
   }
-};
+});
 
 sendAppointmentReminders();

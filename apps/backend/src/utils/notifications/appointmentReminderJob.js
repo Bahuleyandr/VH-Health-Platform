@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma.js';
+import { runWithSuperAdmin } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { sendAppointmentReminderSMS } from '../../services/smsService.js';
 import { sendPushNotification } from './sendPushNotification.js';
@@ -7,8 +8,14 @@ import { NotificationTemplates } from './templates.js';
 /**
  * Hourly 24h/1h SMS+push reminders for upcoming appointments
  * Called every hour from scheduler
+ *
+ * Phase-2 RLS: cross-tenant aggregator. See src/lib/tenantContext.js.
  */
 export async function sendTimedReminders() {
+  return runWithSuperAdmin(async () => sendTimedRemindersInner());
+}
+
+async function sendTimedRemindersInner() {
   const now = new Date();
 
   try {
@@ -111,8 +118,14 @@ export async function sendTimedReminders() {
 /**
  * Process pending scheduled notifications (feedback requests, etc.)
  * Called every 5 minutes from scheduler
+ *
+ * Phase-2 RLS: cross-tenant aggregator. See src/lib/tenantContext.js.
  */
 export async function processPendingScheduledNotifications() {
+  return runWithSuperAdmin(async () => processPendingScheduledNotificationsInner());
+}
+
+async function processPendingScheduledNotificationsInner() {
   try {
     const pending = await prisma.$queryRawUnsafe(`
       SELECT sn.*, u.device_token, u.phone, u.name
@@ -157,6 +170,10 @@ export async function processPendingScheduledNotifications() {
 }
 
 export async function sendAppointmentReminders() {
+  return runWithSuperAdmin(async () => sendAppointmentRemindersInner());
+}
+
+async function sendAppointmentRemindersInner() {
   logger.info('📅 Sending appointment reminders for today...');
 
   try {

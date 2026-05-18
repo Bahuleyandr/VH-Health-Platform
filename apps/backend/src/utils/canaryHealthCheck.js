@@ -1,11 +1,18 @@
 import prisma from '../lib/prisma.js';
+import { runWithSuperAdmin } from '../lib/tenantContext.js';
 import logger from '../logging/logger.js';
 
 /**
  * Runs synthetic tests against critical paths to detect silent failures.
  * Designed to be called by a scheduler every 5 minutes.
+ *
+ * Phase-2 RLS: scans across tenants, wraps in runWithSuperAdmin.
  */
 export async function runCanaryChecks() {
+  return runWithSuperAdmin(async () => runCanaryChecksInner());
+}
+
+async function runCanaryChecksInner() {
   const results = {};
 
   // 1. Database read
