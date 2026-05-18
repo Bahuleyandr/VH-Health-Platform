@@ -643,6 +643,36 @@ app.use('/api/v1/documents', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURS
 app.use('/api/v1/clinical', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('CLINICAL_WORKFLOW'), clinicalRoutes);
 app.use('/api/v1/nursing-assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('NURSING_ASSESSMENT'), nursingAssessmentRoutes);
 
+// MAR discoverability aliases — the canonical handlers live at
+// /api/v1/clinical/mar/* but ward nurses and the swarm keep probing
+// /api/v1/emr/mar/* and /api/v1/nursing/mar/*. The rewrite prepends
+// `/mar` so the same router handlers match without duplication. No
+// new code, no audit drift — just an extra mount path that points at
+// the same controllers. Finding cluster:
+//   2026-05-08-inpatient-admission-nurse-blocked-no-mar (cascade)
+//   plus repeated probes in driver logs at /emr/mar and /nursing/mar.
+function rewriteToMarPrefix(req, _res, next) {
+  const [pathPart, queryPart] = req.url.split('?');
+  const query = queryPart ? `?${queryPart}` : '';
+  const trimmed = (pathPart || '/').replace(/\/+$/, '') || '';
+  req.url = `/mar${trimmed}${query}`;
+  next();
+}
+app.use(
+  '/api/v1/emr/mar',
+  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'),
+  phiAccessLogger('CLINICAL_WORKFLOW'),
+  rewriteToMarPrefix,
+  clinicalRoutes,
+);
+app.use(
+  '/api/v1/nursing/mar',
+  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'),
+  phiAccessLogger('CLINICAL_WORKFLOW'),
+  rewriteToMarPrefix,
+  clinicalRoutes,
+);
+
 // Clinical assessments: pain / fall-risk / growth-chart (Phase F2)
 app.use('/api/v1/clinical/assessments', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT'), phiAccessLogger('CLINICAL_ASSESSMENT'), clinicalAssessmentRoutes);
 
