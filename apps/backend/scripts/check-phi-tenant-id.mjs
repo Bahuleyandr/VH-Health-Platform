@@ -41,7 +41,12 @@ const SCHEMA_PATH = path.resolve(__dirname, '..', 'prisma', 'schema.prisma');
 // tenant_id — the allowlist is closed: contributors must explicitly opt
 // out with a comment explaining why.
 const ALLOWLIST = new Set([
-  // Phase-2 backlog — track removal under docs/GAP_ANALYSIS_TENANT_RLS.md.
+  // Phase-2b residual — master / ops / audit / billing tables that
+  // either don't need per-tenant scoping or need per-table review.
+  // Migration 238 added tenant_id + RLS to 13 more PHI tables but the
+  // schema.prisma regen needs CI's drift output to land cleanly, so
+  // those 13 stay temporarily allow-listed in THIS commit and get
+  // moved out in the follow-up schema patch.
   'abdm_consents',
   'abdm_data_requests',
   'allergies',
@@ -51,6 +56,7 @@ const ALLOWLIST = new Set([
   'blood_requests',
   'cds_alerts',
   'claim_denials',
+  // Phase-2b migrated, schema patch pending (see migration 238):
   'clinical_alerts',
   'clinical_orders',
   'diagnoses',
