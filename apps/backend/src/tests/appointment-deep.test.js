@@ -430,6 +430,46 @@ describe('Appointment booking + lifecycle — deep integration', () => {
       expect(row.advised_for_admission_note).toBe('Admit for IV fluids and monitoring');
       expect(row.doctor_name).toBe('Dr. Appointment Tester');
     });
+
+    // Finding: 2026-05-17-inpatient-admission-receptionist-30bd3752.
+    // The canonical advise endpoint at POST /api/v1/appointments/:id/advise-admission
+    // exists but the swarm + real receptionists keep probing
+    // /api/v1/admissions/advise — added as a discoverable alias.
+    it('accepts the discoverable POST /api/v1/admissions/advise alias by appointment_id', async () => {
+      // Seed an OPD appointment to advise on.
+      const seed = await prisma.$queryRawUnsafe(
+        `INSERT INTO appointments
+           (phone, patient_id, doctor_id, doctor_name, patient_name,
+            appointment_date, appointment_time, status, token_number,
+            department, reason, created_at, updated_at)
+         VALUES
+           ($1, $2::int, $3::int, 'Dr. Appointment Tester',
+            'Appointment Test Patient', CURRENT_DATE, '16:00',
+            'COMPLETED', 'ADMIT-ALIAS-001', 'General Medicine',
+            'OPD doctor signals admission', NOW(), NOW())
+         RETURNING id`,
+        PATIENT_PHONE, patientIntId, doctorIntId,
+      );
+      const apptId = seed[0].id;
+
+      // adviseForAdmission requires DOCTOR/CONSULTANT/JUNIOR_DOCTOR/ADMIN/SUPER_ADMIN.
+      // Our admin mkClient is ADMIN — call should succeed.
+      const res = await admin
+        .post('/api/v1/admissions/advise')
+        .send({ appointment_id: apptId, note: 'Advise via alias' });
+      expect(res.statusCode).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.appointment_id ?? res.body.data.id).toBe(apptId);
+
+      // The underlying row must show the advise stamp set.
+      const row = await prisma.$queryRawUnsafe(
+        `SELECT advised_for_admission_at, advised_for_admission_note
+           FROM appointments WHERE id = $1::int`,
+        apptId,
+      );
+      expect(row[0].advised_for_admission_at).toBeTruthy();
+      expect(row[0].advised_for_admission_note).toBe('Advise via alias');
+    });
   });
 
   describe('follow-up list metadata', () => {
