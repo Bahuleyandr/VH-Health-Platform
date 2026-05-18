@@ -152,16 +152,23 @@ export async function createPregnancy({
 
   const eddFinal = edd_date || computeEdd(lmp_date);
 
+  // Explicitly set status='ongoing' on insert. The vital-sign monitor's
+  // pre-eclampsia screen + every active-pregnancy query (line 388, 767)
+  // filters on status='ongoing'; without setting it explicitly, rows
+  // landed with the column default ('active'), so a booked pregnancy
+  // never triggered the BP+protein pre-eclampsia alert. Finding:
+  //   POST /emr/vitals does not raise pre-eclampsia alert despite
+  //   BP ≥140/90 + proteinuria in a known-pregnant patient.
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO maternity_pregnancies
        (patient_uid, pregnancy_number, lmp_date, edd_date, edd_method,
         gravida, parity, living_children, abortions,
         blood_group, rh_factor, booking_status, booking_visit_date,
-        high_risk, high_risk_reasons, notes, created_by, tenant_id)
+        high_risk, high_risk_reasons, notes, status, created_by, tenant_id)
      VALUES ($1::uuid, $2::int, $3::date, $4::date, $5,
              $6::int, $7::int, $8::int, $9::int,
              $10, $11, $12, $13::date,
-             $14, $15::text[], $16, $17::uuid, $18::uuid)
+             $14, $15::text[], $16, 'ongoing', $17::uuid, $18::uuid)
      RETURNING *`,
     String(patient_uid), Number(pregnancy_number),
     lmp_date || null, eddFinal || null, edd_method || null,
