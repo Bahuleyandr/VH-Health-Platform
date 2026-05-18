@@ -29,6 +29,7 @@
 // stuck-order escalation job.
 
 import prisma from '../../lib/prisma.js';
+import { runWithSuperAdmin } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 
 const DEFAULT_GRACE_MIN = 60;
@@ -36,8 +37,15 @@ const DEFAULT_GRACE_MIN = 60;
 /**
  * One sweep. Returns the count of rows reaped.
  * Safe to call ad-hoc (admin reset utility) or from cron.
+ *
+ * Phase-2 RLS: cross-tenant reaper. Wraps in runWithSuperAdmin so
+ * RLS bypasses when AUTH_ENFORCE_TENANT_RLS=true.
  */
 export async function reapStaleScheduledVisits({ graceMinutes = DEFAULT_GRACE_MIN } = {}) {
+  return runWithSuperAdmin(async () => reapStaleScheduledVisitsInner({ graceMinutes }));
+}
+
+async function reapStaleScheduledVisitsInner({ graceMinutes = DEFAULT_GRACE_MIN } = {}) {
   const grace = Math.max(15, Math.min(720, Number(graceMinutes) || DEFAULT_GRACE_MIN));
 
   // Find candidates first — same predicate used by the UPDATE so the

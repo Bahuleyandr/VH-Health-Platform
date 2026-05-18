@@ -2,6 +2,7 @@
 // Escalation cron — detects stuck orders and alerts admins
 
 import prisma from '../../lib/prisma.js';
+import { runWithSuperAdmin } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 
 /**
@@ -10,8 +11,14 @@ import logger from '../../logging/logger.js';
  * Sends push notifications to admin users.
  *
  * Called by scheduler every 30 minutes.
+ *
+ * Phase-2 RLS: cross-tenant aggregator. See src/lib/tenantContext.js.
  */
 export async function escalateStuckOrders() {
+  return runWithSuperAdmin(async () => escalateStuckOrdersInner());
+}
+
+async function escalateStuckOrdersInner() {
   logger.info('[Escalation] Checking for stuck orders...');
 
   // 1. Appointments stuck in SCHEDULED >48h with no staff confirmation
