@@ -312,9 +312,9 @@ export async function getPatientHandoverHistory(patientUid, limit = 50) {
             medications_due, special_instructions, acknowledged,
             acknowledged_at, created_at
      FROM nurse_handovers
-     WHERE patient_uid = $1
+     WHERE patient_uid = $1::uuid
      ORDER BY created_at DESC
-     LIMIT $2`,
+     LIMIT $2::int`,
     patientUid, limit
   );
 

@@ -72,4 +72,20 @@ describe('theatreService.completeChecklist', () => {
     expect(result.id).toBe(3);
     expect(JSON.parse(queryUnsafeMock.mock.calls[1][1])).toMatchObject(checklist);
   });
+
+  it('rejects OT-ready when the checklist itself marks the patient diabetic without glucose', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([rightEyeSchedule()]);
+
+    await expect(theatreService.completeChecklist(3, {
+      ot_ready: true,
+      fasting_confirmed: true,
+      site_marked: true,
+      site_marked_eye: 'right',
+      diabetic_patient: true,
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'DIABETIC_GLUCOSE_CHECK_REQUIRED',
+    });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
 });

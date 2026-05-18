@@ -8,6 +8,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSafetyCheck.js';
 import { maybePropagateAncSupplements } from '../../services/maternity/maternityService.js';
+import { createPrescriptionReminders } from '../../services/patient/medicationReminderService.js';
 import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { success, error } from '../../utils/responseHelper.js';
@@ -37,6 +38,100 @@ function parseJsonField(value, fallback = null) {
   } catch {
     return fallback;
   }
+}
+
+function catalogSelectionKey(value) {
+  if (value === undefined || value === null || value === '') return null;
+  return String(value).trim().toLowerCase();
+}
+
+function collectCatalogSelections(body = {}) {
+  const selections = new Map();
+  const put = (key, catalogId) => {
+    const normalizedKey = catalogSelectionKey(key);
+    const id = Number.parseInt(catalogId, 10);
+    if (normalizedKey && Number.isInteger(id) && id > 0) {
+      selections.set(normalizedKey, id);
+    }
+  };
+
+  if (body.catalog_id) put('0', body.catalog_id);
+
+  for (const source of [
+    body.catalog_overrides,
+    body.catalogOverrides,
+    body.catalog_selections,
+    body.catalogSelections,
+    body.items,
+    body.medications,
+  ]) {
+    if (!source) continue;
+    if (Array.isArray(source)) {
+      source.forEach((item, index) => {
+        if (!item || typeof item !== 'object') return;
+        const id = item.catalog_id ?? item.catalogId ?? item.id;
+        put(index, id);
+        put(item.name ?? item.medication_name ?? item.drug_name, id);
+      });
+      continue;
+    }
+    if (typeof source === 'object') {
+      for (const [key, value] of Object.entries(source)) {
+        const id = value && typeof value === 'object'
+          ? value.catalog_id ?? value.catalogId ?? value.id
+          : value;
+        put(key, id);
+      }
+    }
+  }
+
+  return selections;
+}
+
+function findCatalogSelection(selections, med, medName, index) {
+  for (const key of [
+    index,
+    medName,
+    med?.name,
+    med?.medication_name,
+    med?.drug_name,
+  ]) {
+    const normalizedKey = catalogSelectionKey(key);
+    if (normalizedKey && selections.has(normalizedKey)) {
+      return selections.get(normalizedKey);
+    }
+  }
+  return null;
+}
+
+function parseMlFromText(...values) {
+  for (const value of values) {
+    let last = null;
+    for (const match of String(value || '').matchAll(/(\d+(?:\.\d+)?)\s*m\s*l\b/gi)) {
+      last = match[1];
+    }
+    if (last) {
+      const ml = Number.parseFloat(last);
+      if (Number.isFinite(ml) && ml > 0) return ml;
+    }
+  }
+  return null;
+}
+
+function parseWeightKgFromText(...values) {
+  for (const value of values) {
+    const match = String(value || '').match(/(?:weight|wt)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*kg\b/i);
+    if (match) {
+      const kg = Number.parseFloat(match[1]);
+      if (Number.isFinite(kg) && kg > 0) return kg;
+    }
+  }
+  return null;
+}
+
+function defaultMeasuringInstruction(ml) {
+  if (!Number.isFinite(ml) || ml <= 0) return null;
+  return `Measure ${ml} ml using an oral syringe or marked medicine cup; do not use a household spoon.`;
 }
 
 function parseIntegerField(value) {
@@ -556,6 +651,24 @@ export const createPrescription = async (req, res) => {
       });
     }
 
+    try {
+      const reminderRows = await createPrescriptionReminders(patientUid, medications, {
+        prescriptionNumber: prescription.prescription_number,
+      });
+      if (reminderRows.length > 0) {
+        logger.info('Prescription medication reminders synced', {
+          prescription_id: prescription.id,
+          patient_uid: patientUid,
+          reminder_count: reminderRows.length,
+        });
+      }
+    } catch (reminderErr) {
+      logger.warn('Prescription medication reminder sync failed:', {
+        prescription_id: prescription.id,
+        err: reminderErr?.message,
+      });
+    }
+
     success(res, prescription, `Prescription ${prescription.prescription_number} created`, HTTP_STATUS.CREATED);
   } catch (err) {
     // Log enough context to actually diagnose the next swarm 500. The
@@ -601,7 +714,10 @@ export const previewSafetyCheck = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 export const getPrescriptionSafety = async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return error(res, 'Invalid prescription id', HTTP_STATUS.BAD_REQUEST);
+    }
     const rx = await prisma.$queryRawUnsafe(
       'SELECT patient_id, medications, diagnosis FROM e_prescriptions WHERE id = $1',
       id,
@@ -762,10 +878,20 @@ export const getMyPrescriptions = async (req, res) => {
 
     const result = await prisma.$queryRawUnsafe(
       `SELECT ep.*,
-              d.name AS doctor_name, doc.specialty AS doctor_specialization
+              d.name AS doctor_name, doc.specialty AS doctor_specialization,
+              po.order_number AS pharmacy_order_number,
+              po.status AS pharmacy_order_status,
+              po.payment_status AS pharmacy_payment_status,
+              po.payment_mode AS pharmacy_payment_mode,
+              po.amount_collected AS pharmacy_amount_collected,
+              po.total_amount AS pharmacy_total_amount,
+              po.partial_dispense AS pharmacy_partial_dispense,
+              po.partial_reason AS pharmacy_partial_reason,
+              po.dispensed_at AS pharmacy_dispensed_at
        FROM e_prescriptions ep
        JOIN users d ON d.id = ep.doctor_id
        LEFT JOIN doctors doc ON doc.user_id = ep.doctor_id
+       LEFT JOIN pharmacy_orders po ON po.id = ep.pharmacy_order_id
        WHERE ep.patient_id = $1
        ORDER BY ep.created_at DESC`,
       userId
@@ -908,6 +1034,7 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     // to delivery. Canonical name is `delivery_type` (matches Wave 1.5 ship).
     const { delivery_address, delivery_phone } = req.body;
     const delivery_type = req.body.delivery_type ?? req.body.dispense_type ?? 'delivery';
+    const catalogSelections = collectCatalogSelections(req.body);
 
     // Fetch prescription
     const rxResult = await prisma.$queryRawUnsafe(
@@ -988,29 +1115,36 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     // stock + price so the UI can sort/filter.
     const suggestions = {};
 
-    for (const med of medications) {
+    for (const [medIndex, med] of medications.entries()) {
       const medName = med.name || med.medication_name || med.drug_name || '';
       let price = 0;
-      let catalogId = med.catalog_id ? Number(med.catalog_id) : null;
+      let catalogName = null;
+      const selectedCatalogId = findCatalogSelection(catalogSelections, med, medName, medIndex);
+      let catalogId = selectedCatalogId ?? (med.catalog_id ? Number(med.catalog_id) : null);
       if (Number.isFinite(catalogId)) {
         const catRes = await prisma.$queryRawUnsafe(
-          'SELECT id, unit_price FROM pharmacy_catalog WHERE id=$1',
+          `SELECT id, name, unit_price
+             FROM pharmacy_catalog
+            WHERE id=$1
+              AND COALESCE(is_active, true) = true`,
           catalogId,
         );
         if (catRes.length > 0) {
           price = parseFloat(catRes[0].unit_price) || 0;
+          catalogName = catRes[0].name;
         } else {
           catalogId = null;
         }
       }
       if (!catalogId && medName) {
         const catRes = await prisma.$queryRawUnsafe(
-          'SELECT id, unit_price FROM pharmacy_catalog WHERE name ILIKE $1 LIMIT 1',
+          'SELECT id, name, unit_price FROM pharmacy_catalog WHERE name ILIKE $1 LIMIT 1',
           medName,
         );
         if (catRes.length > 0) {
           catalogId = catRes[0].id;
           price = parseFloat(catRes[0].unit_price) || 0;
+          catalogName = catRes[0].name;
         }
       }
       if (!catalogId) {
@@ -1054,17 +1188,35 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       }
       const qty = toPositiveInt(med.quantity ?? med.qty, 1);
       const lineTotal = Number((price * qty).toFixed(2));
+      const doseText = med.dose || med.dosage || med.strength || '';
+      const instructionText = med.instructions || med.notes || '';
+      const dispensedQuantityMl = med.dispensed_quantity_ml != null
+        ? Number(med.dispensed_quantity_ml)
+        : parseMlFromText(doseText, instructionText);
+      const childWeightKg = med.child_weight_kg != null
+        ? Number(med.child_weight_kg)
+        : parseWeightKgFromText(doseText, instructionText);
+      const measuringInstruction = med.measuring_instruction
+        || defaultMeasuringInstruction(dispensedQuantityMl);
       totalCost += lineTotal;
       itemsList.push({
         catalog_id: catalogId,
         name: medName,
         medication_name: medName,
+        catalog_name: catalogName,
+        substitution: selectedCatalogId && catalogName && catalogName.toLowerCase() !== medName.toLowerCase()
+          ? { requested_name: medName, catalog_name: catalogName, explicit: true }
+          : null,
         strength: med.strength || med.dosage || null,
-        dose: med.dose || med.dosage || null,
+        dose: doseText || null,
         route: med.route || null,
         frequency: med.frequency || null,
         duration: med.duration || null,
-        instructions: med.instructions || med.notes || null,
+        instructions: instructionText || null,
+        dispensed_quantity_ml: Number.isFinite(dispensedQuantityMl) ? dispensedQuantityMl : null,
+        child_weight_kg: Number.isFinite(childWeightKg) ? childWeightKg : null,
+        measuring_instruction: measuringInstruction,
+        label_instruction: [instructionText || null, measuringInstruction].filter(Boolean).join(' ') || null,
         qty,
         price,
         line_total: lineTotal,

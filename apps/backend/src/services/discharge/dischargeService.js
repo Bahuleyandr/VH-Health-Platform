@@ -47,6 +47,24 @@ function isAutoPopulatableKey(key) {
   return AUTO_SECTION_KEYS.has(k) || DISCHARGE_MED_SECTION_KEYS.has(k);
 }
 
+async function appendDischargeAudit({
+  tenantId,
+  id,
+  action,
+  actorUid = null,
+  metadata = {},
+}) {
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO audit_logs
+       (uid, action, resource, resource_id, metadata, ip_address)
+     VALUES ($1::uuid, $2, 'discharge_summary', $3, $4::jsonb, NULL)`,
+    actorUid ? String(actorUid) : null,
+    action,
+    String(id),
+    JSON.stringify({ tenant_id: tenantId, ...metadata }),
+  );
+}
+
 /**
  * Build bodies for the auto-populatable discharge-summary sections from
  * structured visit data — progress notes + clinical orders (scoped to
@@ -382,7 +400,18 @@ export async function updateSection({
       `Discharge summary is ${owner[0].status} — sections cannot be edited.`,
     );
   }
-  const result = await prisma.$executeRawUnsafe(
+  const sectionRows = await prisma.$queryRawUnsafe(
+    `SELECT id, section_key, section_title, body, edited_by, edited_at
+       FROM discharge_summary_sections
+      WHERE discharge_summary_id = $1::int AND section_key = $2
+      LIMIT 1`,
+    Number(id), String(section_key),
+  );
+  if (!sectionRows.length) {
+    throw AppError.notFound(`Section ${section_key} not found on this summary`);
+  }
+  const before = sectionRows[0];
+  await prisma.$executeRawUnsafe(
     `UPDATE discharge_summary_sections
         SET body = $1, edited_by = $2::uuid, edited_at = NOW()
       WHERE discharge_summary_id = $3::int AND section_key = $4`,
@@ -390,14 +419,23 @@ export async function updateSection({
     edited_by ? String(edited_by) : null,
     Number(id), String(section_key),
   );
-  if (Number(result) === 0) {
-    throw AppError.notFound(`Section ${section_key} not found on this summary`);
-  }
   // Bump parent updated_at to track edit recency.
   await prisma.$executeRawUnsafe(
     `UPDATE discharge_summaries SET updated_at = NOW() WHERE id = $1::int`,
     Number(id),
   );
+  await appendDischargeAudit({
+    tenantId,
+    id,
+    action: 'DISCHARGE_SUMMARY_SECTION_EDIT',
+    actorUid: edited_by,
+    metadata: {
+      section_key: String(section_key),
+      section_title: before.section_title || null,
+      previous_body: before.body || null,
+      new_body: body || null,
+    },
+  });
   return getOne({ tenantId, id });
 }
 
@@ -461,7 +499,7 @@ export async function setSectionTranslation({
   return getOne({ tenantId, id });
 }
 
-export async function markReadyForSignoff({ tenantId, id }) {
+export async function markReadyForSignoff({ tenantId, id, marked_by = null }) {
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE discharge_summaries
         SET status = 'ready_for_signoff', updated_at = NOW()
@@ -474,6 +512,13 @@ export async function markReadyForSignoff({ tenantId, id }) {
       'Discharge summary not in draft state (cannot mark ready)',
     );
   }
+  await appendDischargeAudit({
+    tenantId,
+    id,
+    action: 'DISCHARGE_SUMMARY_READY_FOR_SIGNOFF',
+    actorUid: marked_by,
+    metadata: { status: 'ready_for_signoff' },
+  });
   return getOne({ tenantId, id });
 }
 
@@ -503,6 +548,19 @@ export async function sign({
   }
 
   const signed = rows[0];
+  await appendDischargeAudit({
+    tenantId,
+    id,
+    action: 'DISCHARGE_SUMMARY_SIGNED',
+    actorUid: signed_by,
+    metadata: {
+      admission_id: signed.admission_id || null,
+      patient_uid: signed.patient_uid || null,
+      signed_by_name: signed_by_name || null,
+      signed_by_reg: signed_by_reg || null,
+      signed_at: signed.signed_at || null,
+    },
+  });
 
   // Denormalise summary_signed_at onto the admission row so the
   // patient-side discharge-PDF gate (clinicalPdfGenerator
@@ -655,7 +713,7 @@ async function materialiseDischargeMedsAsPrescription({
 }
 
 export async function markDelivered({
-  tenantId, id, delivery_method,
+  tenantId, id, delivery_method, delivered_by = null,
 }) {
   // `sms` added to the delivery channels so a feature-phone patient
   // (no smartphone, no email, no WhatsApp) gets a plain-text discharge
@@ -681,6 +739,17 @@ export async function markDelivered({
       'Discharge summary must be signed before it can be marked delivered',
     );
   }
+  await appendDischargeAudit({
+    tenantId,
+    id,
+    action: 'DISCHARGE_SUMMARY_DELIVERED',
+    actorUid: delivered_by,
+    metadata: {
+      admission_id: rows[0].admission_id || null,
+      patient_uid: rows[0].patient_uid || null,
+      delivery_method,
+    },
+  });
 
   // SMS delivery: persist the intent to the notification outbox. No SMS
   // gateway is wired yet (smsService is dry-run) — the outbox row IS

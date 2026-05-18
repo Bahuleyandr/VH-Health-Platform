@@ -1,17 +1,15 @@
 // src/services/auth/userActiveSession.js
 //
-// Single-active-session enforcement, shared across all three auth realms
+// Active-session tracking, shared across all three auth realms
 // (staff, admin, patient).
 //
 // Every login service calls `claimUserSession(...)` after generating the new
 // JWT. The helper:
 //   1. Looks up the user's current active session row (one row per user_uid).
-//   2. If one exists, blacklists its `jti` via tokenBlacklist.blacklistToken
-//      so the old device's next API call returns 401.
-//   3. Emits a `session:revoked` event over the realtime fabric (per-user
-//      routing via wsServer.sendToUser) so the old device routes to /login
-//      immediately, not on the next API call.
-//   4. Upserts the new session row with the freshly-issued jti.
+//   2. For refresh-token rotation, blacklists the replaced access-token jti.
+//   3. For deployments that explicitly opt into strict single-session mode,
+//      blacklists the old login token and emits `session:revoked`.
+//   4. Upserts the newest session row for operator visibility.
 //
 // Backed by the `user_active_sessions` table (migration 232).
 
@@ -19,6 +17,13 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { blacklistToken } from '../../utils/tokenBlacklist.js';
 import { sendToUser } from '../../utils/websocket/wsServer.js';
+
+function strictSingleSessionEnabled() {
+  const raw = process.env.AUTH_ENFORCE_SINGLE_ACTIVE_SESSION
+    ?? process.env.ENFORCE_SINGLE_ACTIVE_SESSION
+    ?? '';
+  return String(raw).toLowerCase() === 'true';
+}
 
 /**
  * Replace the user's prior active session (if any) with the new one. Revokes
@@ -38,6 +43,9 @@ import { sendToUser } from '../../utils/websocket/wsServer.js';
  * @param {string} [args.userAgent] - User-Agent of the new login.
  * @param {boolean} [args.pushRevoked=true] - Emit `session:revoked` over WS
  *   for the prior jti. Set false on refresh-token rotation.
+ * @param {boolean} [args.enforceSingleSession] - Override the environment
+ *   flag for login-token replacement. Refresh rotation always revokes the
+ *   rotated token regardless of this flag.
  * @returns {Promise<{ revokedPrior: boolean, priorDeviceType: string|null }>}
  */
 export async function claimUserSession({
@@ -49,6 +57,7 @@ export async function claimUserSession({
   ipAddress = null,
   userAgent = null,
   pushRevoked = true,
+  enforceSingleSession,
 }) {
   if (!userUid || !jti || !deviceType || !expiresAt) {
     throw new Error('claimUserSession: userUid, jti, deviceType, expiresAt are required');
@@ -72,11 +81,18 @@ export async function claimUserSession({
     logger.warn('claimUserSession: prior-session lookup failed', { userUid, error: err.message });
   }
 
-  // Step 2: blacklist the prior jti + (by default) push a realtime kick.
-  // On refresh-token rotation the caller passes `pushRevoked: false` — the
-  // jti rotation is invisible to the user and we mustn't tell their own
-  // device to log itself out.
-  if (prior && prior.jti && prior.jti !== jti) {
+  // Step 2: blacklist the prior jti only when it is a refresh-token
+  // rotation, or when strict single-session mode is explicitly enabled.
+  // Normal staff/admin logins must not silently revoke a still-active token:
+  // shared hospital workstations and parallel QA journeys can otherwise lock
+  // each other out seconds after a successful login.
+  const shouldRevokePrior = Boolean(
+    prior?.jti
+    && prior.jti !== jti
+    && (pushRevoked === false || (enforceSingleSession ?? strictSingleSessionEnabled()))
+  );
+
+  if (shouldRevokePrior) {
     try {
       await blacklistToken(
         prior.jti,
@@ -130,7 +146,7 @@ export async function claimUserSession({
   }
 
   return {
-    revokedPrior: Boolean(prior),
+    revokedPrior: shouldRevokePrior,
     priorDeviceType: prior?.device_type ?? null,
   };
 }

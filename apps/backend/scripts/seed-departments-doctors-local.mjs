@@ -49,11 +49,16 @@ try {
   for (const [phone, name, dept, specialty] of DOCTORS) {
     const uid = randomUUID();
     const u = await client.query(
-      `INSERT INTO users (uid, phone, updated_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (phone) DO UPDATE SET updated_at = NOW()
+      `INSERT INTO users (uid, phone, name, role, is_active, status, updated_at)
+       VALUES ($1, $2, $3, 'DOCTOR', true, 'active', NOW())
+       ON CONFLICT (phone) DO UPDATE SET
+         name = EXCLUDED.name,
+         role = 'DOCTOR',
+         is_active = true,
+         status = 'active',
+         updated_at = NOW()
        RETURNING id`,
-      [uid, phone]
+      [uid, phone, name]
     );
     const userId = u.rows[0].id;
     const d = await client.query(`SELECT id FROM departments WHERE name = $1`, [dept]);

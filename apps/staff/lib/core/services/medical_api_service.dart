@@ -702,6 +702,11 @@ class MedicalApiService {
     return _get('/emr/vitals/$uid/trend', query: {'vital': vital});
   }
 
+  /// GET /emr/vitals/:patient/latest — latest vitals by patient uid or int id
+  static Future<Map<String, dynamic>> getLatestVitals(String patient) async {
+    return _get('/emr/vitals/$patient/latest');
+  }
+
   /// POST /emr/io — record intake/output entry
   static Future<Map<String, dynamic>> recordIO(
     Map<String, dynamic> data,

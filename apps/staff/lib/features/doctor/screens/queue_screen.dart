@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/services/medical_api_service.dart';
@@ -905,8 +906,9 @@ class _PatientDetailsSheetState extends State<_PatientDetailsSheet> {
           s.queueWritePrescription,
           AppTheme.primaryTeal,
           () {
+            final router = GoRouter.of(context);
             Navigator.pop(context);
-            // Navigate to prescriptions - could pass patient info
+            router.push('/prescriptions', extra: widget.appointment);
           },
         ),
         _ActionChip(

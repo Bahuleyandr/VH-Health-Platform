@@ -10,6 +10,8 @@
 //   F6  listMaternityPackages → obstetrics packages, null price + placeholder
 
 import prisma from '../lib/prisma.js';
+import request from 'supertest';
+import app from '../app.js';
 import appointmentQueryService from '../services/appointment/appointmentQueryService.js';
 import { createInvestigationOrder } from '../services/investigation/orderService.js';
 import {
@@ -17,7 +19,10 @@ import {
   getAncAdvice,
   getAncTimelineForPregnancy,
   listMaternityPackages,
+  recordSupplement,
 } from '../services/maternity/maternityService.js';
+import { getActiveReminders } from '../services/patient/medicationReminderService.js';
+import { API_KEY, generateTestToken } from './testClient.js';
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const PATIENT_UID = 'c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c301';
@@ -101,14 +106,18 @@ describe('Obstetric/ANC chip — deep integration', () => {
   // ── F3 — pure schedule milestone math ──────────────────────────────
   describe('computeAncScheduleMilestones', () => {
     it('returns the standard schedule with past/current/upcoming status', () => {
-      // LMP 168 days ago → GA 24+0 → milestones up to 20w past, 26w current.
+      // LMP 168 days ago -> GA 24+0, with explicit 24w and 28w ANC visits.
       const lmp = new Date(Date.now() - 168 * 86400000).toISOString().slice(0, 10);
       const milestones = computeAncScheduleMilestones(lmp);
-      expect(milestones.length).toBe(7);
+      expect(milestones.length).toBe(9);
       expect(milestones.every((m) => m.target_date && m.status)).toBe(true);
+      expect(milestones.map((m) => m.ga_weeks)).toEqual(expect.arrayContaining([24, 28]));
       const booking = milestones.find((m) => m.ga_weeks === 12);
+      const week24 = milestones.find((m) => m.ga_weeks === 24);
       const term = milestones.find((m) => m.ga_weeks === 39);
       expect(booking.status).toBe('past');
+      expect(week24.visit_sequence_number).toBe(3);
+      expect(week24.trimester_label).toBe('Second trimester');
       expect(term.status).toBe('upcoming');
     });
 
@@ -136,8 +145,76 @@ describe('Obstetric/ANC chip — deep integration', () => {
         tenantId: TENANT, pregnancy_id: pregnancyId,
       });
       expect(Array.isArray(timeline.booked_visits)).toBe(true);
-      expect(timeline.booked_visits.some((v) => v.id === appointmentId)).toBe(true);
-      expect(timeline.schedule_milestones.length).toBe(7);
+      const booked = timeline.booked_visits.find((v) => v.id === appointmentId);
+      expect(booked).toBeTruthy();
+      expect(booked.milestone_label).toMatch(/24-week/i);
+      expect(booked.visit_sequence_number).toBe(3);
+      expect(timeline.schedule_milestones.length).toBe(9);
+    });
+
+    it('continues an active supplement row instead of creating duplicate reminders', async () => {
+      const first = await recordSupplement({
+        tenantId: TENANT,
+        pregnancy_id: pregnancyId,
+        supplement: 'iron',
+        dose: '60mg + FA 500mcg',
+        frequency: 'once_daily',
+        prescribed_by: DOCTOR_UID,
+      });
+      const second = await recordSupplement({
+        tenantId: TENANT,
+        pregnancy_id: pregnancyId,
+        supplement: 'iron',
+        dose: '60mg + FA 500mcg',
+        frequency: 'once_daily',
+        notes: 'Continue IFA',
+        prescribed_by: DOCTOR_UID,
+      });
+
+      expect(first.continued).toBe(false);
+      expect(second.continued).toBe(true);
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT id FROM maternity_supplements
+          WHERE pregnancy_id=$1::int
+            AND supplement='iron'
+            AND (end_date IS NULL OR end_date >= CURRENT_DATE)`,
+        pregnancyId,
+      );
+      expect(rows.length).toBe(1);
+
+      const reminders = await getActiveReminders(PATIENT_UID);
+      const ancIron = reminders.filter((r) =>
+        r.source === 'anc_supplement' && /iron/i.test(String(r.medication_name || '')));
+      expect(ancIron.length).toBe(1);
+    });
+  });
+
+  describe('patient ANC route access', () => {
+    function patientGet(path, uid = PATIENT_UID, id = patientId) {
+      const token = generateTestToken('PATIENT', { uid, id });
+      return request(app)
+        .get(path)
+        .set('x-api-key', API_KEY)
+        .set('Authorization', `Bearer ${token}`);
+    }
+
+    it('lets a patient read only their own ANC timeline and kick log', async () => {
+      const active = await patientGet(`/api/v1/maternity/pregnancies/active/${PATIENT_UID}`);
+      expect(active.statusCode).toBe(200);
+      expect(active.body.data?.patient_uid).toBe(PATIENT_UID);
+
+      const timeline = await patientGet(`/api/v1/maternity/timeline/patient/${PATIENT_UID}`);
+      expect(timeline.statusCode).toBe(200);
+      expect(timeline.body.data?.pregnancy?.patient_uid).toBe(PATIENT_UID);
+
+      const pregnancyTimeline = await patientGet(`/api/v1/maternity/pregnancies/${pregnancyId}/timeline`);
+      expect(pregnancyTimeline.statusCode).toBe(200);
+
+      const kicks = await patientGet(`/api/v1/maternity/fetal-kicks/pregnancy/${pregnancyId}`);
+      expect(kicks.statusCode).toBe(200);
+
+      const forbidden = await patientGet(`/api/v1/maternity/timeline/patient/${DOCTOR_UID}`);
+      expect(forbidden.statusCode).toBe(403);
     });
   });
 

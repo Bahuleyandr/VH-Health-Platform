@@ -84,7 +84,7 @@ describe('POST /appointments/walk-in — token counter type coercion', () => {
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
        VALUES
          ($1::uuid, $3, 'Walk-in Seed Patient', 'PATIENT', true, NOW()),
-         ($2::uuid, '9999440002', 'Walk-in Test Staff', 'GENERAL_STAFF', true, NOW())
+         ($2::uuid, '9999440002', 'Walk-in Test Staff', 'RECEPTIONIST', true, NOW())
        RETURNING id, uid::text AS uid`,
       SEED_PATIENT_UID,
       STAFF_UID,
@@ -115,7 +115,7 @@ describe('POST /appointments/walk-in — token counter type coercion', () => {
   });
 
   it('returns 200 with token_number=1 even when a non-numeric token sits in the same (date, department) bucket', async () => {
-    const token = generateTestToken('GENERAL_STAFF', { uid: STAFF_UID, id: staffId });
+    const token = generateTestToken('RECEPTIONIST', { uid: STAFF_UID, id: staffId });
 
     const res = await request(app)
       .post('/api/v1/appointments/walk-in')

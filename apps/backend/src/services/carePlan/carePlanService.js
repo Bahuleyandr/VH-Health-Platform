@@ -159,6 +159,91 @@ function normalizeTimestamp(value, label) {
   return date.toISOString();
 }
 
+function shouldBookFollowUpAppointment({ originKind, dueAt, doctorUid, bookAppointment }) {
+  if (!dueAt || !doctorUid) return false;
+  if (bookAppointment === false) return false;
+  return bookAppointment === true || originKind === 'discharge';
+}
+
+async function reserveFollowUpAppointment({
+  db = prisma,
+  patientUid,
+  doctorUid,
+  dueAt,
+  reason = null,
+  createdBy = null,
+}) {
+  const [patientRows, doctorRows] = await Promise.all([
+    db.$queryRawUnsafe(
+      `SELECT id, phone, name
+         FROM users
+        WHERE uid = $1::uuid AND role = 'PATIENT'
+        LIMIT 1`,
+      patientUid,
+    ),
+    db.$queryRawUnsafe(
+      `SELECT u.id, u.name, COALESCE(dept.name, d.department) AS department
+         FROM users u
+         LEFT JOIN doctors d ON d.user_id = u.id AND d.is_active = true
+         LEFT JOIN departments dept ON dept.id = d.department_id
+        WHERE u.uid = $1::uuid
+          AND u.role = 'DOCTOR'
+          AND u.is_active = true
+        LIMIT 1`,
+      doctorUid,
+    ),
+  ]);
+
+  const patient = patientRows[0];
+  if (!patient) throw AppError.badRequest('Cannot book follow-up appointment: patient_uid is not a PATIENT user');
+  const doctor = doctorRows[0];
+  if (!doctor) throw AppError.badRequest('Cannot book follow-up appointment: doctor_uid is not an active DOCTOR');
+
+  const conflicts = await db.$queryRawUnsafe(
+    `SELECT id
+       FROM appointments
+      WHERE doctor_id = $1::int
+        AND DATE(appointment_date) = ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+        AND appointment_time = to_char($2::timestamptz AT TIME ZONE 'Asia/Kolkata', 'HH24:MI')
+        AND status NOT IN ('CANCELLED', 'NO_SHOW')
+      LIMIT 1`,
+    Number(doctor.id),
+    dueAt,
+  );
+  if (conflicts.length > 0) {
+    throw AppError.conflict(
+      'Cannot book follow-up appointment: selected doctor slot is already booked',
+      'FOLLOW_UP_SLOT_CONFLICT',
+      { conflicting_appointment_id: conflicts[0].id },
+    );
+  }
+
+  const appointments = await db.$queryRawUnsafe(
+    `INSERT INTO appointments
+       (phone, patient_id, patient_name, doctor_id, doctor_name,
+        appointment_date, appointment_time, reason, notes, status,
+        department, visit_type, created_by, created_at, updated_at)
+     VALUES
+       ($1, $2::int, $3, $4::int, $5,
+        ($6::timestamptz AT TIME ZONE 'Asia/Kolkata')::date,
+        to_char($6::timestamptz AT TIME ZONE 'Asia/Kolkata', 'HH24:MI'),
+        $7, $8, 'SCHEDULED',
+        $9, 'FOLLOW_UP', $10::uuid, NOW(), NOW())
+     RETURNING id`,
+    patient.phone || '',
+    Number(patient.id),
+    patient.name || null,
+    Number(doctor.id),
+    doctor.name || '',
+    dueAt,
+    reason || 'Discharge follow-up',
+    'Booked from discharge follow-up plan',
+    doctor.department || null,
+    createdBy,
+  );
+  return appointments[0];
+}
+
 function normalizeIntArray(value, label, { min = 0, max = 1_000_000 } = {}) {
   if (value === null || value === undefined) return null;
   if (!Array.isArray(value)) throw AppError.badRequest(`${label} must be an array of integers`);
@@ -681,36 +766,78 @@ export async function createFollowUp({
   reminderOffsetsMinutes = null,
   metadata = null,
   createdBy = null,
+  bookAppointment = null,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const cleanUid = maybeUuid(patientUid, 'patient_uid', { required: true });
-  try {
-    const rows = await prisma.$queryRawUnsafe(
+  const cleanOriginKind = normalizeEnum(originKind, FOLLOWUP_ORIGINS, 'origin_kind', { required: true });
+  const cleanDoctorUid = maybeUuid(doctorUid, 'doctor_uid');
+  const cleanDueAt = normalizeTimestamp(dueAt, 'due_at');
+  const cleanMetadata = normalizeJsonObject(metadata, 'metadata');
+  const cleanReason = safeText(reason);
+  const wantsAppointment = shouldBookFollowUpAppointment({
+    originKind: cleanOriginKind,
+    dueAt: cleanDueAt,
+    doctorUid: cleanDoctorUid,
+    bookAppointment,
+  });
+
+  const insertFollowUp = async (db, appointment = null) => {
+    const appointmentId = appointment?.id ?? null;
+    const rowStatus = appointmentId ? 'scheduled' : 'open';
+    const appointmentStatus = appointmentId ? 'scheduled' : 'pending';
+    const rowMetadata = appointmentId
+      ? {
+          ...cleanMetadata,
+          auto_booked_appointment: true,
+          appointment_id: appointmentId,
+          booking_source: 'discharge_follow_up',
+        }
+      : cleanMetadata;
+    const rows = await db.$queryRawUnsafe(
       `INSERT INTO follow_up_plans
          (tenant_id, patient_uid, origin_kind,
           origin_resource_type, origin_resource_id, encounter_id,
           doctor_uid, facility_id, care_plan_id,
-          due_at, appointment_status, reason,
+          due_at, appointment_id, appointment_status, reason,
           reminder_offsets_minutes, status, metadata, created_by)
        VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6,
-               $7::uuid, $8, $9, $10::timestamptz, 'pending', $11,
-               $12::int[], 'open', $13::jsonb, $14::uuid)
+               $7::uuid, $8, $9, $10::timestamptz, $11::int, $12, $13,
+               $14::int[], $15, $16::jsonb, $17::uuid)
        RETURNING ${FOLLOWUP_RETURNING}`,
       tid, cleanUid,
-      normalizeEnum(originKind, FOLLOWUP_ORIGINS, 'origin_kind', { required: true }),
+      cleanOriginKind,
       safeText(originResourceType, 60),
       safeText(originResourceId, 120),
       encounterId ? normalizeId(encounterId, 'encounter_id') : null,
-      maybeUuid(doctorUid, 'doctor_uid'),
+      cleanDoctorUid,
       facilityId ? normalizeId(facilityId, 'facility_id') : null,
       carePlanId ? normalizeId(carePlanId, 'care_plan_id') : null,
-      normalizeTimestamp(dueAt, 'due_at'),
-      safeText(reason),
+      cleanDueAt,
+      appointmentId,
+      appointmentStatus,
+      cleanReason,
       normalizeIntArray(reminderOffsetsMinutes, 'reminder_offsets_minutes', { min: 1, max: 60 * 24 * 365 }),
-      JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
+      rowStatus,
+      JSON.stringify(rowMetadata),
       maybeUuid(createdBy, 'created_by'),
     );
     return rows[0];
+  };
+
+  try {
+    if (!wantsAppointment) return insertFollowUp(prisma);
+    return prisma.$transaction(async (tx) => {
+      const appointment = await reserveFollowUpAppointment({
+        db: tx,
+        patientUid: cleanUid,
+        doctorUid: cleanDoctorUid,
+        dueAt: cleanDueAt,
+        reason: cleanReason,
+        createdBy: maybeUuid(createdBy, 'created_by'),
+      });
+      return insertFollowUp(tx, appointment);
+    });
   } catch (err) {
     if (isFkViolation(err)) throw AppError.badRequest('Invalid foreign key reference');
     throw err;

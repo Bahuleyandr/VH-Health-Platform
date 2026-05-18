@@ -70,7 +70,7 @@ describe('walk-in visit_no prefix collision regression', () => {
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
        VALUES
          ($1::uuid, $3, 'Visit No Seed Patient', 'PATIENT', true, NOW()),
-         ($2::uuid, '9999660002', 'Visit No Test Staff', 'GENERAL_STAFF', true, NOW())
+         ($2::uuid, '9999660002', 'Visit No Test Staff', 'RECEPTIONIST', true, NOW())
        RETURNING id, uid::text AS uid`,
       SEED_PATIENT_UID,
       STAFF_UID,
@@ -106,7 +106,7 @@ describe('walk-in visit_no prefix collision regression', () => {
   });
 
   it("assigns token=2 (not token=1) when another prefix-equivalent department already used token=1 today", async () => {
-    const token = generateTestToken('GENERAL_STAFF', { uid: STAFF_UID, id: staffId });
+    const token = generateTestToken('RECEPTIONIST', { uid: STAFF_UID, id: staffId });
 
     const res = await request(app)
       .post('/api/v1/appointments/walk-in')

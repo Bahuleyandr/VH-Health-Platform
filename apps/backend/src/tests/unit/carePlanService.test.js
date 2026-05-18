@@ -9,9 +9,10 @@
 import { jest } from '@jest/globals';
 
 const queryUnsafeMock = jest.fn();
+const transactionMock = jest.fn(async (cb) => cb({ $queryRawUnsafe: queryUnsafeMock }));
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
-  default: { $queryRawUnsafe: queryUnsafeMock },
+  default: { $queryRawUnsafe: queryUnsafeMock, $transaction: transactionMock },
 }));
 
 const {
@@ -40,6 +41,7 @@ const DOCTOR = '22222222-2222-4222-8222-222222222222';
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
+  transactionMock.mockClear();
 });
 
 // ---------------------------------------------------------------------------
@@ -276,6 +278,40 @@ describe('createFollowUp', () => {
       reason: '6 weeks post-op', reminderOffsetsMinutes: [60, 1440],
     });
     expect(row.status).toBe('open');
+  });
+
+  it('books a scheduled appointment when discharge follow-up has doctor and due_at', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ id: 10, phone: '9000011111', name: 'Deep Patient' }])
+      .mockResolvedValueOnce([{ id: 20, name: 'Dr Rao', department: 'General Medicine' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 30 }])
+      .mockResolvedValueOnce([{
+        id: 1,
+        status: 'scheduled',
+        appointment_status: 'scheduled',
+        appointment_id: 30,
+      }]);
+
+    const row = await createFollowUp({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      doctorUid: DOCTOR,
+      originKind: 'discharge',
+      originResourceType: 'admission',
+      originResourceId: '18',
+      dueAt: '2026-05-20T04:30:00.000Z',
+      reason: 'Post-discharge review',
+    });
+
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+    expect(row.status).toBe('scheduled');
+    expect(row.appointment_id).toBe(30);
+    expect(queryUnsafeMock.mock.calls.some((c) => /INSERT INTO appointments/i.test(c[0]))).toBe(true);
+    const followUpInsert = queryUnsafeMock.mock.calls.find((c) => /INSERT INTO follow_up_plans/i.test(c[0]));
+    expect(followUpInsert[11]).toBe(30);
+    expect(followUpInsert[12]).toBe('scheduled');
+    expect(followUpInsert[15]).toBe('scheduled');
   });
 });
 

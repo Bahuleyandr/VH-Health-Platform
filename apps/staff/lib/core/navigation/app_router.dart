@@ -245,8 +245,17 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/prescriptions',
           name: 'prescriptions',
-          pageBuilder: (context, state) =>
-              const NoTransitionPage(child: PrescriptionsScreen()),
+          pageBuilder: (context, state) {
+            final extra = state.extra;
+            final prefilledAppointment = extra is Map<String, dynamic>
+                ? extra
+                : null;
+            return NoTransitionPage(
+              child: PrescriptionsScreen(
+                prefilledAppointment: prefilledAppointment,
+              ),
+            );
+          },
         ),
         GoRoute(
           path: '/queue',

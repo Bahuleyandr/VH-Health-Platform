@@ -1,5 +1,6 @@
 // src/routes/clinical/clinicalRoutes.js
 import express from 'express';
+import { param, query } from 'express-validator';
 import multer from 'multer';
 import { validationResult } from 'express-validator';
 import * as handoverService from '../../services/clinical/handoverService.js';
@@ -434,17 +435,23 @@ router.get('/handover/pending', async (req, res, next) => {
  * GET /clinical/handover/patient/:patientUid
  * Get handover history for a patient.
  */
-router.get('/handover/patient/:patientUid', async (req, res, next) => {
-  try {
-    const { patientUid } = req.params;
-    const limit = parseInt(req.query.limit, 10) || 50;
+router.get(
+  '/handover/patient/:patientUid',
+  param('patientUid').isUUID().withMessage('patientUid must be a valid UUID'),
+  query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('limit must be between 1 and 100').toInt(),
+  validate,
+  async (req, res, next) => {
+    try {
+      const { patientUid } = req.params;
+      const limit = parseInt(req.query.limit, 10) || 50;
 
-    const records = await handoverService.getPatientHandoverHistory(patientUid, limit);
-    return success(res, records, 'Patient handover history retrieved');
-  } catch (err) {
-    next(err);
-  }
-});
+      const records = await handoverService.getPatientHandoverHistory(patientUid, limit);
+      return success(res, records, 'Patient handover history retrieved');
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // ===================================================================
 // Voice-to-SOAP routes (M3)

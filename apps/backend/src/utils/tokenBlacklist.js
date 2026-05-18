@@ -108,7 +108,10 @@ export async function revokeAllUserTokens(userId) {
       await prisma.$queryRawUnsafe(`
         INSERT INTO invalidated_tokens (jti, expires_at, reason, created_at)
         VALUES ($1, NOW() + INTERVAL '30 days', $2, NOW())
-        ON CONFLICT (jti) DO UPDATE SET expires_at = EXCLUDED.expires_at
+        ON CONFLICT (jti) DO UPDATE SET
+          expires_at = EXCLUDED.expires_at,
+          reason = EXCLUDED.reason,
+          created_at = EXCLUDED.created_at
       `, `user:${userId}`, 'revoke_all_user_tokens');
     } catch (err) {
       logger.warn('Revoke-all DB write failed:', err.message);
@@ -135,9 +138,16 @@ export async function isUserTokensRevoked(userId, tokenIssuedAt) {
   }
 
   try {
+    const issuedAt = Number.isFinite(Number(tokenIssuedAt)) ? Number(tokenIssuedAt) : 0;
     const result = await prisma.$queryRawUnsafe(
-      `SELECT 1 FROM invalidated_tokens WHERE jti = $1 AND expires_at > NOW() LIMIT 1`,
-      `user:${userId}`
+      `SELECT 1
+         FROM invalidated_tokens
+        WHERE jti = $1
+          AND expires_at > NOW()
+          AND created_at > to_timestamp($2)
+        LIMIT 1`,
+      `user:${userId}`,
+      issuedAt,
     );
     if (result.length > 0) {
       return true;

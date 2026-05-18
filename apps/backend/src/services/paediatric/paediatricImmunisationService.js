@@ -29,6 +29,34 @@ const TENANT_DEFAULT = '00000000-0000-4000-8000-000000000001';
 
 function tenantOr(t) { return t || TENANT_DEFAULT; }
 
+async function ensureScheduleSeededForPatient({ patientUid, tenantId }) {
+  const tid = tenantOr(tenantId);
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT COUNT(*)::int AS count
+       FROM patient_immunisations
+      WHERE patient_uid = $1::uuid`,
+    patientUid,
+  );
+  if (Number(existing?.[0]?.count || 0) > 0) {
+    return { seeded: false, reason: 'already_seeded' };
+  }
+
+  const patient = await prisma.$queryRawUnsafe(
+    `SELECT birthday::text AS birthday
+       FROM users
+      WHERE uid = $1::uuid
+      LIMIT 1`,
+    patientUid,
+  );
+  const dob = patient?.[0]?.birthday;
+  if (!dob) {
+    return { seeded: false, reason: 'missing_dob' };
+  }
+
+  const result = await seedScheduleForPatient({ patientUid, dob, tenantId: tid });
+  return { seeded: true, ...result };
+}
+
 /**
  * Seed a paediatric patient's immunisation schedule from the active
  * vaccine_catalogue. due_date for each row = dob + recommended_age_days.
@@ -91,8 +119,9 @@ export async function seedScheduleForPatient({ patientUid, dob, tenantId }) {
  * and no dose has been recorded yet. Finding:
  * 2026-05-09-pediatric-opd-nurse-immunisation-schedule-all-scheduled.
  */
-export async function listForPatient(patientUid) {
+export async function listForPatient(patientUid, { tenantId } = {}) {
   if (!patientUid) throw AppError.badRequest('patientUid is required');
+  await ensureScheduleSeededForPatient({ patientUid, tenantId });
   const rows = await prisma.$queryRawUnsafe(
     `SELECT pi.id, pi.patient_uid, pi.vaccine_catalogue_id, pi.due_date,
             pi.status, pi.given_at, pi.given_by, pi.given_by_name,
@@ -138,8 +167,9 @@ function computeDisplayStatus(row, today) {
  * status only. Powers the paeds-OPD "due immunisations" panel that
  * shows on encounter open.
  */
-export async function listDueForPatient(patientUid, { asOf = null } = {}) {
+export async function listDueForPatient(patientUid, { asOf = null, tenantId = null } = {}) {
   if (!patientUid) throw AppError.badRequest('patientUid is required');
+  await ensureScheduleSeededForPatient({ patientUid, tenantId });
   const checkpoint = asOf ? new Date(asOf) : new Date();
   const checkpointIso = checkpoint.toISOString().slice(0, 10);
   return prisma.$queryRawUnsafe(

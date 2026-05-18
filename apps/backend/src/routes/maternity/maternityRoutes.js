@@ -8,7 +8,7 @@ import logger from '../../logging/logger.js';
 import * as mat from '../../services/maternity/maternityService.js';
 import * as immun from '../../services/maternity/immunisationService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
+import { isAdmin, isPatient, isStaff } from '../../utils/roleHelpers.js';
 
 const router = Router();
 
@@ -32,10 +32,35 @@ function wrap(handler) {
 }
 
 function requireStaffOrAdmin(req, res, next) {
-  if (!isStaff(req.user?.role) && !isAdmin(req.user?.role)) {
+  if (!isStaff(req.user?.role) && !isAdmin(req.user?.role) && req.user?.role !== 'SUPER_ADMIN') {
     return error(res, 'Staff or admin role required', 403);
   }
   next();
+}
+
+function requireStaffAdminOrSelfPatient(req, res, next) {
+  const role = req.user?.role;
+  if (isStaff(role) || isAdmin(role) || role === 'SUPER_ADMIN') return next();
+  if (isPatient(role) && String(req.user?.uid) === String(req.params.patientUid)) return next();
+  return error(res, 'Staff/admin access or matching patient account required', 403);
+}
+
+function requireStaffAdminOrPatient(req, res, next) {
+  const role = req.user?.role;
+  if (isStaff(role) || isAdmin(role) || role === 'SUPER_ADMIN' || isPatient(role)) return next();
+  return error(res, 'Staff/admin or patient role required', 403);
+}
+
+async function ensurePregnancyAccess(req, res, pregnancyId) {
+  if (!isPatient(req.user?.role)) return true;
+  const parsedId = Number.parseInt(pregnancyId, 10);
+  if (!Number.isInteger(parsedId) || parsedId <= 0) return true;
+  const pregnancy = await mat.getPregnancy({ tenantId: tenantOf(req), id: parsedId });
+  if (String(pregnancy.patient_uid) !== String(req.user?.uid)) {
+    error(res, 'Forbidden', 403);
+    return false;
+  }
+  return true;
 }
 
 // ── Pregnancy ────────────────────────────────────────────────────────
@@ -47,7 +72,7 @@ router.post('/pregnancies', requireStaffOrAdmin, wrap(async (req) =>
   }),
 ));
 
-router.get('/pregnancies/patient/:patientUid', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/pregnancies/patient/:patientUid', requireStaffAdminOrSelfPatient, wrap(async (req) =>
   mat.listPregnanciesForPatient({
     tenantId: tenantOf(req),
     patient_uid: req.params.patientUid,
@@ -242,7 +267,7 @@ router.get('/ga', requireStaffOrAdmin, (req, res) => {
 });
 
 // Active pregnancy lookup for the patient app + walk-in form.
-router.get('/pregnancies/active/:patientUid', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/pregnancies/active/:patientUid', requireStaffAdminOrSelfPatient, wrap(async (req) =>
   mat.getActivePregnancyForPatient({
     tenantId: tenantOf(req),
     patient_uid: req.params.patientUid,
@@ -250,15 +275,16 @@ router.get('/pregnancies/active/:patientUid', requireStaffOrAdmin, wrap(async (r
 ));
 
 // ANC timeline (visits + supplements + recent kicks) per pregnancy.
-router.get('/pregnancies/:id/timeline', requireStaffOrAdmin, wrap(async (req) =>
-  mat.getAncTimelineForPregnancy({
+router.get('/pregnancies/:id/timeline', requireStaffAdminOrPatient, wrap(async (req, res) => {
+  if (!await ensurePregnancyAccess(req, res, req.params.id)) return null;
+  return mat.getAncTimelineForPregnancy({
     tenantId: tenantOf(req),
     pregnancy_id: req.params.id,
-  }),
-));
+  });
+}));
 
 // Patient-flavored timeline: resolves the active pregnancy first.
-router.get('/timeline/patient/:patientUid', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/timeline/patient/:patientUid', requireStaffAdminOrSelfPatient, wrap(async (req) =>
   mat.getAncTimelineForPatient({
     tenantId: tenantOf(req),
     patient_uid: req.params.patientUid,
@@ -291,22 +317,27 @@ router.get('/pregnancies/:id/prior-orders', requireStaffOrAdmin, wrap(async (req
 ));
 
 // Fetal kick log
-router.post('/fetal-kicks', requireStaffOrAdmin, wrap(async (req) =>
-  mat.recordFetalKick({
+router.post('/fetal-kicks', requireStaffAdminOrPatient, wrap(async (req, res) => {
+  if (!await ensurePregnancyAccess(req, res, req.body?.pregnancy_id)) return null;
+  const recordedBy = isPatient(req.user?.role)
+    ? req.user?.uid
+    : (req.body.recorded_by ?? req.user?.uid);
+  return mat.recordFetalKick({
     tenantId: tenantOf(req),
-    recorded_by: req.body.recorded_by ?? req.user?.uid,
     ...req.body,
-  }),
-));
+    recorded_by: recordedBy,
+  });
+}));
 
-router.get('/fetal-kicks/pregnancy/:pregnancyId', requireStaffOrAdmin, wrap(async (req) =>
-  mat.listFetalKicks({
+router.get('/fetal-kicks/pregnancy/:pregnancyId', requireStaffAdminOrPatient, wrap(async (req, res) => {
+  if (!await ensurePregnancyAccess(req, res, req.params.pregnancyId)) return null;
+  return mat.listFetalKicks({
     tenantId: tenantOf(req),
     pregnancy_id: req.params.pregnancyId,
     fromDate: req.query.from || null,
     toDate: req.query.to || null,
-  }),
-));
+  });
+}));
 
 // ── Maternity packages ──────────────────────────────────────────────
 // Staff/admin pricing-quote surface. The patient-readable view is

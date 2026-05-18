@@ -60,14 +60,52 @@ export function computeGestationalAge(lmpDate, onDate = null) {
 // milestone labels only — the clinical content of each visit is owned
 // elsewhere, not invented here.
 const ANC_SCHEDULE = [
-  { label: 'Booking visit', ga_weeks: 12, trimester: 1 },
-  { label: 'Second ANC visit', ga_weeks: 16, trimester: 2 },
-  { label: 'Anomaly scan window', ga_weeks: 20, trimester: 2 },
-  { label: 'Glucose screening window', ga_weeks: 26, trimester: 2 },
-  { label: 'Third trimester visit', ga_weeks: 32, trimester: 3 },
-  { label: 'Growth scan window', ga_weeks: 36, trimester: 3 },
-  { label: 'Term assessment', ga_weeks: 39, trimester: 3 },
+  { label: 'Booking visit', ga_weeks: 12, trimester: 1, visit_sequence_number: 1 },
+  { label: 'Second ANC visit', ga_weeks: 16, trimester: 2, visit_sequence_number: 2 },
+  { label: 'Anomaly scan window', ga_weeks: 20, trimester: 2, visit_sequence_number: null },
+  { label: '24-week ANC visit', ga_weeks: 24, trimester: 2, visit_sequence_number: 3 },
+  { label: 'Glucose screening window', ga_weeks: 26, trimester: 2, visit_sequence_number: null },
+  { label: '28-week ANC visit', ga_weeks: 28, trimester: 2, visit_sequence_number: 4 },
+  { label: 'Third trimester visit', ga_weeks: 32, trimester: 3, visit_sequence_number: 5 },
+  { label: 'Growth scan window', ga_weeks: 36, trimester: 3, visit_sequence_number: null },
+  { label: 'Term assessment', ga_weeks: 39, trimester: 3, visit_sequence_number: 6 },
 ];
+
+function trimesterLabel(trimester) {
+  if (trimester === 1) return 'First trimester';
+  if (trimester === 2) return 'Second trimester';
+  if (trimester === 3) return 'Third trimester';
+  return null;
+}
+
+function milestoneForGestationalWeeks(weeks) {
+  if (!Number.isFinite(Number(weeks))) return null;
+  const current = Number(weeks);
+  let best = null;
+  for (const milestone of ANC_SCHEDULE) {
+    const distance = Math.abs(current - milestone.ga_weeks);
+    if (distance > 2) continue;
+    if (!best || distance < best.distance ||
+        (distance === best.distance && milestone.visit_sequence_number && !best.milestone.visit_sequence_number)) {
+      best = { milestone, distance };
+    }
+  }
+  return best?.milestone || null;
+}
+
+function decorateBookedAncVisit(row, lmpDate) {
+  const gestationalAge = computeGestationalAge(lmpDate, row.appointment_date);
+  const milestone = milestoneForGestationalWeeks(gestationalAge?.weeks);
+  return {
+    ...row,
+    gestational_age: gestationalAge,
+    milestone_label: milestone?.label || null,
+    milestone_ga_weeks: milestone?.ga_weeks || null,
+    visit_sequence_number: milestone?.visit_sequence_number || null,
+    trimester: milestone?.trimester || null,
+    trimester_label: milestone ? trimesterLabel(milestone.trimester) : null,
+  };
+}
 
 /**
  * Compute the ANC schedule milestones from LMP. Each milestone gets a
@@ -95,6 +133,8 @@ export function computeAncScheduleMilestones(lmpDate, onDate = null) {
       label: m.label,
       ga_weeks: m.ga_weeks,
       trimester: m.trimester,
+      trimester_label: trimesterLabel(m.trimester),
+      visit_sequence_number: m.visit_sequence_number,
       target_date: targetDate.toISOString().slice(0, 10),
       status,
     };
@@ -130,6 +170,15 @@ export async function createPregnancy({
     booking_status, booking_visit_date || null,
     !!high_risk, high_risk_reasons || null, notes || null,
     created_by ? String(created_by) : null, tenantId,
+  );
+  await prisma.$executeRawUnsafe(
+    `UPDATE users
+        SET is_pregnant = TRUE,
+            pregnancy_lmp_date = COALESCE($2::date, pregnancy_lmp_date),
+            updated_at = NOW()
+      WHERE uid = $1::uuid`,
+    String(patient_uid),
+    lmp_date || null,
   );
   return rows[0];
 }
@@ -291,7 +340,10 @@ export async function recordAncVisit({
       if (patient?.id) {
         if (patient.is_pregnant !== true) {
           await prisma.$executeRawUnsafe(
-            `UPDATE users SET is_pregnant = TRUE WHERE id = $1::int`,
+            `UPDATE users
+                SET is_pregnant = TRUE,
+                    updated_at = NOW()
+              WHERE id = $1::int`,
             patient.id,
           );
         }
@@ -420,10 +472,11 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
         LIMIT 50`,
       String(p.patient_uid),
     );
-    const covered = new Set(supplements.map((s) => s.supplement));
+    const covered = new Set(dedupeActiveSupplementTherapies(supplements).map((s) => supplementTherapyKey(s)));
     for (const s of extractCarriedForwardSupplements(activeRx)) {
-      if (covered.has(s.supplement)) continue;
-      covered.add(s.supplement);
+      const key = supplementTherapyKey(s);
+      if (covered.has(key)) continue;
+      covered.add(key);
       carriedForward.push(s);
     }
   } catch (e) {
@@ -463,6 +516,8 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
 
   // Forward/back ANC care schedule computed from LMP, so the timeline
   // shows where the current visit sits in the plan and what's next.
+  bookedVisits = bookedVisits.map((visit) => decorateBookedAncVisit(visit, p.lmp_date));
+
   const scheduleMilestones = computeAncScheduleMilestones(p.lmp_date);
 
   return {
@@ -470,7 +525,7 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
     visits,
     booked_visits: bookedVisits,
     schedule_milestones: scheduleMilestones,
-    supplements,
+    supplements: dedupeActiveSupplementTherapies(supplements),
     carried_forward_supplements: carriedForward,
     fetal_kicks: kicks,
   };
@@ -484,6 +539,44 @@ export async function getAncTimelineForPatient({ tenantId, patient_uid }) {
   const active = await getActivePregnancyForPatient({ tenantId, patient_uid });
   if (!active) return null;
   return getAncTimelineForPregnancy({ tenantId, pregnancy_id: active.id });
+}
+
+function supplementTherapyKey(row) {
+  if (row?.supplement === 'folic_acid') return 'iron';
+  if (row?.supplement === 'vitamin_d') return 'calcium';
+  return row?.supplement || 'other';
+}
+
+function supplementPriority(row) {
+  if (row?.supplement === 'iron' || row?.supplement === 'calcium') return 0;
+  if (row?.supplement === 'folic_acid' || row?.supplement === 'vitamin_d') return 1;
+  return 2;
+}
+
+function dedupeActiveSupplementTherapies(rows) {
+  const byTherapy = new Map();
+  for (const row of rows || []) {
+    const key = supplementTherapyKey(row);
+    const current = byTherapy.get(key);
+    if (!current) {
+      byTherapy.set(key, { row, duplicateIds: [] });
+      continue;
+    }
+    const nextPriority = supplementPriority(row);
+    const currentPriority = supplementPriority(current.row);
+    const nextCreated = new Date(row?.created_at || row?.start_date || 0).getTime();
+    const currentCreated = new Date(current.row?.created_at || current.row?.start_date || 0).getTime();
+    if (nextPriority < currentPriority || (nextPriority === currentPriority && nextCreated > currentCreated)) {
+      byTherapy.set(key, { row, duplicateIds: [current.row.id, ...current.duplicateIds].filter(Boolean) });
+    } else if (row?.id) {
+      current.duplicateIds.push(row.id);
+    }
+  }
+  return [...byTherapy.values()].map(({ row, duplicateIds }) => ({
+    ...row,
+    duplicate_count: duplicateIds.length,
+    deduped_from_ids: duplicateIds,
+  }));
 }
 
 const VALID_SUPPLEMENTS = new Set([
@@ -517,18 +610,57 @@ export async function recordSupplement({
     );
   }
   if (!prescribed_by) throw AppError.badRequest('prescribed_by is required');
+  const tid = tenantId || '00000000-0000-4000-8000-000000000001';
+  const pregnancyId = Number(pregnancy_id);
+  const startDate = start_date || new Date().toISOString().slice(0, 10);
+  const frequencyValue = frequency || 'once_daily';
+  const routeValue = route || 'oral';
+
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT id FROM maternity_supplements
+       WHERE tenant_id = $1::uuid
+         AND pregnancy_id = $2::int
+         AND supplement = $3
+         AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+    tid, pregnancyId, supplement,
+  );
+  if (existing.length) {
+    const rows = await prisma.$queryRawUnsafe(
+      `UPDATE maternity_supplements
+          SET dose = COALESCE($4, dose),
+              frequency = $5,
+              route = $6,
+              start_date = COALESCE($7::date, start_date),
+              end_date = COALESCE($8::date, end_date),
+              reminder_enabled = COALESCE($9::boolean, reminder_enabled),
+              notes = COALESCE($10, notes),
+              prescribed_by = $11::uuid,
+              updated_at = NOW()
+        WHERE id = $1::int
+          AND tenant_id = $2::uuid
+          AND pregnancy_id = $3::int
+        RETURNING *, TRUE AS continued`,
+      Number(existing[0].id), tid, pregnancyId,
+      dose || null, frequencyValue, routeValue, startDate,
+      end_date || null, reminder_enabled !== undefined ? reminder_enabled !== false : null,
+      notes || null, String(prescribed_by),
+    );
+    return rows[0];
+  }
 
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO maternity_supplements
        (pregnancy_id, supplement, dose, frequency, route, start_date,
         end_date, reminder_enabled, notes, prescribed_by, tenant_id)
      VALUES ($1::int, $2, $3, $4, $5, $6::date, $7::date, $8, $9, $10::uuid, $11::uuid)
-     RETURNING *`,
-    Number(pregnancy_id), supplement, dose || null,
-    frequency || 'once_daily', route || 'oral',
-    start_date || new Date().toISOString().slice(0, 10),
+     RETURNING *, FALSE AS continued`,
+    pregnancyId, supplement, dose || null,
+    frequencyValue, routeValue,
+    startDate,
     end_date || null, reminder_enabled !== false, notes || null,
-    String(prescribed_by), tenantId,
+    String(prescribed_by), tid,
   );
   return rows[0];
 }
@@ -545,6 +677,13 @@ const SUPPLEMENT_PATTERNS = [
   { kind: 'vitamin_d',  re: /\b(vit(?:amin)?\s*d3?|cholecalciferol)\b/i },
   { kind: 'b_complex',  re: /\b(b[\s-]?complex|vit(?:amin)?\s*b)\b/i },
 ];
+
+function collapseComboSupplementMatches(matches) {
+  const out = new Set(matches || []);
+  if (out.has('iron') && out.has('folic_acid')) out.delete('folic_acid');
+  if (out.has('calcium') && out.has('vitamin_d')) out.delete('vitamin_d');
+  return [...out];
+}
 
 // Map prescription-form frequency labels (OD/BD/TDS/QID + long forms)
 // to maternity_supplements.frequency enum. Anything unrecognised falls
@@ -577,9 +716,9 @@ export function extractCarriedForwardSupplements(prescriptions) {
       const name = String(med.name || med.medication || med.medicine || '').trim();
       if (!name) continue;
 
-      const matches = SUPPLEMENT_PATTERNS
+      const matches = collapseComboSupplementMatches(SUPPLEMENT_PATTERNS
         .filter(({ re }) => re.test(name))
-        .map(({ kind }) => kind);
+        .map(({ kind }) => kind));
       if (!matches.length) continue;
 
       const freqRaw = String(med.frequency || med.freq || '').toLowerCase().trim();
@@ -640,9 +779,9 @@ export async function maybePropagateAncSupplements({
     const name = String(med.name || med.medication || med.medicine || '').trim();
     if (!name) continue;
 
-    const matches = SUPPLEMENT_PATTERNS
+    const matches = collapseComboSupplementMatches(SUPPLEMENT_PATTERNS
       .filter(({ re }) => re.test(name))
-      .map(({ kind }) => kind);
+      .map(({ kind }) => kind));
     if (!matches.length) continue;
 
     const freqRaw = String(med.frequency || med.freq || '').toLowerCase().trim();

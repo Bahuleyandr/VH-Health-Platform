@@ -14,20 +14,26 @@ router.post('/vitals', async (req, res, next) => {
   try {
     const {
       patient_uid, encounter_id, heart_rate, systolic_bp, diastolic_bp,
+      patient_id, visit_id, triage_acuity, acuity, triage_priority,
       temperature, temperature_unit, temperature_route, spo2, respiratory_rate, blood_glucose,
       pain_score, weight_kg, height_cm, gcs_score, supplemental_o2,
-      o2_flow_rate, consciousness, notes,
+      o2_flow_rate, consciousness, notes, recorded_at, observed_at,
       fhr, fundal_height_cm,
       urine_albumin, urine_sugar, urine_ketones,
     } = req.body;
 
-    if (!patient_uid) {
-      return error(res, 'patient_uid is required', 400);
+    if (!patient_uid && !patient_id) {
+      return error(res, 'patient_uid or patient_id is required', 400);
     }
 
     const result = await vitalsChartService.recordVitals({
       patient_uid,
+      patient_id,
+      visit_id,
       encounter_id: encounter_id || null,
+      triage_acuity,
+      acuity,
+      triage_priority,
       heart_rate,
       systolic_bp,
       diastolic_bp,
@@ -45,6 +51,8 @@ router.post('/vitals', async (req, res, next) => {
       o2_flow_rate,
       consciousness,
       notes,
+      recorded_at,
+      observed_at,
       fhr,
       fundal_height_cm,
       urine_albumin,
@@ -56,7 +64,7 @@ router.post('/vitals', async (req, res, next) => {
     logPhiAccess({
       userId: req.user.uid,
       userRole: req.user.role,
-      patientId: patient_uid,
+      patientId: result?.vitals?.patient_uid || patient_uid,
       recordType: 'vitals',
       action: 'CREATE',
       ip: req.ip,

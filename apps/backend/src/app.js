@@ -232,6 +232,13 @@ const CLINICAL_STAFF_ROLES = [
   'ADMISSION_OFFICER',
   'IPD_COUNSELLOR',
 ];
+const ADMISSION_SURFACE_ROLES = [
+  ...CLINICAL_STAFF_ROLES,
+  'RECEPTIONIST',
+  'BILLING_STAFF',
+  'BILLING_INCHARGE',
+  'INSURANCE_COORDINATOR',
+];
 const CLINICAL_AI_CONTROL_ROLES = [
   'ADMIN',
   'SUPER_ADMIN',
@@ -259,6 +266,30 @@ function phiAccessLoggerForPaths(recordType, matchers) {
     return loggerMiddleware(req, res, next);
   };
 }
+
+function rewriteAdmissionSurface(req, _res, next) {
+  const [pathPart, queryPart] = req.url.split('?');
+  const query = queryPart ? `?${queryPart}` : '';
+  const path = (pathPart || '/').replace(/\/+$/, '') || '/';
+
+  if (path === '/') {
+    req.url = req.method === 'POST' ? `/admit${query}` : `/admissions${query}`;
+  } else if (path === '/stats') {
+    req.url = `/admissions/stats${query}`;
+  } else if (path.startsWith('/patient/')) {
+    req.url = `/admissions${path}${query}`;
+  } else if (/^\/\d+$/.test(path)) {
+    req.url = `/admission${path}${query}`;
+  } else {
+    req.url = `${path}${query}`;
+  }
+
+  next();
+}
+
+const admissionAliasRouter = express.Router();
+admissionAliasRouter.use(rewriteAdmissionSurface);
+admissionAliasRouter.use(admissionRoutes);
 
 // ====================================
 // SWAGGER SETUP
@@ -733,9 +764,9 @@ app.use('/api/v1/radiology', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURS
 app.use('/api/v1/dietary', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'DIETARY_STAFF'), phiAccessLogger('DIETARY'), dietaryRoutes);
 
 // Operating Theatre
-app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF'), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
-app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF'), orBoardRoutes);
-app.use('/api/v1/anesthesia', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF'), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
+app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF', 'ANESTHETIST'), phiAccessLogger('OPERATING_THEATRE'), theatreRoutes);
+app.use('/api/v1/theatre', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF', 'ANESTHETIST'), orBoardRoutes);
+app.use('/api/v1/anesthesia', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF', 'ANESTHETIST'), phiAccessLogger('ANESTHESIA_CHART'), anesthesiaChartRoutes);
 
 // Surgical documentation — mounted at /api/v1/surgical for clinical staff
 // (OT nurses, surgeons, anaesthetists) who own these workflows in real
@@ -752,7 +783,7 @@ app.use(
   '/api/v1/surgical',
   requireRole(
     'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'OT_STAFF',
-    'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT',
+    'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT', 'ANESTHETIST',
   ),
   phiAccessLogger('SURGICAL_DOCUMENTATION'),
   surgicalDocumentationRoutes,
@@ -797,8 +828,21 @@ app.use(
   phiAccessLogger('INSURANCE_PREAUTH'),
   admissionEnhancementRoutes,
 );
+// Admission-desk alias for clients and swarm journeys that model ADT as
+// `/api/v1/admissions/*` instead of the EMR-internal `/api/v1/emr/*`
+// surface. Keep this after the more specific TPA-enhancement mount.
+// The rewrite keeps one implementation in admissionRoutes while exposing
+// REST-shaped reads/creates at:
+//   POST/GET /api/v1/admissions, GET /api/v1/admissions/:id,
+//   GET /api/v1/admissions/stats, GET /api/v1/admissions/patient/:uid
+app.use(
+  '/api/v1/admissions',
+  requireRole(...ADMISSION_SURFACE_ROLES),
+  phiAccessLogger('ADMISSION'),
+  admissionAliasRouter,
+);
 app.use('/api/v1/pmjay', requireRole('ADMIN', 'SUPER_ADMIN', 'BILLING_STAFF', 'INSURANCE_COORDINATOR'), pmjayRoutes);
-app.use('/api/v1/maternity', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), phiAccessLogger('MATERNITY_RECORD'), maternityRoutes);
+app.use('/api/v1/maternity', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PATIENT'), phiAccessLogger('MATERNITY_RECORD'), maternityRoutes);
 // A10 — paediatric immunisation tracking. Receptionists need write access
 // to seed a returning child's schedule; doctors + nurses to record doses.
 app.use('/api/v1/paediatric', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RECEPTIONIST'), phiAccessLogger('PAEDIATRIC_IMMUNISATION'), paediatricImmunisationRoutes);

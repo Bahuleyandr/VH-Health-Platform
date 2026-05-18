@@ -252,6 +252,7 @@ followUpsRouter.post('/', async (req, res, next) => {
       reminderOffsetsMinutes: b.reminder_offsets_minutes,
       metadata: b.metadata,
       createdBy: req.user?.uid || null,
+      bookAppointment: b.book_appointment,
     });
     return success(res, row, 'Follow-up plan created', 201);
   } catch (err) { return next(err); }

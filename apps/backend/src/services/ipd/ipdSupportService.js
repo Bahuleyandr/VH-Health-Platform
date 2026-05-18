@@ -482,6 +482,38 @@ export async function expireAttendantPassesForAdmission(tx, admissionId) {
   });
 }
 
+export async function relocateActiveAttendantPasses(tx, {
+  admissionId, wardId = null, wardName = null,
+}) {
+  if (!admissionId) throw AppError.badRequest('admissionId is required');
+
+  let passColor;
+  let screeningLevel;
+  if (wardId) {
+    const ward = await tx.wards.findUnique({
+      where: { id: wardId },
+      select: { attendant_pass_color: true, attendant_pass_screening_level: true, name: true },
+    });
+    passColor = ward?.attendant_pass_color ?? null;
+    screeningLevel = ward?.attendant_pass_screening_level ?? 'standard';
+    wardName = ward?.name ?? wardName;
+  }
+
+  const data = {
+    ward_at_issue: wardName ?? null,
+    updated_at: new Date(),
+  };
+  if (wardId) {
+    data.pass_color = passColor;
+    data.screening_level = screeningLevel;
+  }
+
+  return tx.attendant_passes.updateMany({
+    where: { admission_id: admissionId, status: 'active' },
+    data,
+  });
+}
+
 export async function listAdmissionPasses(admissionId) {
   return prisma.attendant_passes.findMany({
     where: { admission_id: admissionId },

@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as bookingController from '../../controllers/investigation/bookingController.js';
+import * as bulkController from '../../controllers/investigation/bulkController.js';
 import * as investigationController from '../../controllers/investigation/investigationController.js';
 import * as orderController from '../../controllers/investigation/orderController.js';
 import * as uploadController from '../../controllers/investigation/uploadController.js';
@@ -64,6 +65,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
 
     ['/catalog', investigationController.upsertTestCatalog],
     ['/order', investigationRequestValidator, orderController.orderInvestigation],
+    ['/bulk/status', bulkController.updateStatus],
     // Wave-5 batch-3 — stamp sample collection on the investigations
     // row itself (not the booking). Surfaces a printable barcode +
     // collector/notes for the lab walk-in flow that bypasses bookings.

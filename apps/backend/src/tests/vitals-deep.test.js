@@ -9,7 +9,9 @@ import app from '../app.js';
 
 const PATIENT_UID = 'a2222222-2222-4222-8222-222222222a01';
 const RECORDER_UID = 'a2222222-2222-4222-8222-222222222a02';
+const ANC_UID = 'a2222222-2222-4222-8222-222222222a04';
 const PATIENT_PHONE = '9000020001';
+const ANC_PHONE = '9000020004';
 const API_KEY = process.env.API_KEY || 'test-api-key';
 
 function doctorAs(uid = RECORDER_UID) {
@@ -28,6 +30,8 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
   beforeAll(async () => {
     // Cleanup — delete alerts + vitals tied to our fixtures
     await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PATIENT_UID);
+    await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, ANC_UID);
+    await prisma.$executeRawUnsafe(`DELETE FROM news2_scores WHERE patient_uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, ANC_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM intake_output WHERE patient_uid = $1::uuid`, PATIENT_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE uid = $1::uuid AND action = 'CORRECT_VITALS'`, RECORDER_UID);
     // clinical_alerts keyed by int patient_id — look it up first, then delete
@@ -35,7 +39,14 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
     if (existing.length) {
       await prisma.$executeRawUnsafe(`DELETE FROM clinical_alerts WHERE patient_id = $1`, existing[0].id);
     }
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, RECORDER_UID);
+    const existingAnc = await prisma.$queryRawUnsafe(`SELECT id FROM users WHERE uid = $1::uuid`, ANC_UID);
+    if (existingAnc.length) {
+      await prisma.$executeRawUnsafe(`DELETE FROM clinical_alerts WHERE patient_id = $1`, existingAnc[0].id);
+    }
+    await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE visit_no LIKE 'EMER-VITALS-%'`);
+    await prisma.$executeRawUnsafe(`DELETE FROM emergency_visits WHERE visit_number LIKE 'EMER-VITALS-%'`);
+    await prisma.$executeRawUnsafe(`DELETE FROM maternity_pregnancies WHERE patient_uid = $1::uuid`, ANC_UID);
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`, PATIENT_UID, RECORDER_UID, ANC_UID);
 
     const p = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
@@ -48,21 +59,43 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
        VALUES ($1::uuid, '9000020002', 'Vitals Test Doctor', 'DOCTOR', true, NOW())`,
       RECORDER_UID);
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, gender, is_active, updated_at)
+       VALUES ($1::uuid, $2, 'ANC Vitals Test Patient', 'PATIENT', 'Female', true, NOW())`,
+      ANC_UID, ANC_PHONE);
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO maternity_pregnancies
+         (patient_uid, pregnancy_number, lmp_date, gravida, parity, living_children,
+          abortions, high_risk_reasons, status, created_by, updated_at)
+       VALUES ($1::uuid, 1, (CURRENT_DATE - INTERVAL '24 weeks')::date,
+               1, 0, 0, 0, ARRAY[]::text[], 'ongoing', $2::uuid, NOW())`,
+      ANC_UID, RECORDER_UID);
   });
 
   afterAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, ANC_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM news2_scores WHERE patient_uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, ANC_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM intake_output WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE uid = $1::uuid AND action = 'CORRECT_VITALS'`, RECORDER_UID).catch(() => {});
     if (patientIntId) {
       await prisma.$executeRawUnsafe(`DELETE FROM clinical_alerts WHERE patient_id = $1`, patientIntId).catch(() => {});
     }
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, RECORDER_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE visit_no LIKE 'EMER-VITALS-%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM emergency_visits WHERE visit_number LIKE 'EMER-VITALS-%'`).catch(() => {});
+    const existingAnc = await prisma.$queryRawUnsafe(`SELECT id FROM users WHERE uid = $1::uuid`, ANC_UID).catch(() => []);
+    if (existingAnc.length) {
+      await prisma.$executeRawUnsafe(`DELETE FROM clinical_alerts WHERE patient_id = $1`, existingAnc[0].id).catch(() => {});
+    }
+    await prisma.$executeRawUnsafe(`DELETE FROM maternity_pregnancies WHERE patient_uid = $1::uuid`, ANC_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`, PATIENT_UID, RECORDER_UID, ANC_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
 
   describe('validation', () => {
-    it('rejects vitals without patient_uid', async () => {
+    it('rejects vitals without a patient identifier', async () => {
       const res = await doctor.post('/api/v1/emr/vitals').send({ heart_rate: 80 });
       expect(res.statusCode).toBe(400);
     });
@@ -124,6 +157,25 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       expect(parseFloat(row[0].spo2)).toBe(98);
     });
 
+    it('preserves caller-supplied recovery observation timestamps', async () => {
+      const observedAt = new Date(Date.now() - 90 * 60 * 1000).toISOString();
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PATIENT_UID,
+        heart_rate: 82,
+        systolic_bp: 120,
+        recorded_at: observedAt,
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(new Date(res.body.data.vitals.recorded_at).toISOString()).toBe(observedAt);
+
+      const row = await prisma.$queryRawUnsafe(
+        `SELECT recorded_at FROM vitals_chart WHERE id = $1`,
+        res.body.data.vitals.id,
+      );
+      expect(new Date(row[0].recorded_at).toISOString()).toBe(observedAt);
+    });
+
     it('corrects a recent vitals row and records an audit trail', async () => {
       const res = await doctor.put(`/api/v1/emr/vitals/${normalVitalsId}`).send({
         temperature: 36.9,
@@ -148,6 +200,94 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       expect(auditRows[0].resource).toBe('vitals_chart');
       expect(auditRows[0].metadata.corrected_fields).toContain('temperature');
     });
+
+    it('accepts patient_id when patient_uid is not supplied', async () => {
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_id: patientIntId,
+        heart_rate: 84,
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.body.data.vitals.patient_uid).toBe(PATIENT_UID);
+    });
+
+    it('allows latest-vitals lookup by integer patient_id for walk-in handoffs', async () => {
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_id: patientIntId,
+        weight_kg: 12.5,
+        height_cm: 87,
+        respiratory_rate: 30,
+        temperature: 38.6,
+        temperature_route: 'axillary',
+      });
+      expect(res.statusCode).toBe(201);
+
+      const latest = await doctor.get(`/api/v1/emr/vitals/${patientIntId}/latest`);
+      expect(latest.statusCode).toBe(200);
+      expect(latest.body.data.id).toBe(res.body.data.vitals.id);
+      expect(parseFloat(latest.body.data.weight_kg)).toBe(12.5);
+      expect(parseFloat(latest.body.data.height_cm)).toBe(87);
+      expect(parseFloat(latest.body.data.respiratory_rate)).toBe(30);
+      expect(latest.body.data.temperature_route).toBe('axillary');
+    });
+
+    it('records triage acuity and propagates it to the emergency queue spine', async () => {
+      const visitNo = `EMER-VITALS-${Date.now()}`;
+      const visitRows = await prisma.$queryRawUnsafe(
+        `INSERT INTO emergency_visits
+           (tenant_id, visit_number, patient_uid, arrival_mode, chief_complaint,
+            status, created_by, updated_at)
+         VALUES ('00000000-0000-4000-8000-000000000001'::uuid,
+                 $1, $2::uuid, 'walk_in', 'Acute breathlessness',
+                 'arriving', $3::uuid, NOW())
+         RETURNING id`,
+        visitNo,
+        PATIENT_UID,
+        RECORDER_UID,
+      );
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO appointments
+           (phone, patient_id, doctor_name, patient_name, appointment_date,
+            appointment_time, status, token_number, department, visit_type,
+            visit_no, confirmed_at, created_at, updated_at)
+         VALUES ($1, $2, '', 'Vitals Test Patient', CURRENT_DATE,
+                 '09:15', 'CONFIRMED', 'EMER-001', 'Emergency', 'EMERGENCY',
+                 $3, NOW(), NOW(), NOW())`,
+        PATIENT_PHONE,
+        patientIntId,
+        visitNo,
+      );
+
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_id: patientIntId,
+        visit_id: visitRows[0].id,
+        triage_acuity: 2,
+        heart_rate: 118,
+        respiratory_rate: 25,
+        spo2: 92,
+        systolic_bp: 110,
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.body.data.vitals.triage_acuity).toBe(2);
+      expect(res.body.data.triage.triage_priority).toBe('esi_2');
+      expect(res.body.data.triage.emergency_visit_id).toBe(visitRows[0].id);
+      expect(res.body.data.news2?.total_score).toBeGreaterThanOrEqual(5);
+
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT vc.triage_acuity AS vitals_acuity,
+                ev.triage_priority,
+                a.triage_acuity AS appointment_acuity
+           FROM vitals_chart vc
+           CROSS JOIN emergency_visits ev
+           JOIN appointments a ON a.visit_no = ev.visit_number
+          WHERE vc.id = $1
+            AND ev.id = $2`,
+        res.body.data.vitals.id,
+        visitRows[0].id,
+      );
+      expect(rows[0].vitals_acuity).toBe(2);
+      expect(rows[0].triage_priority).toBe('esi_2');
+      expect(rows[0].appointment_acuity).toBe(2);
+    });
   });
 
   describe('OB urine dipstick fields (migration 211)', () => {
@@ -166,6 +306,38 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       expect(row[0].urine_albumin).toBe('1+');
       expect(row[0].urine_sugar).toBe('negative');
       expect(row[0].urine_ketones).toBe('trace');
+    });
+
+    it('raises a critical pre-eclampsia screen alert for ANC hypertension with proteinuria', async () => {
+      const ancPatient = await prisma.$queryRawUnsafe(
+        `SELECT id FROM users WHERE uid = $1::uuid`,
+        ANC_UID,
+      );
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: ANC_UID,
+        systolic_bp: 150,
+        diastolic_bp: 95,
+        urine_albumin: '2+',
+        fhr: 142,
+        fundal_height_cm: 24,
+      });
+      expect(res.statusCode).toBe(201);
+      const alert = (res.body.data.alerts || []).find((a) => a.vital_name === 'preeclampsia_screen');
+      expect(alert).toBeDefined();
+      expect(alert.severity).toBe('CRITICAL');
+
+      const persisted = await prisma.$queryRawUnsafe(
+        `SELECT vital_name, severity, message
+           FROM clinical_alerts
+          WHERE patient_id = $1
+            AND vital_name = 'preeclampsia_screen'
+          ORDER BY created_at DESC
+          LIMIT 1`,
+        ancPatient[0].id,
+      );
+      expect(persisted.length).toBe(1);
+      expect(persisted[0].severity).toBe('CRITICAL');
+      expect(persisted[0].message).toMatch(/pre-eclampsia/i);
     });
 
     it('rejects unknown dipstick values', async () => {
@@ -235,6 +407,7 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
 
     beforeAll(async () => {
       await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PAEDS_UID);
+      await prisma.$executeRawUnsafe(`DELETE FROM news2_scores WHERE patient_uid = $1::uuid`, PAEDS_UID);
       await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PAEDS_UID);
       // ~2-year-old (730 days) male — the Baby Aarav cohort from 4354eb08.
       const dob = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10);
@@ -246,6 +419,7 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
 
     afterAll(async () => {
       await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PAEDS_UID).catch(() => {});
+      await prisma.$executeRawUnsafe(`DELETE FROM news2_scores WHERE patient_uid = $1::uuid`, PAEDS_UID).catch(() => {});
       await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PAEDS_UID).catch(() => {});
     });
 
@@ -332,6 +506,16 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       for (let i = 1; i < points.length; i++) {
         expect(new Date(points[i].timestamp) >= new Date(points[i - 1].timestamp)).toBe(true);
       }
+    });
+
+    it('returns OB fhr and fundal-height trends', async () => {
+      const fhr = await doctor.get(`/api/v1/emr/vitals/${ANC_UID}/trend?vital=fhr`);
+      expect(fhr.statusCode).toBe(200);
+      expect(fhr.body.data.some((p) => Number(p.value) === 142)).toBe(true);
+
+      const fundal = await doctor.get(`/api/v1/emr/vitals/${ANC_UID}/trend?vital=fundal_height_cm`);
+      expect(fundal.statusCode).toBe(200);
+      expect(fundal.body.data.some((p) => Number(p.value) === 24)).toBe(true);
     });
 
     it('returns full chart with pagination metadata', async () => {

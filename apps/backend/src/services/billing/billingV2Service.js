@@ -880,12 +880,46 @@ export async function listInvoices({
 
   const offset = (Number(page) - 1) * Number(limit);
   const sql = `SELECT id, invoice_number, patient_uid, patient_name, invoice_type,
-                      total_amount, amount_paid, amount_due, status, issued_at, created_at
+                      total_amount, amount_paid, amount_due, status, admission_id,
+                      tenant_id, issued_at, created_at
                  FROM billing_invoices
                  ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
                  ORDER BY COALESCE(issued_at, created_at) DESC
                  LIMIT $${params.length + 1}::int OFFSET $${params.length + 2}::int`;
-  return prisma.$queryRawUnsafe(sql, ...params, Number(limit), offset);
+  const rows = await prisma.$queryRawUnsafe(sql, ...params, Number(limit), offset);
+
+  return Promise.all(rows.map(async (row) => {
+    if (!row.admission_id) return { ...row, tpa_utilisation: null };
+    try {
+      const cap = await resolveAdmissionTpaCap(row.admission_id, row.tenant_id);
+      if (!cap || cap.cumulative_approved <= 0) return { ...row, tpa_utilisation: null };
+      const total = Number(row.total_amount ?? 0);
+      const utilisationPct = (total / cap.cumulative_approved) * 100;
+      let utilisationStatus = 'within_cap';
+      if (utilisationPct >= 100) utilisationStatus = 'over_cap';
+      else if (utilisationPct >= 90) utilisationStatus = 'near_limit';
+      else if (utilisationPct >= 80) utilisationStatus = 'approaching_limit';
+      return {
+        ...row,
+        tpa_utilisation: {
+          root_preauth_id: cap.root_preauth_id,
+          root_preauth_number: cap.root_preauth_number,
+          cumulative_approved: cap.cumulative_approved,
+          total_charged: total,
+          remaining: Math.max(0, cap.cumulative_approved - total),
+          utilisation_pct: Math.round(utilisationPct * 10) / 10,
+          status: utilisationStatus,
+        },
+      };
+    } catch (err) {
+      logger.warn('Billing invoice list TPA utilisation projection failed', {
+        invoice_id: row.id,
+        admission_id: row.admission_id,
+        err: err?.message,
+      });
+      return { ...row, tpa_utilisation: null };
+    }
+  }));
 }
 
 // ───────────────────────────────────────────────────────────────────────

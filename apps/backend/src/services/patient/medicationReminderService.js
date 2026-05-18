@@ -8,6 +8,45 @@ import logger from '../../logging/logger.js';
 // list never collides on a real reminder's id.
 const ANC_SUPPLEMENT_ID_OFFSET = 1_000_000_000;
 
+const DEFAULT_REMINDER_TIMES = {
+  once_daily: ['09:00'],
+  twice_daily: ['09:00', '21:00'],
+  thrice_daily: ['08:00', '14:00', '20:00'],
+  four_times_daily: ['06:00', '12:00', '18:00', '00:00'],
+  at_bedtime: ['21:00'],
+};
+
+function normalizePrescriptionFrequency(value, text = '') {
+  const joined = `${value || ''} ${text || ''}`.toLowerCase();
+  const compact = joined.replace(/\s+/g, '_');
+  if (/\b(q6h|qid|qds)\b/.test(joined) || /every[_\s-]*6[_\s-]*hours?/.test(compact)) return 'four_times_daily';
+  if (/\b(q8h|tds|tid)\b/.test(joined) || /every[_\s-]*8[_\s-]*hours?/.test(compact)) return 'thrice_daily';
+  if (/\b(q12h|bd|bid)\b/.test(joined) || /every[_\s-]*12[_\s-]*hours?/.test(compact)) return 'twice_daily';
+  if (/\b(q24h|od|qd)\b/.test(joined) || /once[_\s-]*daily/.test(compact)) return 'once_daily';
+  if (/\b(hs|bedtime)\b/.test(joined)) return 'at_bedtime';
+  return null;
+}
+
+function parseDurationEndDate(duration, startDate) {
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime())) return null;
+  const match = String(duration || '').match(/(\d+)\s*(day|days|d)\b/i);
+  if (!match) return null;
+  const days = Number.parseInt(match[1], 10);
+  if (!Number.isFinite(days) || days <= 0) return null;
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + days);
+  return end.toISOString().slice(0, 10);
+}
+
+function medicationNameOf(med) {
+  return med?.name || med?.medication_name || med?.drug_name || null;
+}
+
+function dosageOf(med) {
+  return med?.dose || med?.dosage || med?.strength || '';
+}
+
 // SQL fragment that synthesises medication_reminders-shaped rows from
 // `maternity_supplements`. The Flutter app posts/deletes against
 // `/reminders/medication/:id`; rows with `source='anc_supplement'`
@@ -21,16 +60,16 @@ const ANC_SUPPLEMENT_ID_OFFSET = 1_000_000_000;
 // reminder_times array so no daily local notification is scheduled.
 const ANC_SUPPLEMENT_PROJECTION = `
   SELECT
-    (ms.id + ${ANC_SUPPLEMENT_ID_OFFSET}) AS id,
-    mp.patient_uid AS patient_uid,
+    (anc.id + ${ANC_SUPPLEMENT_ID_OFFSET}) AS id,
+    anc.patient_uid AS patient_uid,
     CASE
-      WHEN ms.dose IS NOT NULL AND length(trim(ms.dose)) > 0
-        THEN INITCAP(REPLACE(ms.supplement, '_', ' ')) || ' (' || ms.dose || ')'
-      ELSE INITCAP(REPLACE(ms.supplement, '_', ' '))
+      WHEN anc.dose IS NOT NULL AND length(trim(anc.dose)) > 0
+        THEN INITCAP(REPLACE(anc.supplement, '_', ' ')) || ' (' || anc.dose || ')'
+      ELSE INITCAP(REPLACE(anc.supplement, '_', ' '))
     END AS medication_name,
-    COALESCE(ms.dose, '') AS dosage,
-    ms.frequency AS frequency,
-    CASE LOWER(ms.frequency)
+    COALESCE(anc.dose, '') AS dosage,
+    anc.frequency AS frequency,
+    CASE LOWER(anc.frequency)
       WHEN 'once_daily'   THEN ARRAY['09:00']
       WHEN 'twice_daily'  THEN ARRAY['09:00','21:00']
       WHEN 'thrice_daily' THEN ARRAY['08:00','14:00','20:00']
@@ -42,19 +81,53 @@ const ANC_SUPPLEMENT_PROJECTION = `
       WHEN 'weekly'       THEN ARRAY['09:00']
       ELSE ARRAY[]::text[]
     END AS reminder_times,
-    ms.start_date AS start_date,
-    ms.end_date   AS end_date,
+    anc.start_date AS start_date,
+    anc.end_date   AS end_date,
     TRUE          AS is_active,
-    COALESCE(NULLIF(trim(ms.notes), ''), 'ANC supplement — managed by your doctor') AS notes,
-    ms.created_at AS created_at,
+    COALESCE(NULLIF(trim(anc.notes), ''), 'ANC supplement — managed by your doctor') AS notes,
+    anc.created_at AS created_at,
     'anc_supplement' AS source
-  FROM maternity_supplements ms
-  JOIN maternity_pregnancies mp ON mp.id = ms.pregnancy_id
-  WHERE mp.patient_uid = $1::uuid
-    AND mp.status = 'ongoing'
-    AND ms.reminder_enabled = TRUE
-    AND ms.start_date <= CURRENT_DATE
-    AND (ms.end_date IS NULL OR ms.end_date >= CURRENT_DATE)
+  FROM (
+    SELECT DISTINCT ON (raw.patient_uid, raw.therapy_key)
+      raw.*
+    FROM (
+      SELECT
+        ms.*,
+        mp.patient_uid,
+        CASE
+          WHEN ms.supplement = 'folic_acid' AND EXISTS (
+            SELECT 1 FROM maternity_supplements iron
+             WHERE iron.pregnancy_id = ms.pregnancy_id
+               AND iron.supplement = 'iron'
+               AND iron.reminder_enabled = TRUE
+               AND iron.start_date <= CURRENT_DATE
+               AND (iron.end_date IS NULL OR iron.end_date >= CURRENT_DATE)
+          ) THEN 'iron'
+          WHEN ms.supplement = 'vitamin_d' AND EXISTS (
+            SELECT 1 FROM maternity_supplements calcium
+             WHERE calcium.pregnancy_id = ms.pregnancy_id
+               AND calcium.supplement = 'calcium'
+               AND calcium.reminder_enabled = TRUE
+               AND calcium.start_date <= CURRENT_DATE
+               AND (calcium.end_date IS NULL OR calcium.end_date >= CURRENT_DATE)
+          ) THEN 'calcium'
+          ELSE ms.supplement
+        END AS therapy_key,
+        CASE
+          WHEN ms.supplement IN ('iron', 'calcium') THEN 0
+          WHEN ms.supplement IN ('folic_acid', 'vitamin_d') THEN 1
+          ELSE 2
+        END AS therapy_priority
+      FROM maternity_supplements ms
+      JOIN maternity_pregnancies mp ON mp.id = ms.pregnancy_id
+      WHERE mp.patient_uid = $1::uuid
+        AND mp.status = 'ongoing'
+        AND ms.reminder_enabled = TRUE
+        AND ms.start_date <= CURRENT_DATE
+        AND (ms.end_date IS NULL OR ms.end_date >= CURRENT_DATE)
+    ) raw
+    ORDER BY raw.patient_uid, raw.therapy_key, raw.therapy_priority ASC, raw.created_at DESC, raw.id DESC
+  ) anc
 `;
 
 /**
@@ -66,12 +139,68 @@ export async function createReminder(patientUid, data) {
   const result = await prisma.$queryRawUnsafe(`
     INSERT INTO medication_reminders
       (patient_uid, medication_name, dosage, frequency, reminder_times, start_date, end_date, notes)
-    VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)
+    VALUES ($1::uuid, $2, $3, $4, $5, $6::date, $7::date, $8)
     RETURNING id, patient_uid, medication_name, dosage, frequency, reminder_times,
               start_date, end_date, is_active, notes, created_at
   `, patientUid, medication_name, dosage, frequency, reminder_times, start_date, end_date || null, notes || null);
 
   return result[0];
+}
+
+export async function createPrescriptionReminders(patientUid, medications, options = {}) {
+  if (!patientUid || !Array.isArray(medications) || medications.length === 0) return [];
+  const startDate = options.startDate || new Date().toISOString().slice(0, 10);
+  const created = [];
+
+  for (const med of medications) {
+    const medicationName = medicationNameOf(med);
+    if (!medicationName) continue;
+    const sourceText = [med.frequency, med.instructions, med.notes, med.duration, dosageOf(med)]
+      .filter(Boolean)
+      .join(' ');
+    const frequency = normalizePrescriptionFrequency(med.frequency, sourceText);
+    const reminderTimes = DEFAULT_REMINDER_TIMES[frequency] || [];
+    if (!frequency || reminderTimes.length === 0) continue;
+    const dosage = dosageOf(med);
+    const endDate = med.end_date || parseDurationEndDate(med.duration, startDate);
+    const notes = [
+      med.instructions || med.notes || null,
+      options.prescriptionNumber ? `Source prescription: ${options.prescriptionNumber}` : null,
+      med.max_doses_per_day ? `Max ${med.max_doses_per_day} doses/day` : null,
+    ].filter(Boolean).join(' | ') || null;
+
+    const existing = await prisma.$queryRawUnsafe(`
+      SELECT id, patient_uid, medication_name, dosage, frequency, reminder_times,
+             start_date, end_date, is_active, notes, created_at,
+             'medication_reminder' AS source
+      FROM medication_reminders
+      WHERE patient_uid = $1::uuid
+        AND is_active = true
+        AND lower(medication_name) = lower($2)
+        AND COALESCE(dosage, '') = COALESCE($3, '')
+        AND COALESCE(frequency, '') = $4
+        AND start_date <= $5::date
+        AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+      LIMIT 1
+    `, patientUid, medicationName, dosage || null, frequency, startDate);
+    if (existing[0]) {
+      created.push(existing[0]);
+      continue;
+    }
+
+    const row = await createReminder(patientUid, {
+      medication_name: medicationName,
+      dosage,
+      frequency,
+      reminder_times: reminderTimes,
+      start_date: startDate,
+      end_date: endDate,
+      notes,
+    });
+    created.push(row);
+  }
+
+  return created;
 }
 
 /**

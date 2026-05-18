@@ -30,7 +30,7 @@ function wrap(handler) {
 }
 
 function requireStaffOrAdmin(req, res, next) {
-  if (!isStaff(req.user?.role) && !isAdmin(req.user?.role)) {
+  if (!isStaff(req.user?.role) && !isAdmin(req.user?.role) && req.user?.role !== 'SUPER_ADMIN') {
     return error(res, 'Staff or admin role required', 403);
   }
   next();
@@ -53,12 +53,12 @@ router.post('/immunisations/seed', requireStaffOrAdmin, wrap(async (req) =>
 
 // All immunisation rows for a patient (chronological).
 router.get('/immunisations/patient/:patientUid', requireStaffOrAdmin, wrap(async (req) =>
-  svc.listForPatient(req.params.patientUid),
+  svc.listForPatient(req.params.patientUid, { tenantId: tenantOf(req) }),
 ));
 
 // Due-or-overdue scheduled rows only. Powers the paeds-OPD "due now" panel.
 router.get('/immunisations/patient/:patientUid/due', requireStaffOrAdmin, wrap(async (req) =>
-  svc.listDueForPatient(req.params.patientUid, { asOf: req.query.asOf || null }),
+  svc.listDueForPatient(req.params.patientUid, { asOf: req.query.asOf || null, tenantId: tenantOf(req) }),
 ));
 
 // Record a dose given (or mark missed / refused / contraindicated).

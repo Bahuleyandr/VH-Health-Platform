@@ -54,11 +54,20 @@ async function resolvePatientContext(patientId) {
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT
-         CASE WHEN birthday IS NOT NULL THEN
-           DATE_PART('year', AGE(NOW()::date, birthday))::int
+         CASE WHEN u.birthday IS NOT NULL THEN
+           DATE_PART('year', AGE(NOW()::date, u.birthday))::int
          ELSE NULL END AS age_years,
-         COALESCE(is_pregnant, FALSE) AS is_pregnant
-       FROM users WHERE id = $1 LIMIT 1`,
+         (COALESCE(u.is_pregnant, FALSE) OR COALESCE(p.has_active_pregnancy, FALSE)) AS is_pregnant
+       FROM users u
+       LEFT JOIN LATERAL (
+         SELECT TRUE AS has_active_pregnancy
+           FROM maternity_pregnancies mp
+          WHERE mp.patient_uid = u.uid
+            AND mp.status = 'ongoing'
+          LIMIT 1
+       ) p ON TRUE
+       WHERE u.id = $1
+       LIMIT 1`,
       patientId,
     );
     const row = rows[0] ?? {};
@@ -79,6 +88,12 @@ function pickRanges({ isPaediatric, isPregnant }) {
     table = { ...table, ...PREGNANCY_BP_OVERRIDES };
   }
   return table;
+}
+
+function proteinuriaIsPositive(value) {
+  if (value == null) return false;
+  const v = String(value).trim().toLowerCase();
+  return ['1+', '2+', '3+', '4+'].includes(v);
 }
 
 /**
@@ -134,6 +149,24 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
       };
       alerts.push(alert);
     }
+  }
+
+  const systolic = vitals.systolic_bp == null ? null : Number(vitals.systolic_bp);
+  const diastolic = vitals.diastolic_bp == null ? null : Number(vitals.diastolic_bp);
+  const hypertensive = (Number.isFinite(systolic) && systolic >= 140)
+    || (Number.isFinite(diastolic) && diastolic >= 90);
+  if (patientCtx.isPregnant && hypertensive && proteinuriaIsPositive(vitals.urine_albumin)) {
+    alerts.push({
+      patient_id: patientId,
+      vital_name: 'preeclampsia_screen',
+      value: Math.max(systolic ?? 0, diastolic ?? 0),
+      unit: 'risk',
+      severity: 'CRITICAL',
+      normal_range: 'BP <140/90 and urine protein negative/trace',
+      cohort: 'pregnant',
+      message: `Positive pre-eclampsia screen: BP ${systolic ?? '?'}/${diastolic ?? '?'} with urine protein ${vitals.urine_albumin}. Escalate for obstetric review and repeat BP/protein assessment.`,
+      recorded_by: context.recordedBy,
+    });
   }
 
   // PATIENT SAFETY: Alerts are persisted synchronously — a CRITICAL vital sign alert

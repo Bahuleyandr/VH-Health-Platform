@@ -85,22 +85,26 @@ export class AppointmentValidationService {
       return { valid: false, errors };
     }
 
-    // Check if appointment is scheduled. Late clinical addendum exception:
+    // Check if appointment is scheduled. Clinical context exception:
     // a doctor's natural OPD flow is see patient → mark complete → write
-    // note. If we hard-lock the record on COMPLETED, the note has to be
-    // entered before status change — which contradicts how clinicians
-    // actually work and forces clinical context onto the separate
-    // progress-notes path (which has its own friction).
-    // Allow notes/reason to be updated on COMPLETED appointments by
-    // clinical staff (not patients); date/time/visit_type stay locked
-    // since those would re-open a finalized appointment. Finding:
+    // note. Confirmed / in-progress visits also need complaint/progress
+    // text correction without rescheduling. Allow notes/reason to be
+    // updated on CONFIRMED, IN_PROGRESS, and COMPLETED appointments by
+    // clinical/front-desk staff (not patients); date/time/visit_type stay
+    // locked since those would re-open workflow state. Findings:
     //   2026-05-09-follow-up-opd-doctor-no-edit-after-complete
+    //   2026-05-15-follow-up-opd-doctor-19f8a386
     const isScheduled = appointment.status === APPOINTMENT_CONFIG.STATUSES.SCHEDULED;
     if (!isScheduled) {
       const addendumOnly = isAddendumOnlyUpdate(updateData);
       const isClinical = ['DOCTOR', 'ADMIN', 'NURSING_STAFF', 'NURSE', 'RECEPTIONIST'].includes(user.role);
+      const contextEditableStatuses = [
+        APPOINTMENT_CONFIG.STATUSES.CONFIRMED,
+        APPOINTMENT_CONFIG.STATUSES.IN_PROGRESS,
+        APPOINTMENT_CONFIG.STATUSES.COMPLETED,
+      ];
       if (
-        appointment.status === APPOINTMENT_CONFIG.STATUSES.COMPLETED
+        contextEditableStatuses.includes(appointment.status)
         && addendumOnly
         && isClinical
       ) {

@@ -41,6 +41,20 @@ describe('Appointment booking + lifecycle — deep integration', () => {
 
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(
+      `DELETE FROM e_prescriptions
+        WHERE patient_id IN (SELECT id FROM users WHERE uid IN ($1::uuid, $2::uuid))
+           OR doctor_id IN (SELECT id FROM users WHERE uid = $3::uuid)`,
+      PATIENT_UID, OTHER_PATIENT_UID, DOCTOR_UID,
+    );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_notes WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+      PATIENT_UID, OTHER_PATIENT_UID,
+    );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM diagnoses WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+      PATIENT_UID, OTHER_PATIENT_UID,
+    );
+    await prisma.$executeRawUnsafe(
       `DELETE FROM appointments WHERE phone IN ($1, $2)`, PATIENT_PHONE, OTHER_PHONE);
     await prisma.$executeRawUnsafe(
       `DELETE FROM doctors WHERE user_id IN (SELECT id FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid))`,
@@ -87,6 +101,18 @@ describe('Appointment booking + lifecycle — deep integration', () => {
   });
 
   afterAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM e_prescriptions WHERE patient_id IN ($1, $2) OR doctor_id = $3`,
+      patientIntId, otherPatientIntId, doctorIntId,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_notes WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+      PATIENT_UID, OTHER_PATIENT_UID,
+    ).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM diagnoses WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+      PATIENT_UID, OTHER_PATIENT_UID,
+    ).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM appointments WHERE phone IN ($1, $2)`, PATIENT_PHONE, OTHER_PHONE).catch(() => {});
     await prisma.$executeRawUnsafe(
@@ -146,6 +172,34 @@ describe('Appointment booking + lifecycle — deep integration', () => {
       expect(row[0].doctor_id).toBe(doctorIntId);
       expect(row[0].patient_id).toBe(patientIntId);
       expect(row[0].appointment_time).toBe('10:00');
+    });
+
+    it('routes modern POST /appointments payloads through the booking controller', async () => {
+      const res = await admin.post('/api/v1/appointments').send({
+        phone: PATIENT_PHONE,
+        doctor_id: doctorIntId,
+        date: futureDateISO(91),
+        time: '09:15',
+        reason: 'Receptionist phone-booked follow-up',
+        visit_type: 'FOLLOW_UP',
+        department: 'Cardiology',
+      });
+
+      expect(res.statusCode).toBe(201);
+      const a = res.body.data.appointment;
+      expect(a.id).toBeDefined();
+      expect(a.phone).toBe(PATIENT_PHONE);
+      expect(a.appointment_time).toBe('09:15');
+
+      const row = await prisma.$queryRawUnsafe(
+        `SELECT visit_type, department, status FROM appointments WHERE id = $1`,
+        a.id,
+      );
+      expect(row[0]).toMatchObject({
+        visit_type: 'FOLLOW_UP',
+        department: 'Cardiology',
+        status: 'SCHEDULED',
+      });
     });
 
     it('normalizes doctors.id picker values to users.id before writing appointment.doctor_id', async () => {
@@ -249,6 +303,17 @@ describe('Appointment booking + lifecycle — deep integration', () => {
       expect(res.body.data.appointment.status).toBe('IN_PROGRESS');
     });
 
+    it('doctor can update complaint/progress text during an in-progress consult', async () => {
+      const res = await doctor.put(`/api/v1/appointments/${apptId}`).send({
+        reason: 'Follow-up progress note test',
+        notes: 'Follow-up progress note test',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.addendum).toBe(true);
+      expect(res.body.data.appointment.reason).toBe('Follow-up progress note test');
+      expect(res.body.data.appointment.notes).toBe('Follow-up progress note test');
+    });
+
     it('doctor advances IN_PROGRESS → COMPLETED', async () => {
       const res = await doctor.put(`/api/v1/appointments/${apptId}/status`).send({
         status: 'COMPLETED',
@@ -314,6 +379,149 @@ describe('Appointment booking + lifecycle — deep integration', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.body.message).toMatch(/Can only update scheduled appointments/);
+    });
+  });
+
+  describe('admission counter worklist', () => {
+    it('lists OPD appointments advised for admission at GET /appointments?advised_for_admission=true', async () => {
+      const advised = await prisma.$queryRawUnsafe(
+        `INSERT INTO appointments
+           (phone, patient_id, doctor_id, doctor_name, patient_name,
+            appointment_date, appointment_time, status, token_number,
+            department, reason, advised_for_admission_at,
+            advised_for_admission_by, advised_for_admission_note,
+            created_at, updated_at)
+         VALUES
+           ($1, $2::int, $3::int, 'Dr. Appointment Tester',
+            'Appointment Test Patient', CURRENT_DATE, '15:30',
+            'COMPLETED', 'ADMIT-001', 'General Medicine',
+            'Acute gastroenteritis with dehydration',
+            NOW(), $4::uuid, 'Admit for IV fluids and monitoring',
+            NOW(), NOW())
+         RETURNING id`,
+        PATIENT_PHONE,
+        patientIntId,
+        doctorIntId,
+        DOCTOR_UID,
+      );
+      const routine = await prisma.$queryRawUnsafe(
+        `INSERT INTO appointments
+           (phone, patient_id, doctor_id, doctor_name, patient_name,
+            appointment_date, appointment_time, status, token_number,
+            department, reason, created_at, updated_at)
+         VALUES
+           ($1, $2::int, $3::int, 'Dr. Appointment Tester',
+            'Appointment Test Patient', CURRENT_DATE, '15:45',
+            'COMPLETED', 'ADMIT-002', 'General Medicine',
+            'Routine follow-up without admission advice', NOW(), NOW())
+         RETURNING id`,
+        PATIENT_PHONE,
+        patientIntId,
+        doctorIntId,
+      );
+
+      const res = await admin.get('/api/v1/appointments?advised_for_admission=true&limit=20');
+      expect(res.statusCode).toBe(200);
+      const ids = res.body.data.appointments.map((a) => a.id);
+      expect(ids).toContain(advised[0].id);
+      expect(ids).not.toContain(routine[0].id);
+      const row = res.body.data.appointments.find((a) => a.id === advised[0].id);
+      expect(row.advised_for_admission_at).toBeTruthy();
+      expect(row.advised_for_admission_note).toBe('Admit for IV fluids and monitoring');
+      expect(row.doctor_name).toBe('Dr. Appointment Tester');
+    });
+  });
+
+  describe('follow-up list metadata', () => {
+    it('preserves visit_type in patient history and the doctor queue', async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const rows = await prisma.$queryRawUnsafe(
+        `INSERT INTO appointments
+           (patient_id, doctor_id, phone, appointment_date, appointment_time,
+            status, reason, token_number, department, visit_type, updated_at)
+         VALUES ($1, $2, $3, $4::date, '23:58', 'CONFIRMED',
+            'Follow-up list metadata', '997', 'Cardiology', 'FOLLOW_UP', NOW())
+         RETURNING id`,
+        patientIntId, doctorIntId, PATIENT_PHONE, today,
+      );
+      const insertedId = rows[0].id;
+
+      const history = await doctor.get(`/api/v1/appointments/patient/${patientIntId}`);
+      expect(history.statusCode).toBe(200);
+      const historyRow = history.body.data.appointments.find((a) => a.id === insertedId);
+      expect(historyRow).toBeDefined();
+      expect(historyRow.visit_type).toBe('FOLLOW_UP');
+
+      const queue = await doctor.get(`/api/v1/appointments/queue/today?doctor_id=${doctorIntId}`);
+      expect(queue.statusCode).toBe(200);
+      const queueRow = queue.body.data.find((a) => a.id === insertedId);
+      expect(queueRow).toBeDefined();
+      expect(queueRow.visit_type).toBe('FOLLOW_UP');
+    });
+
+    it('includes prior diagnosis, prescription, and note context when opening a follow-up chart', async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const prior = await prisma.$queryRawUnsafe(
+        `INSERT INTO appointments
+           (patient_id, doctor_id, phone, appointment_date, appointment_time,
+            status, reason, token_number, department, visit_type, updated_at)
+         VALUES ($1, $2, $3, $4::date, '09:30', 'COMPLETED',
+            'Initial allergy visit', '998', 'Cardiology', 'NEW', NOW())
+         RETURNING id`,
+        patientIntId, doctorIntId, PATIENT_PHONE, today,
+      );
+      const followUp = await prisma.$queryRawUnsafe(
+        `INSERT INTO appointments
+           (patient_id, doctor_id, phone, appointment_date, appointment_time,
+            status, reason, token_number, department, visit_type,
+            parent_appointment_id, updated_at)
+         VALUES ($1, $2, $3, $4::date, '10:00', 'CONFIRMED',
+            'Review allergy response', '999', 'Cardiology', 'FOLLOW_UP',
+            $5::int, NOW())
+         RETURNING id`,
+        patientIntId, doctorIntId, PATIENT_PHONE, today, prior[0].id,
+      );
+
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO e_prescriptions
+           (patient_id, patient_uid, doctor_id, doctor_uid, appointment_id,
+            medications, diagnosis, status, created_by)
+         VALUES ($1::int, $2::uuid, $3::int, $4::uuid, $5::int,
+            $6::jsonb, 'Seasonal allergy', 'active', $3::int)`,
+        patientIntId,
+        PATIENT_UID,
+        doctorIntId,
+        DOCTOR_UID,
+        prior[0].id,
+        JSON.stringify([{ name: 'Cetirizine', dosage: '10mg' }]),
+      );
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO diagnoses
+           (patient_uid, icd10_code, description, diagnosis_type, status, diagnosed_by, created_at)
+         VALUES ($1::uuid, 'J30.2', 'Seasonal allergic rhinitis', 'primary', 'active', $2::uuid, NOW())`,
+        PATIENT_UID,
+        DOCTOR_UID,
+      );
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO clinical_notes
+           (patient_uid, author_uid, author_role, note_type, title, content, is_signed, updated_at)
+         VALUES ($1::uuid, $2::uuid, 'DOCTOR', 'progress', 'Initial allergy note',
+            $3::jsonb, true, NOW())`,
+        PATIENT_UID,
+        DOCTOR_UID,
+        JSON.stringify({ appointment_id: prior[0].id, assessment: 'Allergic rhinitis, start antihistamine' }),
+      );
+
+      const detail = await doctor.get(`/api/v1/appointments/${followUp[0].id}`);
+      expect(detail.statusCode).toBe(200);
+      const context = detail.body.data.appointment.follow_up_context;
+      expect(context.empty).toBe(false);
+      expect(context.parent_appointment.id).toBe(prior[0].id);
+      expect(context.latest_prescriptions[0]).toMatchObject({ diagnosis: 'Seasonal allergy' });
+      expect(context.latest_diagnoses[0]).toMatchObject({ description: 'Seasonal allergic rhinitis' });
+      expect(context.latest_notes[0].content).toMatchObject({
+        assessment: 'Allergic rhinitis, start antihistamine',
+      });
     });
   });
 

@@ -16,6 +16,7 @@ const ADMIN_UID = 'a1111111-1111-4111-8111-111111111a03';
 // upstream "patient not found" check (which returned 404 before the
 // patient was seeded).
 const NO_CONSENT_PATIENT_UID = 'a1111111-1111-4111-8111-111111111a04';
+const BEDLESS_PATIENT_UID = 'a1111111-1111-4111-8111-111111111a05';
 const PATIENT_PHONE = '9000010001';
 
 const API_KEY = process.env.API_KEY || 'test-api-key';
@@ -41,15 +42,27 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
 
   beforeAll(async () => {
     // Clean any leftovers from prior runs (in reverse FK order)
-    await prisma.$executeRawUnsafe(`DELETE FROM bed_transfers WHERE patient_uid = $1::uuid`, PATIENT_UID);
-    await prisma.$executeRawUnsafe(`DELETE FROM follow_up_plans WHERE patient_uid = $1::uuid`, PATIENT_UID);
-    await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID);
-    await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'admission' AND metadata->>'patient_uid' = $1`, PATIENT_UID);
-    await prisma.$executeRawUnsafe(`DELETE FROM patient_consents WHERE patient_uid = $1::uuid`, PATIENT_UID);
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM bed_transfers WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID);
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM follow_up_plans WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID);
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM admissions WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID);
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM audit_logs WHERE resource = 'admission' AND metadata->>'patient_uid' IN ($1, $2, $3)`,
+      PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID);
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM audit_logs WHERE action = 'EMERGENCY_CONSENT_BYPASS' AND resource = 'admissions'`);
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM patient_consents WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number IN ('DEEP-BED-A','DEEP-BED-B','DEEP-BED-C')`);
     await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name = 'DEEP-TEST-WARD'`);
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
-      PATIENT_UID, DOCTOR_UID, ADMIN_UID, NO_CONSENT_PATIENT_UID);
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid)`,
+      PATIENT_UID, DOCTOR_UID, ADMIN_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID);
 
     // Seed patient (users row)
     const patientRows = await prisma.$queryRawUnsafe(
@@ -66,6 +79,11 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
        VALUES ($1::uuid, '9000010004', 'Deep Test No-Consent Patient', 'PATIENT', true, NOW())`,
       NO_CONSENT_PATIENT_UID);
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, '9000010005', 'Deep Test Bedless Patient', 'PATIENT', true, NOW())`,
+      BEDLESS_PATIENT_UID);
 
     // Admin user (for audit FK — not strictly required since uid FK is soft, but keeps data clean)
     await prisma.$executeRawUnsafe(
@@ -84,10 +102,17 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       `INSERT INTO patient_consents (patient_uid, consent_type, granted, status)
        VALUES ($1::uuid, 'treatment', true, 'active')`,
       PATIENT_UID);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO patient_consents (patient_uid, consent_type, granted, status)
+       VALUES ($1::uuid, 'treatment', true, 'active')`,
+      BEDLESS_PATIENT_UID);
 
     // Ward + two beds
     const wardRows = await prisma.$queryRawUnsafe(
-      `INSERT INTO wards (name, floor, total_beds) VALUES ('DEEP-TEST-WARD', 2, 2) RETURNING id`
+      `INSERT INTO wards
+         (name, floor, total_beds, attendant_pass_color, attendant_pass_screening_level)
+       VALUES ('DEEP-TEST-WARD', 2, 3, 'blue', 'enhanced')
+       RETURNING id`
     );
     wardId = wardRows[0].id;
 
@@ -99,26 +124,31 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       `INSERT INTO beds (ward_id, bed_number, status) VALUES ($1, 'DEEP-BED-B', 'available') RETURNING id`,
       wardId);
     bed2Id = bedB[0].id;
-
     const bedC = await prisma.$queryRawUnsafe(
-      `INSERT INTO beds (ward_id, bed_number, status) VALUES ($1, 'DEEP-BED-C', 'available') RETURNING id`,
+      `INSERT INTO beds (ward_id, ward_name, bed_number, status) VALUES ($1, 'DEEP-TEST-WARD', 'DEEP-BED-C', 'available') RETURNING id`,
       wardId);
     bed3Id = bedC[0].id;
   });
 
   afterAll(async () => {
     // Best-effort teardown — mirror beforeAll in FK-safe order
-    await prisma.$executeRawUnsafe(`DELETE FROM bed_transfers WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM bed_transfers WHERE patient_uid = $1::uuid`, NO_CONSENT_PATIENT_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, NO_CONSENT_PATIENT_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'admission' AND metadata->>'patient_uid' = $1`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM bed_transfers WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM admissions WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM audit_logs WHERE resource = 'admission' AND metadata->>'patient_uid' IN ($1, $2, $3)`,
+      PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE action = 'EMERGENCY_CONSENT_BYPASS' AND resource = 'admissions'`).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM patient_consents WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM patient_consents WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number IN ('DEEP-BED-A','DEEP-BED-B','DEEP-BED-C')`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE id = $1`, wardId).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
-      PATIENT_UID, DOCTOR_UID, ADMIN_UID, NO_CONSENT_PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid)`,
+      PATIENT_UID, DOCTOR_UID, ADMIN_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
 
@@ -135,6 +165,12 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
     it('rejects admission without required fields', async () => {
       const res = await admin.post('/api/v1/emr/admit').send({});
       expect(res.statusCode).toBe(400);
+    });
+
+    it('exposes the top-level admission-desk create alias', async () => {
+      const res = await admin.post('/api/v1/admissions').send({});
+      expect(res.statusCode).toBe(400);
+      expect(String(res.body.message || '')).toMatch(/required|patient/i);
     });
 
     it('rejects admission without active consent', async () => {
@@ -233,6 +269,27 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       expect(audits[0].metadata).toMatchObject({ patient_uid: PATIENT_UID, admission_type: 'emergency' });
     });
 
+    it('exposes top-level admission-desk read aliases', async () => {
+      const list = await admin.get('/api/v1/admissions');
+      expect(list.statusCode).toBe(200);
+      expect(Array.isArray(list.body.data)).toBe(true);
+
+      const stats = await admin.get('/api/v1/admissions/stats');
+      expect(stats.statusCode).toBe(200);
+      expect(stats.body.data).toMatchObject({
+        total_beds: expect.any(Number),
+        occupied_beds: expect.any(Number),
+      });
+
+      const history = await admin.get(`/api/v1/admissions/patient/${PATIENT_UID}`);
+      expect(history.statusCode).toBe(200);
+      expect(history.body.data?.admissions?.some((a) => a.id === admissionId)).toBe(true);
+
+      const detail = await admin.get(`/api/v1/admissions/${admissionId}`);
+      expect(detail.statusCode).toBe(200);
+      expect(detail.body.data?.admission?.id).toBe(admissionId);
+    });
+
     it('rejects a second active admission for the same patient', async () => {
       const res = await admin.post('/api/v1/emr/admit').send({
         patient_uid: PATIENT_UID,
@@ -245,6 +302,50 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
         priority: 'emergent',
       });
       expect(res.statusCode).toBe(409);
+    });
+
+    it('relocates active attendant passes when a bedless emergency admission gets a final bed', async () => {
+      const admit = await admin.post('/api/v1/emr/admit').send({
+        patient_uid: BEDLESS_PATIENT_UID,
+        admitting_doctor: DOCTOR_UID,
+        attending_doctor: DOCTOR_UID,
+        department: 'Emergency',
+        ward: 'Emergency Holding',
+        chief_complaint: 'Peritonitis with no bed ready',
+        admitting_diagnosis: 'Acute abdomen',
+        admission_type: 'emergency',
+        priority: 'emergent',
+        emergency_consent_bypass_reason: 'Life-saving emergency admission',
+      });
+      expect(admit.statusCode).toBe(201);
+      const bedlessAdmissionId = admit.body.data.admission.id;
+
+      const before = await prisma.$queryRawUnsafe(
+        `SELECT ward_at_issue
+           FROM attendant_passes
+          WHERE admission_id = $1
+          ORDER BY pass_index`,
+        bedlessAdmissionId,
+      );
+      expect(before).toHaveLength(2);
+      expect(before.every((p) => p.ward_at_issue === 'Emergency Holding')).toBe(true);
+
+      const assigned = await admin.post(`/api/v1/emr/${bedlessAdmissionId}/assign-bed`).send({
+        bed_id: bed3Id,
+      });
+      expect(assigned.statusCode).toBe(200);
+
+      const after = await prisma.$queryRawUnsafe(
+        `SELECT ward_at_issue, pass_color, screening_level
+           FROM attendant_passes
+          WHERE admission_id = $1
+          ORDER BY pass_index`,
+        bedlessAdmissionId,
+      );
+      expect(after).toHaveLength(2);
+      expect(after.every((p) => p.ward_at_issue === 'DEEP-TEST-WARD')).toBe(true);
+      expect(after.every((p) => p.pass_color === 'blue')).toBe(true);
+      expect(after.every((p) => p.screening_level === 'enhanced')).toBe(true);
     });
   });
 

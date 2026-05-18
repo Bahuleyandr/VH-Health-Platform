@@ -223,14 +223,65 @@ export const getMyBookings = async (req, res) => {
       LIMIT $2 OFFSET $3
     `, patientId, limit, offset);
 
+    const orderedInvestigations = await prisma.$queryRawUnsafe(`
+      SELECT i.id, i.patient_id, u.name AS patient_name, u.phone AS patient_phone,
+             i.test_name, i.test_code, i.status, i.notes,
+             i.collection_location, i.collection_deadline_at,
+             i.fasting_required, i.fasting_instructions,
+             i.requested_at, i.updated_at, i.scheduled_date, i.time_slot
+        FROM investigations i
+        JOIN users u ON u.id = i.patient_id
+       WHERE i.patient_id = $1::int
+         AND UPPER(i.status) NOT IN ('COMPLETED', 'CANCELLED', 'REPORT_READY')
+       ORDER BY i.requested_at DESC NULLS LAST, i.id DESC
+       LIMIT $2 OFFSET $3
+    `, patientId, limit, offset);
+
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     const bookings = await Promise.all(result.map(async b => {
       if (b.slip_photo_key) b.slip_photo_url = await getSignedFileUrl(b.slip_photo_key, 3600, { baseUrl }).catch(() => null);
       if (b.result_file_key) b.result_file_url = await getSignedFileUrl(b.result_file_key, 3600, { baseUrl }).catch(() => null);
       return b;
     }));
+    const doctorOrders = orderedInvestigations.map((i) => ({
+      id: `investigation-${i.id}`,
+      booking_number: `ORDER-${i.id}`,
+      patient_id: i.patient_id,
+      patient_name: i.patient_name,
+      patient_phone: i.patient_phone,
+      selected_tests: [],
+      custom_test_names: i.test_name,
+      status: i.status,
+      notes: i.notes,
+      collection_type: 'lab',
+      collection_address: i.collection_location,
+      collection_landmark: null,
+      preferred_date: i.scheduled_date,
+      preferred_time_slot: i.time_slot,
+      estimated_cost: null,
+      final_cost: null,
+      slip_photo_key: null,
+      result_file_key: null,
+      result_notes: null,
+      result_uploaded_at: null,
+      collection_notes: i.fasting_instructions,
+      collected_at: null,
+      appointment_id: null,
+      investigation_id: i.id,
+      collection_location: i.collection_location,
+      collection_deadline_at: i.collection_deadline_at,
+      fasting_required: i.fasting_required,
+      fasting_instructions: i.fasting_instructions,
+      created_at: i.requested_at,
+      updated_at: i.updated_at,
+      source_type: 'doctor_order',
+      test_details: [{ id: null, code: i.test_code, name: i.test_name }],
+    }));
+    const combined = [...bookings, ...doctorOrders]
+      .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+      .slice(0, limit);
 
-    success(res, bookings, 'My bookings fetched', HTTP_STATUS.OK, { limit, offset });
+    success(res, combined, 'My bookings fetched', HTTP_STATUS.OK, { limit, offset });
   } catch (e) {
     // Vestigial fallback from before migration 098 created
     // investigation_bookings — kept as defensive code in case a fresh DB

@@ -542,6 +542,7 @@ function mergeDispensedItems(existingItems, dispensedItems) {
     if (d.dispensed_quantity_ml != null) merged.dispensed_quantity_ml = Number(d.dispensed_quantity_ml);
     if (d.prescribed_dose) merged.prescribed_dose = d.prescribed_dose;
     if (d.child_weight_kg != null) merged.child_weight_kg = Number(d.child_weight_kg);
+    if (d.measuring_instruction) merged.measuring_instruction = d.measuring_instruction;
     if (d.label_instruction) merged.label_instruction = d.label_instruction;
     if (d.instructions) merged.instructions = d.instructions;
     if (d.batch_no) merged.batch_no = d.batch_no;
@@ -729,6 +730,12 @@ export const markCounterDispensed = async (req, res) => {
       }
       const hasPaymentMetadata = Object.keys(paymentMetadata).length > 0;
 
+      const nonCashCoverage = paymentMode && NON_CASH_PAYMENT_MODES.has(paymentMode);
+      const cashCapture = paymentMode && paymentMode !== 'none' && !nonCashCoverage && amountCollected != null;
+      if (totalAmount > 0 && !nonCashCoverage && !cashCapture) {
+        return { error: 'PAYMENT_REQUIRED', totalAmount };
+      }
+
       // Decide payment_status:
       //   - amount_collected >= total_amount → paid
       //   - non-cash mode (TPA/insurance/package/credit) → paid when the
@@ -771,6 +778,7 @@ export const markCounterDispensed = async (req, res) => {
           dispensed_qty: i.dispensed_qty ?? i.qty,
           dispensed_quantity_ml: i.dispensed_quantity_ml ?? null,
           child_weight_kg: i.child_weight_kg ?? null,
+          measuring_instruction: i.measuring_instruction ?? null,
           label_instruction: i.label_instruction ?? i.instructions ?? null,
         })),
       };
@@ -889,6 +897,14 @@ export const markCounterDispensed = async (req, res) => {
     }
     if (result.error === 'WRONG_STATUS') {
       return error(res, `Cannot dispense from status=${result.status}; expected PENDING or CONFIRMED`, HTTP_STATUS.BAD_REQUEST);
+    }
+    if (result.error === 'PAYMENT_REQUIRED') {
+      return error(
+        res,
+        'Payment mode and amount_collected are required before dispensing a positive-value counter order, unless the order is covered by insurance/package/credit.',
+        HTTP_STATUS.BAD_REQUEST,
+        { code: 'COUNTER_PAYMENT_REQUIRED', total_amount: result.totalAmount },
+      );
     }
     success(res, result.ok, 'Counter dispense complete');
   } catch (err) {
@@ -1087,6 +1103,7 @@ export const getDispenseLabel = async (req, res) => {
       dispensed_qty: i.dispensed_qty ?? i.qty ?? null,
       dispensed_quantity_ml: i.dispensed_quantity_ml ?? null,
       child_weight_kg: i.child_weight_kg ?? null,
+      measuring_instruction: i.measuring_instruction ?? null,
       label_instruction: i.label_instruction ?? i.instructions ?? null,
     }));
 

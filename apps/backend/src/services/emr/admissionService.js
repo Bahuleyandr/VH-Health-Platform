@@ -15,7 +15,9 @@ import { generateDischargeSummary } from './dischargeSummaryGenerator.js';
 import {
   issueDefaultAttendantPasses,
   expireAttendantPassesForAdmission,
+  relocateActiveAttendantPasses,
 } from '../ipd/ipdSupportService.js';
+import { createClaim as createTpaClaim } from '../insurance/claimsService.js';
 
 
 const VALID_STATUS_TRANSITIONS = {
@@ -785,7 +787,7 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy) {
     }
 
     const bedRows = await tx.$queryRaw`
-      SELECT id, status, bed_number, bed_type, ward_name FROM beds WHERE id = ${bedId} FOR UPDATE
+      SELECT id, status, bed_number, bed_type, ward_id, ward_name FROM beds WHERE id = ${bedId} FOR UPDATE
     `;
     if (!bedRows.length) throw AppError.notFound('Bed not found');
     if (bedRows[0].status !== 'available') {
@@ -850,6 +852,12 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy) {
         reason: 'Bed allocated to bedless emergency admission',
         transferred_by: assignedBy,
       },
+    });
+
+    await relocateActiveAttendantPasses(tx, {
+      admissionId,
+      wardId: bedRows[0].ward_id ?? null,
+      wardName: bedRows[0].ward_name ?? admission.ward ?? null,
     });
 
     await tx.audit_logs.create({
@@ -1051,12 +1059,80 @@ async function markForDischarge(admissionId, requestedBy) {
   // the final claim manually.
   let finalClaim = null;
   try {
+    const existingTpaFinal = await prisma.$queryRawUnsafe(
+      `SELECT *
+         FROM tpa_claims
+        WHERE admission_id = $1::int
+          AND stage = 'final'
+          AND status <> 'cancelled'
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1`,
+      Number(admissionId),
+    );
+    if (existingTpaFinal.length) {
+      finalClaim = existingTpaFinal[0];
+    }
+
+    if (!finalClaim) {
+      const activePreauthRows = await prisma.$queryRawUnsafe(
+        `SELECT id, tenant_id, policy_id, patient_uid, admission_id,
+                request_type, parent_preauth_id, status
+           FROM insurance_preauth
+          WHERE admission_id = $1::int
+            AND status NOT IN ('cancelled','lapsed','denied')
+          ORDER BY
+            CASE WHEN status IN ('approved','partially_approved') THEN 0 ELSE 1 END,
+            CASE WHEN request_type = 'enhancement' THEN 0 ELSE 1 END,
+            created_at DESC,
+            id DESC
+          LIMIT 1`,
+        Number(admissionId),
+      );
+      const activePreauth = activePreauthRows[0];
+      if (activePreauth) {
+        const invoiceRows = await prisma.$queryRawUnsafe(
+          `SELECT id, total_amount
+             FROM billing_invoices
+            WHERE admission_id = $1::int
+              AND patient_uid = $2::uuid
+              AND status <> 'VOID'
+            ORDER BY issued_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
+            LIMIT 1`,
+          Number(admissionId),
+          activePreauth.patient_uid,
+        );
+        const invoice = invoiceRows[0];
+        const totalBilled = Number(invoice?.total_amount ?? 0);
+        if (invoice && totalBilled > 0) {
+          finalClaim = await createTpaClaim({
+            tenantId: activePreauth.tenant_id,
+            policy_id: activePreauth.policy_id,
+            preauth_id: activePreauth.id,
+            invoice_id: invoice.id,
+            patient_uid: activePreauth.patient_uid,
+            admission_id: Number(admissionId),
+            claim_type: 'cashless',
+            total_billed: totalBilled,
+            claimed_amount: totalBilled,
+            notes: 'Prepared automatically when discharge was initiated',
+            created_by: requestedBy,
+            stage: 'final',
+          });
+        } else {
+          logger.warn(
+            `markForDischarge: active TPA preauth found for admission ${admissionId} but no bill total; skipping final claim`,
+          );
+        }
+      }
+    }
+
     const hasInsurance =
+      finalClaim != null ||
       phase1.insurance_info != null
       || (await prisma.insurance_claims.count({
         where: { patient_uid: phase1.patient_uid, status: { not: 'paid' } },
       })) > 0;
-    if (hasInsurance) {
+    if (hasInsurance && !finalClaim) {
       const parent = await prisma.insurance_claims.findFirst({
         where: {
           patient_uid: phase1.patient_uid,

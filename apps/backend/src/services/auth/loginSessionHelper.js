@@ -2,8 +2,10 @@
 //
 // One-stop helper used by every login service (staff / admin / patient) to:
 //   1. Mint an access token with a pre-allocated jti and the deviceType claim.
-//   2. Atomically replace the user's prior active session (revoking the old
-//      jti + pushing a `session:revoked` realtime event to the booted device).
+//   2. Track the newest active session. Normal logins coexist by default so a
+//      shared hospital workstation or parallel QA agent does not silently
+//      revoke another fresh token; refresh-token rotation still revokes the
+//      rotated access token.
 //
 // Centralising both steps here keeps the three auth services consistent and
 // makes sure no login path forgets to claim the session.
@@ -14,7 +16,7 @@ import { generateToken } from '../../utils/jwtUtils.js';
 import { claimUserSession } from './userActiveSession.js';
 
 /**
- * Issue an access token and register it as the user's single active session.
+ * Issue an access token and register it as the user's latest active session.
  *
  * @param {Object} args
  * @param {string} args.userUid - The user's UUID. Required.

@@ -110,7 +110,8 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
         padding: const EdgeInsets.all(12),
         itemCount: _prescriptions.length,
         itemBuilder: (_, i) {
-          final rx = _prescriptions[i];
+          final rx = Map<String, dynamic>.from(_prescriptions[i] as Map);
+          final pharmacyState = _pharmacyState(rx);
           final meds = rx['medications'] as List? ?? [];
           final createdAt = rx['created_at'] != null
               ? DateFormat(
@@ -198,12 +199,16 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.green.shade50,
+                          color: pharmacyState.color.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Text(
-                          'Ordered',
-                          style: TextStyle(fontSize: 10, color: Colors.green),
+                        child: Text(
+                          pharmacyState.label,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: pharmacyState.color,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       )
                     else
@@ -221,6 +226,7 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
   void _showPrescriptionDetail(Map<String, dynamic> rx) {
     final meds = rx['medications'] as List? ?? [];
     final theme = Theme.of(context);
+    final pharmacyState = _pharmacyState(rx);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -429,21 +435,37 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.green.shade50,
+                  color: pharmacyState.color.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
                   children: [
-                    const Icon(
-                      Icons.check_circle,
-                      color: Colors.green,
+                    Icon(
+                      pharmacyState.icon,
+                      color: pharmacyState.color,
                       size: 20,
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        'Medicines ordered via pharmacy (${rx['pharmacy_opt_type'] ?? ''})',
-                        style: const TextStyle(color: Colors.green),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            pharmacyState.label,
+                            style: TextStyle(
+                              color: pharmacyState.color,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            pharmacyState.detail,
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -667,6 +689,126 @@ class _PrescriptionsTabState extends State<PrescriptionsTab> {
       ),
     );
   }
+
+  _PharmacyPrescriptionState _pharmacyState(Map<String, dynamic> rx) {
+    final rawOrderStatus =
+        (rx['pharmacy_order_status'] ?? rx['pharmacy_status'] ?? '')
+            .toString()
+            .trim()
+            .toUpperCase();
+    final rawPayment =
+        (rx['pharmacy_payment_status'] ?? rx['payment_status'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+    final orderNumber = (rx['pharmacy_order_number'] ?? '').toString().trim();
+    final optType = (rx['pharmacy_opt_type'] ?? '').toString().trim();
+    final isPartial = _truthy(rx['pharmacy_partial_dispense']);
+    final amount = rx['pharmacy_amount_collected'];
+    final total = rx['pharmacy_total_amount'];
+
+    String paidText() {
+      if (rawPayment.isEmpty) return '';
+      final base = rawPayment == 'paid'
+          ? 'Paid'
+          : rawPayment == 'pending'
+          ? 'Payment pending'
+          : _titleCase(rawPayment);
+      if (amount == null && total == null) return base;
+      final parts = <String>[];
+      if (amount != null) parts.add('collected ₹$amount');
+      if (total != null) parts.add('total ₹$total');
+      return '$base (${parts.join(', ')})';
+    }
+
+    final detailParts = <String>[
+      if (orderNumber.isNotEmpty) orderNumber,
+      if (optType.isNotEmpty) optType,
+      if (paidText().isNotEmpty) paidText(),
+    ];
+
+    switch (rawOrderStatus) {
+      case 'DISPENSED':
+      case 'DELIVERED':
+        return _PharmacyPrescriptionState(
+          label: isPartial ? 'Partially dispensed' : 'Dispensed',
+          detail: detailParts.isEmpty
+              ? 'Medicines dispensed by pharmacy'
+              : detailParts.join(' • '),
+          color: Colors.teal,
+          icon: Icons.verified_outlined,
+        );
+      case 'READY':
+        return _PharmacyPrescriptionState(
+          label: 'Ready',
+          detail: detailParts.isEmpty
+              ? 'Medicines ready at pharmacy'
+              : detailParts.join(' • '),
+          color: Colors.indigo,
+          icon: Icons.inventory_2_outlined,
+        );
+      case 'PREPARING':
+      case 'CONFIRMED':
+      case 'DISPATCHED':
+      case 'PENDING':
+        return _PharmacyPrescriptionState(
+          label: _titleCase(rawOrderStatus),
+          detail: detailParts.isEmpty
+              ? 'Pharmacy order in progress'
+              : detailParts.join(' • '),
+          color: Colors.green,
+          icon: Icons.local_pharmacy_outlined,
+        );
+      case 'CANCELLED':
+        return _PharmacyPrescriptionState(
+          label: 'Cancelled',
+          detail: detailParts.isEmpty
+              ? 'Pharmacy order was cancelled'
+              : detailParts.join(' • '),
+          color: Colors.red,
+          icon: Icons.cancel_outlined,
+        );
+      default:
+        return _PharmacyPrescriptionState(
+          label: 'Ordered',
+          detail: detailParts.isEmpty
+              ? 'Medicines ordered via pharmacy'
+              : detailParts.join(' • '),
+          color: Colors.green,
+          icon: Icons.check_circle_outline,
+        );
+    }
+  }
+
+  bool _truthy(Object? value) =>
+      value == true || value?.toString().toLowerCase() == 'true';
+
+  String _titleCase(String value) {
+    final clean = value.replaceAll('_', ' ').trim().toLowerCase();
+    if (clean.isEmpty) return value;
+    return clean
+        .split(RegExp(r'\s+'))
+        .map(
+          (part) => part.isEmpty
+              ? part
+              : '${part[0].toUpperCase()}${part.substring(1)}',
+        )
+        .join(' ');
+  }
+}
+
+class _PharmacyPrescriptionState {
+  const _PharmacyPrescriptionState({
+    required this.label,
+    required this.detail,
+    required this.color,
+    required this.icon,
+  });
+
+  final String label;
+  final String detail;
+  final Color color;
+  final IconData icon;
 }
 
 /// Inline banner on the Rx detail sheet surfacing CDS context fetched from

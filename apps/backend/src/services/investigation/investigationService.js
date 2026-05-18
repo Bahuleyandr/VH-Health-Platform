@@ -291,6 +291,9 @@ export const getPatientInvestigations = async (patientId, filters, userRole, use
   const where = { patient_id: parseInt(patientId) };
   if (type) where.test_type = type.toUpperCase();
   if (status) where.status = status.toUpperCase();
+  if (userRole === 'PATIENT' && !status) {
+    where.status = { not: INVESTIGATION_STATUS.CANCELLED };
+  }
 
   // This view only needs doctor_name + specialization — the patient
   // info is returned separately as `patient`. Pass only the doctor relation
@@ -492,10 +495,20 @@ export const updateStatus = async (id, status, notes, userId) => {
   const data = { status: normalizedStatus };
   if (notes != null) data.notes = notes;
   if (normalizedStatus === 'COLLECTED') {
+    const existing = await prisma.investigations.findUnique({
+      where: { id: parseInt(id) },
+      select: { sample_barcode: true },
+    });
     data.collected_at = new Date();
     data.collected_by = userId || null;
+    data.collected_notes = notes ?? null;
+    data.sample_barcode = existing?.sample_barcode || mintInvestigationBarcode(parseInt(id));
   }
-  if (normalizedStatus === 'COMPLETED') data.completed_at = new Date();
+  if (normalizedStatus === 'COMPLETED') {
+    data.completed_at = new Date();
+    data.verified_at = new Date();
+    data.verified_by = userId || null;
+  }
   // `updated_at` is @updatedAt in schema.prisma — Prisma auto-bumps on every
   // update, no need to set it manually.
 
@@ -510,7 +523,11 @@ export const updateStatus = async (id, status, notes, userId) => {
     notes: true,
     collected_at: true,
     collected_by: true,
+    collected_notes: true,
+    sample_barcode: true,
     completed_at: true,
+    verified_at: true,
+    verified_by: true,
     updated_at: true,
   };
 
@@ -593,8 +610,7 @@ function elevatePanicFlags(results) {
 // Finding:
 // 2026-05-08-lab-walk-in-lab-tech-results-overwrite-no-history.
 export const addResults = async (id, resultData, userId) => {
-  const { results, interpretation, re_run, re_run_reason } = resultData;
-  void userId;
+  const { results, interpretation, reviewed_by, re_run, re_run_reason } = resultData;
 
   const investId = parseInt(id, 10);
   if (!Number.isInteger(investId)) return null;
@@ -705,6 +721,8 @@ export const addResults = async (id, resultData, userId) => {
         status: 'COMPLETED',
         completed_at: now,
         result_uploaded_at: now,
+        verified_at: now,
+        verified_by: reviewed_by || userId || null,
         result_summary: resultSummary,
         previous_results: priorHistory.length ? priorHistory : null,
         // Coerce to Number — Prisma sometimes returns BigInt for Int
@@ -728,7 +746,7 @@ export const addResults = async (id, resultData, userId) => {
           id: true, patient_id: true, requested_by: true,
           test_name: true, test_type: true, status: true,
           results: true, interpretation: true, result_summary: true,
-          completed_at: true, updated_at: true,
+          completed_at: true, verified_at: true, verified_by: true, updated_at: true,
           previous_results: true, result_version: true,
         },
       });

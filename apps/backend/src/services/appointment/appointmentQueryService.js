@@ -104,6 +104,85 @@ async function resolvePregnancyContext(patientUid) {
   }
 }
 
+async function resolveFollowUpContext({ patientUid, appointmentId, parentAppointmentId = null, anchorTs = null }) {
+  if (!patientUid) return null;
+  try {
+    const params = [String(patientUid), Number(appointmentId)];
+    let parentWhere = '';
+    if (parentAppointmentId) {
+      params.push(Number(parentAppointmentId));
+      parentWhere = `OR a.id = $${params.length}::int`;
+    }
+    const [parentRows, prescriptions, diagnoses, notes] = await Promise.all([
+      prisma.$queryRawUnsafe(
+        `SELECT a.id, a.appointment_date, a.appointment_time, a.status,
+                a.reason, a.notes, a.visit_type, a.department,
+                a.doctor_name
+           FROM appointments a
+           JOIN users p ON p.id = a.patient_id
+          WHERE p.uid = $1::uuid
+            AND a.id <> $2::int
+            AND (
+              ${parentAppointmentId ? 'FALSE ' : 'TRUE '}
+              ${parentWhere}
+            )
+          ORDER BY
+            CASE WHEN a.id = ${parentAppointmentId ? `$${params.length}::int` : 'NULL'} THEN 0 ELSE 1 END,
+            a.appointment_date DESC NULLS LAST,
+            a.created_at DESC NULLS LAST
+          LIMIT 1`,
+        ...params,
+      ),
+      prisma.$queryRawUnsafe(
+        `SELECT id, appointment_id, prescription_number, diagnosis, medications,
+                follow_up_date, follow_up_notes, created_at
+           FROM e_prescriptions
+          WHERE patient_uid = $1::uuid
+            AND (appointment_id IS NULL OR appointment_id <> $2::int)
+          ORDER BY created_at DESC NULLS LAST, id DESC
+          LIMIT 3`,
+        String(patientUid), Number(appointmentId),
+      ),
+      prisma.$queryRawUnsafe(
+        `SELECT id, icd10_code, icd10_description, description,
+                diagnosis_type, severity, onset_date, created_at
+           FROM diagnoses
+          WHERE patient_uid = $1::uuid
+          ORDER BY created_at DESC NULLS LAST, id DESC
+          LIMIT 3`,
+        String(patientUid),
+      ),
+      prisma.$queryRawUnsafe(
+        `SELECT id, note_type, content, author_role, is_signed,
+                signed_at, created_at
+           FROM clinical_notes
+          WHERE patient_uid = $1::uuid
+            AND (
+              NOT (content ? 'appointment_id')
+              OR (content->>'appointment_id')::int <> $2::int
+            )
+          ORDER BY created_at DESC NULLS LAST, id DESC
+          LIMIT 3`,
+        String(patientUid), Number(appointmentId),
+      ),
+    ]);
+    return {
+      parent_appointment: parentRows[0] ?? null,
+      latest_prescriptions: prescriptions,
+      latest_diagnoses: diagnoses,
+      latest_notes: notes,
+      anchor_at: anchorTs ?? null,
+      empty: parentRows.length === 0 &&
+        prescriptions.length === 0 &&
+        diagnoses.length === 0 &&
+        notes.length === 0,
+    };
+  } catch (e) {
+    logger.warn('Follow-up context lookup failed:', e?.message);
+    return null;
+  }
+}
+
 // Format a date range filter for `DATE(appointment_date) = $d` — Prisma's
 // Date equality on an appointment_date Date column needs the whole day
 // covered.
@@ -298,6 +377,7 @@ export class AppointmentQueryService {
           patient_id: true,
           token_number: true,
           visit_no: true,
+          visit_type: true,
           department: true,
           users_appointments_patient_idTousers: PATIENT_INCLUDE,
         },
@@ -342,6 +422,7 @@ export class AppointmentQueryService {
           // 2026-05-10-walk-in-opd-patient-visit-identifiers-missing.
           token_number: true,
           visit_no: true,
+          visit_type: true,
           department: true,
           created_at: true,
           updated_at: true,
@@ -450,6 +531,7 @@ export class AppointmentQueryService {
           token_number: true,
           visit_no: true,
           visit_type: true,
+          parent_appointment_id: true,
           confirmed_at: true,
           created_at: true,
           updated_at: true,
@@ -488,6 +570,15 @@ export class AppointmentQueryService {
       // common non-ANC case. Finding:
       // 2026-05-09-obstetric-anc-receptionist-walkin-response-missing-ga.
       flat.pregnancy_context = await resolvePregnancyContext(patient?.uid);
+
+      if (String(flat.visit_type || '').toUpperCase() === 'FOLLOW_UP' && patient?.uid) {
+        flat.follow_up_context = await resolveFollowUpContext({
+          patientUid: patient.uid,
+          appointmentId: flat.id,
+          parentAppointmentId: flat.parent_appointment_id,
+          anchorTs: flat.appointment_date || flat.created_at,
+        });
+      }
 
       // E-10 — completed-visit clinical summary. Patient app calling
       // GET /appointments/:id on a COMPLETED visit previously got an

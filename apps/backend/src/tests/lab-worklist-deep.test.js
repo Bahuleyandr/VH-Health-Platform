@@ -175,6 +175,13 @@ describe('Lab worklist + manual result validation — deep integration', () => {
   });
 
   describe('POST /api/v1/lab/results validation', () => {
+    it('returns a controlled 400 for malformed patient UID lookups', async () => {
+      const res = await labTech.get('/api/v1/lab/results/patient/not-a-uuid?limit=5');
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.message).toBe('patientUid must be a valid UUID');
+    });
+
     it('rejects non-numeric value_text for a test with a configured critical threshold', async () => {
       const res = await labTech.post('/api/v1/lab/results').send({
         patient_uid: PATIENT_ER_UID,

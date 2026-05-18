@@ -37,16 +37,45 @@ const STAFF_UID = 'a6666666-6666-4666-8666-66666666fd01';
 const RUN_SUFFIX = String(Date.now() % 100000).padStart(5, '0');
 const EMER_PHONE = `97771${RUN_SUFFIX}`;
 const OPD_PHONE = `97772${RUN_SUFFIX}`;
-const PHONE_FORMS = [EMER_PHONE, `+91${EMER_PHONE}`, OPD_PHONE, `+91${OPD_PHONE}`];
+const UNIDENT_COLLISION_PHONE = `97773${RUN_SUFFIX}`;
+const ALLERGY_PHONE = `97775${RUN_SUFFIX}`;
+const ANC_PHONE = `97776${RUN_SUFFIX}`;
+const MINOR_GUARDIAN_PHONE = `97777${RUN_SUFFIX}`;
+const PHONE_FORMS = [
+  EMER_PHONE,
+  `+91${EMER_PHONE}`,
+  OPD_PHONE,
+  `+91${OPD_PHONE}`,
+  UNIDENT_COLLISION_PHONE,
+  `+91${UNIDENT_COLLISION_PHONE}`,
+  ALLERGY_PHONE,
+  `+91${ALLERGY_PHONE}`,
+  ANC_PHONE,
+  `+91${ANC_PHONE}`,
+  MINOR_GUARDIAN_PHONE,
+  `+91${MINOR_GUARDIAN_PHONE}`,
+];
 // `Stage5Emergency-...` → deptPrefix() substring-matches "emergency" → EMER.
 // `Stage5Reception-...` → no map hit → first-4-alpha fallback → STAG.
 const EMER_DEPARTMENT = `Stage5Emergency-${RUN_SUFFIX}`;
 const OPD_DEPARTMENT = `Stage5Reception-${RUN_SUFFIX}`;
 
 async function cleanupFixtures() {
+  await prisma
+    .$executeRawUnsafe(
+      `UPDATE users
+          SET guardian_user_id = NULL
+        WHERE phone = ANY($1::text[]) OR guardian_phone = ANY($1::text[])`,
+      PHONE_FORMS,
+    )
+    .catch(() => {});
   const userRows = await prisma
     .$queryRawUnsafe(
-      `SELECT id, uid FROM users WHERE uid = $1::uuid OR phone = ANY($2::text[])`,
+      `SELECT id, uid
+         FROM users
+        WHERE uid = $1::uuid
+           OR phone = ANY($2::text[])
+           OR guardian_phone = ANY($2::text[])`,
       STAFF_UID,
       PHONE_FORMS,
     )
@@ -56,6 +85,17 @@ async function cleanupFixtures() {
   if (userUids.length > 0) {
     await prisma
       .$executeRawUnsafe(`DELETE FROM emergency_visits WHERE patient_uid = ANY($1::uuid[])`, userUids)
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(`DELETE FROM maternity_pregnancies WHERE patient_uid = ANY($1::uuid[])`, userUids)
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(`DELETE FROM patient_allergies WHERE patient_uid = ANY($1::uuid[])`, userUids)
+      .catch(() => {});
+  }
+  if (userIds.length > 0) {
+    await prisma
+      .$executeRawUnsafe(`DELETE FROM patient_allergies WHERE patient_id = ANY($1::int[])`, userIds)
       .catch(() => {});
   }
   // Sweep appointment rows both by patient and by the per-run department
@@ -76,7 +116,10 @@ async function cleanupFixtures() {
     .catch(() => {});
   await prisma
     .$executeRawUnsafe(
-      `DELETE FROM users WHERE uid = $1::uuid OR phone = ANY($2::text[])`,
+      `DELETE FROM users
+        WHERE uid = $1::uuid
+           OR phone = ANY($2::text[])
+           OR guardian_phone = ANY($2::text[])`,
       STAFF_UID,
       PHONE_FORMS,
     )
@@ -91,12 +134,12 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
     await cleanupFixtures();
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
-       VALUES ($1::uuid, '9777100099', 'Walk-in Fields Staff', 'GENERAL_STAFF', true, NOW())
+       VALUES ($1::uuid, '9777100099', 'Walk-in Fields Staff', 'RECEPTIONIST', true, NOW())
        RETURNING id`,
       STAFF_UID,
     );
     staffId = rows[0].id;
-    staffToken = generateTestToken('GENERAL_STAFF', { uid: STAFF_UID, id: staffId });
+    staffToken = generateTestToken('RECEPTIONIST', { uid: STAFF_UID, id: staffId });
 
     // Pre-seed a high token for the (unique, per-run) emergency department
     // so the EMER-prefixed walk-in below lands on a collision-proof
@@ -146,6 +189,92 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
       mlc_number: 'FIR-2026-00481',
       mlc_notes: 'Brought by Indiranagar PS; rider, no helmet.',
     });
+  });
+
+  it('rejects lab staff attempts to create official OPD walk-in visits', async () => {
+    const labToken = generateTestToken('LAB_STAFF', {
+      uid: 'a6666666-6666-4666-8666-66666666fd03',
+      id: staffId + 100,
+    });
+
+    const res = await request(app)
+      .post('/api/v1/appointments/walk-in')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${labToken}`)
+      .send({
+        patient_name: 'Unauthorized Lab Walkin',
+        patient_phone: `97774${RUN_SUFFIX}`,
+        department: OPD_DEPARTMENT,
+        reason: 'Should be forbidden',
+      });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body.message).toMatch(/front-desk/i);
+  });
+
+  it('creates an unidentified emergency patient without colliding on placeholder phone', async () => {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (phone, name, role, is_active, updated_at)
+       VALUES ($1, 'Existing Placeholder Patient', 'PATIENT', true, NOW())
+       ON CONFLICT (phone) DO NOTHING`,
+      `+91${UNIDENT_COLLISION_PHONE}`,
+    );
+
+    const res = await request(app)
+      .post('/api/v1/appointments/walk-in')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({
+        patient_name: 'Unknown trauma patient',
+        patient_phone: UNIDENT_COLLISION_PHONE,
+        patient_gender: 'M',
+        visit_type: 'EMERGENCY',
+        is_unidentified: true,
+        chief_complaint: 'Unconscious after fall',
+        mlc: true,
+      });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.visit_no).toMatch(/^EMER-\d{8}-\d{3}$/);
+    expect(res.body.data.er_visit_id).not.toBeNull();
+    expect(res.body.data.is_unidentified).toBe(true);
+    expect(res.body.data.phone).toMatch(/^UNIDENT-[A-Z0-9]{6}$/);
+
+    const patientRows = await prisma.$queryRawUnsafe(
+      `SELECT phone, is_unidentified FROM users WHERE id = $1`,
+      res.body.data.patient_id,
+    );
+    expect(patientRows[0]).toMatchObject({
+      phone: res.body.data.phone,
+      is_unidentified: true,
+    });
+
+    const erRows = await prisma.$queryRawUnsafe(
+      `SELECT chief_complaint, is_mlc FROM emergency_visits WHERE id = $1`,
+      res.body.data.er_visit_id,
+    );
+    expect(erRows[0]).toMatchObject({
+      chief_complaint: 'Unconscious after fall',
+      is_mlc: true,
+    });
+
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM emergency_visits WHERE id = $1`,
+      res.body.data.er_visit_id,
+    );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM appointment_status_history WHERE appointment_id = $1`,
+      res.body.data.id,
+    );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM appointments WHERE id = $1`,
+      res.body.data.id,
+    );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM users WHERE id = $1`,
+      res.body.data.patient_id,
+    );
   });
 
   it('persists structured payer / category / scheme fields on the appointment row', async () => {
@@ -208,6 +337,117 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
       res.body.data.id,
     );
     expect(appt[0]).toMatchObject({ patient_category: 'scheme', scheme_name: 'CMCHIS' });
+  });
+
+  it('surfaces allergy risk on the walk-in response for returning patients', async () => {
+    const patient = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (phone, name, role, is_active, allergies, updated_at)
+       VALUES ($1, 'Allergy Flag Patient', 'PATIENT', true, 'Penicillin', NOW())
+       RETURNING id, uid`,
+      `+91${ALLERGY_PHONE}`,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO patient_allergies
+         (patient_id, patient_uid, allergy_name, severity, reaction, is_active, created_at)
+       VALUES ($1::int, $2::uuid, 'Penicillin', 'SEVERE', 'Wheeze', true, NOW())`,
+      patient[0].id,
+      patient[0].uid,
+    );
+
+    const res = await request(app)
+      .post('/api/v1/appointments/walk-in')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({
+        patient_name: 'Allergy Flag Patient',
+        patient_phone: ALLERGY_PHONE,
+        patient_gender: 'F',
+        department: OPD_DEPARTMENT,
+        reason: 'Acute abdomen with known drug allergy',
+      });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.returning_patient).toBe(true);
+    expect(res.body.data.has_allergies).toBe(true);
+    expect(res.body.data.allergies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ allergy_name: 'Penicillin', severity: 'SEVERE' }),
+      ]),
+    );
+  });
+
+  it('stamps ANC walk-in LMP on both pregnancy and patient profile', async () => {
+    const lmp = new Date(Date.now() - 24 * 7 * 86400000).toISOString().slice(0, 10);
+    const res = await request(app)
+      .post('/api/v1/appointments/walk-in')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({
+        patient_name: 'ANC Walk-in',
+        patient_phone: ANC_PHONE,
+        patient_gender: 'F',
+        department: 'Obstetrics',
+        reason: '24 week ANC booking',
+        visit_type: 'NEW',
+        lmp_date: lmp,
+        gravida: 2,
+        parity: 1,
+      });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.gestational_age?.weeks).toBeGreaterThanOrEqual(23);
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT u.is_pregnant, u.pregnancy_lmp_date, p.id AS pregnancy_id
+         FROM users u
+         LEFT JOIN maternity_pregnancies p ON p.patient_uid = u.uid AND p.status = 'ongoing'
+        WHERE u.id = $1::int`,
+      res.body.data.patient_id,
+    );
+    expect(rows[0].is_pregnant).toBe(true);
+    expect(new Date(rows[0].pregnancy_lmp_date).toISOString().slice(0, 10)).toBe(lmp);
+    expect(rows[0].pregnancy_id).toBeTruthy();
+  });
+
+  it('creates a guardian account and links a minor dependent when the guardian phone is the contact phone', async () => {
+    const dob = new Date();
+    dob.setFullYear(dob.getFullYear() - 6);
+    const res = await request(app)
+      .post('/api/v1/appointments/walk-in')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({
+        patient_name: 'Minor Dependent',
+        patient_phone: MINOR_GUARDIAN_PHONE,
+        patient_birthday: dob.toISOString().slice(0, 10),
+        patient_gender: 'F',
+        department: 'Paediatrics',
+        reason: 'Paediatric fever',
+        visit_type: 'PAEDIATRIC_OPD',
+        guardian_name: 'Minor Parent',
+        guardian_phone: MINOR_GUARDIAN_PHONE,
+        guardian_relationship: 'mother',
+      });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.phone).toMatch(/^DEPEND-[A-Z0-9]{8}$/);
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT child.phone AS child_phone,
+              child.guardian_phone,
+              child.guardian_relationship,
+              guardian.phone AS guardian_phone_login
+         FROM users child
+         LEFT JOIN users guardian ON guardian.id = child.guardian_user_id
+        WHERE child.id = $1::int`,
+      res.body.data.patient_id,
+    );
+    expect(rows[0]).toMatchObject({
+      child_phone: res.body.data.phone,
+      guardian_phone: `+91${MINOR_GUARDIAN_PHONE}`,
+      guardian_relationship: 'mother',
+      guardian_phone_login: `+91${MINOR_GUARDIAN_PHONE}`,
+    });
   });
 
   it('leaves the new columns null when the caller sends no payer fields (back-compat)', async () => {

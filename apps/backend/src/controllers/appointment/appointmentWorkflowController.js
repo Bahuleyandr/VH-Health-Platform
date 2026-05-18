@@ -430,6 +430,7 @@ export const getTodayQueue = async (req, res) => {
       )
       SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date, a.appointment_time,
         a.status, a.reason, a.notes, a.token_number, a.department, a.confirmed_at, a.created_at, a.updated_at,
+        a.visit_type, a.triage_acuity,
         p.name as patient_name, p.phone as patient_phone, p.blood_group, p.uid as patient_uid,
         d.name as doctor_display_name, doc.specialty AS specialization,
         doc.department as doctor_department,
@@ -437,10 +438,17 @@ export const getTodayQueue = async (req, res) => {
         mp.lmp_date  AS anc_lmp_date,
         mp.edd_date  AS anc_edd_date,
         ed.emergency_visit_id,
-        ed.triage_priority,
+        COALESCE(
+          ed.triage_priority,
+          CASE WHEN a.triage_acuity BETWEEN 1 AND 5 THEN 'esi_' || a.triage_acuity::text ELSE NULL END
+        ) AS triage_priority,
         ed.ed_status,
         ed.ed_chief_complaint,
-        CASE LOWER(COALESCE(ed.triage_priority, ''))
+        CASE LOWER(COALESCE(
+          ed.triage_priority,
+          CASE WHEN a.triage_acuity BETWEEN 1 AND 5 THEN 'esi_' || a.triage_acuity::text ELSE NULL END,
+          ''
+        ))
           WHEN 'esi_1' THEN 1
           WHEN 'esi_2' THEN 2
           WHEN 'esi_3' THEN 3
@@ -449,7 +457,11 @@ export const getTodayQueue = async (req, res) => {
           ELSE NULL
         END AS acuity_rank,
         CASE
-          WHEN LOWER(COALESCE(ed.triage_priority, '')) IN ('esi_1', 'esi_2') THEN TRUE
+          WHEN LOWER(COALESCE(
+            ed.triage_priority,
+            CASE WHEN a.triage_acuity BETWEEN 1 AND 5 THEN 'esi_' || a.triage_acuity::text ELSE NULL END,
+            ''
+          )) IN ('esi_1', 'esi_2') THEN TRUE
           ELSE FALSE
         END AS is_emergent
       FROM appointments a
@@ -461,12 +473,23 @@ export const getTodayQueue = async (req, res) => {
       ${where}
       ORDER BY
         CASE
-          WHEN LOWER(COALESCE(ed.triage_priority, '')) IN ('esi_1', 'esi_2') THEN 0
+          WHEN LOWER(COALESCE(
+            ed.triage_priority,
+            CASE WHEN a.triage_acuity BETWEEN 1 AND 5 THEN 'esi_' || a.triage_acuity::text ELSE NULL END,
+            ''
+          )) IN ('esi_1', 'esi_2', 'esi_3', 'esi_4', 'esi_5') THEN 0
           ELSE 1
         END,
-        CASE LOWER(COALESCE(ed.triage_priority, ''))
+        CASE LOWER(COALESCE(
+          ed.triage_priority,
+          CASE WHEN a.triage_acuity BETWEEN 1 AND 5 THEN 'esi_' || a.triage_acuity::text ELSE NULL END,
+          ''
+        ))
           WHEN 'esi_1' THEN 1
           WHEN 'esi_2' THEN 2
+          WHEN 'esi_3' THEN 3
+          WHEN 'esi_4' THEN 4
+          WHEN 'esi_5' THEN 5
           ELSE 9
         END,
         a.token_number NULLS LAST,
@@ -658,8 +681,12 @@ export function deptPrefix(department) {
   if (!department) return 'OPD';
   const key = String(department).trim().toLowerCase();
   if (DEPT_PREFIX_MAP[key]) return DEPT_PREFIX_MAP[key];
-  // Loose substring fallback so unseeded departments still get a sensible prefix.
+  // Loose substring fallback so unseeded departments still get a sensible
+  // prefix. Skip tiny aliases like "er" / "ed" here: exact "ER" and "ED"
+  // still work, but "Smoke Medicine" must not become an EMER visit just
+  // because "medicine" contains "ed".
   for (const [k, v] of Object.entries(DEPT_PREFIX_MAP)) {
+    if (k.length < 3) continue;
     if (key.includes(k)) return v;
   }
   // Last resort: first 4 letters uppercased.
@@ -719,6 +746,18 @@ async function resolveWalkInDepartment(tx, { department, departmentId, doctorId 
 
 export const registerWalkIn = async (req, res) => {
   try {
+    const role = String(req.user?.role || '').toUpperCase();
+    const canRegisterWalkIn = [
+      'RECEPTIONIST',
+      'ADMISSION_OFFICER',
+      'IPD_COUNSELLOR',
+      'ADMIN',
+      'SUPER_ADMIN',
+    ].includes(role);
+    if (!canRegisterWalkIn) {
+      return error(res, 'Access denied: front-desk privileges required to register walk-ins', 403);
+    }
+
     // appointments.created_by is uuid; appointment_status_history.changed_by is int.
     const staffUid = req.user?.uid;
     const staffId = req.user?.id;
@@ -753,7 +792,7 @@ export const registerWalkIn = async (req, res) => {
       // optional (we mint UNIDENT-EMER-<ts>), and the resulting users
       // row is flagged is_unidentified=true. Finding:
       //   2026-05-09-emergency-walk-in-receptionist-no-phone-optional-er-path.
-      mode, unidentified,
+      mode, unidentified, is_unidentified,
       // E-12 — ANC fields captured at walk-in. When department routes
       // to ANC, lmp_date / edd_date / gravida / parity / blood_group
       // are written into a maternity_pregnancies row alongside the
@@ -768,7 +807,7 @@ export const registerWalkIn = async (req, res) => {
       // optional (the police FIR number is often not known at intake).
       // Finding:
       //   2026-05-09-emergency-walk-in-receptionist-no-mlc-flag-at-registration.
-      mlc, is_mlc, mlc_number, mlc_notes,
+      mlc, is_mlc, mlc_number, mlc_notes, chief_complaint,
       // Stage-5 — structured payer / category / scheme fields. Corporate-TPA
       // and govt-scheme-eligible walk-ins previously had nowhere but
       // appointments.notes to record insurer / policy / scheme, which broke
@@ -826,6 +865,9 @@ export const registerWalkIn = async (req, res) => {
       ['true', '1', 'yes', 'mlc'].includes(String(mlcRaw ?? '').trim().toLowerCase());
     const mlcNumber = mlc_number ? String(mlc_number).trim().slice(0, 80) : null;
     const mlcNotes = mlc_notes ? String(mlc_notes).trim().slice(0, 2000) : null;
+    const chiefComplaint = chief_complaint
+      ? String(chief_complaint).trim().slice(0, 500)
+      : null;
 
     // Stage-5 — structured payer fields persisted on the appointment row.
     // `patient_category` is validated against the funding-source enum;
@@ -876,9 +918,15 @@ export const registerWalkIn = async (req, res) => {
       departmentForCheck.includes('emergency') ||
       departmentForCheck.includes('casualty') ||
       visitTypeUpper === 'EMERGENCY';
+    const unidentifiedRaw = unidentified ?? is_unidentified;
+    const explicitUnidentified =
+      unidentifiedRaw === true ||
+      ['true', '1', 'yes', 'unidentified'].includes(
+        String(unidentifiedRaw ?? '').trim().toLowerCase(),
+      );
     const unidentifiedSignal =
       String(mode || '').toLowerCase() === 'unidentified' ||
-      unidentified === true ||
+      explicitUnidentified ||
       (visitTypeUpper === 'EMERGENCY' && !patient_phone && !patient_id);
     const isUnidentifiedMode = unidentifiedSignal && departmentLooksEmergency;
     // Normalize the inbound phone to E.164 before any de-dupe / INSERT
@@ -891,11 +939,28 @@ export const registerWalkIn = async (req, res) => {
     let resolvedPhone = patient_phone && !String(patient_phone).startsWith('UNIDENT-')
       ? (normalizePhone(patient_phone) || patient_phone)
       : patient_phone;
+    const normalizedGuardianPhone = guardian_phone
+      ? (normalizePhone(guardian_phone) || String(guardian_phone).trim())
+      : null;
+    const birthdayIndicatesMinor = (() => {
+      if (!patient_birthday || !/^\d{4}-\d{2}-\d{2}$/.test(patient_birthday)) return false;
+      const dob = new Date(patient_birthday);
+      const cutoff = new Date();
+      cutoff.setFullYear(cutoff.getFullYear() - 18);
+      return dob > cutoff;
+    })();
+    const minorUsesGuardianPhone = Boolean(
+      !patient_id &&
+      birthdayIndicatesMinor &&
+      normalizedGuardianPhone &&
+      resolvedPhone &&
+      normalizePhone(resolvedPhone) === normalizedGuardianPhone,
+    );
     let isUnidentifiedFlag = false;
-    if (isUnidentifiedMode && !patient_phone && !patient_id) {
-      // 13 chars: "UNIDENT-EMER-" prefix + 13-digit ms timestamp would
-      // overflow VARCHAR(15). Use a 6-char base36 timestamp suffix
-      // ("UNIDENT-EMER-XXXXXX") — fits in 15 chars, collision-resistant
+    if (isUnidentifiedMode && !patient_id) {
+      // "UNIDENT-EMER-" + a 13-digit timestamp would overflow
+      // VARCHAR(15). Use "UNIDENT-" + a 6-char base36 timestamp suffix
+      // instead — fits in 15 chars, collision-resistant
       // over the lifetime of a hospital ER shift. Phone-search-hash on
       // this row is intentionally NULL; the row is merge-me target, not
       // an OTP recipient.
@@ -989,11 +1054,14 @@ export const registerWalkIn = async (req, res) => {
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      const appointmentDepartment = await resolveWalkInDepartment(tx, {
+      let appointmentDepartment = await resolveWalkInDepartment(tx, {
         department,
         departmentId: department_id ?? departmentId,
         doctorId: doctor_id,
       });
+      if (!appointmentDepartment && resolvedVisitType === 'EMERGENCY') {
+        appointmentDepartment = 'Emergency';
+      }
 
       // Resolve patient — look up by phone or patient_id, or create minimal record.
       // `returning_patient` is set when a phone match found an existing row so
@@ -1020,7 +1088,7 @@ export const registerWalkIn = async (req, res) => {
         // UNIDENT-EMER-* placeholder — every unidentified ER walk-in
         // is by definition a new row (a future identity-merge flow
         // collapses them once family arrives with ID).
-        const existing = isUnidentifiedFlag
+        const existing = isUnidentifiedFlag || minorUsesGuardianPhone
           ? []
           : await tx.$queryRawUnsafe(
               `SELECT id FROM users WHERE phone = $1 OR phone = $2 LIMIT 1`,
@@ -1079,7 +1147,7 @@ export const registerWalkIn = async (req, res) => {
             ? String(guardian_id_reference || guardian_id).trim().slice(0, 80)
             : null;
           // guardian_user_id is a self-FK on users; only accept positive ints.
-          const guardianUserIdInt = (() => {
+          let guardianUserIdInt = (() => {
             const n = parseInt(guardian_user_id, 10);
             return Number.isFinite(n) && n > 0 ? n : null;
           })();
@@ -1102,6 +1170,32 @@ export const registerWalkIn = async (req, res) => {
             cutoff.setFullYear(cutoff.getFullYear() - 18);
             isMinor = dob > cutoff;
           }
+          if (isMinor && !guardianUserIdInt && normalizedGuardianPhone) {
+            const guardianRows = await tx.$queryRawUnsafe(
+              `SELECT id
+                 FROM users
+                WHERE phone = $1 OR phone = $2
+                ORDER BY CASE WHEN phone = $1 THEN 0 ELSE 1 END
+                LIMIT 1`,
+              normalizedGuardianPhone,
+              normalizedGuardianPhone.replace(/\D/g, '').slice(-10),
+            );
+            if (guardianRows[0]?.id) {
+              guardianUserIdInt = guardianRows[0].id;
+            } else {
+              const newGuardian = await tx.$queryRawUnsafe(
+                `INSERT INTO users (phone, name, role, is_active, updated_at)
+                 VALUES ($1, $2, 'PATIENT', true, NOW())
+                 RETURNING id`,
+                normalizedGuardianPhone,
+                guardian_name ? String(guardian_name).trim().slice(0, 160) : 'Guardian',
+              );
+              guardianUserIdInt = newGuardian[0].id;
+            }
+          }
+          const patientPhoneForInsert = minorUsesGuardianPhone
+            ? `DEPEND-${Date.now().toString(36).slice(-8).toUpperCase().padStart(8, '0')}`
+            : resolvedPhone;
           const newUser = await tx.$queryRawUnsafe(
             `INSERT INTO users (phone, name, birthday, gender, address, role,
                                 guardian_name, guardian_phone, guardian_relationship,
@@ -1114,13 +1208,13 @@ export const registerWalkIn = async (req, res) => {
                      $12, $13, $14,
                      NOW())
              RETURNING id`,
-            resolvedPhone,
+            patientPhoneForInsert,
             patient_name || (isUnidentifiedFlag ? 'Unidentified Patient' : 'Walk-in Patient'),
             birthday,
             gender,
             address,
             guardian_name ? String(guardian_name).trim().slice(0, 160) : null,
-            guardian_phone ? String(guardian_phone).trim().slice(0, 20) : null,
+            normalizedGuardianPhone ? String(normalizedGuardianPhone).trim().slice(0, 20) : null,
             guardianRel,
             guardianIdType,
             guardianIdRef,
@@ -1130,6 +1224,7 @@ export const registerWalkIn = async (req, res) => {
             isUnidentifiedFlag,
           );
           patientId = newUser[0].id;
+          resolvedPhone = patientPhoneForInsert;
           returningPatient = false;
         }
       }
@@ -1204,7 +1299,7 @@ export const registerWalkIn = async (req, res) => {
         // identifier instead of the empty-string default; downstream
         // ED queue / nurse worklist join on phone to locate the patient.
         resolvedPhone || '',
-        reason || 'Walk-in consultation',
+        reason || chiefComplaint || 'Walk-in consultation',
         notes || null,
         tokenNumber,
         visitNo,
@@ -1315,6 +1410,15 @@ export const registerWalkIn = async (req, res) => {
               staffUid,
             );
           }
+          await tx.$executeRawUnsafe(
+            `UPDATE users
+                SET is_pregnant = TRUE,
+                    pregnancy_lmp_date = $2::date,
+                    updated_at = NOW()
+              WHERE id = $1::int`,
+            patientId,
+            lmp_date,
+          );
         }
       }
 
@@ -1353,12 +1457,41 @@ export const registerWalkIn = async (req, res) => {
            ON CONFLICT (tenant_id, visit_number) DO NOTHING
            RETURNING id, visit_number, patient_uid, arrival_at, status, is_mlc`,
           tenantId, visitNo, patientUid,
-          reason || 'Walk-in registration',
+          chiefComplaint || reason || 'Walk-in registration',
           mlcFlag, erMetadata,
           staffUid,
         );
         erVisit = erRows[0] || null;
       }
+
+      const allergyRows = await tx.$queryRawUnsafe(
+        `WITH patient_row AS (
+           SELECT id, uid, allergies
+             FROM users
+            WHERE id = $1::int
+            LIMIT 1
+         ),
+         structured AS (
+           SELECT allergy_name, severity
+             FROM patient_allergies pa
+             JOIN patient_row p ON (pa.patient_id = p.id OR pa.patient_uid = p.uid)
+            WHERE COALESCE(pa.is_active, TRUE) = TRUE
+         ),
+         profile AS (
+           SELECT trim(value) AS allergy_name, NULL::text AS severity
+             FROM patient_row p,
+                  regexp_split_to_table(COALESCE(p.allergies, ''), ',') AS value
+            WHERE trim(value) <> ''
+         )
+         SELECT DISTINCT allergy_name, severity
+           FROM (
+             SELECT * FROM structured
+             UNION ALL
+             SELECT * FROM profile
+           ) allergies
+          ORDER BY allergy_name`,
+        patientId,
+      );
 
       return {
         ...appt,
@@ -1383,6 +1516,12 @@ export const registerWalkIn = async (req, res) => {
         // arrival" and the future identity-reconciliation flow has a
         // discoverable target.
         is_unidentified: isUnidentifiedFlag,
+        has_allergies: allergyRows.length > 0,
+        allergy_flag: allergyRows.length > 0,
+        allergies: allergyRows.map((a) => ({
+          allergy_name: a.allergy_name,
+          severity: a.severity ?? null,
+        })),
       };
     });
 

@@ -151,9 +151,12 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
   final _bpDiaCtrl = TextEditingController();
   final _pulseCtrl = TextEditingController();
   final _tempCtrl = TextEditingController();
+  final _respRateCtrl = TextEditingController();
   final _spo2Ctrl = TextEditingController();
   final _weightCtrl = TextEditingController();
+  final _heightCtrl = TextEditingController();
   final _bsCtrl = TextEditingController();
+  String? _temperatureRoute;
 
   // Medications
   final List<_MedicationEntry> _medications = [_MedicationEntry()];
@@ -195,6 +198,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
       _doctorId = a['doctor_id'] as int?;
       _patientName = a['patient_name']?.toString();
       _doctorName = a['doctor_name']?.toString();
+      _prefillLatestVitals();
     }
   }
 
@@ -207,10 +211,59 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     _bpDiaCtrl.dispose();
     _pulseCtrl.dispose();
     _tempCtrl.dispose();
+    _respRateCtrl.dispose();
     _spo2Ctrl.dispose();
     _weightCtrl.dispose();
+    _heightCtrl.dispose();
     _bsCtrl.dispose();
     super.dispose();
+  }
+
+  String? _patientIdentifierForVitals() {
+    final a = widget.prefilledAppointment;
+    if (a != null) {
+      final nestedPatient = a['patient'];
+      final uid =
+          a['patient_uid'] ??
+          a['patientUid'] ??
+          a['patient_uuid'] ??
+          (nestedPatient is Map ? nestedPatient['uid'] : null);
+      if (uid != null && uid.toString().isNotEmpty) return uid.toString();
+    }
+    return _patientId?.toString();
+  }
+
+  void _setControllerIfEmpty(TextEditingController ctrl, Object? value) {
+    if (value == null || ctrl.text.isNotEmpty) return;
+    ctrl.text = value.toString();
+  }
+
+  Future<void> _prefillLatestVitals() async {
+    final patient = _patientIdentifierForVitals();
+    if (patient == null) return;
+    try {
+      final data = await MedicalApiService.getLatestVitals(patient);
+      final vitals = data['id'] != null ? data : data['vitals'];
+      if (vitals is! Map) return;
+      if (!mounted) return;
+      setState(() {
+        _setControllerIfEmpty(_bpSysCtrl, vitals['systolic_bp']);
+        _setControllerIfEmpty(_bpDiaCtrl, vitals['diastolic_bp']);
+        _setControllerIfEmpty(_pulseCtrl, vitals['heart_rate']);
+        _setControllerIfEmpty(_tempCtrl, vitals['temperature']);
+        _setControllerIfEmpty(_respRateCtrl, vitals['respiratory_rate']);
+        _setControllerIfEmpty(_spo2Ctrl, vitals['spo2']);
+        _setControllerIfEmpty(_weightCtrl, vitals['weight_kg']);
+        _setControllerIfEmpty(_heightCtrl, vitals['height_cm']);
+        final route = vitals['temperature_route']?.toString();
+        if (route != null && route.isNotEmpty && _temperatureRoute == null) {
+          _temperatureRoute = route;
+        }
+        _showVitals = true;
+      });
+    } catch (_) {
+      // Latest vitals are helpful prefill only; prescription creation remains usable.
+    }
   }
 
   Map<String, dynamic>? _buildVitals() {
@@ -227,11 +280,21 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
     if (_tempCtrl.text.isNotEmpty) {
       v['temperature'] = double.tryParse(_tempCtrl.text);
     }
+    if (_temperatureRoute != null && _temperatureRoute!.isNotEmpty) {
+      v['temperature_route'] = _temperatureRoute;
+    }
+    if (_respRateCtrl.text.isNotEmpty) {
+      v['respiratory_rate'] = int.tryParse(_respRateCtrl.text);
+    }
     if (_spo2Ctrl.text.isNotEmpty) {
       v['spo2'] = int.tryParse(_spo2Ctrl.text);
     }
     if (_weightCtrl.text.isNotEmpty) {
       v['weight'] = double.tryParse(_weightCtrl.text);
+      v['weight_kg'] = double.tryParse(_weightCtrl.text);
+    }
+    if (_heightCtrl.text.isNotEmpty) {
+      v['height_cm'] = double.tryParse(_heightCtrl.text);
     }
     if (_bsCtrl.text.isNotEmpty) {
       v['blood_sugar'] = int.tryParse(_bsCtrl.text);
@@ -340,6 +403,9 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
           _tempCtrl.clear();
           _spo2Ctrl.clear();
           _weightCtrl.clear();
+          _heightCtrl.clear();
+          _respRateCtrl.clear();
+          _temperatureRoute = null;
           _bsCtrl.clear();
           if (widget.prefilledAppointment == null) {
             _patientId = null;
@@ -487,7 +553,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: _miniField(_tempCtrl, s.prescriptionsTemp, '°F'),
+                    child: _miniField(_tempCtrl, s.prescriptionsTemp, '°C'),
                   ),
                 ],
               ),
@@ -500,6 +566,42 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: _miniField(_weightCtrl, s.prescriptionsWeight, 'kg'),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(child: _miniField(_heightCtrl, 'Height', 'cm')),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _miniField(_respRateCtrl, 'Resp. rate', '/min'),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _temperatureRoute,
+                      decoration: const InputDecoration(
+                        labelText: 'Temp route',
+                        isDense: true,
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'oral', child: Text('Oral')),
+                        DropdownMenuItem(
+                          value: 'axillary',
+                          child: Text('Axillary'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'rectal',
+                          child: Text('Rectal'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'tympanic',
+                          child: Text('Tympanic'),
+                        ),
+                      ],
+                      onChanged: (v) => setState(() => _temperatureRoute = v),
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(

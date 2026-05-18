@@ -468,6 +468,33 @@ async function ensurePreauthDocumentBundle({ preauthId, admissionId, uploadedBy 
   return attached;
 }
 
+async function ensureClinicalSummaryFromEnhancementNotes({ preauth, uploadedBy }) {
+  if (preauth?.request_type !== 'enhancement') return null;
+  const notes = String(preauth.notes || '').trim();
+  if (!notes) return null;
+
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT id
+       FROM tpa_claim_documents
+      WHERE preauth_id = $1::int
+        AND doc_type = 'clinical_summary'
+      LIMIT 1`,
+    preauth.id,
+  );
+  if (existing.length) return null;
+
+  const row = await attachDocument({
+    preauth_id: preauth.id,
+    doc_type: 'clinical_summary',
+    file_name: `preauth-${preauth.id}-clinical-summary.txt`,
+    file_url: `vh://insurance/preauth/${preauth.id}/clinical-summary-from-notes`,
+    mime_type: 'text/plain',
+    uploaded_by: uploadedBy,
+    notes: `auto-attached from enhancement clinical note\n\n${notes}`,
+  });
+  return row?.doc_type || null;
+}
+
 export async function submitPreauth({
   tenantId, id, submitted_by, submission_channel = 'portal', tpa_reference_id,
 }) {
@@ -482,6 +509,10 @@ export async function submitPreauth({
   await ensurePreauthDocumentBundle({
     preauthId: pre.id,
     admissionId: pre.admission_id,
+    uploadedBy: submitted_by,
+  });
+  await ensureClinicalSummaryFromEnhancementNotes({
+    preauth: pre,
     uploadedBy: submitted_by,
   });
 

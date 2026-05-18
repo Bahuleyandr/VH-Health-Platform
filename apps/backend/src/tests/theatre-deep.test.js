@@ -12,6 +12,7 @@ const PATIENT_UID = 'ba000000-0000-4000-8000-00000000a001';
 const SURGEON_UID = 'ba000000-0000-4000-8000-00000000a002';
 const ANESTHETIST_UID = 'ba000000-0000-4000-8000-00000000a003';
 const ADMIN_UID = 'ba000000-0000-4000-8000-00000000a004';
+const NURSE_UID = 'ba000000-0000-4000-8000-00000000a005';
 const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const API_KEY = process.env.API_KEY || 'test-api-key';
 
@@ -21,6 +22,7 @@ function mkClient(role, uid, intId) {
     get: (p) => request(app).get(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     put: (p) => request(app).put(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
+    patch: (p) => request(app).patch(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     delete: (p) => request(app).delete(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
   };
 }
@@ -32,15 +34,15 @@ function futureDateISO(offsetDays = 120) {
 }
 
 describe('Theatre scheduling — deep integration', () => {
-  let admin;
-  let patientIntId, surgeonIntId, anesthIntId, adminIntId;
+  let admin, nurse, surgeon, anesthetist;
+  let patientIntId, surgeonIntId, anesthIntId, adminIntId, nurseIntId;
   const schedDate = futureDateISO(120);
 
   beforeAll(async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM ot_schedules WHERE patient_uid = $1::uuid`, PATIENT_UID);
+    await cleanupPatientSurgeryData();
     await prisma.$executeRawUnsafe(
-      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
-      PATIENT_UID, SURGEON_UID, ANESTHETIST_UID, ADMIN_UID);
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid)`,
+      PATIENT_UID, SURGEON_UID, ANESTHETIST_UID, ADMIN_UID, NURSE_UID);
 
     const p = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
@@ -66,16 +68,43 @@ describe('Theatre scheduling — deep integration', () => {
        RETURNING id`, ADMIN_UID);
     adminIntId = a[0].id;
 
+    const n = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, '9000100005', 'Theatre Nurse', 'NURSING_STAFF', true, NOW())
+       RETURNING id`, NURSE_UID);
+    nurseIntId = n[0].id;
+
     admin = mkClient('ADMIN', ADMIN_UID, adminIntId);
+    nurse = mkClient('NURSING_STAFF', NURSE_UID, nurseIntId);
+    surgeon = mkClient('DOCTOR', SURGEON_UID, surgeonIntId);
+    anesthetist = mkClient('ANESTHETIST', ANESTHETIST_UID, anesthIntId);
   });
 
   afterAll(async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM ot_schedules WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await cleanupPatientSurgeryData().catch(() => {});
     await prisma.$executeRawUnsafe(
-      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
-      PATIENT_UID, SURGEON_UID, ANESTHETIST_UID, ADMIN_UID).catch(() => {});
+      `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid)`,
+      PATIENT_UID, SURGEON_UID, ANESTHETIST_UID, ADMIN_UID, NURSE_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
+
+  async function cleanupPatientSurgeryData() {
+    const scheduleIds = await prisma.$queryRawUnsafe(
+      `SELECT id FROM ot_schedules WHERE patient_uid = $1::uuid`,
+      PATIENT_UID,
+    );
+    if (scheduleIds.length === 0) return;
+    const ids = scheduleIds.map((row) => row.id);
+    await prisma.$executeRawUnsafe(`DELETE FROM anesthesia_chart_entries WHERE ot_schedule_id = ANY($1::int[])`, ids);
+    await prisma.$executeRawUnsafe(`DELETE FROM anesthesia_records WHERE ot_schedule_id = ANY($1::int[])`, ids);
+    await prisma.$executeRawUnsafe(`DELETE FROM intraop_notes WHERE ot_schedule_id = ANY($1::int[])`, ids);
+    await prisma.$executeRawUnsafe(`DELETE FROM postop_notes WHERE ot_schedule_id = ANY($1::int[])`, ids);
+    await prisma.$executeRawUnsafe(`DELETE FROM preop_checklists WHERE ot_schedule_id = ANY($1::int[])`, ids);
+    await prisma.$executeRawUnsafe(`DELETE FROM surgical_safety_checklists WHERE ot_schedule_id = ANY($1::int[])`, ids);
+    await prisma.$executeRawUnsafe(`DELETE FROM surgical_implants WHERE ot_schedule_id = ANY($1::int[])`, ids);
+    await prisma.$executeRawUnsafe(`DELETE FROM postop_complication_alerts WHERE ot_schedule_id = ANY($1::int[])`, ids);
+    await prisma.$executeRawUnsafe(`DELETE FROM ot_schedules WHERE id = ANY($1::int[])`, ids);
+  }
 
   describe('validation', () => {
     it('rejects schedule without required fields', async () => {
@@ -156,6 +185,20 @@ describe('Theatre scheduling — deep integration', () => {
       const row = await prisma.$queryRawUnsafe(
         `SELECT pre_op_checklist FROM ot_schedules WHERE id = $1`, scheduleId);
       expect(row[0].pre_op_checklist.antibiotic_prophylaxis).toBe('Cefazolin 2g IV');
+    });
+
+    it('blocks OT-ready when the nurse marks the checklist diabetic without glucose', async () => {
+      const res = await nurse.put(`/api/v1/theatre/${scheduleId}/checklist`).send({
+        checklist: {
+          fasting_confirmed: true,
+          site_marked: true,
+          site_marked_eye: 'right',
+          diabetic_patient: true,
+          ot_ready: true,
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.body.message || res.body.error).toMatch(/blood glucose/i);
     });
 
     // Non-ASCII preservation gate. Em dashes, °C, mg/dL, μg, and Tamil
@@ -312,6 +355,122 @@ describe('Theatre scheduling — deep integration', () => {
     it('blocks further cancel on an already-cancelled surgery', async () => {
       const res = await admin.delete(`/api/v1/theatre/${scheduleId}`);
       expect([400, 500]).toContain(res.statusCode);
+    });
+  });
+
+  describe('clinical surgical documentation surface', () => {
+    let scheduleId;
+
+    beforeAll(async () => {
+      const res = await admin.post('/api/v1/theatre/schedule').send({
+        patient_uid: PATIENT_UID,
+        surgeon: SURGEON_UID,
+        anesthetist: ANESTHETIST_UID,
+        procedure_name: 'Right eye cataract surgery',
+        procedure_code: 'right-eye-cataract',
+        scheduled_date: schedDate,
+        scheduled_time: '13:00',
+        ot_room: 'OT-5',
+      });
+      expect(res.statusCode).toBe(201);
+      scheduleId = res.body.data.id;
+    });
+
+    it('lets NURSING_STAFF create the durable structured pre-op checklist id', async () => {
+      const res = await nurse.put(`/api/v1/surgical/preop/${scheduleId}`).send({
+        patient_uid: PATIENT_UID,
+        consent_signed: true,
+        npo_status_confirmed: true,
+        site_marked: true,
+        site_marked_by: NURSE_UID,
+        allergies_reviewed: true,
+        preop_labs_reviewed: true,
+        patient_identity_verified: true,
+        procedure_verified: true,
+        anesthesia_consent: true,
+        status: 'complete',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.id).toBeDefined();
+      expect(res.body.data.completed_by).toBe(NURSE_UID);
+    });
+
+    it('lets the responsible surgeon create and sign the intra-op note', async () => {
+      const create = await surgeon.post('/api/v1/surgical/intraop').send({
+        ot_schedule_id: scheduleId,
+        patient_uid: PATIENT_UID,
+        procedure_performed: 'Right eye cataract phacoemulsification with IOL',
+        start_time: '2026-05-15T09:30:00.000Z',
+        end_time: '2026-05-15T10:05:00.000Z',
+        sponge_count_correct: true,
+        sharp_count_correct: true,
+        instrument_count_correct: true,
+      });
+      expect(create.statusCode).toBe(201);
+      expect(create.body.data.surgeon).toBe(SURGEON_UID);
+
+      const signed = await surgeon.patch(`/api/v1/surgical/intraop/${create.body.data.id}/finalize`).send({});
+      expect(signed.statusCode).toBe(200);
+      expect(signed.body.data.status).toBe('finalized');
+      expect(signed.body.data.finalized_by).toBe(SURGEON_UID);
+    });
+
+    it('lets the ANESTHETIST role save and sign the anaesthesia record', async () => {
+      const res = await anesthetist.put(`/api/v1/surgical/anesthesia/${scheduleId}`).send({
+        patient_uid: PATIENT_UID,
+        technique: 'mac',
+        agents_used: [{ name: 'midazolam', dose: '2 mg', route: 'IV' }],
+        status: 'finalized',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.status).toBe('finalized');
+      expect(res.body.data.anesthetist).toBe(ANESTHETIST_UID);
+      expect(res.body.data.finalized_by).toBe(ANESTHETIST_UID);
+    });
+  });
+
+  describe('anaesthesia chart reconciliation', () => {
+    let scheduleId;
+
+    beforeAll(async () => {
+      const res = await admin.post('/api/v1/theatre/schedule').send({
+        patient_uid: PATIENT_UID,
+        surgeon: SURGEON_UID,
+        anesthetist: ANESTHETIST_UID,
+        procedure_name: 'Left eye cataract surgery',
+        procedure_code: 'left-eye-cataract',
+        scheduled_date: schedDate,
+        scheduled_time: '14:00',
+        ot_room: 'OT-6',
+      });
+      expect(res.statusCode).toBe(201);
+      scheduleId = res.body.data.id;
+    });
+
+    it('creates the case anaesthesia record from an intra-op drug chart entry', async () => {
+      const entry = await anesthetist.post('/api/v1/anesthesia/entries').send({
+        ot_schedule_id: scheduleId,
+        recorded_at: '2026-05-15T10:00:00.000Z',
+        hr: 78,
+        sbp: 118,
+        dbp: 70,
+        spo2: 99,
+        drugs_given: [{ name: 'midazolam', dose: '2 mg', route: 'IV', given_by: ANESTHETIST_UID }],
+        iv_fluids_ml: 100,
+        blood_loss_ml: 5,
+        event_note: 'MAC started',
+      });
+      expect(entry.statusCode).toBe(200);
+
+      const record = await anesthetist.get(`/api/v1/surgical/anesthesia/${scheduleId}`);
+      expect(record.statusCode).toBe(200);
+      expect(record.body.data.status).toBe('draft');
+      expect(record.body.data.anesthetist).toBe(ANESTHETIST_UID);
+      expect(record.body.data.agents_used).toEqual([
+        { name: 'midazolam', dose: '2 mg', route: 'IV', given_by: ANESTHETIST_UID },
+      ]);
+      expect(record.body.data.fluids_in_ml).toBe(100);
+      expect(record.body.data.blood_loss_ml).toBe(5);
     });
   });
 

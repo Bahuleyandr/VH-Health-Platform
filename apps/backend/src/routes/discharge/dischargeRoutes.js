@@ -94,6 +94,7 @@ router.post('/:id/ready', requireStaffOrAdmin, wrap(async (req) =>
   discharge.markReadyForSignoff({
     tenantId: tenantOf(req),
     id: req.params.id,
+    marked_by: req.user?.uid,
   }),
 ));
 
@@ -112,6 +113,7 @@ router.post('/:id/deliver', requireStaffOrAdmin, wrap(async (req) =>
     tenantId: tenantOf(req),
     id: req.params.id,
     delivery_method: req.body.delivery_method,
+    delivered_by: req.user?.uid,
   }),
 ));
 

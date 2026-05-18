@@ -12,6 +12,7 @@ import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isClinical, isStaff } from '../../utils/roleHelpers.js';
 
 const router = Router();
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function tenantOf(req) {
   return req?.user?.tenantId || req?.tenant?.id ||
@@ -35,6 +36,13 @@ function wrap(handler) {
 function requireStaffOrAdmin(req, res, next) {
   if (!isStaff(req.user?.role) && !isAdmin(req.user?.role)) {
     return error(res, 'Staff or admin role required', 403);
+  }
+  next();
+}
+
+function requirePatientUidParam(req, res, next) {
+  if (!UUID_RE.test(String(req.params.patientUid || ''))) {
+    return error(res, 'patientUid must be a valid UUID', 400);
   }
   next();
 }
@@ -123,7 +131,7 @@ router.get('/results/booking/:bookingId', requireStaffOrAdmin, wrap(async (req) 
   }),
 ));
 
-router.get('/results/patient/:patientUid', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/results/patient/:patientUid', requireStaffOrAdmin, requirePatientUidParam, wrap(async (req) =>
   lab.getResultsForPatient({
     tenantId: tenantOf(req),
     patient_uid: req.params.patientUid,

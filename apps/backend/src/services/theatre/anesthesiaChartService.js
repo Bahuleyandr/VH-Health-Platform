@@ -7,6 +7,74 @@
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 
+function hasJsonArrayItems(value) {
+  return Array.isArray(value) && value.length > 0;
+}
+
+async function syncCaseAnesthesiaRecord({
+  tenantId,
+  otScheduleId,
+  recordedBy,
+  recordedAt,
+  drugsGiven,
+  ivFluidsMl,
+  bloodLossMl,
+  urineOutputMl,
+  eventNote,
+}) {
+  const eventItems = eventNote
+    ? [{ note: String(eventNote), recorded_at: recordedAt || new Date().toISOString(), recorded_by: recordedBy || null }]
+    : [];
+
+  await prisma.$queryRawUnsafe(
+    `INSERT INTO anesthesia_records
+       (tenant_id, ot_schedule_id, patient_uid, anesthetist,
+        agents_used, fluids_in_ml, blood_loss_ml, urine_output_ml,
+        events, status, created_at, updated_at)
+     SELECT
+       $1::uuid,
+       s.id,
+       s.patient_uid,
+       COALESCE(s.anesthetist, $3::uuid),
+       $4::jsonb,
+       COALESCE($5::int, 0),
+       COALESCE($6::int, 0),
+       COALESCE($7::int, 0),
+       $8::jsonb,
+       'draft',
+       NOW(),
+       NOW()
+     FROM ot_schedules s
+     WHERE s.id = $2::int
+     ON CONFLICT (tenant_id, ot_schedule_id) DO UPDATE SET
+       patient_uid = COALESCE(anesthesia_records.patient_uid, EXCLUDED.patient_uid),
+       anesthetist = COALESCE(anesthesia_records.anesthetist, EXCLUDED.anesthetist),
+       agents_used = CASE
+         WHEN jsonb_array_length(EXCLUDED.agents_used) > 0
+           THEN COALESCE(anesthesia_records.agents_used, '[]'::jsonb) || EXCLUDED.agents_used
+         ELSE anesthesia_records.agents_used
+       END,
+       fluids_in_ml = COALESCE(anesthesia_records.fluids_in_ml, 0) + COALESCE(EXCLUDED.fluids_in_ml, 0),
+       blood_loss_ml = COALESCE(anesthesia_records.blood_loss_ml, 0) + COALESCE(EXCLUDED.blood_loss_ml, 0),
+       urine_output_ml = COALESCE(anesthesia_records.urine_output_ml, 0) + COALESCE(EXCLUDED.urine_output_ml, 0),
+       events = CASE
+         WHEN jsonb_array_length(EXCLUDED.events) > 0
+           THEN COALESCE(anesthesia_records.events, '[]'::jsonb) || EXCLUDED.events
+         ELSE anesthesia_records.events
+       END,
+       updated_at = NOW()
+     WHERE anesthesia_records.status <> 'finalized'`,
+    tenantId,
+    Number(otScheduleId),
+    recordedBy ? String(recordedBy) : null,
+    JSON.stringify(hasJsonArrayItems(drugsGiven) ? drugsGiven : []),
+    ivFluidsMl ?? null,
+    bloodLossMl ?? null,
+    urineOutputMl ?? null,
+    JSON.stringify(eventItems),
+  );
+}
+
 export async function recordEntry({
   tenantId, ot_schedule_id, recorded_at,
   hr, sbp, dbp, map: mapValue, spo2, etco2, rr, temp_c,
@@ -42,6 +110,7 @@ export async function recordEntry({
       time: recorded_at || new Date().toISOString(),
     });
   }
+  const entryRecordedAt = recorded_at || new Date().toISOString();
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO anesthesia_chart_entries
        (ot_schedule_id, recorded_at, hr, sbp, dbp, map, spo2, etco2, rr, temp_c,
@@ -55,7 +124,7 @@ export async function recordEntry({
              $20, $21::uuid, $22::uuid)
      RETURNING *`,
     Number(ot_schedule_id),
-    recorded_at || new Date().toISOString(),
+    entryRecordedAt,
     hr ?? null, sbp ?? null, dbp ?? null, computedMap ?? null,
     spo2 ?? null, etco2 ?? null, rr ?? null, temp_c ?? null,
     vent_mode || null, fio2_pct ?? null, tidal_volume_ml ?? null,
@@ -66,6 +135,17 @@ export async function recordEntry({
     recorded_by ? String(recorded_by) : null,
     tenantId,
   );
+  await syncCaseAnesthesiaRecord({
+    tenantId,
+    otScheduleId: ot_schedule_id,
+    recordedBy: recorded_by,
+    recordedAt: entryRecordedAt,
+    drugsGiven: drugsArr,
+    ivFluidsMl: iv_fluids_ml,
+    bloodLossMl: blood_loss_ml,
+    urineOutputMl: urine_output_ml,
+    eventNote: event_note,
+  });
   return rows[0];
 }
 

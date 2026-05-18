@@ -163,5 +163,31 @@ describe('Critical lab alert reaches ER doctor in-app feed — deep integration'
     expect(labAlert.priority).toBe('HIGH');
     expect(labAlert.is_read).toBe(false);
     expect(String(labAlert.title)).toMatch(/CRITICAL/i);
+
+    // Regression for 2026-05-15-dynamic-acute-abdomen-doctor-6f4e954e:
+    // descriptive read-back methods must not trip the old VARCHAR(40)
+    // database limit and surface as a generic 500.
+    const [alertRow] = await prisma.$queryRawUnsafe(
+      `SELECT id
+         FROM lab_critical_alerts
+        WHERE result_id = $1::int
+        ORDER BY id DESC
+        LIMIT 1`,
+      resultId,
+    );
+    const ackMethod = 'manual phone read-back to ward nurse and surgical team';
+    const ackRes = await request(app)
+      .post(`/api/v1/lab/alerts/critical/${alertRow.id}/ack`)
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${doctorToken}`)
+      .send({
+        acknowledged_by_name: 'Dr Lab Alert Test ER Doctor',
+        read_back_method: ackMethod,
+        notes: 'Escalated and read back to receiving team.',
+      });
+
+    expect(ackRes.statusCode).toBe(200);
+    expect(ackRes.body.data.read_back_method).toBe(ackMethod);
+    expect(ackRes.body.data.acknowledged_at).toBeTruthy();
   });
 });

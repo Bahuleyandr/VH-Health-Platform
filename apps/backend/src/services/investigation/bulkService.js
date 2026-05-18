@@ -6,22 +6,56 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 export const bulkUpdateStatus = async (investigationIds, status, notes, updatedBy) => {
-  if (!Object.values(INVESTIGATION_STATUS).includes(status)) {
+  const normalizedStatus = String(status || '').toUpperCase();
+  if (!Object.values(INVESTIGATION_STATUS).includes(normalizedStatus)) {
     throw new Error('Invalid status');
   }
 
   const rows = await prisma.$queryRaw`
     UPDATE investigations
-    SET status     = ${status},
+    SET status     = ${normalizedStatus},
         notes      = COALESCE(${notes ?? null}, notes),
         updated_at = NOW(),
-        updated_by = ${updatedBy ?? null}
+        updated_by = ${updatedBy ?? null}::uuid,
+        collected_at = CASE
+          WHEN ${normalizedStatus} = 'COLLECTED' THEN COALESCE(collected_at, NOW())
+          ELSE collected_at
+        END,
+        collected_by = CASE
+          WHEN ${normalizedStatus} = 'COLLECTED' THEN COALESCE(collected_by, ${updatedBy ?? null}::uuid)
+          ELSE collected_by
+        END,
+        collected_notes = CASE
+          WHEN ${normalizedStatus} = 'COLLECTED' THEN COALESCE(${notes ?? null}, collected_notes)
+          ELSE collected_notes
+        END,
+        sample_barcode = CASE
+          WHEN ${normalizedStatus} = 'COLLECTED' THEN COALESCE(
+            sample_barcode,
+            'INV-' || UPPER(TO_HEX(id)) || '-' ||
+              UPPER(SUBSTRING(MD5(id::text || CLOCK_TIMESTAMP()::text || RANDOM()::text), 1, 6))
+          )
+          ELSE sample_barcode
+        END,
+        completed_at = CASE
+          WHEN ${normalizedStatus} = 'COMPLETED' THEN COALESCE(completed_at, NOW())
+          ELSE completed_at
+        END,
+        verified_at = CASE
+          WHEN ${normalizedStatus} = 'COMPLETED' THEN COALESCE(verified_at, NOW())
+          ELSE verified_at
+        END,
+        verified_by = CASE
+          WHEN ${normalizedStatus} = 'COMPLETED' THEN COALESCE(verified_by, ${updatedBy ?? null}::uuid)
+          ELSE verified_by
+        END
     WHERE id = ANY(${investigationIds}::int[])
     RETURNING id, patient_id, doctor_id, test_name, test_code, type, status,
-      priority, notes, updated_at, updated_by
+      priority, notes, collected_at, collected_by, collected_notes,
+      sample_barcode, completed_at, verified_at, verified_by, updated_at, updated_by
   `;
 
-  logger.info(`Bulk updated ${rows.length} investigations to status ${status}`);
+  logger.info(`Bulk updated ${rows.length} investigations to status ${normalizedStatus}`);
   return rows;
 };
 

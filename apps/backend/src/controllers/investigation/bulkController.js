@@ -12,7 +12,7 @@ export const updateStatus = async (req, res) => {
     const updatedBy = req.user?.uid;
     
     // Check permissions
-    const allowedRoles = ['LAB_TECHNICIAN', 'DOCTOR', 'RADIOLOGIST', 'ADMIN'];
+    const allowedRoles = ['LAB_STAFF', 'LAB_TECHNICIAN', 'DOCTOR', 'RADIOLOGIST', 'ADMIN', 'SUPER_ADMIN'];
     if (!allowedRoles.includes(userRole)) {
       return error(res, 'Access denied: Lab technician or doctor privileges required', 403);
     }

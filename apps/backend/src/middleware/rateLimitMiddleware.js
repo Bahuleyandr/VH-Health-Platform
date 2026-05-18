@@ -41,6 +41,14 @@ const defaultKeyGenerator = (req) => {
   return ipKeyGenerator(req);
 };
 
+const authKeyGenerator = (req) => {
+  const ip = ipKeyGenerator(req);
+  // Extract account identifier from request body (login endpoints).
+  const account = req.body?.username || req.body?.email || req.body?.employeeId || req.body?.phone || '';
+  if (account) return `auth:${ip}:${String(account).toLowerCase()}`;
+  return `auth:${ip}`;
+};
+
 const isRateLimitingDisabled = () =>
   String(process.env.DISABLE_RATE_LIMITING || '').toLowerCase() === 'true' ||
   String(process.env.RATE_LIMIT_DISABLED || '').toLowerCase() === 'true';
@@ -116,22 +124,24 @@ export const adminRateLimiter = getRateLimiter('admin'); // Less restrictive, no
  * Compound key: IP + username/employeeId/email from request body.
  * Prevents both single-IP brute force AND distributed attacks targeting one account.
  */
-export const authRateLimiter = expressRateLimit({
+const authRateLimiterConfig = {
   windowMs: RATE_LIMIT_PROFILES.auth.windowMs,
   max: RATE_LIMIT_PROFILES.auth.max,
   message: RATE_LIMIT_PROFILES.auth.message,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    const ip = ipKeyGenerator(req);
-    // Extract account identifier from request body (login endpoints)
-    const account = req.body?.username || req.body?.email || req.body?.employeeId || req.body?.phone || '';
-    if (account) return `auth:${ip}:${String(account).toLowerCase()}`;
-    return `auth:${ip}`;
-  },
+  keyGenerator: authKeyGenerator,
   handler: defaultHandler,
+  // Count failed credential attempts, not normal successful re-auth. The
+  // lockout service still tracks failed attempts per staff account in
+  // auth_logs; this limiter is the fast pre-auth brute-force guard.
+  skipSuccessfulRequests: true,
   skip: isRateLimitingDisabled
-});
+};
+
+export const __testing__ = { defaultKeyGenerator, authKeyGenerator, authRateLimiterConfig };
+
+export const authRateLimiter = expressRateLimit(authRateLimiterConfig);
 
 /**
  * ✅ OTP rate limiter — keys by phone number extracted from request body.

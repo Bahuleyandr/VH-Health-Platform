@@ -10,6 +10,7 @@ import {
   extractPreauthCaps,
   FINAL_CASHLESS_REQUIRED_DOC_TYPES,
   recordPreauthResponse,
+  submitPreauth,
 } from '../../services/insurance/claimsService.js';
 
 describe('createPreauth validation', () => {
@@ -162,6 +163,130 @@ describe('FINAL_CASHLESS_REQUIRED_DOC_TYPES', () => {
     expect([...FINAL_CASHLESS_REQUIRED_DOC_TYPES].sort()).toEqual([
       'discharge_summary', 'final_bill',
     ]);
+  });
+});
+
+describe('submitPreauth standard document bundle', () => {
+  const tenantId = '00000000-0000-4000-8000-000000000001';
+  const submittedBy = '11111111-1111-4111-8111-111111111111';
+  let originalQueryRaw;
+  let originalExecuteRaw;
+  let preauth;
+  let insertedDocTypes;
+
+  beforeEach(() => {
+    originalQueryRaw = prisma.$queryRawUnsafe;
+    originalExecuteRaw = prisma.$executeRawUnsafe;
+    insertedDocTypes = [];
+    preauth = {
+      id: 42,
+      policy_id: 7,
+      patient_uid: '22222222-2222-4222-8222-222222222222',
+      admission_id: 16,
+      preauth_number: 'PA-TEST-0042',
+      request_type: 'planned',
+      parent_preauth_id: null,
+      primary_diagnosis: 'Cataract',
+      expected_cost: 55000,
+      status: 'draft',
+      query_text: null,
+      submit_due_at: null,
+      created_at: new Date(),
+    };
+
+    prisma.$queryRawUnsafe = async (sql, ...params) => {
+      const text = String(sql);
+      if (text.includes('SELECT * FROM insurance_preauth')) {
+        return [{ ...preauth }];
+      }
+      if (text.includes('WITH RECURSIVE root')) {
+        return [{ id: preauth.id }];
+      }
+      if (text.includes('SUM(CASE WHEN status')) {
+        return [{ approved_total: 0, requested_total: preauth.expected_cost, chain_length: 1 }];
+      }
+      if (text.includes('FROM insurance_preauth_responses')) {
+        return [];
+      }
+      if (text.includes('SELECT doc_type FROM tpa_claim_documents')) {
+        return [];
+      }
+      if (text.includes("AND doc_type = 'clinical_summary'")) {
+        return [];
+      }
+      if (text.includes('INSERT INTO tpa_claim_documents')) {
+        insertedDocTypes.push(params[2]);
+        return [{
+          id: insertedDocTypes.length,
+          claim_id: params[0],
+          preauth_id: params[1],
+          doc_type: params[2],
+          file_name: params[3],
+          file_url: params[4],
+          mime_type: params[6],
+        }];
+      }
+      if (text.includes('SELECT COUNT(*)::int AS n FROM tpa_claim_documents')) {
+        return [{ n: insertedDocTypes.length }];
+      }
+      throw new Error(`Unexpected query in submitPreauth unit test: ${text}`);
+    };
+
+    prisma.$executeRawUnsafe = async (sql) => {
+      const text = String(sql);
+      if (text.includes('UPDATE insurance_preauth')) {
+        preauth = { ...preauth, status: 'submitted', submitted_at: new Date() };
+        return 1;
+      }
+      throw new Error(`Unexpected execute in submitPreauth unit test: ${text}`);
+    };
+  });
+
+  afterEach(() => {
+    prisma.$queryRawUnsafe = originalQueryRaw;
+    prisma.$executeRawUnsafe = originalExecuteRaw;
+  });
+
+  // Regression for 2026-05-15-tpa-insurance-claim-billing-77e939fd.
+  // Submitting a cashless preauth with only the admission row available
+  // must still attach the three standard virtual documents.
+  it('auto-attaches admission note, advice letter, and record bundle before submission', async () => {
+    const result = await submitPreauth({
+      tenantId,
+      id: preauth.id,
+      submitted_by: submittedBy,
+      submission_channel: 'portal',
+    });
+
+    expect(result.status).toBe('submitted');
+    expect(insertedDocTypes.sort()).toEqual([
+      'admission_note',
+      'advice_letter',
+      'record_bundle',
+    ]);
+  });
+
+  // Regression for 2026-05-15-tpa-insurance-claim-doctor-1a5941b4.
+  // A consultant's enhancement note is already the clinical summary; the
+  // submit flow should not demand a duplicated upload step.
+  it('turns enhancement notes into a clinical summary document before submission', async () => {
+    preauth = {
+      ...preauth,
+      request_type: 'enhancement',
+      admission_id: null,
+      parent_preauth_id: 41,
+      notes: 'Needs seven more inpatient days for pancreatitis monitoring and insulin titration.',
+    };
+
+    const result = await submitPreauth({
+      tenantId,
+      id: preauth.id,
+      submitted_by: submittedBy,
+      submission_channel: 'portal',
+    });
+
+    expect(result.status).toBe('submitted');
+    expect(insertedDocTypes).toEqual(['clinical_summary']);
   });
 });
 

@@ -120,10 +120,21 @@ export const createInvestigationOrder = async (orderData) => {
   // showed as generic URGENT/24h rows in the lab-facing view. Finding:
   // 2026-05-10-emergency-walk-in-doctor-stat-investigation-context-lost.
   const priorityUpper = priority.toUpperCase();
+  const typeUpper = type.toUpperCase();
   const turnaroundHours = PRIORITY_TURNAROUND_HOURS[priorityUpper] ?? 24;
   const trimmedNotes = notes != null && String(notes).trim()
     ? String(notes).trim()
     : null;
+  const needsSampleCollection = typeUpper === 'LAB' || typeUpper === 'PATHOLOGY';
+  const cleanCollectionLocation = collection_location != null && String(collection_location).trim()
+    ? String(collection_location).trim().slice(0, 255)
+    : (needsSampleCollection ? 'Main Laboratory Sample Collection' : null);
+  const effectiveDeadline = parsedDeadline
+    ?? (needsSampleCollection ? new Date(now.getTime() + turnaroundHours * 60 * 60 * 1000) : null);
+  const effectiveFastingRequired = fasting_required === true || fasting_required === 'true';
+  const cleanFastingInstructions = fasting_instructions != null && String(fasting_instructions).trim()
+    ? String(fasting_instructions).trim()
+    : (!effectiveFastingRequired && needsSampleCollection ? 'No fasting required unless the care team tells you otherwise.' : null);
 
   // Soft duplicate-order guard — warn, never block. OB investigation
   // order sets are gestational-age-specific (18w anomaly scan, 24w GDM
@@ -179,21 +190,17 @@ export const createInvestigationOrder = async (orderData) => {
       patient_uid: patient.uid || null,
       test_name,
       test_code: resolvedTestCode,
-      test_type: type.toUpperCase(),
+      test_type: typeUpper,
       status: 'REQUESTED',
       priority: priorityUpper,
       turnaround_target_hours: turnaroundHours,
       requested_by: requesterUuid,
       updated_at: now,
       notes: trimmedNotes,
-      collection_location: collection_location
-        ? String(collection_location).trim().slice(0, 255)
-        : null,
-      collection_deadline_at: parsedDeadline,
-      fasting_required: fasting_required === true || fasting_required === 'true',
-      fasting_instructions: fasting_instructions
-        ? String(fasting_instructions).trim()
-        : null,
+      collection_location: cleanCollectionLocation,
+      collection_deadline_at: effectiveDeadline,
+      fasting_required: effectiveFastingRequired,
+      fasting_instructions: cleanFastingInstructions,
     },
     select: INVESTIGATION_SELECT,
   });

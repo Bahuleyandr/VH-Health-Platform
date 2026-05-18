@@ -1,6 +1,7 @@
 // src/app/(with-auth)/dashboard/insurance/page.tsx
 //
-// Insurance / TPA coordinator desk — Sprint 5. Three tabs:
+// Insurance / TPA coordinator desk — Sprint 5.
+//   - Admission intake (policy capture + admission-linked pre-auth creation)
 //   - Pre-auth (worklist + submit + record-response inline actions)
 //   - Claims (filterable by status / aging, decision + payment actions)
 //   - Policies (per-patient lookup)
@@ -11,11 +12,12 @@ import { Suspense, useState } from "react";
 import { PreauthTab } from "./components/PreauthTab";
 import { ClaimsTab } from "./components/ClaimsTab";
 import { PoliciesTab } from "./components/PoliciesTab";
+import { AdmissionIntakeTab } from "./components/AdmissionIntakeTab";
 
-type Tab = "preauth" | "claims" | "policies";
+type Tab = "admission" | "preauth" | "claims" | "policies";
 
 function InsuranceContent() {
-  const [tab, setTab] = useState<Tab>("preauth");
+  const [tab, setTab] = useState<Tab>("admission");
   return (
     <div className="p-6">
       <h1 className="text-3xl font-bold text-foreground mb-1">
@@ -28,6 +30,7 @@ function InsuranceContent() {
       <div className="flex gap-1 bg-muted rounded-lg p-1 mb-6 w-fit">
         {(
           [
+            { key: "admission", label: "Admission intake" },
             { key: "preauth", label: "📨 Pre-auth" },
             { key: "claims", label: "📑 Claims" },
             { key: "policies", label: "🪪 Policies" },
@@ -47,6 +50,7 @@ function InsuranceContent() {
         ))}
       </div>
 
+      {tab === "admission" && <AdmissionIntakeTab />}
       {tab === "preauth" && <PreauthTab />}
       {tab === "claims" && <ClaimsTab />}
       {tab === "policies" && <PoliciesTab />}

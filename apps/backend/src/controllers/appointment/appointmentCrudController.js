@@ -51,11 +51,15 @@ async function resolveOrCreatePatientFromPhone({ patientPhone, patientName }) {
 
 export const createAppointment = async (req, res) => {
   try {
+    const appointmentDate = req.body.appointment_date || req.body.date;
+    const appointmentTime = req.body.appointment_time || req.body.time;
+    const patientPhone = req.body.patient_phone || req.body.phone || req.body.phoneNumber;
+
     let resolvedPatient = null;
     let createdNewPatient = false;
-    if (!req.body.patient_id && req.body.patient_phone) {
+    if (!req.body.patient_id && patientPhone) {
       const resolved = await resolveOrCreatePatientFromPhone({
-        patientPhone: req.body.patient_phone,
+        patientPhone,
         patientName: req.body.patient_name,
       });
       resolvedPatient = resolved.patient;
@@ -66,10 +70,12 @@ export const createAppointment = async (req, res) => {
     const appointmentData = {
       patient_id: req.body.patient_id,
       doctor_id: req.body.doctor_id,
-      appointment_date: req.body.appointment_date,
-      appointment_time: req.body.appointment_time,
+      appointment_date: appointmentDate,
+      appointment_time: appointmentTime,
       reason: req.body.reason,
-      notes: req.body.notes || null
+      notes: req.body.notes || null,
+      department: req.body.department || null,
+      visit_type: req.body.visit_type || null,
     };
 
     // Validate the booking request

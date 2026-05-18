@@ -13,12 +13,14 @@ const VALID_VITAL_TYPES = [
   'heart_rate', 'systolic_bp', 'diastolic_bp', 'temperature', 'spo2',
   'respiratory_rate', 'blood_glucose', 'pain_score', 'weight_kg',
   'height_cm', 'gcs_score', 'o2_flow_rate',
+  'fhr', 'fundal_height_cm',
 ];
 
 const VALID_IO_TYPES = ['intake', 'output'];
 const VALID_IO_CATEGORIES = ['oral', 'iv', 'blood', 'urine', 'drain', 'vomit', 'stool', 'other'];
 const VALID_CONSCIOUSNESS = ['A', 'C', 'V', 'P', 'U'];
 const VITAL_CORRECTION_WINDOW_MS = 5 * 60 * 1000;
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
 const VITAL_CORRECTION_FIELDS = [
   'heart_rate', 'systolic_bp', 'diastolic_bp', 'temperature', 'spo2',
   'respiratory_rate', 'blood_glucose', 'pain_score', 'weight_kg',
@@ -55,6 +57,132 @@ function normaliseDipstick(raw, field) {
     );
   }
   return v;
+}
+
+function normaliseTriageAcuity(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  const text = String(raw).trim().toLowerCase();
+  const labelled = text.match(/^(?:esi|ats)[_-]?([1-5])$/);
+  const n = labelled ? Number(labelled[1]) : Number(text);
+  if (!Number.isInteger(n) || n < 1 || n > 5) {
+    throw AppError.badRequest('triage_acuity must be an integer from 1 to 5');
+  }
+  return n;
+}
+
+function parseOptionalPositiveInt(raw, field) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw AppError.badRequest(`${field} must be a positive integer`);
+  }
+  return n;
+}
+
+async function resolvePatientForVitals(patientUid, patientId) {
+  if (patientUid) {
+    const user = await prisma.users.findUnique({
+      where: { uid: patientUid },
+      select: { id: true, uid: true, role: true },
+    });
+    if (!user) throw AppError.notFound('Patient not found');
+    if (patientId !== undefined && patientId !== null && patientId !== '') {
+      const patientIdInt = parseOptionalPositiveInt(patientId, 'patient_id');
+      if (user.id !== patientIdInt) {
+        throw AppError.badRequest('patient_id does not match patient_uid');
+      }
+    }
+    return user;
+  }
+
+  const patientIdInt = parseOptionalPositiveInt(patientId, 'patient_id');
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, uid, role
+       FROM users
+      WHERE id = $1
+      LIMIT 1`,
+    patientIdInt,
+  );
+  const user = rows[0] ?? null;
+  if (!user) throw AppError.notFound('Patient not found');
+  if (user.role !== 'PATIENT') {
+    throw AppError.badRequest('patient_id must reference a patient');
+  }
+  return { id: user.id, uid: String(user.uid), role: user.role };
+}
+
+async function propagateTriageAcuity({ patientId, patientUid, visitId, triageAcuity }) {
+  if (triageAcuity == null) return null;
+
+  const priority = `esi_${triageAcuity}`;
+  const emergencyVisitId = parseOptionalPositiveInt(visitId, 'visit_id');
+  let emergencyVisit = null;
+
+  if (emergencyVisitId != null) {
+    const rows = await prisma.$queryRawUnsafe(
+      `UPDATE emergency_visits
+          SET triage_priority = $1,
+              triage_started_at = COALESCE(triage_started_at, NOW()),
+              status = CASE WHEN status = 'arriving' THEN 'triage' ELSE status END,
+              updated_at = NOW()
+        WHERE id = $2
+          AND patient_uid = $3::uuid
+        RETURNING id, visit_number`,
+      priority,
+      emergencyVisitId,
+      patientUid,
+    );
+    emergencyVisit = rows[0] ?? null;
+  } else {
+    const rows = await prisma.$queryRawUnsafe(
+      `UPDATE emergency_visits
+          SET triage_priority = $1,
+              triage_started_at = COALESCE(triage_started_at, NOW()),
+              status = CASE WHEN status = 'arriving' THEN 'triage' ELSE status END,
+              updated_at = NOW()
+        WHERE id = (
+          SELECT id
+            FROM emergency_visits
+           WHERE patient_uid = $2::uuid
+             AND COALESCE(disposition, '') NOT IN ('discharged', 'lama', 'expired')
+           ORDER BY arrival_at DESC
+           LIMIT 1
+        )
+        RETURNING id, visit_number`,
+      priority,
+      patientUid,
+    );
+    emergencyVisit = rows[0] ?? null;
+  }
+
+  const appointmentRows = await prisma.$queryRawUnsafe(
+    `UPDATE appointments
+        SET triage_acuity = $1,
+            updated_at = NOW()
+      WHERE id = (
+        SELECT a.id
+          FROM appointments a
+         WHERE a.patient_id = $2
+           AND (
+             ($3::text IS NOT NULL AND a.visit_no = $3::text)
+             OR a.visit_type = 'EMERGENCY'
+             OR a.department ILIKE '%emergency%'
+           )
+         ORDER BY a.appointment_date DESC, a.created_at DESC
+         LIMIT 1
+      )
+      RETURNING id, triage_acuity`,
+    triageAcuity,
+    patientId,
+    emergencyVisit?.visit_number ?? null,
+  );
+
+  return {
+    triage_acuity: triageAcuity,
+    triage_priority: priority,
+    emergency_visit_id: emergencyVisit?.id ?? null,
+    appointment_id: appointmentRows[0]?.id ?? null,
+  };
 }
 
 const VITAL_SELECT = {
@@ -180,19 +308,33 @@ function toCelsius(value, unit) {
   return value;
 }
 
+function normalizeRecordedAt(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    throw AppError.badRequest('recorded_at must be a valid ISO timestamp');
+  }
+  return d;
+}
+
 export async function recordVitals(data) {
   const {
-    patient_uid, encounter_id, encounter_uid, heart_rate, systolic_bp, diastolic_bp, temperature,
+    patient_uid, patient_id, visit_id, encounter_id, encounter_uid, heart_rate, systolic_bp, diastolic_bp, temperature,
+    triage_acuity, acuity, triage_priority,
     temperature_unit, temperature_route, spo2, respiratory_rate, blood_glucose, pain_score, weight_kg,
     height_cm, gcs_score, supplemental_o2, o2_flow_rate, consciousness, notes,
+    recorded_at, observed_at,
     fhr, fundal_height_cm,
     urine_albumin, urine_sugar, urine_ketones,
     recorded_by,
   } = data;
 
-  if (!patient_uid || !recorded_by) {
-    throw AppError.badRequest('patient_uid and recorded_by are required');
+  if ((!patient_uid && !patient_id) || !recorded_by) {
+    throw AppError.badRequest('patient_uid or patient_id and recorded_by are required');
   }
+
+  const patientUser = await resolvePatientForVitals(patient_uid, patient_id);
+  const resolvedPatientUid = patientUser.uid;
 
   // Wave-4B-1 (migration 208) — split encounter input across int + uuid.
   // Caller can pass either `encounter_id` (legacy int / numeric / UUID) or
@@ -212,10 +354,12 @@ export async function recordVitals(data) {
   const normalizedAlbumin = normaliseDipstick(urine_albumin, 'urine_albumin');
   const normalizedSugar = normaliseDipstick(urine_sugar, 'urine_sugar');
   const normalizedKetones = normaliseDipstick(urine_ketones, 'urine_ketones');
+  const normalizedAcuity = normaliseTriageAcuity(triage_acuity ?? acuity ?? triage_priority);
+  const normalizedRecordedAt = normalizeRecordedAt(recorded_at ?? observed_at);
 
   const vitalValues = [heart_rate, systolic_bp, diastolic_bp, normalizedTemperature, spo2,
     respiratory_rate, blood_glucose, pain_score, weight_kg, height_cm, gcs_score,
-    fhr, fundal_height_cm,
+    fhr, fundal_height_cm, normalizedAcuity,
     normalizedAlbumin, normalizedSugar, normalizedKetones];
   if (vitalValues.every((v) => v === undefined || v === null)) {
     throw AppError.badRequest('At least one vital sign measurement is required');
@@ -240,7 +384,7 @@ export async function recordVitals(data) {
 
   const record = await prisma.vitals_chart.create({
     data: {
-      patient_uid,
+      patient_uid: resolvedPatientUid,
       encounter_id: normalizedEncounterId,
       encounter_uid: normalizedEncounterUid,
       heart_rate: heart_rate ?? null,
@@ -268,23 +412,46 @@ export async function recordVitals(data) {
       urine_ketones: normalizedKetones,
       notes: stripNul(notes ?? null),
       recorded_by,
+      ...(normalizedRecordedAt ? { recorded_at: normalizedRecordedAt } : {}),
     },
     select: VITAL_SELECT,
   });
 
+  if (normalizedAcuity != null) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE vitals_chart SET triage_acuity = $1 WHERE id = $2`,
+      normalizedAcuity,
+      record.id,
+    );
+    record.triage_acuity = normalizedAcuity;
+  }
+
+  let triage = null;
+  if (normalizedAcuity != null) {
+    triage = await propagateTriageAcuity({
+      patientId: patientUser.id,
+      patientUid: resolvedPatientUid,
+      visitId: visit_id,
+      triageAcuity: normalizedAcuity,
+    });
+  }
+
   let alerts = [];
   let news2Result = null;
 
-  if (respiratory_rate != null && spo2 != null && temperature != null &&
-      systolic_bp != null && heart_rate != null && consciousness) {
+  if (respiratory_rate != null && spo2 != null && systolic_bp != null && heart_rate != null) {
     try {
-      news2Result = await news2Service.recordNEWS2(patient_uid, {
+      news2Result = await news2Service.recordNEWS2(resolvedPatientUid, {
         respiration_rate: respiratory_rate,
-        spo2, temperature, systolic_bp, heart_rate, consciousness,
+        spo2,
+        temperature: normalizedTemperature ?? 37,
+        systolic_bp,
+        heart_rate,
+        consciousness: consciousness || 'A',
         supplemental_o2: supplemental_o2 || false,
       }, recorded_by);
     } catch (err) {
-      logger.warn(`NEWS2 auto-calculation failed for patient=${patient_uid}: ${err.message}`);
+      logger.warn(`NEWS2 auto-calculation failed for patient=${resolvedPatientUid}: ${err.message}`);
     }
   }
 
@@ -296,14 +463,15 @@ export async function recordVitals(data) {
     if (temperature != null) vitalsForCheck.temperature = temperature;
     if (spo2 != null) vitalsForCheck.oxygen_saturation = spo2;
     if (respiratory_rate != null) vitalsForCheck.respiratory_rate = respiratory_rate;
+    if (normalizedAlbumin != null) vitalsForCheck.urine_albumin = normalizedAlbumin;
 
     if (Object.keys(vitalsForCheck).length > 0) {
       // clinical_alerts.patient_id is an INT FK to users(id) — resolve uuid→int.
       // recorded_by is uuid; clinical_alerts.created_by is int FK — same resolution.
-      const [patientUser, recorderUser] = await Promise.all([
-        prisma.users.findUnique({ where: { uid: patient_uid }, select: { id: true } }),
-        prisma.users.findUnique({ where: { uid: recorded_by }, select: { id: true } }),
-      ]);
+      const recorderUser = await prisma.users.findUnique({
+        where: { uid: recorded_by },
+        select: { id: true },
+      });
 
       if (patientUser?.id) {
         alerts = await checkVitalAnomalies(patientUser.id, vitalsForCheck, {
@@ -312,7 +480,7 @@ export async function recordVitals(data) {
       }
     }
   } catch (err) {
-    logger.warn(`Vital anomaly check failed for patient=${patient_uid}: ${err.message}`);
+    logger.warn(`Vital anomaly check failed for patient=${resolvedPatientUid}: ${err.message}`);
   }
 
   // Paediatric growth percentile — when weight/height is recorded for a
@@ -326,7 +494,7 @@ export async function recordVitals(data) {
   if (weight_kg != null || height_cm != null) {
     try {
       const patient = await prisma.users.findUnique({
-        where: { uid: patient_uid },
+        where: { uid: resolvedPatientUid },
         select: { birthday: true, gender: true },
       });
       if (patient) {
@@ -338,13 +506,13 @@ export async function recordVitals(data) {
         });
       }
     } catch (err) {
-      logger.warn(`Growth percentile computation failed for patient=${patient_uid}: ${err.message}`);
+      logger.warn(`Growth percentile computation failed for patient=${resolvedPatientUid}: ${err.message}`);
     }
   }
 
-  logger.info(`Vitals recorded: id=${record.id}, patient=${patient_uid}, by=${recorded_by}`);
+  logger.info(`Vitals recorded: id=${record.id}, patient=${resolvedPatientUid}, by=${recorded_by}`);
 
-  return { vitals: record, news2: news2Result, alerts: alerts || [], growth };
+  return { vitals: record, news2: news2Result, alerts: alerts || [], growth, triage };
 }
 
 export async function getVitalsTrend(patientUid, vitalType, dateFrom, dateTo) {
@@ -377,9 +545,28 @@ export async function getVitalsTrend(patientUid, vitalType, dateFrom, dateTo) {
   }));
 }
 
+async function resolvePatientUidForRead(patientIdentifier) {
+  if (!patientIdentifier) return null;
+  const raw = String(patientIdentifier).trim();
+  if (UUID_RE.test(raw)) return raw;
+  const patientId = parseOptionalPositiveInt(raw, 'patient_id');
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid, role FROM users WHERE id = $1::int LIMIT 1`,
+    patientId,
+  );
+  const user = rows[0] ?? null;
+  if (!user) return null;
+  if (user.role !== 'PATIENT') {
+    throw AppError.badRequest('patient_id must reference a patient');
+  }
+  return String(user.uid);
+}
+
 export async function getLatestVitals(patientUid) {
+  const resolvedPatientUid = await resolvePatientUidForRead(patientUid);
+  if (!resolvedPatientUid) return null;
   return prisma.vitals_chart.findFirst({
-    where: { patient_uid: patientUid },
+    where: { patient_uid: resolvedPatientUid },
     select: VITAL_SELECT,
     orderBy: { recorded_at: 'desc' },
   });

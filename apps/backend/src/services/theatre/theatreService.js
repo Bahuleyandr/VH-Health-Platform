@@ -305,10 +305,13 @@ class TheatreService {
     // before ot_ready can flip to true. Avoids the hypo/hyperglycaemia
     // window that an unmonitored fasting diabetic enters under anaesthesia.
     if (checklist && typeof checklist === 'object' && !Array.isArray(checklist) && checklist.ot_ready === true) {
+      const checklistMarksDiabetic = checklist.diabetic_patient === true
+        || checklist.diabetes === true
+        || String(checklist.diabetic_status || '').toLowerCase() === 'diabetic';
       const glucoseChecked = checklist.blood_glucose_checked === true
         || (checklist.blood_glucose_mg_dl != null && Number.isFinite(Number(checklist.blood_glucose_mg_dl)))
         || (checklist.glucose != null && Number.isFinite(Number(checklist.glucose)));
-      if (!glucoseChecked && await isDiabeticPatient(existing[0].patient_uid)) {
+      if (!glucoseChecked && (checklistMarksDiabetic || await isDiabeticPatient(existing[0].patient_uid))) {
         throw AppError.badRequest(
           'Cannot set OT-ready for a diabetic patient until a pre-op blood glucose check is documented',
           'DIABETIC_GLUCOSE_CHECK_REQUIRED'

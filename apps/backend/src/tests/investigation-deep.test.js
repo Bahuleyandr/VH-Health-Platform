@@ -9,6 +9,7 @@ import app from '../app.js';
 
 const DOCTOR_UID = 'a5555555-5555-4555-8555-555555555a01';
 const PATIENT_UID = 'a5555555-5555-4555-8555-555555555a02';
+const LAB_UID = 'a5555555-5555-4555-8555-555555555a03';
 const RAW_PHONE = '9000050001';
 const PATIENT_PHONE = '+919000050001';
 const API_KEY = process.env.API_KEY || 'test-api-key';
@@ -39,15 +40,31 @@ function doctorAs(uid = DOCTOR_UID) {
   };
 }
 
+function labAs(uid = LAB_UID) {
+  const token = generateTestToken('LAB_STAFF', { uid, id: 990502 });
+  return {
+    post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
+    put: (p) => request(app).put(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
+  };
+}
+
+function patientAs(intId) {
+  const token = generateTestToken('PATIENT', { uid: PATIENT_UID, id: intId, phone: PATIENT_PHONE });
+  return {
+    get: (p) => request(app).get(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
+  };
+}
+
 describe('Investigation order workflow — deep integration', () => {
   const admin = adminAs();
   const doctor = doctorAs();
+  const lab = labAs();
   let patientIntId;
 
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE phone IN ($1, $2)`, RAW_PHONE, PATIENT_PHONE);
     await prisma.$executeRawUnsafe(`DELETE FROM notifications WHERE phone IN ($1, $2)`, RAW_PHONE, PATIENT_PHONE);
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DOCTOR_UID);
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`, PATIENT_UID, DOCTOR_UID, LAB_UID);
 
     const p = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
@@ -60,12 +77,16 @@ describe('Investigation order workflow — deep integration', () => {
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
        VALUES ($1::uuid, '9000050002', 'Investigation Test Doctor', 'DOCTOR', true, NOW())`,
       DOCTOR_UID);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, '9000050003', 'Investigation Test Lab Staff', 'LAB_STAFF', true, NOW())`,
+      LAB_UID);
   });
 
   afterAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE phone IN ($1, $2)`, RAW_PHONE, PATIENT_PHONE).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM notifications WHERE phone IN ($1, $2)`, RAW_PHONE, PATIENT_PHONE).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DOCTOR_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`, PATIENT_UID, DOCTOR_UID, LAB_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
 
@@ -134,6 +155,21 @@ describe('Investigation order workflow — deep integration', () => {
       expect(row[0].requested_at).toBeTruthy();
     });
 
+    it('defaults actionable collection instructions for doctor-created lab orders', async () => {
+      const res = await doctor.post('/api/v1/investigations/order').send({
+        patient_id: patientIntId,
+        test_name: 'CBC with differential',
+        type: 'LAB',
+        priority: 'NORMAL',
+      });
+      expect(res.statusCode).toBe(200);
+      const inv = res.body.data.investigation;
+      expect(inv.collection_location).toBe('Main Laboratory Sample Collection');
+      expect(inv.collection_deadline_at).toBeTruthy();
+      expect(inv.fasting_required).toBe(false);
+      expect(inv.fasting_instructions).toMatch(/No fasting required/i);
+    });
+
     it('creates a URGENT-priority investigation and normalizes casing', async () => {
       // Validator is strict: type + priority must match exact UPPERCASE values.
       // Service also accepts lowercase but validator runs first — send UPPERCASE.
@@ -156,6 +192,127 @@ describe('Investigation order workflow — deep integration', () => {
          WHERE phone = $1 AND type = 'investigation_ordered' AND title LIKE 'New Investigation%'
          ORDER BY created_at DESC LIMIT 1`, PATIENT_PHONE);
       expect(notifs.length).toBe(1);
+    });
+
+    it('stamps sample collection and result verification audit fields', async () => {
+      const order = await doctor.post('/api/v1/investigations/order').send({
+        patient_id: patientIntId, test_name: 'Hemoglobin', type: 'LAB', priority: 'URGENT',
+      });
+      expect(order.statusCode).toBe(200);
+      const invId = order.body.data.investigation.id;
+
+      const collected = await lab.put(`/api/v1/investigations/${invId}/status`).send({
+        status: 'COLLECTED',
+        notes: 'Collected urgent IPD sample',
+      });
+      expect(collected.statusCode).toBe(200);
+      const collectedInv = collected.body.data.investigation;
+      expect(collectedInv.status).toBe('COLLECTED');
+      expect(collectedInv.collected_at).toBeTruthy();
+      expect(collectedInv.collected_by).toBe(LAB_UID);
+      expect(collectedInv.collected_notes).toBe('Collected urgent IPD sample');
+      expect(collectedInv.sample_barcode).toMatch(/^INV-[A-Z0-9]+-[A-Z0-9]{6}$/);
+
+      const result = await lab.put(`/api/v1/investigations/${invId}/results`).send({
+        results: {
+          hemoglobin: { name: 'Hemoglobin', value: '13.2', unit: 'g/dL', normal_range: '12-16' },
+        },
+        interpretation: 'Normal hemoglobin',
+      });
+      expect(result.statusCode).toBe(200);
+      const completedInv = result.body.data.investigation;
+      expect(completedInv.status).toBe('COMPLETED');
+      expect(completedInv.completed_at).toBeTruthy();
+      expect(completedInv.verified_at).toBeTruthy();
+      expect(completedInv.verified_by).toBe(LAB_UID);
+
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT status, collected_at, collected_by, sample_barcode, verified_at, verified_by
+           FROM investigations WHERE id = $1`,
+        invId);
+      expect(rows[0]).toMatchObject({
+        status: 'COMPLETED',
+        collected_by: LAB_UID,
+        verified_by: LAB_UID,
+      });
+      expect(rows[0].collected_at).toBeTruthy();
+      expect(rows[0].sample_barcode).toBeTruthy();
+      expect(rows[0].verified_at).toBeTruthy();
+    });
+
+    it('bulk-updates investigation sample collection with audit fields', async () => {
+      const first = await doctor.post('/api/v1/investigations/order').send({
+        patient_id: patientIntId, test_name: 'Serum Electrolytes', type: 'LAB',
+      });
+      const second = await doctor.post('/api/v1/investigations/order').send({
+        patient_id: patientIntId, test_name: 'Liver Function Test', type: 'LAB',
+      });
+      expect(first.statusCode).toBe(200);
+      expect(second.statusCode).toBe(200);
+      const ids = [first.body.data.investigation.id, second.body.data.investigation.id];
+
+      const res = await lab.post('/api/v1/investigations/bulk/status').send({
+        investigation_ids: ids,
+        status: 'COLLECTED',
+        notes: 'Bulk collected at IPD bedside',
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.count).toBe(2);
+      expect(res.body.data.updated.map((r) => r.id).sort((a, b) => a - b)).toEqual([...ids].sort((a, b) => a - b));
+      for (const row of res.body.data.updated) {
+        expect(row.status).toBe('COLLECTED');
+        expect(row.collected_at).toBeTruthy();
+        expect(row.collected_by).toBe(LAB_UID);
+        expect(row.collected_notes).toBe('Bulk collected at IPD bedside');
+        expect(row.sample_barcode).toMatch(/^INV-[A-F0-9]+-[A-F0-9]{6}$/);
+      }
+    });
+
+    it('patient investigations hide cancelled duplicate rows by default', async () => {
+      const active = await doctor.post('/api/v1/investigations/order').send({
+        patient_id: patientIntId,
+        test_name: 'Actionable CBC',
+        type: 'LAB',
+      });
+      expect(active.statusCode).toBe(200);
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO investigations
+           (phone, patient_id, patient_uid, test_name, test_type, status, priority,
+            requested_by, requested_at, updated_at, notes)
+         VALUES
+           ($1, $2::int, $3::uuid, 'Cancelled duplicate CBC', 'LAB', 'CANCELLED',
+            'NORMAL', $4::uuid, NOW() + INTERVAL '1 minute', NOW(),
+            'Duplicate order cancelled by lab')`,
+        PATIENT_PHONE,
+        patientIntId,
+        PATIENT_UID,
+        DOCTOR_UID,
+      );
+
+      const patient = patientAs(patientIntId);
+      const res = await patient.get(`/api/v1/investigations/patient/${patientIntId}`);
+      expect(res.statusCode).toBe(200);
+      const names = res.body.data.investigations.map((i) => i.test_name);
+      expect(names).toContain('Actionable CBC');
+      expect(names).not.toContain('Cancelled duplicate CBC');
+    });
+
+    it('dashboard bookings feed includes active doctor-created investigation orders', async () => {
+      const order = await doctor.post('/api/v1/investigations/order').send({
+        patient_id: patientIntId,
+        test_name: 'Dashboard CBC',
+        type: 'LAB',
+      });
+      expect(order.statusCode).toBe(200);
+      const patient = patientAs(patientIntId);
+      const res = await patient.get('/api/v1/investigations/bookings/my');
+      expect(res.statusCode).toBe(200);
+      const doctorOrder = res.body.data.find((b) => b.investigation_id === order.body.data.investigation.id);
+      expect(doctorOrder).toBeTruthy();
+      expect(doctorOrder.source_type).toBe('doctor_order');
+      expect(doctorOrder.booking_number).toBe(`ORDER-${order.body.data.investigation.id}`);
+      expect(doctorOrder.collection_location).toBe('Main Laboratory Sample Collection');
     });
   });
 

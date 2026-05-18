@@ -83,7 +83,28 @@ export class AppointmentService {
   }
 
   async createAppointment(appointmentData) {
-    const { patient_id, doctor_id, appointment_date, appointment_time, reason, notes = null } = appointmentData;
+    const {
+      patient_id,
+      doctor_id,
+      appointment_date,
+      appointment_time,
+      reason,
+      notes = null,
+      department = null,
+      visit_type = null,
+    } = appointmentData;
+    const visitType = visit_type
+      ? String(visit_type).trim().toUpperCase()
+      : null;
+    const allowedVisitTypes = new Set([
+      'NEW',
+      'FOLLOW_UP',
+      'EMERGENCY',
+      'TELE',
+      'LAB_ONLY',
+      'PAEDIATRIC_OPD',
+    ]);
+    const resolvedVisitType = allowedVisitTypes.has(visitType) ? visitType : null;
 
     try {
       return await prisma.$transaction(async (tx) => {
@@ -91,19 +112,23 @@ export class AppointmentService {
         const [pRows, dRows] = await Promise.all([
           tx.$queryRaw`SELECT id, phone, name FROM users WHERE id = ${parseInt(patient_id)}`,
           tx.$queryRaw`
-            SELECT id, name
+            SELECT id, name, department
             FROM (
-              SELECT u.id, u.name, 0 AS sort_order
+              SELECT u.id, u.name, COALESCE(dept.name, doc.department) AS department, 0 AS sort_order
               FROM users u
+              LEFT JOIN doctors doc ON doc.user_id = u.id AND doc.is_active = true
+              LEFT JOIN departments dept ON dept.id = doc.department_id
               WHERE u.id = ${parseInt(doctor_id)}
                 AND u.role = 'DOCTOR'
                 AND u.is_active = true
               UNION ALL
               SELECT u.id AS id,
                      u.name AS name,
+                     COALESCE(dept.name, d.department) AS department,
                      1 AS sort_order
               FROM doctors d
               JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR' AND u.is_active = true
+              LEFT JOIN departments dept ON dept.id = d.department_id
               WHERE d.is_active = true
                 AND (u.id = ${parseInt(doctor_id)} OR d.id = ${parseInt(doctor_id)})
             ) candidates
@@ -120,6 +145,9 @@ export class AppointmentService {
         }
         const resolvedDoctorId = dRows[0].id;
         const doctorName = dRows[0]?.name ?? '';
+        const resolvedDepartment = department
+          ? String(department).trim().slice(0, 100)
+          : (dRows[0]?.department ? String(dRows[0].department).trim().slice(0, 100) : null);
 
         // Lock conflicting rows
         const conflict = await tx.$queryRaw`
@@ -142,16 +170,16 @@ export class AppointmentService {
           INSERT INTO appointments (
             phone, patient_id, patient_name, doctor_id, doctor_name,
             appointment_date, appointment_time,
-            reason, notes, status, created_at, updated_at
+            reason, notes, status, department, visit_type, created_at, updated_at
           ) VALUES (
             ${patientPhone}, ${parseInt(patient_id)}, ${patientName},
             ${parseInt(resolvedDoctorId)}, ${doctorName},
             ${appointment_date}::date, ${appointment_time},
             ${reason ?? null}, ${notes ?? null},
-            ${APPOINTMENT_CONFIG.STATUSES.SCHEDULED}, NOW(), NOW()
+            ${APPOINTMENT_CONFIG.STATUSES.SCHEDULED}, ${resolvedDepartment}, ${resolvedVisitType}, NOW(), NOW()
           )
           RETURNING id, uid, phone, patient_id, patient_name, doctor_id, doctor_name,
-            appointment_date, appointment_time, status, reason, notes, created_at, updated_at
+            appointment_date, appointment_time, status, reason, notes, department, visit_type, created_at, updated_at
         `;
 
         return rows[0];
@@ -175,7 +203,7 @@ export class AppointmentService {
           updated_at       = NOW()
         WHERE id = ${parseInt(id)}
         RETURNING id, uid, phone, patient_name, doctor_name, appointment_date,
-          appointment_time, status, notes, visit_type, created_at, updated_at
+          appointment_time, status, reason, notes, visit_type, created_at, updated_at
       `;
       return rows[0];
     } catch (error) {
