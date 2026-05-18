@@ -1154,12 +1154,20 @@ export const registerWalkIn = async (req, res) => {
           const birthday = patient_birthday && /^\d{4}-\d{2}-\d{2}$/.test(patient_birthday)
             ? patient_birthday
             : null;
-          const gender = ['male', 'female', 'other', 'M', 'F', 'O'].includes(String(patient_gender ?? ''))
-            ? String(patient_gender).toLowerCase().slice(0, 1) === 'm' ? 'male'
-            : String(patient_gender).toLowerCase().slice(0, 1) === 'f' ? 'female'
-            : String(patient_gender).toLowerCase().startsWith('o') ? 'other'
-            : null
-            : null;
+          // Normalise gender case-insensitively. The admin walk-in dialog
+          // and external API callers typically send 'Male' / 'Female'
+          // (capitalised) — the previous allowlist only matched the exact
+          // lowercase form or single-char M/F/O, so those values silently
+          // dropped to null. We now key on the first letter and validate
+          // against the canonical set. Finding (follow-up):
+          // 2026-05-18-pediatric-opd-receptionist-gender-capitalisation-dropped.
+          const gender = (() => {
+            const first = String(patient_gender ?? '').trim().toLowerCase().slice(0, 1);
+            if (first === 'm') return 'male';
+            if (first === 'f') return 'female';
+            if (first === 'o') return 'other';
+            return null;
+          })();
           const address = patient_address ? String(patient_address).trim().slice(0, 500) : null;
           // E-9 — guardian fields persisted at registration for paeds.
           // Validate relationship enum lazily (free text is fine for
