@@ -114,7 +114,25 @@ export class AppointmentService {
           tx.$queryRaw`
             SELECT id, name, department
             FROM (
-              SELECT u.id, u.name, COALESCE(dept.name, doc.department) AS department, 0 AS sort_order
+              -- Highest priority: input matches a doctors.id directly.
+              -- This is the "doctor picker" semantic — the admin UI's
+              -- dropdown surfaces doctors.id, so when both interpretations
+              -- collide (the input also happens to equal some other
+              -- doctor's users.id), the picker wins.
+              SELECT u.id AS id,
+                     u.name AS name,
+                     COALESCE(dept.name, d.department) AS department,
+                     0 AS sort_order
+              FROM doctors d
+              JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR' AND u.is_active = true
+              LEFT JOIN departments dept ON dept.id = d.department_id
+              WHERE d.is_active = true
+                AND d.id = ${parseInt(doctor_id)}
+              UNION ALL
+              -- Second priority: input is a users.id with role=DOCTOR
+              -- (covers doctors who haven't been migrated to the doctors
+              -- profile table yet, plus the common-case users.id input).
+              SELECT u.id, u.name, COALESCE(dept.name, doc.department) AS department, 1 AS sort_order
               FROM users u
               LEFT JOIN doctors doc ON doc.user_id = u.id AND doc.is_active = true
               LEFT JOIN departments dept ON dept.id = doc.department_id
@@ -122,15 +140,17 @@ export class AppointmentService {
                 AND u.role = 'DOCTOR'
                 AND u.is_active = true
               UNION ALL
+              -- Fallback: input matches a users.id reachable via a doctors
+              -- profile (kept for legacy callers).
               SELECT u.id AS id,
                      u.name AS name,
                      COALESCE(dept.name, d.department) AS department,
-                     1 AS sort_order
+                     2 AS sort_order
               FROM doctors d
               JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR' AND u.is_active = true
               LEFT JOIN departments dept ON dept.id = d.department_id
               WHERE d.is_active = true
-                AND (u.id = ${parseInt(doctor_id)} OR d.id = ${parseInt(doctor_id)})
+                AND u.id = ${parseInt(doctor_id)}
             ) candidates
             ORDER BY sort_order
             LIMIT 1
