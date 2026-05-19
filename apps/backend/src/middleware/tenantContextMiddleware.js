@@ -5,6 +5,7 @@ import {
   getTenantById,
   resolveTenantForUser,
 } from '../services/tenant/tenantService.js';
+import { AppError } from '../utils/AppError.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -109,15 +110,17 @@ export default async function tenantContextMiddleware(req, _res, next) {
       if (headerOverride && headerOverride !== tenantId) {
         const reason = extractOverrideReason(req);
         if (reason.length < MIN_OVERRIDE_REASON_LEN) {
-          // Reject the override with a 400 — the request would otherwise
-          // succeed but invisibly. The error code is structured so the
-          // admin UI can prompt the operator for a reason and retry.
-          const err = new Error(
-            `x-tenant-id override requires x-tenant-override-reason (>= ${MIN_OVERRIDE_REASON_LEN} chars)`,
+          // Reject the override with a structured 400 — the request would
+          // otherwise succeed but invisibly. The error code lets the admin
+          // UI prompt the operator for a reason and retry. AppError is
+          // required for the global error handler to surface `code` in
+          // the JSON response body (a plain Error drops it).
+          return next(
+            AppError.badRequest(
+              `x-tenant-id override requires x-tenant-override-reason (>= ${MIN_OVERRIDE_REASON_LEN} chars)`,
+              'TENANT_OVERRIDE_REASON_REQUIRED',
+            ),
           );
-          err.statusCode = 400;
-          err.code = 'TENANT_OVERRIDE_REASON_REQUIRED';
-          return next(err);
         }
         originalTenantBeforeOverride = tenantId;
         tenantId = headerOverride;

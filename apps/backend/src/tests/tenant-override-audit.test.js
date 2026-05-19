@@ -114,7 +114,7 @@ describe('Phase-3 SUPER_ADMIN x-tenant-id override audit', () => {
   it('SUPER_ADMIN with x-tenant-id but no reason is rejected 400 with code TENANT_OVERRIDE_REASON_REQUIRED', async () => {
     const before = await countOverrideAuditRows(SUPER_ADMIN_UID);
     const res = await request(app)
-      .get('/api/v1/dashboard')
+      .get('/api/v1/appointments')
       .set('x-api-key', API_KEY)
       .set('Authorization', `Bearer ${superAdminToken}`)
       .set('x-tenant-id', TENANT_B);
@@ -128,7 +128,7 @@ describe('Phase-3 SUPER_ADMIN x-tenant-id override audit', () => {
   it('SUPER_ADMIN with x-tenant-id AND a valid reason is accepted and writes a TENANT_OVERRIDE_USED audit row', async () => {
     const before = await countOverrideAuditRows(SUPER_ADMIN_UID);
     const res = await request(app)
-      .get('/api/v1/dashboard')
+      .get('/api/v1/appointments')
       .set('x-api-key', API_KEY)
       .set('Authorization', `Bearer ${superAdminToken}`)
       .set('x-tenant-id', TENANT_B)
