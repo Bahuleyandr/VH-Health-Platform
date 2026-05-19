@@ -184,6 +184,20 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       expect(res.statusCode).toBe(200);
       expect(parseFloat(res.body.data.temperature)).toBe(36.9);
       expect(res.body.data.notes).toBe('Corrected within 5 minutes');
+    });
+
+    it('accepts PATCH as an alias of PUT for partial corrections', async () => {
+      // The HTTP-correct verb for a partial update is PATCH, and at least
+      // one swarm finding (surgical-day-care-nurse-3f022b39) saw nurses
+      // get a 404 because only PUT was wired. Both verbs route to the same
+      // handler so a PATCH-flavoured client gets identical semantics.
+      const res = await doctor.patch(`/api/v1/emr/vitals/${normalVitalsId}`).send({
+        pain_score: 3,
+        notes: 'PATCH alias works',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.pain_score).toBe(3);
+      expect(res.body.data.notes).toBe('PATCH alias works');
 
       const latest = await doctor.get(`/api/v1/emr/vitals/${PATIENT_UID}/latest`);
       expect(latest.statusCode).toBe(200);
