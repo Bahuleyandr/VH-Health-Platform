@@ -55,16 +55,16 @@ export const createInvestigationOrder = async (orderData) => {
   // ROUTINE is the clinical-language alias for NORMAL — accept either
   // and persist as NORMAL so storage stays consistent. Mirrors the
   // sanitizer at the validator layer for callers that bypass it.
-  // Finding: 2026-05-09-obstetric-anc-doctor-investigation-priority-enum-mismatch
+  // Finding: 2026-05-09-obstetric-anc-doctor-investigation-priority-enum-mismatch.
+  // (`priority` is a const destructure, so we use a separate variable
+  // and thread that through to the downstream `priorityUpper` site —
+  // reassigning the destructured const tripped no-const-assign in
+  // PR #131 CI.)
   let priorityNormalised = String(priority).toUpperCase();
   if (priorityNormalised === 'ROUTINE') priorityNormalised = 'NORMAL';
   if (!Object.values(PRIORITY_LEVELS).includes(priorityNormalised)) {
     throw new Error('INVALID_PRIORITY');
   }
-  // Replace the working `priority` variable so all downstream writes use
-  // the normalised form, not the original 'ROUTINE'.
-  // eslint-disable-next-line no-param-reassign
-  priority = priorityNormalised;
 
   // Prisma ORM — column names checked at runtime against schema.prisma so a
   // typo like `.findUnique({ where: { user_id: ... } })` fails loudly.
@@ -129,7 +129,9 @@ export const createInvestigationOrder = async (orderData) => {
   // Both gaps were observed when ER STAT orders dropped notes + UID and
   // showed as generic URGENT/24h rows in the lab-facing view. Finding:
   // 2026-05-10-emergency-walk-in-doctor-stat-investigation-context-lost.
-  const priorityUpper = priority.toUpperCase();
+  // Use the already-normalised value so ROUTINE → NORMAL flows through
+  // to the persisted row (per the comment block above).
+  const priorityUpper = priorityNormalised;
   const typeUpper = type.toUpperCase();
   const turnaroundHours = PRIORITY_TURNAROUND_HOURS[priorityUpper] ?? 24;
   const trimmedNotes = notes != null && String(notes).trim()
