@@ -126,11 +126,14 @@ model abdm_consents {
   revoked_at       DateTime? @db.Timestamptz(6)
   created_at       DateTime  @default(now()) @db.Timestamptz(6)
   updated_at       DateTime  @default(now()) @db.Timestamptz(6)
+  tenant_id        String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   users            users     @relation(fields: [patient_uid], references: [uid], onDelete: Cascade, onUpdate: NoAction)
+  tenants          tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_abdm_consents_tenant")
 
   @@index([created_at(sort: Desc)], map: "idx_abdm_consents_created_at")
   @@index([patient_uid], map: "idx_abdm_consents_patient_uid")
   @@index([status], map: "idx_abdm_consents_status")
+  @@index([tenant_id], map: "idx_abdm_consents_tenant_id")
 }
 
 model abdm_data_requests {
@@ -146,11 +149,14 @@ model abdm_data_requests {
   delivered_at    DateTime? @db.Timestamptz(6)
   created_at      DateTime  @default(now()) @db.Timestamptz(6)
   updated_at      DateTime  @default(now()) @db.Timestamptz(6)
+  tenant_id       String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   users           users?    @relation(fields: [patient_uid], references: [uid], onUpdate: NoAction)
+  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_abdm_data_requests_tenant")
 
   @@index([consent_id], map: "idx_abdm_data_requests_consent_id")
   @@index([patient_uid], map: "idx_abdm_data_requests_patient_uid")
   @@index([status], map: "idx_abdm_data_requests_status")
+  @@index([tenant_id], map: "idx_abdm_data_requests_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -417,11 +423,14 @@ model discharge_consults {
   notes        String?
   created_at   DateTime   @default(now()) @db.Timestamptz(6)
   updated_at   DateTime   @default(now()) @db.Timestamptz(6)
+  tenant_id    String     @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   admission    admissions @relation(fields: [admission_id], references: [id], onDelete: Cascade)
+  tenants      tenants    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discharge_consults_tenant")
 
   @@unique([admission_id, consult_type])
   @@index([admission_id])
   @@index([admission_id], map: "idx_discharge_consults_admission")
+  @@index([tenant_id], map: "idx_discharge_consults_tenant_id")
 }
 
 model advance_deductions {
@@ -448,6 +457,10 @@ model allergies {
   status      String?   @default("active") @db.VarChar(50)
   created_at  DateTime? @default(now()) @db.Timestamptz(6)
   recorded_at DateTime? @default(now()) @db.Timestamptz(6)
+  tenant_id   String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants     tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_allergies_tenant")
+
+  @@index([tenant_id], map: "idx_allergies_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -673,12 +686,15 @@ model appointment_documents {
   is_visible_to_patient                          Boolean      @default(true)
   created_at                                     DateTime     @default(now()) @db.Timestamp(6)
   updated_at                                     DateTime     @default(now()) @db.Timestamp(6)
+  tenant_id                                      String       @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   appointments                                   appointments @relation(fields: [appointment_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "apptdocs_appointment_fk")
   users_appointment_documents_doctor_idTousers   users?       @relation("appointment_documents_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction, map: "apptdocs_doctor_fk")
   users_appointment_documents_patient_idTousers  users        @relation("appointment_documents_patient_idTousers", fields: [patient_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "apptdocs_patient_fk")
   users_appointment_documents_uploaded_byTousers users?       @relation("appointment_documents_uploaded_byTousers", fields: [uploaded_by], references: [id], onUpdate: NoAction, map: "apptdocs_uploader_fk")
+  tenants                                        tenants      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_documents_tenant")
 
   @@index([appointment_id], map: "idx_apptdocs_appointment")
+  @@index([tenant_id], map: "idx_appointment_documents_tenant_id")
 }
 
 model appointment_status_history {
@@ -914,6 +930,10 @@ model bed_transfers {
   reason         String?
   transferred_by String?   @db.Uuid
   transferred_at DateTime? @default(now()) @db.Timestamptz(6)
+  tenant_id      String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_bed_transfers_tenant")
+
+  @@index([tenant_id], map: "idx_bed_transfers_tenant_id")
 }
 
 model beds {
@@ -934,14 +954,17 @@ model beds {
   floor              Int?
   bed_type           String?           @default("general") @db.VarChar(50)
   admission_id       Int?
+  tenant_id          String            @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   bed_inspections    bed_inspections[]
   users              users?            @relation(fields: [patient_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   wards              wards?            @relation(fields: [ward_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tenants            tenants           @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_beds_tenant")
 
   @@index([patient_id], map: "idx_beds_patient_id")
   @@index([status], map: "idx_beds_status")
   @@index([ward_id], map: "idx_beds_ward_id")
   @@index([admission_id], map: "idx_beds_admission")
+  @@index([tenant_id], map: "idx_beds_tenant_id")
 }
 
 model blood_banks {
@@ -977,6 +1000,10 @@ model blood_requests {
   notes               String?
   created_at          DateTime? @default(now()) @db.Timestamptz(6)
   updated_at          DateTime? @default(now()) @db.Timestamptz(6)
+  tenant_id           String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants             tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_blood_requests_tenant")
+
+  @@index([tenant_id], map: "idx_blood_requests_tenant_id")
 }
 
 model bulk_operation_logs {
@@ -1181,6 +1208,10 @@ model cds_alerts {
   ack_by       String?   @db.Uuid
   ack_at       DateTime? @db.Timestamptz(6)
   created_at   DateTime? @default(now()) @db.Timestamptz(6)
+  tenant_id    String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants      tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cds_alerts_tenant")
+
+  @@index([tenant_id], map: "idx_cds_alerts_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1241,10 +1272,13 @@ model claim_denials {
   appeal_outcome String?   @db.VarChar(30)
   denied_at      DateTime  @default(now()) @db.Timestamptz(6)
   created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  tenant_id      String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   invoices       invoices? @relation(fields: [invoice_id], references: [id], onUpdate: NoAction)
+  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_claim_denials_tenant")
 
   @@index([denied_at(sort: Desc)], map: "idx_claim_denials_denied_at")
   @@index([reason_code], map: "idx_claim_denials_reason")
+  @@index([tenant_id], map: "idx_claim_denials_tenant_id")
 }
 
 model clinical_ai_acuity_staffing_forecasts {
@@ -4234,10 +4268,13 @@ model diet_orders {
   reviewed_by          String?  @db.Uuid
   created_at           DateTime @default(now()) @db.Timestamptz(6)
   updated_at           DateTime @default(now()) @db.Timestamptz(6)
+  tenant_id            String   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants              tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_diet_orders_tenant")
 
   @@index([created_at(sort: Desc)], map: "idx_diet_orders_created_at")
   @@index([patient_uid], map: "idx_diet_orders_patient_uid")
   @@index([status], map: "idx_diet_orders_status")
+  @@index([tenant_id], map: "idx_diet_orders_tenant_id")
 }
 
 model doctors {
@@ -4275,8 +4312,11 @@ model downtime_snapshots {
   payload      Json      @default("{}")
   expires_at   DateTime? @db.Timestamptz(6)
   created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  tenant_id    String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants      tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_downtime_snapshots_tenant")
 
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_downtime_snapshots_patient_created")
+  @@index([tenant_id], map: "idx_downtime_snapshots_tenant_id")
 }
 
 model drug_interactions {
@@ -4418,10 +4458,13 @@ model event_outbox {
   last_error     String?
   created_at     DateTime  @default(now()) @db.Timestamptz(6)
   delivered_at   DateTime? @db.Timestamptz(6)
+  tenant_id      String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_event_outbox_tenant")
 
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_event_outbox_patient_created")
   @@index([status, available_at, id], map: "idx_event_outbox_status_available")
   @@index([event_type, created_at(sort: Desc)], map: "idx_event_outbox_type_created")
+  @@index([tenant_id], map: "idx_event_outbox_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -4586,9 +4629,12 @@ model family_members {
   date_of_birth DateTime? @db.Date
   created_at    DateTime  @default(now()) @db.Timestamp(6)
   updated_at    DateTime  @default(now()) @db.Timestamp(6)
+  tenant_id     String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   users         users     @relation(fields: [patient_uid], references: [uid], onDelete: Cascade, onUpdate: NoAction, map: "family_members_patient_fk")
+  tenants       tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_family_members_tenant")
 
   @@index([patient_uid], map: "idx_family_members_patient_uid")
+  @@index([tenant_id], map: "idx_family_members_tenant_id")
 }
 
 model feedback {
@@ -4867,8 +4913,11 @@ model hipaa_access_log {
   actor_uid           String?  @db.Uuid
   subject_uid         String?  @db.Uuid
   acting_as_dependent Boolean  @default(false)
+  tenant_id           String   @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants             tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_hipaa_access_log_tenant")
 
   @@index([accessed_at(sort: Desc)], map: "idx_hipaa_access_recent")
+  @@index([tenant_id], map: "idx_hipaa_access_log_tenant_id")
 }
 
 model hospitals {
@@ -4995,11 +5044,14 @@ model infection_cases {
   reported_by            String    @db.Uuid
   created_at             DateTime  @default(now()) @db.Timestamptz(6)
   updated_at             DateTime  @default(now()) @db.Timestamptz(6)
+  tenant_id              String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants                tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_infection_cases_tenant")
 
   @@index([detection_date(sort: Desc)], map: "idx_infection_cases_detection_date")
   @@index([organism], map: "idx_infection_cases_organism")
   @@index([patient_uid], map: "idx_infection_cases_patient_uid")
   @@index([status], map: "idx_infection_cases_status")
+  @@index([tenant_id], map: "idx_infection_cases_tenant_id")
 }
 
 model insurance_claims {
@@ -5022,9 +5074,11 @@ model insurance_claims {
   rejection_reason                   String?
   created_at                         DateTime                             @default(now()) @db.Timestamp(6)
   updated_at                         DateTime                             @db.Timestamp(6)
+  tenant_id                          String                               @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   clinical_ai_appeal_letters         clinical_ai_appeal_letters[]
   clinical_ai_payer_variance_reviews clinical_ai_payer_variance_reviews[]
   insurance_claim_caps               insurance_claim_caps[]
+  tenants                            tenants                              @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_insurance_claims_tenant")
   parent_claim                       insurance_claims?                    @relation("InsuranceClaimEnhancement", fields: [parent_claim_id], references: [id], onUpdate: NoAction)
   child_claims                       insurance_claims[]                   @relation("InsuranceClaimEnhancement")
 
@@ -5033,6 +5087,7 @@ model insurance_claims {
   @@index([submitted_at])
   @@index([parent_claim_id])
   @@index([stage])
+  @@index([tenant_id], map: "idx_insurance_claims_tenant_id")
 }
 
 model insurance_claim_caps {
@@ -5461,7 +5516,9 @@ model invoices {
   due_date             DateTime?              @db.Date
   created_at           DateTime               @default(now()) @db.Timestamp(6)
   updated_at           DateTime               @db.Timestamp(6)
+  tenant_id            String                 @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   claim_denials        claim_denials[]
+  tenants              tenants                @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_invoices_tenant")
   payment_transactions payment_transactions[]
 
   @@index([invoice_number])
@@ -5469,6 +5526,7 @@ model invoices {
   @@index([patient_uid])
   @@index([payment_status])
   @@index([type])
+  @@index([tenant_id], map: "idx_invoices_tenant_id")
 }
 
 model leave_applications {
@@ -5642,9 +5700,12 @@ model medication_reminders {
   notes           String?
   created_at      DateTime  @default(now()) @db.Timestamp(6)
   updated_at      DateTime  @default(now()) @db.Timestamp(6)
+  tenant_id       String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_medication_reminders_tenant")
   users           users     @relation(fields: [patient_uid], references: [uid], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([start_date], map: "idx_medication_reminders_start_date")
+  @@index([tenant_id], map: "idx_medication_reminders_tenant_id")
 }
 
 model medications {
@@ -5945,13 +6006,17 @@ model ot_schedules {
   complications              String?
   created_at                 DateTime?                    @default(now()) @db.Timestamptz(6)
   updated_at                 DateTime?                    @default(now()) @db.Timestamptz(6)
+  tenant_id                  String                       @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   anesthesia_records         anesthesia_records[]
   intraop_notes              intraop_notes[]
+  tenants                    tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ot_schedules_tenant")
   postop_complication_alerts postop_complication_alerts[]
   postop_notes               postop_notes[]
   preop_checklists           preop_checklists[]
   surgical_implants          surgical_implants[]
   surgical_safety_checklists surgical_safety_checklists[]
+
+  @@index([tenant_id], map: "idx_ot_schedules_tenant_id")
 }
 
 model otp_logs {
@@ -6144,9 +6209,12 @@ model patient_consents {
   witness_name    String?   @db.VarChar(160)
   witness_uid     String?   @db.Uuid
   form_language   String?   @db.VarChar(20)
+  tenant_id       String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants         tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_consents_tenant")
 
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_patient_consents_patient_created")
   @@index([consent_type, status], map: "idx_patient_consents_type_status")
+  @@index([tenant_id], map: "idx_patient_consents_tenant_id")
 }
 
 model patient_data_rights_requests {
@@ -6162,9 +6230,12 @@ model patient_data_rights_requests {
   completed_at   DateTime? @db.Timestamptz(6)
   created_at     DateTime  @default(now()) @db.Timestamptz(6)
   updated_at     DateTime  @default(now()) @db.Timestamptz(6)
+  tenant_id      String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants        tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_data_rights_requests_tenant")
 
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_data_rights_patient_created")
   @@index([status, due_at], map: "idx_data_rights_status_due")
+  @@index([tenant_id], map: "idx_patient_data_rights_requests_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -7026,10 +7097,13 @@ model prescription_safety_overrides {
   approved_by     Int?
   created_by      Int?
   created_at      DateTime         @default(now()) @db.Timestamptz(6)
+  tenant_id       String           @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants         tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_prescription_safety_overrides_tenant")
   e_prescriptions e_prescriptions? @relation(fields: [prescription_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([created_at(sort: Desc)], map: "idx_rx_overrides_created_at")
   @@index([patient_id], map: "idx_rx_overrides_patient")
+  @@index([tenant_id], map: "idx_prescription_safety_overrides_tenant_id")
 }
 
 model prescriptions {
@@ -7067,12 +7141,15 @@ model quality_incidents {
   resolved_at       DateTime? @db.Timestamptz(6)
   created_at        DateTime  @default(now()) @db.Timestamptz(6)
   updated_at        DateTime  @default(now()) @db.Timestamptz(6)
+  tenant_id         String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants           tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_quality_incidents_tenant")
 
   @@index([created_at(sort: Desc)], map: "idx_quality_incidents_created_at")
   @@index([patient_uid], map: "idx_quality_incidents_patient_uid")
   @@index([severity], map: "idx_quality_incidents_severity")
   @@index([status], map: "idx_quality_incidents_status")
   @@index([incident_type], map: "idx_quality_incidents_type")
+  @@index([tenant_id], map: "idx_quality_incidents_tenant_id")
 }
 
 model radiology_orders {
@@ -7098,6 +7175,10 @@ model radiology_orders {
   tech_name            String?   @db.VarChar(160)
   report_signed_off_at DateTime? @db.Timestamptz(6)
   report_signed_off_by String?   @db.Uuid
+  tenant_id            String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants              tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_radiology_orders_tenant")
+
+  @@index([tenant_id], map: "idx_radiology_orders_tenant_id")
 }
 
 model referrals {
@@ -7124,6 +7205,8 @@ model referrals {
   performer_id                              String?   @db.Uuid
   clinical_notes                            String?
   notes                                     String?
+  tenant_id                                 String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants                                   tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_referrals_tenant")
   users_referrals_accepted_byTousers        users?    @relation("referrals_accepted_byTousers", fields: [accepted_by], references: [uid], onUpdate: NoAction)
   users_referrals_patient_uidTousers        users     @relation("referrals_patient_uidTousers", fields: [patient_uid], references: [uid], onDelete: NoAction, onUpdate: NoAction)
   users_referrals_referred_to_doctorTousers users?    @relation("referrals_referred_to_doctorTousers", fields: [referred_to_doctor], references: [uid], onUpdate: NoAction)
@@ -7135,6 +7218,7 @@ model referrals {
   @@index([referring_doctor], map: "idx_referrals_referring_doctor")
   @@index([status], map: "idx_referrals_status")
   @@index([urgency], map: "idx_referrals_urgency")
+  @@index([tenant_id], map: "idx_referrals_tenant_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -7625,9 +7709,12 @@ model staff_messages {
   is_read       Boolean?  @default(false)
   read_at       DateTime? @db.Timestamp(6)
   created_at    DateTime? @default(now()) @db.Timestamp(6)
+  tenant_id     String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tenants       tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_staff_messages_tenant")
 
   @@index([recipient_uid, created_at(sort: Desc)], map: "idx_staff_messages_recipient")
   @@index([sender_uid, created_at(sort: Desc)], map: "idx_staff_messages_sender")
+  @@index([tenant_id], map: "idx_staff_messages_tenant_id")
 }
 
 model staff_onboarding_tasks {
@@ -8069,25 +8156,34 @@ model tenants {
   abdm_care_contexts                         abdm_care_contexts[]
   abdm_consent_artifacts                     abdm_consent_artifacts[]
   abdm_consent_requests                      abdm_consent_requests[]
+  abdm_consents                              abdm_consents[]
+  abdm_data_requests                         abdm_data_requests[]
   abdm_data_transfers                        abdm_data_transfers[]
   abdm_facility_mappings                     abdm_facility_mappings[]
   abdm_practitioner_mappings                 abdm_practitioner_mappings[]
   abdm_webhook_events                        abdm_webhook_events[]
   abha_profiles                              abha_profiles[]
   admissions                                 admissions[]
+  allergies                                  allergies[]
   ambulance_requests                         ambulance_requests[]
   anesthesia_records                         anesthesia_records[]
   api_clients                                api_clients[]
   api_keys                                   api_keys[]
+  appointment_documents                      appointment_documents[]
   appointments                               appointments[]
   approvals                                  approvals[]
   automation_rules                           automation_rules[]
+  bed_transfers                              bed_transfers[]
+  beds                                       beds[]
+  blood_requests                             blood_requests[]
   care_plan_activities                       care_plan_activities[]
   care_plan_goals                            care_plan_goals[]
   care_plan_review_log                       care_plan_review_log[]
   care_plans                                 care_plans[]
+  cds_alerts                                 cds_alerts[]
   chat_session_messages                      chat_session_messages[]
   chat_sessions                              chat_sessions[]
+  claim_denials                              claim_denials[]
   clinical_ai_acuity_staffing_forecasts      clinical_ai_acuity_staffing_forecasts[]
   clinical_ai_agent_health_reports           clinical_ai_agent_health_reports[]
   clinical_ai_agent_registry                 clinical_ai_agent_registry[]
@@ -8182,19 +8278,27 @@ model tenants {
   data_processing_activities                 data_processing_activities[]
   data_retention_policies                    data_retention_policies[]
   diagnoses                                  diagnoses[]
+  diet_orders                                diet_orders[]
+  discharge_consults                         discharge_consults[]
+  downtime_snapshots                         downtime_snapshots[]
   e_prescriptions                            e_prescriptions[]
   emergency_visits                           emergency_visits[]
   encryption_keys                            encryption_keys[]
   escalation_rules                           escalation_rules[]
+  event_outbox                               event_outbox[]
   external_system_mappings                   external_system_mappings[]
   facilities                                 facilities[]
   facility_locations                         facility_locations[]
   facility_rooms                             facility_rooms[]
   fall_risk_assessments                      fall_risk_assessments[]
+  family_members                             family_members[]
   follow_up_plans                            follow_up_plans[]
   growth_charts                              growth_charts[]
+  hipaa_access_log                           hipaa_access_log[]
   idempotency_keys                           idempotency_keys[]
   incident_reports                           incident_reports[]
+  infection_cases                            infection_cases[]
+  insurance_claims                           insurance_claims[]
   intake_output                              intake_output[]
   integration_credentials                    integration_credentials[]
   integration_logs                           integration_logs[]
@@ -8202,6 +8306,7 @@ model tenants {
   intraop_notes                              intraop_notes[]
   investigation_bookings                     investigation_bookings[]
   investigations                             investigations[]
+  invoices                                   invoices[]
   knowledge_access_policies                  knowledge_access_policies[]
   knowledge_bases                            knowledge_bases[]
   knowledge_chunks                           knowledge_chunks[]
@@ -8209,6 +8314,7 @@ model tenants {
   knowledge_retrieval_logs                   knowledge_retrieval_logs[]
   medical_records                            medical_records[]
   medication_administrations                 medication_administrations[]
+  medication_reminders                       medication_reminders[]
   mfa_backup_codes                           mfa_backup_codes[]
   mfa_challenges                             mfa_challenges[]
   mfa_devices                                mfa_devices[]
@@ -8216,12 +8322,15 @@ model tenants {
   news2_scores                               news2_scores[]
   numbering_series                           numbering_series[]
   nurse_handovers                            nurse_handovers[]
+  ot_schedules                               ot_schedules[]
   package_items                              package_items[]
   packages                                   packages[]
   pain_assessments                           pain_assessments[]
   patient_allergies                          patient_allergies[]
   patient_chat_conversations                 patient_chat_conversations[]
   patient_chat_messages                      patient_chat_messages[]
+  patient_consents                           patient_consents[]
+  patient_data_rights_requests               patient_data_rights_requests[]
   patient_duplicate_candidates               patient_duplicate_candidates[]
   patient_identifiers                        patient_identifiers[]
   patient_merge_requests                     patient_merge_requests[]
@@ -8243,7 +8352,11 @@ model tenants {
   postop_complication_alerts                 postop_complication_alerts[]
   postop_notes                               postop_notes[]
   preop_checklists                           preop_checklists[]
+  prescription_safety_overrides              prescription_safety_overrides[]
   prescriptions                              prescriptions[]
+  quality_incidents                          quality_incidents[]
+  radiology_orders                           radiology_orders[]
+  referrals                                  referrals[]
   remote_prescriptions                       remote_prescriptions[]
   service_catalog                            service_catalog[]
   sla_definitions                            sla_definitions[]
@@ -8251,6 +8364,7 @@ model tenants {
   smart_apps                                 smart_apps[]
   smart_authz_codes                          smart_authz_codes[]
   staff_grievances                           staff_grievances[]
+  staff_messages                             staff_messages[]
   staff_roster_preferences                   staff_roster_preferences[]
   staff_roster_runs                          staff_roster_runs[]
   surgical_implants                          surgical_implants[]
