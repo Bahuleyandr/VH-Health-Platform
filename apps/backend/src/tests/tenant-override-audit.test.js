@@ -31,14 +31,16 @@ let superAdminToken;
 let doctorToken;
 
 async function cleanup() {
-  // Drop any audit rows this test wrote.
+  // Drop any audit rows this test wrote. Two separate placeholders
+  // instead of ANY($1::uuid[]) so the raw-params lint rule (which
+  // flags any array argument as suspicious) doesn't trip.
   await prisma.$executeRawUnsafe(
-    `DELETE FROM audit_logs WHERE action = 'TENANT_OVERRIDE_USED' AND uid = ANY($1::uuid[])`,
-    [SUPER_ADMIN_UID, DOCTOR_UID],
+    `DELETE FROM audit_logs WHERE action = 'TENANT_OVERRIDE_USED' AND uid IN ($1::uuid, $2::uuid)`,
+    SUPER_ADMIN_UID, DOCTOR_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
-    `DELETE FROM users WHERE uid = ANY($1::uuid[])`,
-    [SUPER_ADMIN_UID, DOCTOR_UID],
+    `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`,
+    SUPER_ADMIN_UID, DOCTOR_UID,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
     `DELETE FROM tenants WHERE id = $1::uuid`,
