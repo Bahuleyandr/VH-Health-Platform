@@ -11,7 +11,16 @@ export const investigationRequestValidator = [
   body('test_name').notEmpty().trim().withMessage('Test name is required'),
   body('test_code').optional().trim().isLength({ max: 50 }).withMessage('Test code too long'),
   body('type').optional().isIn(Object.values(INVESTIGATION_TYPES)).withMessage('Invalid investigation type'),
-  body('priority').optional().isIn(Object.values(PRIORITY_LEVELS)).withMessage('Invalid priority level'),
+  // ROUTINE is the clinical-language alias for NORMAL. Integrators sending
+  // HL7 / FHIR-derived priorities use ROUTINE; the backend normalises to
+  // NORMAL in investigationService before persistence so storage stays
+  // consistent. Finding:
+  //   2026-05-09-obstetric-anc-doctor-investigation-priority-enum-mismatch
+  body('priority')
+    .optional()
+    .customSanitizer((v) => (String(v).toUpperCase() === 'ROUTINE' ? 'NORMAL' : v))
+    .isIn(Object.values(PRIORITY_LEVELS))
+    .withMessage('Invalid priority level (use STAT/URGENT/HIGH/NORMAL/LOW; ROUTINE is accepted as an alias for NORMAL)'),
   body('scheduled_date')
   .optional()
   .isISO8601()

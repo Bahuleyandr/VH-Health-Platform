@@ -117,12 +117,21 @@ router.post(
 
 // ---------------------------------------------------------------------------
 // POST /:id/ready — Mark bed as ready (cleaning complete)
+//
+// Optional body fields are persisted to audit_logs so an auditor can later
+// reconstruct who closed the cleaning loop with what proof:
+//   { cleaning_ticket_id?: string, cleaner_id?: string|number, notes?: string }
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/ready',
   wrapAsync(async (req, res) => {
     const bedId = parseInt(req.params.id, 10);
-    const bed = await bedManagementService.markBedReady(bedId);
+    const bed = await bedManagementService.markBedReady(bedId, {
+      actorUid: req.user?.uid || null,
+      cleaningTicketId: req.body?.cleaning_ticket_id || null,
+      cleanerId: req.body?.cleaner_id || null,
+      notes: req.body?.notes || null,
+    });
     success(res, { bed }, 'Bed marked as available');
   })
 );
