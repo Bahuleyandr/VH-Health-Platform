@@ -81,8 +81,13 @@ jobs:
       - name: Drive rebuild + rollout on dalekdefender
         if: steps.prereq.outputs.skip != 'true'
         env:
-          # Set by the previous step; default Tailscale MagicDNS hostname.
-          DALEK_HOST: dalekdefender
+          # Tailscale SSH is active on dalekdefender — it intercepts port 22
+          # connections and tries to map them onto a local user. The runner's
+          # default OS user is `runner`, which doesn't exist on dalekdefender.
+          # Specify the host user explicitly so Tailscale SSH accepts.
+          # `bahuleyan` owns ~/VH-Health-Platform and the sudo-no-password
+          # entries for docker/kubectl used by the deploy commands.
+          DALEK_HOST: bahuleyan@dalekdefender
         run: |
           set -euo pipefail
           ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 \
