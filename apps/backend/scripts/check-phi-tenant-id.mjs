@@ -29,51 +29,19 @@ const SCHEMA_PATH = path.resolve(__dirname, '..', 'prisma', 'schema.prisma');
 
 // Tables explicitly known to be PHI but allowed to skip the column check.
 //
-// PHASE-1 BASELINE (2026-05-18): the 40 tables below were already missing
-// tenant_id when Phase 1 of the tenant RLS rollout landed (migration 236
-// addressed the 7 highest-value PHI tables: appointments, admissions,
-// clinical_notes, prescriptions, e_prescriptions, investigations,
-// vitals_chart). Migration 238 then moved the next 13 (clinical_alerts,
-// clinical_orders, diagnoses, intake_output, investigation_bookings,
-// medical_records, medication_administrations, news2_scores,
-// nurse_handovers, patient_allergies, patient_records, patient_vitals,
-// pharmacy_orders) out of this allowlist. The 27 below remain in
-// Phase-2 of docs/GAP_ANALYSIS_TENANT_RLS.md — they're master / ops /
-// audit / ABDM / claim-billing tables that either don't need per-tenant
-// scoping or need per-table review.
+// PHI tenant-scoping is fully closed as of 2026-05-19. The historical
+// baseline (40 missing tables at Phase-1 land time) was retired across
+// three migrations:
+//   * 236 (Phase 1, 2026-05-17) — 7 highest-value PHI tables
+//   * 238 (Phase 2b, 2026-05-18) — 13 patient-linked PHI tables
+//   * 239 (Phase 2c, 2026-05-19) — final 27 residual tables
 //
-// The check still fails on any NEW PHI-shaped table added without
-// tenant_id — the allowlist is closed: contributors must explicitly opt
-// out with a comment explaining why.
-const ALLOWLIST = new Set([
-  'abdm_consents',
-  'abdm_data_requests',
-  'allergies',
-  'appointment_documents',
-  'bed_transfers',
-  'beds',
-  'blood_requests',
-  'cds_alerts',
-  'claim_denials',
-  'diet_orders',
-  'discharge_consults',
-  'downtime_snapshots',
-  'event_outbox',
-  'family_members',
-  'hipaa_access_log',
-  'infection_cases',
-  'insurance_claims',
-  'invoices',
-  'medication_reminders',
-  'ot_schedules',
-  'patient_consents',
-  'patient_data_rights_requests',
-  'prescription_safety_overrides',
-  'quality_incidents',
-  'radiology_orders',
-  'referrals',
-  'staff_messages',
-]);
+// The allowlist is intentionally empty: any NEW PHI-shaped table added
+// without `tenant_id` fails this check immediately. If a contributor
+// has a genuine case for a non-tenant-scoped PHI table (extremely
+// rare — almost everything PHI-shaped is per-tenant), add it here
+// with a comment explaining why.
+const ALLOWLIST = new Set([]);
 
 function readSchemaModels() {
   if (!fs.existsSync(SCHEMA_PATH)) {
