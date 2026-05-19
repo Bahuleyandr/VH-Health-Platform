@@ -303,8 +303,13 @@ class BedManagementService {
 
   // =========================================================================
   // markBedReady — Cleaning complete, set bed to available
+  //
+  // Writes an audit_logs row capturing actor + optional cleaning evidence
+  // (ticket, cleaner, free-text notes) so a later auditor can prove who
+  // closed the cleaning loop. Finding:
+  //   2026-05-09-inpatient-admission-housekeeping-bed-ready-no-proof-required
   // =========================================================================
-  async markBedReady(bedId) {
+  async markBedReady(bedId, { actorUid = null, cleaningTicketId = null, cleanerId = null, notes = null } = {}) {
     const rows = await prisma.$queryRawUnsafe(
       `UPDATE beds
        SET status = 'available', updated_at = NOW()
@@ -327,7 +332,31 @@ class BedManagementService {
       );
     }
 
-    logger.info(`Bed ${bedId} marked as available`);
+    // Fire-and-forget audit log — failure must not block bed availability.
+    setImmediate(async () => {
+      try {
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO audit_logs (uid, action, resource, resource_id, metadata)
+           VALUES ($1::uuid, 'BED_MARKED_READY', 'bed', $2, $3::jsonb)`,
+          actorUid ? String(actorUid) : null,
+          String(bedId),
+          JSON.stringify({
+            prior_status: 'cleaning',
+            new_status: 'available',
+            bed_number: rows[0].bed_number,
+            ward_id: rows[0].ward_id,
+            cleaning_ticket_id: cleaningTicketId || null,
+            cleaner_id: cleanerId || null,
+            notes: notes || null,
+            transition_at: new Date().toISOString(),
+          })
+        );
+      } catch (err) {
+        logger.warn(`markBedReady: audit log failed for bed ${bedId}: ${err.message}`);
+      }
+    });
+
+    logger.info(`Bed ${bedId} marked as available by ${actorUid || 'unknown'}`);
     return rows[0];
   }
 
