@@ -1367,6 +1367,32 @@ export const registerWalkIn = async (req, res) => {
         }
       }
 
+      // Same-day duplicate detection — pre-flight check. The receptionist
+      // walking the patient through registration twice in the same minute
+      // is a real workflow (paper-then-system, hand-off swap, accidental
+      // resubmit) and should produce a visible warning rather than
+      // silently creating a second active appointment + duplicate token
+      // number for the doctor's queue. Find any non-cancelled same-day
+      // visits for this patient with the same doctor — surface them on
+      // the response so the admin UI can banner "Patient already has 1
+      // open visit today — view existing? / create another anyway?".
+      //
+      // Finding: 2026-05-15-follow-up-opd-receptionist-35d7694d.
+      let sameDayDuplicates = [];
+      if (patientId) {
+        sameDayDuplicates = await tx.$queryRawUnsafe(
+          `SELECT id, visit_no, status, doctor_id, appointment_time, created_at
+             FROM appointments
+            WHERE patient_id = $1::int
+              AND appointment_date::date = CURRENT_DATE
+              AND status NOT IN ('CANCELLED', 'NO_SHOW')
+              AND ($2::int IS NULL OR doctor_id = $2::int)
+            ORDER BY created_at ASC`,
+          patientId,
+          resolvedDoctorIdForInsert || null,
+        );
+      }
+
       // appointments has no `confirmed_by` column. created_by is uuid.
       // phone, appointment_date, appointment_time, updated_at are NOT NULL.
       // E-10 — visit_type + parent_appointment_id captured at walk-in time
@@ -1467,7 +1493,17 @@ export const registerWalkIn = async (req, res) => {
       // the OB doctor's chart open + the new prior-orders endpoint
       // have a pregnancy_id to attach to. Skipped if lmp_date is
       // missing (walk-in might just be a routine OBGYN consult).
-      if (deptPrefix(appointmentDepartment) === 'ANC' && lmp_date) {
+      //
+      // Trigger when the receptionist provides an explicit lmp_date —
+      // that's the unambiguous "this is an ANC visit" signal,
+      // independent of how the department prefix landed (OBGYN /
+      // GYNECOLOGY / unspecified). Without this, the receptionist had
+      // to make a second POST to /maternity/pregnancies before any
+      // GA / supplement / timeline view worked.
+      // Findings:
+      //   2026-05-15-obstetric-anc-receptionist-6b88aaaa
+      //   2026-05-16-obstetric-anc-receptionist-4d685e54
+      if (lmp_date) {
         // Cast the bound `id` parameter explicitly so a Prisma binding that
         // ever lands as text doesn't trigger `operator does not exist:
         // integer = text` against `users.id`. See finding
@@ -1614,6 +1650,21 @@ export const registerWalkIn = async (req, res) => {
         allergies: allergyRows.map((a) => ({
           allergy_name: a.allergy_name,
           severity: a.severity ?? null,
+        })),
+        // Same-day duplicate signal. Empty array when this is the
+        // patient's first visit today. Populated array means the admin
+        // UI should banner the receptionist before they hand the slip
+        // to the patient (the row is already created — surfacing this
+        // post-hoc lets the receptionist immediately cancel + redirect
+        // to the existing visit, rather than the duplicate going
+        // unnoticed and ending up in the doctor's queue twice).
+        same_day_duplicate_count: sameDayDuplicates.length,
+        same_day_duplicates: sameDayDuplicates.map((d) => ({
+          id: d.id,
+          visit_no: d.visit_no,
+          status: d.status,
+          appointment_time: d.appointment_time,
+          created_at: d.created_at,
         })),
       };
     });
