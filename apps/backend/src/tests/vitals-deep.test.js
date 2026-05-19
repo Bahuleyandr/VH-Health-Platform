@@ -197,7 +197,9 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
         notes: 'PATCH alias works',
       });
       expect(res.statusCode).toBe(200);
-      expect(res.body.data.pain_score).toBe(3);
+      // pain_score is a NUMERIC column and Prisma serialises it as a
+      // string; match the same pattern other vitals tests use.
+      expect(Number(res.body.data.pain_score)).toBe(3);
       expect(res.body.data.notes).toBe('PATCH alias works');
 
       const latest = await doctor.get(`/api/v1/emr/vitals/${PATIENT_UID}/latest`);
