@@ -215,7 +215,9 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
         RECORDER_UID, String(normalVitalsId));
       expect(auditRows.length).toBe(1);
       expect(auditRows[0].resource).toBe('vitals_chart');
-      expect(auditRows[0].metadata.corrected_fields).toContain('temperature');
+      // The most-recent audit row is this PATCH (the prior test's PUT only
+      // touched temperature + notes). Assert on what *this* call mutated.
+      expect(auditRows[0].metadata.corrected_fields).toContain('pain_score');
     });
 
     it('accepts patient_id when patient_uid is not supplied', async () => {
