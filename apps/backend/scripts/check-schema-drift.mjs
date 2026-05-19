@@ -87,11 +87,15 @@ try {
     { cwd: backendRoot, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' },
   );
   // Truncate overly long diffs so CI logs stay readable.
+  // Bumped 200 → 1000 to surface the full drift diff for migration 239
+  // (Phase 2c — 27 PHI tables in one migration). Revert to 200 in a
+  // follow-up commit once that schema patch has landed.
   const diffOut = (diffResult.stdout || '').split('\n');
-  const preview = diffOut.slice(0, 200).join('\n');
+  const PREVIEW_LIMIT = 1000;
+  const preview = diffOut.slice(0, PREVIEW_LIMIT).join('\n');
   console.error(preview);
-  if (diffOut.length > 200) {
-    console.error(`... (${diffOut.length - 200} more lines)`);
+  if (diffOut.length > PREVIEW_LIMIT) {
+    console.error(`... (${diffOut.length - PREVIEW_LIMIT} more lines)`);
   }
   process.exit(1);
 } finally {
