@@ -29,46 +29,19 @@ const SCHEMA_PATH = path.resolve(__dirname, '..', 'prisma', 'schema.prisma');
 
 // Tables explicitly known to be PHI but allowed to skip the column check.
 //
-// PHI tenant-scoping is closing in three landed migrations:
+// PHI tenant-scoping is fully closed as of 2026-05-19. The historical
+// baseline (40 missing tables at Phase-1 land time) was retired across
+// three migrations:
 //   * 236 (Phase 1, 2026-05-17) — 7 highest-value PHI tables
 //   * 238 (Phase 2b, 2026-05-18) — 13 patient-linked PHI tables
-//   * 239 (Phase 2c, 2026-05-19) — final 27 residual tables (THIS PR)
+//   * 239 (Phase 2c, 2026-05-19) — final 27 residual tables
 //
-// Phase 2c migration 239 adds the columns on the DB side, but the
-// schema.prisma regen needs CI's drift-check output to align cleanly
-// (same iteration loop we used for PR #123 / migration 238). Until the
-// schema patch lands, these 27 tables stay temporarily allow-listed
-// so the check-phi-tenant-id static check passes. They get moved out
-// of this allowlist in the same PR's follow-up schema-patch commit.
-const ALLOWLIST = new Set([
-  'abdm_consents',
-  'abdm_data_requests',
-  'allergies',
-  'appointment_documents',
-  'bed_transfers',
-  'beds',
-  'blood_requests',
-  'cds_alerts',
-  'claim_denials',
-  'diet_orders',
-  'discharge_consults',
-  'downtime_snapshots',
-  'event_outbox',
-  'family_members',
-  'hipaa_access_log',
-  'infection_cases',
-  'insurance_claims',
-  'invoices',
-  'medication_reminders',
-  'ot_schedules',
-  'patient_consents',
-  'patient_data_rights_requests',
-  'prescription_safety_overrides',
-  'quality_incidents',
-  'radiology_orders',
-  'referrals',
-  'staff_messages',
-]);
+// The allowlist is intentionally empty: any NEW PHI-shaped table added
+// without `tenant_id` fails this check immediately. If a contributor
+// has a genuine case for a non-tenant-scoped PHI table (extremely
+// rare — almost everything PHI-shaped is per-tenant), add it here
+// with a comment explaining why.
+const ALLOWLIST = new Set([]);
 
 function readSchemaModels() {
   if (!fs.existsSync(SCHEMA_PATH)) {
