@@ -31,6 +31,31 @@ router.get('/ping', (_req, res) => {
   });
 });
 
+// GET /health/version — reports the deployed git commit + build timestamp.
+//
+// Lets the vh-health-swarm's auditor compare the live deploy against
+// latest main before filing a finding — if main has moved past the
+// deploy, the auditor stamps a `live_commit_lag: true` flag on the
+// finding's frontmatter so the human-triage step can defer/drop it.
+// Stops the swarm from re-filing already-fixed bugs (the 2026-05-15→16
+// burst was 73% stale-by-existing-code purely from deploy lag).
+//
+// GIT_COMMIT is injected at image-build time by the deploy workflow
+// (.github/workflows/deploy-dalekdefender.yml + the Argo overlays).
+// Falls back to "unknown" if the env var wasn't set so callers can
+// still parse the shape; they should treat "unknown" as "can't verify
+// freshness" and proceed cautiously.
+router.get('/version', (_req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    commit: process.env.GIT_COMMIT || 'unknown',
+    branch: process.env.GIT_BRANCH || 'main',
+    built_at: process.env.GIT_BUILT_AT || null,
+    node_env: process.env.NODE_ENV || 'unknown',
+    uptime_seconds: Math.round((Date.now() - startTime) / 1000),
+  });
+});
+
 // GET /health/live — Kubernetes liveness/startup probe alias for /ping.
 router.get('/live', (_req, res) => {
   res.status(200).json({
