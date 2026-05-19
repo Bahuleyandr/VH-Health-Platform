@@ -52,9 +52,19 @@ export const createInvestigationOrder = async (orderData) => {
   if (!Object.values(INVESTIGATION_TYPES).includes(type.toUpperCase())) {
     throw new Error('INVALID_TYPE');
   }
-  if (!Object.values(PRIORITY_LEVELS).includes(priority.toUpperCase())) {
+  // ROUTINE is the clinical-language alias for NORMAL — accept either
+  // and persist as NORMAL so storage stays consistent. Mirrors the
+  // sanitizer at the validator layer for callers that bypass it.
+  // Finding: 2026-05-09-obstetric-anc-doctor-investigation-priority-enum-mismatch
+  let priorityNormalised = String(priority).toUpperCase();
+  if (priorityNormalised === 'ROUTINE') priorityNormalised = 'NORMAL';
+  if (!Object.values(PRIORITY_LEVELS).includes(priorityNormalised)) {
     throw new Error('INVALID_PRIORITY');
   }
+  // Replace the working `priority` variable so all downstream writes use
+  // the normalised form, not the original 'ROUTINE'.
+  // eslint-disable-next-line no-param-reassign
+  priority = priorityNormalised;
 
   // Prisma ORM — column names checked at runtime against schema.prisma so a
   // typo like `.findUnique({ where: { user_id: ... } })` fails loudly.
