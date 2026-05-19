@@ -10,8 +10,14 @@ import { AppError } from '../utils/AppError.js';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isSuperAdmin(req) {
+  // jwtMiddleware.normalizeRole collapses 'SUPER_ADMIN' → 'ADMIN' for
+  // route-RBAC simplicity, but stashes the original on `rawRole`. We
+  // check both so the override path works whether the caller arrived
+  // through the JWT chain (role='ADMIN', rawRole='SUPER_ADMIN') or
+  // a non-JWT auth path that set role directly.
   const role = String(req.user?.role || '').toUpperCase();
-  return role === 'SUPER_ADMIN';
+  const rawRole = String(req.user?.rawRole || '').toUpperCase();
+  return role === 'SUPER_ADMIN' || rawRole === 'SUPER_ADMIN';
 }
 
 function normalizeUuid(value) {
