@@ -20,6 +20,7 @@ function doctorAs(uid = RECORDER_UID) {
     get: (p) => request(app).get(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     put: (p) => request(app).put(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
+    patch: (p) => request(app).patch(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
   };
 }
 
@@ -184,6 +185,22 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       expect(res.statusCode).toBe(200);
       expect(parseFloat(res.body.data.temperature)).toBe(36.9);
       expect(res.body.data.notes).toBe('Corrected within 5 minutes');
+    });
+
+    it('accepts PATCH as an alias of PUT for partial corrections', async () => {
+      // The HTTP-correct verb for a partial update is PATCH, and at least
+      // one swarm finding (surgical-day-care-nurse-3f022b39) saw nurses
+      // get a 404 because only PUT was wired. Both verbs route to the same
+      // handler so a PATCH-flavoured client gets identical semantics.
+      const res = await doctor.patch(`/api/v1/emr/vitals/${normalVitalsId}`).send({
+        pain_score: 3,
+        notes: 'PATCH alias works',
+      });
+      expect(res.statusCode).toBe(200);
+      // pain_score is a NUMERIC column and Prisma serialises it as a
+      // string; match the same pattern other vitals tests use.
+      expect(Number(res.body.data.pain_score)).toBe(3);
+      expect(res.body.data.notes).toBe('PATCH alias works');
 
       const latest = await doctor.get(`/api/v1/emr/vitals/${PATIENT_UID}/latest`);
       expect(latest.statusCode).toBe(200);
@@ -198,7 +215,9 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
         RECORDER_UID, String(normalVitalsId));
       expect(auditRows.length).toBe(1);
       expect(auditRows[0].resource).toBe('vitals_chart');
-      expect(auditRows[0].metadata.corrected_fields).toContain('temperature');
+      // The most-recent audit row is this PATCH (the prior test's PUT only
+      // touched temperature + notes). Assert on what *this* call mutated.
+      expect(auditRows[0].metadata.corrected_fields).toContain('pain_score');
     });
 
     it('accepts patient_id when patient_uid is not supplied', async () => {

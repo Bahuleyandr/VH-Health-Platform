@@ -78,10 +78,19 @@ router.post('/vitals', async (req, res, next) => {
 });
 
 // ===================================================================
-// PUT /emr/vitals/:vitalsId — Correct vitals within entry window
+// PUT/PATCH /emr/vitals/:vitalsId — Correct vitals within entry window
+//
+// Both verbs are accepted intentionally: clients in the wild use both PUT
+// (full replace) and PATCH (partial update) to fix mistyped vitals. The
+// service treats the body as a sparse patch in either case — only fields
+// that are present are mutated, so PATCH and PUT behave identically.
+// Without the PATCH route the request fell through to Express's default
+// 404 ("Cannot PATCH /api/v1/emr/vitals/30") for nurses who chose the
+// HTTP-correct partial-update verb. Finding:
+// 2026-05-15-surgical-day-care-nurse-3f022b39.
 // ===================================================================
 
-router.put('/vitals/:vitalsId', async (req, res, next) => {
+async function handleVitalsCorrection(req, res, next) {
   try {
     const { vitalsId } = req.params;
     const result = await vitalsChartService.correctVitals(vitalsId, {
@@ -104,7 +113,10 @@ router.put('/vitals/:vitalsId', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
-});
+}
+
+router.put('/vitals/:vitalsId', handleVitalsCorrection);
+router.patch('/vitals/:vitalsId', handleVitalsCorrection);
 
 // ===================================================================
 // GET /emr/vitals/:patientUid/latest — Latest vitals
