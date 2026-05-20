@@ -90,7 +90,7 @@ function normalizeNotePayload(body) {
 
 router.post('/notes', async (req, res, next) => {
   try {
-    const { encounter_id, author_role } = req.body;
+    const { encounter_id, appointment_id, author_role } = req.body;
     const patient_uid = await resolvePatientUidFromBody(req.body);
     const { note_type, content } = normalizeNotePayload(req.body);
 
@@ -100,6 +100,7 @@ router.post('/notes', async (req, res, next) => {
 
     const note = await clinicalNotesService.createNote({
       encounter_id: encounter_id || null,
+      appointment_id: appointment_id ?? null,
       patient_uid,
       author_uid: req.user.uid,
       author_role: author_role || req.user.role,

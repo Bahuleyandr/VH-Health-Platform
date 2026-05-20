@@ -130,9 +130,12 @@ router.post(
 router.post(
   '/ward-indents',
   wrapAsync(async (req, res) => {
-    const { ward_id, indent_type, items, notes } = req.body ?? {};
+    const { ward_id, admission_id, encounter_id, patient_uid, indent_type, items, notes } = req.body ?? {};
     const indent = await ipdSupportService.createWardIndent({
       wardId: ward_id ?? null,
+      admissionId: admission_id ?? null,
+      encounterId: encounter_id ?? null,
+      patientUid: patient_uid ?? null,
       indentType: indent_type ?? 'pharmacy',
       items,
       notes: notes ?? null,
@@ -145,13 +148,29 @@ router.post(
 router.get(
   '/ward-indents',
   wrapAsync(async (req, res) => {
-    const { ward_id, status, limit } = req.query ?? {};
+    const { ward_id, status, admission_id, patient_uid, limit } = req.query ?? {};
     const indents = await ipdSupportService.listWardIndents({
       wardId: ward_id ? Number.parseInt(ward_id, 10) : null,
       status: status ?? null,
+      admissionId: admission_id ? Number.parseInt(admission_id, 10) : null,
+      patientUid: patient_uid ?? null,
       limit: limit ? Number.parseInt(limit, 10) : 50,
     });
     success(res, { indents }, 'Ward indents retrieved');
+  })
+);
+
+router.get(
+  '/admissions/:id/ward-indents',
+  wrapAsync(async (req, res) => {
+    const admissionId = requireIntParam(req.params.id, 'admissionId');
+    const { status, limit } = req.query ?? {};
+    const indents = await ipdSupportService.listWardIndents({
+      admissionId,
+      status: status ?? null,
+      limit: limit ? Number.parseInt(limit, 10) : 50,
+    });
+    success(res, { indents }, 'Ward indents for admission retrieved');
   })
 );
 
