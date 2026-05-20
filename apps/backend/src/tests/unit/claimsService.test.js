@@ -10,6 +10,7 @@ import {
   extractPreauthCaps,
   FINAL_CASHLESS_REQUIRED_DOC_TYPES,
   recordPreauthResponse,
+  submitClaim,
   submitPreauth,
 } from '../../services/insurance/claimsService.js';
 
@@ -111,6 +112,88 @@ describe('createClaim validation + claimed_amount derivation', () => {
       createClaim({ ...validBase, claimed_amount: 0 }),
     ).rejects.toMatchObject({
       message: expect.stringMatching(/claimed_amount/i),
+    });
+  });
+
+  it('rejects a final cashless claim linked to a draft invoice', async () => {
+    const originalQueryRaw = prisma.$queryRawUnsafe;
+    prisma.$queryRawUnsafe = async (sql) => {
+      const text = String(sql);
+      if (text.includes('FROM billing_invoices')) {
+        return [{
+          id: 12,
+          status: 'DRAFT',
+          total_amount: 50000,
+          patient_uid: validBase.patient_uid,
+          admission_id: 44,
+        }];
+      }
+      throw new Error(`Unexpected query in draft-invoice claim test: ${text}`);
+    };
+
+    try {
+      await expect(
+        createClaim({
+          ...validBase,
+          invoice_id: 12,
+          admission_id: 44,
+          claim_type: 'cashless',
+          stage: 'final',
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        message: expect.stringMatching(/requires an issued invoice/i),
+      });
+    } finally {
+      prisma.$queryRawUnsafe = originalQueryRaw;
+    }
+  });
+});
+
+describe('submitClaim invoice state guard', () => {
+  const tenantId = '00000000-0000-4000-8000-000000000001';
+  const patientUid = '11111111-1111-4111-8111-111111111111';
+  let originalQueryRaw;
+
+  beforeEach(() => {
+    originalQueryRaw = prisma.$queryRawUnsafe;
+    prisma.$queryRawUnsafe = async (sql) => {
+      const text = String(sql);
+      if (text.includes('SELECT * FROM tpa_claims')) {
+        return [{
+          id: 9,
+          status: 'prepared',
+          claim_type: 'cashless',
+          stage: 'final',
+          invoice_id: 12,
+          patient_uid: patientUid,
+          admission_id: 44,
+          total_billed: 65000,
+        }];
+      }
+      if (text.includes('FROM billing_invoices')) {
+        return [{
+          id: 12,
+          status: 'DRAFT',
+          total_amount: 65000,
+          patient_uid: patientUid,
+          admission_id: 44,
+        }];
+      }
+      throw new Error(`Unexpected query in submitClaim invoice-state test: ${text}`);
+    };
+  });
+
+  afterEach(() => {
+    prisma.$queryRawUnsafe = originalQueryRaw;
+  });
+
+  it('rejects submission when the linked final bill is still draft', async () => {
+    await expect(
+      submitClaim({ tenantId, id: 9, submitted_by: patientUid }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringMatching(/requires an issued invoice/i),
     });
   });
 });

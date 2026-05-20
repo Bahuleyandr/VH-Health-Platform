@@ -773,6 +773,41 @@ export async function listPendingPreauths({ tenantId, limit = 100 }) {
 // Finding: 2026-05-09-tpa-insurance-claim-discharge-final-claim-stage-dropped
 const VALID_CLAIM_STAGES = ['preauth', 'enhancement', 'final', 'reimbursement'];
 
+function moneyEquals(a, b) {
+  return Math.abs(Number(a || 0) - Number(b || 0)) <= 0.01;
+}
+
+async function assertIssuedFinalCashlessInvoice({
+  tenantId, invoiceId, patientUid, admissionId, totalBilled,
+}) {
+  if (!invoiceId) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, status, total_amount, patient_uid, admission_id
+       FROM billing_invoices
+      WHERE id = $1::int AND tenant_id = $2::uuid`,
+    Number(invoiceId), tenantId,
+  );
+  if (!rows.length) throw AppError.notFound('Linked invoice not found');
+  const invoice = rows[0];
+  if (invoice.status !== 'ISSUED' && invoice.status !== 'PARTIAL' && invoice.status !== 'PAID') {
+    throw AppError.badRequest(
+      `Final cashless claim requires an issued invoice; invoice ${invoice.id} is ${invoice.status}`,
+    );
+  }
+  if (patientUid && String(invoice.patient_uid) !== String(patientUid)) {
+    throw AppError.badRequest('Final cashless claim invoice belongs to a different patient');
+  }
+  if (admissionId && Number(invoice.admission_id) !== Number(admissionId)) {
+    throw AppError.badRequest('Final cashless claim invoice belongs to a different admission');
+  }
+  if (!moneyEquals(totalBilled, invoice.total_amount)) {
+    throw AppError.badRequest(
+      `Final cashless claim total_billed ${Number(totalBilled)} must match issued invoice total_amount ${Number(invoice.total_amount)}`,
+    );
+  }
+  return invoice;
+}
+
 export async function createClaim({
   tenantId, policy_id, preauth_id, invoice_id, patient_uid, admission_id,
   claim_type = 'cashless', total_billed, patient_copay = 0,
@@ -788,6 +823,16 @@ export async function createClaim({
   if (claimAmt <= 0) throw AppError.badRequest('claimed_amount must be > 0');
   if (stage !== null && stage !== undefined && !VALID_CLAIM_STAGES.includes(stage)) {
     throw AppError.badRequest(`Invalid stage "${stage}". Must be one of: ${VALID_CLAIM_STAGES.join(', ')}`);
+  }
+  const finalStage = stage || 'final';
+  if (claim_type === 'cashless' && finalStage === 'final' && invoice_id) {
+    await assertIssuedFinalCashlessInvoice({
+      tenantId,
+      invoiceId: invoice_id,
+      patientUid: patient_uid,
+      admissionId: admission_id,
+      totalBilled: total_billed,
+    });
   }
 
   const claim_number = await nextSeq('tpa_claim_counter', 'CL', tenantId);
@@ -812,7 +857,7 @@ export async function createClaim({
     Number(non_payable_amount), claimAmt,
     notes || null,
     created_by ? String(created_by) : null, tenantId,
-    stage || 'final',
+    finalStage,
     parent_claim_id ? Number(parent_claim_id) : null,
   );
   return rows[0];
@@ -843,6 +888,15 @@ export async function submitClaim({
   const cl = await getClaim({ tenantId, id });
   if (cl.status !== 'prepared') {
     throw AppError.badRequest(`Claim in ${cl.status} cannot be submitted`);
+  }
+  if (cl.claim_type === 'cashless' && cl.stage === 'final' && cl.invoice_id) {
+    await assertIssuedFinalCashlessInvoice({
+      tenantId,
+      invoiceId: cl.invoice_id,
+      patientUid: cl.patient_uid,
+      admissionId: cl.admission_id,
+      totalBilled: cl.total_billed,
+    });
   }
   const docs = await prisma.$queryRawUnsafe(
     `SELECT doc_type FROM tpa_claim_documents WHERE claim_id = $1::int`,

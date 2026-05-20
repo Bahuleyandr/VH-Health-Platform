@@ -1112,7 +1112,7 @@ async function markForDischarge(admissionId, requestedBy) {
              FROM billing_invoices
             WHERE admission_id = $1::int
               AND patient_uid = $2::uuid
-              AND status <> 'VOID'
+              AND status IN ('ISSUED','PARTIAL','PAID')
             ORDER BY issued_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
             LIMIT 1`,
           Number(admissionId),
