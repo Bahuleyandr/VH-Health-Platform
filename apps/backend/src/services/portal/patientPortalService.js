@@ -100,7 +100,8 @@ export async function getMyBill({ tenantId, patient_uid, id }) {
     `SELECT id, invoice_number, issued_at, created_at, invoice_type, status,
             subtotal, cgst_amount, sgst_amount, igst_amount,
             discount_amount, discount_reason, total_amount, amount_paid,
-            amount_due, patient_uid, patient_state, hospital_state, tenant_id
+            amount_due, patient_uid, patient_state, hospital_state, tenant_id,
+            admission_id
        FROM billing_invoices
       WHERE id = $1::int AND tenant_id = $2::uuid AND patient_uid = $3::uuid`,
     Number(id), tenantId, String(patient_uid),
@@ -135,7 +136,12 @@ export async function getMyBill({ tenantId, patient_uid, id }) {
   // required itemised non-payable explanations. Cash-payer invoices
   // return null tpa_breakdown.
   // Finding 2026-05-09-tpa-insurance-claim-patient-bill-no-disallowance-breakdown.
-  const tpaBreakdown = await resolveBillTpaBreakdown({ invoice_id: rows[0].id });
+  const tpaBreakdown = await resolveBillTpaBreakdown({
+    invoice_id: rows[0].id,
+    admission_id: rows[0].admission_id,
+    tenantId,
+    patient_uid,
+  });
 
   // Wave-5 batch-3 — non-payable preview rollup from the billing_invoice_items
   // columns added in migration 216 (`tpa_decision`, `tpa_non_payable_reason`).
@@ -179,21 +185,29 @@ const TPA_REASON_LABELS = {
   other: 'Other — see notes',
 };
 
-async function resolveBillTpaBreakdown({ invoice_id }) {
-  // tpa_claims.invoice_id is the FK — at most one claim per invoice in
-  // the cashless workflow. Reimbursement claims may not link an invoice
-  // at all (filed after discharge). We tolerate the empty case.
+async function resolveBillTpaBreakdown({ invoice_id, admission_id, tenantId, patient_uid }) {
+  // Prefer the direct tpa_claims.invoice_id FK. Older cashless settlement
+  // flows left it NULL while both the workaround patient-share invoice and
+  // the TPA claim still carried admission_id, so fall back to that encounter
+  // join to keep the patient bill detail from hiding the settlement.
   let claimRows = [];
   try {
     claimRows = await prisma.$queryRawUnsafe(
       `SELECT id, claim_number, claim_type, total_billed, claimed_amount,
               approved_amount, paid_amount, non_payable_amount,
-              patient_copay, status, denial_reason
+              disallowed_amount, patient_copay, status, denial_reason
          FROM tpa_claims
         WHERE invoice_id = $1::int
-        ORDER BY created_at DESC, id DESC
+           OR ($2::int IS NOT NULL
+               AND invoice_id IS NULL
+               AND admission_id = $2::int
+               AND tenant_id = $3::uuid
+               AND patient_uid = $4::uuid)
+        ORDER BY CASE WHEN invoice_id = $1::int THEN 0 ELSE 1 END,
+                 created_at DESC, id DESC
         LIMIT 1`,
-      Number(invoice_id),
+      Number(invoice_id), admission_id ? Number(admission_id) : null,
+      tenantId, String(patient_uid),
     );
   } catch (err) {
     // Under-migrated tenants: tpa_claims table missing → not a TPA bill.
@@ -249,8 +263,12 @@ async function resolveBillTpaBreakdown({ invoice_id }) {
       hospital_billed: Number(claim.total_billed || 0),
       tpa_approved: Number(claim.approved_amount || 0),
       tpa_paid: Number(claim.paid_amount || 0),
+      tpa_disallowed: Number(claim.disallowed_amount || 0),
       non_payable: Number(claim.non_payable_amount || 0),
       patient_copay: Number(claim.patient_copay || 0),
+      patient_share: Number(claim.disallowed_amount || 0) +
+        Number(claim.non_payable_amount || 0) +
+        Number(claim.patient_copay || 0),
       currency: 'INR',
     },
   };
@@ -702,7 +720,7 @@ export async function listMyClaims({ tenantId, patient_uid, status = null }) {
   return prisma.$queryRawUnsafe(
     `SELECT id, claim_number, claim_type, total_billed, claimed_amount,
             approved_amount, paid_amount, non_payable_amount,
-            patient_copay, status, submitted_at, paid_at,
+            disallowed_amount, patient_copay, status, submitted_at, paid_at,
             invoice_id, admission_id, denial_reason, tpa_reference_id
        FROM tpa_claims
       WHERE ${where}
@@ -718,7 +736,7 @@ export async function getMyClaim({ tenantId, patient_uid, id }) {
             c.policy_id, c.preauth_id, c.admission_id,
             c.claim_type, c.total_billed, c.claimed_amount,
             c.approved_amount, c.paid_amount,
-            c.non_payable_amount, c.patient_copay,
+            c.non_payable_amount, c.disallowed_amount, c.patient_copay,
             c.status, c.submitted_at, c.paid_at,
             c.denial_reason, c.tpa_reference_id,
             c.created_at, c.updated_at,
@@ -756,10 +774,12 @@ export async function getMyClaim({ tenantId, patient_uid, id }) {
   const approvedAmount = Number(claim.approved_amount || 0);
   const paidAmount = Number(claim.paid_amount || 0);
   const nonPayable = Number(claim.non_payable_amount || 0);
+  const disallowedAmount = Number(claim.disallowed_amount || 0);
   const patientCopay = Number(claim.patient_copay || 0);
   const patientResponsibility = Math.max(
     0,
-    nonPayable + patientCopay + Math.max(0, claimedAmount - approvedAmount)
+    nonPayable + patientCopay + disallowedAmount +
+      (disallowedAmount > 0 ? 0 : Math.max(0, claimedAmount - approvedAmount))
   );
 
   // Surface the recorded TPA correspondence so the patient can see WHY
@@ -799,6 +819,9 @@ export async function getMyClaim({ tenantId, patient_uid, id }) {
       tpa_claimed: claimedAmount,
       tpa_approved: approvedAmount,
       tpa_paid: paidAmount,
+      tpa_disallowed: disallowedAmount,
+      non_payable: nonPayable,
+      patient_copay: patientCopay,
       patient_responsibility: patientResponsibility,
       currency: 'INR',
     },

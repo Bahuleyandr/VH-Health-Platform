@@ -269,8 +269,10 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
     final billed = _toDouble(summary['hospital_billed']);
     final approved = _toDouble(summary['tpa_approved']);
     final paid = _toDouble(summary['tpa_paid']);
+    final disallowed = _toDouble(summary['tpa_disallowed']);
     final nonPayable = _toDouble(summary['non_payable']);
     final copay = _toDouble(summary['patient_copay']);
+    final patientShare = _toDouble(summary['patient_share']);
     final claimNumber = claim['claim_number']?.toString();
     final claimStatus = claim['status']?.toString();
 
@@ -323,11 +325,13 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
             _row('Total billed', _inr(billed)),
             _row('TPA approved', _inr(approved)),
             _row('TPA paid', _inr(paid)),
+            if (disallowed > 0) _row('TPA disallowed', _inr(disallowed)),
             if (copay > 0) _row('Policy co-pay', _inr(copay)),
-            if (nonPayable > 0)
+            if (nonPayable > 0) _row('Non-payable items', _inr(nonPayable)),
+            if (patientShare > 0)
               _row(
-                'Non-payable (your share)',
-                _inr(nonPayable),
+                'Patient share',
+                _inr(patientShare),
                 bold: true,
                 colour: theme.colorScheme.error,
               ),

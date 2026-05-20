@@ -301,6 +301,9 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
     final claimed = _toNum(s['tpa_claimed']);
     final approved = _toNum(s['tpa_approved']);
     final paid = _toNum(s['tpa_paid']);
+    final disallowed = _toNum(s['tpa_disallowed']);
+    final nonPayable = _toNum(s['non_payable']);
+    final copay = _toNum(s['patient_copay']);
     final patient = _toNum(s['patient_responsibility']);
     return Card(
       child: Padding(
@@ -314,6 +317,9 @@ class _TpaClaimDetailScreenState extends State<TpaClaimDetailScreen> {
             _row(theme, 'TPA claimed', claimed),
             _row(theme, 'TPA approved', approved),
             _row(theme, 'Paid by insurer', paid, highlight: true),
+            if (disallowed > 0) _row(theme, 'TPA disallowed', disallowed),
+            if (nonPayable > 0) _row(theme, 'Non-payable items', nonPayable),
+            if (copay > 0) _row(theme, 'Policy co-pay', copay),
             const Divider(),
             _row(theme, 'You paid', patient, highlight: true),
           ],
