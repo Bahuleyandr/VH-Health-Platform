@@ -1,7 +1,7 @@
 // src/routes/health/uptimeRoutes.js
 // Dedicated health check endpoints optimized for external monitoring tools
 import express from 'express';
-import prisma, { circuitBreakerStatus } from '../../lib/prisma.js';
+import prisma, { circuitBreakerStatus, tenantRlsRolePosture } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 
 const router = express.Router();
@@ -206,6 +206,17 @@ router.get('/metrics', async (_req, res) => {
     dbPoolStats = { healthy: false, error: 'Database check failed', circuitBreaker: circuitBreakerStatus() };
   }
 
+  // Tenant-RLS posture: surfaces whether tenant isolation is actually being
+  // enforced. `enforced && ok === false` means AUTH_ENFORCE_TENANT_RLS=true
+  // but the effective role bypasses RLS (super/BYPASSRLS) — policies inert.
+  // Lets ops + the swarm detect the inert-RLS misconfig without log access.
+  let tenantRls = null;
+  try {
+    tenantRls = await tenantRlsRolePosture();
+  } catch (_err) {
+    tenantRls = { error: 'rls_posture_unavailable' };
+  }
+
   res.status(200).json({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -214,6 +225,7 @@ router.get('/metrics', async (_req, res) => {
     total_errors: totalErrors,
     error_rate: totalRequests > 0 ? (totalErrors / totalRequests).toFixed(4) : '0.0000',
     database: dbPoolStats,
+    tenant_rls: tenantRls,
     memory: {
       rss_mb: Math.round(memUsage.rss / 1024 / 1024),
       heap_used_mb: Math.round(memUsage.heapUsed / 1024 / 1024),
