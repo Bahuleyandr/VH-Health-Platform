@@ -20,10 +20,13 @@ const PATIENT_UID = 'f2222222-2222-4222-8222-bbbbbbbb2202';
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const POLICY_NUMBER = `POL-PORTAL-${Date.now() % 100000}`;
 const CLAIM_NUMBER = `CL-PORTAL-${Date.now() % 100000}`;
+const INVOICE_NUMBER = `INV-PORTAL-${Date.now() % 100000}`;
 
 describe('GET /portal/tpa/claims — patient self-service', () => {
   let policyId;
   let claimId;
+  let invoiceId;
+  const admissionId = 920200 + (Date.now() % 10000);
   let patientToken;
 
   beforeAll(async () => {
@@ -50,18 +53,34 @@ describe('GET /portal/tpa/claims — patient self-service', () => {
     );
     policyId = policyRows[0].id;
 
+    const invoiceRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO billing_invoices
+         (invoice_number, patient_uid, admission_id, invoice_type,
+          subtotal, total_amount, amount_paid, amount_due, status, tenant_id)
+       VALUES ($1, $2::uuid, $3::int, 'room_charge',
+               5500, 5500, 5500, 0, 'PAID', $4::uuid)
+       RETURNING id`,
+      INVOICE_NUMBER,
+      PATIENT_UID,
+      admissionId,
+      TENANT_ID
+    );
+    invoiceId = invoiceRows[0].id;
+
     const claimRows = await prisma.$queryRawUnsafe(
       `INSERT INTO tpa_claims
          (claim_number, policy_id, patient_uid, claim_type,
           total_billed, patient_copay, non_payable_amount,
-          claimed_amount, approved_amount, status, tenant_id)
+          claimed_amount, approved_amount, paid_amount, disallowed_amount,
+          status, admission_id, tenant_id)
        VALUES ($1, $2::int, $3::uuid, 'cashless',
-               78000, 0, 20000, 58000, 58000,
-               'approved', $4::uuid)
+               83500, 0, 3500, 80000, 80000, 78000, 2000,
+               'settled_partial', $4::int, $5::uuid)
        RETURNING id`,
       CLAIM_NUMBER,
       policyId,
       PATIENT_UID,
+      admissionId,
       TENANT_ID
     );
     claimId = claimRows[0].id;
@@ -86,6 +105,11 @@ describe('GET /portal/tpa/claims — patient self-service', () => {
         )
         .catch(() => {});
     }
+    if (invoiceId) {
+      await prisma
+        .$executeRawUnsafe(`DELETE FROM billing_invoices WHERE id = $1::int`, invoiceId)
+        .catch(() => {});
+    }
     await prisma
       .$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID)
       .catch(() => {});
@@ -106,7 +130,7 @@ describe('GET /portal/tpa/claims — patient self-service', () => {
     expect(ours).toBeTruthy();
     expect(ours.claim_number).toBe(CLAIM_NUMBER);
     expect(ours.claim_type).toBe('cashless');
-    expect(Number(ours.claimed_amount)).toBe(58000);
+    expect(Number(ours.claimed_amount)).toBe(80000);
   });
 
   it('returns a single claim with summary + invoice breakdown', async () => {
@@ -120,11 +144,34 @@ describe('GET /portal/tpa/claims — patient self-service', () => {
     expect(res.body.data.claim.policy_number).toBe(POLICY_NUMBER);
     expect(res.body.data.summary).toEqual(
       expect.objectContaining({
-        hospital_billed: 78000,
-        tpa_claimed: 58000,
-        tpa_approved: 58000,
-        patient_responsibility: 20000,
+        hospital_billed: 83500,
+        tpa_claimed: 80000,
+        tpa_approved: 80000,
+        tpa_paid: 78000,
+        tpa_disallowed: 2000,
+        non_payable: 3500,
+        patient_responsibility: 5500,
         currency: 'INR',
+      })
+    );
+  });
+
+  it('attaches an unlinked settled claim to the patient bill by admission', async () => {
+    const res = await request(app)
+      .get(`/api/v1/portal/bills/${invoiceId}`)
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${patientToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.invoice.invoice_number).toBe(INVOICE_NUMBER);
+    expect(res.body.data.tpa_breakdown.claim.id).toBe(claimId);
+    expect(res.body.data.tpa_breakdown.summary).toEqual(
+      expect.objectContaining({
+        tpa_paid: 78000,
+        tpa_disallowed: 2000,
+        non_payable: 3500,
+        patient_share: 5500,
       })
     );
   });
