@@ -166,6 +166,47 @@ After Phase 3, the platform is honestly multi-tenant for PHI; the residual
 weak spots (analytics, scheduled jobs) are visible in the audit log
 instead of silently sharing data.
 
+### Runtime role requirement — the BYPASSRLS trap (Phase 2 cutover prerequisite)
+
+`AUTH_ENFORCE_TENANT_RLS=true` is **necessary but not sufficient**. Postgres
+bypasses *all* row-level security for roles with `rolsuper` or `rolbypassrls`
+— **even under `FORCE ROW LEVEL SECURITY`** (migration 237). FORCE only
+removes the *table-owner* exemption; it does nothing for superusers /
+BYPASSRLS roles. So enforcement only actually bites when the **effective**
+runtime role is neither a superuser nor BYPASSRLS:
+
+| Environment | Connection role | RLS bites? |
+|---|---|---|
+| Prod (CloudNativePG) | non-super `app` **owner** + 237 FORCE | ✅ yes |
+| CI / local QA | non-owner `qa_writer` | ✅ yes |
+| dalekdefender (staging) | bootstrap superuser `vhhealth` | ❌ **no — inert** |
+
+The dalekdefender gap is confirmed empirically: with the flag on and RLS
+enabled on `appointments`, a query under a non-matching tenant GUC still
+returned **all 151 rows** (a non-super role returns 0). Swarm finding
+`2026-05-17-cross-tenant-rls-receptionist-2242cd96`.
+
+**The bootstrap superuser cannot be demoted** — `ALTER ROLE … NOSUPERUSER`
+is refused by Postgres ("the bootstrap superuser must have the SUPERUSER
+attribute"). Two ways to make staging mirror prod:
+
+1. **Role separation (complete):** create a non-super, non-BYPASSRLS app
+   role that owns the application tables (or has full table GRANTs), point
+   the backend `DATABASE_URL` at it; keep the bootstrap superuser for
+   migrations. Enforces RLS on *all* queries (raw + Prisma model calls).
+2. **`AUTH_TENANT_RLS_TEST_ROLE` (partial, low-risk):** set this env to a
+   non-super role; `setTenant` then `SET LOCAL ROLE`s to it before the GUC.
+   Reversible, no `DATABASE_URL` change — but only covers the auto-wrapped
+   **raw** queries (`$queryRaw*`), not Prisma model-method calls.
+
+**Guard (shipped):** `logTenantRlsRolePosture()` in `src/lib/prisma.js` runs
+at boot (`bin/www.js`) and logs a loud ERROR when enforcement is on but the
+effective role bypasses RLS. The same verdict is exposed at
+`GET /health/metrics` (`tenant_rls` field: `{ enforced, ok, effectiveRole,
+reason }`) so ops + the swarm can detect the inert-RLS misconfig without log
+access. Pure logic in `evaluateTenantRlsPosture()`; covered by
+`src/tests/unit/tenantRlsPosture.test.js`.
+
 ### Cron / scheduled-job audit (Phase 2 cutover prerequisite)
 
 The following jobs run outside the Express request scope and therefore

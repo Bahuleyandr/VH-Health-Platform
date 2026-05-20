@@ -328,6 +328,134 @@ export function circuitBreakerStatus() {
   };
 }
 
+/**
+ * Pure verdict for whether tenant RLS will actually be enforced, given the
+ * connection role and the optional SET LOCAL ROLE override
+ * (AUTH_TENANT_RLS_TEST_ROLE). No DB access — unit-testable in isolation.
+ *
+ * Postgres bypasses ALL row-level security for roles with `rolsuper` or
+ * `rolbypassrls`, *even under FORCE ROW LEVEL SECURITY*. So if enforcement
+ * is on (AUTH_ENFORCE_TENANT_RLS=true) but the *effective* role — the
+ * SET LOCAL ROLE target when AUTH_TENANT_RLS_TEST_ROLE is set, else the
+ * connection role — bypasses RLS, every tenant_isolation policy (migrations
+ * 075/236/237) is silently inert. This is the gap behind swarm finding
+ * 2026-05-17-cross-tenant-rls-receptionist-2242cd96 (a bootstrap superuser
+ * connection makes the Phase-2 cutover a no-op despite the flag being on).
+ *
+ * @returns {{enforced:boolean, ok:boolean, effectiveRole:string|null,
+ *            bypassesRls:boolean, reason:string}}
+ */
+export function evaluateTenantRlsPosture({
+  enforced,
+  connectionRole = null,
+  connectionBypassesRls = false,
+  testRole = null,
+  testRoleBypassesRls = false,
+} = {}) {
+  if (!enforced) {
+    return {
+      enforced: false,
+      ok: true,
+      effectiveRole: connectionRole,
+      bypassesRls: connectionBypassesRls,
+      reason: 'enforcement_disabled',
+    };
+  }
+  const effectiveRole = testRole || connectionRole;
+  const bypassesRls = testRole ? testRoleBypassesRls : connectionBypassesRls;
+  return {
+    enforced: true,
+    ok: !bypassesRls,
+    effectiveRole,
+    bypassesRls,
+    reason: bypassesRls ? 'effective_role_bypasses_rls' : 'enforced',
+  };
+}
+
+/**
+ * Probe the live database for the tenant-RLS role posture. Uses
+ * `session_user` (the authenticated connection identity, unaffected by any
+ * SET ROLE) so the verdict is correct even if this runs inside a setTenant
+ * transaction. Best-effort: returns an `{ error }` shape if the probe fails;
+ * never throws.
+ */
+export async function tenantRlsRolePosture() {
+  const enforced = isRlsEnforcementEnabled();
+  const testRole = process.env.AUTH_TENANT_RLS_TEST_ROLE || null;
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT
+         session_user AS connection_role,
+         COALESCE((SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = session_user), false) AS connection_bypasses_rls,
+         CASE WHEN NULLIF($1, '') IS NOT NULL
+              THEN COALESCE((SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = NULLIF($1, '')), true)
+              ELSE false END AS test_role_bypasses_rls`,
+      testRole || '',
+    );
+    const row = rows?.[0] || {};
+    return {
+      ...evaluateTenantRlsPosture({
+        enforced,
+        connectionRole: row.connection_role ?? null,
+        connectionBypassesRls: row.connection_bypasses_rls === true,
+        testRole,
+        testRoleBypassesRls: row.test_role_bypasses_rls === true,
+      }),
+      connectionRole: row.connection_role ?? null,
+      testRole,
+    };
+  } catch (err) {
+    return {
+      enforced,
+      ok: null,
+      effectiveRole: testRole,
+      testRole,
+      error: 'rls_posture_probe_failed',
+      reason: 'probe_error',
+      message: err?.message,
+    };
+  }
+}
+
+/**
+ * Boot-time guard: log the tenant-RLS role posture. Emits a loud ERROR when
+ * enforcement is on but the effective role bypasses RLS (policies inert) so
+ * a misconfigured deployment can't silently ship inert isolation. Best-effort
+ * — never throws, never blocks startup.
+ */
+export async function logTenantRlsRolePosture() {
+  const posture = await tenantRlsRolePosture();
+  if (posture.error) {
+    logger.warn('Tenant RLS posture probe failed', { reason: posture.reason });
+    return posture;
+  }
+  if (!posture.enforced) {
+    logger.info('Tenant RLS enforcement disabled (AUTH_ENFORCE_TENANT_RLS != true)', {
+      effectiveRole: posture.effectiveRole,
+    });
+    return posture;
+  }
+  if (!posture.ok) {
+    logger.error(
+      "TENANT RLS IS NOT ENFORCED: AUTH_ENFORCE_TENANT_RLS=true but the effective DB role " +
+        `'${posture.effectiveRole}' has SUPERUSER/BYPASSRLS — every tenant_isolation policy is ` +
+        'silently bypassed (Postgres bypasses RLS for super/bypassrls roles even under FORCE). ' +
+        'Connect as a non-superuser, non-BYPASSRLS role, or set AUTH_TENANT_RLS_TEST_ROLE to one.',
+      {
+        connectionRole: posture.connectionRole,
+        testRole: posture.testRole,
+        effectiveRole: posture.effectiveRole,
+      },
+    );
+    return posture;
+  }
+  logger.info('Tenant RLS posture OK — isolation will enforce', {
+    effectiveRole: posture.effectiveRole,
+    via: posture.testRole ? 'SET LOCAL ROLE' : 'connection role',
+  });
+  return posture;
+}
+
 // Graceful shutdown. bin/www.js also handles SIGTERM/SIGINT separately; this
 // fires on normal Node exit for good measure.
 process.on('beforeExit', async () => {
