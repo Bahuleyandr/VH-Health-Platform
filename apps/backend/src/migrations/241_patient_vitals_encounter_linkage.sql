@@ -1,4 +1,4 @@
--- 234_patient_vitals_encounter_linkage.sql
+-- 241_patient_vitals_encounter_linkage.sql
 --
 -- Closes finding:
 --   2026-05-17-inpatient-admission-nurse-af069182

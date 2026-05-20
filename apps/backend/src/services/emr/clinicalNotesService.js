@@ -127,7 +127,7 @@ export async function createNote(data) {
 
   // OPD visits have no encounter row, so walk-in / scheduled OPD notes
   // bind to the appointment they document via appointment_id (migration
-  // 234) so they can be grouped under the visit in the patient timeline.
+  // 240) so they can be grouped under the visit in the patient timeline.
   let appointmentIdNum = null;
   if (appointment_id !== undefined && appointment_id !== null) {
     appointmentIdNum = Number(appointment_id);

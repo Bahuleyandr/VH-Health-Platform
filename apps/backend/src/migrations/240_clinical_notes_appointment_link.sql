@@ -1,4 +1,4 @@
--- 234_clinical_notes_appointment_link.sql
+-- 240_clinical_notes_appointment_link.sql
 --
 -- Walk-in OPD clinical notes had no way to bind to the appointment they
 -- documented: clinical_notes.encounter_id is a UUID that only resolves to

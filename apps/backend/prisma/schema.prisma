@@ -753,13 +753,13 @@ model appointments {
   tenant_id                            String                       @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   appointment_documents                appointment_documents[]
   appointment_status_history           appointment_status_history[]
-  clinical_notes                       clinical_notes[]
   users_appointments_doctor_idTousers  users?                       @relation("appointments_doctor_idTousers", fields: [doctor_id], references: [id], onUpdate: NoAction)
   appointments                         appointments?                @relation("appointmentsToappointments", fields: [parent_appointment_id], references: [id], onUpdate: NoAction)
   other_appointments                   appointments[]               @relation("appointmentsToappointments")
   users_appointments_patient_idTousers users?                       @relation("appointments_patient_idTousers", fields: [patient_id], references: [id], onUpdate: NoAction)
   tenants                              tenants                      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointments_tenant")
   bed_inspections                      bed_inspections[]
+  clinical_notes                       clinical_notes[]
   investigation_bookings               investigation_bookings[]
   teleconsultations                    teleconsultations[]
 
@@ -3868,7 +3868,6 @@ model clinical_longitudinal_risk {
 model clinical_notes {
   id                   Int              @id @default(autoincrement())
   encounter_id         String?          @db.Uuid
-  appointment_id       Int?
   patient_uid          String           @db.Uuid
   author_uid           String?          @db.Uuid
   author_role          String?          @db.VarChar(50)
@@ -3895,16 +3894,16 @@ model clinical_notes {
   notes                String?
   created_by           String?          @db.Uuid
   tenant_id            String           @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  appointment_id       Int?
+  appointments         appointments?    @relation(fields: [appointment_id], references: [id], onUpdate: NoAction, map: "clinical_notes_appointment_id_fk")
   clinical_notes       clinical_notes?  @relation("clinical_notesToclinical_notes", fields: [parent_note_id], references: [id], onUpdate: NoAction)
   other_clinical_notes clinical_notes[] @relation("clinical_notesToclinical_notes")
   tenants              tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_clinical_notes_tenant")
-  appointments         appointments?    @relation(fields: [appointment_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "clinical_notes_appointment_id_fk")
 
   @@index([encounter_id, created_at(sort: Desc)], map: "idx_clinical_notes_encounter")
   @@index([patient_uid, created_at(sort: Desc)], map: "idx_clinical_notes_patient_created")
   @@index([note_type], map: "idx_clinical_notes_type")
   @@index([tenant_id], map: "idx_clinical_notes_tenant_id")
-  @@index([appointment_id, created_at(sort: Desc)], map: "idx_clinical_notes_appointment")
 }
 
 model clinical_nursing_ambient_sessions {
@@ -6368,6 +6367,8 @@ model patient_vitals {
   recorded_at_source DateTime? @db.Timestamptz(6)
   temperature_route  String?   @db.VarChar(10)
   tenant_id          String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  admission_id       Int?
+  encounter_id       String?   @db.Uuid
   tenants            tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_vitals_tenant")
 
   @@index([patient_uid, source, recorded_at_source(sort: Desc)], map: "idx_patient_vitals_source_time")
@@ -8928,9 +8929,6 @@ model ward_indents {
   indent_number    String              @unique @db.VarChar(40)
   ward_id          Int?
   ward_name        String?             @db.VarChar(80)
-  admission_id     Int?
-  encounter_id     String?             @db.Uuid
-  patient_uid      String?             @db.Uuid
   indent_type      String              @default("pharmacy") @db.VarChar(40)
   status           String              @default("requested") @db.VarChar(20)
   requested_by     String              @db.Uuid
@@ -8946,6 +8944,9 @@ model ward_indents {
   tenant_id        String              @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
   created_at       DateTime            @default(now()) @db.Timestamptz(6)
   updated_at       DateTime            @default(now()) @db.Timestamptz(6)
+  admission_id     Int?
+  encounter_id     String?             @db.Uuid
+  patient_uid      String?             @db.Uuid
   items            ward_indent_items[]
   ward             wards?              @relation(fields: [ward_id], references: [id], onUpdate: NoAction)
 

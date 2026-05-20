@@ -1,4 +1,4 @@
--- 234_ward_indents_admission_link.sql
+-- 242_ward_indents_admission_link.sql
 --
 -- Closes finding:
 --   2026-05-17-inpatient-admission-pharmacy-05748c99
