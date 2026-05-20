@@ -638,6 +638,25 @@ export async function getMyDischargeSummary({ tenantId, patient_uid, id }) {
   });
 }
 
+// Render a patient's own discharge summary (by summary id) as a PDF.
+// Bridges the summary-id read surface to the existing admission-keyed
+// generator: getMyDischargeSummary already enforces patient ownership
+// and carries admission_id, which clinicalPdfGenerator turns into the
+// rendered Buffer. Mirrors generateMyInvoicePdfBuffer. The sibling
+// /discharge/:admissionId/pdf route returns an R2 *URL* keyed by
+// admission; this streams the binary for the specific summary the
+// patient is viewing.
+export async function generateMyDischargeSummaryPdfBuffer({ tenantId, patient_uid, id }) {
+  const summary = await getMyDischargeSummary({ tenantId, patient_uid, id });
+  if (!summary) throw AppError.notFound('Discharge summary not found');
+  const admissionId = Number(summary.admission_id);
+  if (!Number.isInteger(admissionId) || admissionId <= 0) {
+    throw AppError.badRequest('This discharge summary is not linked to an admission and cannot be exported as PDF');
+  }
+  const { generateDischargeSummaryPDF } = await import('../documents/clinicalPdfGenerator.js');
+  return generateDischargeSummaryPDF(admissionId);
+}
+
 export async function getMyDischargeSummaryByAdmission({
   tenantId, patient_uid, admission_id,
 }) {

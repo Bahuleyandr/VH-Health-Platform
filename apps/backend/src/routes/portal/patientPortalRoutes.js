@@ -184,6 +184,43 @@ router.get('/discharge-summaries/admission/:admissionId', requirePatient, wrap(a
   }),
 ));
 
+// Patient-facing discharge-summary PDF download. Streams the binary
+// (like /bills/:id/pdf) rather than the JSON envelope. Ownership is
+// enforced inside generateMyDischargeSummaryPdfBuffer → getMyDischargeSummary
+// (scoped by patient_uid). Declared BEFORE /discharge-summaries/:id so
+// the more-specific /pdf + /download paths win the route match.
+// PHI access logged as EXPORT for HIPAA audit.
+async function sendMyDischargeSummaryPdf(req, res, next) {
+  try {
+    const buffer = await portal.generateMyDischargeSummaryPdfBuffer({
+      tenantId: tenantOf(req),
+      patient_uid: patientUidOf(req),
+      id: req.params.id,
+    });
+    logPhiAccess({
+      userId: req.user?.uid,
+      userRole: req.user?.role,
+      patientId: req.user?.uid,
+      recordType: 'discharge_summary_pdf',
+      action: 'EXPORT',
+      ip: req.ip,
+      requestId: req.id,
+    });
+    const filename = `Discharge_Summary_${req.params.id}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    return res.send(buffer);
+  } catch (err) {
+    if (err.statusCode) return error(res, err.message, err.statusCode);
+    logger.error('patient discharge summary PDF error:', err);
+    return next(err);
+  }
+}
+
+router.get('/discharge-summaries/:id/pdf', requirePatient, sendMyDischargeSummaryPdf);
+router.get('/discharge-summaries/:id/download', requirePatient, sendMyDischargeSummaryPdf);
+
 router.get('/discharge-summaries/:id', requirePatient, wrap(async (req) =>
   portal.getMyDischargeSummary({
     tenantId: tenantOf(req),
