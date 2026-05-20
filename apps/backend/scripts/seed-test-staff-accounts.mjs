@@ -32,7 +32,7 @@ const ACCOUNTS = [
   { emp: 'EMP-1001', name: 'e2e_test Nurse Arya',      role: 'NURSING_STAFF',  phone: '+919999990001', dept: 'General Medicine',    designation: 'Staff Nurse',     position: 'Staff Nurse' },
   { emp: 'EMP-1002', name: 'e2e_test Pharmacist Bala', role: 'PHARMACY_STAFF', phone: '+919999990002', dept: 'Pharmacy',            designation: 'Pharmacist',      position: 'Pharmacist' },
   { emp: 'EMP-1003', name: 'e2e_test LabTech Chitra',  role: 'LAB_STAFF',      phone: '+919999990003', dept: 'Laboratory',          designation: 'Lab Technician',  position: 'Lab Technician' },
-  { emp: 'EMP-1004', name: 'Test Doctor',              role: 'DOCTOR',         phone: '+919999990004', dept: 'General Medicine',    designation: 'Consultant',      position: 'Consultant' },
+  { emp: 'EMP-1004', name: 'Test Doctor',              role: 'DOCTOR',         phone: '+919999990004', dept: 'General Medicine',    specialty: 'General Medicine',  designation: 'Consultant',      position: 'Consultant' },
   { emp: 'EMP-1005', name: 'Test HR',                  role: 'HR_STAFF',       phone: '+919999990005', dept: 'HR',                  designation: 'HR Officer',      position: 'HR Officer' },
   { emp: 'EMP-1006', name: 'Test Admin',               role: 'ADMIN',          phone: '+919999990006', dept: 'Administration',      designation: 'Administrator',   position: 'Administrator' },
   { emp: 'EMP-1007', name: 'Test Super Admin',         role: 'SUPER_ADMIN',    phone: '+919999990007', dept: 'Administration',      designation: 'Super Admin',     position: 'Super Admin' },
@@ -48,13 +48,13 @@ const ACCOUNTS = [
   // workflows expect a specialty='Obstetrics' doctor in the roster
   // for the receptionist's department-filtered dropdown.
   // Finding: 2026-05-08-obstetric-anc-receptionist-no-obgyn-doctor-seeded.
-  { emp: 'EMP-1010', name: 'Test OBGYN Doctor',        role: 'DOCTOR',         phone: '+919999990010', dept: 'OBGYN',               designation: 'Consultant',      position: 'OBGYN Consultant' },
+  { emp: 'EMP-1010', name: 'Test OBGYN Doctor',        role: 'DOCTOR',         phone: '+919999990010', dept: 'Obstetrics & Gynaecology', specialty: 'Obstetrics',       designation: 'Consultant',      position: 'OBGYN Consultant' },
   // E-13 — Test Pharmacist Incharge for verifying / dispensing
   // medication orders (separate from the EMP-1002 PHARMACY_STAFF
   // role, which represents a regular counter pharmacist).
   { emp: 'EMP-1011', name: 'Test Pharmacy Incharge',   role: 'PHARMACY_INCHARGE', phone: '+919999990011', dept: 'Pharmacy',         designation: 'Pharmacy Incharge', position: 'Pharmacy Incharge' },
   // E-13 — Test paediatrician for paeds-OPD workflow.
-  { emp: 'EMP-1012', name: 'Test Paediatrician',       role: 'DOCTOR',         phone: '+919999990012', dept: 'Paediatrics',         designation: 'Consultant',      position: 'Paediatrician' },
+  { emp: 'EMP-1012', name: 'Test Paediatrician',       role: 'DOCTOR',         phone: '+919999990012', dept: 'Paediatrics',         specialty: 'Paediatrics', ageRange: 'paediatric', designation: 'Consultant',      position: 'Paediatrician' },
   // E-13 — Test pathologist (signs off lab results — B-3 tier).
   { emp: 'EMP-1013', name: 'Test Pathologist',         role: 'PATHOLOGIST',    phone: '+919999990013', dept: 'Laboratory',          designation: 'Pathologist',     position: 'Lab Director' },
   // E-13 — Test radiologist (signs off radiology reports — E-8 lock).
@@ -99,9 +99,11 @@ async function main() {
       );
 
       let uid;
+      let userId;
       let didInsert = false;
       if (existing.length) {
         uid = existing[0].uid;
+        userId = existing[0].id;
         await tx.$executeRawUnsafe(
           `UPDATE users
               SET role = $1,
@@ -119,10 +121,11 @@ async function main() {
           `INSERT INTO users
              (uid, phone, name, role, encrypted_password, is_active, status, registered_at, updated_at)
            VALUES (gen_random_uuid(), $1, $2, $3, $4, TRUE, 'active', NOW(), NOW())
-           RETURNING uid`,
+           RETURNING uid, id`,
           acc.phone, acc.name, acc.role, hash
         );
         uid = inserted[0].uid;
+        userId = inserted[0].id;
         didInsert = true;
       }
 
@@ -150,6 +153,36 @@ async function main() {
             WHERE id = $6`,
           acc.emp, acc.name, acc.designation, acc.position, acc.dept, staffExists[0].id
         );
+      }
+
+      if (acc.role === 'DOCTOR') {
+        const specialty = acc.specialty || acc.dept;
+        const ageRange = acc.ageRange || 'all';
+        const doctorExists = await tx.$queryRawUnsafe(
+          `SELECT id FROM doctors WHERE user_id = $1 LIMIT 1`,
+          userId
+        );
+        if (doctorExists.length === 0) {
+          await tx.$executeRawUnsafe(
+            `INSERT INTO doctors
+               (user_id, name, department, specialty, age_range, is_available, is_active, updated_at)
+             VALUES ($1, $2, $3, $4, $5, TRUE, TRUE, NOW())`,
+            userId, acc.name, acc.dept, specialty, ageRange
+          );
+        } else {
+          await tx.$executeRawUnsafe(
+            `UPDATE doctors
+                SET name = $1,
+                    department = $2,
+                    specialty = $3,
+                    age_range = $4,
+                    is_available = TRUE,
+                    is_active = TRUE,
+                    updated_at = NOW()
+              WHERE id = $5`,
+            acc.name, acc.dept, specialty, ageRange, doctorExists[0].id
+          );
+        }
       }
       return didInsert ? 'inserted' : 'updated';
     });
