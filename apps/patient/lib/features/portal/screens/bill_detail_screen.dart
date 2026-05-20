@@ -327,11 +327,7 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
             _row('TPA paid', _inr(paid)),
             if (disallowed > 0) _row('TPA disallowed', _inr(disallowed)),
             if (copay > 0) _row('Policy co-pay', _inr(copay)),
-            if (nonPayable > 0)
-              _row(
-                'Non-payable items',
-                _inr(nonPayable),
-              ),
+            if (nonPayable > 0) _row('Non-payable items', _inr(nonPayable)),
             if (patientShare > 0)
               _row(
                 'Patient share',
