@@ -159,6 +159,35 @@ function parseIntegerField(value) {
   return Number.isInteger(parsed) ? parsed : NaN;
 }
 
+// Extract a per-kg dose rate (mg/kg) from a dose / strength string. Matches
+// "15 mg/kg", "10mg/kg/dose", "7.5 mg / kg" — but deliberately NOT "mg/mL"
+// (\bkg\b anchors it to a kilogram denominator). Returns mg-per-kg or null.
+function parseMgPerKg(...values) {
+  for (const value of values) {
+    const match = String(value || '').match(/(\d+(?:\.\d+)?)\s*mg\s*\/\s*kg\b/i);
+    if (match) {
+      const mgPerKg = Number.parseFloat(match[1]);
+      if (Number.isFinite(mgPerKg) && mgPerKg > 0) return mgPerKg;
+    }
+  }
+  return null;
+}
+
+// Compute the weight-based dose for a pediatric prescription line. When the
+// dose text encodes a mg/kg rate and a positive weight is known, returns the
+// explicit calculation { mgPerKg, weightKg, totalMg } so the Rx PDF can show
+// "15 mg/kg × 12 kg = 180 mg" — the figure a parent/pharmacist needs to
+// verify a child's actual dose. Returns null when no per-kg rate is present
+// or the weight is unknown. Pure + exported for unit testing.
+// Finding 2026-05-21-pediatric-opd-patient-ffea3aba.
+export function computeWeightBasedDose(doseText, weightKg) {
+  const mgPerKg = parseMgPerKg(doseText);
+  const kg = Number(weightKg);
+  if (mgPerKg == null || !Number.isFinite(kg) || kg <= 0) return null;
+  const totalMg = Math.round(mgPerKg * kg * 100) / 100;
+  return { mgPerKg, weightKg: kg, totalMg };
+}
+
 // ─── PDF Generation ──────────────────────────────────────────────────────────
 async function generatePrescriptionPDF(prescription, patient, doctor) {
   return new Promise((resolve, reject) => {
@@ -211,6 +240,16 @@ async function generatePrescriptionPDF(prescription, patient, doctor) {
     y += 16;
     doc.font('Helvetica-Bold').text('Phone:', leftX, y);
     doc.font('Helvetica').text(patient.phone || '-', leftX + 55, y);
+
+    // Patient weight drives pediatric (mg/kg) dosing — prefer the
+    // visit-recorded vital, fall back to the registered weight. Surfaced
+    // here so the weight-based dose calc below is verifiable.
+    // Finding 2026-05-21-pediatric-opd-patient-ffea3aba.
+    const patientWeightKg = Number(prescription?.vitals?.weight) || Number(patient?.weight_kg) || null;
+    if (patientWeightKg) {
+      doc.font('Helvetica-Bold').text('Weight:', leftX + 250, y);
+      doc.font('Helvetica').text(`${patientWeightKg} kg`, leftX + 320, y);
+    }
 
     // ─── Doctor Info ─────────────────────────────────────────────────────
     y += 16;
@@ -308,6 +347,37 @@ async function generatePrescriptionPDF(prescription, patient, doctor) {
 
       // Bottom border
       doc.moveTo(leftX, y).lineTo(leftX + pageWidth, y).stroke('#ddd');
+
+      // ─── Weight-based dosing (pediatric) ───────────────────────────────
+      // Pediatric lines are dosed per kg (e.g. "15 mg/kg"); the table shows
+      // only the rate, so a parent/pharmacist could not verify the child's
+      // actual dose. For each line whose dose encodes a mg/kg rate, show the
+      // explicit calculation against the patient's (or that line's) weight.
+      // Finding 2026-05-21-pediatric-opd-patient-ffea3aba.
+      const weightDoseLines = [];
+      for (const med of medications) {
+        const lineWeightKg = (med.child_weight_kg != null && Number(med.child_weight_kg) > 0)
+          ? Number(med.child_weight_kg)
+          : patientWeightKg;
+        const calc = computeWeightBasedDose(med.dose || med.dosage || med.strength, lineWeightKg);
+        if (calc) {
+          weightDoseLines.push(
+            `${med.name}: ${calc.mgPerKg} mg/kg × ${calc.weightKg} kg = ${calc.totalMg} mg per dose`,
+          );
+        }
+      }
+      if (weightDoseLines.length) {
+        y += 15;
+        if (y > 720) { doc.addPage(); y = 40; }
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#007A64').text('Weight-based dosing:', leftX, y);
+        y += 14;
+        doc.fontSize(8).font('Helvetica').fillColor('#333');
+        for (const line of weightDoseLines) {
+          if (y > 740) { doc.addPage(); y = 40; }
+          doc.text(line, leftX, y, { width: pageWidth });
+          y += 12;
+        }
+      }
     }
 
     // ─── Follow-up ───────────────────────────────────────────────────────
@@ -545,7 +615,7 @@ export const createPrescription = async (req, res) => {
 
     // Fetch patient and doctor info for PDF
     const [patientRes, doctorRes] = await Promise.all([
-      prisma.$queryRawUnsafe('SELECT id, name, phone, gender, birthday FROM users WHERE id=$1', patientId),
+      prisma.$queryRawUnsafe('SELECT id, name, phone, gender, birthday, weight_kg FROM users WHERE id=$1', patientId),
       prisma.$queryRawUnsafe(`SELECT u.id, u.name, u.phone, d.specialty AS specialization, NULL::text AS qualification
                 FROM users u LEFT JOIN doctors d ON d.user_id = u.id
                 WHERE u.id=$1`, doctorId),
