@@ -635,6 +635,46 @@ export async function signOffResults({
     }
   }
 
+  // Move the linked lab orders (investigations) to COMPLETED once all of
+  // their results are finalised. A verified result previously left the order
+  // stuck at IN_PROGRESS, so the ordering screen never reflected that the lab
+  // work was done. Only complete an order with no still-pending result — a
+  // partial sign-off of a multi-analyte panel leaves it in progress. Best-
+  // effort: failure must not abort the sign-off.
+  // Finding: verified lab orders stay IN_PROGRESS after result.
+  if (decision === 'verified') {
+    try {
+      const invRows = await prisma.$queryRawUnsafe(
+        `SELECT DISTINCT investigation_id
+           FROM lab_results
+          WHERE id = ANY($1::int[]) AND investigation_id IS NOT NULL`,
+        ids,
+      );
+      for (const { investigation_id } of invRows) {
+        const pending = await prisma.$queryRawUnsafe(
+          `SELECT 1 FROM lab_results
+            WHERE investigation_id = $1::int
+              AND status IS DISTINCT FROM 'final'
+              AND status IS DISTINCT FROM 'corrected'
+            LIMIT 1`,
+          investigation_id,
+        );
+        if (pending.length === 0) {
+          await prisma.$executeRawUnsafe(
+            `UPDATE investigations
+                SET status = 'COMPLETED', updated_at = NOW()
+              WHERE id = $1::int
+                AND tenant_id = $2::uuid
+                AND status NOT IN ('COMPLETED', 'CANCELLED')`,
+            investigation_id, tenantId,
+          );
+        }
+      }
+    } catch (e) {
+      logger.warn(`Lab order completion update failed on signoff: ${e?.message}`);
+    }
+  }
+
   return rows[0];
 }
 
