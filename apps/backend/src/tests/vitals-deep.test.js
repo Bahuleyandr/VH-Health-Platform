@@ -394,6 +394,27 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       expect(persisted[0].message).toMatch(/pre-eclampsia/i);
     });
 
+    it('warns at exactly 140/90 without proteinuria (gestational HTN boundary)', async () => {
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: ANC_UID,
+        systolic_bp: 140,
+        diastolic_bp: 90,
+        urine_albumin: 'negative',
+      });
+      expect(res.statusCode).toBe(201);
+      const alerts = res.body.data.alerts || [];
+      // Negative urine → no combined CRITICAL pre-eclampsia screen ...
+      expect(alerts.find((a) => a.vital_name === 'preeclampsia_screen')).toBeUndefined();
+      // ... but the exact 140/90 boundary must still warn (gestational HTN is
+      // defined at ≥140/90; the range check uses `> max`, so max=139/89).
+      const bpAlert = alerts.find(
+        (a) => (a.vital_name === 'systolic_bp' || a.vital_name === 'diastolic_bp')
+          && a.severity === 'WARNING',
+      );
+      expect(bpAlert).toBeDefined();
+      expect(bpAlert.message).toMatch(/pregnancy-induced hypertension/i);
+    });
+
     it('rejects unknown dipstick values', async () => {
       const res = await doctor.post('/api/v1/emr/vitals').send({
         patient_uid: PATIENT_UID,
