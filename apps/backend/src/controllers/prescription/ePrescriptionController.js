@@ -134,6 +134,25 @@ function defaultMeasuringInstruction(ml) {
   return `Measure ${ml} ml using an oral syringe or marked medicine cup; do not use a household spoon.`;
 }
 
+// Extract mg/mL concentration ratio from a medication name or strength string.
+// Matches patterns like "250mg/5mL", "125 mg / 5 ml", "500mg/10ml".
+// Returns mg-per-mL as a number, or null if unparseable.
+function parseConcentrationMgPerMl(...values) {
+  for (const value of values) {
+    const match = String(value || '').match(
+      /(\d+(?:\.\d+)?)\s*mg\s*\/\s*(\d+(?:\.\d+)?)\s*m[lL]\b/i,
+    );
+    if (match) {
+      const mg = Number.parseFloat(match[1]);
+      const ml = Number.parseFloat(match[2]);
+      if (Number.isFinite(mg) && mg > 0 && Number.isFinite(ml) && ml > 0) {
+        return mg / ml;
+      }
+    }
+  }
+  return null;
+}
+
 function parseIntegerField(value) {
   if (value === undefined || value === null || value === '') return null;
   const parsed = Number(value);
@@ -1190,23 +1209,72 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       const lineTotal = Number((price * qty).toFixed(2));
       const doseText = med.dose || med.dosage || med.strength || '';
       const instructionText = med.instructions || med.notes || '';
-      const dispensedQuantityMl = med.dispensed_quantity_ml != null
+      let dispensedQuantityMl = med.dispensed_quantity_ml != null
         ? Number(med.dispensed_quantity_ml)
         : parseMlFromText(doseText, instructionText);
       const childWeightKg = med.child_weight_kg != null
         ? Number(med.child_weight_kg)
         : parseWeightKgFromText(doseText, instructionText);
-      const measuringInstruction = med.measuring_instruction
-        || defaultMeasuringInstruction(dispensedQuantityMl);
+
+      // When the pharmacist substitutes a catalog item with a different
+      // concentration (e.g. 250mg/5mL → 125mg/5mL), the original mL volume
+      // is no longer correct. Scale it to preserve the prescribed mg dose;
+      // if concentrations cannot be parsed, null the volume so the counter
+      // pharmacist must enter it manually rather than silently dispensing
+      // the wrong amount. Finding: 2026-05-21-walk-in-opd-pharmacy-c05e2adb
+      let substitutionMeta = null;
+      const isExplicitSubstitution = Boolean(
+        selectedCatalogId && catalogName && catalogName.toLowerCase() !== medName.toLowerCase(),
+      );
+      if (isExplicitSubstitution) {
+        const origConc = parseConcentrationMgPerMl(med.strength || med.dosage || medName);
+        const newConc = parseConcentrationMgPerMl(catalogName);
+        const origVol = Number.isFinite(dispensedQuantityMl) ? dispensedQuantityMl : null;
+        if (origConc && newConc && Math.abs(origConc - newConc) > 0.001 && origVol !== null) {
+          const recalcVol = Number(((origVol * origConc) / newConc).toFixed(2));
+          substitutionMeta = {
+            requested_name: medName,
+            catalog_name: catalogName,
+            explicit: true,
+            original_dispensed_quantity_ml: origVol,
+            recalculated_dispensed_quantity_ml: Number.isFinite(recalcVol) && recalcVol > 0 ? recalcVol : null,
+          };
+          dispensedQuantityMl = Number.isFinite(recalcVol) && recalcVol > 0 ? recalcVol : null;
+        } else if (origConc && newConc && Math.abs(origConc - newConc) <= 0.001) {
+          substitutionMeta = { requested_name: medName, catalog_name: catalogName, explicit: true };
+        } else {
+          // Could not determine whether concentrations match — require manual dose check.
+          substitutionMeta = {
+            requested_name: medName,
+            catalog_name: catalogName,
+            explicit: true,
+            dose_conversion_required: true,
+          };
+          dispensedQuantityMl = null;
+        }
+      }
+
+      // Substitution-aware measuring instruction: when a concentration change
+      // recalculated the volume, regenerate from the new volume (don't keep a
+      // stale prescription instruction); when conversion can't be computed,
+      // make it explicit so the label never reads a wrong/"null ml" amount.
+      // Finding: 2026-05-21-walk-in-opd-pharmacy-c05e2adb.
+      let measuringInstruction;
+      if (substitutionMeta?.dose_conversion_required) {
+        measuringInstruction = 'Dose conversion required — pharmacist to confirm the volume for the substituted concentration before dispensing.';
+      } else if (substitutionMeta && substitutionMeta.recalculated_dispensed_quantity_ml != null) {
+        measuringInstruction = defaultMeasuringInstruction(dispensedQuantityMl);
+      } else {
+        measuringInstruction = med.measuring_instruction
+          || defaultMeasuringInstruction(dispensedQuantityMl);
+      }
       totalCost += lineTotal;
       itemsList.push({
         catalog_id: catalogId,
         name: medName,
         medication_name: medName,
         catalog_name: catalogName,
-        substitution: selectedCatalogId && catalogName && catalogName.toLowerCase() !== medName.toLowerCase()
-          ? { requested_name: medName, catalog_name: catalogName, explicit: true }
-          : null,
+        substitution: substitutionMeta,
         strength: med.strength || med.dosage || null,
         dose: doseText || null,
         route: med.route || null,
