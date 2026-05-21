@@ -1,5 +1,6 @@
 import prisma from '../lib/prisma.js';
 import { administerWithScan, evaluate5Rights } from '../services/clinical/marFiveRightsService.js';
+import { recordAdministration, scheduleMedications } from '../services/clinical/marService.js';
 import { acknowledgeAlert, checkOrder } from '../services/emr/cdsEngine.js';
 
 const PATIENT_UID = 'a7777777-7777-4777-8777-777777777a01';
@@ -116,6 +117,45 @@ describe('Clinical safety controls', () => {
     expect(updated.all_rights_passed).toBe(false);
     expect(updated.rights_passed).toMatchObject({ patient: false, drug: true });
     expect(updated.override_reason).toContain('manual identity');
+  });
+
+  it('deduplicates MAR scheduling when carry-over timestamps differ only by milliseconds', async () => {
+    const [first] = await scheduleMedications(PATIENT_UID, null, [{
+      medication_name: 'Aspirin',
+      dose: '325 mg',
+      route: 'oral',
+      scheduled_time: '2026-05-20T20:39:51.578Z',
+    }]);
+
+    const [second] = await scheduleMedications(PATIENT_UID, null, [{
+      medication_name: 'Aspirin',
+      dose: '325 mg',
+      route: 'oral',
+      scheduled_time: '2026-05-20T20:39:51.580Z',
+    }]);
+
+    expect(second.id).toBe(first.id);
+  });
+
+  it('blocks sibling MAR administration for the same medication slot despite millisecond drift', async () => {
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO medication_administrations (
+         patient_uid, medication_name, dose, route, scheduled_time, status, created_at, updated_at
+       ) VALUES
+         ($1::uuid, 'Glyceryl trinitrate', '0.4 mg', 'sublingual', '2026-05-20T20:39:04.386Z'::timestamptz, 'scheduled', NOW(), NOW()),
+         ($1::uuid, 'Glyceryl trinitrate', '0.4 mg', 'sublingual', '2026-05-20T20:39:04.395Z'::timestamptz, 'scheduled', NOW(), NOW())
+       RETURNING id`,
+      PATIENT_UID,
+    );
+    rows.sort((a, b) => a.id - b.id);
+
+    await recordAdministration(rows[0].id, CLINICIAN_UID);
+
+    await expect(recordAdministration(rows[1].id, CLINICIAN_UID)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'MAR_DUPLICATE_ADMINISTRATION',
+      details: { duplicate_id: rows[0].id },
+    });
   });
 
   it('returns an unsafe CDS allergy blocker for a medication allergen match', async () => {
