@@ -29,6 +29,18 @@ function computeEdd(lmpDate) {
   return edd.toISOString().split('T')[0];
 }
 
+// Current calendar date in IST (the clinic's timezone — India has no DST,
+// fixed UTC+5:30) as 'YYYY-MM-DD'. Gestational age and the ANC schedule are
+// calendar-day computations: defaulting "today" to a UTC instant (new Date())
+// only rolls the day at UTC midnight = 05:30 IST, so between IST midnight and
+// 05:30 the GA / visit milestones read one day behind the clinic's calendar.
+// Anchoring the default to the IST date makes the day-diff exact.
+// Finding: ANC uses UTC not IST for visit-number/GA.
+export function istDateString(at = new Date()) {
+  const istMs = at.getTime() + (5.5 * 60 * 60 * 1000);
+  return new Date(istMs).toISOString().slice(0, 10);
+}
+
 /**
  * Gestational age (in weeks + days) on a given date, computed from LMP.
  * Returns { weeks, days, total_days, label } or null if inputs invalid.
@@ -40,7 +52,7 @@ export function computeGestationalAge(lmpDate, onDate = null) {
   if (!lmpDate) return null;
   const lmp = new Date(lmpDate);
   if (Number.isNaN(lmp.getTime())) return null;
-  const reference = onDate ? new Date(onDate) : new Date();
+  const reference = onDate ? new Date(onDate) : new Date(istDateString());
   if (Number.isNaN(reference.getTime())) return null;
   const diffMs = reference.getTime() - lmp.getTime();
   if (diffMs < 0) return null;
@@ -117,7 +129,7 @@ export function computeAncScheduleMilestones(lmpDate, onDate = null) {
   if (!lmpDate) return [];
   const lmp = new Date(lmpDate);
   if (Number.isNaN(lmp.getTime())) return [];
-  const today = onDate ? new Date(onDate) : new Date();
+  const today = onDate ? new Date(onDate) : new Date(istDateString());
   const currentGa = computeGestationalAge(lmpDate, onDate);
   const currentWeeks = currentGa ? currentGa.weeks : null;
   return ANC_SCHEDULE.map((m) => {
