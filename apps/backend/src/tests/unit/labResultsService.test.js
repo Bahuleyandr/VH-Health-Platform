@@ -46,6 +46,7 @@ describe('labResultsService critical detection', () => {
         critical_low: null,
         critical_high: '0.04',
         test_name: 'Troponin I',
+        unit: 'ng/mL',
       }])
       .mockResolvedValueOnce([{
         id: 91,
@@ -70,6 +71,56 @@ describe('labResultsService critical detection', () => {
       expect.stringContaining('UPDATE lab_results SET is_critical = true'),
       37,
     );
+  });
+
+  it('normalizes per-uL CBC counts before comparing x10^3/uL critical thresholds', async () => {
+    const tenantId = '00000000-0000-4000-8000-000000000001';
+    const patientUid = '5e89c1aa-df0c-4d19-9e7e-40af85486f24';
+    const results = [
+      {
+        id: 29,
+        patient_uid: patientUid,
+        loinc_code: null,
+        test_code: 'WBC',
+        test_name: 'White blood cell count',
+        value_text: '8200',
+        value_numeric: '8200',
+        unit: '/uL',
+        is_critical: false,
+      },
+      {
+        id: 30,
+        patient_uid: patientUid,
+        loinc_code: null,
+        test_code: 'PLT',
+        test_name: 'Platelet count',
+        value_text: '245000',
+        value_numeric: '245000',
+        unit: '/uL',
+        is_critical: false,
+      },
+    ];
+
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        critical_low: '2',
+        critical_high: '30',
+        test_name: 'White blood cell count',
+        unit: '10^3/uL',
+      }])
+      .mockResolvedValueOnce([{
+        critical_low: '30',
+        critical_high: '1000',
+        test_name: 'Platelet count',
+        unit: '10^3/uL',
+      }]);
+
+    const alerts = await detectCriticalsForResults({ tenantId, results });
+
+    expect(alerts).toHaveLength(0);
+    expect(results[0].is_critical).toBe(false);
+    expect(results[1].is_critical).toBe(false);
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
   });
 });
 
