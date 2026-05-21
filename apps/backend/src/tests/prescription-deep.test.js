@@ -414,6 +414,56 @@ describe('E-prescriptions — deep integration', () => {
     expect(Number(patientRx.pharmacy_amount_collected)).toBe(35);
   });
 
+  it('recalculates dispensed mL when substituting to a different concentration', async () => {
+    // Finding 2026-05-21-walk-in-opd-pharmacy-c05e2adb: prescribed 3.75 mL of
+    // 250mg/5mL (187.5 mg); substituting to 125mg/5mL must recalc to 7.5 mL to
+    // preserve the mg dose, not silently keep 3.75 mL (a 50% paediatric underdose).
+    const catalogRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (name, generic_name, category, unit_price, price, pack_size,
+          requires_prescription, in_stock, is_active, is_available,
+          stock_quantity, stock, reorder_level, description, updated_at)
+       VALUES
+         ('Paracetamol Syrup 125mg/5ml Recalc Test', 'Paracetamol', 'analgesic', 35.00, 35.00, '60 ml bottle',
+          true, true, true, true, 50, 50, 10, 'Recalc substitution fixture', NOW())
+       RETURNING id`,
+    );
+    const rxRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO e_prescriptions (patient_id, doctor_id, medications, status, created_by)
+       VALUES ($1, $2, $3::jsonb, 'active', $4) RETURNING id`,
+      patientId, doctorId,
+      JSON.stringify([{
+        name: 'Paracetamol 250mg/5mL syrup',
+        dosage: 'Syrup 250 mg/5 mL: 3.75 mL',
+        frequency: 'QID', duration: '3 days', route: 'Oral',
+        instructions: 'Give 3.75 ml every 6 hours. Weight 12.5 kg.',
+        qty: 1,
+      }]),
+      staffId,
+    );
+    const mapped = await staffAs(staffId)
+      .post(`/api/v1/prescriptions/${rxRows[0].id}/order-pharmacy`)
+      .send({
+        delivery_type: 'counter',
+        catalog_overrides: { 'Paracetamol 250mg/5mL syrup': catalogRows[0].id },
+      });
+    expect(mapped.statusCode).toBe(200);
+    const orderRows = await prisma.$queryRawUnsafe(
+      `SELECT items_list FROM pharmacy_orders WHERE id = $1`, mapped.body.data.id);
+    const item = orderRows[0].items_list[0];
+    expect(item.dispensed_quantity_ml).toBe(7.5);
+    expect(item.substitution).toMatchObject({
+      explicit: true,
+      original_dispensed_quantity_ml: 3.75,
+      recalculated_dispensed_quantity_ml: 7.5,
+    });
+    expect(item.measuring_instruction).toMatch(/7\.5 ml/i);
+
+    await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_orders WHERE id = $1`, mapped.body.data.id).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM e_prescriptions WHERE id = $1`, rxRows[0].id).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE id = $1`, catalogRows[0].id).catch(() => {});
+  });
+
   it('creates medication reminders from a q6h paediatric prescription', async () => {
     const res = await staffAs(staffId)
       .post('/api/v1/prescriptions/create')
