@@ -913,6 +913,69 @@ export async function getClaim({ tenantId, id }) {
  */
 export const FINAL_CASHLESS_REQUIRED_DOC_TYPES = ['discharge_summary', 'final_bill'];
 
+// Standard claim-packet documents, attached as virtual vh:// references
+// the TPA desk dereferences to the live discharge summary / final bill at
+// pull time — exactly the model ensurePreauthDocumentBundle uses for the
+// pre-auth packet. Each spec declares the backing record it needs so the
+// assembler never fabricates a document for a record that does not exist.
+const TPA_CLAIM_STANDARD_DOCS = [
+  {
+    doc_type: 'discharge_summary',
+    requires: 'admission',
+    file_name: (admissionId) => `discharge-summary-${admissionId}.pdf`,
+    file_url: (admissionId) => `vh://admissions/${admissionId}/discharge-summary`,
+    mime_type: 'application/pdf',
+  },
+  {
+    doc_type: 'final_bill',
+    requires: 'invoice',
+    file_name: (_admissionId, invoiceId) => `final-bill-${invoiceId}.pdf`,
+    file_url: (_admissionId, invoiceId) => `vh://billing/invoices/${invoiceId}/final-bill`,
+    mime_type: 'application/pdf',
+  },
+];
+
+// Auto-assemble the claim's supporting packet before the submit gate.
+// submitClaim enforces FINAL_CASHLESS_REQUIRED_DOC_TYPES, but nothing
+// attached them — the discharge summary + final bill existed as records
+// yet were never written to tpa_claim_documents, so every cashless final
+// claim hit the "missing required document types" gate with no way for the
+// coordinator to satisfy it. Idempotent (skips doc_types already present)
+// and best-effort per doc (a single attach failure is logged, never blocks
+// the submit attempt — the gate below still fires if the packet is truly
+// empty). Mirrors ensurePreauthDocumentBundle.
+// Finding 2026-05-21-tpa-insurance-claim-discharge-9746f26c (+ f9ef3054, 54ede17f).
+async function ensureClaimDocumentBundle({ claimId, admissionId, invoiceId, uploadedBy }) {
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT doc_type FROM tpa_claim_documents WHERE claim_id = $1::int`,
+    Number(claimId),
+  );
+  const existingTypes = new Set(existing.map((r) => r.doc_type));
+  const attached = [];
+  for (const spec of TPA_CLAIM_STANDARD_DOCS) {
+    if (existingTypes.has(spec.doc_type)) continue;
+    if (spec.requires === 'admission' && !admissionId) continue;
+    if (spec.requires === 'invoice' && !invoiceId) continue;
+    try {
+      const row = await attachDocument({
+        claim_id: claimId,
+        doc_type: spec.doc_type,
+        file_name: spec.file_name(admissionId, invoiceId),
+        file_url: spec.file_url(admissionId, invoiceId),
+        mime_type: spec.mime_type,
+        uploaded_by: uploadedBy,
+        notes: 'auto-assembled at claim submission',
+      });
+      attached.push(row.doc_type);
+    } catch (err) {
+      logger.warn(
+        `ensureClaimDocumentBundle: ${spec.doc_type} attach failed for claim=${claimId}: ${err.message}`,
+      );
+    }
+  }
+  return attached;
+}
+
 export async function submitClaim({
   tenantId, id, submitted_by, submission_channel = 'portal', tpa_reference_id,
 }) {
@@ -929,6 +992,16 @@ export async function submitClaim({
       totalBilled: cl.total_billed,
     });
   }
+  // Assemble the standard packet (discharge summary + final bill) before
+  // the doc gates so the cashless requirement is satisfiable from the live
+  // records instead of erroring at a dead end. Skips any doc whose backing
+  // record (admission / invoice) is absent.
+  await ensureClaimDocumentBundle({
+    claimId: cl.id,
+    admissionId: cl.admission_id,
+    invoiceId: cl.invoice_id,
+    uploadedBy: submitted_by,
+  });
   const docs = await prisma.$queryRawUnsafe(
     `SELECT doc_type FROM tpa_claim_documents WHERE claim_id = $1::int`,
     cl.id,
