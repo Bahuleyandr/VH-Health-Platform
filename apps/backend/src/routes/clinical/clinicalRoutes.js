@@ -153,8 +153,16 @@ router.post('/progress-notes', async (req, res, next) => {
     const content = noteType === 'progress'
       ? buildProgressNoteContent(rawContent, req.body.summary)
       : rawContent;
+    // encounter_id (UUID, IPD/ER) and appointment_id (int, OPD) are
+    // DISTINCT keys — pass them through separately. Folding appointment_id
+    // into encounter_id sent an integer to the UUID encounter lookup
+    // (prisma.admissions.findFirst({ where: { encounter_id } })), which
+    // threw a type error → 500 on every OPD note save. createNote already
+    // binds OPD notes via appointment_id (migration 240).
+    // Finding: /clinical/progress-notes 500s on OPD note save.
     const note = await clinicalNotesService.createNote({
-      encounter_id: req.body.encounter_id || req.body.appointment_id || null,
+      encounter_id: req.body.encounter_id || null,
+      appointment_id: req.body.appointment_id || null,
       patient_uid: req.body.patient_uid,
       author_uid: req.user?.uid,
       author_role: req.body.author_role || req.user?.role,
