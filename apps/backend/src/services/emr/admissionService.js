@@ -472,6 +472,45 @@ async function admitPatient(data) {
     }
   }
 
+  // Phase 0 — inherit OPD-captured allergies when the admit call doesn't
+  // re-supply them, so converting an OPD record to IPD doesn't silently drop
+  // a safety-critical allergy from the chart / prescribing / TPA packet.
+  // Mirrors the walk-in registration's allergy resolution: structured
+  // patient_allergies UNION the free-text users.allergies column. Best-effort
+  // — a lookup failure must never block the admission (defaults to []).
+  // Finding: 2026-05-20-tpa-insurance-claim-admission-29d13399.
+  let admissionAllergies = Array.isArray(allergies) ? allergies : [];
+  if (admissionAllergies.length === 0) {
+    try {
+      const inherited = await prisma.$queryRawUnsafe(
+        `WITH patient_row AS (
+           SELECT id, uid, allergies FROM users WHERE uid = $1::uuid LIMIT 1
+         ),
+         structured AS (
+           SELECT allergy_name, severity
+             FROM patient_allergies pa
+             JOIN patient_row p ON (pa.patient_id = p.id OR pa.patient_uid = p.uid)
+            WHERE COALESCE(pa.is_active, TRUE) = TRUE
+         ),
+         profile AS (
+           SELECT trim(value) AS allergy_name, NULL::text AS severity
+             FROM patient_row p,
+                  regexp_split_to_table(COALESCE(p.allergies, ''), ',') AS value
+            WHERE trim(value) <> ''
+         )
+         SELECT DISTINCT allergy_name, severity
+           FROM (SELECT * FROM structured UNION ALL SELECT * FROM profile) a
+          ORDER BY allergy_name`,
+        patient_uid,
+      );
+      // admissions.allergies is a text[] column — store allergen names as strings.
+      const names = inherited.map((a) => a.allergy_name).filter(Boolean);
+      if (names.length) admissionAllergies = names;
+    } catch (err) {
+      logger.warn(`admitPatient: allergy inheritance failed for patient_uid=${patient_uid}: ${err.message}`);
+    }
+  }
+
   const admission = await prisma.$transaction(async (tx) => {
     // Resolve patient_uid → users.id (beds.patient_id is int FK)
     const patientUser = await tx.users.findUnique({
@@ -497,7 +536,7 @@ async function admitPatient(data) {
         priority,
         insurance_info: insurance_info ?? null,
         emergency_contact: emergency_contact ?? null,
-        allergies,
+        allergies: admissionAllergies,
         code_status,
         expected_los_days: expected_los_days ?? null,
         created_by,

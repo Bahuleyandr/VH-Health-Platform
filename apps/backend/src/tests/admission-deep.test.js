@@ -233,6 +233,47 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       expect(audits.length).toBeGreaterThanOrEqual(1);
     });
 
+    it('inherits OPD-captured allergies when the admit call omits them', async () => {
+      // Finding 2026-05-20-tpa-insurance-claim-admission-29d13399: converting an
+      // OPD record to IPD must not silently drop a safety-critical allergy.
+      const uid = 'a1111111-1111-4111-8111-1111111119aa';
+      const cleanup = async () => {
+        await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM patient_allergies WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number = 'DEEP-ALLERGY-BED'`).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, uid).catch(() => {});
+      };
+      await cleanup();
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+         VALUES ($1::uuid, '9000019099', 'Allergy Inherit Patient', 'PATIENT', true, NOW())`, uid);
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO patient_allergies (patient_uid, allergy_name, severity, is_active, created_at)
+         VALUES ($1::uuid, 'Sulfa drugs', 'high', true, NOW())`, uid);
+      const bed = await prisma.$queryRawUnsafe(
+        `INSERT INTO beds (ward_id, ward_name, bed_number, status)
+         VALUES ($1, 'DEEP-TEST-WARD', 'DEEP-ALLERGY-BED', 'available') RETURNING id`, wardId);
+
+      const res = await admin.post('/api/v1/emr/admit').send({
+        patient_uid: uid,
+        admitting_doctor: DOCTOR_UID,
+        chief_complaint: 'Severe abdominal pain',
+        admitting_diagnosis: 'Acute pancreatitis',
+        admission_type: 'emergency',
+        priority: 'urgent',
+        bed_id: bed[0].id,
+        emergency_consent_bypass_reason: 'Test — implied consent for allergy inheritance',
+        // deliberately NO `allergies` field — must inherit from patient_allergies
+      });
+      expect(res.statusCode).toBe(201);
+      const adm = await prisma.$queryRawUnsafe(
+        `SELECT allergies FROM admissions WHERE id = $1`, res.body.data.admission.id);
+      const names = (adm[0].allergies || []).map((a) => (a && a.allergy_name) || a);
+      expect(names).toContain('Sulfa drugs');
+
+      await cleanup();
+    });
+
     it('creates admission and occupies the bed', async () => {
       const res = await admin.post('/api/v1/emr/admit').send({
         patient_uid: PATIENT_UID,
