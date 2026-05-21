@@ -42,6 +42,23 @@ describe('Enhancement guard against tpa_claims id collision', () => {
     );
     policyId = policyRows[0].id;
 
+    // Determinism guard. `tpa_claims` and `insurance_claims` are independent
+    // SERIAL sequences, so a freshly-created tpa_claims row can land on an id
+    // that already exists in insurance_claims (created by another suite).
+    // When it does, createEnhancementClaim's `SELECT FROM insurance_claims
+    // WHERE id = $1` hits that unrelated row and creates an enhancement (201)
+    // instead of falling through to the tpa_claims guard (400) — a flake that
+    // depends on suite execution order. Push the tpa_claims sequence past the
+    // current insurance_claims max so this row's id cannot exist in
+    // insurance_claims, making the guard assertion deterministic.
+    await prisma.$queryRawUnsafe(
+      `SELECT setval(pg_get_serial_sequence('tpa_claims', 'id'),
+                     GREATEST(
+                       (SELECT COALESCE(MAX(id), 0) FROM tpa_claims),
+                       (SELECT COALESCE(MAX(id), 0) FROM insurance_claims)
+                     ) + 1000, false)`
+    );
+
     const claimRows = await prisma.$queryRawUnsafe(
       `INSERT INTO tpa_claims
          (claim_number, policy_id, patient_uid, claim_type,

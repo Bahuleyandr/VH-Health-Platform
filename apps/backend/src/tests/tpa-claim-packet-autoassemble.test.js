@@ -1,0 +1,130 @@
+// Regression test for finding
+// 2026-05-21-tpa-insurance-claim-discharge-9746f26c (+ f9ef3054, 54ede17f)
+//
+// submitClaim enforces a cashless final-claim packet
+// (FINAL_CASHLESS_REQUIRED_DOC_TYPES = discharge_summary + final_bill) but
+// nothing attached those documents — the discharge summary and final bill
+// existed as records yet were never written to tpa_claim_documents, so
+// every cashless final claim hit the "missing required document types"
+// gate with no way for the coordinator to get past it.
+//
+// The fix adds ensureClaimDocumentBundle (mirroring the pre-auth submit
+// assembler), which attaches the discharge summary + final bill as virtual
+// vh:// references before the gate runs — but only for records that exist
+// (it never fabricates a doc for a null admission/invoice).
+
+import prisma from '../lib/prisma.js';
+import * as claims from '../services/insurance/claimsService.js';
+
+const TENANT = '00000000-0000-4000-8000-000000000001';
+const PATIENT_UID = 'f4444444-4444-4444-8444-dddddddd4401';
+
+const createdClaimIds = [];
+const createdInvoiceIds = [];
+let policyId;
+
+async function seedIssuedInvoice({ total, admissionId }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO billing_invoices
+       (invoice_number, patient_uid, admission_id, invoice_type,
+        subtotal, total_amount, amount_paid, amount_due, status, tenant_id)
+     VALUES ($1, $2::uuid, $3::int, 'final',
+             $4::numeric, $4::numeric, 0, $4::numeric, 'ISSUED', $5::uuid)
+     RETURNING id`,
+    `INV-PKT-${Date.now() % 100000}-${createdInvoiceIds.length}`,
+    PATIENT_UID, admissionId, total, TENANT,
+  );
+  createdInvoiceIds.push(rows[0].id);
+  return rows[0].id;
+}
+
+describe('TPA claim packet auto-assembly at submit (9746f26c)', () => {
+  beforeAll(async () => {
+    const pol = await prisma.$queryRawUnsafe(
+      `INSERT INTO insurance_policies
+         (patient_uid, policy_number, status, tenant_id)
+       VALUES ($1::uuid, $2, 'active', $3::uuid)
+       RETURNING id`,
+      PATIENT_UID, `POL-PKT-${Date.now() % 100000}`, TENANT,
+    );
+    policyId = pol[0].id;
+  });
+
+  afterAll(async () => {
+    for (const id of createdClaimIds) {
+      await prisma.$executeRawUnsafe(`DELETE FROM tpa_claim_documents WHERE claim_id = $1::int`, id).catch(() => {});
+      await prisma.$executeRawUnsafe(`DELETE FROM tpa_claims WHERE id = $1::int`, id).catch(() => {});
+    }
+    for (const id of createdInvoiceIds) {
+      await prisma.$executeRawUnsafe(`DELETE FROM billing_invoices WHERE id = $1::int`, id).catch(() => {});
+    }
+    if (policyId) {
+      await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = $1::int`, policyId).catch(() => {});
+    }
+    await prisma.$disconnect().catch(() => {});
+  });
+
+  it('auto-assembles discharge_summary + final_bill so a cashless final claim can submit with no pre-attached docs', async () => {
+    const admissionId = 940100 + (Date.now() % 10000);
+    const invoiceId = await seedIssuedInvoice({ total: 50000, admissionId });
+    const claim = await claims.createClaim({
+      tenantId: TENANT, policy_id: policyId, patient_uid: PATIENT_UID,
+      admission_id: admissionId, invoice_id: invoiceId, claim_type: 'cashless',
+      stage: 'final', total_billed: 50000,
+    });
+    createdClaimIds.push(claim.id);
+
+    const submitted = await claims.submitClaim({
+      tenantId: TENANT, id: claim.id, submitted_by: null,
+    });
+    expect(submitted.status).toBe('submitted');
+
+    const bundle = await claims.getClaimBundle({ tenantId: TENANT, id: claim.id });
+    const types = bundle.documents.map((d) => d.doc_type).sort();
+    expect(types).toEqual(['discharge_summary', 'final_bill']);
+  });
+
+  it('does NOT fabricate a packet when the backing records are absent (no admission, no invoice)', async () => {
+    const claim = await claims.createClaim({
+      tenantId: TENANT, policy_id: policyId, patient_uid: PATIENT_UID,
+      claim_type: 'cashless', stage: 'final', total_billed: 12000,
+    });
+    createdClaimIds.push(claim.id);
+
+    await expect(
+      claims.submitClaim({ tenantId: TENANT, id: claim.id, submitted_by: null }),
+    ).rejects.toThrow(/at least one supporting document/i);
+
+    const bundle = await claims.getClaimBundle({ tenantId: TENANT, id: claim.id });
+    expect(bundle.documents.length).toBe(0);
+  });
+
+  it('is idempotent — a pre-attached discharge_summary is not duplicated', async () => {
+    const admissionId = 950100 + (Date.now() % 10000);
+    const invoiceId = await seedIssuedInvoice({ total: 32000, admissionId });
+    const claim = await claims.createClaim({
+      tenantId: TENANT, policy_id: policyId, patient_uid: PATIENT_UID,
+      admission_id: admissionId, invoice_id: invoiceId, claim_type: 'cashless',
+      stage: 'final', total_billed: 32000,
+    });
+    createdClaimIds.push(claim.id);
+
+    // Coordinator hand-attached the discharge summary already.
+    await claims.attachDocument({
+      claim_id: claim.id, doc_type: 'discharge_summary',
+      file_name: 'hand-uploaded.pdf', file_url: 'vh://manual/discharge',
+      mime_type: 'application/pdf',
+    });
+
+    const submitted = await claims.submitClaim({
+      tenantId: TENANT, id: claim.id, submitted_by: null,
+    });
+    expect(submitted.status).toBe('submitted');
+
+    const bundle = await claims.getClaimBundle({ tenantId: TENANT, id: claim.id });
+    const dischargeDocs = bundle.documents.filter((d) => d.doc_type === 'discharge_summary');
+    const finalBillDocs = bundle.documents.filter((d) => d.doc_type === 'final_bill');
+    expect(dischargeDocs.length).toBe(1); // not duplicated
+    expect(finalBillDocs.length).toBe(1); // auto-added
+  });
+});
