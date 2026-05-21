@@ -60,4 +60,19 @@ describe('billingV2Service.listInvoices', () => {
       status: 'near_limit',
     });
   });
+
+  it('applies admission and numeric patient filters to invoice list SQL', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+
+    await listInvoices({
+      patient_id: 42,
+      admission_id: 8,
+      limit: 10,
+    });
+
+    const [sql, ...params] = queryUnsafeMock.mock.calls[0];
+    expect(sql).toContain('patient_uid = (SELECT uid FROM users WHERE id = $1::int)');
+    expect(sql).toContain('admission_id = $2::int');
+    expect(params).toEqual([42, 8, 10, 0]);
+  });
 });

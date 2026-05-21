@@ -868,11 +868,16 @@ export async function getInvoice(invoiceId) {
 }
 
 export async function listInvoices({
-  patient_uid, status, invoice_type, date_from, date_to, page = 1, limit = 20,
+  patient_uid, patient_id, admission_id, status, invoice_type, date_from, date_to, page = 1, limit = 20,
 } = {}) {
   const params = [];
   const where = [];
   if (patient_uid) { params.push(String(patient_uid)); where.push(`patient_uid = $${params.length}::uuid`); }
+  if (patient_id) {
+    params.push(Number(patient_id));
+    where.push(`patient_uid = (SELECT uid FROM users WHERE id = $${params.length}::int)`);
+  }
+  if (admission_id) { params.push(Number(admission_id)); where.push(`admission_id = $${params.length}::int`); }
   if (status) { params.push(status); where.push(`status = $${params.length}`); }
   if (invoice_type) { params.push(invoice_type); where.push(`invoice_type = $${params.length}`); }
   if (date_from) { params.push(date_from); where.push(`COALESCE(issued_at, created_at) >= $${params.length}::timestamptz`); }

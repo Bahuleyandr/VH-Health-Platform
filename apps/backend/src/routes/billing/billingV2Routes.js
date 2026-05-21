@@ -81,6 +81,8 @@ router.post('/invoices', requireStaffOrAdmin, wrap(async (req) =>
 
 router.get('/invoices', requireStaffOrAdmin, wrap(async (req) => billing.listInvoices({
   patient_uid: req.query.patient_uid,
+  patient_id: req.query.patient_id,
+  admission_id: req.query.admission_id,
   status: req.query.status,
   invoice_type: req.query.invoice_type,
   date_from: req.query.date_from,
