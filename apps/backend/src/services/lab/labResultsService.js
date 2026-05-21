@@ -570,6 +570,71 @@ export async function signOffResults({
     String(signed_off_by), decision, ids, tenantId,
   );
 
+  // Tell the patient (and the guardian, for a dependent minor) that their
+  // verified results are ready to view. Until now nothing notified the
+  // patient on sign-off — only the critical-alert path fires, and that
+  // targets the ordering clinician, so a patient whose results were
+  // finalised was never told they could view them. Best-effort: a
+  // notification failure must never abort the sign-off (the result rows are
+  // the canonical record). Guardian fan-out mirrors the dependent-minor
+  // model from migration 202 (users.guardian_user_id).
+  // Finding 2026-05-21-lab-walk-in-lab-tech-65aded1a.
+  if (decision === 'verified') {
+    try {
+      const resultPatientUid = patient_uid || owned[0].patient_uid;
+      const recipients = await prisma.$queryRawUnsafe(
+        `SELECT u.id, u.uid, u.phone, u.name, false AS is_guardian
+           FROM users u
+          WHERE u.uid = $1::uuid AND u.phone IS NOT NULL
+          UNION
+         SELECT g.id, g.uid, g.phone, g.name, true AS is_guardian
+           FROM users p
+           JOIN users g ON g.id = p.guardian_user_id
+          WHERE p.uid = $1::uuid AND g.phone IS NOT NULL`,
+        resultPatientUid,
+      );
+      const { default: outbox } = await import('../../utils/notifications/notificationOutbox.js');
+      const title = 'Lab results ready';
+      const count = ids.length;
+      const noun = count === 1 ? 'result' : 'results';
+      const data = {
+        booking_id: booking_id ? Number(booking_id) : null,
+        result_ids: ids,
+        patient_uid: resultPatientUid,
+      };
+      for (const rcpt of recipients) {
+        const body = rcpt.is_guardian
+          ? `Lab ${noun} for your dependent are ready to view (${count}).`
+          : `Your lab ${noun} are ready to view (${count}).`;
+        await outbox.queue({
+          type: 'lab_result_ready',
+          recipientId: rcpt.id,
+          recipientPhone: rcpt.phone,
+          title,
+          body,
+          data,
+        }).catch((e) => logger.warn(`Lab result-ready outbox queue failed for user ${rcpt.id}: ${e.message}`));
+
+        // In-app feed row — what GET /api/v1/notifications/my reads.
+        try {
+          await prisma.$executeRawUnsafe(
+            `INSERT INTO notifications
+               (uid, user_id, phone, title, body, type, priority,
+                data, is_read, created_at, updated_at)
+             VALUES ($1::uuid, $2::int, $3, $4, $5, 'lab_result_ready',
+                     'NORMAL', $6::jsonb, false, NOW(), NOW())`,
+            rcpt.uid, rcpt.id, normalizePhone(rcpt.phone),
+            title, body, JSON.stringify(data),
+          );
+        } catch (e) {
+          logger.warn(`Lab result-ready in-app insert failed for user ${rcpt.id}: ${e.message}`);
+        }
+      }
+    } catch (e) {
+      logger.warn(`Lab result-ready notification fan-out failed: ${e?.message}`);
+    }
+  }
+
   return rows[0];
 }
 
