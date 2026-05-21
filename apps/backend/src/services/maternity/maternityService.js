@@ -522,6 +522,32 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
     logger.warn(`ANC booked-visit scan failed for pregnancy=${id}: ${e.message}`);
   }
 
+  // Vitals recorded through the generic vitals path (vitals_chart, e.g.
+  // POST /emr/vitals from the staff app) within the pregnancy window. ANC
+  // visits entered via the maternity composer land in maternity_anc_visits
+  // and show as `visits`, but a nurse who recorded BP / weight on the
+  // general vitals screen during this pregnancy had those readings
+  // invisible on the ANC timeline. Surface them so the OB vitals populate
+  // the timeline regardless of which screen captured them. Scope to >= LMP.
+  // Best-effort: a scan failure must not break the timeline read.
+  // Finding 2026-05-20-obstetric-anc-nurse-d4c9c118 (+ 971d3a14, e8bdd0ca).
+  let generalVitals = [];
+  try {
+    generalVitals = await prisma.$queryRawUnsafe(
+      `SELECT id, recorded_at, systolic_bp, diastolic_bp, heart_rate,
+              temperature, spo2, weight_kg
+         FROM vitals_chart
+        WHERE patient_uid = $1::uuid
+          AND tenant_id = $2::uuid
+          AND recorded_at >= COALESCE($3::date, recorded_at)
+        ORDER BY recorded_at DESC
+        LIMIT 50`,
+      String(p.patient_uid), tid, p.lmp_date || null,
+    );
+  } catch (e) {
+    logger.warn(`ANC general-vitals scan failed for pregnancy=${id}: ${e.message}`);
+  }
+
   // Forward/back ANC care schedule computed from LMP, so the timeline
   // shows where the current visit sits in the plan and what's next.
   bookedVisits = bookedVisits.map((visit) => decorateBookedAncVisit(visit, p.lmp_date));
@@ -531,6 +557,7 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
   return {
     pregnancy: { ...p, gestational_age: computeGestationalAge(p.lmp_date) },
     visits,
+    general_vitals: generalVitals,
     booked_visits: bookedVisits,
     schedule_milestones: scheduleMilestones,
     supplements: dedupeActiveSupplementTherapies(supplements),

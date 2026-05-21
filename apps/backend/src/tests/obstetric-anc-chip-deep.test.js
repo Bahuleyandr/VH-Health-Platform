@@ -85,6 +85,17 @@ describe('Obstetric/ANC chip — deep integration', () => {
                'CONFIRMED', 'Obstetrics & Gynaecology', 'ANC-20260514-001', NOW())
        RETURNING id`, patientId);
     appointmentId = a[0].id;
+
+    // Vitals recorded on the GENERIC vitals screen (vitals_chart) during the
+    // pregnancy window — these must surface on the ANC timeline even though
+    // they were not entered through the maternity composer.
+    // Finding 2026-05-20-obstetric-anc-nurse-d4c9c118.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO vitals_chart
+         (patient_uid, systolic_bp, diastolic_bp, heart_rate, weight_kg,
+          recorded_at, tenant_id)
+       VALUES ($1::uuid, 128, 82, 78, 64, NOW() - INTERVAL '10 days', $2::uuid)`,
+      PATIENT_UID, TENANT);
   });
 
   afterAll(async () => {
@@ -98,6 +109,8 @@ describe('Obstetric/ANC chip — deep integration', () => {
       `DELETE FROM maternity_supplements WHERE pregnancy_id=$1`, pregnancyId).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM maternity_pregnancies WHERE id=$1`, pregnancyId).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM vitals_chart WHERE patient_uid=$1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DOCTOR_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
@@ -150,6 +163,18 @@ describe('Obstetric/ANC chip — deep integration', () => {
       expect(booked.milestone_label).toMatch(/24-week/i);
       expect(booked.visit_sequence_number).toBe(3);
       expect(timeline.schedule_milestones.length).toBe(9);
+    });
+
+    it('surfaces generic-path (vitals_chart) OB vitals on the timeline', async () => {
+      const timeline = await getAncTimelineForPregnancy({
+        tenantId: TENANT, pregnancy_id: pregnancyId,
+      });
+      expect(Array.isArray(timeline.general_vitals)).toBe(true);
+      const reading = timeline.general_vitals.find(
+        (v) => Number(v.systolic_bp) === 128 && Number(v.diastolic_bp) === 82,
+      );
+      expect(reading).toBeTruthy();
+      expect(Number(reading.weight_kg)).toBe(64);
     });
 
     it('continues an active supplement row instead of creating duplicate reminders', async () => {
