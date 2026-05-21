@@ -943,6 +943,18 @@ export async function recordClaimDecision({
   const allowed = ['approved', 'partially_approved', 'queried', 'denied'];
   if (!allowed.includes(decision)) throw AppError.badRequest('Invalid decision');
 
+  if (approved_amount != null) {
+    const approvedNum = Number(approved_amount);
+    const claimedNum = Number(cl.claimed_amount || 0);
+    if (claimedNum > 0 && approvedNum > claimedNum) {
+      throw AppError.badRequest(
+        `approved_amount ${approvedNum} exceeds claimed_amount ${claimedNum}; ` +
+        `the insurer cannot approve more than was submitted.`,
+        { claimed_amount: claimedNum, approved_amount: approvedNum },
+      );
+    }
+  }
+
   await prisma.$executeRawUnsafe(
     `UPDATE tpa_claims
         SET status = $1,
