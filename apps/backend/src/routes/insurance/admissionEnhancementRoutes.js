@@ -27,7 +27,7 @@ import { Router } from 'express';
 import logger from '../../logging/logger.js';
 import prisma from '../../lib/prisma.js';
 import * as claims from '../../services/insurance/claimsService.js';
-import { normalizeClinicalJustification } from '../../services/insurance/clinicalJustificationTemplate.js';
+import { normalizeClinicalJustification, ENHANCEMENT_JUSTIFICATION_TEMPLATE } from '../../services/insurance/clinicalJustificationTemplate.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // mergeParams: true — `:admissionId` is declared on the parent mount in
@@ -109,6 +109,20 @@ async function buildEnhancementChain(parent) {
 }
 
 // ── routes ──────────────────────────────────────────────────────────
+
+// GET /api/v1/admissions/:admissionId/tpa-enhancement/template
+//
+// The clinical-justification template a consultant fills in before
+// opening/submitting an enhancement. Mirrors the billing-side
+// GET /api/v1/insurance/enhancement-justification-template, which is
+// gated to ADMIN/BILLING_STAFF/INSURANCE_COORDINATOR — so the treating
+// clinician who starts an enhancement from the chart could not fetch the
+// template they were told to fill (the POST handler below points at it).
+// Exposing it on this clinician-gated chart surface closes that gap.
+// Finding 2026-05-20-tpa-insurance-claim-doctor-391174a0.
+router.get('/template', (req, res) =>
+  success(res, ENHANCEMENT_JUSTIFICATION_TEMPLATE, 'Enhancement justification template'),
+);
 
 // GET /api/v1/admissions/:admissionId/tpa-enhancement
 //
@@ -230,6 +244,58 @@ router.post('/', async (req, res) => {
     if (err.isOperational) return error(res, err.message, err.statusCode);
     logger.error('admission tpa-enhancement POST failed', { error: err.message });
     return error(res, 'Failed to open enhancement preauth', 500);
+  }
+});
+
+// POST /api/v1/admissions/:admissionId/tpa-enhancement/:preauthId/submit
+//
+// Submit a draft pre-auth (the original or an enhancement child) on this
+// admission to the TPA. Closes finding
+// 2026-05-20-tpa-insurance-claim-doctor-391174a0: a treating clinician
+// could open an enhancement draft from the chart (POST above) but the
+// submit + template endpoints lived only under /api/v1/insurance/*, which
+// is gated to ADMIN / SUPER_ADMIN / BILLING_STAFF / INSURANCE_COORDINATOR
+// — so the doctor was Forbidden from finishing the workflow they started.
+// Exposing submit on this clinician-gated chart surface (keyed off
+// admission_id) lets the consultant complete it without a billing hand-off.
+// Delegates to the same claimsService.submitPreauth the billing route uses,
+// so the doc-bundle attach + draft-status gate + SLA logic stay in one place.
+router.post('/:preauthId/submit', async (req, res) => {
+  try {
+    const tenantId = tenantOf(req);
+    const admissionId = Number(req.params.admissionId);
+    const preauthId = Number(req.params.preauthId);
+    if (!Number.isInteger(admissionId) || admissionId <= 0) {
+      return error(res, 'Invalid admissionId', 400);
+    }
+    if (!Number.isInteger(preauthId) || preauthId <= 0) {
+      return error(res, 'Invalid preauthId', 400);
+    }
+
+    // The :preauthId is caller-supplied and not implied by the mount, so
+    // confirm it belongs to THIS admission before submitting — otherwise a
+    // clinician on admission A could submit admission B's pre-auth. 404
+    // (not 403) so we don't disclose that pre-auths exist on other
+    // admissions. getPreauth throws AppError.notFound for a missing id,
+    // which the catch below maps to a clean 404.
+    const pre = await claims.getPreauth({ tenantId, id: preauthId });
+    if (Number(pre.admission_id) !== admissionId) {
+      return error(res, 'Pre-auth does not belong to this admission', 404);
+    }
+
+    const submitted = await claims.submitPreauth({
+      tenantId,
+      id: preauthId,
+      submitted_by: req.user?.uid || null,
+      submission_channel: req.body?.submission_channel,
+      tpa_reference_id: req.body?.tpa_reference_id,
+    });
+
+    return success(res, submitted, 'Pre-auth submitted to TPA');
+  } catch (err) {
+    if (err.isOperational) return error(res, err.message, err.statusCode);
+    logger.error('admission tpa-enhancement submit failed', { error: err.message });
+    return error(res, 'Failed to submit pre-auth', 500);
   }
 });
 
