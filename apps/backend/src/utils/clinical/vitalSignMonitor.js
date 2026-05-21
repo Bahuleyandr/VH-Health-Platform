@@ -36,12 +36,19 @@ const PAEDIATRIC_RANGES = {
 /**
  * Pregnancy-specific BP thresholds. Gestational hypertension is ≥140
  * systolic OR ≥90 diastolic; severe / pre-eclampsia is ≥160 / ≥110. Other
- * vitals fall back to adult ranges. See finding
- * 2026-05-08-obstetric-anc-nurse-bp-no-preeclampsia-alert.
+ * vitals fall back to adult ranges. See findings
+ * 2026-05-08-obstetric-anc-nurse-bp-no-preeclampsia-alert and
+ * 2026-05-20-obstetric-anc-nurse-acf39daa.
+ *
+ * `max` is the last NORMAL value: the range check flags `value > max`, so
+ * encoding 139/89 makes exactly 140/90 trip a WARNING (recheck BP / dipstick
+ * urine) even without proteinuria — gestational hypertension is defined at
+ * the ≥140/90 boundary. Severe pre-eclampsia (critical_max ≥160/110) and the
+ * proteinuria-positive preeclampsia_screen are handled separately below.
  */
 const PREGNANCY_BP_OVERRIDES = {
-  systolic_bp: { min: 90, max: 140, critical_min: 70, critical_max: 160, unit: 'mmHg', preeclampsia: true },
-  diastolic_bp: { min: 50, max: 90, critical_min: 40, critical_max: 110, unit: 'mmHg', preeclampsia: true },
+  systolic_bp: { min: 90, max: 139, critical_min: 70, critical_max: 160, unit: 'mmHg', preeclampsia: true },
+  diastolic_bp: { min: 50, max: 89, critical_min: 40, critical_max: 110, unit: 'mmHg', preeclampsia: true },
 };
 
 /**
