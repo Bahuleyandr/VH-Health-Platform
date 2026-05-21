@@ -135,6 +135,7 @@ async function cleanupFixtures() {
 describe('POST /appointments/walk-in — Stage-5 structured registration fields', () => {
   let staffId;
   let staffToken;
+  let searchToken;
 
   beforeAll(async () => {
     await cleanupFixtures();
@@ -146,6 +147,7 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
     );
     staffId = rows[0].id;
     staffToken = generateTestToken('RECEPTIONIST', { uid: STAFF_UID, id: staffId });
+    searchToken = generateTestToken('ADMIN', { uid: STAFF_UID, id: staffId });
 
     // Pre-seed a high token for the (unique, per-run) emergency department
     // so the EMER-prefixed walk-in below lands on a collision-proof
@@ -454,6 +456,22 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
       guardian_relationship: 'mother',
       guardian_phone_login: `+91${MINOR_GUARDIAN_PHONE}`,
     });
+
+    const usersByGuardianPhone = await request(app)
+      .get('/api/v1/users')
+      .query({ phone: `+91${MINOR_GUARDIAN_PHONE}` })
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${searchToken}`);
+    expect(usersByGuardianPhone.statusCode).toBe(200);
+    expect(usersByGuardianPhone.body.data.users.map((u) => u.id)).toContain(res.body.data.patient_id);
+
+    const appointmentsByGuardianPhone = await request(app)
+      .get('/api/v1/appointments')
+      .query({ search: `+91${MINOR_GUARDIAN_PHONE}` })
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${searchToken}`);
+    expect(appointmentsByGuardianPhone.statusCode).toBe(200);
+    expect(appointmentsByGuardianPhone.body.data.appointments.map((a) => a.id)).toContain(res.body.data.id);
   });
 
   it('leaves the new columns null when the caller sends no payer fields (back-compat)', async () => {

@@ -16,23 +16,49 @@ const PATIENT_A_UID = 'a5555555-5555-4555-8555-55555555fa01';
 const PATIENT_B_UID = 'a5555555-5555-4555-8555-55555555fa02';
 const DOCTOR_UID = 'a5555555-5555-4555-8555-55555555fa03';
 const STAFF_UID = 'a5555555-5555-4555-8555-55555555fa04';
+const GUARDIAN_UID = 'a5555555-5555-4555-8555-55555555fa05';
+const DEPENDENT_UID = 'a5555555-5555-4555-8555-55555555fa06';
 
 const PATIENT_A_PHONE = '9999110001';
 const PATIENT_B_PHONE = '9999110002';
+const GUARDIAN_PHONE = '+919632581470';
+const DEPENDENT_PHONE = 'DEPEND-MPETIBVQ';
+const DEPENDENT_MED = 'Guardian Filter Test Drops';
 
 async function cleanupFixtures() {
   const rows = await prisma
     .$queryRawUnsafe(
       `SELECT id FROM users
-       WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+       WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid)`,
       PATIENT_A_UID,
       PATIENT_B_UID,
       DOCTOR_UID,
-      STAFF_UID
+      STAFF_UID,
+      GUARDIAN_UID,
+      DEPENDENT_UID
     )
     .catch(() => []);
   const ids = rows.map(r => r.id);
   if (ids.length > 0) {
+    await prisma
+      .$executeRawUnsafe(
+        `UPDATE users SET guardian_user_id = NULL WHERE id = ANY($1::int[])`,
+        ids
+      )
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `UPDATE e_prescriptions SET pharmacy_order_id = NULL
+         WHERE patient_id = ANY($1::int[]) OR doctor_id = ANY($1::int[])`,
+        ids
+      )
+      .catch(() => {});
+    await prisma
+      .$executeRawUnsafe(
+        `DELETE FROM pharmacy_orders WHERE patient_id = ANY($1::int[])`,
+        ids
+      )
+      .catch(() => {});
     await prisma
       .$executeRawUnsafe(
         `DELETE FROM e_prescriptions WHERE patient_id = ANY($1::int[]) OR doctor_id = ANY($1::int[])`,
@@ -43,12 +69,17 @@ async function cleanupFixtures() {
   await prisma
     .$executeRawUnsafe(
       `DELETE FROM users
-       WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+       WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid)`,
       PATIENT_A_UID,
       PATIENT_B_UID,
       DOCTOR_UID,
-      STAFF_UID
+      STAFF_UID,
+      GUARDIAN_UID,
+      DEPENDENT_UID
     )
+    .catch(() => {});
+  await prisma
+    .$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name = $1`, DEPENDENT_MED)
     .catch(() => {});
 }
 
@@ -57,6 +88,9 @@ describe('GET /prescriptions/all — phone filter regression', () => {
   let patientBId;
   let doctorId;
   let staffId;
+  let guardianId;
+  let dependentId;
+  let dependentRxId;
 
   beforeAll(async () => {
     await cleanupFixtures();
@@ -66,19 +100,35 @@ describe('GET /prescriptions/all — phone filter regression', () => {
          ($1::uuid, $5, 'Phone Filter Patient A', 'PATIENT', true, NOW()),
          ($2::uuid, $6, 'Phone Filter Patient B', 'PATIENT', true, NOW()),
          ($3::uuid, '9999110003', 'Phone Filter Doctor', 'DOCTOR', true, NOW()),
-         ($4::uuid, '9999110004', 'Phone Filter Nurse', 'NURSING_STAFF', true, NOW())
+         ($4::uuid, '9999110004', 'Phone Filter Nurse', 'NURSING_STAFF', true, NOW()),
+         ($7::uuid, $8, 'Phone Filter Guardian', 'PATIENT', true, NOW())
        RETURNING id, uid::text AS uid`,
       PATIENT_A_UID,
       PATIENT_B_UID,
       DOCTOR_UID,
       STAFF_UID,
       PATIENT_A_PHONE,
-      PATIENT_B_PHONE
+      PATIENT_B_PHONE,
+      GUARDIAN_UID,
+      GUARDIAN_PHONE
     );
     patientAId = rows.find(r => r.uid === PATIENT_A_UID).id;
     patientBId = rows.find(r => r.uid === PATIENT_B_UID).id;
     doctorId = rows.find(r => r.uid === DOCTOR_UID).id;
     staffId = rows.find(r => r.uid === STAFF_UID).id;
+    guardianId = rows.find(r => r.uid === GUARDIAN_UID).id;
+
+    const dependentRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO users
+         (uid, phone, name, role, is_active, is_minor, guardian_user_id, guardian_phone, updated_at)
+       VALUES ($1::uuid, $2, 'Baby Phone Filter', 'PATIENT', true, true, $3, $4, NOW())
+       RETURNING id`,
+      DEPENDENT_UID,
+      DEPENDENT_PHONE,
+      guardianId,
+      GUARDIAN_PHONE
+    );
+    dependentId = dependentRows[0].id;
 
     await prisma.$executeRawUnsafe(
       `INSERT INTO e_prescriptions
@@ -91,6 +141,25 @@ describe('GET /prescriptions/all — phone filter regression', () => {
       doctorId,
       JSON.stringify([{ name: 'Paracetamol', dosage: '500mg' }]),
       staffId
+    );
+
+    const rxRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO e_prescriptions
+         (patient_id, doctor_id, medications, status, created_by)
+       VALUES ($1, $2, $3::jsonb, 'active', $4)
+       RETURNING id`,
+      dependentId,
+      doctorId,
+      JSON.stringify([{ name: DEPENDENT_MED, dosage: '10ml', quantity: 1 }]),
+      staffId
+    );
+    dependentRxId = rxRows[0].id;
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (name, generic_name, unit_price, price, in_stock, is_active, is_available, stock_quantity, stock, updated_at)
+       VALUES ($1, $1, 25.00, 25.00, true, true, true, 10, 10, NOW())`,
+      DEPENDENT_MED
     );
   });
 
@@ -131,6 +200,42 @@ describe('GET /prescriptions/all — phone filter regression', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body.data).toEqual([]);
+  });
+
+  it('returns dependent pediatric prescriptions when ?phone matches guardian phone', async () => {
+    const token = generateTestToken('PHARMACY_STAFF', {
+      uid: STAFF_UID,
+      id: staffId,
+      phone: '9999110004'
+    });
+
+    const res = await request(app)
+      .get(`/api/v1/prescriptions/all?phone=${encodeURIComponent(GUARDIAN_PHONE)}`)
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.map(rx => rx.patient_id)).toContain(dependentId);
+    const dependentRx = res.body.data.find(rx => rx.patient_id === dependentId);
+    expect(dependentRx.patient_phone).toBe(GUARDIAN_PHONE);
+  });
+
+  it('uses guardian phone as the pharmacy order contact for dependent prescriptions', async () => {
+    const token = generateTestToken('PHARMACY_STAFF', {
+      uid: STAFF_UID,
+      id: staffId,
+      phone: '9999110004'
+    });
+
+    const res = await request(app)
+      .post(`/api/v1/prescriptions/${dependentRxId}/order-pharmacy`)
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ delivery_type: 'counter' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.patient_id).toBe(dependentId);
+    expect(res.body.data.patient_phone).toBe(GUARDIAN_PHONE);
   });
 
   // Regression coverage for finding

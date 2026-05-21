@@ -67,6 +67,7 @@ const PATIENT_INCLUDE = {
     uid: true,
     name: true,
     phone: true,
+    guardian_phone: true,
     email: true,
   },
 };
@@ -229,6 +230,7 @@ function flattenListRow(row) {
   delete flat[REL_DOCTOR];
   flat.patient_name = patient?.name ?? row.patient_name ?? null;
   flat.patient_phone = patient?.phone ?? row.phone ?? null;
+  flat.patient_guardian_phone = patient?.guardian_phone ?? null;
   flat.patient_email = patient?.email ?? null;
   flat.doctor_name = doctor?.name ?? row.doctor_name ?? null;
   flat.doctor_phone = doctor?.phone ?? null;
@@ -310,6 +312,11 @@ export class AppointmentQueryService {
           { patient_name: { contains: listQuery.search, mode: 'insensitive' } },
           { doctor_name: { contains: listQuery.search, mode: 'insensitive' } },
           { phone: { contains: listQuery.search, mode: 'insensitive' } },
+          {
+            users_appointments_patient_idTousers: {
+              is: { guardian_phone: { contains: listQuery.search, mode: 'insensitive' } },
+            },
+          },
           { reason: { contains: listQuery.search, mode: 'insensitive' } },
           // Walk-ins persist visit_no (migration 217) so reception can
           // reprint the slip and downstream counters can find the appointment

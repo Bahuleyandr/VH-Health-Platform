@@ -951,13 +951,18 @@ export const getAllPrescriptions = async (req, res) => {
       params.push(doctor_id);
       where += ` AND ep.doctor_id = $${params.length}`;
     }
-    // Phone filter — scope to one patient via the joined users row.
+    // Phone filter — scope to one patient via the joined users row or, for
+    // dependent pediatric patients, the linked/stored guardian contact.
     // Without this branch the param was silently ignored and the query
     // returned every patient's prescriptions (PHI leak; finding
     // 2026-05-08-walk-in-opd-pharmacy-prescription-phone-filter-leaks-all-patients).
     if (phone) {
       params.push(phone);
-      where += ` AND p.phone = $${params.length}`;
+      where += ` AND (
+        p.phone = $${params.length}
+        OR p.guardian_phone = $${params.length}
+        OR guardian.phone = $${params.length}
+      )`;
     }
     // Pharmacy counter look-ups: dispense-against-the-paper-Rx flow.
     // Pharmacists often hold just the RX-number, a patient id from the
@@ -1008,10 +1013,12 @@ export const getAllPrescriptions = async (req, res) => {
 
     const result = await prisma.$queryRawUnsafe(
       `SELECT ep.*,
-              p.name AS patient_name, p.phone AS patient_phone,
+              p.name AS patient_name,
+              COALESCE(NULLIF(guardian.phone, ''), NULLIF(p.guardian_phone, ''), p.phone) AS patient_phone,
               d.name AS doctor_name, doc.specialty AS doctor_specialization
        FROM e_prescriptions ep
        JOIN users p ON p.id = ep.patient_id
+       LEFT JOIN users guardian ON guardian.id = p.guardian_user_id
        JOIN users d ON d.id = ep.doctor_id
        LEFT JOIN doctors doc ON doc.user_id = ep.doctor_id
        ${where}
@@ -1057,9 +1064,11 @@ export const orderPharmacyFromPrescription = async (req, res) => {
 
     // Fetch prescription
     const rxResult = await prisma.$queryRawUnsafe(
-      `SELECT ep.*, p.name AS patient_name, p.phone AS patient_phone
+      `SELECT ep.*, p.name AS patient_name,
+              COALESCE(NULLIF(guardian.phone, ''), NULLIF(p.guardian_phone, ''), p.phone) AS patient_phone
        FROM e_prescriptions ep
        JOIN users p ON p.id = ep.patient_id
+       LEFT JOIN users guardian ON guardian.id = p.guardian_user_id
        WHERE ep.id = $1`,
       id
     );

@@ -270,7 +270,10 @@ export class UserService {
       const candidates = [trimmed];
       if (normalized && !candidates.includes(normalized)) candidates.push(normalized);
       if (national && !candidates.includes(national)) candidates.push(national);
-      conditions.push(Prisma.sql`u.phone IN (${Prisma.join(candidates)})`);
+      conditions.push(Prisma.sql`(
+        u.phone IN (${Prisma.join(candidates)})
+        OR u.guardian_phone IN (${Prisma.join(candidates)})
+      )`);
     }
 
     if (search) {
@@ -278,6 +281,7 @@ export class UserService {
       conditions.push(Prisma.sql`(
         u.name ILIKE ${searchTerm} OR
         u.phone ILIKE ${searchTerm} OR
+        u.guardian_phone ILIKE ${searchTerm} OR
         u.email ILIKE ${searchTerm}
       )`);
     }
