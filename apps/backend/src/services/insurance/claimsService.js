@@ -566,6 +566,19 @@ const RESPONSE_TYPE_ALIASES = {
   enhancement_request: 'enhancement_request',
 };
 
+// True when a TPA response's insurer is compatible with the pre-auth policy's
+// payer. Normalises (lowercase, strip non-alphanumerics) and substring-matches
+// so display-name variants ("Star Health" vs "Star Health and Allied
+// Insurance") pass, while a genuinely different payer ("New India Assurance")
+// is rejected. Returns true when either side is empty (nothing to compare).
+export function insurerMatchesPolicyPayer(responseInsurer, payerName) {
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const a = norm(responseInsurer);
+  const b = norm(payerName);
+  if (!a || !b) return true;
+  return a.includes(b) || b.includes(a);
+}
+
 export async function recordPreauthResponse({
   tenantId, preauth_id, response_type, decision, sanctioned_amount, validity_until,
   conditions, query_text, denial_reason, raw_response,
@@ -584,6 +597,24 @@ export async function recordPreauthResponse({
   const pre = await getPreauth({ tenantId, id: preauth_id });
   if (!['submitted', 'queried', 'approved', 'partially_approved'].includes(pre.status)) {
     throw AppError.badRequest(`Cannot record response on ${pre.status} pre-auth`);
+  }
+
+  // Reject a response whose insurer contradicts the pre-auth policy payer: a
+  // New India approval must not be recorded on a Star Health cashless pre-auth
+  // (it misroutes the payer and overstates the cumulative cap the cashier
+  // trusts at discharge). Only fires when an insurer is supplied; substring-
+  // tolerant to absorb display-name variants ("Star Health" vs "Star Health
+  // and Allied Insurance").
+  // Findings: 2026-05-20-tpa-insurance-claim-billing-24314cb8, -08c03175.
+  const responseInsurer = raw_response && typeof raw_response === 'object'
+    ? String(raw_response.insurer || '').trim()
+    : '';
+  if (responseInsurer && pre.payer_name && !insurerMatchesPolicyPayer(responseInsurer, pre.payer_name)) {
+    throw AppError.badRequest(
+      `Response insurer "${responseInsurer}" does not match the pre-auth policy payer "${pre.payer_name}"; recording an approval from a different insurer would misroute the cashless claim.`,
+      'PREAUTH_INSURER_MISMATCH',
+      { response_insurer: responseInsurer, policy_payer: pre.payer_name },
+    );
   }
 
   // Insert response row (timeline).

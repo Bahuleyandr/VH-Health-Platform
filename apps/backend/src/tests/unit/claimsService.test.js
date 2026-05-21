@@ -9,6 +9,7 @@ import {
   createClaim,
   extractPreauthCaps,
   FINAL_CASHLESS_REQUIRED_DOC_TYPES,
+  insurerMatchesPolicyPayer,
   recordPreauthResponse,
   submitClaim,
   submitPreauth,
@@ -469,5 +470,22 @@ describe('recordPreauthResponse boundary validation', () => {
       // Prisma must NOT have been called — the gate fires first.
       expect(stubCallCount).toBe(0);
     });
+  });
+});
+
+describe('insurerMatchesPolicyPayer (preauth response payer guard)', () => {
+  it('accepts display-name variants of the same payer', () => {
+    expect(insurerMatchesPolicyPayer('Star Health', 'Star Health and Allied Insurance')).toBe(true);
+    expect(insurerMatchesPolicyPayer('STAR HEALTH', 'star-health')).toBe(true);
+  });
+
+  it('rejects a genuinely different insurer', () => {
+    expect(insurerMatchesPolicyPayer('New India Assurance', 'Star Health and Allied Insurance')).toBe(false);
+  });
+
+  it('is permissive when either side is empty (nothing to compare)', () => {
+    expect(insurerMatchesPolicyPayer('', 'Star Health')).toBe(true);
+    expect(insurerMatchesPolicyPayer('New India Assurance', '')).toBe(true);
+    expect(insurerMatchesPolicyPayer(null, null)).toBe(true);
   });
 });
