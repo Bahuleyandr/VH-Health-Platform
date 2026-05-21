@@ -36,6 +36,62 @@ async function fcmTokensForPatient(patient_uid) {
 
 // ── Bills ────────────────────────────────────────────────────────────
 
+// Compute what the PATIENT actually owes, distinct from the invoice's
+// raw ledger balance. On a cashless TPA bill the invoice `amount_due`
+// (total − payments) is mostly the INSURER's receivable; surfacing it as
+// the patient's amount due made a patient with, e.g., ₹80,000 cashless
+// cover and a ₹5,000 non-payable balance believe they owed ₹80,000.
+//
+// One uniform formula across all payer types:
+//   patient_amount_due = max(0, patient_responsibility − patient_paid)
+// where patient_paid counts only the patient's own (non-INSURANCE)
+// non-reversed payments, and patient_responsibility is:
+//   * tpa_final       → the insurer's final verdict patient_share
+//                       (disallowed + non-payable + co-pay)
+//   * cashless_preview → the running non-payable preview total (the
+//                       proactive prediction before the TPA replies)
+//   * cash            → the full bill (no insurer involved)
+// Pure + exported so it is unit-testable without a DB.
+// Finding 2026-05-20-tpa-insurance-claim-patient-25a59426.
+export function computePatientResponsibility({
+  total_amount = 0,
+  amount_due = 0,
+  payments = [],
+  tpaBreakdown = null,
+  nonPayablePreviewTotal = 0,
+  isCashless = false,
+}) {
+  const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const grossTotal = Number(total_amount) || 0;
+  const patientPaid = (payments || [])
+    .filter((p) => !p.reversed && String(p.mode || '').toUpperCase() !== 'INSURANCE')
+    .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+
+  let patientResponsibility;
+  let basis;
+  if (tpaBreakdown && tpaBreakdown.summary) {
+    patientResponsibility = Number(tpaBreakdown.summary.patient_share) || 0;
+    basis = 'tpa_final';
+  } else if (isCashless) {
+    patientResponsibility = Number(nonPayablePreviewTotal) || 0;
+    basis = 'cashless_preview';
+  } else {
+    patientResponsibility = grossTotal;
+    basis = 'cash';
+  }
+
+  return {
+    basis,
+    is_cashless: basis !== 'cash',
+    gross_total: round2(grossTotal),
+    invoice_amount_due: round2(amount_due),
+    patient_responsibility: round2(patientResponsibility),
+    patient_paid: round2(patientPaid),
+    patient_amount_due: Math.max(0, round2(patientResponsibility - patientPaid)),
+    insurer_portion: Math.max(0, round2(grossTotal - patientResponsibility)),
+  };
+}
+
 export async function listMyBills({ tenantId, patient_uid, status }) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   const params = [tenantId, String(patient_uid)];
@@ -167,7 +223,41 @@ export async function getMyBill({ tenantId, patient_uid, id }) {
     reasons: nonPayableReasons,
   };
 
-  return { invoice: rows[0], items, payments, tpa_breakdown: tpaBreakdown, non_payable_preview };
+  // A bill is "cashless" when its admission has an active TPA preauth or a
+  // linked claim. A final TPA verdict (tpa_breakdown) is the strongest
+  // signal; before the insurer replies, the presence of a live preauth on
+  // the admission still means the patient should not see the insurer's
+  // cashless-covered amount as their own due.
+  let isCashless = !!(tpaBreakdown && tpaBreakdown.summary);
+  if (!isCashless && rows[0].admission_id) {
+    try {
+      const pa = await prisma.$queryRawUnsafe(
+        `SELECT 1 FROM insurance_preauth
+          WHERE admission_id = $1::int AND tenant_id = $2::uuid
+            AND status NOT IN ('cancelled', 'lapsed', 'denied')
+          LIMIT 1`,
+        Number(rows[0].admission_id), tenantId,
+      );
+      isCashless = pa.length > 0;
+    } catch (err) {
+      // Under-migrated tenants: insurance_preauth missing → treat as cash.
+      if (err?.meta?.code !== '42P01') throw err;
+    }
+  }
+
+  const responsibility = computePatientResponsibility({
+    total_amount: rows[0].total_amount,
+    amount_due: rows[0].amount_due,
+    payments,
+    tpaBreakdown,
+    nonPayablePreviewTotal: non_payable_preview.total,
+    isCashless,
+  });
+
+  return {
+    invoice: rows[0], items, payments,
+    tpa_breakdown: tpaBreakdown, non_payable_preview, responsibility,
+  };
 }
 
 // Plain-language explanations for tpa_claim_line_decisions.reason_code.

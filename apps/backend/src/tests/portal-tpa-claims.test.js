@@ -174,6 +174,17 @@ describe('GET /portal/tpa/claims — patient self-service', () => {
         patient_share: 5500,
       })
     );
+    // The patient amount due is the insurer-determined patient share
+    // (disallowed + non-payable + co-pay = 5500), NOT conflated with the
+    // insurer's cashless receivable. Finding 25a59426.
+    expect(res.body.data.responsibility).toEqual(
+      expect.objectContaining({
+        basis: 'tpa_final',
+        is_cashless: true,
+        patient_responsibility: 5500,
+        patient_amount_due: 5500,
+      })
+    );
   });
 
   it('does not return another patient\'s claim', async () => {
