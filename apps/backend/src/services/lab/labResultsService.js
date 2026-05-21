@@ -18,6 +18,29 @@ function asNumericOrNull(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function normalizeLabUnit(unit) {
+  if (unit == null || unit === '') return '';
+  return String(unit)
+    .trim()
+    .toLowerCase()
+    .replace(/μ/g, 'u')
+    .replace(/µ/g, 'u')
+    .replace(/\s+/g, '');
+}
+
+function valueForCriticalThreshold(value, resultUnit, thresholdUnit) {
+  const v = Number(value);
+  const result = normalizeLabUnit(resultUnit);
+  const threshold = normalizeLabUnit(thresholdUnit);
+  const thresholdIsThousandsPerMicroliter = ['10^3/ul', 'x10^3/ul', '10^9/l'].includes(threshold);
+  const resultIsPerMicroliter = ['/ul', 'cells/ul', 'count/ul'].includes(result);
+
+  if (thresholdIsThousandsPerMicroliter && resultIsPerMicroliter) {
+    return v / 1000;
+  }
+  return v;
+}
+
 // Stage-3 chip G — investigations.status values from which the order
 // is considered "pre-result" and should advance to IN_PROGRESS once a
 // lab_results row is filed. Terminal states (COMPLETED/CANCELLED) and
@@ -183,7 +206,7 @@ export async function detectCriticalsForResults({ tenantId, results }) {
 
     const { loincCodes, testCodes } = criticalThresholdLookupKeys(r);
     const ths = await prisma.$queryRawUnsafe(
-      `SELECT critical_low, critical_high, test_name
+      `SELECT critical_low, critical_high, test_name, unit
          FROM lab_critical_thresholds
         WHERE tenant_id = $1::uuid
           AND is_active = true
@@ -205,10 +228,10 @@ export async function detectCriticalsForResults({ tenantId, results }) {
       r.test_code ? String(r.test_code).trim().toUpperCase() : null,
     );
     if (!ths.length) continue;
-    const { critical_low: lo, critical_high: hi } = ths[0];
+    const { critical_low: lo, critical_high: hi, unit: thresholdUnit } = ths[0];
     let breachedSide = null;
     let breachedValue = null;
-    const v = Number(r.value_numeric);
+    const v = valueForCriticalThreshold(r.value_numeric, r.unit, thresholdUnit);
     if (lo != null && v < Number(lo)) {
       breachedSide = 'low';
       breachedValue = Number(lo);
