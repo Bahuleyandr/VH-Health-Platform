@@ -119,6 +119,9 @@ router.post(
       // tier check. Without this, NURSING_STAFF (ward nurse) could
       // allocate ICU beds.
       actor_role: req.user?.role,
+      // Thread tenant_id so admitPatient can auto-create the TPA preauth
+      // draft in Phase 1.5 (claimsService.createPreauth requires it).
+      tenant_id: req.tenantId,
     };
 
     const admission = await admissionService.admitPatient(data);

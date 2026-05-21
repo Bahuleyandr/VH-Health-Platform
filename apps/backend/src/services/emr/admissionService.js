@@ -17,7 +17,7 @@ import {
   expireAttendantPassesForAdmission,
   relocateActiveAttendantPasses,
 } from '../ipd/ipdSupportService.js';
-import { createClaim as createTpaClaim } from '../insurance/claimsService.js';
+import { createClaim as createTpaClaim, createPreauth } from '../insurance/claimsService.js';
 
 
 const VALID_STATUS_TRANSITIONS = {
@@ -161,6 +161,12 @@ async function admitPatient(data) {
     // Optional rounding cadence at admit time (migration 229). Most
     // admits set this later via PUT /:id/next-review, after orders.
     next_review_at,
+    // TPA fields passed as raw strings (no policy_id yet). Used for
+    // policy_number → policy_id auto-resolution and preauth auto-draft.
+    // Finding: 2026-05-21-tpa-insurance-claim-admission-cea3771d.
+    policy_number,
+    estimated_cost,
+    tenant_id,
   } = data;
 
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
@@ -436,6 +442,19 @@ async function admitPatient(data) {
       throw AppError.badRequest('policy_id belongs to a different patient');
     }
     resolvedPolicyId = policy.id;
+  }
+
+  // Fallback: if caller sent raw policy_number instead of policy_id
+  // (e.g. the TPA admission desk form or walk-in kiosk), resolve the
+  // most recent matching policy for this patient so policy_id is linked
+  // at admit time without requiring a separate PUT /:id/policy call.
+  if (!resolvedPolicyId && policy_number) {
+    const policyByNum = await prisma.insurance_policies.findFirst({
+      where: { patient_uid, policy_number: String(policy_number) },
+      orderBy: { id: 'desc' },
+      select: { id: true },
+    });
+    if (policyByNum) resolvedPolicyId = policyByNum.id;
   }
 
   let resolvedPackageId = null;
@@ -738,6 +757,37 @@ async function admitPatient(data) {
       await maybeAutoCreateDayCareOtSchedule(admission);
     } catch (e) {
       logger.warn(`admitPatient: day-care OT auto-schedule failed for admission ${admission.id}: ${e.message}`);
+    }
+  }
+
+  // Phase 1.5: TPA pre-auth auto-draft. When the admission has a linked
+  // insurance policy and enough clinical info, open a draft pre-auth so
+  // the insurance desk can submit it without a second manual step. The
+  // clerk was previously forced to switch to POST /insurance/preauth and
+  // re-enter policy_id + admission_id by hand, risking SLA miss.
+  // Best-effort — failure cannot roll back the admission.
+  // Finding: 2026-05-21-tpa-insurance-claim-admission-cea3771d.
+  if (resolvedPolicyId && admitting_diagnosis && tenant_id) {
+    const costForPreauth = estimated_cost
+      ? Number(estimated_cost)
+      : (resolvedPackageEstMinor ? Number(resolvedPackageEstMinor) / 100 : null);
+    if (costForPreauth && costForPreauth > 0) {
+      try {
+        await createPreauth({
+          tenantId: tenant_id,
+          policy_id: resolvedPolicyId,
+          patient_uid,
+          admission_id: admission.id,
+          primary_diagnosis: admitting_diagnosis,
+          expected_cost: costForPreauth,
+          expected_los_days: expected_los_days ?? null,
+          treating_doctor_uid: admitting_doctor,
+          created_by,
+        });
+        logger.info(`admitPatient: preauth draft auto-created for admission ${admission.id}, policy_id=${resolvedPolicyId}`);
+      } catch (e) {
+        logger.warn(`admitPatient: preauth auto-create failed for admission ${admission.id}: ${e.message}`);
+      }
     }
   }
 
