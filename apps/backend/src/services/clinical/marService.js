@@ -133,18 +133,21 @@ export async function scheduleMedications(patientUid, prescriptionId, medication
     }
 
     // F-2 — idempotency guard. If an active (non-cancelled) row already
-    // exists for the same patient + medication + scheduled_time, return
-    // it instead of creating a duplicate. Without this guard, calling
-    // /mar/schedule twice for one prescription produced parallel rows
-    // that could both be administered. Finding:
-    // 2026-05-09-inpatient-admission-nurse-mar-no-duplicate-guard.
+    // exists for the same patient + medication in the same clinical slot,
+    // return it instead of creating a duplicate. The one-minute tolerance
+    // absorbs ER-to-ICU carry-over millisecond drift while preserving
+    // normal repeated-dose schedules. Findings:
+    // 2026-05-09-inpatient-admission-nurse-mar-no-duplicate-guard
+    // 2026-05-20-emergency-walk-in-nurse-7622bcce.
     const dup = await prisma.$queryRawUnsafe(
       `SELECT id, patient_uid, medication_name, dose, dosage, route, scheduled_time, status, administered_by, notes, created_at
          FROM medication_administrations
         WHERE patient_uid = $1::uuid
           AND medication_name = $2
-          AND scheduled_time = $3::timestamptz
+          AND scheduled_time >= ($3::timestamptz - INTERVAL '1 minute')
+          AND scheduled_time < ($3::timestamptz + INTERVAL '1 minute')
           AND status <> 'cancelled'
+        ORDER BY ABS(EXTRACT(EPOCH FROM (scheduled_time - $3::timestamptz))) ASC, id ASC
         LIMIT 1`,
       patientUid, med.medication_name, med.scheduled_time,
     );
@@ -205,18 +208,21 @@ export async function recordAdministration(id, administeredBy, notes = null, wit
 
   // F-2 — cross-row duplicate guard. The id-level check above only
   // blocks re-administering the same row; it can't see a sibling row
-  // for the same patient + medication + scheduled_time that another
+  // for the same patient + medication + clinical slot that another
   // nurse already administered. Without this guard the same dose was
-  // chartable twice. Finding:
-  // 2026-05-09-inpatient-admission-nurse-mar-no-duplicate-guard.
+  // chartable twice. Findings:
+  // 2026-05-09-inpatient-admission-nurse-mar-no-duplicate-guard
+  // 2026-05-20-emergency-walk-in-nurse-7622bcce.
   const sibling = await prisma.$queryRawUnsafe(
     `SELECT id
        FROM medication_administrations
       WHERE id <> $1
         AND patient_uid = $2::uuid
         AND medication_name = $3
-        AND scheduled_time = $4::timestamptz
+        AND scheduled_time >= ($4::timestamptz - INTERVAL '1 minute')
+        AND scheduled_time < ($4::timestamptz + INTERVAL '1 minute')
         AND status = 'administered'
+      ORDER BY ABS(EXTRACT(EPOCH FROM (scheduled_time - $4::timestamptz))) ASC, id ASC
       LIMIT 1`,
     id, existing[0].patient_uid, existing[0].medication_name, existing[0].scheduled_time,
   );
