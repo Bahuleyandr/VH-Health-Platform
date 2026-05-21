@@ -503,7 +503,9 @@ async function admitPatient(data) {
           ORDER BY allergy_name`,
         patient_uid,
       );
-      if (inherited.length) admissionAllergies = inherited;
+      // admissions.allergies is a text[] column — store allergen names as strings.
+      const names = inherited.map((a) => a.allergy_name).filter(Boolean);
+      if (names.length) admissionAllergies = names;
     } catch (err) {
       logger.warn(`admitPatient: allergy inheritance failed for patient_uid=${patient_uid}: ${err.message}`);
     }
