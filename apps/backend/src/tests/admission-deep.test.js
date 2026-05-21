@@ -274,6 +274,48 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       await cleanup();
     });
 
+    it('links policy_id from a raw policy_number at admit', async () => {
+      // Finding 2026-05-21-tpa-insurance-claim-admission-cea3771d: the TPA
+      // admission desk posts a raw policy_number; admit must resolve it to
+      // policy_id so the insurance desk isn't forced into a manual second step.
+      const uid = 'a1111111-1111-4111-8111-1111111119bb';
+      const cleanup = async () => {
+        await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number = 'DEEP-TPA-BED'`).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, uid).catch(() => {});
+      };
+      await cleanup();
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+         VALUES ($1::uuid, '9000019098', 'TPA Policy Patient', 'PATIENT', true, NOW())`, uid);
+      const pol = await prisma.$queryRawUnsafe(
+        `INSERT INTO insurance_policies (patient_uid, policy_number, status, tenant_id)
+         VALUES ($1::uuid, 'POL-CEA-TEST-1', 'active', '00000000-0000-4000-8000-000000000001'::uuid)
+         RETURNING id`, uid);
+      const bed = await prisma.$queryRawUnsafe(
+        `INSERT INTO beds (ward_id, ward_name, bed_number, status)
+         VALUES ($1, 'DEEP-TEST-WARD', 'DEEP-TPA-BED', 'available') RETURNING id`, wardId);
+
+      const res = await admin.post('/api/v1/emr/admit').send({
+        patient_uid: uid,
+        admitting_doctor: DOCTOR_UID,
+        chief_complaint: 'Acute cholecystitis',
+        admitting_diagnosis: 'Cholecystitis',
+        admission_type: 'emergency',
+        priority: 'urgent',
+        bed_id: bed[0].id,
+        policy_number: 'POL-CEA-TEST-1',
+        emergency_consent_bypass_reason: 'Test — TPA policy link',
+      });
+      expect(res.statusCode).toBe(201);
+      const adm = await prisma.$queryRawUnsafe(
+        `SELECT policy_id FROM admissions WHERE id = $1`, res.body.data.admission.id);
+      expect(adm[0].policy_id).toBe(pol[0].id);
+
+      await cleanup();
+    });
+
     it('creates admission and occupies the bed', async () => {
       const res = await admin.post('/api/v1/emr/admit').send({
         patient_uid: PATIENT_UID,
