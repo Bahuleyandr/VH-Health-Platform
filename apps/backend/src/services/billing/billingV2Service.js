@@ -380,6 +380,13 @@ const VALID_SOURCE_REF_TYPES = new Set([
   'manual',
 ]);
 
+// Source_ref_types that legitimately have no originating source row: a
+// cashier-typed manual line, and packaged bundles (the package/admission is
+// itself the "source"). Every other type is order/day/event-backed and must
+// carry a source_ref_id so the itemised charge is auditable.
+// Finding: 2026-05-20-tpa-insurance-claim-billing-013275c3.
+const SOURCE_REF_ID_OPTIONAL = new Set(['manual', 'package', 'admission_package']);
+
 export async function addInvoiceItem(invoiceId, {
   service_code, description, category, quantity = 1, unit_price, gst_rate, notes,
   source_ref_type, source_ref_id,
@@ -434,6 +441,18 @@ export async function addInvoiceItem(invoiceId, {
     : null;
   if (resolvedSourceRefId != null && !Number.isInteger(resolvedSourceRefId)) {
     throw AppError.badRequest('source_ref_id must be an integer when provided');
+  }
+  // Source-backed line types must carry the originating record's id so an
+  // itemised charge stays auditable back to its room-day / order / event —
+  // closing the gap where a ₹65k room_rent line could be pushed against a
+  // TPA cap with no traceable source.
+  // Finding: 2026-05-20-tpa-insurance-claim-billing-013275c3.
+  if (!SOURCE_REF_ID_OPTIONAL.has(resolvedSourceRefType) && resolvedSourceRefId == null) {
+    throw AppError.badRequest(
+      `source_ref_id is required for source_ref_type "${resolvedSourceRefType}" so the bill line is auditable to its originating record.`,
+      'SOURCE_REF_ID_REQUIRED',
+      { source_ref_type: resolvedSourceRefType },
+    );
   }
 
   // Read the parent invoice for state-pair (governs CGST+SGST vs IGST)
