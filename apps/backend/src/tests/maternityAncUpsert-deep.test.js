@@ -23,6 +23,11 @@ describe('recordAncVisit — same-day UPSERT (migration 222)', () => {
       PATIENT_UID,
     );
     await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_alerts
+        WHERE patient_id IN (SELECT id FROM users WHERE uid=$1::uuid)`,
+      PATIENT_UID,
+    );
+    await prisma.$executeRawUnsafe(
       `DELETE FROM maternity_pregnancies WHERE patient_uid=$1::uuid`,
       PATIENT_UID,
     );
@@ -47,6 +52,10 @@ describe('recordAncVisit — same-day UPSERT (migration 222)', () => {
   });
 
   afterAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_alerts WHERE patient_id = $1`,
+      patientId,
+    );
     await prisma.$executeRawUnsafe(
       `DELETE FROM maternity_anc_visits WHERE pregnancy_id = $1`,
       pregnancyId,
@@ -129,5 +138,37 @@ describe('recordAncVisit — same-day UPSERT (migration 222)', () => {
     expect(rows[0].visit_date).toBe('2026-05-09');
     expect(rows[1].visit_date).toBe('2026-05-23');
     expect(rows[1].visit_number).toBe(2);
+  });
+
+  it('includes urine albumin in the ANC pre-eclampsia screen', async () => {
+    const visit = await recordAncVisit({
+      tenantId: TENANT,
+      pregnancy_id: pregnancyId,
+      visit_date: '2026-05-20',
+      gestational_age_weeks: 24,
+      bp_systolic: 142,
+      bp_diastolic: 92,
+      urine_albumin: '1+',
+      urine_sugar: 'negative',
+      fundal_height_cm: 24,
+      fetal_heart_rate_bpm: 140,
+    });
+
+    const alert = visit.alerts.find((a) => a.vital_name === 'preeclampsia_screen');
+    expect(alert).toBeDefined();
+    expect(alert.severity).toBe('CRITICAL');
+    expect(alert.message).toMatch(/urine protein 1\+/i);
+
+    const persisted = await prisma.$queryRawUnsafe(
+      `SELECT vital_name, severity, message
+         FROM clinical_alerts
+        WHERE patient_id = $1
+          AND vital_name = 'preeclampsia_screen'
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      patientId,
+    );
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].severity).toBe('CRITICAL');
   });
 });

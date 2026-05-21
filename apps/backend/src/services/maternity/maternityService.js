@@ -365,6 +365,7 @@ export async function recordAncVisit({
         const vitalsForCheck = {};
         if (bp_systolic != null) vitalsForCheck.systolic_bp = Number(bp_systolic);
         if (bp_diastolic != null) vitalsForCheck.diastolic_bp = Number(bp_diastolic);
+        if (urine_albumin != null) vitalsForCheck.urine_albumin = urine_albumin;
         alerts = await checkVitalAnomalies(patient.id, vitalsForCheck, {
           recordedBy: recorderId,
         });
