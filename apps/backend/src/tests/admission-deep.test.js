@@ -257,6 +257,7 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       const res = await admin.post('/api/v1/emr/admit').send({
         patient_uid: uid,
         admitting_doctor: DOCTOR_UID,
+        chief_complaint: 'Severe abdominal pain',
         admitting_diagnosis: 'Acute pancreatitis',
         admission_type: 'emergency',
         priority: 'urgent',
