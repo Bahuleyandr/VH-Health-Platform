@@ -850,8 +850,31 @@ export async function createClaim({
   if (!total_billed || Number(total_billed) <= 0) {
     throw AppError.badRequest('total_billed must be > 0');
   }
-  const claimAmt = Number(claimed_amount ?? (Number(total_billed) - Number(patient_copay) - Number(non_payable_amount)));
+  const billedNum = Number(total_billed);
+  const copayNum = Number(patient_copay) || 0;
+  const nonPayableNum = Number(non_payable_amount) || 0;
+  const claimAmt = Number(claimed_amount ?? (billedNum - copayNum - nonPayableNum));
   if (claimAmt <= 0) throw AppError.badRequest('claimed_amount must be > 0');
+  // A claim can never seek more than was billed, and the patient share
+  // (co-pay + non-payable) cannot exceed the bill either — either lets a
+  // claim post amounts that reconcile to more than the hospital actually
+  // charged, overstating the insurer's liability or the patient's due.
+  // Finding 2026-05-20-tpa-insurance-claim-billing-4600ed9c (claim-amount
+  // validation accepts claimed/approved beyond what was billed).
+  if (claimAmt > billedNum + 0.01) {
+    throw AppError.badRequest(
+      `claimed_amount ${claimAmt} cannot exceed total_billed ${billedNum}`,
+      'CLAIM_AMOUNT_EXCEEDS_BILLED',
+      { claimed_amount: claimAmt, total_billed: billedNum },
+    );
+  }
+  if (copayNum + nonPayableNum > billedNum + 0.01) {
+    throw AppError.badRequest(
+      `patient_copay (${copayNum}) + non_payable_amount (${nonPayableNum}) cannot exceed total_billed ${billedNum}`,
+      'CLAIM_PATIENT_SHARE_EXCEEDS_BILLED',
+      { patient_copay: copayNum, non_payable_amount: nonPayableNum, total_billed: billedNum },
+    );
+  }
   if (stage !== null && stage !== undefined && !VALID_CLAIM_STAGES.includes(stage)) {
     throw AppError.badRequest(`Invalid stage "${stage}". Must be one of: ${VALID_CLAIM_STAGES.join(', ')}`);
   }
@@ -1054,6 +1077,7 @@ export async function recordClaimDecision({
       throw AppError.badRequest(
         `approved_amount ${approvedNum} exceeds claimed_amount ${claimedNum}; ` +
         `the insurer cannot approve more than was submitted.`,
+        'CLAIM_APPROVED_EXCEEDS_CLAIMED',
         { claimed_amount: claimedNum, approved_amount: approvedNum },
       );
     }

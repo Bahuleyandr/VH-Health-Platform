@@ -116,6 +116,32 @@ describe('createClaim validation + claimed_amount derivation', () => {
     });
   });
 
+  it('rejects claimed_amount that exceeds total_billed (cannot claim more than billed)', async () => {
+    await expect(
+      createClaim({ ...validBase, total_billed: 50000, claimed_amount: 60000 }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'CLAIM_AMOUNT_EXCEEDS_BILLED',
+      message: expect.stringMatching(/cannot exceed total_billed/i),
+    });
+  });
+
+  it('rejects when patient_copay + non_payable_amount exceed total_billed', async () => {
+    await expect(
+      createClaim({
+        ...validBase,
+        total_billed: 50000,
+        claimed_amount: 1, // keep derived claim > 0 so we reach the share guard
+        patient_copay: 30000,
+        non_payable_amount: 25000, // 30000 + 25000 = 55000 > 50000
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'CLAIM_PATIENT_SHARE_EXCEEDS_BILLED',
+      message: expect.stringMatching(/cannot exceed total_billed/i),
+    });
+  });
+
   it('rejects a final cashless claim linked to a draft invoice', async () => {
     const originalQueryRaw = prisma.$queryRawUnsafe;
     prisma.$queryRawUnsafe = async (sql) => {
