@@ -116,6 +116,9 @@ describe('Appointment booking + lifecycle — deep integration', () => {
     await prisma.$executeRawUnsafe(
       `DELETE FROM appointments WHERE phone IN ($1, $2)`, PATIENT_PHONE, OTHER_PHONE).catch(() => {});
     await prisma.$executeRawUnsafe(
+      `DELETE FROM emergency_visits WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+      PATIENT_UID, OTHER_PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(
       `DELETE FROM doctors WHERE user_id = $1`, doctorIntId).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
@@ -612,6 +615,109 @@ describe('Appointment booking + lifecycle — deep integration', () => {
       });
       expect(res.statusCode).toBe(201);
       expect(res.body.data.appointment.status).toBe('SCHEDULED');
+    });
+  });
+
+  // Finding 2026-05-22-emergency-walk-in-nurse-2dd88574 (H9, HIGH).
+  // An ATS-2 emergency walk-in was triaged via the ED triage-priority
+  // endpoint (emergency_visits.triage_priority = 'ats_2'), but the doctor
+  // queue only understood esi_* codes: the ATS-2 row came back with
+  // acuity_rank=null, is_emergent=false, and sorted BELOW lower-acuity
+  // walk-in tokens. The queue now maps every triage scale (esi/ats/ctas/
+  // manchester) onto the shared 1..5 urgency rank, mirroring
+  // edOperationsService.PRIORITY_RANK_SQL.
+  describe('doctor queue honors ATS triage acuity', () => {
+    const TODAY = new Date().toISOString().slice(0, 10);
+    const TENANT = '00000000-0000-4000-8000-000000000001';
+    let edVisitId, emergentApptId, routineApptId;
+
+    beforeAll(async () => {
+      // Clear any leftover same-day rows for these two patients so the
+      // ordering assertion is deterministic regardless of prior tests.
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM emergency_visits WHERE patient_uid IN ($1::uuid, $2::uuid)`,
+        PATIENT_UID, OTHER_PATIENT_UID,
+      );
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM appointments
+          WHERE doctor_id = $1 AND DATE(appointment_date) = $2::date
+            AND token_number IN ('801', '802')`,
+        doctorIntId, TODAY,
+      );
+
+      // (1) The emergency patient: ATS-2 ED triage + a same-day EMERGENCY
+      //     appointment carrying a LATE token (802) so a naive token sort
+      //     would push it behind the routine OPD token below.
+      const ev = await prisma.$queryRawUnsafe(
+        `INSERT INTO emergency_visits
+           (tenant_id, visit_number, patient_uid, arrival_mode, chief_complaint,
+            triage_priority, status, created_by, updated_at)
+         VALUES ($1::uuid, $2, $3::uuid, 'police', 'Semi-conscious RTA/MLC',
+                 'ats_2', 'arriving', $3::uuid, NOW())
+         RETURNING id`,
+        TENANT, `EMER-H9-${Date.now()}`, PATIENT_UID,
+      );
+      edVisitId = ev[0].id;
+
+      const ea = await prisma.$queryRawUnsafe(
+        `INSERT INTO appointments
+           (patient_id, doctor_id, phone, appointment_date, appointment_time,
+            status, reason, token_number, department, visit_type, updated_at)
+         VALUES ($1, $2, $3, $4::date, '23:50', 'CONFIRMED',
+            'ER triaged ATS-2', '802', 'Emergency', 'EMERGENCY', NOW())
+         RETURNING id`,
+        patientIntId, doctorIntId, PATIENT_PHONE, TODAY,
+      );
+      emergentApptId = ea[0].id;
+
+      // (2) The routine OPD patient: an EARLIER token (801), no ED row.
+      const ra = await prisma.$queryRawUnsafe(
+        `INSERT INTO appointments
+           (patient_id, doctor_id, phone, appointment_date, appointment_time,
+            status, reason, token_number, department, visit_type, updated_at)
+         VALUES ($1, $2, $3, $4::date, '09:05', 'CONFIRMED',
+            'Routine OPD walk-in', '801', 'Cardiology', 'NEW', NOW())
+         RETURNING id`,
+        otherPatientIntId, doctorIntId, OTHER_PHONE, TODAY,
+      );
+      routineApptId = ra[0].id;
+    });
+
+    afterAll(async () => {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM emergency_visits WHERE id = $1`, edVisitId).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM appointments WHERE id IN ($1, $2)`,
+        emergentApptId, routineApptId).catch(() => {});
+    });
+
+    it('ranks the ATS-2 ER patient first, emergent, with acuity_rank=2', async () => {
+      const res = await doctor.get(`/api/v1/appointments/queue/today?doctor_id=${doctorIntId}`);
+      expect(res.statusCode).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      const queue = res.body.data;
+      const emergent = queue.find((a) => a.id === emergentApptId);
+      const routine = queue.find((a) => a.id === routineApptId);
+      expect(emergent).toBeDefined();
+      expect(routine).toBeDefined();
+
+      // The ATS-2 priority must now be recognised — not dropped to null.
+      expect(emergent.triage_priority).toBe('ats_2');
+      expect(emergent.acuity_rank).toBe(2);
+      expect(emergent.is_emergent).toBe(true);
+      expect(emergent.emergency_visit_id).toBe(edVisitId);
+
+      // The routine OPD token stays non-emergent / unranked.
+      expect(routine.acuity_rank).toBeNull();
+      expect(routine.is_emergent).toBe(false);
+
+      // Ordering: the emergent ER row must sit AHEAD of the routine token,
+      // even though its token number (802) is higher than the routine
+      // token (801). This is the crux of the finding.
+      const emergentIdx = queue.findIndex((a) => a.id === emergentApptId);
+      const routineIdx = queue.findIndex((a) => a.id === routineApptId);
+      expect(emergentIdx).toBeLessThan(routineIdx);
     });
   });
 });
