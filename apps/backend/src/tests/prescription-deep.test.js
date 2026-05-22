@@ -464,6 +464,171 @@ describe('E-prescriptions — deep integration', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE id = $1`, catalogRows[0].id).catch(() => {});
   });
 
+  // Finding 2026-05-21-walk-in-opd-pharmacy-1646bc24 (+ 938226ba / b5f42707):
+  // a TDS×3-day tablet Rx with no explicit quantity must (1) derive qty=9 from
+  // frequency×duration instead of silently defaulting to 1, (2) NOT carry the
+  // liquid "measure with an oral syringe" instruction, and (3) at dispense
+  // time, reject a quantity that does not match the ordered count unless the
+  // pharmacist explicitly acknowledges the mismatch.
+  it('derives tablet quantity from frequency×duration and gates the dispense quantity mismatch', async () => {
+    const TABLET_NAME = 'Paracetamol 500mg Tablet Qty Test';
+    const catalogRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (name, generic_name, category, unit_price, price, pack_size,
+          requires_prescription, in_stock, is_active, is_available,
+          stock_quantity, stock, reorder_level, description, updated_at)
+       VALUES
+         ($1, 'Paracetamol', 'analgesic', 12.00, 12.00, '10 tablets',
+          true, true, true, true, 100, 100, 10, 'Tablet qty-guard fixture', NOW())
+       RETURNING id`,
+      TABLET_NAME,
+    );
+    const catalogId = catalogRows[0].id;
+
+    // Rx: 1-1-1 (TDS) for 3 days, NO explicit quantity → clinically 9 tablets.
+    const rxRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO e_prescriptions (patient_id, doctor_id, medications, status, created_by)
+       VALUES ($1, $2, $3::jsonb, 'active', $4) RETURNING id`,
+      patientId, doctorId,
+      JSON.stringify([{
+        name: 'Paracetamol 500 mg',
+        dosage: '500 mg', strength: '500 mg',
+        frequency: '1-1-1', duration: '3 days', route: 'Oral',
+        instructions: 'After food',
+        // deliberately no qty / quantity
+      }]),
+      staffId,
+    );
+
+    const mapped = await staffAs(staffId)
+      .post(`/api/v1/prescriptions/${rxRows[0].id}/order-pharmacy`)
+      .send({ delivery_type: 'counter', catalog_overrides: { 'Paracetamol 500 mg': catalogId } });
+    expect(mapped.statusCode).toBe(200);
+    const orderId = mapped.body.data.id;
+
+    const orderRows = await prisma.$queryRawUnsafe(
+      `SELECT items_list, total_amount FROM pharmacy_orders WHERE id = $1`, orderId);
+    const item = orderRows[0].items_list[0];
+    // (1) qty derived to 9, not silently 1.
+    expect(item.qty).toBe(9);
+    expect(item.quantity_source).toBe('derived_frequency_duration');
+    expect(item.quantity_needs_confirmation).toBe(false);
+    expect(Number(orderRows[0].total_amount)).toBe(108);
+    // (2) a tablet must NOT get liquid mL instructions / dose-conversion warning.
+    expect(item.dispensed_quantity_ml).toBeNull();
+    expect(item.measuring_instruction).toBeNull();
+    expect(item.substitution?.dose_conversion_required).toBeUndefined();
+
+    const pharmacy = clientAs('PHARMACY_STAFF', STAFF_UID, staffId);
+
+    // (3a) Dispensing a quantity that mismatches the ordered 9 is blocked.
+    const overDispense = await pharmacy
+      .post(`/api/v1/pharmacy/orders/${orderId}/dispense-counter`)
+      .send({
+        payment_mode: 'cash', amount_collected: 144,
+        dispensed_items: [{ catalog_id: catalogId, name: 'Paracetamol', dispensed_qty: 12, price: 12 }],
+      });
+    expect(overDispense.statusCode).toBe(400);
+    expect(overDispense.body.details?.code).toBe('DISPENSE_QUANTITY_MISMATCH');
+    expect(overDispense.body.details?.mismatches?.[0]).toMatchObject({
+      ordered_qty: 9, dispensed_qty: 12, kind: 'over_dispense',
+    });
+
+    // (3b) The exact ordered quantity dispenses cleanly.
+    const matched = await pharmacy
+      .post(`/api/v1/pharmacy/orders/${orderId}/dispense-counter`)
+      .send({
+        payment_mode: 'cash', amount_collected: 108,
+        dispensed_items: [{ catalog_id: catalogId, name: 'Paracetamol', dispensed_qty: 9, price: 12 }],
+      });
+    expect(matched.statusCode).toBe(200);
+    expect(matched.body.data.payment_status).toBe('paid');
+    const dispensedItem = matched.body.data.items_list[0];
+    expect(dispensedItem.dispensed_qty).toBe(9);
+    expect(dispensedItem.ordered_qty).toBe(9);
+
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM pharmacy_order_history WHERE order_id = $1`, orderId).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_orders WHERE id = $1`, orderId).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM e_prescriptions WHERE id = $1`, rxRows[0].id).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE id = $1`, catalogId).catch(() => {});
+  });
+
+  // Companion to 1646bc24: an over-dispense the pharmacist explicitly
+  // acknowledges proceeds (and is recorded), proving the guard is a
+  // confirmation gate rather than a hard block.
+  it('allows an acknowledged quantity mismatch and records it', async () => {
+    const TABLET_NAME = 'Amoxicillin 500mg Tablet Ack Test';
+    const catalogRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (name, generic_name, category, unit_price, price, pack_size,
+          requires_prescription, in_stock, is_active, is_available,
+          stock_quantity, stock, reorder_level, description, updated_at)
+       VALUES
+         ($1, 'Amoxicillin', 'antibiotic', 10.00, 10.00, '10 tablets',
+          true, true, true, true, 100, 100, 10, 'Ack-mismatch fixture', NOW())
+       RETURNING id`,
+      TABLET_NAME,
+    );
+    const catalogId = catalogRows[0].id;
+
+    // Explicit qty=10 (BD × 5 days), pharmacist dispenses 9 with acknowledgement.
+    const rxRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO e_prescriptions (patient_id, doctor_id, medications, status, created_by)
+       VALUES ($1, $2, $3::jsonb, 'active', $4) RETURNING id`,
+      patientId, doctorId,
+      JSON.stringify([{
+        name: 'Amoxicillin 500 mg', dosage: '500 mg', strength: '500 mg',
+        frequency: 'BD', duration: '5 days', route: 'Oral', qty: 10,
+      }]),
+      staffId,
+    );
+    const mapped = await staffAs(staffId)
+      .post(`/api/v1/prescriptions/${rxRows[0].id}/order-pharmacy`)
+      .send({ delivery_type: 'counter', catalog_overrides: { 'Amoxicillin 500 mg': catalogId } });
+    expect(mapped.statusCode).toBe(200);
+    const orderId = mapped.body.data.id;
+    const orderRows = await prisma.$queryRawUnsafe(
+      `SELECT items_list FROM pharmacy_orders WHERE id = $1`, orderId);
+    expect(orderRows[0].items_list[0].qty).toBe(10);
+    expect(orderRows[0].items_list[0].quantity_source).toBe('explicit');
+
+    const pharmacy = clientAs('PHARMACY_STAFF', STAFF_UID, staffId);
+    // Unacknowledged short-supply with no partial intent is blocked.
+    const blocked = await pharmacy
+      .post(`/api/v1/pharmacy/orders/${orderId}/dispense-counter`)
+      .send({
+        payment_mode: 'cash', amount_collected: 90,
+        dispensed_items: [{ catalog_id: catalogId, name: 'Amoxicillin', dispensed_qty: 9, price: 10 }],
+      });
+    expect(blocked.statusCode).toBe(400);
+    expect(blocked.body.details?.code).toBe('DISPENSE_QUANTITY_MISMATCH');
+
+    // Acknowledged → proceeds.
+    const acked = await pharmacy
+      .post(`/api/v1/pharmacy/orders/${orderId}/dispense-counter`)
+      .send({
+        payment_mode: 'cash', amount_collected: 90,
+        quantity_mismatch_acknowledged: true,
+        mismatch_reason: 'One blister short in stock; patient to collect balance tomorrow',
+        dispensed_items: [{ catalog_id: catalogId, name: 'Amoxicillin', dispensed_qty: 9, price: 10 }],
+      });
+    expect(acked.statusCode).toBe(200);
+    expect(acked.body.data.items_list[0].dispensed_qty).toBe(9);
+    expect(acked.body.data.items_list[0].ordered_qty).toBe(10);
+
+    const history = await prisma.$queryRawUnsafe(
+      `SELECT notes FROM pharmacy_order_history
+        WHERE order_id = $1 AND to_status = 'DISPENSED' ORDER BY id DESC LIMIT 1`, orderId);
+    expect(history[0].notes).toMatch(/quantity mismatch acknowledged/i);
+
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM pharmacy_order_history WHERE order_id = $1`, orderId).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_orders WHERE id = $1`, orderId).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM e_prescriptions WHERE id = $1`, rxRows[0].id).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE id = $1`, catalogId).catch(() => {});
+  });
+
   it('creates medication reminders from a q6h paediatric prescription', async () => {
     const res = await staffAs(staffId)
       .post('/api/v1/prescriptions/create')

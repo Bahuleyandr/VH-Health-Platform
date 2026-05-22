@@ -511,9 +511,15 @@ function mergeDispensedItems(existingItems, dispensedItems) {
   const existing = Array.isArray(existingItems) ? existingItems.map((i) => ({ ...i })) : [];
   const dispensed = Array.isArray(dispensedItems) ? dispensedItems : [];
   if (!dispensed.length) {
-    return { items: existing, partialFromQty: false };
+    return { items: existing, partialFromQty: false, mismatches: [] };
   }
   let partialFromQty = false;
+  // Lines where the dispensed quantity diverges from the prescribed/ordered
+  // quantity, or where the order itself never carried a confirmed quantity
+  // (quantity_needs_confirmation). The dispense flow must surface these and
+  // require acknowledgement rather than silently billing/fulfilling whatever
+  // the pharmacist typed. Finding: 2026-05-21-walk-in-opd-pharmacy-1646bc24.
+  const mismatches = [];
   for (const d of dispensed) {
     if (!d || typeof d !== 'object') continue;
     const dCatalogId = d.catalog_id ? Number(d.catalog_id) : null;
@@ -530,6 +536,28 @@ function mergeDispensedItems(existingItems, dispensedItems) {
     const dispensedQty = Number(d.dispensed_quantity ?? d.dispensed_qty ?? d.qty ?? d.quantity ?? orderedQty);
     const effectiveQty = Number.isFinite(dispensedQty) && dispensedQty >= 0 ? dispensedQty : orderedQty;
     if (orderedQty > 0 && effectiveQty < orderedQty) partialFromQty = true;
+    // Mismatch: dispensed differs from a positive ordered quantity, OR the
+    // order line never had a confirmed quantity but a quantity is being
+    // dispensed. Under-dispense alone (partial) is allowed once acknowledged.
+    const lineNeedsConfirmation = idx >= 0
+      && Boolean(existing[idx].quantity_needs_confirmation);
+    if (orderedQty > 0 && effectiveQty !== orderedQty) {
+      mismatches.push({
+        catalog_id: dCatalogId ?? (idx >= 0 ? existing[idx].catalog_id ?? null : null),
+        name: dName ?? (idx >= 0 ? existing[idx].name ?? existing[idx].medication_name ?? null : null),
+        ordered_qty: orderedQty,
+        dispensed_qty: effectiveQty,
+        kind: effectiveQty > orderedQty ? 'over_dispense' : 'under_dispense',
+      });
+    } else if (lineNeedsConfirmation && effectiveQty > 0) {
+      mismatches.push({
+        catalog_id: dCatalogId ?? existing[idx].catalog_id ?? null,
+        name: dName ?? existing[idx].name ?? existing[idx].medication_name ?? null,
+        ordered_qty: orderedQty,
+        dispensed_qty: effectiveQty,
+        kind: 'unconfirmed_order_qty',
+      });
+    }
     const merged = idx >= 0 ? { ...existing[idx] } : {};
     if (dCatalogId) merged.catalog_id = dCatalogId;
     if (dName) {
@@ -539,6 +567,10 @@ function mergeDispensedItems(existingItems, dispensedItems) {
     merged.qty = effectiveQty;
     if (orderedQty > 0) merged.ordered_qty = orderedQty;
     merged.dispensed_qty = effectiveQty;
+    // The pharmacist has now acted on this line, so the "quantity unconfirmed"
+    // flag from order creation is resolved — drop it so the dispensed record
+    // doesn't carry a stale needs-confirmation marker.
+    if ('quantity_needs_confirmation' in merged) delete merged.quantity_needs_confirmation;
     if (d.dispensed_quantity_ml != null) merged.dispensed_quantity_ml = Number(d.dispensed_quantity_ml);
     if (d.prescribed_dose) merged.prescribed_dose = d.prescribed_dose;
     if (d.child_weight_kg != null) merged.child_weight_kg = Number(d.child_weight_kg);
@@ -556,7 +588,7 @@ function mergeDispensedItems(existingItems, dispensedItems) {
     if (idx >= 0) existing[idx] = merged;
     else existing.push(merged);
   }
-  return { items: existing, partialFromQty };
+  return { items: existing, partialFromQty, mismatches };
 }
 
 /**
@@ -615,6 +647,8 @@ export const markCounterDispensed = async (req, res) => {
       confirmation_notes,
       receipt_delivery,
       guardian_acknowledged,
+      quantity_mismatch_acknowledged,
+      mismatch_reason,
       insurer,
       policy_number,
       package_deduction,
@@ -701,10 +735,29 @@ export const markCounterDispensed = async (req, res) => {
       // or the confirm step). When the pharmacist passes a partial qty
       // the merged line carries dispensed_qty AND ordered_qty so the
       // remaining-balance is reachable from the order detail.
-      const { items: mergedItems, partialFromQty } = mergeDispensedItems(
+      const { items: mergedItems, partialFromQty, mismatches } = mergeDispensedItems(
         Array.isArray(order.items_list) ? order.items_list : [],
         Array.isArray(dispensed_items) ? dispensed_items : [],
       );
+
+      // Quantity-safety gate. A dispensed quantity that differs from the
+      // prescribed/ordered quantity — or any line whose order quantity was
+      // never confirmed (defaulted to 1 at order creation) — must NOT be
+      // billed and fulfilled silently. Require an explicit acknowledgement:
+      //   - quantity_mismatch_acknowledged=true (any mismatch), or
+      //   - partial_dispense / partial_reason (under-dispense only — the
+      //     existing partial-dispense intent already covers giving less).
+      // Otherwise block with a clear 400 so the counter UI prompts the
+      // pharmacist to confirm the true count.
+      // Finding: 2026-05-21-walk-in-opd-pharmacy-1646bc24 (+ 938226ba).
+      if (mismatches.length) {
+        const acknowledged = quantity_mismatch_acknowledged === true;
+        const partialIntent = Boolean(rawPartialDispense) || Boolean(partial_reason);
+        const allUnderDispense = mismatches.every((m) => m.kind === 'under_dispense');
+        if (!acknowledged && !(partialIntent && allUnderDispense)) {
+          return { error: 'QUANTITY_MISMATCH', mismatches };
+        }
+      }
 
       // Recompute total_amount from the merged item lines whenever any
       // line carries a numeric price. Falls back to the existing total
@@ -883,9 +936,15 @@ export const markCounterDispensed = async (req, res) => {
         orderId,
         order.status,
         req.user?.id ?? null,
-        partialDispense
-          ? `Counter dispense (partial${partial_reason ? `: ${partial_reason}` : ''})`
-          : 'Counter dispense',
+        (() => {
+          let note = partialDispense
+            ? `Counter dispense (partial${partial_reason ? `: ${partial_reason}` : ''})`
+            : 'Counter dispense';
+          if (mismatches.length && quantity_mismatch_acknowledged === true) {
+            note += ` — quantity mismatch acknowledged${mismatch_reason ? `: ${String(mismatch_reason)}` : ''}`;
+          }
+          return note;
+        })(),
       );
 
       return { ok: out };
@@ -904,6 +963,14 @@ export const markCounterDispensed = async (req, res) => {
         'Payment mode and amount_collected are required before dispensing a positive-value counter order, unless the order is covered by insurance/package/credit.',
         HTTP_STATUS.BAD_REQUEST,
         { code: 'COUNTER_PAYMENT_REQUIRED', total_amount: result.totalAmount },
+      );
+    }
+    if (result.error === 'QUANTITY_MISMATCH') {
+      return error(
+        res,
+        'Dispensed quantity does not match the prescribed/ordered quantity. Confirm the correct count and resubmit with quantity_mismatch_acknowledged=true (and an optional mismatch_reason), or mark a partial dispense for an under-supply.',
+        HTTP_STATUS.BAD_REQUEST,
+        { code: 'DISPENSE_QUANTITY_MISMATCH', mismatches: result.mismatches },
       );
     }
     success(res, result.ok, 'Counter dispense complete');

@@ -134,6 +134,100 @@ function defaultMeasuringInstruction(ml) {
   return `Measure ${ml} ml using an oral syringe or marked medicine cup; do not use a household spoon.`;
 }
 
+// Dosage-form classification for the dispense label. A liquid (mL-dosed)
+// oral form — syrup/suspension/solution/elixir/drops/liquid, or anything
+// carrying an explicit mg/mL concentration — is the ONLY form for which a
+// "measure X ml with an oral syringe" instruction or an mL dose-conversion
+// warning is appropriate. A solid oral form (tablet/capsule/etc.) must never
+// receive that wording. Returns true (liquid), false (solid), or null (no
+// form signal at all). Pure — no DB. Finding: 2026-05-21-walk-in-opd-pharmacy-1646bc24.
+const LIQUID_FORM_RE = /\b(syrup|suspension|solution|soln|elixir|drops?|liquid|oral\s*liquid|tonic|emulsion|mixture|sachet|syr\b)/i;
+const SOLID_FORM_RE = /\b(tab(?:let)?s?|cap(?:sule)?s?|pill|caplet|chewable|lozenge|troche|powder|granules?|sachet\s*powder|patch|suppositor(?:y|ies)|pessar(?:y|ies)|cream|ointment|gel|inhaler|puff|spray|drops?\s*\(eye\))/i;
+
+export function isLiquidForm(...values) {
+  let sawSolid = false;
+  for (const value of values) {
+    const s = String(value || '');
+    if (!s) continue;
+    // An explicit mg/mL concentration is an unambiguous liquid signal and
+    // wins over any incidental solid token (e.g. "Paracetamol Syrup tab-free").
+    if (parseConcentrationMgPerMl(s) != null) return true;
+    if (LIQUID_FORM_RE.test(s)) return true;
+    if (SOLID_FORM_RE.test(s)) sawSolid = true;
+  }
+  return sawSolid ? false : null;
+}
+
+// Doses-per-day from a frequency expression. Handles dash patterns
+// ("1-1-1" → 3, "1-0-1" → 2, "1-1-1-1" → 4), the FREQ_LABELS codes
+// (OD/BD/TDS/QID/HS), and a few common longhand forms. SOS / PRN have no
+// fixed daily count → null (the pharmacist must set the quantity). Pure.
+function parseDailyDoseCount(frequency) {
+  const raw = String(frequency || '').trim();
+  if (!raw) return null;
+  const upper = raw.toUpperCase();
+  // PRN / SOS: dose is as-needed, no derivable daily count.
+  if (/\b(SOS|PRN|AS\s*NEEDED|STAT)\b/.test(upper)) return null;
+  // Dash pattern like 1-1-1 / 1-0-1 / 0-0-1 / 1-1-1-1: sum the slots.
+  const dash = raw.match(/^\s*\d+(?:\s*-\s*\d+)+\s*$/);
+  if (dash) {
+    const total = raw.split('-').reduce((sum, part) => sum + (Number.parseInt(part, 10) || 0), 0);
+    return total > 0 ? total : null;
+  }
+  const codeMap = { OD: 1, HS: 1, BD: 2, BID: 2, TDS: 3, TID: 3, QID: 4, QDS: 4 };
+  const codeMatch = upper.match(/\b(OD|HS|BD|BID|TDS|TID|QID|QDS)\b/);
+  if (codeMatch) return codeMap[codeMatch[1]];
+  // "3 times a day" / "twice daily" / "once daily" longhand.
+  if (/\bONCE\b/.test(upper)) return 1;
+  if (/\bTWICE\b/.test(upper)) return 2;
+  if (/\bTHRICE\b/.test(upper)) return 3;
+  const timesMatch = upper.match(/(\d+)\s*(?:TIMES?|X)\s*(?:A|PER)?\s*DAY/);
+  if (timesMatch) {
+    const n = Number.parseInt(timesMatch[1], 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  return null;
+}
+
+// Number of days from a duration expression. "3 days" → 3, "1 week" → 7,
+// "2 weeks" → 14, "5" (bare) → 5. Pure; null when unparseable.
+function parseDurationDays(duration) {
+  const raw = String(duration || '').trim();
+  if (!raw) return null;
+  const weeks = raw.match(/(\d+(?:\.\d+)?)\s*(?:weeks?|wks?|wk)\b/i);
+  if (weeks) {
+    const n = Number.parseFloat(weeks[1]);
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 7) : null;
+  }
+  const days = raw.match(/(\d+(?:\.\d+)?)\s*(?:days?|d)\b/i);
+  if (days) {
+    const n = Number.parseFloat(days[1]);
+    return Number.isFinite(n) && n > 0 ? Math.ceil(n) : null;
+  }
+  const bare = raw.match(/^\s*(\d+)\s*$/);
+  if (bare) {
+    const n = Number.parseInt(bare[1], 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  return null;
+}
+
+// Derive the total dispense quantity for a count-dosed (solid oral) line from
+// its frequency and duration: doses/day × days × units/dose (units/dose
+// defaults to 1). Returns a positive integer, or null when either factor is
+// unparseable (e.g. SOS frequency, free-text duration) so the caller can
+// flag the line for an explicit pharmacist quantity rather than guessing.
+// Pure — no DB. Finding: 2026-05-21-walk-in-opd-pharmacy-1646bc24.
+export function deriveDispenseQuantity({ frequency, duration, unitsPerDose = 1 } = {}) {
+  const perDay = parseDailyDoseCount(frequency);
+  const days = parseDurationDays(duration);
+  if (perDay == null || days == null) return null;
+  const units = Number(unitsPerDose);
+  const perDoseUnits = Number.isFinite(units) && units > 0 ? units : 1;
+  const total = Math.ceil(perDay * days * perDoseUnits);
+  return total > 0 ? total : null;
+}
+
 // Extract mg/mL concentration ratio from a medication name or strength string.
 // Matches patterns like "250mg/5mL", "125 mg / 5 ml", "500mg/10ml".
 // Returns mg-per-mL as a number, or null if unparseable.
@@ -1186,11 +1280,6 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     const itemsList = [];
     let totalCost = 0;
 
-    const toPositiveInt = (val, fallback = 1) => {
-      const n = Number.parseInt(val, 10);
-      return Number.isFinite(n) && n > 0 ? n : fallback;
-    };
-
     // Catalog-match every line; if any medication can't be resolved to a
     // catalog row, refuse the order. Previously unmatched lines silently
     // landed at price=0 / catalog_id=null / line_total=0, and the
@@ -1284,8 +1373,6 @@ export const orderPharmacyFromPrescription = async (req, res) => {
           }
         }
       }
-      const qty = toPositiveInt(med.quantity ?? med.qty, 1);
-      const lineTotal = Number((price * qty).toFixed(2));
       const doseText = med.dose || med.dosage || med.strength || '';
       const instructionText = med.instructions || med.notes || '';
       let dispensedQuantityMl = med.dispensed_quantity_ml != null
@@ -1295,17 +1382,72 @@ export const orderPharmacyFromPrescription = async (req, res) => {
         ? Number(med.child_weight_kg)
         : parseWeightKgFromText(doseText, instructionText);
 
+      // Is this a liquid (mL-dosed) oral form? Only liquids get mL volume
+      // recalculation and the "measure X ml with an oral syringe" wording.
+      // A solid oral form (tablet/capsule) carrying an explicit mL volume
+      // is treated as liquid (the volume is the dosing signal); otherwise a
+      // solid is solid and never gets liquid instructions. An explicitly
+      // supplied dispensed_quantity_ml also counts as a liquid signal.
+      // Finding: 2026-05-21-walk-in-opd-pharmacy-1646bc24.
+      const formSignal = isLiquidForm(
+        catalogName, medName, med.form, med.dosage_form, doseText, med.strength, instructionText,
+      );
+      const lineIsLiquid = formSignal === true
+        || (formSignal === null && Number.isFinite(dispensedQuantityMl) && dispensedQuantityMl > 0);
+
+      // A solid form never carries an mL measuring volume — drop any value
+      // parsed incidentally from free text so it can't leak onto the label.
+      if (!lineIsLiquid) dispensedQuantityMl = null;
+
+      // Quantity resolution. Previously this silently defaulted any line
+      // with no explicit quantity to 1 — so a "1-1-1 × 3 days" tablet Rx
+      // (clinically 9 tablets) became a 1-tablet order, and a busy counter
+      // could hand over a single tablet for a 3-day course. Now: an explicit
+      // positive quantity always wins; otherwise, for a count-dosed (solid)
+      // line we derive frequency × duration; only when neither is possible do
+      // we fall back to 1 AND flag the line so the counter UI / dispense guard
+      // knows the quantity was guessed, never confirmed.
+      // Finding: 2026-05-21-walk-in-opd-pharmacy-1646bc24 (+ 938226ba).
+      const explicitQty = parseIntegerField(med.quantity ?? med.qty);
+      let qty;
+      let quantitySource;
+      let quantityNeedsConfirmation = false;
+      if (Number.isInteger(explicitQty) && explicitQty > 0) {
+        qty = explicitQty;
+        quantitySource = 'explicit';
+      } else {
+        const derived = lineIsLiquid
+          ? null
+          : deriveDispenseQuantity({ frequency: med.frequency, duration: med.duration });
+        if (derived != null) {
+          qty = derived;
+          quantitySource = 'derived_frequency_duration';
+        } else {
+          qty = 1;
+          quantitySource = 'defaulted';
+          quantityNeedsConfirmation = true;
+        }
+      }
+      const lineTotal = Number((price * qty).toFixed(2));
+
       // When the pharmacist substitutes a catalog item with a different
       // concentration (e.g. 250mg/5mL → 125mg/5mL), the original mL volume
       // is no longer correct. Scale it to preserve the prescribed mg dose;
       // if concentrations cannot be parsed, null the volume so the counter
       // pharmacist must enter it manually rather than silently dispensing
-      // the wrong amount. Finding: 2026-05-21-walk-in-opd-pharmacy-c05e2adb
+      // the wrong amount. Finding: 2026-05-21-walk-in-opd-pharmacy-c05e2adb.
+      // The whole mL-conversion path is liquid-only: a tablet matched to its
+      // own catalog row (with a trivial whitespace name diff) must NOT raise
+      // a "confirm the volume" dose-conversion warning. Finding: 1646bc24.
       let substitutionMeta = null;
       const isExplicitSubstitution = Boolean(
         selectedCatalogId && catalogName && catalogName.toLowerCase() !== medName.toLowerCase(),
       );
-      if (isExplicitSubstitution) {
+      if (isExplicitSubstitution && !lineIsLiquid) {
+        // Solid-form substitution: record it for traceability, but never
+        // emit mL recalculation or a dose-conversion warning.
+        substitutionMeta = { requested_name: medName, catalog_name: catalogName, explicit: true };
+      } else if (isExplicitSubstitution) {
         const origConc = parseConcentrationMgPerMl(med.strength || med.dosage || medName);
         const newConc = parseConcentrationMgPerMl(catalogName);
         const origVol = Number.isFinite(dispensedQuantityMl) ? dispensedQuantityMl : null;
@@ -1338,8 +1480,13 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       // stale prescription instruction); when conversion can't be computed,
       // make it explicit so the label never reads a wrong/"null ml" amount.
       // Finding: 2026-05-21-walk-in-opd-pharmacy-c05e2adb.
+      // The mL "measure with an oral syringe" wording is liquid-only — a
+      // solid oral form keeps only an explicit pharmacist-set instruction
+      // (never the auto liquid default). Finding: 1646bc24.
       let measuringInstruction;
-      if (substitutionMeta?.dose_conversion_required) {
+      if (!lineIsLiquid) {
+        measuringInstruction = med.measuring_instruction || null;
+      } else if (substitutionMeta?.dose_conversion_required) {
         measuringInstruction = 'Dose conversion required — pharmacist to confirm the volume for the substituted concentration before dispensing.';
       } else if (substitutionMeta && substitutionMeta.recalculated_dispensed_quantity_ml != null) {
         measuringInstruction = defaultMeasuringInstruction(dispensedQuantityMl);
@@ -1365,6 +1512,12 @@ export const orderPharmacyFromPrescription = async (req, res) => {
         measuring_instruction: measuringInstruction,
         label_instruction: [instructionText || null, measuringInstruction].filter(Boolean).join(' ') || null,
         qty,
+        prescribed_qty: qty,
+        quantity_source: quantitySource,
+        // Solid lines that fell back to qty=1 because frequency/duration
+        // could not be parsed: the dispense flow must require the pharmacist
+        // to confirm/correct the count rather than silently honour 1.
+        quantity_needs_confirmation: quantityNeedsConfirmation,
         price,
         line_total: lineTotal,
       });
