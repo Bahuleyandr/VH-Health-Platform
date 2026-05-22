@@ -11,6 +11,8 @@ import {
   computeRoomCapWarning,
   createPreauth,
   createClaim,
+  detectClaimPayerMismatch,
+  detectPayerFromReference,
   extractPreauthCaps,
   FINAL_CASHLESS_REQUIRED_DOC_TYPES,
   insurerMatchesPolicyPayer,
@@ -517,6 +519,88 @@ describe('insurerMatchesPolicyPayer (preauth response payer guard)', () => {
     expect(insurerMatchesPolicyPayer('', 'Star Health')).toBe(true);
     expect(insurerMatchesPolicyPayer('New India Assurance', '')).toBe(true);
     expect(insurerMatchesPolicyPayer(null, null)).toBe(true);
+  });
+});
+
+// D4 — final claim / settlement can post to the WRONG payer
+// (finding 2026-05-20-tpa-insurance-claim-billing-df39fefb). The settlement
+// path carries no structured insurer the way pre-auth does; the payer signal
+// is free-text (settlement reference + claim tpa_reference_id). These pure
+// helpers extract a confident payer token and decide a mismatch verdict.
+describe('detectPayerFromReference (free-text settlement reference parsing)', () => {
+  it('resolves a recognised leading insurer token to its canonical payer name', () => {
+    // The exact reference shapes from the finding.
+    expect(detectPayerFromReference('NIA-NEFT-CL-2627-00004-63000')).toBe('New India Assurance Co Ltd');
+    expect(detectPayerFromReference('NIA-FINAL-CL-2627-00004')).toBe('New India Assurance Co Ltd');
+    expect(detectPayerFromReference('STAR-CL-2627-00004')).toBe('Star Health and Allied Insurance');
+  });
+
+  it('handles a leading payment-routing token before the insurer (NEFT-NIA-...)', () => {
+    expect(detectPayerFromReference('NEFT-NIA-CL-2627-00004')).toBe('New India Assurance Co Ltd');
+    expect(detectPayerFromReference('UTR/STAR/00099')).toBe('Star Health and Allied Insurance');
+  });
+
+  it('returns null for a bare claim number with no insurer token (not confident)', () => {
+    expect(detectPayerFromReference('CL-2627-00004')).toBeNull();
+    expect(detectPayerFromReference('NEFT-00012345')).toBeNull();
+  });
+
+  it('returns null for an unrecognised leading token (avoid false matches)', () => {
+    expect(detectPayerFromReference('ACME-123-456')).toBeNull();
+    expect(detectPayerFromReference('')).toBeNull();
+    expect(detectPayerFromReference(null)).toBeNull();
+  });
+
+  it('does NOT match an insurer name buried mid-string (only the leading token is consulted)', () => {
+    // "STAR" appears, but not as a confident leading token — stays null so a
+    // free-text note never trips the guard.
+    expect(detectPayerFromReference('CL-2627-REF-STAR')).toBeNull();
+  });
+});
+
+describe('detectClaimPayerMismatch (confident-mismatch decision)', () => {
+  const STAR = 'Star Health and Allied Insurance';
+
+  it('flags the df39fefb shape: NIA settlement reference on a Star Health policy', () => {
+    const v = detectClaimPayerMismatch({
+      policyPayerName: STAR,
+      references: ['NIA-NEFT-CL-2627-00004-63000', 'NIA-FINAL-CL-2627-00004'],
+    });
+    expect(v).toMatchObject({
+      mismatch: true,
+      detectedPayer: 'New India Assurance Co Ltd',
+      source: 'reference',
+    });
+  });
+
+  it('treats a structured insurer as the strong signal', () => {
+    expect(detectClaimPayerMismatch({
+      policyPayerName: STAR, structuredInsurer: 'New India Assurance',
+    })).toMatchObject({ mismatch: true, source: 'insurer' });
+  });
+
+  it('does NOT flag a reference whose insurer matches the policy payer (display-name variant)', () => {
+    expect(detectClaimPayerMismatch({
+      policyPayerName: STAR, references: ['STAR-NEFT-CL-2627-00004'],
+    })).toEqual({ mismatch: false });
+  });
+
+  it('does NOT flag when the reference carries no recognised insurer token', () => {
+    expect(detectClaimPayerMismatch({
+      policyPayerName: STAR, references: ['CL-2627-00004', 'NEFT-00012345'],
+    })).toEqual({ mismatch: false });
+  });
+
+  it('is permissive when the policy payer is unknown (nothing authoritative)', () => {
+    // No payer master row on the policy → never block, even with an NIA ref.
+    expect(detectClaimPayerMismatch({
+      policyPayerName: '', references: ['NIA-NEFT-CL-2627-00004'],
+    })).toEqual({ mismatch: false });
+  });
+
+  it('is permissive with no signal at all', () => {
+    expect(detectClaimPayerMismatch({ policyPayerName: STAR })).toEqual({ mismatch: false });
+    expect(detectClaimPayerMismatch({ policyPayerName: STAR, references: [] })).toEqual({ mismatch: false });
   });
 });
 
