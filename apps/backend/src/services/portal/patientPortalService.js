@@ -1013,7 +1013,30 @@ export async function getMyLabOrder({ patient_uid, id }) {
     invId, String(patient_uid), patientId,
   );
   if (!rows.length) throw AppError.notFound('Lab order not found');
-  return rows[0];
+  const order = rows[0];
+
+  // The finalised result values for a completed order live in
+  // `lab_results` (filed on result entry, frozen on pathologist
+  // sign-off), not in `investigations.results` — which stays NULL for
+  // the order-set/HL7 flow. Without merging them the detail read comes
+  // back "blank" (no values) for a completed, signed-off order even
+  // though the patient's results are ready. Only verified rows are
+  // patient-facing (same gate as getResultsForPatient / the report PDF).
+  // Finding 2026-05-21-lab-walk-in-patient-2747d82d.
+  const labResults = await prisma.$queryRawUnsafe(
+    `SELECT id, test_code, test_name, value_text, value_numeric, unit,
+            reference_range, reference_range_low, reference_range_high,
+            abnormal_flag, is_critical, status,
+            performed_at, signed_off_at
+       FROM lab_results
+      WHERE investigation_id = $1::int
+        AND signed_off_at IS NOT NULL
+        AND status IN ('final', 'corrected')
+      ORDER BY hl7_segment_index NULLS LAST, id`,
+    invId,
+  );
+  order.lab_results = labResults;
+  return order;
 }
 
 // Generate a lab report PDF for a completed investigation. Patient is
