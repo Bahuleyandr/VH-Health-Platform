@@ -68,6 +68,7 @@ export const listInvestigationsValidator = [
   query('page').optional().isInt({ min: 1 }).withMessage('Valid page number required'),
   query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1-100'),
   query('patient_id').optional().isInt({ min: 1 }).withMessage('Valid patient ID required'),
+  query('patient_uid').optional().isUUID().withMessage('Valid patient UID required'),
   query('doctor_id').optional().isInt({ min: 1 }).withMessage('Valid doctor ID required'),
   query('type').optional().isIn(Object.values(INVESTIGATION_TYPES)).withMessage('Invalid type'),
   query('status').optional().isIn(Object.values(INVESTIGATION_STATUS)).withMessage('Invalid status'),

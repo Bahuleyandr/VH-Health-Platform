@@ -3,6 +3,7 @@ import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import * as investigationService from '../../services/investigation/investigationService.js';
+import { AppError } from '../../utils/AppError.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
@@ -22,6 +23,11 @@ export const listInvestigations = async (req, res) => {
     
     const filters = {
       patient_id: req.query.patient_id,
+      // Staff/clinicians review a patient's chart by UID. Without this the
+      // filter was silently dropped and the list returned every patient's
+      // investigations — a PHI leak. Resolved to patient_id in the service.
+      // Finding: 2026-05-21-inpatient-admission-doctor-58437f67.
+      patient_uid: req.query.patient_uid,
       doctor_id: req.query.doctor_id,
       type: req.query.type,
       status: req.query.status,
@@ -56,6 +62,11 @@ export const listInvestigations = async (req, res) => {
     logger.error('List Investigations Error:', err);
     if (err.message === 'USER_NOT_FOUND') {
       return error(res, 'User not found', 404);
+    }
+    // Operational AppErrors (e.g. a malformed patient_uid → 400) carry a safe
+    // client message + status; surface them instead of masking as a 500.
+    if (err instanceof AppError) {
+      return error(res, err.message, err.statusCode, err.details);
     }
     error(res, 'Failed to retrieve investigations', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
