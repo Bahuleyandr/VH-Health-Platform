@@ -168,6 +168,8 @@ router.post('/progress-notes', async (req, res, next) => {
       author_role: req.body.author_role || req.user?.role,
       note_type: noteType,
       content,
+      // Trusted caller identity for the assigned-doctor ownership guard (H2).
+      acting_user: { id: req.user?.id, uid: req.user?.uid, role: req.user?.role },
     });
     return success(res, note, 'Progress note filed', 201);
   } catch (err) {
