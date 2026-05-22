@@ -317,6 +317,75 @@ function normalizeRecordedAt(value) {
   return d;
 }
 
+// Paediatric growth percentiles are derived data — a pure function of the
+// stored weight/height + the patient's DOB/sex — so we never persist them
+// to a column. Instead the read path recomputes them on demand. This keeps
+// the percentile durable (a doctor opening the chart hours later sees the
+// same WHO context the nurse saw at triage) without a migration, and avoids
+// the "compute-once-in-POST-then-vanish" gap from finding
+// 2026-05-22-pediatric-opd-nurse-d9b616dc.
+//
+// Anchoring on the row's `recorded_at` (not wall-clock now) makes the
+// recompute deterministic: the same row always yields the same percentile,
+// and a backdated entry uses the child's age at the time of measurement.
+
+// Compute the growth snapshot for a single vitals row, given the patient's
+// DOB + sex already resolved. Returns null when there's no weight/height on
+// the row or the cohort can't be resolved (no DOB/sex, age outside WHO 0-5).
+function growthSnapshotForRow(row, patient) {
+  if (!row || !patient) return null;
+  if (row.weight_kg == null && row.height_cm == null) return null;
+  return computeGrowthSnapshot({
+    gender: patient.gender,
+    birthday: patient.birthday,
+    weightKg: row.weight_kg,
+    heightCm: row.height_cm,
+    asOf: row.recorded_at ? new Date(row.recorded_at) : new Date(),
+  });
+}
+
+// Resolve the patient's DOB/sex once and compute the snapshot for a freshly
+// written row (used by recordVitals so the POST response matches read-back).
+async function computeGrowthForVitalsRow(row) {
+  if (!row || (row.weight_kg == null && row.height_cm == null)) return null;
+  try {
+    const patient = await prisma.users.findUnique({
+      where: { uid: row.patient_uid },
+      select: { birthday: true, gender: true },
+    });
+    return growthSnapshotForRow(row, patient);
+  } catch (err) {
+    logger.warn(`Growth percentile computation failed for patient=${row.patient_uid}: ${err.message}`);
+    return null;
+  }
+}
+
+// Attach a recomputed `growth` block to vitals rows on the read path. The
+// patient is shared across all rows (same patientUid), so one DOB/sex lookup
+// covers the whole page. Mutates and returns each row; rows with no
+// weight/height (or an unresolvable cohort) simply carry growth: null.
+async function attachGrowthToVitalsRows(rows, patientUid) {
+  if (!Array.isArray(rows) || rows.length === 0) return rows;
+  // Only pay for the lookup if at least one row carries a measurement.
+  const hasMeasurement = rows.some((r) => r && (r.weight_kg != null || r.height_cm != null));
+  if (!hasMeasurement) return rows;
+  let patient = null;
+  try {
+    patient = await prisma.users.findUnique({
+      where: { uid: patientUid },
+      select: { birthday: true, gender: true },
+    });
+  } catch (err) {
+    logger.warn(`Growth percentile read-back lookup failed for patient=${patientUid}: ${err.message}`);
+    return rows;
+  }
+  for (const row of rows) {
+    if (!row) continue;
+    row.growth = growthSnapshotForRow(row, patient);
+  }
+  return rows;
+}
+
 export async function recordVitals(data) {
   const {
     patient_uid, patient_id, visit_id, encounter_id, encounter_uid, heart_rate, systolic_bp, diastolic_bp, temperature,
@@ -501,25 +570,16 @@ export async function recordVitals(data) {
   // WHO 0-5 table, simply yields growth: null. Findings:
   //   2026-05-09-pediatric-opd-nurse-growth-chart-not-linked-to-vitals
   //   2026-05-11-pediatric-opd-nurse-4354eb08
-  let growth = null;
-  if (weight_kg != null || height_cm != null) {
-    try {
-      const patient = await prisma.users.findUnique({
-        where: { uid: resolvedPatientUid },
-        select: { birthday: true, gender: true },
-      });
-      if (patient) {
-        growth = computeGrowthSnapshot({
-          gender: patient.gender,
-          birthday: patient.birthday,
-          weightKg: weight_kg,
-          heightCm: height_cm,
-        });
-      }
-    } catch (err) {
-      logger.warn(`Growth percentile computation failed for patient=${resolvedPatientUid}: ${err.message}`);
-    }
-  }
+  //
+  // The percentile is NOT stored on its own column — it is a pure function
+  // of the row's stored weight/height + the patient's DOB/sex, so the read
+  // path (`getLatestVitals` / `getVitalsChart`) recomputes it on demand
+  // (see `attachGrowthToVitalsRows`). To guarantee the read-back value
+  // matches what we return here, anchor the snapshot to the row's own
+  // `recorded_at` rather than wall-clock `now` — a backdated entry then
+  // yields the same age (and percentile) on both POST and GET. Finding:
+  //   2026-05-22-pediatric-opd-nurse-d9b616dc (transient percentile).
+  const growth = await computeGrowthForVitalsRow(record);
 
   logger.info(`Vitals recorded: id=${record.id}, patient=${resolvedPatientUid}, by=${recorded_by}`);
 
@@ -576,11 +636,18 @@ async function resolvePatientUidForRead(patientIdentifier) {
 export async function getLatestVitals(patientUid) {
   const resolvedPatientUid = await resolvePatientUidForRead(patientUid);
   if (!resolvedPatientUid) return null;
-  return prisma.vitals_chart.findFirst({
+  const row = await prisma.vitals_chart.findFirst({
     where: { patient_uid: resolvedPatientUid },
     select: VITAL_SELECT,
     orderBy: { recorded_at: 'desc' },
   });
+  if (!row) return null;
+  // Recompute the paediatric growth percentile from the stored
+  // weight/height + the patient's age/sex so it survives the round-trip
+  // (finding 2026-05-22-pediatric-opd-nurse-d9b616dc). Non-paediatric or
+  // measurement-less rows get growth: null.
+  await attachGrowthToVitalsRows([row], resolvedPatientUid);
+  return row;
 }
 
 export async function getVitalsChart(patientUid, encounterId, pagination = {}) {
@@ -610,6 +677,11 @@ export async function getVitalsChart(patientUid, encounterId, pagination = {}) {
     }),
     prisma.vitals_chart.count({ where }),
   ]);
+  // Recompute the paediatric growth percentile per row from stored
+  // weight/height + the patient's age/sex (one DOB/sex lookup for the page),
+  // so the chart shows the same WHO context the nurse saw at entry instead
+  // of dropping it (finding 2026-05-22-pediatric-opd-nurse-d9b616dc).
+  await attachGrowthToVitalsRows(vitals, patientUid);
   const meta = buildPagination(total, listQuery.page, listQuery.limit);
 
   return {
