@@ -417,9 +417,18 @@ export async function tenantRlsRolePosture() {
   }
 }
 
+// Pure: how loudly to surface a *disabled* tenant-RLS posture at boot. In
+// production a disabled posture is a multi-tenant PHI-isolation gap → 'warn';
+// elsewhere (dev/test, or a confirmed single-tenant install) it's expected →
+// 'info'. Exported for unit testing.
+export function rlsDisabledLogLevel(nodeEnv = process.env.NODE_ENV) {
+  return String(nodeEnv || '').toLowerCase() === 'production' ? 'warn' : 'info';
+}
+
 /**
  * Boot-time guard: log the tenant-RLS role posture. Emits a loud ERROR when
- * enforcement is on but the effective role bypasses RLS (policies inert) so
+ * enforcement is on but the effective role bypasses RLS (policies inert), and
+ * a loud WARNING when enforcement is off in production (policies inert), so
  * a misconfigured deployment can't silently ship inert isolation. Best-effort
  * — never throws, never blocks startup.
  */
@@ -430,9 +439,24 @@ export async function logTenantRlsRolePosture() {
     return posture;
   }
   if (!posture.enforced) {
-    logger.info('Tenant RLS enforcement disabled (AUTH_ENFORCE_TENANT_RLS != true)', {
-      effectiveRole: posture.effectiveRole,
-    });
+    // In production a disabled RLS posture means tenant_isolation policies are
+    // inert and cross-tenant reads/writes are not blocked at the DB layer — a
+    // PHI-isolation gap for any multi-tenant deployment. Surface it loudly so a
+    // misconfigured prod can't ship silently. Outside production (dev/test, or a
+    // confirmed single-tenant install) RLS-off is expected → info.
+    if (rlsDisabledLogLevel() === 'warn') {
+      logger.warn(
+        'TENANT RLS ENFORCEMENT IS OFF in production (AUTH_ENFORCE_TENANT_RLS != true) — '
+        + 'tenant_isolation policies are inert; cross-tenant reads/writes are NOT blocked at the '
+        + 'DB layer. Required for any multi-tenant deployment: set AUTH_ENFORCE_TENANT_RLS=true and '
+        + 'connect as a non-superuser, non-BYPASSRLS role. Ignore ONLY for a confirmed single-tenant install.',
+        { effectiveRole: posture.effectiveRole },
+      );
+    } else {
+      logger.info('Tenant RLS enforcement disabled (AUTH_ENFORCE_TENANT_RLS != true)', {
+        effectiveRole: posture.effectiveRole,
+      });
+    }
     return posture;
   }
   if (!posture.ok) {
