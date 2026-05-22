@@ -960,7 +960,16 @@ export async function createClaim({
     finalStage,
     parent_claim_id ? Number(parent_claim_id) : null,
   );
-  return rows[0];
+  const created = rows[0];
+  // Attach the non-blocking advisory warnings (cover-exceeded /
+  // room-cap). Additive `warnings` field — always an array, empty when
+  // nothing applies. Never blocks creation; #154's hard guards above
+  // have already passed by this point. logCorrespondence=true writes the
+  // enhancement nudge into the claim timeline once, at creation.
+  const warnings = await buildClaimWarnings({
+    tenantId, claim: created, logCorrespondence: true,
+  });
+  return { ...created, warnings };
 }
 
 export async function getClaim({ tenantId, id }) {
@@ -970,6 +979,262 @@ export async function getClaim({ tenantId, id }) {
   );
   if (!rows.length) throw AppError.notFound('Claim not found');
   return rows[0];
+}
+
+// ── Non-blocking claim advisories (cover-exceeded + room-cap) ─────────
+//
+// Deferred half of finding 2026-05-20-tpa-insurance-claim-billing-4600ed9c.
+// #154 added the HARD guards (claimed_amount ≤ total_billed,
+// approved ≤ claimed, paid ≤ claimed). Those stay untouched. What was
+// deferred is the *advisory* layer: a final bill can legitimately exceed
+// the sanctioned pre-auth cover — that is exactly when an enhancement is
+// filed (enhancement workflow fixed in #151). So when a claim's
+// claimed_amount exceeds the cumulative sanctioned cover of its linked
+// pre-auth chain we surface a NON-BLOCKING warning telling the
+// coordinator to file an enhancement; we never reject. Likewise a partial
+// approval that capped the room category leaves the upgrade differential
+// as patient-payable (finding 2026-05-22-...-b5906e90) — we flag that as
+// an informational warning, not a block.
+//
+// Warning codes are stable strings; consumers key off `code`.
+export const CLAIM_WARNING_CODES = {
+  EXCEEDS_SANCTIONED_COVER: 'CLAIM_EXCEEDS_SANCTIONED_COVER',
+  ROOM_CHARGES_EXCEED_CAP: 'CLAIM_ROOM_CHARGES_EXCEED_CAP',
+};
+
+/**
+ * Pure cover-exceeded check. Returns a warning object when the claimed
+ * amount exceeds the cumulative sanctioned cover (with a meaningful
+ * shortfall), else null. No warning when there is no sanctioned cover yet
+ * (cover === 0 / null) — nothing has been approved to compare against, so
+ * the cover comparison is not meaningful (the claimed ≤ billed hard guard
+ * still applies upstream).
+ *
+ * @param {{ claimedAmount: number, sanctionedCover: number }} args
+ * @returns {{ code, sanctioned, claimed, shortfall } | null}
+ */
+export function computeCoverExceededWarning({ claimedAmount, sanctionedCover }) {
+  const claimed = Number(claimedAmount || 0);
+  const sanctioned = Number(sanctionedCover || 0);
+  if (!(sanctioned > 0)) return null;
+  if (!(claimed > 0)) return null;
+  // Tolerance mirrors the moneyEquals epsilon used by the hard guards so a
+  // claim that exactly matches cover (or rounds within a paisa) is silent.
+  if (claimed <= sanctioned + 0.01) return null;
+  const shortfall = Number((claimed - sanctioned).toFixed(2));
+  return {
+    code: CLAIM_WARNING_CODES.EXCEEDS_SANCTIONED_COVER,
+    sanctioned: Number(sanctioned.toFixed(2)),
+    claimed: Number(claimed.toFixed(2)),
+    shortfall,
+    message:
+      `Claimed amount ₹${claimed} exceeds the sanctioned cover ₹${sanctioned} ` +
+      `by ₹${shortfall}. File an enhancement pre-auth for the shortfall so the ` +
+      `insurer can approve the full claim; the final bill legitimately exceeding ` +
+      `pre-auth cover is expected and is not blocked.`,
+  };
+}
+
+/**
+ * Pure room-cap check. The insurer's partial approval may cap the covered
+ * room category (e.g. semi_private) below where the patient actually
+ * stayed (e.g. private). The upgrade differential is patient-payable /
+ * non-covered. We flag it when EITHER:
+ *   - we know the room charges and a structured room-rent cap amount, and
+ *     the charges exceed the cap (preferred — precise excess), OR
+ *   - we only know the categories, and the admission category outranks the
+ *     capped category (qualitative flag, no rupee figure).
+ * Returns a warning object or null.
+ *
+ * @param {{ roomCharges?: number, roomCapAmount?: number,
+ *           admissionRoomCategory?: string, cappedRoomCategory?: string }} args
+ */
+export function computeRoomCapWarning({
+  roomCharges, roomCapAmount, admissionRoomCategory, cappedRoomCategory,
+}) {
+  const charges = Number(roomCharges || 0);
+  const capAmt = Number(roomCapAmount || 0);
+  // Amount-based excess (preferred when both numbers are known).
+  if (charges > 0 && capAmt > 0 && charges > capAmt + 0.01) {
+    const excess = Number((charges - capAmt).toFixed(2));
+    return {
+      code: CLAIM_WARNING_CODES.ROOM_CHARGES_EXCEED_CAP,
+      room_charges: Number(charges.toFixed(2)),
+      room_cap: Number(capAmt.toFixed(2)),
+      excess,
+      patient_payable: excess,
+      capped_category: cappedRoomCategory || null,
+      admission_category: admissionRoomCategory || null,
+      message:
+        `Room charges ₹${charges} exceed the insurer's room cap ₹${capAmt} ` +
+        `by ₹${excess}. The excess is patient-payable / non-covered; collect ` +
+        `the difference or downgrade the room. This is informational and does ` +
+        `not block the claim.`,
+    };
+  }
+  // Category-only flag: admission category outranks the capped category.
+  const capCat = cappedRoomCategory
+    ? (ROOM_CATEGORY_RANK[String(cappedRoomCategory).toLowerCase()] ? String(cappedRoomCategory).toLowerCase() : null)
+    : null;
+  const admCat = admissionRoomCategory ? String(admissionRoomCategory).toLowerCase() : null;
+  if (capCat && admCat) {
+    const capRank = ROOM_CATEGORY_RANK[capCat] || 0;
+    const admRank = ROOM_CATEGORY_RANK[admCat] || 0;
+    if (admRank > capRank && capRank > 0) {
+      return {
+        code: CLAIM_WARNING_CODES.ROOM_CHARGES_EXCEED_CAP,
+        room_charges: charges > 0 ? Number(charges.toFixed(2)) : null,
+        room_cap: capAmt > 0 ? Number(capAmt.toFixed(2)) : null,
+        excess: null,
+        patient_payable: null,
+        capped_category: capCat,
+        admission_category: admCat,
+        message:
+          `Insurer capped the covered room category at '${capCat}' but the ` +
+          `admission is in '${admCat}'. The room-upgrade differential is ` +
+          `patient-payable / non-covered. This is informational and does not ` +
+          `block the claim.`,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Read the room-rent total billed on the claim's linked invoice, summing
+ * the canonical `room_rent` billing category (billingV2). Returns 0 when
+ * no invoice is linked or no room-rent line exists.
+ */
+async function roomChargesForInvoice(invoiceId) {
+  if (!invoiceId) return 0;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT COALESCE(SUM(line_total), 0)::numeric AS total
+       FROM billing_invoice_items
+      WHERE invoice_id = $1::int
+        AND category = 'room_rent'`,
+    Number(invoiceId),
+  );
+  return Number(rows[0]?.total ?? 0);
+}
+
+/**
+ * Pull the structured room-rent cap amount out of an insurer caps object.
+ * The TPA portal can carry the room cap two ways (see extractPreauthCaps):
+ *   caps.room_rent.max_amount        — per-category numeric cap, or
+ *   caps.room_category.max_amount    — numeric cap alongside the category, or
+ *   caps.room_category.max_category  — the qualitative category only.
+ */
+function roomCapAmountFromCaps(caps) {
+  if (!caps || typeof caps !== 'object') return 0;
+  const fromRoomRent = caps.room_rent && caps.room_rent.max_amount != null
+    ? Number(caps.room_rent.max_amount) : 0;
+  if (fromRoomRent > 0) return fromRoomRent;
+  const fromRoomCat = caps.room_category && caps.room_category.max_amount != null
+    ? Number(caps.room_category.max_amount) : 0;
+  return fromRoomCat > 0 ? fromRoomCat : 0;
+}
+
+function cappedRoomCategoryFromCaps(caps) {
+  if (!caps || typeof caps !== 'object') return null;
+  if (caps.room_category && caps.room_category.max_category) {
+    return String(caps.room_category.max_category);
+  }
+  return null;
+}
+
+/**
+ * Assemble the non-blocking advisory warnings for a claim row. Pure
+ * computation is delegated to the exported helpers; this gatherer just
+ * sources the inputs (cumulative sanctioned cover, insurer caps, billed
+ * room charges, admission room category). Always returns an array (empty
+ * when there is nothing to warn about, or when the claim has no linked
+ * pre-auth). Never throws — advisory data must not break a claim
+ * read/create.
+ *
+ * `logCorrespondence` (default false) controls whether the cover-exceeded
+ * enhancement nudge is also dropped into the claim timeline as a
+ * correspondence row. Callers pass `true` only on a mutation boundary
+ * (claim creation) so the note is written once per claim, not on every
+ * read of the bundle.
+ *
+ * @param {{ tenantId: string, claim: object, logCorrespondence?: boolean }} args
+ */
+export async function buildClaimWarnings({ tenantId, claim, logCorrespondence = false }) {
+  const warnings = [];
+  try {
+    if (!claim || !claim.preauth_id) return warnings;
+
+    // Cumulative sanctioned cover across the pre-auth + enhancement chain.
+    const totals = await chainTotalsFor({ tenantId, preauthId: claim.preauth_id });
+    const sanctionedCover = Number(totals.cumulative_approved || 0);
+
+    const coverWarning = computeCoverExceededWarning({
+      claimedAmount: Number(claim.claimed_amount || 0),
+      sanctionedCover,
+    });
+    if (coverWarning) warnings.push(coverWarning);
+
+    // Room cap: read the latest insurer response caps on the linked
+    // pre-auth, plus the billed room charges + admission room category.
+    const respRows = await prisma.$queryRawUnsafe(
+      `SELECT raw_response
+         FROM insurance_preauth_responses
+        WHERE preauth_id = $1::int
+        ORDER BY decided_at DESC, id DESC
+        LIMIT 1`,
+      Number(claim.preauth_id),
+    );
+    const caps = extractPreauthCaps(respRows[0]?.raw_response);
+    const roomCapAmount = roomCapAmountFromCaps(caps);
+    const cappedRoomCategory = cappedRoomCategoryFromCaps(caps);
+
+    if (roomCapAmount > 0 || cappedRoomCategory) {
+      const roomCharges = await roomChargesForInvoice(claim.invoice_id);
+      let admissionRoomCategory = null;
+      if (claim.admission_id) {
+        const adm = await prisma.admissions.findUnique({
+          where: { id: Number(claim.admission_id) },
+          select: { room_category: true },
+        });
+        admissionRoomCategory = adm?.room_category || null;
+      }
+      const roomWarning = computeRoomCapWarning({
+        roomCharges,
+        roomCapAmount,
+        admissionRoomCategory,
+        cappedRoomCategory,
+      });
+      if (roomWarning) warnings.push(roomWarning);
+    }
+
+    // Best-effort: drop a correspondence note for the cover-exceeded case
+    // so the enhancement nudge is visible in the claim timeline. Only on a
+    // mutation boundary (logCorrespondence=true) — reads stay read-only and
+    // do not spam the timeline. Guarded — a correspondence-insert failure
+    // must never break the read/create.
+    if (logCorrespondence && coverWarning && claim.id) {
+      try {
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO tpa_claim_correspondence
+             (claim_id, direction, channel, subject, body, recorded_by)
+           VALUES ($1::int, 'outbound', 'internal', $2, $3, NULL)`,
+          Number(claim.id),
+          'Claim exceeds sanctioned cover — file enhancement',
+          coverWarning.message,
+        );
+      } catch (corrErr) {
+        logger.warn(
+          `buildClaimWarnings: cover-exceeded correspondence note failed for claim=${claim.id}: ${corrErr.message}`,
+        );
+      }
+    }
+  } catch (err) {
+    // Advisory layer is non-fatal by contract.
+    logger.warn(
+      `buildClaimWarnings: advisory computation failed for claim=${claim?.id}: ${err.message}`,
+    );
+  }
+  return warnings;
 }
 
 /**
@@ -1301,6 +1566,12 @@ export async function logCorrespondence({
 
 export async function getClaimBundle({ tenantId, id }) {
   const claim = await getClaim({ tenantId, id });
+  // Compute the non-blocking advisories on the read surface so the
+  // /api/v1/insurance/claims/:id consumer (TPA desk / cashier) sees the
+  // cover-exceeded enhancement nudge + room-cap liability. buildClaimWarnings
+  // is read-only here except for a best-effort cover-exceeded correspondence
+  // note (idempotency is not required — the note documents the live state).
+  const warnings = await buildClaimWarnings({ tenantId, claim });
   const docs = await prisma.$queryRawUnsafe(
     `SELECT * FROM tpa_claim_documents WHERE claim_id = $1::int ORDER BY uploaded_at DESC`,
     claim.id,
@@ -1309,5 +1580,5 @@ export async function getClaimBundle({ tenantId, id }) {
     `SELECT * FROM tpa_claim_correspondence WHERE claim_id = $1::int ORDER BY recorded_at DESC`,
     claim.id,
   );
-  return { claim, documents: docs, correspondence: corr };
+  return { claim: { ...claim, warnings }, documents: docs, correspondence: corr };
 }
