@@ -1543,27 +1543,37 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
     // letting a patient be discharged with active investigations,
     // unpaid invoices, or no invoice at all. Fail loud → fix the drift.
 
-    // No-invoice gate (finding 2026-05-09-inpatient-admission-discharge-no-invoice-bypass).
+    // No-invoice gate (finding 2026-05-09-inpatient-admission-discharge-no-invoice-bypass,
+    // tightened by 2026-05-22-inpatient-admission-discharge-d670b613).
     // The unpaid query below only fires when an invoice EXISTS with
     // amount_due > 0; a zero-invoice admission slipped through silently.
-    // Require at least one finalized invoice (ISSUED/PARTIAL/PAID) for
-    // home/transfer/aor discharges unless billing_closed_at is stamped
-    // (the cashier explicitly closed billing with zero net charges,
-    // e.g. charity discharge — keeps the override path narrow).
-    if (!admissionPre.billing_closed_at) {
-      const finalizedRows = await prisma.$queryRawUnsafe(
-        `SELECT COUNT(*)::int AS c
-           FROM billing_invoices
-          WHERE admission_id = $1::int
-            AND status IN ('ISSUED', 'PARTIAL', 'PAID')`,
-        admissionId,
-      );
-      if ((finalizedRows[0]?.c ?? 0) === 0) {
-        blockers.push({
-          type: 'NO_INVOICE',
-          message: 'No finalized invoice exists for this admission. Issue + collect (or zero out) at least one IPD invoice, or close billing explicitly, before discharge.',
-        });
-      }
+    // Require at least one FINALIZED invoice (ISSUED/PARTIAL/PAID) for
+    // home/transfer/aor discharges — a genuine charity / zero-charge
+    // discharge is represented by an ISSUED invoice with total_amount 0
+    // (zeroed then issued), which this status filter already accepts.
+    //
+    // This check used to be skipped when `billing_closed_at` was stamped,
+    // on the theory that the cashier had explicitly closed billing with
+    // zero net charges. That assumption was wrong: `markForDischarge`
+    // (the mandatory first cascade step — see NOT_MARKED_FOR_DISCHARGE
+    // blocker above) ALWAYS stamps `billing_closed_at` as a soft freeze,
+    // so by the time final discharge is reachable the column is always
+    // set and the gate was dead code. A patient could be marked
+    // DISCHARGED with no finalized bill ever issued. The soft-freeze
+    // stamp is NOT proof billing was completed, so it no longer bypasses
+    // this gate; only an actual finalized invoice clears it.
+    const finalizedRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS c
+         FROM billing_invoices
+        WHERE admission_id = $1::int
+          AND status IN ('ISSUED', 'PARTIAL', 'PAID')`,
+      admissionId,
+    );
+    if ((finalizedRows[0]?.c ?? 0) === 0) {
+      blockers.push({
+        type: 'NO_INVOICE',
+        message: 'No finalized invoice exists for this admission. Issue + collect (or zero out) at least one IPD invoice before discharge. Closing billing alone does not satisfy this — a finalized invoice is required.',
+      });
     }
 
     // Surface ALL non-final v2 invoices that still owe money. The
