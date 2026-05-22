@@ -2,6 +2,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { assertCanWriteAppointmentClinical } from '../../utils/appointment/appointmentHelpers.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { getPatientTimeline as getUnifiedPatientTimeline } from './clinicalTimelineService.js';
 
@@ -95,11 +96,16 @@ function validateNoteContent(noteType, content) {
 
 /**
  * Create a clinical note.
- * @param {Object} data - { encounter_id?, patient_uid, author_uid, author_role, note_type, content }
+ * @param {Object} data - { encounter_id?, appointment_id?, patient_uid, author_uid, author_role, note_type, content, acting_user? }
+ *   `acting_user` ({ id?, uid?, role }) is the authenticated caller — used to
+ *   enforce that only the assigned doctor (or an authorized supervisor) may
+ *   write a note bound to a specific OPD appointment. Defaults to the author
+ *   identity when omitted so direct service callers keep working.
  * @returns {Object} Created note row
  */
 export async function createNote(data) {
   const { encounter_id, appointment_id, patient_uid, author_uid, author_role, note_type, content } = data;
+  const actingUser = data.acting_user || { uid: author_uid, role: author_role };
 
   if (!patient_uid || !author_uid || !author_role || !note_type || !content) {
     throw AppError.badRequest('patient_uid, author_uid, author_role, note_type, and content are required');
@@ -136,11 +142,29 @@ export async function createNote(data) {
     }
     const appt = await prisma.appointments.findUnique({
       where: { id: appointmentIdNum },
-      select: { id: true },
+      select: { id: true, doctor_id: true },
     });
     if (!appt) {
       throw AppError.notFound('Appointment not found');
     }
+
+    // H2 RBAC — a note bound to a specific OPD appointment may only be
+    // authored by the appointment's assigned doctor (or an authorized
+    // supervisor). Previously any clinician with the /emr role could write a
+    // signed note onto another doctor's visit. Resolve the assigned doctor's
+    // uid so the guard can match either the caller's int id or uid.
+    let assignedDoctorUid = null;
+    if (appt.doctor_id !== null && appt.doctor_id !== undefined) {
+      const doctor = await prisma.users.findUnique({
+        where: { id: appt.doctor_id },
+        select: { uid: true },
+      });
+      assignedDoctorUid = doctor?.uid ?? null;
+    }
+    assertCanWriteAppointmentClinical(actingUser, {
+      doctor_id: appt.doctor_id,
+      assigned_doctor_uid: assignedDoctorUid,
+    });
   }
 
   // Schema defaults: version=1, is_addendum=false, is_signed=false, created_at=now().
@@ -313,20 +337,50 @@ export async function updateNote(noteId, content, editorUid, editorRole) {
  * Sign a clinical note, making it immutable.
  * @param {number} noteId
  * @param {string} signerUid
+ * @param {{ id?: number|string, uid?: string, role: string }} [actingUser] - the
+ *   authenticated caller, used to enforce that only the assigned doctor (or an
+ *   authorized supervisor) may sign a note bound to a specific OPD appointment.
+ *   Defaults to the signer uid (role unknown) when omitted; an unbound note
+ *   (no appointment) is unaffected by the guard.
  * @returns {Object} Updated note row
  */
-export async function signNote(noteId, signerUid) {
+export async function signNote(noteId, signerUid, actingUser = null) {
   if (!signerUid) {
     throw AppError.badRequest('Signer UID is required');
   }
 
   const existing = await prisma.clinical_notes.findUnique({
     where: { id: Number(noteId) },
-    select: { id: true, is_signed: true, signed_at: true },
+    select: { id: true, is_signed: true, signed_at: true, appointment_id: true },
   });
 
   if (!existing) {
     throw AppError.notFound('Clinical note not found');
+  }
+
+  // H2 RBAC — signing a note bound to a specific OPD appointment is gated to
+  // the appointment's assigned doctor (or an authorized supervisor), mirroring
+  // the create-note guard. Notes not bound to an appointment (IPD/ER encounter
+  // notes) are unaffected — those follow the care-team model.
+  if (existing.appointment_id !== null && existing.appointment_id !== undefined) {
+    const appt = await prisma.appointments.findUnique({
+      where: { id: existing.appointment_id },
+      select: { doctor_id: true },
+    });
+    if (appt) {
+      let assignedDoctorUid = null;
+      if (appt.doctor_id !== null && appt.doctor_id !== undefined) {
+        const doctor = await prisma.users.findUnique({
+          where: { id: appt.doctor_id },
+          select: { uid: true },
+        });
+        assignedDoctorUid = doctor?.uid ?? null;
+      }
+      assertCanWriteAppointmentClinical(actingUser || { uid: signerUid, role: undefined }, {
+        doctor_id: appt.doctor_id,
+        assigned_doctor_uid: assignedDoctorUid,
+      });
+    }
   }
 
   if (existing.is_signed) {

@@ -9,6 +9,9 @@ import { logAudit } from '../../utils/logAudit.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { canWriteAppointmentClinical } from '../../utils/appointment/appointmentHelpers.js';
+import { isDoctor } from '../../utils/roleHelpers.js';
+import { AppError } from '../../utils/AppError.js';
 
 // All four handlers below were originally written against a raw pg.Pool
 // client (await pool.connect → client.query → client.release) and ported
@@ -262,12 +265,34 @@ export const completeAppointment = async (req, res) => {
 
     const { result, prevStatus, patientId } = await prisma.$transaction(async (tx) => {
       const appt = await tx.$queryRawUnsafe(
-        'SELECT id, patient_id, status FROM appointments WHERE id=$1 FOR UPDATE',
+        'SELECT id, patient_id, doctor_id, status FROM appointments WHERE id=$1 FOR UPDATE',
         Number(id),
       );
       if (!appt.length) {
         const err = new Error('Not found'); err.statusCode = HTTP_STATUS.NOT_FOUND; throw err;
       }
+
+      // H2 RBAC — a DOCTOR completing/closing a visit must be the assigned
+      // clinician (or an authorized supervisor). Front-desk / nursing / admin
+      // roles keep their existing "mark patient as visited" ability; this guard
+      // only fences off a *peer doctor* signing off another doctor's visit.
+      // Unassigned appointments (doctor_id null) stay completable by anyone with
+      // the route's RBAC. Compared with String() per the IDOR convention.
+      if (
+        isDoctor(req.user?.role) &&
+        appt[0].doctor_id !== null &&
+        appt[0].doctor_id !== undefined &&
+        !canWriteAppointmentClinical(
+          { id: req.user.id, uid: req.user.uid, role: req.user.role },
+          { doctor_id: appt[0].doctor_id },
+        )
+      ) {
+        throw AppError.forbidden(
+          'You are not the assigned clinician for this appointment',
+          'NOT_ASSIGNED_CLINICIAN',
+        );
+      }
+
       const updated = await tx.$queryRawUnsafe(
         `UPDATE appointments SET status='COMPLETED', notes=COALESCE($2, notes), updated_at=NOW() WHERE id=$1
          RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, notes, token_number, updated_at`,

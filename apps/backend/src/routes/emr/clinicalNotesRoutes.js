@@ -106,6 +106,9 @@ router.post('/notes', async (req, res, next) => {
       author_role: author_role || req.user.role,
       note_type,
       content,
+      // Authenticated caller identity for the assigned-doctor ownership guard
+      // (H2). author_role can be spoofed via the body; req.user is trusted.
+      acting_user: { id: req.user.id, uid: req.user.uid, role: req.user.role },
     });
 
     // HIPAA audit — log note creation
@@ -216,7 +219,11 @@ router.post('/notes/:id/sign', async (req, res, next) => {
   try {
     const noteId = parseInt(req.params.id, 10);
 
-    const signed = await clinicalNotesService.signNote(noteId, req.user.uid);
+    const signed = await clinicalNotesService.signNote(noteId, req.user.uid, {
+      id: req.user.id,
+      uid: req.user.uid,
+      role: req.user.role,
+    });
 
     // HIPAA audit — log note signing
     logPhiAccess({
