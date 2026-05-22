@@ -24,10 +24,50 @@ const ROUTE_ALIASES = {
   pr: 'rectal',
   td: 'transdermal',
   inh: 'inhaled',
+  // Long-form spellings clinicians also write free-text (the CPOE layer
+  // normalises some of these, but order-set / carry-over payloads reach
+  // the MAR with the raw word).
+  intravenous: 'iv',
+  intramuscular: 'im',
+  subcutaneous: 'sc',
+  intranasal: 'intranasal',
+  nasal: 'intranasal',
 };
+
+// Resolve a single token to its canonical route (allowlist value or alias),
+// or null if it isn't a route word.
+function resolveRouteToken(token) {
+  if (VALID_ROUTES.includes(token)) return token;
+  if (ROUTE_ALIASES[token]) return ROUTE_ALIASES[token];
+  return null;
+}
+
+// Normalise a route to a canonical allowlist value.
+//
+// A plain route ('oral', 'PO', 'sublingual') resolves directly. Compound
+// routes that pair a route with an administration modifier — "PO chewed",
+// "PO crushed via NG", "IV push" — are common in ACS order sets (the
+// chest-pain bundle seeds Aspirin as route "PO chewed"). The modifier is
+// not an enum value, so the whole string fails the allowlist and the dose
+// is silently dropped from the MAR (the route check throws, the carry-over
+// /order-integration catch swallows it). Recover the clinical route by
+// scanning tokens for the first that resolves; the modifier survives in
+// the order/MAR notes, not the structured route column. Finding:
+// 2026-05-21-emergency-walk-in-nurse-7d2d873a (STAT aspirin absent from ICU MAR).
 function normalizeRoute(raw) {
-  const key = String(raw || '').trim().toLowerCase();
-  return ROUTE_ALIASES[key] || key;
+  const cleaned = String(raw || '').trim().toLowerCase();
+  if (!cleaned) return cleaned;
+  // Whole-string match first so an exact route/alias is never re-interpreted.
+  const direct = resolveRouteToken(cleaned);
+  if (direct) return direct;
+  // Compound route: take the first token that is a recognised route word.
+  for (const token of cleaned.split(/[^a-z]+/).filter(Boolean)) {
+    const resolved = resolveRouteToken(token);
+    if (resolved) return resolved;
+  }
+  // No route word found — return the cleaned string so the allowlist check
+  // still rejects genuinely invalid routes with a loud 400.
+  return cleaned;
 }
 
 // Frequency-to-schedule expansion. Doctors store prescriptions with a

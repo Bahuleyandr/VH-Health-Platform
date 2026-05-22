@@ -1,6 +1,6 @@
 import prisma from '../lib/prisma.js';
 import { administerWithScan, evaluate5Rights } from '../services/clinical/marFiveRightsService.js';
-import { recordAdministration, scheduleMedications } from '../services/clinical/marService.js';
+import { getPatientMAR, recordAdministration, scheduleMedications } from '../services/clinical/marService.js';
 import { acknowledgeAlert, checkOrder } from '../services/emr/cdsEngine.js';
 
 const PATIENT_UID = 'a7777777-7777-4777-8777-777777777a01';
@@ -135,6 +135,61 @@ describe('Clinical safety controls', () => {
     }]);
 
     expect(second.id).toBe(first.id);
+  });
+
+  // ER→ICU MAR carry-over drop. The chest-pain order set (migration 187)
+  // seeds STAT Aspirin with route "PO chewed" — a route + administration
+  // modifier. The MAR route allowlist used to reject the compound string,
+  // so the order-integration / carry-over scheduleMedications call threw,
+  // the caller's catch swallowed it, and the time-critical ACS aspirin
+  // never appeared on the ICU MAR (GTN, route "sublingual", did carry).
+  // The dose must materialise as a chartable MAR row with a valid route.
+  // Finding: 2026-05-21-emergency-walk-in-nurse-7d2d873a.
+  it('materialises a STAT order with a compound "PO chewed" route as a chartable MAR row', async () => {
+    const [row] = await scheduleMedications(PATIENT_UID, null, [{
+      medication_name: 'Aspirin 325mg',
+      dose: '325mg',
+      route: 'PO chewed',
+      scheduled_time: '2026-05-21T06:30:00.000Z',
+    }]);
+
+    // The compound route is canonicalised to the allowlist value 'oral'
+    // (the "chewed" modifier is not an enum value) so the row is valid and
+    // visible on the MAR.
+    expect(row.id).toBeDefined();
+    expect(row.route).toBe('oral');
+    expect(row.status).toBe('scheduled');
+
+    // It must show up on the patient's MAR for that day and be chartable.
+    const mar = await getPatientMAR(PATIENT_UID, '2026-05-21');
+    const aspirinRow = mar.find((m) => m.id === row.id);
+    expect(aspirinRow).toBeDefined();
+    expect(aspirinRow.medication_name).toBe('Aspirin 325mg');
+
+    const administered = await recordAdministration(row.id, CLINICIAN_UID);
+    expect(administered.status).toBe('administered');
+  });
+
+  // The fix must not regress the existing ±1min dedupe: re-running the
+  // carry-over for the same compound-route STAT order (createAdmissionFromEr
+  // re-schedules every active ER order) must return the same row, not a
+  // second one — otherwise the nurse sees a phantom double aspirin dose.
+  it('still dedupes a compound-route STAT order on carry-over re-run', async () => {
+    const [first] = await scheduleMedications(PATIENT_UID, null, [{
+      medication_name: 'Aspirin loading',
+      dose: '325mg',
+      route: 'PO chewed',
+      scheduled_time: '2026-05-21T07:00:00.000Z',
+    }]);
+    const [second] = await scheduleMedications(PATIENT_UID, null, [{
+      medication_name: 'Aspirin loading',
+      dose: '325mg',
+      route: 'PO chewed and crushed',
+      scheduled_time: '2026-05-21T07:00:00.300Z',
+    }]);
+
+    expect(second.id).toBe(first.id);
+    expect(second.route).toBe('oral');
   });
 
   it('blocks sibling MAR administration for the same medication slot despite millisecond drift', async () => {
