@@ -19,6 +19,8 @@ import {
   getAncAdvice,
   getAncTimelineForPregnancy,
   listMaternityPackages,
+  listPriorOrdersForPregnancy,
+  recordAncVisit,
   recordSupplement,
 } from '../services/maternity/maternityService.js';
 import { getActiveReminders } from '../services/patient/medicationReminderService.js';
@@ -32,6 +34,7 @@ describe('Obstetric/ANC chip — deep integration', () => {
   let patientId;
   let pregnancyId;
   let appointmentId;
+  let anomalyUsgId;
 
   beforeAll(async () => {
     // Clean any prior run.
@@ -96,6 +99,39 @@ describe('Obstetric/ANC chip — deep integration', () => {
           recorded_at, tenant_id)
        VALUES ($1::uuid, 128, 82, 78, 64, NOW() - INTERVAL '10 days', $2::uuid)`,
       PATIENT_UID, TENANT);
+
+    // Two prior recorded ANC visits (12w + 18w) — these must surface as
+    // `visits` on the doctor's timeline, not come back empty.
+    // Finding 2026-05-22-obstetric-anc-doctor-8d245f7c.
+    await recordAncVisit({
+      tenantId: TENANT, pregnancy_id: pregnancyId,
+      visit_date: new Date(Date.now() - 84 * 86400000).toISOString().slice(0, 10),
+      gestational_age_weeks: 12, weight_kg: 58, bp_systolic: 116, bp_diastolic: 74,
+      hb_gm_dl: 11.2, recorded_by: DOCTOR_UID,
+    });
+    await recordAncVisit({
+      tenantId: TENANT, pregnancy_id: pregnancyId,
+      visit_date: new Date(Date.now() - 42 * 86400000).toISOString().slice(0, 10),
+      gestational_age_weeks: 18, weight_kg: 61, bp_systolic: 118, bp_diastolic: 76,
+      fundal_height_cm: 18, fetal_heart_rate_bpm: 148, recorded_by: DOCTOR_UID,
+    });
+
+    // A completed 18-week anomaly USG (RADIOLOGY) ordered during the
+    // pregnancy — this must surface inline on the ANC timeline so the
+    // doctor doesn't re-order it at the 24-week consult, and must also
+    // appear in the prior-orders investigations list.
+    const usg = await prisma.$queryRawUnsafe(
+      `INSERT INTO investigations
+         (phone, patient_id, patient_uid, test_name, test_type, status,
+          priority, requested_by, requested_at, completed_at, result_summary,
+          created_at, updated_at)
+       VALUES ('9000090301', $1::int, $2::uuid,
+               'Anomaly Scan (Level II Ultrasound)', 'RADIOLOGY', 'COMPLETED',
+               'NORMAL', $3::uuid, NOW() - INTERVAL '42 days',
+               NOW() - INTERVAL '42 days', 'No structural anomaly detected',
+               NOW() - INTERVAL '42 days', NOW())
+       RETURNING id`, patientId, PATIENT_UID, DOCTOR_UID);
+    anomalyUsgId = usg[0].id;
   });
 
   afterAll(async () => {
@@ -175,6 +211,64 @@ describe('Obstetric/ANC chip — deep integration', () => {
       );
       expect(reading).toBeTruthy();
       expect(Number(reading.weight_kg)).toBe(64);
+    });
+
+    // ── F7 — H7 fix: prior visits + prior anomaly USG on the timeline ──
+    // Finding 2026-05-22-obstetric-anc-doctor-8d245f7c: the 24-week
+    // doctor view returned visits:[] and no anomaly-scan evidence, so a
+    // duplicate USG could be re-ordered. Assert the recorded prior visits
+    // come back AND the completed anomaly scan surfaces inline.
+    it('returns recorded prior ANC visits and the completed anomaly USG', async () => {
+      const timeline = await getAncTimelineForPregnancy({
+        tenantId: TENANT, pregnancy_id: pregnancyId,
+      });
+      // Prior visits are not empty.
+      expect(Array.isArray(timeline.visits)).toBe(true);
+      expect(timeline.visits.length).toBeGreaterThanOrEqual(2);
+      const gas = timeline.visits.map((v) => Number(v.gestational_age_weeks));
+      expect(gas).toEqual(expect.arrayContaining([12, 18]));
+
+      // Prior obstetric imaging surfaces with a completed flag.
+      expect(Array.isArray(timeline.prior_imaging)).toBe(true);
+      const scan = timeline.prior_imaging.find((i) => i.id === anomalyUsgId);
+      expect(scan).toBeTruthy();
+      expect(scan.test_type).toBe('RADIOLOGY');
+      expect(scan.status).toBe('COMPLETED');
+      expect(scan.completed).toBe(true);
+      expect(/anomaly/i.test(String(scan.test_name))).toBe(true);
+    });
+
+    it('excludes non-obstetric imaging (a chest X-ray) from prior_imaging', async () => {
+      const cxr = await prisma.$queryRawUnsafe(
+        `INSERT INTO investigations
+           (phone, patient_id, patient_uid, test_name, test_type, status,
+            priority, requested_by, requested_at, created_at, updated_at)
+         VALUES ('9000090301', $1::int, $2::uuid, 'Chest X-Ray PA View',
+                 'RADIOLOGY', 'COMPLETED', 'NORMAL', $3::uuid,
+                 NOW() - INTERVAL '30 days', NOW() - INTERVAL '30 days', NOW())
+         RETURNING id`, patientId, PATIENT_UID, DOCTOR_UID);
+      const cxrId = cxr[0].id;
+      try {
+        const timeline = await getAncTimelineForPregnancy({
+          tenantId: TENANT, pregnancy_id: pregnancyId,
+        });
+        expect(timeline.prior_imaging.find((i) => i.id === cxrId)).toBeFalsy();
+        // The anomaly scan is still there.
+        expect(timeline.prior_imaging.find((i) => i.id === anomalyUsgId)).toBeTruthy();
+      } finally {
+        await prisma.$executeRawUnsafe(
+          `DELETE FROM investigations WHERE id=$1`, cxrId).catch(() => {});
+      }
+    });
+
+    it('prior-orders investigations include the completed anomaly USG', async () => {
+      const prior = await listPriorOrdersForPregnancy({
+        tenantId: TENANT, pregnancy_id: pregnancyId,
+      });
+      expect(Array.isArray(prior.investigations)).toBe(true);
+      const scan = prior.investigations.find((i) => i.id === anomalyUsgId);
+      expect(scan).toBeTruthy();
+      expect(scan.status).toBe('COMPLETED');
     });
 
     it('continues an active supplement row instead of creating duplicate reminders', async () => {
@@ -257,9 +351,12 @@ describe('Obstetric/ANC chip — deep integration', () => {
   // ── F4 — soft duplicate-order guard ────────────────────────────────
   describe('createInvestigationOrder duplicate guard', () => {
     it('warns (does not block) on a repeat order within the window', async () => {
+      // Distinct test_name from the 18-week anomaly scan seeded in
+      // beforeAll, so the "first order has no prior warning" assertion
+      // isn't tripped by the H7 prior-imaging fixture.
       const order = {
         patient_id: patientId,
-        test_name: 'Anomaly Scan (Level II Ultrasound)',
+        test_name: 'Growth Scan (Third Trimester Ultrasound)',
         type: 'RADIOLOGY',
         priority: 'NORMAL',
         orderedBy: DOCTOR_UID,
