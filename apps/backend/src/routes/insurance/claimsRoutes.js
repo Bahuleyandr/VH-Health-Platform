@@ -170,6 +170,11 @@ router.post('/claims/:id/decision', requireStaffOrAdmin, wrap(async (req) =>
     decision: req.body.decision,
     approved_amount: req.body.approved_amount,
     denial_reason: req.body.denial_reason,
+    // Optional payer signal — when the TPA portal echoes the deciding
+    // insurer, the payer-match guard treats it as authoritative (mirrors
+    // the pre-auth response path). Free-text references are the fallback.
+    insurer: req.body.insurer,
+    raw_response: req.body.raw_response,
     recorded_by: req.user?.uid,
   }),
 ));

@@ -579,6 +579,177 @@ export function insurerMatchesPolicyPayer(responseInsurer, payerName) {
   return a.includes(b) || b.includes(a);
 }
 
+// ── Claim-settlement payer guard (free-text reference path) ──────────
+//
+// The claim decision/settlement path carries NO structured insurer field
+// the way recordPreauthResponse does — the only payer signal at settlement
+// is free-text: the TPA settlement reference (`payment_reference`, e.g.
+// "NIA-NEFT-CL-2627-00004-63000") and the claim's own `tpa_reference_id`
+// ("NIA-FINAL-CL-2627-00004"). The finding (df39fefb) is exactly this: a
+// New India ("NIA") settlement reference recorded on a Star Health policy.
+//
+// Free-text is unreliable, so we reject ONLY on a CONFIDENT mismatch: a
+// recognised insurer token at the START of the reference (the convention
+// the desk uses — "NIA-...", "STAR-...") that resolves to a known payer
+// which is NOT the policy's payer. An unrecognised token, a token that is
+// compatible with the policy payer, or an empty reference never blocks —
+// a false reject of a legitimate settlement is worse than the miss.
+//
+// PAYER_REFERENCE_TOKENS maps the leading reference token to the canonical
+// payer display-name it stands for. Keys mirror the seeded payer_code +
+// the handful of common short forms a coordinator actually types; values
+// are the migration-203 display_name so insurerMatchesPolicyPayer can
+// substring-match them against the policy payer.
+const PAYER_REFERENCE_TOKENS = {
+  NIA: 'New India Assurance Co Ltd',
+  NEWINDIA: 'New India Assurance Co Ltd',
+  OICL: 'Oriental Insurance Co Ltd',
+  ORIENTAL: 'Oriental Insurance Co Ltd',
+  NICL: 'National Insurance Co Ltd',
+  NATIONAL: 'National Insurance Co Ltd',
+  UIIC: 'United India Insurance Co Ltd',
+  UNITEDINDIA: 'United India Insurance Co Ltd',
+  STAR: 'Star Health and Allied Insurance',
+  STARHEALTH: 'Star Health and Allied Insurance',
+  ICICI: 'ICICI Lombard General Insurance',
+  ICICILOM: 'ICICI Lombard General Insurance',
+  ICICILOMBARD: 'ICICI Lombard General Insurance',
+  BAJAJ: 'Bajaj Allianz General Insurance',
+  HDFC: 'HDFC ERGO General Insurance',
+  HDFCERGO: 'HDFC ERGO General Insurance',
+  MAXBUPA: 'Niva Bupa Health Insurance',
+  NIVABUPA: 'Niva Bupa Health Insurance',
+  NIVA: 'Niva Bupa Health Insurance',
+  CARE: 'Care Health Insurance',
+  TATAAIG: 'Tata AIG General Insurance',
+  TATA: 'Tata AIG General Insurance',
+  RELIANCE: 'Reliance General Insurance',
+  CGHS: 'Central Government Health Scheme',
+  ECHS: 'Ex-Servicemen Contributory Health Scheme',
+  ESIC: 'Employees State Insurance Corporation',
+  PMJAY: 'Ayushman Bharat — PMJAY',
+  CMCHIS: 'Chief Minister’s Comprehensive Health Insurance Scheme (TN)',
+};
+
+// Best-effort extract the canonical payer display-name a free-text TPA
+// reference points at. Splits on the usual reference separators (-, _, /,
+// whitespace) and looks up the FIRST recognised token against
+// PAYER_REFERENCE_TOKENS. Returns null when the reference is empty or its
+// leading token is not a recognised insurer (e.g. "CL-2627-00004" — a bare
+// claim number with no payer token, or "ACME-123" — an unknown short form).
+// Deliberately conservative: only the leading token is consulted so we do
+// not false-match an insurer name buried mid-string in an unrelated note.
+export function detectPayerFromReference(reference) {
+  const ref = String(reference || '').trim();
+  if (!ref) return null;
+  const tokens = ref.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+  if (!tokens.length) return null;
+  // Only the leading token is a confident payer signal. The desk's
+  // convention is "<INSURER>-<STAGE>-<CLAIMNO>..." so the insurer, when
+  // present, is first. A leading pure-numeric or "CL"/"PA"/"NEFT" token is
+  // not an insurer — skip at most one leading non-payer routing token
+  // ("NEFT", "UTR", "RTGS", "IMPS", "CHQ") so "NEFT-NIA-..." still resolves.
+  const ROUTING_TOKENS = new Set(['NEFT', 'UTR', 'RTGS', 'IMPS', 'CHQ', 'CHEQUE', 'NACH']);
+  for (let i = 0; i < tokens.length && i < 2; i += 1) {
+    const t = tokens[i];
+    if (PAYER_REFERENCE_TOKENS[t]) return PAYER_REFERENCE_TOKENS[t];
+    if (!ROUTING_TOKENS.has(t)) break; // first non-routing token wasn't an insurer → give up
+  }
+  return null;
+}
+
+/**
+ * Decide whether a claim settlement/decision must be REJECTED for posting to
+ * the wrong payer. Pure + side-effect-free so it is unit-testable. Combines
+ * the two settlement signals:
+ *   - `structuredInsurer` (strong): an insurer name supplied on the decision
+ *     (mirrors recordPreauthResponse's raw_response.insurer). When present and
+ *     incompatible with the policy payer → confident mismatch.
+ *   - `references` (best-effort): free-text reference strings (the settlement
+ *     `payment_reference` + the claim's `tpa_reference_id`). A leading
+ *     recognised insurer token that resolves to a payer incompatible with the
+ *     policy payer → confident mismatch.
+ * Returns `{ mismatch: true, detectedPayer, source }` on a confident mismatch,
+ * else `{ mismatch: false }`. NEVER reports a mismatch when the policy payer is
+ * unknown, no signal is present, or the signal is compatible/unrecognised.
+ *
+ * @param {{ policyPayerName?: string, structuredInsurer?: string,
+ *           references?: Array<string> }} args
+ */
+export function detectClaimPayerMismatch({ policyPayerName, structuredInsurer, references = [] }) {
+  const payer = String(policyPayerName || '').trim();
+  if (!payer) return { mismatch: false }; // nothing authoritative to compare against
+
+  // Strong signal first: an explicitly supplied insurer on the decision.
+  const structured = String(structuredInsurer || '').trim();
+  if (structured && !insurerMatchesPolicyPayer(structured, payer)) {
+    return { mismatch: true, detectedPayer: structured, source: 'insurer' };
+  }
+
+  // Best-effort free-text: only a confidently-recognised leading token blocks.
+  for (const ref of references) {
+    const detected = detectPayerFromReference(ref);
+    if (detected && !insurerMatchesPolicyPayer(detected, payer)) {
+      return { mismatch: true, detectedPayer: detected, source: 'reference', reference: String(ref) };
+    }
+  }
+  return { mismatch: false };
+}
+
+/**
+ * Resolve the canonical payer display-name for a claim by joining
+ * tpa_claims → insurance_policies → payers. Returns '' when the policy has
+ * no payer FK (free-text/pre-master policy) so the guard stays permissive.
+ * tpa_claims.policy_id is NOT NULL (migration 153) so the claim always has a
+ * policy, but payer_id on that policy can be null.
+ */
+async function resolveClaimPolicyPayerName({ tenantId, claimId }) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT pa.display_name AS payer_name
+       FROM tpa_claims c
+       JOIN insurance_policies p ON p.id = c.policy_id
+       LEFT JOIN payers pa ON pa.id = p.payer_id
+      WHERE c.id = $1::int AND c.tenant_id = $2::uuid`,
+    Number(claimId), tenantId,
+  );
+  return rows[0]?.payer_name ? String(rows[0].payer_name) : '';
+}
+
+/**
+ * Shared rejection helper for the claim settlement/decision payer guard.
+ * Resolves the policy payer, runs the confident-mismatch decision over the
+ * supplied structured insurer + free-text references, and throws
+ * CLAIM_INSURER_MISMATCH on a confident mismatch. No-op otherwise.
+ * Findings: 2026-05-20-tpa-insurance-claim-billing-df39fefb (NIA settlement
+ * reference posted against a Star Health policy).
+ */
+async function assertClaimSettlementPayerMatch({
+  tenantId, claim, structuredInsurer, references,
+}) {
+  const policyPayerName = await resolveClaimPolicyPayerName({ tenantId, claimId: claim.id });
+  const verdict = detectClaimPayerMismatch({
+    policyPayerName,
+    structuredInsurer,
+    references: (references || []).filter(Boolean),
+  });
+  if (!verdict.mismatch) return;
+  const signalDesc = verdict.source === 'insurer'
+    ? `decision insurer "${verdict.detectedPayer}"`
+    : `settlement reference "${verdict.reference}" (insurer ${verdict.detectedPayer})`;
+  throw AppError.badRequest(
+    `Claim ${claim.claim_number || claim.id} ${signalDesc} does not match the claim's policy payer ` +
+    `"${policyPayerName}"; recording this settlement would misroute payer reconciliation and AR follow-up. ` +
+    `Verify the claim is linked to the correct policy/payer before posting.`,
+    'CLAIM_INSURER_MISMATCH',
+    {
+      policy_payer: policyPayerName,
+      detected_payer: verdict.detectedPayer,
+      signal: verdict.source,
+      reference: verdict.reference ?? null,
+    },
+  );
+}
+
 export async function recordPreauthResponse({
   tenantId, preauth_id, response_type, decision, sanctioned_amount, validity_until,
   conditions, query_text, denial_reason, raw_response,
@@ -1373,6 +1544,7 @@ export async function submitClaim({
 
 export async function recordClaimDecision({
   tenantId, id, decision, approved_amount, denial_reason, recorded_by,
+  insurer, raw_response,
 }) {
   const cl = await getClaim({ tenantId, id });
   if (!['submitted', 'queried', 'approved', 'partially_approved'].includes(cl.status)) {
@@ -1380,6 +1552,21 @@ export async function recordClaimDecision({
   }
   const allowed = ['approved', 'partially_approved', 'queried', 'denied'];
   if (!allowed.includes(decision)) throw AppError.badRequest('Invalid decision');
+
+  // Reject a decision whose payer contradicts the claim's policy payer. Two
+  // signals: an explicitly-supplied insurer (strong — mirrors
+  // recordPreauthResponse), and the claim's own free-text tpa_reference_id
+  // (best-effort, only a confidently-recognised leading insurer token blocks).
+  // A New India decision must not be recorded on a Star Health policy claim.
+  // Finding: 2026-05-20-tpa-insurance-claim-billing-df39fefb.
+  const decisionInsurer = (insurer && String(insurer).trim())
+    || (raw_response && typeof raw_response === 'object' ? String(raw_response.insurer || '').trim() : '');
+  await assertClaimSettlementPayerMatch({
+    tenantId,
+    claim: cl,
+    structuredInsurer: decisionInsurer,
+    references: [cl.tpa_reference_id],
+  });
 
   if (approved_amount != null) {
     const approvedNum = Number(approved_amount);
@@ -1437,6 +1624,21 @@ export async function recordClaimPayment({
   if (!paid_amount || paidNum <= 0) {
     throw AppError.badRequest('paid_amount must be > 0');
   }
+  // Reject a settlement whose payer contradicts the claim's policy payer.
+  // The only payer signal at settlement is free-text: the settlement
+  // reference (payment_reference, e.g. "NIA-NEFT-CL-2627-00004-63000") and
+  // the claim's tpa_reference_id ("NIA-FINAL-CL-2627-00004"). Best-effort —
+  // only a confidently-recognised leading insurer token that resolves to a
+  // payer different from the policy's blocks; an unrecognised / compatible /
+  // empty reference never blocks (a false reject of a real settlement is
+  // worse than the miss). Finding:
+  // 2026-05-20-tpa-insurance-claim-billing-df39fefb — an NIA settlement
+  // reference posted against a Star Health policy.
+  await assertClaimSettlementPayerMatch({
+    tenantId,
+    claim: cl,
+    references: [payment_reference, cl.tpa_reference_id],
+  });
   // Insurers must not pay more than the hospital claimed. The
   // non_payable component (room upgrade delta, pharmacy over-cap,
   // attendant charges, etc.) is patient liability and must never be
