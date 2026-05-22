@@ -360,6 +360,105 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       expect(audits[0].metadata).toMatchObject({ patient_uid: PATIENT_UID, admission_type: 'emergency' });
     });
 
+    it('drops the patient out of the advised-for-admission queue once admitted', async () => {
+      // Finding 2026-05-21-inpatient-admission-receptionist-5e965972
+      // (HIGH, workflow): the advise-admission bridge stamps
+      // appointments.advised_for_admission_at and the admission counter's
+      // worklist (GET /appointments?advised_for_admission=true) keys purely
+      // off that flag. Before the fix nothing cleared it on admit, so an
+      // admitted OPD patient stayed stuck in the advice queue forever.
+      // Admit must close the loop: clear the advice flag (link via
+      // admission_advice_id = the source appointment) and audit the
+      // fulfillment so the patient leaves the queue.
+      const uid = 'a1111111-1111-4111-8111-1111111119cc';
+      const phone = '9000019097';
+      const cleanup = async () => {
+        await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE action = 'ADMISSION_ADVICE_FULFILLED' AND metadata->>'patient_uid' = $1`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE phone = $1`, phone).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM patient_consents WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number = 'DEEP-ADVICE-BED'`).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, uid).catch(() => {});
+      };
+      await cleanup();
+
+      const patientRows = await prisma.$queryRawUnsafe(
+        `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+         VALUES ($1::uuid, $2, 'Advice Handoff Patient', 'PATIENT', true, NOW())
+         RETURNING id`, uid, phone);
+      const advicePatientIntId = patientRows[0].id;
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO patient_consents (patient_uid, consent_type, granted, status)
+         VALUES ($1::uuid, 'treatment', true, 'active')`, uid);
+      const bed = await prisma.$queryRawUnsafe(
+        `INSERT INTO beds (ward_id, ward_name, bed_number, status)
+         VALUES ($1, 'DEEP-TEST-WARD', 'DEEP-ADVICE-BED', 'available') RETURNING id`, wardId);
+
+      // OPD appointment already advised for admission (the doctor flipped
+      // the bridge). This is exactly what the admission counter sees.
+      const apptRows = await prisma.$queryRawUnsafe(
+        `INSERT INTO appointments
+           (phone, patient_id, doctor_id, appointment_date, appointment_time,
+            status, advised_for_admission_at, advised_for_admission_by,
+            advised_for_admission_note, updated_at)
+         VALUES ($1, $2, NULL, CURRENT_DATE, '10:00',
+                 'CONFIRMED', NOW(), $3::uuid,
+                 'Working dx: acute pancreatitis — recommend IPD admission', NOW())
+         RETURNING id`, phone, advicePatientIntId, DOCTOR_UID);
+      const adviceAppointmentId = apptRows[0].id;
+
+      // Pre-condition: the patient IS in the advised-for-admission worklist.
+      // The list endpoint nests rows under data.appointments. Scope to this
+      // patient's id so the assertion is deterministic regardless of how
+      // many other advised appointments the QA DB carries.
+      const queueBefore = await admin.get(
+        `/api/v1/appointments?advised_for_admission=true&patient_id=${advicePatientIntId}&limit=100`);
+      expect(queueBefore.statusCode).toBe(200);
+      expect(queueBefore.body.data.appointments.some((a) => a.id === adviceAppointmentId)).toBe(true);
+
+      // Admit the patient, linking the originating advice.
+      const res = await admin.post('/api/v1/emr/admit').send({
+        patient_uid: uid,
+        admitting_doctor: DOCTOR_UID,
+        chief_complaint: 'Severe epigastric pain',
+        admitting_diagnosis: 'Acute pancreatitis',
+        admission_type: 'emergency',
+        priority: 'urgent',
+        bed_id: bed[0].id,
+        admission_advice_id: adviceAppointmentId,
+        emergency_consent_bypass_reason: 'Test — advice handoff close',
+      });
+      expect(res.statusCode).toBe(201);
+
+      // Side-effect: the advice flag is cleared on the source appointment.
+      const apptAfter = await prisma.$queryRawUnsafe(
+        `SELECT advised_for_admission_at, advised_for_admission_by, advised_for_admission_note
+           FROM appointments WHERE id = $1`, adviceAppointmentId);
+      expect(apptAfter[0].advised_for_admission_at).toBeNull();
+      expect(apptAfter[0].advised_for_admission_by).toBeNull();
+      expect(apptAfter[0].advised_for_admission_note).toBeNull();
+
+      // Side-effect: the patient has left the admission counter's worklist.
+      const queueAfter = await admin.get(
+        `/api/v1/appointments?advised_for_admission=true&patient_id=${advicePatientIntId}&limit=100`);
+      expect(queueAfter.statusCode).toBe(200);
+      expect(queueAfter.body.data.appointments.some((a) => a.id === adviceAppointmentId)).toBe(false);
+
+      // Side-effect: the advice fulfillment is auditable against this admission.
+      const audits = await prisma.$queryRawUnsafe(
+        `SELECT action, resource_id, metadata FROM audit_logs
+          WHERE action = 'ADMISSION_ADVICE_FULFILLED' AND resource_id = $1`,
+        String(res.body.data.admission.id));
+      expect(audits.length).toBe(1);
+      expect(audits[0].metadata).toMatchObject({
+        patient_uid: uid,
+        cleared_appointment_ids: [adviceAppointmentId],
+        via: 'explicit_appointment_id',
+      });
+
+      await cleanup();
+    });
+
     it('exposes top-level admission-desk read aliases', async () => {
       const list = await admin.get('/api/v1/admissions');
       expect(list.statusCode).toBe(200);
