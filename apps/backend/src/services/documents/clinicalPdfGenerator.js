@@ -258,11 +258,37 @@ export async function getOrGenerateDischargePdfUrl(admissionId) {
 
 /**
  * Generate a lab report PDF for an investigation.
+ *
+ * Robust to the completed/signed-off order shape: the finalised result
+ * values for a lab order live in `lab_results` (filed by the analyzer/
+ * manual-entry path and frozen on pathologist sign-off), NOT in the
+ * `investigations.results` column — which stays NULL for the
+ * order-set/HL7 flow. We therefore merge the `lab_results` rows linked
+ * by `investigation_id` into the Results section so a completed order's
+ * PDF actually shows Haemoglobin/WBC/etc. with values + units, instead
+ * of an empty Results block.
+ *
+ * The `investigationId` is coerced to a positive integer first. The
+ * documents route passes `req.params.investigationId` as a *string*, and
+ * a bound `$1` parameter is typed `text` by the driver — `WHERE i.id = $1`
+ * against the `int` PK then errors with Postgres 42883 (`operator does
+ * not exist: integer = text`), surfacing as a 500. Parse + validate up
+ * front so a bad id is a clean 400 and a good id binds as an int. Mirrors
+ * the discharge-summary route's guard. Finding
+ * 2026-05-21-lab-walk-in-patient-2747d82d (and CBC/lipid siblings).
+ *
  * @param {number|string} investigationId - Investigation ID
  * @returns {Promise<Buffer>} PDF buffer
  */
 export async function generateLabReportPDF(investigationId) {
-  logger.info(`Generating lab report PDF for investigation ${investigationId}`);
+  const id = Number.parseInt(investigationId, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    const err = new Error('investigationId must be a positive integer');
+    err.statusCode = 400;
+    err.code = 'INVALID_INVESTIGATION_ID';
+    throw err;
+  }
+  logger.info(`Generating lab report PDF for investigation ${id}`);
 
   const invRows = await prisma.$queryRawUnsafe(
     `SELECT i.id, i.patient_uid, i.test_name, i.investigation_type, i.status,
@@ -272,15 +298,34 @@ export async function generateLabReportPDF(investigationId) {
             u.gender as patient_gender, u.birthday as patient_birthday
      FROM investigations i
      LEFT JOIN users u ON i.patient_uid = u.uid
-     WHERE i.id = $1 LIMIT 1`,
-    investigationId
+     WHERE i.id = $1::int LIMIT 1`,
+    id
   );
 
   if (!invRows.length) {
-    throw new Error(`Investigation not found: ${investigationId}`);
+    const err = new Error(`Investigation not found: ${id}`);
+    err.statusCode = 404;
+    err.code = 'INVESTIGATION_NOT_FOUND';
+    throw err;
   }
 
   const inv = invRows[0];
+
+  // Finalised, signed-off result rows for this order. A completed lab
+  // order's values live here, not in investigations.results. Only
+  // verified rows (status final/corrected + signed_off_at) belong on a
+  // patient-facing report — a preliminary row is medico-legally
+  // unverified (same gate as getResultsForPatient).
+  const labResultRows = await prisma.$queryRawUnsafe(
+    `SELECT test_name, value_text, value_numeric, unit, reference_range,
+            abnormal_flag, status
+       FROM lab_results
+      WHERE investigation_id = $1::int
+        AND signed_off_at IS NOT NULL
+        AND status IN ('final', 'corrected')
+      ORDER BY hl7_segment_index NULLS LAST, id`,
+    id
+  );
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50, size: 'A4' });
@@ -314,9 +359,32 @@ export async function generateLabReportPDF(investigationId) {
       `Completed: ${inv.completed_at ? new Date(inv.completed_at).toLocaleString() : 'Pending'}`,
     ]);
 
-    // Results
-    if (inv.results) {
-      const results = typeof inv.results === 'string' ? JSON.parse(inv.results) : inv.results;
+    // Results — prefer the structured `lab_results` rows (the canonical
+    // store for a completed order). Fall back to the legacy
+    // `investigations.results` JSON blob when no lab_results rows are
+    // linked (older manual-entry / imported orders).
+    if (labResultRows.length > 0) {
+      addSection(doc, 'Results', labResultRows.map((r) => {
+        const value = r.value_text != null && String(r.value_text) !== ''
+          ? r.value_text
+          : (r.value_numeric != null ? r.value_numeric : 'N/A');
+        const unit = r.unit ? ` ${r.unit}` : '';
+        const refRange = r.reference_range ? ` (Ref: ${r.reference_range})` : '';
+        const flag = r.abnormal_flag ? ` [${r.abnormal_flag}]` : '';
+        return `${r.test_name || 'Test'}: ${value}${unit}${refRange}${flag}`;
+      }));
+    } else if (inv.results) {
+      // `investigations.results` is jsonb — Prisma returns it already
+      // parsed (object/array). Guard the string branch so a malformed
+      // legacy value can never throw and 500 the whole report.
+      let results = inv.results;
+      if (typeof results === 'string') {
+        try {
+          results = JSON.parse(results);
+        } catch {
+          results = null;
+        }
+      }
       if (Array.isArray(results)) {
         addSection(doc, 'Results', results.map(r => {
           if (typeof r === 'string') return r;
@@ -324,7 +392,7 @@ export async function generateLabReportPDF(investigationId) {
           const flag = r.abnormal_flag ? ` [${r.abnormal_flag}]` : '';
           return `${r.name || r.test || 'Test'}: ${r.value || 'N/A'} ${r.unit || ''}${refRange}${flag}`;
         }));
-      } else if (typeof results === 'object') {
+      } else if (results && typeof results === 'object') {
         addSection(doc, 'Results', Object.entries(results).map(
           ([key, val]) => `${key}: ${typeof val === 'object' ? JSON.stringify(val) : val}`
         ));
