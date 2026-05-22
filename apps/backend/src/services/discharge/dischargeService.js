@@ -745,7 +745,7 @@ export async function sign({
  * discharge summary, we skip. Best-effort: any failure is logged and
  * swallowed.
  */
-async function materialiseDischargeMedsAsPrescription({
+export async function materialiseDischargeMedsAsPrescription({
   discharge_summary_id, patient_uid, doctor_uid,
 }) {
   if (!patient_uid) return;
@@ -823,10 +823,16 @@ async function materialiseDischargeMedsAsPrescription({
       `Discharge medications from discharge summary. ${marker}\n\n${sectionBody}`;
 
     await prisma.$executeRawUnsafe(
+      // $2/$4 carry explicit casts: doctor_id is int (nullable — a name-only
+      // signer has no users row) and doctor_uid is a uuid column. Without
+      // $4::uuid Postgres typed the bound string as text → 42804 ("column
+      // doctor_uid is of type uuid but expression is of type text"), which the
+      // best-effort catch swallowed — so discharge meds silently never
+      // materialised to the patient's Rx tab. Finding surfaced during D3.
       `INSERT INTO e_prescriptions
          (appointment_id, patient_id, doctor_id, patient_uid, doctor_uid,
           diagnosis, clinical_notes, medications, status)
-       VALUES (NULL, $1::int, $2, $3::uuid, $4,
+       VALUES (NULL, $1::int, $2::int, $3::uuid, $4::uuid,
                NULL, $5, $6::jsonb, 'active')`,
       patientId,
       doctorId,
