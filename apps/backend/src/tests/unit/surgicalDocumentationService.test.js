@@ -16,6 +16,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 
 const {
   acknowledgeComplicationAlert,
+  detectSiteSideMismatch,
   createIntraopNote,
   createPostopNote,
   finalizeIntraopNote,
@@ -45,6 +46,65 @@ function mockSchedule() {
   // First call in every flow is ensureScheduleVisible.
   queryUnsafeMock.mockResolvedValueOnce([{ id: 42 }]);
 }
+
+// ---------------------------------------------------------------------------
+// WHO time-out wrong-site gate (finding 2026-05-22-surgical-day-care-ot-staff-e410248f)
+// ---------------------------------------------------------------------------
+
+describe('detectSiteSideMismatch', () => {
+  it('flags scheduled right vs marked left', () => {
+    expect(detectSiteSideMismatch({ scheduled_side: 'right', marked_side: 'left' }))
+      .toEqual({ scheduled: 'right', marked: 'left' });
+  });
+  it('passes matching sides', () => {
+    expect(detectSiteSideMismatch({ scheduled_side: 'right', marked_side: 'right' })).toBeNull();
+  });
+  it('normalizes ophthalmic OD/OS aliases', () => {
+    expect(detectSiteSideMismatch({ scheduled_eye: 'OD', marked_eye: 'OS' }))
+      .toEqual({ scheduled: 'right', marked: 'left' });
+  });
+  it('never flags bilateral / unknown / missing sides', () => {
+    expect(detectSiteSideMismatch({ scheduled_side: 'bilateral', marked_side: 'left' })).toBeNull();
+    expect(detectSiteSideMismatch({ scheduled_side: 'right' })).toBeNull();
+    expect(detectSiteSideMismatch({})).toBeNull();
+    expect(detectSiteSideMismatch(null)).toBeNull();
+  });
+});
+
+describe('upsertSafetyChecklistPhase — WHO time-out wrong-site gate', () => {
+  it('rejects completing a time-out with a documented side mismatch (no override)', async () => {
+    mockSchedule();
+    await expect(upsertSafetyChecklistPhase({
+      tenantId: TENANT, otScheduleId: 42, phase: 'time_out',
+      allItemsConfirmed: true,
+      metadata: { scheduled_side: 'right', marked_side: 'left' },
+    })).rejects.toMatchObject({ statusCode: 400, code: 'SURGICAL_SITE_SIDE_MISMATCH' });
+  });
+
+  it('allows completing a matched-side time-out', async () => {
+    mockSchedule();
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 7, phase: 'time_out', status: 'complete' }]);
+    const row = await upsertSafetyChecklistPhase({
+      tenantId: TENANT, otScheduleId: 42, phase: 'time_out',
+      allItemsConfirmed: true,
+      metadata: { scheduled_side: 'right', marked_side: 'right' },
+    });
+    expect(row.status).toBe('complete');
+  });
+
+  it('allows a mismatched time-out only with an explicit clinical override', async () => {
+    mockSchedule();
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 8, phase: 'time_out', status: 'complete' }]);
+    const row = await upsertSafetyChecklistPhase({
+      tenantId: TENANT, otScheduleId: 42, phase: 'time_out',
+      allItemsConfirmed: true,
+      metadata: { scheduled_side: 'right', marked_side: 'left' },
+      overrideReason: 'Surgeon reconfirmed site with imaging; mark corrected intra-op',
+      overrideAuthorizedBy: USER,
+    });
+    expect(row.id).toBe(8);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // preop_checklists

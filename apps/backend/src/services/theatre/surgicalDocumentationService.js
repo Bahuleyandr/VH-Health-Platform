@@ -1005,6 +1005,30 @@ const SAFETY_RETURNING = `id, tenant_id, ot_schedule_id, patient_uid,
   status, override_reason, override_authorized_by, notes,
   metadata, created_at, updated_at`;
 
+// Normalize a surgical laterality/side token to left|right|bilateral|null.
+function normalizeSurgicalSide(value) {
+  const s = String(value ?? '').trim().toLowerCase();
+  if (['left', 'l', 'os', 'lt'].includes(s)) return 'left';
+  if (['right', 'r', 'od', 'rt'].includes(s)) return 'right';
+  if (['bilateral', 'both', 'ou', 'b/l'].includes(s)) return 'bilateral';
+  return null;
+}
+
+// Detect a documented surgical-site/side mismatch in a WHO time-out's
+// metadata (scheduled vs marked). Returns { scheduled, marked } on a real
+// mismatch, else null. Bilateral or unknown sides never count as a mismatch.
+// Pure + exported for unit testing.
+// Finding 2026-05-22-surgical-day-care-ot-staff-e410248f.
+export function detectSiteSideMismatch(metadata) {
+  const md = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {};
+  const scheduled = normalizeSurgicalSide(md.scheduled_side ?? md.scheduled_laterality ?? md.scheduled_eye);
+  const marked = normalizeSurgicalSide(
+    md.marked_side ?? md.marked_laterality ?? md.marked_eye ?? md.site_marked_side,
+  );
+  if (!scheduled || !marked || scheduled === 'bilateral' || marked === 'bilateral') return null;
+  return scheduled === marked ? null : { scheduled, marked };
+}
+
 export async function upsertSafetyChecklistPhase({
   tenantId = null,
   otScheduleId,
@@ -1032,6 +1056,24 @@ export async function upsertSafetyChecklistPhase({
     ? 'complete'
     : (overrideReason ? 'incomplete_with_override' : 'in_progress');
   const cleanStatus = normalizeEnum(status, SAFETY_STATUSES, 'status') || inferredStatus;
+
+  // WHO time-out is the wrong-site safety gate. A time-out whose read-aloud
+  // checklist documents a side mismatch (scheduled vs marked) must NOT save as
+  // a passing 'complete' without an explicit clinical override — otherwise the
+  // documented wrong-site case satisfies the incision-start gate and proceeds.
+  // Finding 2026-05-22-surgical-day-care-ot-staff-e410248f.
+  if (cleanPhase === 'time_out' && cleanStatus === 'complete') {
+    const mismatch = detectSiteSideMismatch(metadata);
+    const overridden = Boolean(safeText(overrideReason)) && Boolean(overrideAuthorizedBy);
+    if (mismatch && !overridden) {
+      throw AppError.badRequest(
+        `WHO time-out documents a surgical-site mismatch (scheduled ${mismatch.scheduled}, marked ${mismatch.marked}); `
+        + 'complete it only with an explicit clinical override (override_reason + override_authorized_by).',
+        'SURGICAL_SITE_SIDE_MISMATCH',
+        mismatch,
+      );
+    }
+  }
 
   try {
     const rows = await prisma.$queryRawUnsafe(
