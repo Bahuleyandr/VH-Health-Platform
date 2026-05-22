@@ -148,6 +148,13 @@ describe('discharge summary audit trail', () => {
 
   it('audits ready-for-signoff transitions', async () => {
     mockPrisma.$queryRawUnsafe
+      // assertSignable pre-flight: ownership probe + gate sections
+      .mockResolvedValueOnce([{ id: 99 }])
+      .mockResolvedValueOnce([
+        { section_key: 'diagnosis', body: 'Acute gastroenteritis, resolved' },
+        { section_key: 'discharge_medications', body: 'Tab ORS, Tab Pantoprazole 40mg OD x 5d' },
+      ])
+      // markReadyForSignoff UPDATE ... RETURNING
       .mockResolvedValueOnce([{ id: 99 }])
       .mockResolvedValueOnce([{ id: 99, patient_uid: patientUid }])
       .mockResolvedValueOnce([]);
@@ -162,6 +169,13 @@ describe('discharge summary audit trail', () => {
 
   it('audits consultant signing', async () => {
     mockPrisma.$queryRawUnsafe
+      // assertSignable pre-flight: ownership probe + gate sections
+      .mockResolvedValueOnce([{ id: 99 }])
+      .mockResolvedValueOnce([
+        { section_key: 'diagnosis', body: 'Acute coronary syndrome' },
+        { section_key: 'discharge_medications', body: 'Tab Aspirin 75mg OD, Tab Atorvastatin 40mg HS' },
+      ])
+      // sign UPDATE ... RETURNING
       .mockResolvedValueOnce([{
         id: 99,
         admission_id: 18,
@@ -214,5 +228,161 @@ describe('discharge summary audit trail', () => {
     );
     expect(auditCall[2]).toBe('DISCHARGE_SUMMARY_DELIVERED');
     expect(JSON.parse(auditCall[4])).toMatchObject({ delivery_method: 'printed' });
+  });
+});
+
+// Finding: 2026-05-22-surgical-day-care-discharge-ae484c86
+//   A day-care discharge summary reached status=signed with procedure /
+//   eye_operated / intraop_summary / discharge_medications bodies null and
+//   follow_up/red_flags still carrying template placeholder text. Signing
+//   (and marking ready) must block until the required clinical sections
+//   present on the summary have real, non-placeholder content.
+describe('discharge sign-completeness gate', () => {
+  const tenantId = '00000000-0000-4000-8000-000000000001';
+  const patientUid = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  const staffUid = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+  // Sections matching the DAYCARE_OPHTHALMOLOGY_V1 template shape.
+  const blankRequiredSections = [
+    { section_key: 'procedure', body: null },
+    { section_key: 'eye_operated', body: null },
+    { section_key: 'intraop_summary', body: '   ' },
+    { section_key: 'condition_at_discharge', body: 'Comfortable, eye shield in place.' },
+    { section_key: 'discharge_medications', body: null },
+    { section_key: 'follow_up', body: '[PLACEHOLDER — ophthalmology clinical review required] POD-1 review.' },
+  ];
+  const completeSections = [
+    { section_key: 'procedure', body: 'Phacoemulsification with IOL implantation' },
+    { section_key: 'eye_operated', body: 'Right eye (RE)' },
+    { section_key: 'intraop_summary', body: 'Uneventful; PCIOL in the bag.' },
+    { section_key: 'condition_at_discharge', body: 'Comfortable, eye shield in place.' },
+    { section_key: 'discharge_medications', body: 'Moxifloxacin 0.5% eye drops QID x 1 week' },
+    { section_key: 'follow_up', body: 'POD-1 review tomorrow at 9am.' },
+  ];
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.$executeRawUnsafe.mockResolvedValue(1);
+  });
+
+  it('rejects sign() when a required clinical section is blank', async () => {
+    mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: 10 }])           // ownership probe
+      .mockResolvedValueOnce(blankRequiredSections); // gate sections
+
+    await expect(
+      sign({ tenantId, id: 10, signed_by: staffUid, signed_by_name: 'Dr Eye' }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'DISCHARGE_SUMMARY_INCOMPLETE',
+    });
+
+    // The summary UPDATE must never have run.
+    const updateCall = mockPrisma.$queryRawUnsafe.mock.calls.find(
+      (c) => /UPDATE discharge_summaries\s+SET status = 'signed'/i.test(c[0]),
+    );
+    expect(updateCall).toBeUndefined();
+  });
+
+  it('reports the blank required sections in the error details', async () => {
+    mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: 10 }])
+      .mockResolvedValueOnce(blankRequiredSections);
+
+    let caught;
+    try {
+      await sign({ tenantId, id: 10, signed_by: staffUid, signed_by_name: 'Dr Eye' });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeDefined();
+    // The gate enforces the universal high-safety set (procedure /
+    // diagnosis + discharge medications), not every specialty-specific
+    // section — so a blank procedure + discharge_medications block, while
+    // optional/specialty prose (eye_operated, intraop_summary, follow_up)
+    // does not.
+    expect(caught.details.blank_sections).toEqual(
+      expect.arrayContaining(['procedure', 'discharge_medications']),
+    );
+    expect(caught.details.blank_sections).not.toContain('eye_operated');
+    expect(caught.details.placeholder_sections).not.toContain('follow_up');
+  });
+
+  it('blocks a required section that still carries placeholder text', async () => {
+    // discharge_medications present but unedited (placeholder) — must block.
+    const placeholderMeds = [
+      { section_key: 'procedure', body: 'Phacoemulsification with IOL' },
+      { section_key: 'discharge_medications', body: '[PLACEHOLDER — clinician to confirm takeaway medications]' },
+    ];
+    mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: 10 }])
+      .mockResolvedValueOnce(placeholderMeds);
+
+    await expect(
+      sign({ tenantId, id: 10, signed_by: staffUid, signed_by_name: 'Dr Eye' }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'DISCHARGE_SUMMARY_INCOMPLETE',
+      details: { placeholder_sections: ['discharge_medications'] },
+    });
+  });
+
+  it('allows sign() when every required section has real content', async () => {
+    mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: 11 }])        // ownership probe
+      .mockResolvedValueOnce(completeSections)    // gate sections
+      .mockResolvedValueOnce([{                   // UPDATE ... RETURNING
+        id: 11, admission_id: 30, patient_uid: patientUid,
+        signed_at: new Date('2026-05-22T09:00:00.000Z'),
+      }])
+      .mockResolvedValueOnce([])                  // materialise meds: sections
+      .mockResolvedValueOnce([{ id: 11, patient_uid: patientUid }]) // getOne header
+      .mockResolvedValueOnce([]);                 // getOne sections
+
+    const result = await sign({
+      tenantId, id: 11, signed_by: staffUid, signed_by_name: 'Dr Eye', signed_by_reg: 'TNMC-9',
+    });
+    expect(result).toBeTruthy();
+    const updateCall = mockPrisma.$queryRawUnsafe.mock.calls.find(
+      (c) => /UPDATE discharge_summaries\s+SET status = 'signed'/i.test(c[0]),
+    );
+    expect(updateCall).toBeTruthy();
+  });
+
+  it('does not block on a blank OPTIONAL section (only required ones gate)', async () => {
+    // diet_advice / family_history are optional — a blank body must not
+    // block signing when the required clinical sections are complete.
+    const sectionsWithBlankOptional = [
+      ...completeSections,
+      { section_key: 'diet_advice', body: null },
+      { section_key: 'family_history', body: '   ' },
+    ];
+    mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: 12 }])
+      .mockResolvedValueOnce(sectionsWithBlankOptional)
+      .mockResolvedValueOnce([{
+        id: 12, admission_id: 31, patient_uid: patientUid,
+        signed_at: new Date('2026-05-22T10:00:00.000Z'),
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 12, patient_uid: patientUid }])
+      .mockResolvedValueOnce([]);
+
+    await expect(
+      sign({ tenantId, id: 12, signed_by: staffUid, signed_by_name: 'Dr Eye' }),
+    ).resolves.toBeTruthy();
+  });
+
+  it('blocks markReadyForSignoff() on incomplete required sections', async () => {
+    mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{ id: 10 }])
+      .mockResolvedValueOnce(blankRequiredSections);
+
+    await expect(
+      markReadyForSignoff({ tenantId, id: 10, marked_by: staffUid }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'DISCHARGE_SUMMARY_INCOMPLETE',
+    });
   });
 });

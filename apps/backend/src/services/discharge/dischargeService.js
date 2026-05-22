@@ -23,6 +23,96 @@ const DISCHARGE_MED_SECTION_KEYS = new Set([
   'discharge_meds',
 ]);
 
+// ── Sign-completeness gate ──────────────────────────────────────────
+//
+// A discharge summary is a medico-legal patient-safety document. The
+// historical sign() flipped status to 'signed' with no completeness
+// check, so a summary whose required clinical sections were blank or
+// still carried template placeholder text could be signed and handed
+// to the patient as final instructions. For a low-literacy patient or
+// a relative reading on the patient's behalf, a blank "Discharge
+// Medications" or a placeholder "Eye Drop Schedule" is actively
+// dangerous. Findings:
+//   2026-05-22-surgical-day-care-discharge-ae484c86 (day-care eye:
+//     procedure / eye_operated / intraop_summary / discharge_medications
+//     null + follow_up/red_flags placeholder text were signable)
+//   2026-05-21-inpatient-admission-patient-8db55849.
+//
+// The gate is *template-driven and minimal*: only the high-safety
+// clinical sections below are required, and a section is only enforced
+// when the summary actually has it (so a template without a `procedure`
+// section is never forced to grow one). Optional prose sections
+// (diet_advice, family_history, personal_history, …) are deliberately
+// NOT required — we don't block a sign-off on a blank diet tip.
+//
+// "Blank" = null / empty / whitespace-only body. "Placeholder" = a body
+// still containing the '[PLACEHOLDER' marker that the template seeds
+// (migration 230 day-care template, buildAutoSectionBodies, and
+// TRANSLATION_PLACEHOLDER all use it) — an unedited draft, not a final
+// clinical instruction.
+const REQUIRED_SIGN_SECTION_KEYS = new Set([
+  // Diagnosis / procedure block — what was wrong + what was done.
+  'diagnosis',
+  'discharge_diagnosis',
+  'primary_diagnosis',
+  'procedure',
+  'procedure_performed',
+  'procedures_performed',
+  // Take-home medication block (all naming variants).
+  ...DISCHARGE_MED_SECTION_KEYS,
+]);
+
+// Case-insensitive marker the templates/auto-population use to flag a
+// section body as an unreviewed draft.
+const PLACEHOLDER_MARKER = '[placeholder';
+
+function isBlankBody(body) {
+  return body == null || String(body).trim().length === 0;
+}
+
+function isPlaceholderBody(body) {
+  return String(body || '').toLowerCase().includes(PLACEHOLDER_MARKER);
+}
+
+/**
+ * Throw AppError.conflict if any required clinical section that exists
+ * on this summary is blank or still placeholder text. Returns silently
+ * when every required-and-present section has real clinician content.
+ *
+ * `sections` is the discharge_summary_sections rows for the summary
+ * (section_key + body). The check is intentionally tolerant of which
+ * required sections a given template declares — it only blocks on the
+ * ones actually present, so each specialty template gates on its own
+ * required fields without a per-template config.
+ */
+function assertSignable(sections) {
+  const rows = Array.isArray(sections) ? sections : [];
+  const blank = [];
+  const placeholder = [];
+  for (const s of rows) {
+    const key = String(s?.section_key || '').toLowerCase();
+    if (!REQUIRED_SIGN_SECTION_KEYS.has(key)) continue;
+    if (isBlankBody(s?.body)) {
+      blank.push(s.section_key);
+    } else if (isPlaceholderBody(s?.body)) {
+      placeholder.push(s.section_key);
+    }
+  }
+  if (blank.length === 0 && placeholder.length === 0) return;
+
+  const parts = [];
+  if (blank.length) parts.push(`blank: ${blank.join(', ')}`);
+  if (placeholder.length) {
+    parts.push(`unreviewed placeholder text: ${placeholder.join(', ')}`);
+  }
+  throw AppError.conflict(
+    `Discharge summary cannot be signed — required clinical section(s) are incomplete (${parts.join('; ')}). `
+    + 'Fill in the procedure/diagnosis and discharge medications and replace any placeholder text before sign-off.',
+    'DISCHARGE_SUMMARY_INCOMPLETE',
+    { blank_sections: blank, placeholder_sections: placeholder },
+  );
+}
+
 // ── Section auto-population ─────────────────────────────────────────
 //
 // Clinical sections we can fill from structured visit data at draft
@@ -500,6 +590,25 @@ export async function setSectionTranslation({
 }
 
 export async function markReadyForSignoff({ tenantId, id, marked_by = null }) {
+  // Same completeness gate as sign() — surface incomplete required
+  // sections at "mark ready" so the doctor sees the blocker before the
+  // sign-off step rather than only at the final sign. Ownership-scoped
+  // read prevents a cross-tenant id probing section content. Finding:
+  // 2026-05-22-surgical-day-care-discharge-ae484c86.
+  const ownerRows = await prisma.$queryRawUnsafe(
+    `SELECT id FROM discharge_summaries
+      WHERE id = $1::int AND tenant_id = $2::uuid`,
+    Number(id), tenantId,
+  );
+  if (!ownerRows.length) throw AppError.notFound('Discharge summary not found');
+  const gateSections = await prisma.$queryRawUnsafe(
+    `SELECT section_key, body
+       FROM discharge_summary_sections
+      WHERE discharge_summary_id = $1::int`,
+    Number(id),
+  );
+  assertSignable(gateSections);
+
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE discharge_summaries
         SET status = 'ready_for_signoff', updated_at = NOW()
@@ -528,6 +637,27 @@ export async function sign({
   if (!signed_by_name) {
     throw AppError.badRequest('signed_by_name is required');
   }
+
+  // Completeness gate (pre-flight, outside any txn). A signed discharge
+  // summary is final patient-facing instruction — block the sign if the
+  // required clinical sections present on this summary are blank or
+  // still carry template placeholder text. Verify ownership in the same
+  // read so a cross-tenant id can't probe section content. Finding:
+  // 2026-05-22-surgical-day-care-discharge-ae484c86.
+  const ownerRows = await prisma.$queryRawUnsafe(
+    `SELECT id FROM discharge_summaries
+      WHERE id = $1::int AND tenant_id = $2::uuid`,
+    Number(id), tenantId,
+  );
+  if (!ownerRows.length) throw AppError.notFound('Discharge summary not found');
+  const gateSections = await prisma.$queryRawUnsafe(
+    `SELECT section_key, body
+       FROM discharge_summary_sections
+      WHERE discharge_summary_id = $1::int`,
+    Number(id),
+  );
+  assertSignable(gateSections);
+
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE discharge_summaries
         SET status = 'signed', signed_by = $1::uuid,

@@ -259,24 +259,72 @@ function buildTemplateHospitalCourse(context) {
   return sections.join('\n\n');
 }
 
+// Order statuses that mean the medication is no longer active and must
+// not be carried onto the take-home list. `discontinued`/`cancelled`
+// are the orderEntryService lifecycle terminals; `stopped`/`held`/
+// `on_hold`/`suspended` cover the free-text VARCHAR status values older
+// rows / step-down notes use (a stopped IV must not reappear as a
+// take-home drug); `completed` is a finished inpatient course, not a
+// take-home med. Finding 2026-05-22-inpatient-admission-discharge-edb7c8ff.
+const INACTIVE_ORDER_STATUS_RE =
+  /cancelled|canceled|discontinued|stopped|\bheld\b|on[\s_-]?hold|suspended|completed/i;
+
+// Parenteral / inpatient-only administration routes. An IV fluid, IV
+// push, infusion, or IM/SC injection is administered on the ward — it
+// is never a "continue at home" tablet. We still surface these for the
+// doctor's reconciliation, but as `pending_review` (NOT `continue`) so
+// the patient/relative is never told to keep taking IV saline. Finding
+// 2026-05-22-inpatient-admission-discharge-edb7c8ff.
+const PARENTERAL_ROUTE_RE =
+  /\b(iv|i\.v\.?|intravenous|infusion|drip|im|i\.m\.?|intramuscular|sc|s\.c\.?|subcut|subcutaneous|epidural|intrathecal)\b/i;
+
+function isParenteralMed({ route, name }) {
+  if (PARENTERAL_ROUTE_RE.test(text(route))) return true;
+  // Route is often blank on free-text orders — fall back to the name,
+  // which commonly carries the form ("Normal Saline IV", "... infusion").
+  return PARENTERAL_ROUTE_RE.test(text(name));
+}
+
 function buildDischargeMedications(context) {
   const activeMedicationOrders = context.orders
     .filter((event) => event.payload?.order_type === 'medication')
-    .filter((event) => !/cancelled|discontinued/i.test(text(event.payload?.status)));
+    .filter((event) => !INACTIVE_ORDER_STATUS_RE.test(text(event.payload?.status)));
 
-  const inpatientMeds = activeMedicationOrders.map((event) => {
+  // De-duplicate the same drug ordered more than once during the stay
+  // (e.g. ORS re-ordered on two days) so the take-home list doesn't list
+  // it twice. Key on normalised name+route+dose. Finding
+  // 2026-05-22-inpatient-admission-discharge-edb7c8ff (duplicate ORS from
+  // source_order_id 59 and 60).
+  const seenInpatient = new Set();
+  const inpatientMeds = activeMedicationOrders.reduce((acc, event) => {
     const details = event.payload?.details || {};
-    return {
-      name: details.medication_name || details.name || 'Medication not named',
-      dose: details.dose || details.dosage || '',
-      route: details.route || '',
+    const name = details.medication_name || details.name || 'Medication not named';
+    const dose = details.dose || details.dosage || '';
+    const route = details.route || '';
+    const dedupeKey = [name, route, dose]
+      .map((v) => text(v).toLowerCase())
+      .join('|');
+    if (seenInpatient.has(dedupeKey)) return acc;
+    seenInpatient.add(dedupeKey);
+
+    // Parenteral inpatient drugs are not take-home meds — surface for
+    // review but never auto-mark `continue`.
+    const parenteral = isParenteralMed({ route, name });
+    acc.push({
+      name,
+      dose,
+      route,
       frequency: details.frequency || '',
       duration: details.duration || '',
       source_order_id: event.id,
       source: 'inpatient',
-      reconciliation_status: 'continue',
-    };
-  });
+      reconciliation_status: parenteral ? 'pending_review' : 'continue',
+      ...(parenteral
+        ? { requires_review_reason: 'parenteral_inpatient_route_not_take_home' }
+        : {}),
+    });
+    return acc;
+  }, []);
 
   // Wave-4B-1 — merge in pre-admission chronic medications so the discharge
   // medication draft surfaces them for explicit continue / stop / hold /
@@ -853,6 +901,17 @@ async function materialiseDischargeMedsFromClinicalNote({
 export function getDischargeSummaryAiConfig() {
   return getClinicalAiConfig();
 }
+
+// Implementation detail exposed only for unit tests — asserts the
+// take-home medication reconciliation excludes inactive/parenteral
+// inpatient drugs and de-duplicates repeat orders. Not part of the
+// public API. Finding 2026-05-22-inpatient-admission-discharge-edb7c8ff.
+export const __testing__ = {
+  buildDischargeMedications,
+  isParenteralMed,
+  INACTIVE_ORDER_STATUS_RE,
+  PARENTERAL_ROUTE_RE,
+};
 
 export default {
   generateDischargeSummary,
