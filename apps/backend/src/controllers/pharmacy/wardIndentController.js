@@ -34,7 +34,15 @@ export const listIndents = async (req, res) => {
     const wardId = req.query.wardId ? parseIntParam(req.query.wardId) : null;
     const status = req.query.status ? String(req.query.status).trim() : null;
     const limit = req.query.limit ? Number(req.query.limit) : 50;
-    const indents = await listWardIndents({ wardId, status, limit });
+    // PHI scoping: a ward queue spans every admission, so an unfiltered
+    // list mixes one patient's IPD pharmacy indents with everyone else's.
+    // Honor admission_id / patient_uid query params (the service applies
+    // them in the WHERE) so staff searching for a specific admission or
+    // patient never see other patients' rows. Finding:
+    // 2026-05-22-inpatient-admission-pharmacy-3e9d3302.
+    const admissionId = req.query.admission_id ? parseIntParam(req.query.admission_id) : null;
+    const patientUid = req.query.patient_uid ? String(req.query.patient_uid).trim() : null;
+    const indents = await listWardIndents({ wardId, status, admissionId, patientUid, limit });
     success(res, indents, 'Ward indents retrieved');
   } catch (err) {
     logger.error('listIndents error:', err);

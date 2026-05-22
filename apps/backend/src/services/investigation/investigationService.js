@@ -152,11 +152,41 @@ export const getInvestigations = async (page, limit, filters, userRole, userId, 
   }
 
   // Apply filters
-  const { patient_id, doctor_id, type, status, date, search } = filters;
+  const { patient_id, patient_uid, doctor_id, type, status, date, search } = filters;
 
   // Only allow patient_id filter for non-PATIENT roles (replicates original behaviour)
   if (patient_id && userRole !== 'PATIENT') {
     where.patient_id = parseInt(patient_id);
+  }
+
+  // `patient_uid` filter: staff/clinicians review a patient chart by the
+  // patient's UID (users.uid). The investigations table keys patients by
+  // the integer `patient_id` (FK → users.id), so resolve the UID once and
+  // scope by patient_id. Previously this param was ignored entirely, so
+  // the list returned EVERY patient's investigations — a PHI leak (finding
+  // 2026-05-21-inpatient-admission-doctor-58437f67). PATIENT role is
+  // already locked to its own patient_id above and must not be widened.
+  if (patient_uid && userRole !== 'PATIENT') {
+    const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_PATTERN.test(String(patient_uid))) {
+      throw AppError.badRequest('patient_uid must be a UUID');
+    }
+    const patientRow = await prisma.users.findUnique({
+      where: { uid: String(patient_uid) },
+      select: { id: true },
+    });
+    if (patientRow?.id) {
+      // Fail closed: if both patient_id and patient_uid are supplied they
+      // must agree, otherwise the query is ambiguous — never widen to all.
+      if (where.patient_id != null && where.patient_id !== patientRow.id) {
+        where.id = -1;
+      } else {
+        where.patient_id = patientRow.id;
+      }
+    } else {
+      // No matching user → impossible id sentinel (zero rows), never all.
+      where.id = -1;
+    }
   }
 
   // `doctor_id` filter: the investigations table has no `doctor_id` column —
