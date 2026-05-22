@@ -414,6 +414,70 @@ describe('E-prescriptions — deep integration', () => {
     expect(Number(patientRx.pharmacy_amount_collected)).toBe(35);
   });
 
+  // Finding 2026-05-22-pediatric-opd-pharmacy-f346bf82: the clinician wrote
+  // the dose VOLUME ("7.5ml") before the concentration ("125mg/5ml") and named
+  // the child's weight without a "weight:" keyword ("for 12.5kg child"). The
+  // old order-pharmacy parser grabbed the trailing "5ml" of the concentration
+  // as the dose and left child_weight_kg null, so the counter label read
+  // "Measure 5 ml" — a ~33% underdose of a weight-based fever medicine. The
+  // dose must derive from the recorded weight × mg/kg ÷ concentration = 7.5 mL,
+  // and child_weight_kg must resolve from the patient's charted weight.
+  it('derives the pediatric liquid dose from weight, not the concentration mL denominator', async () => {
+    const catalogRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog
+         (name, generic_name, category, unit_price, price, pack_size,
+          requires_prescription, in_stock, is_active, is_available,
+          stock_quantity, stock, reorder_level, description, updated_at)
+       VALUES
+         ('Paracetamol Syrup 125mg/5ml Aarav Test', 'Paracetamol', 'analgesic', 35.00, 35.00, '60 ml bottle',
+          true, true, true, true, 50, 50, 10, 'f346bf82 weight-based dose fixture', NOW())
+       RETURNING id`,
+    );
+    // Dose text mirrors the finding exactly: dose mL BEFORE the concentration,
+    // weight named WITHOUT a "weight:" keyword. No explicit dispensed_quantity_ml
+    // or child_weight_kg — both must be derived. The patient fixture already
+    // has a charted weight of 12.5 kg (vitals_chart in beforeAll).
+    const rxRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO e_prescriptions (patient_id, doctor_id, medications, status, created_by)
+       VALUES ($1, $2, $3::jsonb, 'active', $4) RETURNING id`,
+      patientId, doctorId,
+      JSON.stringify([{
+        name: 'Paracetamol Syrup 125mg/5ml',
+        dose: '187.5mg = 7.5ml of 125mg/5ml syrup',
+        dosage: '187.5mg = 7.5ml of 125mg/5ml syrup',
+        frequency: 'QID', duration: '3 days', route: 'Oral',
+        instructions: 'Dose calculated at 15mg/kg for 12.5kg child',
+      }]),
+      staffId,
+    );
+    const mapped = await staffAs(staffId)
+      .post(`/api/v1/prescriptions/${rxRows[0].id}/order-pharmacy`)
+      .send({
+        delivery_type: 'counter',
+        catalog_overrides: { 'Paracetamol Syrup 125mg/5ml': catalogRows[0].id },
+      });
+    expect(mapped.statusCode).toBe(200);
+    const orderRows = await prisma.$queryRawUnsafe(
+      `SELECT items_list FROM pharmacy_orders WHERE id = $1`, mapped.body.data.id);
+    const item = orderRows[0].items_list[0];
+    // The fix: 7.5 mL (15 mg/kg × 12.5 kg = 187.5 mg ÷ 25 mg/mL), NOT the
+    // buggy flat 5 mL lifted from the concentration denominator.
+    expect(item.dispensed_quantity_ml).toBe(7.5);
+    expect(item.dispensed_quantity_ml).not.toBe(5);
+    // child_weight_kg resolved from the charted vital (no keyword in the text).
+    expect(item.child_weight_kg).toBe(12.5);
+    // The label must instruct 7.5 ml, never a standalone 5 ml. The negative
+    // guard requires the "5" not be preceded by a digit/decimal point so it
+    // doesn't false-match the "5" inside "7.5".
+    expect(item.measuring_instruction).toMatch(/7\.5 ml/i);
+    expect(item.measuring_instruction).not.toMatch(/(?:^|[^.\d])5\s*ml/i);
+    expect(item.label_instruction).toMatch(/7\.5 ml/i);
+
+    await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_orders WHERE id = $1`, mapped.body.data.id).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM e_prescriptions WHERE id = $1`, rxRows[0].id).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE id = $1`, catalogRows[0].id).catch(() => {});
+  });
+
   it('recalculates dispensed mL when substituting to a different concentration', async () => {
     // Finding 2026-05-21-walk-in-opd-pharmacy-c05e2adb: prescribed 3.75 mL of
     // 250mg/5mL (187.5 mg); substituting to 125mg/5mL must recalc to 7.5 mL to

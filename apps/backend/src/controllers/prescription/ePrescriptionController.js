@@ -120,9 +120,24 @@ function parseMlFromText(...values) {
 
 function parseWeightKgFromText(...values) {
   for (const value of values) {
-    const match = String(value || '').match(/(?:weight|wt)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*kg\b/i);
-    if (match) {
-      const kg = Number.parseFloat(match[1]);
+    const s = String(value || '');
+    // Prefer an explicit "weight:"/"wt:" prefixed figure when present.
+    const prefixed = s.match(/(?:weight|wt)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*kg\b/i);
+    if (prefixed) {
+      const kg = Number.parseFloat(prefixed[1]);
+      if (Number.isFinite(kg) && kg > 0) return kg;
+    }
+    // Otherwise accept the common clinician phrasings that omit the keyword:
+    // "for 12.5kg child", "in a 12 kg infant", "12kg toddler". A bare "12 kg"
+    // anywhere in the dose/instruction text is, in a pediatric liquid context,
+    // the child's weight — but we anchor on a paediatric noun OR a leading
+    // "for/in a" so an unrelated "60 kg bag" style token can't be misread.
+    // Finding: 2026-05-22-pediatric-opd-pharmacy-f346bf82.
+    const contextual = s.match(
+      /(?:for|in)\s*(?:a|an)?\s*(\d+(?:\.\d+)?)\s*kg\b|(\d+(?:\.\d+)?)\s*kg\s*(?:child|infant|baby|toddler|neonate|kid|paediatric|pediatric|patient)/i,
+    );
+    if (contextual) {
+      const kg = Number.parseFloat(contextual[1] ?? contextual[2]);
       if (Number.isFinite(kg) && kg > 0) return kg;
     }
   }
@@ -247,6 +262,23 @@ function parseConcentrationMgPerMl(...values) {
   return null;
 }
 
+// The mL denominator of a "mg/mL" concentration (the `5` in "125mg/5ml").
+// Used to distinguish a concentration's own volume from the prescribed dose
+// volume so the latter is never mistaken for the former on the label.
+// Finding: 2026-05-22-pediatric-opd-pharmacy-f346bf82.
+function parseConcentrationMl(...values) {
+  for (const value of values) {
+    const match = String(value || '').match(
+      /(\d+(?:\.\d+)?)\s*mg\s*\/\s*(\d+(?:\.\d+)?)\s*m[lL]\b/i,
+    );
+    if (match) {
+      const ml = Number.parseFloat(match[2]);
+      if (Number.isFinite(ml) && ml > 0) return ml;
+    }
+  }
+  return null;
+}
+
 function parseIntegerField(value) {
   if (value === undefined || value === null || value === '') return null;
   const parsed = Number(value);
@@ -280,6 +312,99 @@ export function computeWeightBasedDose(doseText, weightKg) {
   if (mgPerKg == null || !Number.isFinite(kg) || kg <= 0) return null;
   const totalMg = Math.round(mgPerKg * kg * 100) / 100;
   return { mgPerKg, weightKg: kg, totalMg };
+}
+
+// Derive the per-dose VOLUME (mL) for a pediatric liquid line — the figure
+// that goes on the dispense label ("Measure X ml"). This is the safety-
+// critical companion to computeWeightBasedDose: paracetamol et al. are dosed
+// by weight, so the label volume must be weight-derived, NOT lifted from the
+// concentration denominator.
+//
+// The previous order-pharmacy code used parseMlFromText(), which returns the
+// LAST "<n> ml" token in the text. For a real clinician string like
+// "187.5mg = 7.5ml of 125mg/5ml syrup" that last token is the concentration's
+// `5ml`, so a 12.5 kg child was labelled to receive a flat 5 mL regardless of
+// weight — a ~33% underdose of a fever medication. Finding:
+//   2026-05-22-pediatric-opd-pharmacy-f346bf82.
+//
+// Resolution order (first that yields a positive volume wins):
+//   1. weight-based: (mg/kg × weightKg) ÷ concentrationMgPerMl  — the
+//      clinically-correct volume, used when both a mg/kg rate and a
+//      concentration are known. This is independent of the free-text ml.
+//   2. mg→ml: an explicit "<n> mg" dose ÷ concentration — honours a clinician
+//      who wrote the absolute mg dose (e.g. "187.5 mg") even without a rate.
+//   3. text ml that is NOT the concentration denominator: the first "<n> ml"
+//      token whose value differs from the concentration's own mL figure, so
+//      "7.5ml ... 125mg/5ml" yields 7.5, never the trailing 5.
+// Returns { ml, source, ... } or null. Pure + exported for unit testing.
+const CONCENTRATION_TOKEN_RE = /(\d+(?:\.\d+)?)\s*mg\s*\/\s*(\d+(?:\.\d+)?)\s*m[lL]\b/gi;
+
+export function deriveLiquidDoseMl({
+  doseText = '',
+  instructionText = '',
+  concentrationMgPerMl = null,
+  concentrationMl = null,
+  weightKg = null,
+} = {}) {
+  const conc = Number(concentrationMgPerMl);
+  const hasConc = Number.isFinite(conc) && conc > 0;
+  const round2 = (n) => Math.round(n * 100) / 100;
+
+  // Strip the "mg/mL" concentration token(s) out of the dose/instruction text
+  // before scanning for the absolute mg dose or the dose mL. In a string like
+  // "Syrup 250 mg/5 mL: 3.75 mL" the "250 mg" and "5 mL" are the STRENGTH, and
+  // only the standalone "3.75 mL" is the dose; likewise "187.5mg = 7.5ml of
+  // 125mg/5ml" has the dose mg/ml first and the strength last. Removing the
+  // concentration substring leaves only dose-bearing tokens.
+  const stripConc = (s) => String(s || '').replace(CONCENTRATION_TOKEN_RE, ' ');
+  const doseNoConc = stripConc(doseText);
+
+  // 1. Weight-based — the authoritative path. (mg/kg × weight) ÷ concentration.
+  const mgPerKg = parseMgPerKg(doseText, instructionText);
+  const kg = Number(weightKg);
+  if (mgPerKg != null && Number.isFinite(kg) && kg > 0 && hasConc) {
+    const totalMg = mgPerKg * kg;
+    const ml = round2(totalMg / conc);
+    if (Number.isFinite(ml) && ml > 0) {
+      return { ml, source: 'weight_based', totalMg: round2(totalMg), mgPerKg, weightKg: kg };
+    }
+  }
+
+  // 2. Explicit absolute mg dose ÷ concentration. Scan the concentration-
+  //    stripped text so the strength's own mg numerator can't be mistaken for
+  //    the dose. First remaining mg token is the prescribed dose.
+  if (hasConc) {
+    const mgMatch = doseNoConc.match(/(\d+(?:\.\d+)?)\s*mg\b/i);
+    if (mgMatch) {
+      const mg = Number.parseFloat(mgMatch[1]);
+      if (Number.isFinite(mg) && mg > 0) {
+        const ml = round2(mg / conc);
+        if (Number.isFinite(ml) && ml > 0) {
+          return { ml, source: 'mg_per_concentration', totalMg: round2(mg) };
+        }
+      }
+    }
+  }
+
+  // 3. A free-text "<n> ml" dose token. Scan the concentration-stripped text
+  //    so the concentration's own mL denominator is never a candidate; as a
+  //    belt-and-braces guard also drop any token equal to concentrationMl.
+  //    Take the first remaining (the dose volume the clinician wrote).
+  const concMl = Number(concentrationMl);
+  const hasConcMl = Number.isFinite(concMl) && concMl > 0;
+  for (const value of [doseNoConc, stripConc(instructionText)]) {
+    const tokens = [];
+    for (const match of String(value || '').matchAll(/(\d+(?:\.\d+)?)\s*m\s*l\b/gi)) {
+      const ml = Number.parseFloat(match[1]);
+      if (Number.isFinite(ml) && ml > 0) tokens.push(ml);
+    }
+    const candidate = tokens.find((ml) => !hasConcMl || Math.abs(ml - concMl) > 0.001);
+    if (candidate != null) {
+      return { ml: round2(candidate), source: 'dose_text_ml' };
+    }
+  }
+
+  return null;
 }
 
 // ─── PDF Generation ──────────────────────────────────────────────────────────
@@ -1229,7 +1354,18 @@ export const orderPharmacyFromPrescription = async (req, res) => {
     // Fetch prescription
     const rxResult = await prisma.$queryRawUnsafe(
       `SELECT ep.*, p.name AS patient_name,
-              COALESCE(NULLIF(guardian.phone, ''), NULLIF(p.guardian_phone, ''), p.phone) AS patient_phone
+              COALESCE(NULLIF(guardian.phone, ''), NULLIF(p.guardian_phone, ''), p.phone) AS patient_phone,
+              -- Recorded weight drives pediatric (mg/kg → mL) dose derivation
+              -- when the clinician didn't put the weight in the dose text.
+              -- Prefer the most-recent charted vital, fall back to the
+              -- registered weight (users.weight_kg, migration 202).
+              -- Finding: 2026-05-22-pediatric-opd-pharmacy-f346bf82.
+              COALESCE(
+                (SELECT vc.weight_kg FROM vitals_chart vc
+                  WHERE vc.patient_uid = p.uid AND vc.weight_kg IS NOT NULL
+                  ORDER BY vc.recorded_at DESC NULLS LAST LIMIT 1),
+                p.weight_kg
+              ) AS patient_weight_kg
        FROM e_prescriptions ep
        JOIN users p ON p.id = ep.patient_id
        LEFT JOIN users guardian ON guardian.id = p.guardian_user_id
@@ -1375,12 +1511,58 @@ export const orderPharmacyFromPrescription = async (req, res) => {
       }
       const doseText = med.dose || med.dosage || med.strength || '';
       const instructionText = med.instructions || med.notes || '';
-      let dispensedQuantityMl = med.dispensed_quantity_ml != null
-        ? Number(med.dispensed_quantity_ml)
-        : parseMlFromText(doseText, instructionText);
+
+      // Child weight for weight-based (mg/kg) liquid dosing. Explicit field
+      // wins; then a weight named in the dose/instruction free-text; then the
+      // patient's recorded weight (charted vital / users.weight_kg) resolved
+      // in the rx query above. Without the recorded-weight fallback a script
+      // that says "15mg/kg for 12.5kg child" but uses no "weight:" keyword
+      // left child_weight_kg null on the label.
+      // Finding: 2026-05-22-pediatric-opd-pharmacy-f346bf82.
       const childWeightKg = med.child_weight_kg != null
         ? Number(med.child_weight_kg)
-        : parseWeightKgFromText(doseText, instructionText);
+        : (parseWeightKgFromText(doseText, instructionText)
+          ?? (Number(rx.patient_weight_kg) > 0 ? Number(rx.patient_weight_kg) : null));
+
+      // Concentration of the liquid AS PRESCRIBED (mg/mL + its mL
+      // denominator), parsed from the clinician's own strength / dosage /
+      // dose text / medication name — deliberately NOT the catalog name, so
+      // the derived baseline volume reflects what the doctor prescribed. A
+      // catalog substitution to a different concentration is handled (and
+      // recalculated) separately below. Needed so the dose VOLUME is derived
+      // from the prescribed mg, not copied from the concentration denominator.
+      const concentrationMgPerMl = parseConcentrationMgPerMl(
+        med.strength, med.dosage, doseText, medName,
+      );
+      const concentrationMl = parseConcentrationMl(
+        med.strength, med.dosage, doseText, medName,
+      );
+
+      // Per-dose volume for the label. An explicitly-supplied value wins.
+      // Otherwise derive it weight-first: (mg/kg × weight) ÷ concentration,
+      // falling back to an explicit mg ÷ concentration, then to a free-text
+      // mL token that is NOT the concentration denominator. Only as a last
+      // resort do we use the legacy last-ml-token parse (kept for lines with
+      // no concentration at all, e.g. "Syp K-Lyte 15mL"). This replaces the
+      // old parseMlFromText() default that grabbed the trailing "5ml" out of
+      // "7.5ml of 125mg/5ml syrup" and underdosed the child.
+      // Finding: 2026-05-22-pediatric-opd-pharmacy-f346bf82.
+      let doseMlMeta = null;
+      let dispensedQuantityMl;
+      if (med.dispensed_quantity_ml != null) {
+        dispensedQuantityMl = Number(med.dispensed_quantity_ml);
+      } else {
+        doseMlMeta = deriveLiquidDoseMl({
+          doseText,
+          instructionText,
+          concentrationMgPerMl,
+          concentrationMl,
+          weightKg: childWeightKg,
+        });
+        dispensedQuantityMl = doseMlMeta
+          ? doseMlMeta.ml
+          : parseMlFromText(doseText, instructionText);
+      }
 
       // Is this a liquid (mL-dosed) oral form? Only liquids get mL volume
       // recalculation and the "measure X ml with an oral syringe" wording.
