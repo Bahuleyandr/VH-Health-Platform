@@ -167,6 +167,23 @@ async function admitPatient(data) {
     policy_number,
     estimated_cost,
     tenant_id,
+    // OPD→IPD advice handoff. The advise-admission bridge stamps
+    // appointments.advised_for_admission_at and that flag is the SOLE
+    // source for the admission counter's worklist
+    // (GET /appointments?advised_for_admission=true). When the counter
+    // then admits the patient, the originating advice must be marked
+    // fulfilled so the patient drops out of the advice queue — otherwise
+    // they stay stuck "advised to admit" forever. There is no
+    // admission_advices table in this schema (the advice lives on the
+    // appointment row), so the link IS the source appointment id. The
+    // admit body may carry it as `admission_advice_id` (the staff app /
+    // swarm probe both use this name) or `appointment_id`; either resolves
+    // to the appointment whose advice flag we clear. Optional — when
+    // absent we fall back to clearing every still-open advised appointment
+    // for this patient. Finding:
+    //   2026-05-21-inpatient-admission-receptionist-5e965972.
+    admission_advice_id,
+    appointment_id: appointmentIdArg,
   } = data;
 
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
@@ -221,6 +238,22 @@ async function admitPatient(data) {
     resolvedGovtSchemeStatus = s;
   } else if (resolvedGovtScheme) {
     resolvedGovtSchemeStatus = 'pending_verification';
+  }
+
+  // OPD→IPD advice handoff. Resolve the optional source-advice appointment
+  // id from either alias up front so a malformed value fails clean (400)
+  // rather than as an opaque error later. The clear itself runs in Phase
+  // 1.5 (best-effort, post-commit) so closing the advice loop can never
+  // roll back a clinically-successful admission. Finding:
+  //   2026-05-21-inpatient-admission-receptionist-5e965972.
+  let adviceAppointmentId = null;
+  const adviceRef = admission_advice_id ?? appointmentIdArg;
+  if (adviceRef !== undefined && adviceRef !== null && adviceRef !== '') {
+    const parsed = Number.parseInt(adviceRef, 10);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw AppError.badRequest('admission_advice_id must be a positive integer (the advised appointment id)');
+    }
+    adviceAppointmentId = parsed;
   }
 
   // Optional review-after timestamp (migration 229). Validate up front so
@@ -758,6 +791,92 @@ async function admitPatient(data) {
     } catch (e) {
       logger.warn(`admitPatient: day-care OT auto-schedule failed for admission ${admission.id}: ${e.message}`);
     }
+  }
+
+  // Phase 1.5: close the OPD→IPD advice loop. The advise-admission bridge
+  // (POST /appointments/:id/advise-admission) only stamps
+  // appointments.advised_for_admission_at/by/note, and the admission
+  // counter's worklist (GET /appointments?advised_for_admission=true)
+  // filters purely on that timestamp being non-null. Nothing previously
+  // cleared it once the patient was actually admitted, so an admitted OPD
+  // patient stayed stuck in the advised-for-admission queue indefinitely.
+  // Mark the originating advice fulfilled by nulling the flag columns so
+  // the patient drops out of the queue. Scope: the explicit source
+  // appointment when the admit carried admission_advice_id/appointment_id
+  // (verified to belong to this patient), otherwise every still-open
+  // advised appointment for this patient. Best-effort, post-commit — a
+  // failure here is logged but must never roll back the admission.
+  // Finding: 2026-05-21-inpatient-admission-receptionist-5e965972.
+  try {
+    let cleared = [];
+    if (adviceAppointmentId !== null) {
+      // Explicit link. Clear only this appointment, and only if it both
+      // belongs to this patient and is currently flagged — so a stale or
+      // mismatched id is a no-op rather than wrongly closing someone
+      // else's advice.
+      cleared = await prisma.$queryRawUnsafe(
+        `UPDATE appointments a
+            SET advised_for_admission_at = NULL,
+                advised_for_admission_by = NULL,
+                advised_for_admission_note = NULL,
+                updated_at = NOW()
+           FROM users u
+          WHERE a.id = $1
+            AND a.patient_id = u.id
+            AND u.uid = $2::uuid
+            AND a.advised_for_admission_at IS NOT NULL
+        RETURNING a.id`,
+        adviceAppointmentId,
+        patient_uid,
+      );
+    } else {
+      // No explicit link — clear any still-open advised appointment(s) for
+      // this patient. Keyed off users.uid → appointments.patient_id.
+      cleared = await prisma.$queryRawUnsafe(
+        `UPDATE appointments a
+            SET advised_for_admission_at = NULL,
+                advised_for_admission_by = NULL,
+                advised_for_admission_note = NULL,
+                updated_at = NOW()
+           FROM users u
+          WHERE a.patient_id = u.id
+            AND u.uid = $1::uuid
+            AND a.advised_for_admission_at IS NOT NULL
+        RETURNING a.id`,
+        patient_uid,
+      );
+    }
+    if (cleared.length) {
+      const clearedIds = cleared.map((r) => r.id);
+      logger.info(
+        `admitPatient: closed admission-advice for ${clearedIds.length} appointment(s) ` +
+        `[${clearedIds.join(', ')}] on admission #${admission.id} (patient ${patient_uid})`,
+      );
+      // Audit the fulfillment so compliance can reconstruct that this
+      // admission consumed the OPD advice. Best-effort, fire-and-forget.
+      await prisma.audit_logs.create({
+        data: {
+          uid: created_by,
+          action: 'ADMISSION_ADVICE_FULFILLED',
+          resource: 'admission',
+          resource_id: String(admission.id),
+          metadata: {
+            patient_uid,
+            admission_id: admission.id,
+            cleared_appointment_ids: clearedIds,
+            via: adviceAppointmentId !== null ? 'explicit_appointment_id' : 'patient_match',
+          },
+          ip_address: null,
+        },
+      }).catch(() => {});
+    } else if (adviceAppointmentId !== null) {
+      logger.warn(
+        `admitPatient: admission_advice_id=${adviceAppointmentId} did not match an open advised ` +
+        `appointment for patient ${patient_uid} on admission #${admission.id} — nothing to close`,
+      );
+    }
+  } catch (e) {
+    logger.warn(`admitPatient: advice-queue close failed for admission ${admission.id}: ${e.message}`);
   }
 
   // Phase 1.5: TPA pre-auth auto-draft. When the admission has a linked
