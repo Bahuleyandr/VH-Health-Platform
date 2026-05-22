@@ -813,7 +813,7 @@ async function assertIssuedFinalCashlessInvoice({
 }) {
   if (!invoiceId) return null;
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT id, status, total_amount, patient_uid, admission_id
+    `SELECT id, invoice_number, status, total_amount, patient_uid, admission_id
        FROM billing_invoices
       WHERE id = $1::int AND tenant_id = $2::uuid`,
     Number(invoiceId), tenantId,
@@ -830,6 +830,52 @@ async function assertIssuedFinalCashlessInvoice({
   }
   if (admissionId && Number(invoice.admission_id) !== Number(admissionId)) {
     throw AppError.badRequest('Final cashless claim invoice belongs to a different admission');
+  }
+  // A final cashless claim must be anchored to the FINAL bill for the
+  // admission, not an interim/progress invoice. Interim and final IPD
+  // invoices share invoice_type='IP' (the interim-ness lives only in
+  // free-text notes), so we cannot tell them apart by type. The robust
+  // signal: if another live (ISSUED/PARTIAL/PAID, non-voided) invoice for
+  // the same admission has a STRICTLY GREATER total_amount, the linked
+  // invoice is a stale interim bill and the claim would cap below the full
+  // final bill. The cashless settlement then can't reach the real payable
+  // total — the insurer's approval (e.g. ₹78k of an ₹80k bill) is rejected
+  // by the approved≤claimed guard because claimed_amount was pinned to the
+  // interim total (₹76k). Re-anchor the claim to the larger final invoice.
+  // Finding 2026-05-22-tpa-insurance-claim-billing-7239f4be.
+  if (invoice.admission_id != null) {
+    const moreComplete = await prisma.$queryRawUnsafe(
+      `SELECT id, invoice_number, total_amount
+         FROM billing_invoices
+        WHERE tenant_id = $1::uuid
+          AND admission_id = $2::int
+          AND id <> $3::int
+          AND voided_at IS NULL
+          AND status IN ('ISSUED','PARTIAL','PAID')
+          AND total_amount > $4::numeric + 0.01
+        ORDER BY total_amount DESC
+        LIMIT 1`,
+      tenantId,
+      Number(invoice.admission_id),
+      Number(invoice.id),
+      Number(invoice.total_amount),
+    );
+    if (moreComplete.length) {
+      const fin = moreComplete[0];
+      throw AppError.badRequest(
+        `Final cashless claim is anchored to interim invoice ${invoice.invoice_number || invoice.id} ` +
+        `(${Number(invoice.total_amount)}); a more complete final invoice ` +
+        `${fin.invoice_number || fin.id} (${Number(fin.total_amount)}) exists for this admission. ` +
+        `Anchor the final claim to the final bill so the settlement can reach the full amount.`,
+        'CLAIM_INVOICE_NOT_FINAL',
+        {
+          linked_invoice_id: Number(invoice.id),
+          linked_total: Number(invoice.total_amount),
+          final_invoice_id: Number(fin.id),
+          final_total: Number(fin.total_amount),
+        },
+      );
+    }
   }
   if (!moneyEquals(totalBilled, invoice.total_amount)) {
     throw AppError.badRequest(
