@@ -512,6 +512,74 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       expect(res.body.data.growth.metrics.height_cm.percentile).toBeGreaterThan(0);
     });
 
+    // Finding 2026-05-22-pediatric-opd-nurse-d9b616dc: the percentile was
+    // computed only in the POST response and never persisted, so a doctor
+    // opening the chart/latest later saw weight/height with NO growth context.
+    // The read path now recomputes the snapshot from the stored measurement +
+    // the patient's age/sex, so the value survives the round-trip and matches
+    // exactly what the nurse saw at triage.
+    it('returns the same growth percentiles on latest read-back (not transient)', async () => {
+      const post = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PAEDS_UID,
+        weight_kg: 12.5,
+        height_cm: 87,
+      });
+      expect(post.statusCode).toBe(201);
+      const posted = post.body.data.growth;
+      expect(posted).not.toBeNull();
+      const postedWeightPct = posted.metrics.weight_kg.percentile;
+      const postedHeightPct = posted.metrics.height_cm.percentile;
+      const postedVitalsId = post.body.data.vitals.id;
+
+      const latest = await doctor.get(`/api/v1/emr/vitals/${PAEDS_UID}/latest`);
+      expect(latest.statusCode).toBe(200);
+      // The read-back must be the row we just wrote ...
+      expect(latest.body.data.id).toBe(postedVitalsId);
+      // ... and must carry the same WHO growth context, not drop it.
+      expect(latest.body.data.growth).not.toBeNull();
+      expect(latest.body.data.growth.reference_dataset).toBe('WHO_0_5');
+      expect(latest.body.data.growth.metrics.weight_kg.percentile).toBe(postedWeightPct);
+      expect(latest.body.data.growth.metrics.height_cm.percentile).toBe(postedHeightPct);
+      // z-scores survive too, so the "below 5th percentile" band is reconstructable.
+      expect(latest.body.data.growth.metrics.weight_kg.z_score)
+        .toBe(posted.metrics.weight_kg.z_score);
+    });
+
+    it('returns recomputed growth percentiles on chart read-back', async () => {
+      const post = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PAEDS_UID,
+        weight_kg: 12.5,
+        height_cm: 87,
+      });
+      expect(post.statusCode).toBe(201);
+      const postedWeightPct = post.body.data.growth.metrics.weight_kg.percentile;
+      const postedVitalsId = post.body.data.vitals.id;
+
+      const chart = await doctor.get(`/api/v1/emr/vitals/${PAEDS_UID}/chart?limit=50`);
+      expect(chart.statusCode).toBe(200);
+      const row = chart.body.data.find((r) => r.id === postedVitalsId);
+      expect(row).toBeDefined();
+      expect(row.growth).not.toBeNull();
+      expect(row.growth.metrics.weight_kg.percentile).toBe(postedWeightPct);
+    });
+
+    it('latest read-back carries growth: null for a non-paediatric patient', async () => {
+      // The adult fixture has weight but no DOB/sex cohort → no percentile,
+      // and the recompute on read must not invent one or error.
+      const post = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PATIENT_UID,
+        weight_kg: 70,
+        height_cm: 170,
+      });
+      expect(post.statusCode).toBe(201);
+      expect(post.body.data.growth).toBeNull();
+
+      const latest = await doctor.get(`/api/v1/emr/vitals/${PATIENT_UID}/latest`);
+      expect(latest.statusCode).toBe(200);
+      expect(latest.body.data.id).toBe(post.body.data.vitals.id);
+      expect(latest.body.data.growth).toBeNull();
+    });
+
     it('returns growth: null for a patient with no DOB/sex on file', async () => {
       const res = await doctor.post('/api/v1/emr/vitals').send({
         patient_uid: PATIENT_UID,
