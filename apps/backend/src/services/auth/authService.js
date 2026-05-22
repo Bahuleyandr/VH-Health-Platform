@@ -867,12 +867,35 @@ export class AuthService {
     }
   }
 
+  // The legacy phone-only login/register issues a usable JWT with NO OTP,
+  // password, or any verification — anyone who knows a patient's phone number
+  // could obtain that patient's session and read their chart. It must never
+  // be reachable in production. Allowed only outside production as the
+  // documented dev/QA path (the gated /api/v1/auth/dev/* routes are the
+  // sanctioned bypass; production patient login is Firebase OTP via
+  // POST /api/v1/auth/firebase/firebase-login).
+  // Finding 2026-05-22-walk-in-opd-patient-36657889.
+  static _assertLegacyPhoneAuthAllowed(action) {
+    const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+    if (isProd) {
+      const err = new Error(
+        `Phone-only ${action} is disabled in production. Use OTP login `
+        + '(POST /api/v1/auth/firebase/firebase-login).',
+      );
+      err.statusCode = HTTP_STATUS.FORBIDDEN;
+      err.code = 'PHONE_AUTH_DISABLED';
+      throw err;
+    }
+  }
+
   static async legacyLogin(phone, _req) {
+    this._assertLegacyPhoneAuthAllowed('login');
     return this.directOtpLogin(phone);
   }
 
   static async legacyRegister(phone, _req) {
     try {
+      this._assertLegacyPhoneAuthAllowed('registration');
       const normalizedPhone = normalizePhone(phone);
 
       const existingUser = await prisma.users.findUnique({
