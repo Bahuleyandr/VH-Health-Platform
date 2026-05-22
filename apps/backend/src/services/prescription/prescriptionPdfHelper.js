@@ -8,6 +8,35 @@
 // of medications, follow-up + clinical notes.
 
 import PDFDocument from 'pdfkit';
+import { normalizeTemperatureC } from '../../utils/clinical/vitalSignMonitor.js';
+
+/**
+ * Render the prescription temperature vital as a "<value>°C" string.
+ *
+ * The temperature snapshotted onto a prescription's `vitals` JSON is entered
+ * raw by the prescriber (no unit travels with it), and since #171 the rest of
+ * the platform normalizes charted temperatures to Celsius — so the prescription
+ * value is, or should be, Celsius. The old renderer hardcoded a `°F` suffix,
+ * which printed a Celsius reading (e.g. 38.2) as nonsense ("38.2°F").
+ *
+ * We defensively normalize through `normalizeTemperatureC` (which infers and
+ * converts a stray Fahrenheit reading — value ≥ 60 → ÷F→C) and always label
+ * the result `°C`, the platform's canonical clinical unit. Returns null for
+ * absent/non-numeric input so the caller can omit the field. The value is
+ * rounded to one decimal to avoid float dust (e.g. 100.4°F → 38.0°C, not
+ * 37.99999°C).
+ *
+ * Pure + exported for unit testing.
+ * @param {number|string|null|undefined} value
+ * @param {string} [unit] - optional unit hint ('C' | 'F' | ...) if one is stored
+ * @returns {string|null} e.g. "38.2°C", or null when not renderable
+ */
+export function formatTemperatureForDisplay(value, unit) {
+  const celsius = normalizeTemperatureC(value, unit);
+  const num = typeof celsius === 'number' ? celsius : parseFloat(celsius);
+  if (celsius == null || Number.isNaN(num)) return null;
+  return `${Math.round(num * 10) / 10}°C`;
+}
 
 const FREQ_LABELS = {
   OD: 'Once daily',
@@ -142,7 +171,8 @@ export async function generatePrescriptionPDFBuffer(prescription, patient = {}, 
       const parts = [];
       if (vitals.bp_systolic && vitals.bp_diastolic) parts.push(`BP: ${vitals.bp_systolic}/${vitals.bp_diastolic} mmHg`);
       if (vitals.pulse) parts.push(`Pulse: ${vitals.pulse} bpm`);
-      if (vitals.temperature) parts.push(`Temp: ${vitals.temperature}°F`);
+      const tempDisplay = formatTemperatureForDisplay(vitals.temperature, vitals.temperature_unit);
+      if (tempDisplay) parts.push(`Temp: ${tempDisplay}`);
       if (vitals.spo2) parts.push(`SpO2: ${vitals.spo2}%`);
       if (vitals.weight) parts.push(`Weight: ${vitals.weight} kg`);
       if (vitals.blood_sugar) parts.push(`Blood Sugar: ${vitals.blood_sugar} mg/dL`);

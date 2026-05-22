@@ -11,6 +11,7 @@ import { maybePropagateAncSupplements } from '../../services/maternity/maternity
 import { createPrescriptionReminders } from '../../services/patient/medicationReminderService.js';
 import { dispatch } from '../../utils/notifications/notificationDispatcher.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
+import { formatTemperatureForDisplay } from '../../services/prescription/prescriptionPdfHelper.js';
 import { success, error } from '../../utils/responseHelper.js';
 
 // ─── Frequency label map ─────────────────────────────────────────────────────
@@ -506,7 +507,8 @@ async function generatePrescriptionPDF(prescription, patient, doctor) {
       const vitalParts = [];
       if (vitals.bp_systolic && vitals.bp_diastolic) vitalParts.push(`BP: ${vitals.bp_systolic}/${vitals.bp_diastolic} mmHg`);
       if (vitals.pulse) vitalParts.push(`Pulse: ${vitals.pulse} bpm`);
-      if (vitals.temperature) vitalParts.push(`Temp: ${vitals.temperature}°F`);
+      const tempDisplay = formatTemperatureForDisplay(vitals.temperature, vitals.temperature_unit);
+      if (tempDisplay) vitalParts.push(`Temp: ${tempDisplay}`);
       if (vitals.spo2) vitalParts.push(`SpO2: ${vitals.spo2}%`);
       if (vitals.weight) vitalParts.push(`Weight: ${vitals.weight} kg`);
       if (vitals.blood_sugar) vitalParts.push(`Blood Sugar: ${vitals.blood_sugar} mg/dL`);
