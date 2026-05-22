@@ -529,6 +529,63 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       expect(types).toContain('NO_INVOICE');
     });
 
+    it('still blocks home discharge with no finalized invoice even after billing_closed_at is stamped (C3 regression)', async () => {
+      // Regression for 2026-05-22-inpatient-admission-discharge-d670b613.
+      // The real cascade has markForDischarge stamp billing_closed_at as a
+      // soft freeze; there is no way for the discharge desk to clear it back
+      // to NULL. The NO_INVOICE gate used to be skipped whenever
+      // billing_closed_at was set, so a patient could be discharged with no
+      // finalized bill ever issued. Reproduce the exact state the cascade
+      // produces — billing_closed_at = NOW(), no billing_invoices row — and
+      // assert the discharge is STILL rejected with NO_INVOICE.
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM billing_invoices WHERE admission_id = $1`,
+        admissionId,
+      );
+      await prisma.$executeRawUnsafe(
+        `UPDATE admissions
+            SET discharge_initiated_at = NOW(),
+                summary_signed_at = NOW(),
+                discharge_drugs_dispensed_at = NOW(),
+                billing_closed_at = NOW()
+          WHERE id = $1`,
+        admissionId,
+      );
+      const blocked = await admin.post(`/api/v1/emr/${admissionId}/discharge`).send({
+        discharge_type: 'home',
+        discharge_summary: { notes: 'closed billing but never issued a bill' },
+      });
+      expect(blocked.statusCode).toBe(400);
+      expect(blocked.body.code || blocked.body.details?.code || '').toBe('DISCHARGE_NOT_READY');
+      const blockedTypes = (blocked.body.details?.blockers || []).map((b) => b.type);
+      expect(blockedTypes).toContain('NO_INVOICE');
+
+      // Positive control: issuing a (here, zeroed/charity) invoice clears
+      // the NO_INVOICE blocker. Other readiness blockers may remain, but
+      // NO_INVOICE must be gone once a finalized invoice exists.
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO billing_invoices
+           (patient_uid, admission_id, invoice_type, status,
+            subtotal, total_amount, amount_paid, amount_due, issued_at)
+         VALUES
+           ($1::uuid, $2, 'IP', 'ISSUED', 0, 0, 0, 0, NOW())`,
+        PATIENT_UID, admissionId,
+      );
+      const cleared = await admin.post(`/api/v1/emr/${admissionId}/discharge`).send({
+        discharge_type: 'home',
+        discharge_summary: { notes: 'finalized zero-charge invoice issued' },
+      });
+      const clearedTypes = (cleared.body.details?.blockers || []).map((b) => b.type);
+      expect(clearedTypes).not.toContain('NO_INVOICE');
+
+      // Clean up so the happy-path discharge test below starts from a known
+      // billing state (it stamps billing_closed_at + seeds a follow-up).
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM billing_invoices WHERE admission_id = $1`,
+        admissionId,
+      );
+    });
+
     it('discharges, releases the bed, and records audit', async () => {
       await prisma.$executeRawUnsafe(
         `UPDATE admissions
@@ -538,6 +595,19 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
                 billing_closed_at = NOW()
           WHERE id = $1`,
         admissionId,
+      );
+
+      // NO_INVOICE gate (finding 2026-05-22-inpatient-admission-discharge-d670b613)
+      // requires a finalized billing_invoices row for the admission —
+      // billing_closed_at alone no longer satisfies it. Seed a finalized
+      // (fully paid) invoice so the happy-path discharge clears that gate.
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO billing_invoices
+           (patient_uid, admission_id, invoice_type, status,
+            subtotal, total_amount, amount_paid, amount_due, issued_at)
+         VALUES
+           ($1::uuid, $2, 'IP', 'PAID', 1000, 1000, 1000, 0, NOW())`,
+        PATIENT_UID, admissionId,
       );
 
       // Final-discharge readiness gate (chip B, finding
