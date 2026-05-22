@@ -562,6 +562,58 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       expect(bpAlert).toBeDefined();
       expect(bpAlert.severity).toBe('WARNING');
     });
+
+    // Finding 2026-05-21-walk-in-opd-doctor-126619d3: a Fahrenheit temperature
+    // (100.4°F ≈ 38°C, a mild OPD fever) was compared against the Celsius
+    // critical_max (40.0) and raised a false CRITICAL hyperthermia alert with
+    // value=100.4. The reading must be normalized to Celsius — stored as ~38
+    // AND alert-evaluated as ~38 — so no alert fires for a normothermic fever.
+    it('does NOT raise a false critical alert for a 100.4°F fever (unit normalized)', async () => {
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PATIENT_UID,
+        temperature: 100.4,
+        temperature_unit: 'F',
+        temperature_route: 'oral',
+        heart_rate: 96, systolic_bp: 112, diastolic_bp: 74, spo2: 99, respiratory_rate: 18,
+      });
+      expect(res.statusCode).toBe(201);
+      // Stored as Celsius (~38.0).
+      expect(parseFloat(res.body.data.vitals.temperature)).toBeCloseTo(38.0, 1);
+      // No temperature alert at all — 38°C is within the adult normal band.
+      const tempAlert = (res.body.data.alerts || []).find((a) => a.vital_name === 'temperature');
+      expect(tempAlert).toBeUndefined();
+
+      const row = await prisma.$queryRawUnsafe(
+        `SELECT temperature FROM vitals_chart WHERE id = $1`, res.body.data.vitals.id);
+      expect(parseFloat(row[0].temperature)).toBeCloseTo(38.0, 1);
+    });
+
+    it('still raises a CRITICAL alert for genuine hyperpyrexia recorded in Celsius', async () => {
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PATIENT_UID,
+        temperature: 41.0, // unambiguously Celsius, above critical_max 40.0
+      });
+      expect(res.statusCode).toBe(201);
+      const tempAlert = (res.body.data.alerts || []).find((a) => a.vital_name === 'temperature');
+      expect(tempAlert).toBeDefined();
+      expect(tempAlert.severity).toBe('CRITICAL');
+      expect(tempAlert.value).toBeCloseTo(41.0, 1);
+      expect(tempAlert.unit).toBe('°C');
+    });
+
+    it('still raises a CRITICAL alert for genuine hyperpyrexia recorded in Fahrenheit (105°F)', async () => {
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: PATIENT_UID,
+        temperature: 105, // ≈ 40.6°C — above the 40.0°C critical threshold
+        temperature_unit: 'F',
+      });
+      expect(res.statusCode).toBe(201);
+      const tempAlert = (res.body.data.alerts || []).find((a) => a.vital_name === 'temperature');
+      expect(tempAlert).toBeDefined();
+      expect(tempAlert.severity).toBe('CRITICAL');
+      // Alert value is the normalized Celsius reading, not the raw 105.
+      expect(tempAlert.value).toBeCloseTo(40.56, 1);
+    });
   });
 
   describe('getLatestVitals + trend + chart', () => {

@@ -104,6 +104,42 @@ function proteinuriaIsPositive(value) {
 }
 
 /**
+ * Normalize a temperature reading to Celsius — the unit the threshold tables
+ * above use (critical_max 40.0, etc.). The alert engine compares against
+ * Celsius limits, so a Fahrenheit-valued reading must be converted first or a
+ * normothermic patient (e.g. 100.4°F ≈ 38°C) trips a false CRITICAL
+ * hyperthermia alert. Finding 2026-05-21-walk-in-opd-doctor-126619d3.
+ *
+ * Resolution order:
+ *   1. Honor an explicit unit hint ('F'/'FAHRENHEIT' → convert; 'C'/'CELSIUS' → as-is).
+ *   2. With no hint, infer by plausible human body-temperature range: a value
+ *      in the Fahrenheit band (≥ 60) is treated as Fahrenheit and converted;
+ *      a value below that is already Celsius. 60 sits well above any survivable
+ *      Celsius temperature (~45 max) and below any plausible Fahrenheit body
+ *      temp (~95+), so the split is unambiguous for real readings.
+ *
+ * Pure + exported for unit testing. Returns the input unchanged for
+ * null/undefined/non-numeric so callers can pass sparse payloads safely.
+ * @param {number|string|null|undefined} value
+ * @param {string} [unit] - 'C' | 'F' | 'celsius' | 'fahrenheit' (case-insensitive)
+ * @returns {number|null|undefined} Celsius value, or the original non-numeric input
+ */
+export function normalizeTemperatureC(value, unit) {
+  if (value === undefined || value === null) return value;
+  const num = typeof value === 'number' ? value : parseFloat(value);
+  if (Number.isNaN(num)) return value;
+
+  const u = unit == null ? '' : String(unit).trim().toUpperCase();
+  if (u === 'F' || u === 'FAHRENHEIT') return ((num - 32) * 5) / 9;
+  if (u === 'C' || u === 'CELSIUS') return num;
+
+  // No (or unrecognized) unit hint — infer from the value's magnitude.
+  // ≥ 60 can only be Fahrenheit for a human body temperature.
+  if (num >= 60) return ((num - 32) * 5) / 9;
+  return num;
+}
+
+/**
  * Check vitals against reference ranges and generate alerts for abnormal values.
  * Call this after any vital sign is recorded.
  * @param {number} patientId - Patient DB ID
@@ -121,7 +157,15 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
     if (value === null || !ranges[vitalName]) continue;
 
     const range = ranges[vitalName];
-    const numValue = parseFloat(value);
+    // Temperature thresholds are encoded in Celsius. Normalize the reading to
+    // Celsius (honoring an explicit `temperature_unit`, else inferring by
+    // range) before comparing — otherwise a Fahrenheit value (e.g. 100.4°F)
+    // is checked against Celsius limits and trips a false CRITICAL alert.
+    // Finding 2026-05-21-walk-in-opd-doctor-126619d3.
+    const rawValue = vitalName === 'temperature'
+      ? normalizeTemperatureC(value, vitals.temperature_unit)
+      : value;
+    const numValue = parseFloat(rawValue);
     if (isNaN(numValue)) continue;
 
     let severity = null;
@@ -233,4 +277,4 @@ function isCodeBlueVital(name) {
 // source of truth.
 const VITAL_REFERENCE_RANGES = ADULT_RANGES;
 export { VITAL_REFERENCE_RANGES, ADULT_RANGES, PAEDIATRIC_RANGES, PREGNANCY_BP_OVERRIDES };
-export default { checkVitalAnomalies, VITAL_REFERENCE_RANGES, ADULT_RANGES, PAEDIATRIC_RANGES, PREGNANCY_BP_OVERRIDES };
+export default { checkVitalAnomalies, normalizeTemperatureC, VITAL_REFERENCE_RANGES, ADULT_RANGES, PAEDIATRIC_RANGES, PREGNANCY_BP_OVERRIDES };
