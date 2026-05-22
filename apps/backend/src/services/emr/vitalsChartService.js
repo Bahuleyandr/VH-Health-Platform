@@ -467,7 +467,11 @@ export async function recordVitals(data) {
     if (heart_rate != null) vitalsForCheck.heart_rate = heart_rate;
     if (systolic_bp != null) vitalsForCheck.systolic_bp = systolic_bp;
     if (diastolic_bp != null) vitalsForCheck.diastolic_bp = diastolic_bp;
-    if (temperature != null) vitalsForCheck.temperature = temperature;
+    // Pass the Celsius-normalized temperature (same value stored to the row),
+    // NOT the raw caller value — the alert engine's thresholds are Celsius, so
+    // a raw Fahrenheit reading would trip a false CRITICAL hyperthermia alert.
+    // Finding 2026-05-21-walk-in-opd-doctor-126619d3.
+    if (normalizedTemperature != null) vitalsForCheck.temperature = normalizedTemperature;
     if (spo2 != null) vitalsForCheck.oxygen_saturation = spo2;
     if (respiratory_rate != null) vitalsForCheck.respiratory_rate = respiratory_rate;
     if (normalizedAlbumin != null) vitalsForCheck.urine_albumin = normalizedAlbumin;
