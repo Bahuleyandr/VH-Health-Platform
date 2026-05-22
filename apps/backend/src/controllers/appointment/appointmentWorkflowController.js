@@ -775,6 +775,15 @@ export const registerWalkIn = async (req, res) => {
     // appointments.created_by is uuid; appointment_status_history.changed_by is int.
     const staffUid = req.user?.uid;
     const staffId = req.user?.id;
+    // C4 — bind every row this walk-in creates to the AUTHENTICATED tenant
+    // (set by jwtMiddleware as snake_case `tenant_id`). The users /
+    // appointments inserts previously omitted tenant_id and silently fell to
+    // the DB column default, and the emergency_visits insert read a
+    // non-existent camelCase `req.user.tenantId` (always undefined) and so
+    // also defaulted. The `x-tenant-id` header is deliberately NOT consulted
+    // here — it must remain UNTRUSTED. Finding:
+    //   2026-05-22-cross-tenant-rls-receptionist-0ff7bac5.
+    const actingTenantId = req.user?.tenant_id || '00000000-0000-4000-8000-000000000001';
     // Accept common field-name aliases before destructure so callers using
     // `date_of_birth` / `dob` / `gender` / `birthdate` are not silently
     // dropped. The Paediatrics walk-in flow hit this — the receptionist
@@ -1246,11 +1255,12 @@ export const registerWalkIn = async (req, res) => {
               guardianUserIdInt = guardianRows[0].id;
             } else {
               const newGuardian = await tx.$queryRawUnsafe(
-                `INSERT INTO users (phone, name, role, is_active, updated_at)
-                 VALUES ($1, $2, 'PATIENT', true, NOW())
+                `INSERT INTO users (phone, name, role, is_active, tenant_id, updated_at)
+                 VALUES ($1, $2, 'PATIENT', true, $3::uuid, NOW())
                  RETURNING id`,
                 normalizedGuardianPhone,
                 guardian_name ? String(guardian_name).trim().slice(0, 160) : 'Guardian',
+                actingTenantId,
               );
               guardianUserIdInt = newGuardian[0].id;
             }
@@ -1266,13 +1276,13 @@ export const registerWalkIn = async (req, res) => {
                                 guardian_name, guardian_phone, guardian_relationship,
                                 guardian_id_type, guardian_id_reference, guardian_user_id,
                                 weight_kg, is_minor, is_unidentified,
-                                allergies,
+                                allergies, tenant_id,
                                 updated_at)
              VALUES ($1, $2, $3::date, $4, $5, 'PATIENT',
                      $6, $7, $8,
                      $9, $10, $11,
                      $12, $13, $14,
-                     $15,
+                     $15, $16::uuid,
                      NOW())
              RETURNING id`,
             patientPhoneForInsert,
@@ -1290,6 +1300,7 @@ export const registerWalkIn = async (req, res) => {
             isMinor,
             isUnidentifiedFlag,
             allergiesText,
+            actingTenantId,
           );
           patientId = newUser[0].id;
           resolvedPhone = patientPhoneForInsert;
@@ -1416,10 +1427,12 @@ export const registerWalkIn = async (req, res) => {
            (patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
             status, confirmed_at, token_number, visit_no, department, created_by, updated_at,
             visit_type, parent_appointment_id,
-            payer_type, patient_category, insurer_name, policy_number, scheme_name)
+            payer_type, patient_category, insurer_name, policy_number, scheme_name,
+            tenant_id)
          VALUES ($1, $2, NOW(), $3, $4, $5, $6, 'CONFIRMED', NOW(), $7, $8, $9, $10::uuid, NOW(),
                  $11, $12,
-                 $13, $14, $15, $16, $17)
+                 $13, $14, $15, $16, $17,
+                 $18::uuid)
          RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
                    status, confirmed_at, token_number, visit_no, department, created_at,
                    visit_type, parent_appointment_id,
@@ -1446,6 +1459,8 @@ export const registerWalkIn = async (req, res) => {
         resolvedInsurerName,
         resolvedPolicyNumber,
         resolvedSchemeName,
+        // C4 — bind the appointment to the authenticated tenant ($18).
+        actingTenantId,
       );
       const appt = apptRows[0];
 
@@ -1582,7 +1597,10 @@ export const registerWalkIn = async (req, res) => {
           patientId,
         );
         const patientUid = patientRow[0]?.uid ?? null;
-        const tenantId = req.user?.tenantId ?? '00000000-0000-4000-8000-000000000001';
+        // C4 — was `req.user?.tenantId` (camelCase) which jwtMiddleware never
+        // sets, so this always fell to the default tenant. Bind the
+        // authenticated tenant instead.
+        const tenantId = actingTenantId;
         // Stage-5 — carry the receptionist's MLC flag onto the ED visit.
         // mlc_number / mlc_notes (often not known until the police FIR is
         // filed) ride along in metadata so the full mlc_records workflow
