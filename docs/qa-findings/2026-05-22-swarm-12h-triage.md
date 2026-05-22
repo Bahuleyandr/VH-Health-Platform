@@ -1,40 +1,46 @@
-# Swarm 12h run — deduped fix-list (2026-05-22)
+# Swarm 12h run — deduped fix-list (2026-05-22) — ✅ COMPLETE
 
 Source: autonomous QA swarm (codex, tuned ×3), ~12h run against main `cf49fa83`
 (i.e. **after** the 12 fixes shipped 2026-05-21, PRs #149–#160). 213 open
-critical/high findings collapsed to ~18 distinct issues (~12:1). Findings live
-in `vh-health-swarm/findings/in-flight/` on dalekdefender.
+critical/high findings collapsed to ~18 distinct issues (~12:1).
 
-Workflow: each item is its own CI-gated PR. Before fixing, **verify against
-current code** — the swarm's "wrong-DB driver" harness bug (below) produced
-some false negatives, and several items are *siblings* of already-shipped fixes
-on different code paths (verify, don't assume).
+**Outcome: all 18 clusters resolved.** Each was verified against current `main`
+first (several were already-fixed or harness false-negatives), then fixed
+minimally with a deep regression test, eslint + `lint:raw-params` clean, and
+merged behind green CI (`lint-and-test` + smokes + fhir-conformance). PRs
+#162–#178.
 
-## Harness noise — NOT product bugs (do not fix as platform changes)
-- [ ] **Driver verifies against the wrong DB** (~25 files) — driver checks `:5433/vhhealth_test`, backend writes `vhhealth-postgres/vhhealth`; reports "0 rows" for rows that exist. Repr `2026-05-21-inpatient-admission-receptionist-39192cb0`. → swarm-harness config.
-- [ ] **Patient/guardian login unavailable** (~15) — `/auth/dev/patient-login` 401 (unmounted) + Firebase degraded → patient-app surface unverified. Repr `2026-05-22-walk-in-opd-patient-e1632f80`. → check whether dev-login route should be mounted in qa env (harness/env, possibly platform dev-auth).
+## Harness noise — NOT product bugs (swarm-config, no platform change)
+- [x] **Driver verifies against the wrong DB** (~25 files) — driver checks `:5433/vhhealth_test`, backend writes `vhhealth-postgres/vhhealth`; reports "0 rows" for rows that exist. Repr `2026-05-21-inpatient-admission-receptionist-39192cb0`. → swarm-harness config; documented, not a platform fix.
+- [x] **Patient/guardian login unavailable** (~15) — `/auth/dev/patient-login` 401 + Firebase degraded → patient-app surface unverified. Repr `2026-05-22-walk-in-opd-patient-e1632f80`. → harness/env (the dev-login route is gated by `ENABLE_DEV_AUTH` + non-prod, by design).
 
-## CRITICAL — clinical safety / security (fix first)
-- [ ] **C1. OT/surgical safety gates bypassable** — WHO time-out saves "complete" with wrong site (scheduled right vs marked left); incision allowed on site mismatch; nurse signs surgeon-only op notes; consent-less OT start; pre-op checklist completes with no site mark. Repr `2026-05-22-surgical-day-care-ot-staff-e410248f`.
-- [ ] **C2. `doctor_id` accepts any user-id** — walk-in/ER POST returns 200 with `doctor_id` resolving to a PATIENT/HR user; no validation it's a real doctor. Repr `2026-05-22-emergency-walk-in-receptionist-e8685ad5`.
-- [ ] **C3. Discharge closes billing before a final invoice exists** — final discharge 200 with no `billing_invoices` row; close-stamp clears the NO_INVOICE blocker. Repr `2026-05-22-inpatient-admission-discharge-d670b613`.
-- [ ] **C4. Tenant RLS not enforced — cross-tenant PHI leak** — bogus `x-tenant-id` returns tenant-1 rows; walk-in inserts omit `tenant_id`. Repr `2026-05-22-cross-tenant-rls-receptionist-0ff7bac5`. (auth/RLS — extra care; verify vs test-env superuser-bypass.)
+## CRITICAL — clinical safety / security
+- [x] **C1 → PR #162.** WHO time-out rejects completion on a documented site/side mismatch (`SURGICAL_SITE_SIDE_MISMATCH`) unless an explicit clinical override — closes the wrong-site→incision path.
+- [x] **C2 → already-fixed (verified).** The walk-in `doctor_id` guard (`appointmentWorkflowController.js`) already rejects any id not resolving to an active DOCTOR (`INVALID_DOCTOR_ID`). Deploy-lag/harness false-negative. No change needed.
+- [x] **C3 → PR #163.** Final discharge now requires a finalized `billing_invoices` row; removed the dead-code `if (!billing_closed_at)` bypass that `markForDischarge` always tripped.
+- [x] **C4 → PR #177.** Walk-in inserts (users/appointments/emergency_visits) bind to the **authenticated** `req.user.tenant_id`, never the untrusted `x-tenant-id` header (also fixed a `tenantId` camelCase bug). Latent multi-tenant correctness; no active leak today (single-tenant).
 
 ## HIGH
-- [ ] **H1. List endpoints ignore patient/admission filters (PHI bleed)** — investigations & ward-indents return other patients' rows. Repr `2026-05-21-inpatient-admission-doctor-58437f67`.
-- [ ] **H2. Unassigned doctor can write/sign/complete another's visit** — GET 403 but POST notes+sign+complete succeed. Repr `2026-05-21-follow-up-opd-doctor-188a603b`.
-- [ ] **H3. Patient `/auth/login` issues JWT on phone-only, no OTP challenge.** Repr `2026-05-22-walk-in-opd-patient-36657889`. (auth — extra care.)
-- [ ] **H4. Pharmacy unsafe dose/quantity defaults** — qty defaults to 1, dispensing 9 accepted silently; tablet sub prints liquid warning; IV→oral map. Repr `2026-05-21-walk-in-opd-pharmacy-1646bc24`.
-- [ ] **H5. Pediatric paracetamol mis-dosed to 5 mL on label + PDF** — concentration `125mg/5ml` parsed as the dose; `child_weight_kg=null`; PDF Dosage "-". Repr `2026-05-22-pediatric-opd-pharmacy-f346bf82`. (sibling of #6/weight-dose — verify.)
-- [ ] **H6. Lab completed-order PDF 500s + detail blank + notified=false** — Repr `2026-05-21-lab-walk-in-patient-2747d82d`. (notify/status covered by #5/#10; PDF-500 + detail are new.)
-- [ ] **H7. ANC timeline / prior-orders return empty** (`visits:[]`, prior USG absent → dup scan risk). Repr `2026-05-22-obstetric-anc-doctor-8d245f7c`. (sibling of #7 vitals — this is the read.)
-- [ ] **H8. TPA final claim capped at interim invoice** — claim stuck ₹76k vs ₹80k approval, blocks settlement. Repr `2026-05-22-tpa-insurance-claim-billing-7239f4be`. (interacts with #4 cap logic.)
-- [ ] **H9. ED triage (ATS-2) not honored in doctor queue** — `acuity_rank=null, is_emergent=false`. Repr `2026-05-22-emergency-walk-in-nurse-2dd88574`.
-- [ ] **H10. ER→ICU MAR carry-over drops doses** — STAT order, no `medication_administrations` row. Repr `2026-05-21-emergency-walk-in-nurse-7d2d873a`.
-- [ ] **H11. Fahrenheit vitals trigger false Celsius critical alert / PDF unit flip.** Repr `2026-05-21-walk-in-opd-doctor-126619d3`.
-- [ ] **H12. Admission-advice handoff missing `admission_advice_id`** — OPD patient stuck in advice queue post-admit. Repr `2026-05-21-inpatient-admission-receptionist-5e965972`.
-- [ ] **H13. Discharge-summary integrity** — signed summaries not materialized to patient surface; blank sections signable; discontinued IV drugs in takeaways. Repr `2026-05-21-inpatient-admission-patient-8db55849`.
-- [ ] **H14. Pediatric growth percentile transient** — returned on vitals POST, gone on readback. Repr `2026-05-22-pediatric-opd-nurse-d9b616dc`.
+- [x] **H1 → PR #164.** Investigations + ward-indent lists scope to `patient_uid`/`admission_id` (fail-closed); PATIENT role not widened.
+- [x] **H2 → PR #165.** Note-create/sign + appointment-complete enforce assigned-doctor (or supervisor) ownership via a shared helper.
+- [x] **H3 → PR #178.** Legacy phone-only `/auth/login` + `/auth/register` (an OTP-less JWT mint) disabled in production (`PHONE_AUTH_DISABLED`).
+- [x] **H4 → PR #166.** Pharmacy: quantity derived from frequency×duration (no silent 1), dispense-qty mismatch requires acknowledgement, tablet/solid never gets liquid measuring instructions. (IV→oral map deferred — different flow.)
+- [x] **H5 → PR #168.** Pediatric liquid dose derived weight-first (`mg/kg×wt÷conc`), not the concentration's mL denominator; `child_weight_kg` resolved from recorded weight.
+- [x] **H6 → PR #173.** Lab report PDF `::int` cast (was `42883`→500) + merges finalized `lab_results` into the PDF and the detail read.
+- [x] **H7 → PR #169.** ANC timeline surfaces prior obstetric imaging (anomaly USG) so a prior scan is visible. (Empty-visits was a harness false-empty.)
+- [x] **H8 → PR #174.** Final cashless claim rejected if anchored to an interim invoice when a larger live final invoice exists for the admission (`CLAIM_INVOICE_NOT_FINAL`); #154's `claimed ≤ billed` preserved.
+- [x] **H9 → PR #170.** Doctor queue maps all triage scales (esi/ats/ctas/manchester) → unified acuity rank; emergent (rank 1-2) sorts ahead of routine tokens.
+- [x] **H10 → PR #167.** `normalizeRoute` canonicalizes compound routes ("PO chewed" → oral) so a STAT order materializes a chartable MAR row instead of being silently dropped.
+- [x] **H11 → PR #171.** `recordVitals` evaluates the **normalized Celsius** temperature for alerts (was raw F vs C threshold → false CRITICAL); added `normalizeTemperatureC`.
+- [x] **H12 → PR #172.** Admit closes the advice loop (Phase 1.5) — clears the originating appointment's `advised_for_admission_*` so the patient leaves the advice queue. No migration (reused columns).
+- [x] **H13 → PR #176.** Discharge-summary sign-gate (`DISCHARGE_SUMMARY_INCOMPLETE` on blank/placeholder required sections) + discontinued/parenteral meds excluded from the takeaway list. (Patient-surface materialization deferred.)
+- [x] **H14 → PR #175.** Growth percentile recomputed on read (anchored on `recorded_at`) so it persists on read-back. No migration.
+
+## Deferred (documented in the PRs, not regressions)
+- H13(c): signed EMR summaries materialized to the patient read surface (larger read-model wiring).
+- Prescription-PDF temperature label hardcodes `°F` (`prescriptionPdfHelper.js`) — separate snapshot path (flagged in #171).
+- Claim "claimed > sanctioned cover" + room-cap (from #154) — needs enhancement-aware cover logic + a reject-vs-warn product decision.
+- Broader tenant-RLS *enforcement* posture (`AUTH_ENFORCE_TENANT_RLS` / bootstrap-superuser BYPASSRLS) — tracked separately (#137); the test-env superuser bypasses RLS by design.
 
 ## Status log
-(updated as each lands)
+- 2026-05-22: all 18 clusters resolved (PRs #162–#178 merged; C2 verified already-fixed). Swarm paused on dalekdefender; QA Postgres watchdog installed (auto-restart on the `0xC0000142` crash class).
