@@ -5,6 +5,10 @@
 
 import prisma from '../../lib/prisma.js';
 import {
+  buildClaimWarnings,
+  CLAIM_WARNING_CODES,
+  computeCoverExceededWarning,
+  computeRoomCapWarning,
   createPreauth,
   createClaim,
   extractPreauthCaps,
@@ -513,5 +517,339 @@ describe('insurerMatchesPolicyPayer (preauth response payer guard)', () => {
     expect(insurerMatchesPolicyPayer('', 'Star Health')).toBe(true);
     expect(insurerMatchesPolicyPayer('New India Assurance', '')).toBe(true);
     expect(insurerMatchesPolicyPayer(null, null)).toBe(true);
+  });
+});
+
+// Deferred half of finding 2026-05-20-tpa-insurance-claim-billing-4600ed9c
+// (+ room-cap finding -b5906e90). #154 added the HARD claimed≤billed guard;
+// these advisories are NON-BLOCKING. The pure helpers are exercised here;
+// the gatherer + createClaim attachment use a prisma stub.
+describe('computeCoverExceededWarning (non-blocking cover advisory)', () => {
+  it('returns null when there is no sanctioned cover yet (nothing approved)', () => {
+    expect(computeCoverExceededWarning({ claimedAmount: 80000, sanctionedCover: 0 })).toBeNull();
+    expect(computeCoverExceededWarning({ claimedAmount: 80000, sanctionedCover: null })).toBeNull();
+  });
+
+  it('returns null when the claim is within (or exactly at) the sanctioned cover', () => {
+    expect(computeCoverExceededWarning({ claimedAmount: 50000, sanctionedCover: 65000 })).toBeNull();
+    expect(computeCoverExceededWarning({ claimedAmount: 65000, sanctionedCover: 65000 })).toBeNull();
+    // within a paisa → silent (mirrors the moneyEquals epsilon)
+    expect(computeCoverExceededWarning({ claimedAmount: 65000.005, sanctionedCover: 65000 })).toBeNull();
+  });
+
+  it('warns with the exact shortfall when claimed exceeds cover (the 4600ed9c shape)', () => {
+    // ₹80k final claim against a ₹65k cumulative sanctioned cover.
+    const w = computeCoverExceededWarning({ claimedAmount: 80000, sanctionedCover: 65000 });
+    expect(w).toMatchObject({
+      code: 'CLAIM_EXCEEDS_SANCTIONED_COVER',
+      sanctioned: 65000,
+      claimed: 80000,
+      shortfall: 15000,
+    });
+    expect(w.message).toMatch(/enhancement/i);
+    // Copy reassures it is non-blocking (".. is not blocked").
+    expect(w.message).toMatch(/not blocked/i);
+  });
+
+  it('returns null when nothing is claimed', () => {
+    expect(computeCoverExceededWarning({ claimedAmount: 0, sanctionedCover: 65000 })).toBeNull();
+  });
+});
+
+describe('computeRoomCapWarning (non-blocking room-cap advisory)', () => {
+  it('returns null when there is neither a cap amount nor a capped category', () => {
+    expect(computeRoomCapWarning({})).toBeNull();
+    expect(computeRoomCapWarning({ roomCharges: 30000 })).toBeNull();
+  });
+
+  it('returns null when room charges are within the cap amount', () => {
+    expect(computeRoomCapWarning({ roomCharges: 9000, roomCapAmount: 13500 })).toBeNull();
+  });
+
+  it('flags the exact patient-payable excess when room charges exceed the cap amount', () => {
+    // 3 nights private @ ₹6000 = ₹18000 vs semi-private cap ₹13500.
+    const w = computeRoomCapWarning({
+      roomCharges: 18000,
+      roomCapAmount: 13500,
+      admissionRoomCategory: 'private',
+      cappedRoomCategory: 'semi_private',
+    });
+    expect(w).toMatchObject({
+      code: 'CLAIM_ROOM_CHARGES_EXCEED_CAP',
+      room_charges: 18000,
+      room_cap: 13500,
+      excess: 4500,
+      patient_payable: 4500,
+      capped_category: 'semi_private',
+      admission_category: 'private',
+    });
+    // Copy reassures it is non-blocking ("does not block the claim").
+    expect(w.message).toMatch(/does not block/i);
+  });
+
+  it('flags qualitatively when only categories are known (no rupee cap)', () => {
+    // Saraswati: insurer capped at semi_private, admission is private.
+    const w = computeRoomCapWarning({
+      admissionRoomCategory: 'private',
+      cappedRoomCategory: 'semi_private',
+    });
+    expect(w).toMatchObject({
+      code: 'CLAIM_ROOM_CHARGES_EXCEED_CAP',
+      excess: null,
+      patient_payable: null,
+      capped_category: 'semi_private',
+      admission_category: 'private',
+    });
+  });
+
+  it('does not flag when the admission category is at or below the capped category', () => {
+    expect(computeRoomCapWarning({
+      admissionRoomCategory: 'semi_private',
+      cappedRoomCategory: 'private',
+    })).toBeNull();
+    expect(computeRoomCapWarning({
+      admissionRoomCategory: 'general',
+      cappedRoomCategory: 'general',
+    })).toBeNull();
+  });
+});
+
+describe('buildClaimWarnings (gatherer, prisma-stubbed)', () => {
+  const tenantId = '00000000-0000-4000-8000-000000000001';
+  let originalQueryRaw;
+  let originalExecuteRaw;
+  let originalAdmissions;
+  let correspondenceInserts;
+
+  beforeEach(() => {
+    originalQueryRaw = prisma.$queryRawUnsafe;
+    originalExecuteRaw = prisma.$executeRawUnsafe;
+    originalAdmissions = prisma.admissions;
+    correspondenceInserts = [];
+  });
+
+  afterEach(() => {
+    prisma.$queryRawUnsafe = originalQueryRaw;
+    prisma.$executeRawUnsafe = originalExecuteRaw;
+    prisma.admissions = originalAdmissions;
+  });
+
+  it('returns [] immediately for a claim with no linked preauth (no DB touched)', async () => {
+    let called = 0;
+    prisma.$queryRawUnsafe = async () => { called += 1; return []; };
+    const out = await buildClaimWarnings({
+      tenantId,
+      claim: { id: 1, preauth_id: null, claimed_amount: 80000 },
+    });
+    expect(out).toEqual([]);
+    expect(called).toBe(0);
+  });
+
+  it('surfaces the cover-exceeded warning + logs a correspondence note when asked', async () => {
+    prisma.$queryRawUnsafe = async (sql, ...params) => {
+      const text = String(sql);
+      // chainTotalsFor: root resolution then totals aggregate.
+      if (text.includes('WITH RECURSIVE root')) return [{ id: 71 }];
+      if (text.includes('SUM(CASE WHEN status')) {
+        return [{ approved_total: 65000, requested_total: 80000, chain_length: 2 }];
+      }
+      // No insurer caps recorded.
+      if (text.includes('FROM insurance_preauth_responses')) return [{ raw_response: {} }];
+      // Room charges (not reached without caps, but answer safely).
+      if (text.includes("category = 'room_rent'")) return [{ total: 0 }];
+      throw new Error(`Unexpected query in buildClaimWarnings cover test: ${text}`);
+    };
+    prisma.$executeRawUnsafe = async (sql, ...params) => {
+      const text = String(sql);
+      if (text.includes('INSERT INTO tpa_claim_correspondence')) {
+        correspondenceInserts.push({ claimId: params[0], subject: params[1], body: params[2] });
+        return 1;
+      }
+      throw new Error(`Unexpected execute in buildClaimWarnings cover test: ${text}`);
+    };
+
+    const out = await buildClaimWarnings({
+      tenantId,
+      claim: { id: 2, preauth_id: 71, claimed_amount: 80000, invoice_id: null, admission_id: null },
+      logCorrespondence: true,
+    });
+
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      code: CLAIM_WARNING_CODES.EXCEEDS_SANCTIONED_COVER,
+      sanctioned: 65000,
+      claimed: 80000,
+      shortfall: 15000,
+    });
+    expect(correspondenceInserts).toHaveLength(1);
+    expect(correspondenceInserts[0].claimId).toBe(2);
+    expect(correspondenceInserts[0].subject).toMatch(/enhancement/i);
+  });
+
+  it('does NOT log a correspondence note on a read (logCorrespondence default false)', async () => {
+    prisma.$queryRawUnsafe = async (sql) => {
+      const text = String(sql);
+      if (text.includes('WITH RECURSIVE root')) return [{ id: 71 }];
+      if (text.includes('SUM(CASE WHEN status')) {
+        return [{ approved_total: 65000, requested_total: 80000, chain_length: 2 }];
+      }
+      if (text.includes('FROM insurance_preauth_responses')) return [{ raw_response: {} }];
+      if (text.includes("category = 'room_rent'")) return [{ total: 0 }];
+      throw new Error(`Unexpected query in buildClaimWarnings read test: ${text}`);
+    };
+    prisma.$executeRawUnsafe = async (sql) => {
+      throw new Error(`No execute expected on read path: ${String(sql)}`);
+    };
+
+    const out = await buildClaimWarnings({
+      tenantId,
+      claim: { id: 3, preauth_id: 71, claimed_amount: 80000, invoice_id: null, admission_id: null },
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].code).toBe(CLAIM_WARNING_CODES.EXCEEDS_SANCTIONED_COVER);
+    expect(correspondenceInserts).toHaveLength(0);
+  });
+
+  it('surfaces the room-cap warning from insurer caps + billed room charges', async () => {
+    prisma.$queryRawUnsafe = async (sql) => {
+      const text = String(sql);
+      if (text.includes('WITH RECURSIVE root')) return [{ id: 80 }];
+      if (text.includes('SUM(CASE WHEN status')) {
+        // Cover fully sanctioned → no cover warning, isolating the room one.
+        return [{ approved_total: 80000, requested_total: 80000, chain_length: 1 }];
+      }
+      if (text.includes('FROM insurance_preauth_responses')) {
+        return [{ raw_response: { caps: { room_category: { max_category: 'semi_private', max_amount: 13500 } } } }];
+      }
+      if (text.includes("category = 'room_rent'")) return [{ total: 18000 }];
+      throw new Error(`Unexpected query in buildClaimWarnings room test: ${text}`);
+    };
+    prisma.admissions = {
+      findUnique: async () => ({ room_category: 'private' }),
+    };
+
+    const out = await buildClaimWarnings({
+      tenantId,
+      claim: { id: 4, preauth_id: 80, claimed_amount: 80000, invoice_id: 55, admission_id: 27 },
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      code: CLAIM_WARNING_CODES.ROOM_CHARGES_EXCEED_CAP,
+      room_charges: 18000,
+      room_cap: 13500,
+      excess: 4500,
+      patient_payable: 4500,
+    });
+  });
+
+  it('returns [] (never throws) when the advisory queries fail', async () => {
+    prisma.$queryRawUnsafe = async () => { throw new Error('db down'); };
+    const out = await buildClaimWarnings({
+      tenantId,
+      claim: { id: 5, preauth_id: 99, claimed_amount: 80000 },
+    });
+    expect(out).toEqual([]);
+  });
+});
+
+describe('createClaim attaches non-blocking warnings (does not reject)', () => {
+  const tenantId = '00000000-0000-4000-8000-000000000001';
+  const patientUid = '11111111-1111-4111-8111-111111111111';
+  let originalQueryRaw;
+  let originalExecuteRaw;
+
+  beforeEach(() => {
+    originalQueryRaw = prisma.$queryRawUnsafe;
+    originalExecuteRaw = prisma.$executeRawUnsafe;
+  });
+
+  afterEach(() => {
+    prisma.$queryRawUnsafe = originalQueryRaw;
+    prisma.$executeRawUnsafe = originalExecuteRaw;
+  });
+
+  it('creates the claim AND surfaces a cover-exceeded warning when claimed exceeds cover', async () => {
+    // Claim ₹80k billed/claimed against a ₹65k cumulative cover. The
+    // claimed≤billed hard guard passes (80000 ≤ 80000); the advisory fires.
+    prisma.$queryRawUnsafe = async (sql, ...params) => {
+      const text = String(sql);
+      if (text.includes('INSERT INTO tpa_claim_counter')) return [{ next_value: 7 }];
+      if (text.includes('INSERT INTO tpa_claims')) {
+        return [{
+          id: 314,
+          claim_number: 'CL-TEST-00007',
+          policy_id: params[1],
+          preauth_id: params[2],
+          invoice_id: params[3],
+          patient_uid: params[4],
+          admission_id: params[5],
+          claim_type: params[6],
+          total_billed: params[7],
+          claimed_amount: params[10],
+          status: 'prepared',
+        }];
+      }
+      // buildClaimWarnings queries:
+      if (text.includes('WITH RECURSIVE root')) return [{ id: 90 }];
+      if (text.includes('SUM(CASE WHEN status')) {
+        return [{ approved_total: 65000, requested_total: 80000, chain_length: 2 }];
+      }
+      if (text.includes('FROM insurance_preauth_responses')) return [{ raw_response: {} }];
+      if (text.includes("category = 'room_rent'")) return [{ total: 0 }];
+      throw new Error(`Unexpected query in createClaim warning test: ${text}`);
+    };
+    prisma.$executeRawUnsafe = async (sql) => {
+      const text = String(sql);
+      if (text.includes('INSERT INTO tpa_claim_correspondence')) return 1;
+      throw new Error(`Unexpected execute in createClaim warning test: ${text}`);
+    };
+
+    const claim = await createClaim({
+      tenantId,
+      policy_id: 1,
+      preauth_id: 90,
+      patient_uid: patientUid,
+      total_billed: 80000,
+      claimed_amount: 80000,
+    });
+
+    // Claim was created (not rejected) AND carries the advisory.
+    expect(claim.id).toBe(314);
+    expect(Number(claim.claimed_amount)).toBe(80000);
+    expect(Array.isArray(claim.warnings)).toBe(true);
+    expect(claim.warnings).toHaveLength(1);
+    expect(claim.warnings[0]).toMatchObject({
+      code: 'CLAIM_EXCEEDS_SANCTIONED_COVER',
+      sanctioned: 65000,
+      claimed: 80000,
+      shortfall: 15000,
+    });
+  });
+
+  it('attaches an empty warnings array when the claim has no linked preauth', async () => {
+    prisma.$queryRawUnsafe = async (sql, ...params) => {
+      const text = String(sql);
+      if (text.includes('INSERT INTO tpa_claim_counter')) return [{ next_value: 8 }];
+      if (text.includes('INSERT INTO tpa_claims')) {
+        return [{
+          id: 315,
+          claim_number: 'CL-TEST-00008',
+          preauth_id: null,
+          claimed_amount: params[10],
+          total_billed: params[7],
+          status: 'prepared',
+        }];
+      }
+      throw new Error(`Unexpected query in createClaim no-preauth test: ${text}`);
+    };
+
+    const claim = await createClaim({
+      tenantId,
+      policy_id: 1,
+      patient_uid: patientUid,
+      total_billed: 50000,
+    });
+    expect(claim.id).toBe(315);
+    expect(claim.warnings).toEqual([]);
   });
 });
