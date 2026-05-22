@@ -560,6 +560,51 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
     logger.warn(`ANC general-vitals scan failed for pregnancy=${id}: ${e.message}`);
   }
 
+  // Prior obstetric imaging (anomaly / dating / growth scans, dopplers)
+  // ordered for this patient during the pregnancy. The doctor's ANC
+  // timeline previously showed visits + vitals + supplements but NO
+  // imaging, so a completed 18-week anomaly scan was invisible when the
+  // doctor opened the 24-week chart — and the soft duplicate-order guard
+  // (orderService) only fires AFTER a re-order is attempted. Surfacing
+  // the prior scan inline (with its status + result summary) lets the
+  // doctor see "anomaly scan already done" before ordering, avoiding a
+  // duplicate USG. Scoped to RADIOLOGY-type investigations whose name or
+  // code reads as obstetric ultrasound so an unrelated chest X-ray does
+  // not land on the ANC timeline. Joined via patient_id (always set by
+  // orderService) with a patient_uid fallback for legacy rows. Best-
+  // effort: a scan failure must not break the timeline read. Finding:
+  //   2026-05-22-obstetric-anc-doctor-8d245f7c.
+  let priorImaging = [];
+  try {
+    priorImaging = await prisma.$queryRawUnsafe(
+      `SELECT i.id, i.test_name, i.test_code, i.test_type, i.status,
+              i.priority, i.requested_at, i.completed_at, i.result_summary,
+              i.result_uploaded_at
+         FROM investigations i
+         JOIN users u ON u.id = i.patient_id OR u.uid = i.patient_uid
+        WHERE u.uid = $1::uuid
+          AND UPPER(COALESCE(i.test_type, i.investigation_type, i.type)) = 'RADIOLOGY'
+          AND i.status <> 'CANCELLED'
+          AND i.created_at >= COALESCE($2::date, i.created_at)
+          AND (
+            i.test_name ILIKE '%ultrasound%'
+            OR i.test_name ILIKE '%uss%'
+            OR i.test_name ILIKE '%usg%'
+            OR i.test_name ILIKE '%scan%'
+            OR i.test_name ILIKE '%anomal%'
+            OR i.test_name ILIKE '%doppler%'
+            OR i.test_name ILIKE '%nuchal%'
+            OR i.test_name ILIKE '%biophysical%'
+            OR i.test_code ILIKE '%usg%'
+          )
+        ORDER BY i.requested_at DESC
+        LIMIT 50`,
+      String(p.patient_uid), p.lmp_date || null,
+    );
+  } catch (e) {
+    logger.warn(`ANC prior-imaging scan failed for pregnancy=${id}: ${e.message}`);
+  }
+
   // Forward/back ANC care schedule computed from LMP, so the timeline
   // shows where the current visit sits in the plan and what's next.
   bookedVisits = bookedVisits.map((visit) => decorateBookedAncVisit(visit, p.lmp_date));
@@ -574,6 +619,13 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
     schedule_milestones: scheduleMilestones,
     supplements: dedupeActiveSupplementTherapies(supplements).map(withDoseSchedule),
     carried_forward_supplements: carriedForward.map(withDoseSchedule),
+    // `completed` is the at-a-glance flag the OB chart uses to render an
+    // "already done — confirm before re-ordering" chip next to each prior
+    // scan. Derived from status so the UI doesn't re-implement the enum.
+    prior_imaging: priorImaging.map((row) => ({
+      ...row,
+      completed: String(row.status).toUpperCase() === 'COMPLETED',
+    })),
     fetal_kicks: kicks,
   };
 }
