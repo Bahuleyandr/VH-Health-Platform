@@ -414,17 +414,40 @@ export const getTodayQueue = async (req, res) => {
     if (doctorId !== null) { params.push(doctorId); where += ` AND a.doctor_id=$${params.length}`; }
     if (department) { params.push(department); where += ` AND a.department=$${params.length}`; }
 
-    // Surface ESI-1/ESI-2 ER triage on the doctor's appointment queue.
+    // Surface ER triage on the doctor's appointment queue.
     // emergency_visits has no FK back to appointments; the canonical
     // link is patient_uid + same-day arrival. The doctor's UI needs:
-    //   * triage_priority — esi_1..esi_5 (lower number = more urgent)
+    //   * triage_priority — the recorded ED scale code (esi_*, ats_*,
+    //     ctas_*, manchester_*), or an esi_N derived from the
+    //     appointment's integer triage_acuity (lower number = more urgent)
     //   * emergency_visit_id — so the row can deep-link into the ED chart
     //   * acuity_rank — a small integer for client-side sort hints
     //   * is_emergent — boolean banner flag
-    // Sort rule: emergent acuity (esi_1, esi_2) first, then existing
-    // token + scheduled-time order. ESI-3..5 (or no ED row) fall back to
-    // the original order. Finding
-    // 2026-05-10-emergency-walk-in-nurse-doctor-queue-missing-acuity.
+    // Sort rule: emergent acuity (rank 1-2 on ANY scale) first, then
+    // existing token + scheduled-time order. Rank 3-5 (or no ED row)
+    // fall back to the original order. Findings:
+    // 2026-05-10-emergency-walk-in-nurse-doctor-queue-missing-acuity,
+    // 2026-05-22-emergency-walk-in-nurse-2dd88574 (ATS-2 unranked).
+    //
+    // ACUITY_RANK_SQL maps every triage scale the ED accepts onto the
+    // shared 1..5 urgency rank (1 = most urgent). It mirrors
+    // edOperationsService.PRIORITY_RANK_SQL so the doctor queue and the
+    // ED board agree on what "emergent" means. `prio` is the COALESCE'd
+    // priority string injected by interpolation below (no user input).
+    const acuityRankCase = (prio) => `CASE LOWER(COALESCE(${prio}, ''))
+          WHEN 'esi_1' THEN 1 WHEN 'manchester_red' THEN 1 WHEN 'ctas_1' THEN 1 WHEN 'ats_1' THEN 1
+          WHEN 'esi_2' THEN 2 WHEN 'manchester_orange' THEN 2 WHEN 'ctas_2' THEN 2 WHEN 'ats_2' THEN 2
+          WHEN 'esi_3' THEN 3 WHEN 'manchester_yellow' THEN 3 WHEN 'ctas_3' THEN 3 WHEN 'ats_3' THEN 3
+          WHEN 'esi_4' THEN 4 WHEN 'manchester_green' THEN 4 WHEN 'ctas_4' THEN 4 WHEN 'ats_4' THEN 4
+          WHEN 'esi_5' THEN 5 WHEN 'manchester_blue' THEN 5 WHEN 'ctas_5' THEN 5 WHEN 'ats_5' THEN 5
+          ELSE NULL
+        END`;
+    // The COALESCE'd triage-priority expression, reused in every derived
+    // column so they stay in lock-step. No params — pure column SQL.
+    const triagePrioExpr = `COALESCE(
+          ed.triage_priority,
+          CASE WHEN a.triage_acuity BETWEEN 1 AND 5 THEN 'esi_' || a.triage_acuity::text ELSE NULL END
+        )`;
     const result = await prisma.$queryRawUnsafe(`
       WITH ed_today AS (
         SELECT DISTINCT ON (patient_uid)
@@ -463,30 +486,12 @@ export const getTodayQueue = async (req, res) => {
         mp.lmp_date  AS anc_lmp_date,
         mp.edd_date  AS anc_edd_date,
         ed.emergency_visit_id,
-        COALESCE(
-          ed.triage_priority,
-          CASE WHEN a.triage_acuity BETWEEN 1 AND 5 THEN 'esi_' || a.triage_acuity::text ELSE NULL END
-        ) AS triage_priority,
+        ${triagePrioExpr} AS triage_priority,
         ed.ed_status,
         ed.ed_chief_complaint,
-        CASE LOWER(COALESCE(
-          ed.triage_priority,
-          CASE WHEN a.triage_acuity BETWEEN 1 AND 5 THEN 'esi_' || a.triage_acuity::text ELSE NULL END,
-          ''
-        ))
-          WHEN 'esi_1' THEN 1
-          WHEN 'esi_2' THEN 2
-          WHEN 'esi_3' THEN 3
-          WHEN 'esi_4' THEN 4
-          WHEN 'esi_5' THEN 5
-          ELSE NULL
-        END AS acuity_rank,
+        ${acuityRankCase(triagePrioExpr)} AS acuity_rank,
         CASE
-          WHEN LOWER(COALESCE(
-            ed.triage_priority,
-            CASE WHEN a.triage_acuity BETWEEN 1 AND 5 THEN 'esi_' || a.triage_acuity::text ELSE NULL END,
-            ''
-          )) IN ('esi_1', 'esi_2') THEN TRUE
+          WHEN ${acuityRankCase(triagePrioExpr)} IN (1, 2) THEN TRUE
           ELSE FALSE
         END AS is_emergent
       FROM appointments a
@@ -497,26 +502,10 @@ export const getTodayQueue = async (req, res) => {
       LEFT JOIN anc_preg mp ON mp.patient_uid = p.uid
       ${where}
       ORDER BY
-        CASE
-          WHEN LOWER(COALESCE(
-            ed.triage_priority,
-            CASE WHEN a.triage_acuity BETWEEN 1 AND 5 THEN 'esi_' || a.triage_acuity::text ELSE NULL END,
-            ''
-          )) IN ('esi_1', 'esi_2', 'esi_3', 'esi_4', 'esi_5') THEN 0
-          ELSE 1
-        END,
-        CASE LOWER(COALESCE(
-          ed.triage_priority,
-          CASE WHEN a.triage_acuity BETWEEN 1 AND 5 THEN 'esi_' || a.triage_acuity::text ELSE NULL END,
-          ''
-        ))
-          WHEN 'esi_1' THEN 1
-          WHEN 'esi_2' THEN 2
-          WHEN 'esi_3' THEN 3
-          WHEN 'esi_4' THEN 4
-          WHEN 'esi_5' THEN 5
-          ELSE 9
-        END,
+        -- Triaged ER rows (any scale, rank 1-5) jump ahead of routine
+        -- OPD tokens; everything else keeps its token/time order.
+        CASE WHEN ${acuityRankCase(triagePrioExpr)} IS NOT NULL THEN 0 ELSE 1 END,
+        COALESCE(${acuityRankCase(triagePrioExpr)}, 9),
         a.token_number NULLS LAST,
         a.appointment_time
     `, ...params);
