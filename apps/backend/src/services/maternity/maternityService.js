@@ -572,8 +572,8 @@ export async function getAncTimelineForPregnancy({ tenantId, pregnancy_id }) {
     general_vitals: generalVitals,
     booked_visits: bookedVisits,
     schedule_milestones: scheduleMilestones,
-    supplements: dedupeActiveSupplementTherapies(supplements),
-    carried_forward_supplements: carriedForward,
+    supplements: dedupeActiveSupplementTherapies(supplements).map(withDoseSchedule),
+    carried_forward_supplements: carriedForward.map(withDoseSchedule),
     fetal_kicks: kicks,
   };
 }
@@ -632,6 +632,34 @@ const VALID_SUPPLEMENTS = new Set([
 const VALID_FREQUENCIES = new Set([
   'once_daily', 'twice_daily', 'thrice_daily', 'weekly', 'as_needed',
 ]);
+
+// Default dose times (IST, 24h) per supplement frequency. A supplement row
+// only stored `frequency` + `reminder_enabled`, so the patient app had no
+// concrete times to fire a reminder at — "take iron once daily" with no
+// "when". This maps the frequency to a clinically-sensible daily schedule
+// the app can turn into reminders. Finding: ANC supplement reminders lack
+// a daily-dose schedule.
+const SUPPLEMENT_DOSE_TIMES = {
+  once_daily: ['09:00'],
+  twice_daily: ['09:00', '21:00'],
+  thrice_daily: ['08:00', '14:00', '20:00'],
+  weekly: ['09:00'], // single dose on the dosing day
+  as_needed: [], // no fixed schedule — taken on symptom
+};
+
+/**
+ * Resolve a supplement's frequency to a concrete dose schedule the patient
+ * app can build reminders from. Pure + exported for unit testing. Unknown
+ * frequencies fall back to once-daily (better a 09:00 reminder than none).
+ */
+export function supplementDoseSchedule(frequency) {
+  const key = String(frequency || 'once_daily').toLowerCase();
+  const times = SUPPLEMENT_DOSE_TIMES[key] || SUPPLEMENT_DOSE_TIMES.once_daily;
+  return { frequency: key, times, timezone: 'Asia/Kolkata' };
+}
+
+// Attach dose_schedule to a supplement row (read-path enrichment).
+const withDoseSchedule = (s) => ({ ...s, dose_schedule: supplementDoseSchedule(s?.frequency) });
 
 // maternity_supplements.dose is VARCHAR(60). Reject longer values with a
 // 400 + field-level message instead of letting the INSERT raise a generic
