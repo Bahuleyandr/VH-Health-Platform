@@ -991,6 +991,70 @@ export async function getMyClaim({ tenantId, patient_uid, id }) {
   };
 }
 
+// ── B-5b — TPA claim documents (read-only) ──────────────────────────
+//
+// `tpa_claim_documents` (and the preauth-linked subset) hold the policy
+// docs, prescription scans, clinical-summary PDFs the hospital uploads
+// to support a claim. Patients need to see them — both to verify what
+// was submitted on their behalf (IRDAI transparency requirement) and
+// to download a copy for their own records when settlement closes.
+// Until now the table was completely off-surface for the patient app.
+// Findings 95008441 + 0a3e84c3.
+//
+// We expose document metadata only — file URLs come from R2 signed-
+// URL generation server-side; we do NOT echo raw blob bytes through
+// the portal route. The caller follows up with the URL via a
+// separate endpoint (existing `paymentLinkService`-style signed-URL
+// mint) if they want to download.
+
+export async function listMyClaimDocuments({ tenantId, patient_uid, id }) {
+  const claimId = Number(id);
+  if (!Number.isInteger(claimId) || claimId <= 0) {
+    throw AppError.badRequest('Claim id must be a positive integer');
+  }
+  // Ownership check: the claim must belong to the authenticated
+  // patient AND be in the caller's tenant. Skips the
+  // tpa_claim_documents query entirely on miss → 404 rather than
+  // surfacing the existence of someone else's claim.
+  const claimRows = await prisma.$queryRawUnsafe(
+    `SELECT id, preauth_id
+       FROM tpa_claims
+      WHERE id = $1::int
+        AND tenant_id = $2::uuid
+        AND patient_uid = $3::uuid`,
+    claimId, tenantId, String(patient_uid),
+  );
+  if (!claimRows.length) throw AppError.notFound('Claim not found');
+  const { preauth_id: preauthId } = claimRows[0];
+
+  // Documents may be attached at either the claim or its parent
+  // preauth — surface both so the patient sees a complete packet.
+  // Return only patient-visible fields (no internal `uploaded_by`
+  // staff uuid, no `notes` which often carries internal review
+  // commentary).
+  try {
+    // Cast file_size_bytes to int rather than bigint — Postgres
+    // bigint deserialises as a JS BigInt which `res.json(...)`
+    // cannot serialise (TypeError: Do not know how to serialize a
+    // BigInt). The patient app only needs the human-readable size,
+    // and a single uploaded document is well within 2^31 bytes.
+    return await prisma.$queryRawUnsafe(
+      `SELECT id, claim_id, preauth_id, doc_type, file_name,
+              file_size_bytes::int AS file_size_bytes,
+              mime_type, uploaded_at
+         FROM tpa_claim_documents
+        WHERE claim_id = $1::int
+           OR ($2::int IS NOT NULL AND preauth_id = $2::int)
+        ORDER BY uploaded_at DESC NULLS LAST, id DESC`,
+      claimId, preauthId,
+    );
+  } catch (err) {
+    // Under-migrated tenants (rare): table missing → empty array.
+    if (err?.meta?.code === '42P01') return [];
+    throw err;
+  }
+}
+
 // ── Lab orders (investigations) ─────────────────────────────────────
 //
 // `lab_results` rows arrive from the analyzer with per-analyte values
