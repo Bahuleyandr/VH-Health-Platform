@@ -51,6 +51,19 @@ const VALID_INDENT_TRANSITIONS = {
 const CLINICAL_ORDER_REF_RE = /clinical_order_id:(\d+)/g;
 
 const ATTENDANT_PASS_COUNT_PER_ADMISSION = 2;
+// Default safety expiry for auto-issued attendant passes. The pass is
+// also revoked when discharge fires (via revokeAttendantPass / the
+// discharge cascade), but until then the pass is otherwise enforceable
+// indefinitely — without `expires_at`, ward security cannot tell a stale
+// pass from a current one (the entire point of `expires_at`).
+// 14 days is well above the median IPD LOS but bounded enough that a
+// forgotten pass becomes invalid without administrative cleanup.
+// Finding: 2026-05-22-inpatient-admission-admission-c1da7281.
+const ATTENDANT_PASS_DEFAULT_VALIDITY_MS = 14 * 24 * 60 * 60 * 1000;
+
+function defaultAttendantPassExpiry(issuedAtMs = Date.now()) {
+  return new Date(issuedAtMs + ATTENDANT_PASS_DEFAULT_VALIDITY_MS);
+}
 
 // ── Receipt / pass / indent number generation ─────────────────────────
 function pad(n, width) {
@@ -380,6 +393,7 @@ export async function issueDefaultAttendantPasses(tx, {
   }
 
   const passes = [];
+  const expiresAt = defaultAttendantPassExpiry();
   for (let i = 1; i <= ATTENDANT_PASS_COUNT_PER_ADMISSION; i++) {
     const passNumber = await nextPassNumber(tx, admissionId, i);
     const created = await tx.attendant_passes.create({
@@ -393,6 +407,7 @@ export async function issueDefaultAttendantPasses(tx, {
         ward_at_issue: wardName ?? null,
         screening_level: screeningLevel,
         issued_by: issuedBy,
+        expires_at: expiresAt,
       },
     });
     passes.push(created);
@@ -465,6 +480,10 @@ export async function issueReplacementAttendantPass({
         screening_level: screeningLevel,
         issued_by: issuedBy,
         notes,
+        // Replacements inherit the same default validity window as
+        // the original auto-issued passes — without this, security
+        // can't tell a stale replacement from a current one.
+        expires_at: defaultAttendantPassExpiry(),
       },
     });
   });
