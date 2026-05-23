@@ -51,12 +51,15 @@ describe('vitals read-back surfaces triage_acuity (009ad565)', () => {
       triage_acuity: 2,
       recorded_by: RECORDER_UID,
     });
-    expect(created.triage_acuity).toBe(2);  // POST response carries it (in-memory mutation, pre-fix)
-
+    // `recordVitals` returns { vitals, news2, alerts, growth, triage } —
+    // the row is on `.vitals`. The in-memory mutation at line 510 of
+    // vitalsChartService stamps `record.triage_acuity = normalizedAcuity`
+    // BEFORE wrapping, so this carries it (POST-response symmetry).
+    expect(created.vitals.triage_acuity).toBe(2);
     // The actual round-trip test: pull it back through getLatestVitals.
     const latest = await getLatestVitals(PATIENT_UID);
     expect(latest).toBeTruthy();
-    expect(latest.id).toBe(created.id);
+    expect(latest.id).toBe(created.vitals.id);
     expect(latest.triage_acuity).toBe(2);  // <- was null before this PR
   });
 
