@@ -959,6 +959,22 @@ export async function collectPayment({
   }
   if (Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
 
+  // CASH payments must be tied to a cashier shift so the daily zero-
+  // variance drawer-close control can reconcile them. Without `shift`,
+  // a discharge cash payment lands in `daily-collection` but
+  // `cash-drawer/sessions` close ignores it (it filters by exact non-
+  // null shift), creating an off-the-books bypass around the drawer
+  // control. Non-cash modes (UPI, card, online, bank_transfer, cheque,
+  // insurance, etc.) don't move physical cash and don't need a drawer
+  // session, so the guard only fires for CASH.
+  // Finding: 2026-05-22-inpatient-admission-billing-8f3634b2.
+  if (String(mode).toUpperCase() === 'CASH' && (shift == null || shift === '')) {
+    throw AppError.badRequest(
+      'CASH payments require a cashier shift so daily drawer reconciliation can include them. Open / select a cash-drawer session first.',
+      'CASH_PAYMENT_REQUIRES_SHIFT',
+    );
+  }
+
   // Resolve patient_uid + invoice gating from invoice if invoice_id given.
   let resolvedPatientUid = patient_uid;
   if (invoice_id) {
