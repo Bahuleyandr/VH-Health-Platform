@@ -838,10 +838,19 @@ export async function getIOBalance(patientUid, encounterId, date) {
     patient_uid: patientUid,
     recorded_at: { gte: dayStart, lt: dayEnd },
   };
-  // encounterId arrives from the query string as a string; intake_output.encounter_id
-  // is Int? in Prisma, so passing the raw string trips a validation error and a 500.
-  const encounterIdInt = toEncounterIdInt(encounterId);
-  if (encounterIdInt != null) where.encounter_id = encounterIdInt;
+  // The WRITE side (`recordIntakeOutput`) uses `normalizeEncounter` and
+  // routes UUID admission encounters to `encounter_uid` (migration 208/223
+  // added the column). The READ side previously hard-rejected anything
+  // non-integer with "encounterId must be an integer", so an ICU nurse
+  // who charted I/O against the admission encounter UUID at bedside
+  // could never read the balance for the same encounter — the API
+  // contract was inconsistent (writes accepted, reads rejected).
+  // Use the same normaliser here and filter on the matching column so a
+  // UUID encounter and an int encounter both query their own row set.
+  // Finding: 2026-05-23-emergency-walk-in-nurse-d94bba9f.
+  const enc = normalizeEncounter(encounterId);
+  if (enc.encounter_id != null) where.encounter_id = enc.encounter_id;
+  if (enc.encounter_uid != null) where.encounter_uid = enc.encounter_uid;
 
   // Aggregate intake/output sums via groupBy + JS reduction (one query).
   const [groups, entries] = await Promise.all([
@@ -884,8 +893,11 @@ export async function getIOBalance(patientUid, encounterId, date) {
 
 export async function getIOChart(patientUid, encounterId, dateFrom, dateTo) {
   const where = { patient_uid: patientUid };
-  const encounterIdInt = toEncounterIdInt(encounterId);
-  if (encounterIdInt != null) where.encounter_id = encounterIdInt;
+  // Same write/read contract symmetry as `getIOBalance` — see comment there.
+  // Finding: 2026-05-23-emergency-walk-in-nurse-d94bba9f.
+  const enc = normalizeEncounter(encounterId);
+  if (enc.encounter_id != null) where.encounter_id = enc.encounter_id;
+  if (enc.encounter_uid != null) where.encounter_uid = enc.encounter_uid;
   if (dateFrom || dateTo) {
     where.recorded_at = {};
     if (dateFrom) where.recorded_at.gte = new Date(dateFrom);
