@@ -715,6 +715,22 @@ async function admitPatient(data) {
           transferred_by: created_by,
         },
       });
+
+      // Denormalise the allocated bed_number onto the admission row so the
+      // admission detail + printable summary surface the physical bed
+      // without an extra beds join. The admission.create above fires BEFORE
+      // the bed FOR-UPDATE lookup, so bed_number isn't known at insert
+      // time; the column is on `admissions` (migration baseline) and is
+      // already in ADMISSION_RETURNING_SELECT — it just never got
+      // populated. Back-fill here and mirror it onto the in-memory
+      // `admission` so the post-tx return shape matches the DB.
+      // Findings: 2026-05-22-tpa-insurance-claim-admission-c52e8649,
+      //           2026-05-23-emergency-walk-in-admission-b92372d9.
+      await tx.admissions.update({
+        where: { id: admission.id },
+        data: { bed_number: bedRows[0].bed_number, updated_at: new Date() },
+      });
+      admission.bed_number = bedRows[0].bed_number;
     }
 
     await tx.audit_logs.create({
