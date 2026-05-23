@@ -47,10 +47,20 @@ export const createInvestigationOrder = async (orderData) => {
   } = orderData;
 
   if (!patient_id || !(doctor_uid || orderedBy) || !test_name || !type) {
-    throw new Error('MISSING_REQUIRED_FIELDS');
+    // Stamp .statusCode = 400 so the lab-route `wrap` middleware
+    // (which honours err.statusCode) returns a clean 4xx instead of
+    // a generic 500. The orderController already matches by message
+    // and returns its own 400 — both paths now stay consistent.
+    const e = new Error('MISSING_REQUIRED_FIELDS');
+    e.statusCode = 400;
+    e.code = 'MISSING_REQUIRED_FIELDS';
+    throw e;
   }
   if (!Object.values(INVESTIGATION_TYPES).includes(type.toUpperCase())) {
-    throw new Error('INVALID_TYPE');
+    const e = new Error('INVALID_TYPE');
+    e.statusCode = 400;
+    e.code = 'INVALID_TYPE';
+    throw e;
   }
   // ROUTINE is the clinical-language alias for NORMAL — accept either
   // and persist as NORMAL so storage stays consistent. Mirrors the
@@ -63,7 +73,10 @@ export const createInvestigationOrder = async (orderData) => {
   let priorityNormalised = String(priority).toUpperCase();
   if (priorityNormalised === 'ROUTINE') priorityNormalised = 'NORMAL';
   if (!Object.values(PRIORITY_LEVELS).includes(priorityNormalised)) {
-    throw new Error('INVALID_PRIORITY');
+    const e = new Error('INVALID_PRIORITY');
+    e.statusCode = 400;
+    e.code = 'INVALID_PRIORITY';
+    throw e;
   }
 
   // Prisma ORM — column names checked at runtime against schema.prisma so a
@@ -72,7 +85,12 @@ export const createInvestigationOrder = async (orderData) => {
     where: { id: parseInt(patient_id) },
     select: { id: true, uid: true, name: true, phone: true },
   });
-  if (!patient) throw new Error('PATIENT_NOT_FOUND');
+  if (!patient) {
+    const e = new Error('PATIENT_NOT_FOUND');
+    e.statusCode = 404;
+    e.code = 'PATIENT_NOT_FOUND';
+    throw e;
+  }
 
   // E-6 — validate test_code against the catalog when supplied.
   // Free-text test_name is still accepted (lots of legitimate cases:
@@ -90,8 +108,16 @@ export const createInvestigationOrder = async (orderData) => {
         String(test_code).trim(),
       );
       if (!catalog.length) {
+        // 400 (NOT 500) — surfacing the missing test_code as a generic
+        // 500 made the doctor's acute-abdomen lab-order shortcut look
+        // broken to the clinician (RFT/ABDPNL/LFT etc. that aren't in
+        // the seed catalog → opaque 500). Throw the structured form so
+        // both the route wrap (which honours .statusCode) and the
+        // controller path get a clear 400 with the failing code.
+        // Finding: 2026-05-22-dynamic-acute-abdomen-doctor-0e597b54.
         const e = new Error('UNKNOWN_TEST_CODE');
         e.code = 'UNKNOWN_TEST_CODE';
+        e.statusCode = 400;
         e.details = { provided: test_code };
         throw e;
       }
