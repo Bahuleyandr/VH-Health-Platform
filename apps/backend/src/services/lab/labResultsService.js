@@ -945,6 +945,17 @@ export async function listLabWorklist({
           WHEN 'NORMAL' THEN 3
           ELSE 4
         END,
+        -- D45 — within the STAT/URGENT bucket, sort NEWEST-first so a
+        -- fresh ER STAT troponin is never hidden behind a stale
+        -- abandoned STAT row from a previous patient/shift. The
+        -- abandoned row stays visible (just below the fresh one) so
+        -- somebody can still pick it up / escalate it. Non-STAT
+        -- buckets keep oldest-first (fair FIFO for routine work).
+        -- Finding 2026-05-22-emergency-walk-in-lab-tech (D45).
+        CASE
+          WHEN UPPER(COALESCE(i.priority, 'NORMAL')) IN ('STAT', 'URGENT')
+            THEN i.requested_at
+        END DESC NULLS LAST,
         i.requested_at ASC
       LIMIT $${limitPos}::int`,
     ...params,
