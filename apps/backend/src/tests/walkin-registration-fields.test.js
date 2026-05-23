@@ -435,6 +435,11 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
         guardian_name: 'Minor Parent',
         guardian_phone: MINOR_GUARDIAN_PHONE,
         guardian_relationship: 'mother',
+        // D74 — minor walk-in now requires guardian legal ID. Aadhaar
+        // last-4 masked ref is the canonical pattern in production seed
+        // data; the controller stores at most 80 chars of the ref.
+        guardian_id_type: 'aadhaar',
+        guardian_id: 'XXXX-XXXX-1234',
       });
 
     expect(res.statusCode).toBe(200);
@@ -527,6 +532,9 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
         guardian_name: 'Alias Parent',
         guardian_phone: MINOR_ALIAS_PHONE,
         guardian_relationship: 'mother',
+        // D74 — minor walk-in now requires guardian legal ID.
+        guardian_id_type: 'aadhaar',
+        guardian_id: 'XXXX-XXXX-5678',
         allergies: 'Cefixime',
       });
 

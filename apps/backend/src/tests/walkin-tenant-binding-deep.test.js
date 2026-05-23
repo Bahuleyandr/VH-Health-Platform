@@ -228,6 +228,9 @@ describe('POST /appointments/walk-in — C4 binds rows to the authenticated tena
         guardian_name: 'Guardian Of Minor',
         guardian_phone: GUARDIAN_PHONE,
         guardian_relationship: 'mother',
+        // D74 — minor walk-in now requires guardian legal ID.
+        guardian_id_type: 'aadhaar',
+        guardian_id: 'XXXX-XXXX-9999',
       });
 
     expect(res.statusCode).toBe(200);
