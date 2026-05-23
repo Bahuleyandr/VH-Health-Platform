@@ -123,7 +123,7 @@ export const confirmAppointment = async (req, res) => {
 
     const { result, a, tokenNumber, newDate, newTime } = await prisma.$transaction(async (tx) => {
       const apptRows = await tx.$queryRawUnsafe(
-        'SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, department, phone FROM appointments WHERE id=$1 FOR UPDATE',
+        'SELECT id, patient_id, doctor_id, appointment_date, appointment_time, status, department, phone, visit_no FROM appointments WHERE id=$1 FOR UPDATE',
         Number(id),
       );
       if (!apptRows.length) {
@@ -139,17 +139,41 @@ export const confirmAppointment = async (req, res) => {
       }
 
       const targetDate = appointment_date || a.appointment_date;
+      const newDate = appointment_date || a.appointment_date;
+      const newTime = appointment_time || a.appointment_time;
+
+      // D65 — Compute the visit_no scoped by department-prefix + date
+      // so the search-by-visit_no surface that the reception counter
+      // uses can find a confirmed phone-booked follow-up. Pre-fix the
+      // token counter was global-per-day (cross-department), so when a
+      // GENERAL-MEDICINE OPD slot got confirmed the same day as a
+      // CARDIOLOGY slot, both tokens collided on the same visit_no
+      // prefix. Scope the token counter to the dept prefix the visit_no
+      // will use — same approach the walk-in path uses — so the
+      // resulting (prefix, token) pair is unique under the UNIQUE
+      // constraint on appointments.visit_no.
+      // Findings 55a91186 + 6e610cd1.
+      const yyyymmdd = (() => {
+        const d = targetDate instanceof Date ? targetDate : new Date(targetDate);
+        return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+      })();
+      const visitNoLikePrefix = `${deptPrefix(a.department)}-${yyyymmdd}-`;
       const tokenResult = await tx.$queryRawUnsafe(
         `SELECT COALESCE(MAX(NULLIF(token_number, '')::int), 0) + 1 AS next_token
          FROM appointments
          WHERE DATE(appointment_date) = DATE($1) AND confirmed_at IS NOT NULL
-           AND token_number ~ '^[0-9]+$'`,
-        targetDate,
+           AND token_number ~ '^[0-9]+$'
+           AND visit_no LIKE $2 || '%'`,
+        targetDate, visitNoLikePrefix,
       );
       const tokenNumber = String(parseInt(tokenResult[0].next_token));
-
-      const newDate = appointment_date || a.appointment_date;
-      const newTime = appointment_time || a.appointment_time;
+      // Compose the deterministic visit_no the counter searches on.
+      // Idempotent re-confirm preserves the existing visit_no if the
+      // caller is re-running confirm against a row that already has
+      // one (which can happen on a retried POST).
+      const visitNo = a.visit_no || composeVisitNo({
+        department: a.department, date: newDate, tokenNumber,
+      });
 
       const result = await tx.$queryRawUnsafe(`
         UPDATE appointments SET
@@ -158,13 +182,14 @@ export const confirmAppointment = async (req, res) => {
           token_number = $1,
           appointment_date = $2,
           appointment_time = $3,
+          visit_no = $5,
           sla_target_at = COALESCE(sla_target_at, created_at + INTERVAL '30 minutes'),
           updated_at = NOW()
         WHERE id = $4
         RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, status, reason, notes,
-                  token_number, confirmed_at, department, created_at, updated_at
+                  token_number, visit_no, confirmed_at, department, created_at, updated_at
       `,
-        tokenNumber, newDate, newTime, Number(id),
+        tokenNumber, newDate, newTime, Number(id), visitNo,
       );
 
       await tx.$executeRawUnsafe(
