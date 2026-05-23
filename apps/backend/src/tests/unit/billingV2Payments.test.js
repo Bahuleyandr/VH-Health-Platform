@@ -30,6 +30,12 @@ describe('billing v2 payment invoice totals', () => {
       invoice_id: 3,
       amount: 2300,
       mode: 'CASH',
+      // CASH_PAYMENT_REQUIRES_SHIFT guard added 2026-05-23: every
+      // CASH payment must reference a cashier drawer shift for the
+      // close reconciliation to count it. The other modes (UPI etc.)
+      // don't need this; CASH does. See
+      // 2026-05-22-inpatient-admission-billing-8f3634b2.
+      shift: 'GENERAL',
     });
 
     const paidAggregateSql = mockPrisma.$queryRawUnsafe.mock.calls[2][0];
