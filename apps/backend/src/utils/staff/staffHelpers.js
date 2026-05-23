@@ -10,14 +10,22 @@ import { STAFF_ROLES } from '../../config/staffConfig.js';
 // (everything ADMIN can see plus other admins).
 export function getStaffHierarchy(userRole) {
   const allStaffRoles = Object.values(STAFF_ROLES);
+  // Anaesthetists are clinical-doctor tier (same level as DOCTOR for the
+  // theatre/ICU/PACU surfaces); RADIOLOGY_STAFF mirrors LAB_STAFF as a
+  // self-contained role bucket. HR_STAFF now lists every modality role
+  // so HR can see/manage the full clinical roster, not just the
+  // legacy DOCTOR / NURSING_STAFF / PHARMACY_STAFF / LAB_STAFF subset.
+  // Finding H' D30.
   const hierarchy = {
     SUPER_ADMIN: [...allStaffRoles, 'SUPER_ADMIN'],
     ADMIN: allStaffRoles,
-    HR_STAFF: ['HR_STAFF', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'GENERAL_STAFF', 'RECEPTIONIST', 'SECURITY', 'MAINTENANCE'],
-    DOCTOR: ['DOCTOR', 'NURSING_STAFF'],
+    HR_STAFF: ['HR_STAFF', 'DOCTOR', 'ANAESTHETIST', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'RADIOLOGY_STAFF', 'GENERAL_STAFF', 'RECEPTIONIST', 'SECURITY', 'MAINTENANCE'],
+    DOCTOR: ['DOCTOR', 'ANAESTHETIST', 'NURSING_STAFF'],
+    ANAESTHETIST: ['ANAESTHETIST', 'NURSING_STAFF'],
     NURSING_STAFF: ['NURSING_STAFF'],
     PHARMACY_STAFF: ['PHARMACY_STAFF'],
     LAB_STAFF: ['LAB_STAFF'],
+    RADIOLOGY_STAFF: ['RADIOLOGY_STAFF'],
     GENERAL_STAFF: ['GENERAL_STAFF'],
     RECEPTIONIST: ['RECEPTIONIST'],
     SECURITY: ['SECURITY'],

@@ -9,13 +9,27 @@
 // excludes it, and ANY admin (including a super-admin viewing their own
 // profile) ends up with `WHERE u.role = ANY([no super_admin])` → 0 rows
 // → 404 on /staff/:uid and /auth/staff/profile.
+// H' D30 — ANAESTHETIST joined the role allowlist after the OT and
+// admission services started honouring it as a clinical-doctor role
+// (admissionService.assertDoctorUid, theatreService anaesthesia chart
+// surfaces, surgicalDocumentationService.anesthesia_records.anesthetist).
+// Before this entry the role was rejected by the staff registry: any
+// /staff list query filtered on ANY(STAFF_ROLES) silently dropped
+// ANAESTHETIST rows, and /staff/:uid / /auth/staff/profile returned
+// 404 for a real anaesthetist because the row's stored role wasn't in
+// the hierarchy fan-out — same regression class as the SUPER_ADMIN
+// fix noted above. Finding 2026-05-22-..._aa11d8f2.
+// RADIOLOGY_STAFF mirrors the same problem for the radiology role
+// gates added in PR #196 (acquire endpoint inner-RBAC).
 export const STAFF_ROLES = {
   SUPER_ADMIN: 'SUPER_ADMIN',
   ADMIN: 'ADMIN',
   DOCTOR: 'DOCTOR',
+  ANAESTHETIST: 'ANAESTHETIST',
   NURSING_STAFF: 'NURSING_STAFF',
   PHARMACY_STAFF: 'PHARMACY_STAFF',
   LAB_STAFF: 'LAB_STAFF',
+  RADIOLOGY_STAFF: 'RADIOLOGY_STAFF',
   HR_STAFF: 'HR_STAFF',
   GENERAL_STAFF: 'GENERAL_STAFF',
   RECEPTIONIST: 'RECEPTIONIST',
