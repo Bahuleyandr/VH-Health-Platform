@@ -870,6 +870,24 @@ export const registerWalkIn = async (req, res) => {
       // for paediatric Cefixime allergies is a prescribing-time hazard.
       // Finding: 2026-05-18-pediatric-opd-receptionist-185a6357.
       allergies,
+      // H' D17 — Walk-in registration dropped chronic medications.
+      // Migration 209 added users.chronic_medications JSONB so the
+      // discharge medication draft can reconcile pre-admission therapy
+      // (Metformin / Atorvastatin / Levothyroxine etc.) with new
+      // takeaway meds. Without capturing them at the walk-in counter
+      // the patient turned up to the first consult with a blank
+      // chronic-med list, the doctor stopped a long-running statin
+      // without realising it was chronic, and the discharge summary
+      // had no "continue Metformin" line. Accept either of:
+      //   * Structured array: [{ name, dose, frequency, indication }, ...]
+      //   * Free-text string: comma-separated names, each becomes
+      //     { name } so a no-effort entry still leaves an audit trail.
+      // Aliases `current_medications` / `existing_medications` cover the
+      // common receptionist-dialog naming. Findings:
+      //   2026-05-22-walk-in-opd-receptionist-56a203d0
+      //   2026-05-22-walk-in-opd-receptionist-16e99276
+      //   2026-05-22-walk-in-opd-receptionist-313b7af0.
+      chronic_medications, current_medications, existing_medications,
     } = req.body;
     // Resolved time honours either field; falls back to 'Walk-in' only
     // when nothing was supplied. `appointments.appointment_time` is
@@ -1308,18 +1326,60 @@ export const registerWalkIn = async (req, res) => {
           const allergiesText = allergies
             ? String(allergies).trim().slice(0, 1000)
             : null;
+          // H' D17 — normalise the chronic-medication input into the
+          // JSONB shape `dischargeService` reconciles against. Caller
+          // may supply structured array, a free-text comma list, or
+          // skip the field entirely. Aliases collapse to the first
+          // present source.
+          const chronicMedsInput = chronic_medications ?? current_medications ?? existing_medications ?? null;
+          let chronicMedsArr = null;
+          if (Array.isArray(chronicMedsInput)) {
+            chronicMedsArr = chronicMedsInput
+              .map((m) => {
+                if (!m) return null;
+                if (typeof m === 'string') {
+                  const name = m.trim().slice(0, 120);
+                  return name ? { name } : null;
+                }
+                if (typeof m === 'object') {
+                  const name = String(m.name || m.drug || '').trim().slice(0, 120);
+                  if (!name) return null;
+                  const entry = { name };
+                  if (m.dose) entry.dose = String(m.dose).trim().slice(0, 60);
+                  if (m.frequency) entry.frequency = String(m.frequency).trim().slice(0, 60);
+                  if (m.indication) entry.indication = String(m.indication).trim().slice(0, 120);
+                  return entry;
+                }
+                return null;
+              })
+              .filter(Boolean);
+          } else if (typeof chronicMedsInput === 'string' && chronicMedsInput.trim().length > 0) {
+            chronicMedsArr = chronicMedsInput
+              .split(/[,\n;]+/)
+              .map((s) => s.trim())
+              .filter(Boolean)
+              .map((name) => ({ name: name.slice(0, 120) }));
+          }
+          const chronicMedsJson = chronicMedsArr && chronicMedsArr.length > 0
+            ? JSON.stringify(chronicMedsArr)
+            : null;
           const newUser = await tx.$queryRawUnsafe(
             `INSERT INTO users (phone, name, birthday, gender, address, role,
                                 guardian_name, guardian_phone, guardian_relationship,
                                 guardian_id_type, guardian_id_reference, guardian_user_id,
                                 weight_kg, is_minor, is_unidentified,
-                                allergies, tenant_id,
+                                allergies,
+                                chronic_medications, chronic_medications_updated_at,
+                                tenant_id,
                                 updated_at)
              VALUES ($1, $2, $3::date, $4, $5, 'PATIENT',
                      $6, $7, $8,
                      $9, $10, $11,
                      $12, $13, $14,
-                     $15, $16::uuid,
+                     $15,
+                     COALESCE($16::jsonb, '[]'::jsonb),
+                     CASE WHEN $16 IS NOT NULL THEN NOW() ELSE NULL END,
+                     $17::uuid,
                      NOW())
              RETURNING id`,
             patientPhoneForInsert,
@@ -1337,6 +1397,7 @@ export const registerWalkIn = async (req, res) => {
             isMinor,
             isUnidentifiedFlag,
             allergiesText,
+            chronicMedsJson,
             actingTenantId,
           );
           patientId = newUser[0].id;
