@@ -19,9 +19,8 @@ import prisma from '../lib/prisma.js';
 import { API_KEY, generateTestToken } from './testClient.js';
 
 const RECEPTIONIST_UID = 'd6666666-aaaa-4bbb-8ccc-dddddddd0011';
-const receptionistToken = generateTestToken('RECEPTIONIST', {
-  uid: RECEPTIONIST_UID, id: 9_700_011,
-});
+let receptionistId;
+let receptionistToken;
 
 const STAMP = String(Date.now() % 100000).padStart(5, '0');
 const PHONE_STRUCTURED = `96770${STAMP}`;
@@ -51,10 +50,31 @@ async function cleanup(phones) {
 describe('POST /appointments/walk-in — chronic_medications capture (D17)', () => {
   beforeAll(async () => {
     await cleanup([PHONE_STRUCTURED, PHONE_FREETEXT, PHONE_NONE]);
+    // Seed the receptionist user so the appointment_status_history
+    // INSERT (which carries the actor's user id under the FK
+    // `appt_status_hist_user_fk`) doesn't 23503 on the CI DB. We
+    // explicitly delete-then-insert to dodge any prior-run leak.
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM users WHERE uid = $1::uuid`,
+      RECEPTIONIST_UID,
+    ).catch(() => {});
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, '9700100011', 'D17 Receptionist', 'RECEPTIONIST', true, NOW())
+       RETURNING id`,
+      RECEPTIONIST_UID,
+    );
+    receptionistId = rows[0].id;
+    receptionistToken = generateTestToken('RECEPTIONIST', {
+      uid: RECEPTIONIST_UID, id: receptionistId,
+    });
   });
 
   afterAll(async () => {
     await cleanup([PHONE_STRUCTURED, PHONE_FREETEXT, PHONE_NONE]);
+    await prisma
+      .$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, RECEPTIONIST_UID)
+      .catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
 
