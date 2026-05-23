@@ -18,7 +18,11 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
   },
 }));
 
-const { detectCriticalsForResults, recordResultManual } = await import('../../services/lab/labResultsService.js');
+const {
+  detectCriticalsForResults,
+  recordResultManual,
+  listLabWorklist,
+} = await import('../../services/lab/labResultsService.js');
 
 describe('labResultsService critical detection', () => {
   beforeEach(() => {
@@ -227,5 +231,26 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
     const statusAdvance = executeRawUnsafeMock.mock.calls
       .find((args) => /UPDATE investigations/.test(args[0]));
     expect(statusAdvance).toBeUndefined();
+  });
+});
+
+describe('listLabWorklist STAT ordering (D45)', () => {
+  beforeEach(() => {
+    queryRawUnsafeMock.mockReset();
+    queryRawUnsafeMock.mockResolvedValue([]);
+  });
+
+  it('orders STAT/URGENT bucket NEWEST-first within priority bucket', async () => {
+    await listLabWorklist({ tenantId: '00000000-0000-4000-8000-000000000001' });
+    const sql = queryRawUnsafeMock.mock.calls[0][0];
+    // The STAT/URGENT branch sorts requested_at DESC so a fresh ER
+    // STAT troponin lands above a stale never-cancelled STAT row from
+    // a previous shift.
+    expect(sql).toMatch(/IN \('STAT', 'URGENT'\)[\s\S]*requested_at\s*\n?\s*END DESC NULLS LAST/);
+    // Non-STAT priority buckets keep oldest-first (fair FIFO) so
+    // routine work still drains in arrival order.
+    expect(sql).toMatch(/i\.requested_at ASC\s+LIMIT/);
+    // Priority bucket ordering is preserved (STAT/URGENT = 1).
+    expect(sql).toMatch(/WHEN 'STAT' THEN 1/);
   });
 });
