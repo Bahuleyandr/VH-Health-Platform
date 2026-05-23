@@ -799,20 +799,59 @@ export async function materialiseDischargeMedsAsPrescription({
     }
 
     // The section body is unstructured free text (one med per line in
-    // typical templates). Surface it verbatim as a single "medication"
-    // entry so the Rx tab card renders the body, and the patient can
-    // tap through to the discharge summary view for the full schedule.
+    // typical templates). Earlier code surfaced each line verbatim with
+    // a generic "See discharge summary for full schedule" instructions
+    // string, so the patient app's Rx tab rendered every takeaway med
+    // with the same useless boilerplate sentence and no dose/frequency.
+    // D71 fix: split each line into a name + structured instructions
+    // (dose / frequency / route / duration) so the Rx card actually
+    // tells the patient WHAT to take. The split heuristic is conservative:
+    //   * If the line matches `<name> <number...rest>` (a med name
+    //     followed by a digit-led dose), use the name and use the
+    //     remainder as instructions.
+    //   * Otherwise (no digits, all letters/parens), the whole line is
+    //     the name and instructions are left null — the patient app
+    //     will fall back to showing just the name, which is still
+    //     better than the generic boilerplate.
+    // Findings 2026-05-22-discharge-..._a175476a and ..._c221cd96.
     const sectionBody = String(medSection.body || '').trim();
     const lines = sectionBody
       .split(/\r?\n/)
       .map((l) => l.replace(/^[\s•\-*]+/, '').trim())
       .filter((l) => l.length > 0);
+
+    const splitMedLine = (line) => {
+      // Find the start of a dose-formed tail: <number><unit-letters>
+      // (e.g. 500mg, 60000 IU, 25 mg). The med name may itself contain
+      // digits ("Vitamin D3", "B12") so a plain "first digit" rule
+      // splits in the wrong place. The regex requires the dose number
+      // to be followed (with at most one whitespace + dot/digit run) by
+      // unit letters — "D3 " on its own (no unit) is NOT a dose, so
+      // "Vitamin D3" stays in the name and the actual dose tail starts
+      // at "60000 IU".
+      const m = line.match(/^(.+?)\s+(\d+(?:[\s.,]\d+)*\s*[a-zA-Zµ]+\b[\s\S]*)$/);
+      if (m && m[1].trim().length > 0) {
+        return {
+          name: m[1].trim().replace(/[:;,-]+$/, '').trim(),
+          instructions: m[2].trim(),
+        };
+      }
+      // Fallback: no dose pattern found (e.g. "Continue current home meds") —
+      // surface the whole line as the name with no instructions so the
+      // Rx card at least shows the line text rather than the generic
+      // "See discharge summary" string.
+      return { name: line, instructions: null };
+    };
+
     const medications = lines.length
-      ? lines.map((line) => ({
-          name: line,
-          instructions: 'See discharge summary for full schedule',
-          source: 'discharge_summary',
-        }))
+      ? lines.map((line) => {
+          const { name, instructions } = splitMedLine(line);
+          return {
+            name,
+            instructions,
+            source: 'discharge_summary',
+          };
+        })
       : [{
           name: medSection.section_title || 'Discharge medications',
           instructions: sectionBody,
