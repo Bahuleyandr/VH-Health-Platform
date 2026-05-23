@@ -100,9 +100,26 @@ router.put('/:id/report', paramId(), validate, async (req, res, next) => {
 /**
  * E-8 — POST /radiology/:id/acquire
  * Mark order acquired (tech captures images). Body: { tech_name? }.
+ *
+ * Inner-RBAC: the mount in app.js allows ADMIN/SUPER_ADMIN/DOCTOR/
+ * NURSING_STAFF/RADIOLOGY_STAFF for the whole module (so doctors can
+ * read the worklist + reports). But ACQUISITION is medico-legal — the
+ * record of who physically captured the image and under whose license
+ * must be a radiology technologist. Otherwise an ADMIN token could
+ * mark a STAT CT acquired under a non-tech identity with no license
+ * number recorded (the literal finding). Restrict the inner action.
+ * Finding: 2026-05-22-dynamic-acute-abdomen-radiology-tech-b90c70d2.
  */
+const ACQUIRE_ALLOWED_ROLES = new Set(['RADIOLOGY_STAFF']);
 router.post('/:id/acquire', paramId(), validate, async (req, res, next) => {
   try {
+    if (!ACQUIRE_ALLOWED_ROLES.has(req.user?.role)) {
+      return error(
+        res,
+        'Only a radiology technologist may mark a study acquired (medico-legal traceability)',
+        403,
+      );
+    }
     const result = await radiologyService.markAcquired(parseInt(req.params.id, 10), {
       tech_uid: req.user?.uid,
       tech_name: req.body.tech_name || req.user?.name,
