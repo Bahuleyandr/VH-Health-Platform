@@ -445,6 +445,41 @@ export async function recordResultManual({ tenantId, performed_by, result }) {
   sanitised.investigation_id = Number.isFinite(resolvedInvestigationId)
     ? resolvedInvestigationId : null;
 
+  // Guard against duplicate-analyte submission after sign-off. If a
+  // verified row for the same (investigation_id, test_code) already
+  // exists, a second preliminary submit lands in the pathologist
+  // pending queue as a stale/contradictory value — the pathologist
+  // queue then risks signing a duplicate (HGB twice for the same CBC),
+  // and the patient's phone-report walk-in flow sees two values for
+  // one analyte. Force the caller into the explicit corrected/re-run
+  // workflow instead. Pre-resolve `test_code` to upper so a casing
+  // variant doesn't slip past. Finding:
+  // 2026-05-23-lab-walk-in-lab-tech-a5accf7a.
+  if (sanitised.investigation_id != null && sanitised.test_code) {
+    const dupRows = await prisma.$queryRawUnsafe(
+      `SELECT id, status, value_text
+         FROM lab_results
+        WHERE investigation_id = $1::int
+          AND UPPER(test_code) = UPPER($2)
+          AND status IN ('final', 'corrected', 'verified', 'amended')
+        ORDER BY id DESC
+        LIMIT 1`,
+      sanitised.investigation_id, sanitised.test_code,
+    );
+    if (dupRows.length > 0) {
+      throw AppError.conflict(
+        `Investigation ${sanitised.investigation_id} already has a verified ${sanitised.test_code} result (id=${dupRows[0].id}, value="${dupRows[0].value_text ?? ''}"). Use the corrected-result workflow to amend or re-issue instead of submitting a duplicate preliminary entry.`,
+        'LAB_RESULT_DUPLICATE_ANALYTE',
+        {
+          investigation_id: sanitised.investigation_id,
+          test_code: sanitised.test_code,
+          existing_result_id: dupRows[0].id,
+          existing_status: dupRows[0].status,
+        },
+      );
+    }
+  }
+
   const values = fields.map((f) => sanitised[f] ?? null);
   values.push(numeric, performed_by ? String(performed_by) : null, tenantId);
 
