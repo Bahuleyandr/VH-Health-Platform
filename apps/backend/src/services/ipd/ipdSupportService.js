@@ -343,13 +343,64 @@ export async function refundAdvanceDeposit({
 /**
  * Sum all deposits + refunds against an admission. Used by the discharge
  * cascade / final bill to compute net advance available.
+ *
+ * D61 — Deferred admission advances. `billing_advances` accepts rows
+ * with `admission_id = NULL` so the cashier can collect an advance at
+ * booking-time (before the admission row exists). Once the patient is
+ * admitted, that deposit should count against the admission's balance,
+ * but historically `getAdmissionDepositBalance` only summed
+ * `advance_deposits` (admission-linked only) and showed zero. The
+ * discharge cashier then asked the patient to pay AGAIN.
+ *
+ * Sum surfaces both:
+ *   (a) `advance_deposits` rows linked to this admission.
+ *   (b) `billing_advances` rows linked to this admission directly OR
+ *       to the same patient but unlinked (admission_id IS NULL),
+ *       collected on/before the admitted_at timestamp.
+ * Finding 2026-05-22-..._ac0e6a1e.
  */
 export async function getAdmissionDepositBalance(admissionId) {
-  const agg = await prisma.advance_deposits.aggregate({
+  if (!admissionId) return 0;
+
+  // Advance-deposits is the canonical admission-linked surface
+  // (receipt_number + parent_deposit_id chains for refunds).
+  const adAgg = await prisma.advance_deposits.aggregate({
     where: { admission_id: admissionId },
     _sum: { amount: true },
   });
-  return Number(agg._sum.amount ?? 0);
+  const advanceDepositsTotal = Number(adAgg._sum.amount ?? 0);
+
+  // billing_advances may carry a deferred (pre-admission) deposit on
+  // the same patient. Mirror it in if the deposit window precedes the
+  // admit. Falls back to a 0 contribution if the admission row or the
+  // table is missing — net of (admission-linked + pre-admit-deferred).
+  let billingAdvancesTotal = 0;
+  try {
+    const baRows = await prisma.$queryRawUnsafe(
+      `SELECT COALESCE(SUM(ba.amount), 0)::numeric AS total
+         FROM billing_advances ba
+         JOIN admissions a ON a.id = $1::int
+        WHERE COALESCE(ba.status, 'ACTIVE') <> 'CANCELLED'
+          AND (
+            ba.admission_id = $1::int
+            OR (
+              ba.admission_id IS NULL
+              AND ba.patient_uid = a.patient_uid
+              AND ba.collected_at <= COALESCE(a.admitted_at, a.created_at)
+            )
+          )`,
+      Number(admissionId),
+    );
+    billingAdvancesTotal = Number(baRows[0]?.total ?? 0);
+  } catch (err) {
+    // Under-migrated tenants or transient query failure — log and fall
+    // back to the canonical advance_deposits-only total. Never fail
+    // closed on a balance lookup; the cashier needs a number even if
+    // the deferred-mirror table is missing.
+    logger.warn(`getAdmissionDepositBalance: billing_advances mirror lookup failed for admission=${admissionId}: ${err.message}`);
+  }
+
+  return advanceDepositsTotal + billingAdvancesTotal;
 }
 
 export async function listAdmissionDeposits(admissionId) {
