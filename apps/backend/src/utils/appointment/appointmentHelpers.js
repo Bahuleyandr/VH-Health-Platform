@@ -48,6 +48,27 @@ export const checkAppointmentPermission = (user, appointment, action) => {
     return ['view', 'update', 'cancel'].includes(action);
   }
 
+  // ER read-access shim. Emergency walk-ins arrive with `doctor_id=null`
+  // (the consultant only claims/assigns at triage), but the rest of the
+  // ER workflow already lets the treating doctor write notes + orders
+  // on the same encounter via different RBAC paths. Without this branch,
+  // the doctor could write but couldn't READ the appointment shell — they
+  // had to fall back to admin creds to verify their own
+  // advised_for_admission queue state. Strictly read-only: claim must
+  // happen before update/cancel. Fires only when `doctor_id` is
+  // unassigned AND the appointment is department/visit-type emergency,
+  // so an unrelated specialty appointment with a null doctor_id
+  // (transient pre-confirmation state) stays gated.
+  // Finding: 2026-05-23-emergency-walk-in-doctor-70bf7587.
+  if (user.role === 'DOCTOR'
+      && action === 'view'
+      && (appointment.doctor_id == null || appointment.doctor_id === '')) {
+    const isEmergency =
+      appointment.visit_type === 'EMERGENCY'
+      || /emergency/i.test(String(appointment.department ?? ''));
+    if (isEmergency) return true;
+  }
+
   // Patient can view, update, and cancel their own appointments
   if (user.role === 'PATIENT' && String(appointment.patient_id) === String(user.id)) {
     return ['view', 'update', 'cancel'].includes(action);
