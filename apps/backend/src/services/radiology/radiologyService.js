@@ -343,6 +343,69 @@ class RadiologyService {
     return result[0];
   }
 
+  // D50 — Addendum to a signed radiology report. Once a report is
+  // signed off, the original blob is medico-legally immutable
+  // (submitReport above refuses overwrites). The fix path is an
+  // addendum: append a clearly-labelled new section to the report
+  // text with the addendum author + timestamp, leaving the original
+  // sign-off metadata untouched. Each addendum is also written to
+  // audit_logs so the addendum chain can be reconstructed even if a
+  // later edit overwrites the text blob.
+  // Finding 42f9bdb5.
+  async appendReportAddendum(id, { addendum, addendum_by }) {
+    if (!addendum || typeof addendum !== 'string' || !addendum.trim()) {
+      throw AppError.badRequest('addendum text is required');
+    }
+    if (!addendum_by) throw AppError.badRequest('addendum_by is required');
+    const existing = await prisma.$queryRawUnsafe(
+      `SELECT id, status, report, report_signed_off_at
+         FROM radiology_orders WHERE id = $1`, requireIntId(id));
+    if (existing.length === 0) throw AppError.notFound('Radiology order not found');
+    if (existing[0].status === 'cancelled') {
+      throw AppError.badRequest('Cannot append addendum to a cancelled order');
+    }
+    if (!existing[0].report_signed_off_at) {
+      // Addenda only make sense AFTER sign-off. Before sign-off the
+      // caller should just use submitReport to overwrite the draft.
+      throw AppError.badRequest(
+        'Addendum is for amending a signed report. The report is not signed off yet — use submitReport to revise the draft.',
+        'REPORT_NOT_SIGNED_OFF',
+      );
+    }
+    const cleanAddendum = String(addendum).trim();
+    const stampedAddendum = `\n\n--- Addendum (${new Date().toISOString()} by ${addendum_by}) ---\n${cleanAddendum}`;
+    const baseReport = existing[0].report || '';
+    const newReport = `${baseReport}${stampedAddendum}`;
+
+    const result = await prisma.$queryRawUnsafe(
+      `UPDATE radiology_orders
+          SET report = $1, updated_at = NOW()
+        WHERE id = $2
+        RETURNING ${RAD_RETURNING}`,
+      newReport, requireIntId(id),
+    );
+
+    // Best-effort audit row — addendum chain reconstruction works even
+    // if the report blob is later edited.
+    try {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO audit_logs
+           (uid, action, resource, resource_id, metadata, ip_address)
+         VALUES ($1::uuid, 'RADIOLOGY_REPORT_ADDENDUM', 'radiology_order', $2, $3::jsonb, NULL)`,
+        String(addendum_by), String(id),
+        JSON.stringify({
+          radiology_order_id: id,
+          addendum_text: cleanAddendum.slice(0, 4000),
+          appended_at: new Date().toISOString(),
+        }),
+      );
+    } catch (auditErr) {
+      logger.warn(`appendReportAddendum: audit log write failed for order=${id}: ${auditErr.message}`);
+    }
+    logger.info('Radiology report addendum appended', { orderId: id, addendum_by });
+    return result[0];
+  }
+
   // E-8 — radiologist sign-off lock. After signoff, the report is
   // medico-legally immutable. submitReport refuses overwrites once
   // report_signed_off_at is set.
