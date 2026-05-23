@@ -205,6 +205,14 @@ const VITAL_SELECT = {
   supplemental_o2: true,
   o2_flow_rate: true,
   consciousness: true,
+  // POST writes triage_acuity (via `propagateTriageAcuity`'s sibling
+  // UPDATE at line 498) so getLatestVitals / getVitalsChart must echo it
+  // back — otherwise the next clinician sees the acuity as null on the
+  // vitals row even though the in-memory POST response showed it set,
+  // producing a dangerous split-brain (nurse charts ATS-2 acuity for
+  // chest pain; later doctor reads vitals and sees no acuity).
+  // Finding: 2026-05-22-emergency-walk-in-nurse-009ad565.
+  triage_acuity: true,
   // OB-specific fields added in migration 169. See finding
   // 2026-05-08-obstetric-anc-nurse-no-fhr-fundal-fields.
   fhr: true,
