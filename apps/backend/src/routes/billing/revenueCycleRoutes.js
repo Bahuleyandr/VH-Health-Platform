@@ -175,13 +175,28 @@ router.get('/ar-aging', async (req, res) => {
           COALESCE(bi.amount_due, bi.total_amount - COALESCE(bi.amount_paid, 0))::numeric AS outstanding,
           GREATEST(CURRENT_DATE - COALESCE(bi.issued_at::date, bi.created_at::date), 0) AS age_days,
           bi.issued_at,
-          p.display_name AS insurer_name,
-          tc.claim_number AS claim_reference
+          tc_one.insurer_name,
+          tc_one.claim_reference
         FROM billing_invoices bi
         LEFT JOIN users u ON u.uid = bi.patient_uid
-        LEFT JOIN tpa_claims tc ON tc.invoice_id = bi.id
-        LEFT JOIN insurance_policies ipol ON ipol.id = tc.policy_id
-        LEFT JOIN payers p ON p.id = ipol.payer_id
+        -- D21: Multiple tpa_claims pointing at the same invoice
+        -- (initial + enhancement chain, or a re-filed claim) used to
+        -- cartesian-multiply this row, inflating invoice_count and
+        -- total_outstanding in the aggregations below. Collapse to
+        -- one row per invoice by picking the LATEST tpa_claims row
+        -- (highest id), and join policy/payer off that single row.
+        -- Findings 8131f896 + 9c28990d.
+        LEFT JOIN LATERAL (
+          SELECT
+            tc.claim_number AS claim_reference,
+            p.display_name AS insurer_name
+          FROM tpa_claims tc
+          LEFT JOIN insurance_policies ipol ON ipol.id = tc.policy_id
+          LEFT JOIN payers p ON p.id = ipol.payer_id
+          WHERE tc.invoice_id = bi.id
+          ORDER BY tc.id DESC
+          LIMIT 1
+        ) tc_one ON TRUE
         WHERE bi.status IN ('ISSUED', 'PARTIAL')
           AND bi.voided_at IS NULL
           AND COALESCE(bi.amount_due, bi.total_amount - COALESCE(bi.amount_paid, 0)) > 0
