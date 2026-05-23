@@ -97,12 +97,26 @@ router.post(
   '/transfer',
   requireClinicalForBedMovement,
   wrapAsync(async (req, res) => {
-    const { patient_uid, to_bed_id, reason } = req.body;
+    const {
+      patient_uid, to_bed_id, reason,
+      // D34 — Operator (cashier / admission-counter) must surface a
+      // class-change consent to the patient before re-tariffing
+      // general → private / deluxe. Pass the consent flag through to
+      // the service which will 400 with BED_TRANSFER_CLASS_CHANGE_UNACKNOWLEDGED
+      // for unacknowledged upgrades. Accept both snake_case and
+      // camelCase from the staff app.
+      acknowledge_class_change, acknowledgeClassChange,
+    } = req.body;
     const transferredBy = req.user?.uid || null;
 
     if (!patient_uid || !to_bed_id) {
       return error(res, 'patient_uid and to_bed_id are required', HTTP_STATUS.BAD_REQUEST);
     }
+
+    const ackFlag = acknowledge_class_change === true
+      || acknowledgeClassChange === true
+      || acknowledge_class_change === 'true'
+      || acknowledgeClassChange === 'true';
 
     const result = await bedManagementService.transferPatient(
       patient_uid,
@@ -110,6 +124,7 @@ router.post(
       reason || null,
       transferredBy,
       req.user?.role || null,
+      { acknowledgeClassChange: ackFlag },
     );
     success(res, result, 'Patient transferred');
   })
