@@ -30,7 +30,7 @@ describe('admission bed_number back-fill (c52e8649 + b92372d9)', () => {
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM bed_transfers WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE uid = $1::uuid`, DOCTOR_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`UPDATE beds SET status = 'available', patient_id = NULL, patient_name = NULL, patient_uid = NULL, admission_id = NULL, admitted_at = NULL, assigned_at = NULL WHERE bed_number = 'TEST-BED-BACKFILL-001'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`UPDATE beds SET status = 'available', patient_id = NULL, patient_name = NULL, patient_uid = NULL, admission_id = NULL, admitted_at = NULL, assigned_at = NULL WHERE bed_number = 'TEST-BACKFILL-01'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DOCTOR_UID).catch(() => {});
 
@@ -43,9 +43,20 @@ describe('admission bed_number back-fill (c52e8649 + b92372d9)', () => {
        VALUES ($1::uuid, '9000550061', 'Dr. Bed Backfill', 'DOCTOR', true, NOW())`,
       DOCTOR_UID);
 
+    // Treatment consent is a precondition for admitPatient (the service
+    // throws AppError.forbidden('Active treatment consent required …')
+    // otherwise). Seed an active grant so the admit path under test
+    // actually reaches the bed-allocation block we're verifying.
+    await prisma.$executeRawUnsafe(`DELETE FROM patient_consents WHERE patient_uid = $1::uuid AND consent_type = 'treatment'`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO patient_consents
+         (patient_uid, consent_type, granted, status, granted_at, source, version)
+       VALUES ($1::uuid, 'treatment', true, 'active', NOW(), 'test', 'v1')`,
+      PATIENT_UID);
+
     // Reuse an existing TEST bed if present (idempotent across test runs).
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id FROM beds WHERE bed_number = 'TEST-BED-BACKFILL-001' LIMIT 1`,
+      `SELECT id FROM beds WHERE bed_number = 'TEST-BACKFILL-01' LIMIT 1`,
     );
     if (existing.length) {
       bedId = existing[0].id;
@@ -53,7 +64,7 @@ describe('admission bed_number back-fill (c52e8649 + b92372d9)', () => {
     } else {
       const created = await prisma.$queryRawUnsafe(
         `INSERT INTO beds (bed_number, status, bed_type, created_at, updated_at)
-         VALUES ('TEST-BED-BACKFILL-001', 'available', 'general', NOW(), NOW())
+         VALUES ('TEST-BACKFILL-01', 'available', 'general', NOW(), NOW())
          RETURNING id`,
       );
       bedId = created[0].id;
@@ -68,6 +79,7 @@ describe('admission bed_number back-fill (c52e8649 + b92372d9)', () => {
     if (bedId) {
       await prisma.$executeRawUnsafe(`UPDATE beds SET status = 'available', patient_id = NULL, patient_name = NULL, patient_uid = NULL, admission_id = NULL, admitted_at = NULL, assigned_at = NULL WHERE id = $1::int`, bedId).catch(() => {});
     }
+    await prisma.$executeRawUnsafe(`DELETE FROM patient_consents WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DOCTOR_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
@@ -88,7 +100,7 @@ describe('admission bed_number back-fill (c52e8649 + b92372d9)', () => {
 
     // The function returns the in-memory mutated admission shape.
     expect(result.bed_id).toBe(bedId);
-    expect(result.bed_number).toBe('TEST-BED-BACKFILL-001');
+    expect(result.bed_number).toBe('TEST-BACKFILL-01');
 
     // Verify the DB row too — not just the in-memory mutation.
     const rows = await prisma.$queryRawUnsafe(
@@ -96,7 +108,7 @@ describe('admission bed_number back-fill (c52e8649 + b92372d9)', () => {
       result.id,
     );
     expect(rows[0].bed_id).toBe(bedId);
-    expect(rows[0].bed_number).toBe('TEST-BED-BACKFILL-001');
+    expect(rows[0].bed_number).toBe('TEST-BACKFILL-01');
   });
 
   it('getAdmissionDetail surfaces bed_number for the same admission', async () => {
@@ -104,6 +116,6 @@ describe('admission bed_number back-fill (c52e8649 + b92372d9)', () => {
     const detail = await admissionService.getAdmissionDetail(createdAdmissionIds[0]);
     expect(detail).toBeTruthy();
     expect(detail.bed_id).toBe(bedId);
-    expect(detail.bed_number).toBe('TEST-BED-BACKFILL-001');
+    expect(detail.bed_number).toBe('TEST-BACKFILL-01');
   });
 });
