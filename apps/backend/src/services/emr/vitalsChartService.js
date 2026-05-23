@@ -28,19 +28,6 @@ const VITAL_CORRECTION_FIELDS = [
   'consciousness', 'notes', 'fhr', 'fundal_height_cm',
 ];
 
-// Parse an encounter id that may arrive as int (POST body) or string (GET query).
-// Returns null for empty/undefined, throws 400 for non-numeric strings so the caller
-// gets a clean validation error instead of a Prisma 500.
-function toEncounterIdInt(raw) {
-  if (raw === null || raw === undefined || raw === '') return null;
-  if (typeof raw === 'number' && Number.isInteger(raw)) return raw;
-  const n = Number.parseInt(String(raw), 10);
-  if (!Number.isInteger(n)) {
-    throw AppError.badRequest('encounterId must be an integer');
-  }
-  return n;
-}
-
 // Urine dipstick (migration 211). Five-step scale used on both the
 // vitals_chart entry and the ANC visit composer. Stored as plain text
 // so the strip-reader UI can round-trip the value without an enum

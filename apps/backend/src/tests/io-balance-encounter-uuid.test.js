@@ -14,7 +14,7 @@
 // same encounter handle round-trips cleanly.
 
 import prisma from '../lib/prisma.js';
-import vitalsChartService from '../services/emr/vitalsChartService.js';
+import { recordIntakeOutput, getIOBalance, getIOChart } from '../services/emr/vitalsChartService.js';
 
 const PATIENT_UID = 'c9999999-9999-4999-8999-bbbbbbbb5d90';
 const RECORDER_UID = 'c9999999-9999-4999-8999-bbbbbbbb5d91';
@@ -24,7 +24,7 @@ const ENCOUNTER_INT = 999999;
 const TODAY = new Date().toISOString().slice(0, 10);
 
 async function seedIntakeOutput({ encounterArg, io_type, amount_ml, category }) {
-  return vitalsChartService.recordIntakeOutput({
+  return recordIntakeOutput({
     patient_uid: PATIENT_UID,
     encounter_id: encounterArg,   // routes to encounter_id (int) OR encounter_uid (uuid) inside the service
     io_type,
@@ -67,7 +67,7 @@ describe('I/O balance + chart — encounter UUID round-trips (d94bba9f)', () => 
   });
 
   it('getIOBalance accepts the admission encounter UUID written at bedside (the repro)', async () => {
-    const bal = await vitalsChartService.getIOBalance(PATIENT_UID, ENCOUNTER_UUID_A, TODAY);
+    const bal = await getIOBalance(PATIENT_UID, ENCOUNTER_UUID_A, TODAY);
     expect(bal.total_intake).toBe(200);
     expect(bal.total_output).toBe(50);
     expect(bal.balance).toBe(150);
@@ -75,7 +75,7 @@ describe('I/O balance + chart — encounter UUID round-trips (d94bba9f)', () => 
   });
 
   it('getIOBalance does NOT bleed in rows from a different encounter UUID', async () => {
-    const bal = await vitalsChartService.getIOBalance(PATIENT_UID, ENCOUNTER_UUID_B, TODAY);
+    const bal = await getIOBalance(PATIENT_UID, ENCOUNTER_UUID_B, TODAY);
     expect(bal.total_intake).toBe(300);
     expect(bal.total_output).toBe(0);
     expect(bal.balance).toBe(300);
@@ -83,14 +83,14 @@ describe('I/O balance + chart — encounter UUID round-trips (d94bba9f)', () => 
   });
 
   it('getIOBalance still accepts a legacy integer encounter_id (backward compat)', async () => {
-    const bal = await vitalsChartService.getIOBalance(PATIENT_UID, String(ENCOUNTER_INT), TODAY);
+    const bal = await getIOBalance(PATIENT_UID, String(ENCOUNTER_INT), TODAY);
     expect(bal.total_intake).toBe(80);
     expect(bal.balance).toBe(80);
     expect(bal.entries.length).toBe(1);
   });
 
   it('getIOBalance returns the union across encounters when no encounter filter is supplied', async () => {
-    const bal = await vitalsChartService.getIOBalance(PATIENT_UID, null, TODAY);
+    const bal = await getIOBalance(PATIENT_UID, null, TODAY);
     expect(bal.total_intake).toBe(200 + 300 + 80);
     expect(bal.total_output).toBe(50);
     expect(bal.balance).toBe(530);
@@ -99,16 +99,16 @@ describe('I/O balance + chart — encounter UUID round-trips (d94bba9f)', () => 
 
   it('getIOBalance still rejects garbage encounter input (regression boundary)', async () => {
     await expect(
-      vitalsChartService.getIOBalance(PATIENT_UID, 'not-an-id', TODAY),
+      getIOBalance(PATIENT_UID, 'not-an-id', TODAY),
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it('getIOChart mirrors the same uuid-vs-int routing as the balance endpoint', async () => {
-    const chartA = await vitalsChartService.getIOChart(PATIENT_UID, ENCOUNTER_UUID_A, null, null);
+    const chartA = await getIOChart(PATIENT_UID, ENCOUNTER_UUID_A, null, null);
     expect(chartA.length).toBe(2);
-    const chartB = await vitalsChartService.getIOChart(PATIENT_UID, ENCOUNTER_UUID_B, null, null);
+    const chartB = await getIOChart(PATIENT_UID, ENCOUNTER_UUID_B, null, null);
     expect(chartB.length).toBe(1);
-    const chartInt = await vitalsChartService.getIOChart(PATIENT_UID, String(ENCOUNTER_INT), null, null);
+    const chartInt = await getIOChart(PATIENT_UID, String(ENCOUNTER_INT), null, null);
     expect(chartInt.length).toBe(1);
   });
 });
