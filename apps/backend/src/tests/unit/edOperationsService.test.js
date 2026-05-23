@@ -154,6 +154,30 @@ describe('listEmergencyVisits', () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "emergency_visits" does not exist'));
     expect(await listEmergencyVisits({ tenantId: TENANT })).toEqual({ visits: [], count: 0 });
   });
+
+  // Regression — D46 (finding ff98a21a). Untriaged arrivals (NULL
+  // triage_priority) used to be ranked at the bottom (rank 9) so on
+  // a busy ED with > DEFAULT_LIST_LIMIT (50) visits, the patient who
+  // just walked in was invisibly paginated off the screen. The fix
+  // moves NULL triage_priority into an "untriaged" bucket that sorts
+  // FIRST, with oldest-arrival inside the bucket.
+  it('orders untriaged arrivals (NULL priority) FIRST and oldest-arrival first within the bucket', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([]);
+    await listEmergencyVisits({ tenantId: TENANT, openOnly: true });
+    const sql = queryUnsafeMock.mock.calls[0][0];
+    // The untriaged bucket comes first in the ORDER BY chain.
+    expect(sql).toMatch(/triage_priority IS NULL THEN 1 ELSE 2 END[\s\S]*ASC/);
+    // Within the untriaged bucket, oldest arrival_at first so the
+    // longest-waiting unassessed patient surfaces immediately.
+    expect(sql).toMatch(/CASE WHEN triage_priority IS NULL THEN arrival_at END ASC/);
+    // Triaged visits keep their existing rank-then-arrival_at DESC
+    // ordering for already-assessed patients (most recent within
+    // urgency bucket first).
+    expect(sql).toMatch(/arrival_at DESC/);
+    // The CASE for triaged ranks no longer assigns NULL → 9 (the old
+    // "bottom" rank) — the bucket-separation handles NULL ordering.
+    expect(sql).not.toMatch(/triage_priority[\s\S]*ELSE 9 END ASC, arrival_at DESC\s+LIMIT/);
+  });
 });
 
 // ---------------------------------------------------------------------------

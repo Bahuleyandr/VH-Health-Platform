@@ -348,24 +348,41 @@ export async function listEmergencyVisits({
     filters.push(`is_mlc = $${params.length}`);
   }
   const safeLimit = normalizeLimit(limit);
-  // Order by clinical urgency first (ATS-1 / CTAS-1 / ESI-1 / Manchester-red
-  // = rank 1, most urgent) and arrival_at second so a critical patient who
-  // walked in 10 minutes ago beats a CTAS-4 patient who arrived two
-  // minutes ago. NULL priority is treated as the lowest urgency so
-  // not-yet-triaged visits stay at the bottom of the queue. Finding:
-  // 2026-05-09-emergency-walk-in-nurse-triage-priority-no-queue-effect.
+  // Order: untriaged arrivals (NULL triage_priority) FIRST so the
+  // triage nurse sees them at the top of the queue and can assign an
+  // ESI/CTAS/ATS level. Within the untriaged bucket, oldest-arrival
+  // first — the patient who's been waiting longest needs triage most
+  // urgently. Then triaged visits by clinical urgency (rank 1 =
+  // ATS-1 / CTAS-1 / ESI-1 / Manchester-red) and arrival_at DESC so
+  // a critical patient who walked in 10 minutes ago beats a CTAS-4
+  // patient who arrived two minutes ago. Previously NULL priority
+  // was pushed to the BOTTOM (rank 9) so with the default 50-row
+  // limit a busy ED's untriaged arrivals were invisibly paginated
+  // off — the triage nurse refreshed the screen and the patient who
+  // walked in 30 seconds ago wasn't on it. Findings:
+  //   2026-05-09-emergency-walk-in-nurse-triage-priority-no-queue-effect
+  //   2026-05-22-emergency-walk-in-receptionist-ff98a21a (this fix).
   const PRIORITY_RANK_SQL = `CASE triage_priority
-    WHEN 'esi_1' THEN 1 WHEN 'manchester_red' THEN 1 WHEN 'ctas_1' THEN 1 WHEN 'ats_1' THEN 1
-    WHEN 'esi_2' THEN 2 WHEN 'manchester_orange' THEN 2 WHEN 'ctas_2' THEN 2 WHEN 'ats_2' THEN 2
-    WHEN 'esi_3' THEN 3 WHEN 'manchester_yellow' THEN 3 WHEN 'ctas_3' THEN 3 WHEN 'ats_3' THEN 3
-    WHEN 'esi_4' THEN 4 WHEN 'manchester_green' THEN 4 WHEN 'ctas_4' THEN 4 WHEN 'ats_4' THEN 4
-    WHEN 'esi_5' THEN 5 WHEN 'manchester_blue' THEN 5 WHEN 'ctas_5' THEN 5 WHEN 'ats_5' THEN 5
+    WHEN 'esi_1' THEN 2 WHEN 'manchester_red' THEN 2 WHEN 'ctas_1' THEN 2 WHEN 'ats_1' THEN 2
+    WHEN 'esi_2' THEN 3 WHEN 'manchester_orange' THEN 3 WHEN 'ctas_2' THEN 3 WHEN 'ats_2' THEN 3
+    WHEN 'esi_3' THEN 4 WHEN 'manchester_yellow' THEN 4 WHEN 'ctas_3' THEN 4 WHEN 'ats_3' THEN 4
+    WHEN 'esi_4' THEN 5 WHEN 'manchester_green' THEN 5 WHEN 'ctas_4' THEN 5 WHEN 'ats_4' THEN 5
+    WHEN 'esi_5' THEN 6 WHEN 'manchester_blue' THEN 6 WHEN 'ctas_5' THEN 6 WHEN 'ats_5' THEN 6
     ELSE 9 END`;
+  // Bucket 1 = NOT yet triaged (urgent to surface to the triage nurse);
+  // bucket > 1 = already-triaged in clinical urgency order. The
+  // `triage_priority IS NULL` check is a separate ORDER BY term so a
+  // never-triaged visit doesn't get tucked under a freshly-arrived
+  // ESI-1 simply because it has the same rank in the CASE.
+  const UNTRIAGED_BUCKET_SQL = `CASE WHEN triage_priority IS NULL THEN 1 ELSE 2 END`;
   try {
     const rows = await prisma.$queryRawUnsafe(
       `SELECT ${VISIT_RETURNING} FROM emergency_visits
        WHERE ${filters.join(' AND ')}
-       ORDER BY ${PRIORITY_RANK_SQL} ASC, arrival_at DESC
+       ORDER BY ${UNTRIAGED_BUCKET_SQL} ASC,
+                ${PRIORITY_RANK_SQL} ASC,
+                CASE WHEN triage_priority IS NULL THEN arrival_at END ASC NULLS LAST,
+                arrival_at DESC
        LIMIT $${params.length + 1}`,
       ...params, safeLimit,
     );
