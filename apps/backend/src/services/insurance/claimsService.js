@@ -341,8 +341,22 @@ export async function chainTotalsFor({ tenantId, preauthId }) {
 }
 
 export async function getPreauth({ tenantId, id }) {
+  // Surface the canonical policy payer display-name (`payer_name`) by joining
+  // insurance_policies → payers. `recordPreauthResponse`'s payer-mismatch
+  // guard reads `pre.payer_name`; the pre-2026-05-23 SELECT only returned
+  // insurance_preauth columns, so `pre.payer_name` was always undefined and
+  // the guard silently short-circuited (e.g. NIA approval recorded on a Star
+  // Health-linked pre-auth). LEFT JOIN keeps free-text / pre-master policies
+  // (payer_id=NULL) permissive — the guard treats missing payer_name as
+  // "nothing authoritative to compare" and never throws.
+  // Findings: 2026-05-22-tpa-insurance-claim-billing-28284746 (parent),
+  // 2026-05-22-tpa-insurance-claim-billing-d961e4cf (enhancement).
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT * FROM insurance_preauth WHERE id = $1::int AND tenant_id = $2::uuid`,
+    `SELECT pre.*, pa.display_name AS payer_name
+       FROM insurance_preauth pre
+       LEFT JOIN insurance_policies pol ON pol.id = pre.policy_id
+       LEFT JOIN payers pa ON pa.id = pol.payer_id
+      WHERE pre.id = $1::int AND pre.tenant_id = $2::uuid`,
     Number(id), tenantId,
   );
   if (!rows.length) throw AppError.notFound('Pre-auth not found');
