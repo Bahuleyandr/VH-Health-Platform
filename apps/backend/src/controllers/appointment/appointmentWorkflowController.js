@@ -993,6 +993,43 @@ export const registerWalkIn = async (req, res) => {
       cutoff.setFullYear(cutoff.getFullYear() - 18);
       return dob > cutoff;
     })();
+
+    // D74 — Minor walk-in must carry the guardian's legal identifier
+    // (Aadhaar / PAN / passport / etc.) so the chart's legal-consent
+    // contact is verifiable. Pre-fix: a paediatric registration with
+    // `guardian_name` / `guardian_phone` / `guardian_relationship` set
+    // but no `guardian_id_type` + `guardian_id` could complete, and
+    // the minor's row went to the chart with an unverifiable consent
+    // proxy — breaking IRDAI cashless-claim KYC, MLC paperwork (when
+    // the minor escalates to ER), and the discharge-handover contact
+    // check. Only fires on a CREATE path (no `patient_id`) so updates
+    // to existing minor profiles still flow through the normal path
+    // and don't strand legacy rows. `guardian_user_id` (a self-FK to
+    // an existing adult users row) is an acceptable substitute — the
+    // legal ID lives on that adult row instead. Finding:
+    //   2026-05-22-pediatric-opd-receptionist-69db0787.
+    if (!patient_id && birthdayIndicatesMinor) {
+      const guardianIdRefRaw = guardian_id_reference || guardian_id;
+      const guardianIdRefPresent = Boolean(
+        guardianIdRefRaw && String(guardianIdRefRaw).trim().length > 0,
+      );
+      const guardianIdTypePresent = Boolean(
+        guardian_id_type && String(guardian_id_type).trim().length > 0,
+      );
+      const guardianUserIdPresent = Number.isFinite(parseInt(guardian_user_id, 10))
+        && parseInt(guardian_user_id, 10) > 0;
+      if (!guardianUserIdPresent && !(guardianIdTypePresent && guardianIdRefPresent)) {
+        return error(
+          res,
+          'Minor (<18) walk-in requires guardian legal ID: send '
+            + 'guardian_id_type (aadhaar / pan / passport / ...) AND '
+            + 'guardian_id (reference number), OR link to an existing '
+            + 'adult via guardian_user_id.',
+          HTTP_STATUS.BAD_REQUEST,
+          { code: 'MINOR_GUARDIAN_ID_REQUIRED' },
+        );
+      }
+    }
     // A minor being registered under the guardian's phone must NEVER merge
     // onto the guardian's patient row, even when the receptionist omitted DOB.
     // Triggers when EITHER signal fires:
