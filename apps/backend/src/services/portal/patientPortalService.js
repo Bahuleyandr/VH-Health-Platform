@@ -114,39 +114,52 @@ export async function listMyBills({ tenantId, patient_uid, status }) {
   // show alongside formal invoices; `source` discriminates the two so
   // the patient app can branch on tap. Finding
   // 2026-05-10-walk-in-opd-patient-bills-empty-despite-pending-pharmacy-charge.
+  // Postgres rule: in a UNION/UNION ALL query, `ORDER BY` can only
+  // reference result column names or positional indices — NOT
+  // expressions (0A000 "invalid ORDER BY clause / Only result column
+  // names can be used, not expressions or functions"). The previous
+  // `ORDER BY COALESCE(issued_at, created_at) DESC, id DESC` directly
+  // on the UNION tripped that rule and surfaced as a generic 500 on
+  // `GET /api/v1/portal/bills` — Priya's TPA discharge receipt was
+  // unreachable from the patient app, forcing staff follow-up.
+  // Wrap the UNION in a subquery so the COALESCE-expression order is
+  // legal on the outer SELECT. Finding:
+  // 2026-05-22-tpa-insurance-claim-patient-40651441.
   return prisma.$queryRawUnsafe(
-    `SELECT id, invoice_number, issued_at, created_at, invoice_type, status,
-            subtotal, cgst_amount, sgst_amount, igst_amount,
-            discount_amount, total_amount, amount_paid, amount_due,
-            'invoice' AS source
-       FROM billing_invoices
-      WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid${invoiceStatusClause}
-      UNION ALL
-     SELECT po.id, po.order_number AS invoice_number,
-            po.ordered_at::timestamptz AS issued_at,
-            po.created_at::timestamptz AS created_at,
-            'pharmacy_order' AS invoice_type,
-            po.payment_status AS status,
-            po.total_amount AS subtotal,
-            0::numeric AS cgst_amount, 0::numeric AS sgst_amount,
-            0::numeric AS igst_amount, 0::numeric AS discount_amount,
-            po.total_amount,
-            0::numeric AS amount_paid,
-            po.total_amount AS amount_due,
-            'pharmacy_order' AS source
-       FROM pharmacy_orders po
-       JOIN users u ON u.id = po.patient_id
-      WHERE u.uid = $2::uuid
-        AND po.total_amount > 0
-        AND LOWER(po.payment_status) NOT IN ('paid', 'waived', 'cancelled')
-        AND UPPER(po.status) <> 'CANCELLED'
-        AND NOT EXISTS (
-          SELECT 1 FROM billing_invoice_items bii
-           WHERE bii.source_ref_type = 'pharmacy_order'
-             AND bii.source_ref_id = po.id
-        )${pharmacyStatusClause}
-      ORDER BY COALESCE(issued_at, created_at) DESC, id DESC
-      LIMIT 200`,
+    `SELECT * FROM (
+       SELECT id, invoice_number, issued_at, created_at, invoice_type, status,
+              subtotal, cgst_amount, sgst_amount, igst_amount,
+              discount_amount, total_amount, amount_paid, amount_due,
+              'invoice' AS source
+         FROM billing_invoices
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid${invoiceStatusClause}
+        UNION ALL
+       SELECT po.id, po.order_number AS invoice_number,
+              po.ordered_at::timestamptz AS issued_at,
+              po.created_at::timestamptz AS created_at,
+              'pharmacy_order' AS invoice_type,
+              po.payment_status AS status,
+              po.total_amount AS subtotal,
+              0::numeric AS cgst_amount, 0::numeric AS sgst_amount,
+              0::numeric AS igst_amount, 0::numeric AS discount_amount,
+              po.total_amount,
+              0::numeric AS amount_paid,
+              po.total_amount AS amount_due,
+              'pharmacy_order' AS source
+         FROM pharmacy_orders po
+         JOIN users u ON u.id = po.patient_id
+        WHERE u.uid = $2::uuid
+          AND po.total_amount > 0
+          AND LOWER(po.payment_status) NOT IN ('paid', 'waived', 'cancelled')
+          AND UPPER(po.status) <> 'CANCELLED'
+          AND NOT EXISTS (
+            SELECT 1 FROM billing_invoice_items bii
+             WHERE bii.source_ref_type = 'pharmacy_order'
+               AND bii.source_ref_id = po.id
+          )${pharmacyStatusClause}
+     ) bills
+     ORDER BY COALESCE(issued_at, created_at) DESC, id DESC
+     LIMIT 200`,
     ...params,
   );
 }
