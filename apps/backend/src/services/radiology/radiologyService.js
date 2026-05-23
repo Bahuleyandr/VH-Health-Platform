@@ -54,6 +54,46 @@ function requireIntId(id) {
   return n;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Resolve the caller's `encounter_id` to the integer FK
+// `radiology_orders.encounter_id` expects. Three shapes accepted:
+//   - UUID matching `admissions.encounter_id` → admissions.id (IPD)
+//   - Integer (string or number) → passed through
+//   - Anything else / null / no admission match → null + warning
+// Exported for unit testing of the legacy / IPD / OPD / garbage paths
+// without driving the full createOrder pipeline.
+export async function resolveEncounterIdForRadiology(rawEncounterId, patientUid) {
+  if (rawEncounterId == null || rawEncounterId === '') return null;
+  const raw = String(rawEncounterId).trim();
+  if (UUID_RE.test(raw)) {
+    try {
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT id FROM admissions WHERE encounter_id = $1::uuid LIMIT 1`,
+        raw,
+      );
+      if (rows.length) return Number(rows[0].id);
+    } catch (e) {
+      logger.warn('Radiology order: admissions lookup failed for encounter_id uuid', {
+        encounter_id: raw, patient_uid: patientUid, err: e?.message ?? String(e),
+      });
+      return null;
+    }
+    logger.warn('Radiology order: encounter_id uuid did not match any admission; storing null', {
+      encounter_id: raw, patient_uid: patientUid,
+    });
+    return null;
+  }
+  if (/^-?\d+$/.test(raw)) {
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+  logger.warn('Radiology order: encounter_id is neither uuid nor integer; storing null', {
+    encounter_id: raw, patient_uid: patientUid,
+  });
+  return null;
+}
+
 class RadiologyService {
 
   async createOrder(data) {
@@ -88,13 +128,31 @@ class RadiologyService {
       );
     }
 
+    // Resolve encounter_id input shape. `radiology_orders.encounter_id` is
+    // INTEGER, but callers naturally pass the UUID surfaced on
+    // `admissions.encounter_id` (the canonical encounter handle exposed
+    // in admission detail). Passing the uuid straight through made
+    // Postgres reject it ("invalid input syntax for type integer") and
+    // the route returned a generic 500. Resolve uuid → admissions.id so
+    // an IPD STAT imaging order saves linked instead of forcing an
+    // orphan row (the doctor's only previous workaround). OPD/walk-in
+    // (no matching admission) and unparseable input fall back to null
+    // with a warning rather than 400-ing the order — the radiology
+    // worklist still needs the order in front of the radiologist.
+    // Findings: 2026-05-22-inpatient-admission-doctor-7ded987b,
+    // 2026-05-22-dynamic-acute-abdomen-doctor-449c93ec,
+    // 2026-05-22-inpatient-admission-doctor-a8d4e86f,
+    // 2026-05-23-inpatient-admission-doctor-2de6874d / -cdf1c658,
+    // 2026-05-23-dynamic-acute-abdomen-doctor-a69c2203.
+    const resolvedEncounterId = await resolveEncounterIdForRadiology(encounter_id, patient_uid);
+
     const result = await prisma.$queryRawUnsafe(
       `INSERT INTO radiology_orders
         (patient_uid, encounter_id, modality, body_part, clinical_indication,
          priority, status, ordered_by, notes, created_at, updated_at)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, 'ordered', $7::uuid, $8, NOW(), NOW())
+       VALUES ($1::uuid, $2::int, $3, $4, $5, $6, 'ordered', $7::uuid, $8, NOW(), NOW())
        RETURNING ${RAD_RETURNING}`,
-      patient_uid, encounter_id || null, modality, body_part, clinical_indication,
+      patient_uid, resolvedEncounterId, modality, body_part, clinical_indication,
       priority, ordered_by, notes || null
     );
 
