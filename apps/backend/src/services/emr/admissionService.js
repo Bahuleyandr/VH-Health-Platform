@@ -90,6 +90,65 @@ const ADMISSION_RETURNING_SELECT = {
   prior_admission_id: true,
 };
 
+// Doctor-role allowlist for admitting / attending validation. CONSULTANT
+// is the canonical attending role; JUNIOR_DOCTOR may admit under
+// supervision; ANAESTHETIST shows up as `attending_doctor` on
+// surgical/day-care admissions where the anaesthesia team is the
+// running primary. ADMIN/SUPER_ADMIN are excluded — neither can carry
+// clinical responsibility for the chart.
+const ADMISSION_DOCTOR_ROLES = new Set([
+  'DOCTOR',
+  'CONSULTANT',
+  'JUNIOR_DOCTOR',
+  'SENIOR_DOCTOR',
+  'ANAESTHETIST',
+]);
+
+// Validate that a UUID supplied as `admitting_doctor` or `attending_doctor`
+// names an active clinical-role user. Without this, the API silently
+// accepts any uuid (a patient/HR user, or a typo'd uuid that points
+// nowhere) and stamps it on the admission row — breaking the ward
+// roundup queue, the discharge-summary signer lookup, and TPA preauth
+// (treating-doctor declaration). Finding:
+//   2026-05-22-inpatient-admission-receptionist-06e43c24 / -7523da24.
+// Roleless validation (`admitting_doctor` only) returns the canonical
+// users.id so callers can stamp it on dependent rows (preauth, etc).
+async function assertDoctorUid(uid, fieldLabel) {
+  if (uid === undefined || uid === null || uid === '') return null;
+  const uidStr = String(uid).trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uidStr)) {
+    throw AppError.badRequest(
+      `${fieldLabel} must be a valid uuid (got "${uidStr.slice(0, 64)}")`,
+      'INVALID_DOCTOR_UID',
+    );
+  }
+  const row = await prisma.users.findUnique({
+    where: { uid: uidStr },
+    select: { id: true, role: true, is_active: true },
+  });
+  if (!row) {
+    throw AppError.badRequest(
+      `${fieldLabel} ${uidStr} does not match any user`,
+      'DOCTOR_UID_NOT_FOUND',
+    );
+  }
+  if (row.is_active === false) {
+    throw AppError.badRequest(
+      `${fieldLabel} ${uidStr} is inactive`,
+      'DOCTOR_UID_INACTIVE',
+    );
+  }
+  const role = String(row.role || '').toUpperCase();
+  if (!ADMISSION_DOCTOR_ROLES.has(role)) {
+    throw AppError.badRequest(
+      `${fieldLabel} ${uidStr} has role "${role}" — must be a clinical doctor role ` +
+        `(one of ${[...ADMISSION_DOCTOR_ROLES].join(', ')})`,
+      'DOCTOR_UID_ROLE_INVALID',
+    );
+  }
+  return { id: row.id, role };
+}
+
 // Map ESI/ATS triage acuity onto admissions.priority. Used when the admit
 // caller didn't pass `priority` explicitly but did link an ER visit.
 // Conservative mapping: anything resus/level-1/level-2 → emergent;
@@ -189,6 +248,21 @@ async function admitPatient(data) {
   if (!patient_uid) throw AppError.badRequest('patient_uid is required');
   if (!admitting_doctor) throw AppError.badRequest('admitting_doctor is required');
   if (!created_by) throw AppError.badRequest('created_by is required');
+
+  // Reject non-existent or non-clinical doctor UIDs before we lock the
+  // bed / mint the encounter / fire downstream best-effort writes. Both
+  // columns are uuid in the schema (admissions.admitting_doctor,
+  // .attending_doctor), but no FK enforces they reference an actual
+  // doctor; without this guard a typo'd uuid or a patient/HR user uid
+  // would be stamped on the admission and silently surface on the ward
+  // roundup queue + the discharge summary signer lookup. Attending is
+  // optional (carry-over from ER); admitting is required. Findings:
+  //   2026-05-22-inpatient-admission-receptionist-06e43c24
+  //   2026-05-22-inpatient-admission-receptionist-7523da24.
+  await assertDoctorUid(admitting_doctor, 'admitting_doctor');
+  if (attending_doctor) {
+    await assertDoctorUid(attending_doctor, 'attending_doctor');
+  }
   // Normalise admission_type case + common synonyms so callers passing
   // DAY_CARE / DAYCARE / Day-Care / daycare don't crash with
   // 'Invalid admission_type'. The admin walk-in dialog and external API
@@ -2391,6 +2465,13 @@ async function updateCodeStatus(admissionId, codeStatus, updatedBy) {
 async function updateAttendingDoctor(admissionId, doctorUid, updatedBy) {
   if (!doctorUid) throw AppError.badRequest('doctor_uid is required');
   if (!updatedBy) throw AppError.badRequest('updatedBy is required');
+
+  // Same clinical-role gate as the admit path. Without this PATCH
+  // /admissions/:id/attending-doctor silently replaces a real
+  // attending uid with any uuid — even a patient or HR user — and the
+  // discharge-summary signer lookup picks up the bad uid. Finding:
+  //   2026-05-22-inpatient-admission-receptionist-06e43c24.
+  await assertDoctorUid(doctorUid, 'doctor_uid');
 
   return prisma.$transaction(async (tx) => {
     // FOR UPDATE lock on admission row.
