@@ -294,6 +294,24 @@ router.get('/tpa/claims/:id', requirePatient, wrap(async (req) =>
   }),
 ));
 
+// D69 — Patient TPA claim documents. Read-only list of the document
+// metadata attached to a claim (and to its parent preauth, since the
+// hospital often uploads supporting scans against the preauth before
+// the claim is filed). Returns only patient-visible columns — no
+// staff uploaded_by uid, no internal review notes. The patient app
+// renders the list with the doc_type / file_name / size / timestamp;
+// downloads go through a separate signed-URL endpoint (TODO — gated
+// on R2 PHI-export ACL design; for now the metadata alone closes the
+// "I can't see what was submitted on my behalf" gap).
+// Findings: 95008441, 0a3e84c3.
+router.get('/tpa/claims/:id/documents', requirePatient, wrap(async (req) =>
+  portal.listMyClaimDocuments({
+    tenantId: tenantOf(req),
+    patient_uid: patientUidOf(req),
+    id: req.params.id,
+  }),
+));
+
 // ── Lab results ─────────────────────────────────────────────────────
 router.get('/lab-results', requirePatient, wrap(async (req) =>
   portal.listMyLabResults({
