@@ -44,8 +44,17 @@ function normalisePriority(raw) {
 // It does NOT have `findings`, `impression`, `images`, `reported_by`, `reported_at` —
 // an earlier service shape referenced those; we fold findings/impression into the
 // `report` text blob and keep `radiologist` as the reporter uuid.
+// `report_signed_off_at` + `report_signed_off_by` are the medico-legal
+// "this report is final" signal. The sign-off endpoint already writes
+// them, but every other read (`getOrderDetail`, `getWorklist`) used to
+// project this set WITHOUT the signature columns — so a treating
+// doctor reading the report couldn't tell a signed final report from
+// an unsigned completed draft. Re-included here so every read surface
+// exposes the signature state uniformly.
+// Finding: 2026-05-22-dynamic-acute-abdomen-radiologist-31d32cc1.
 const RAD_RETURNING = `id, patient_uid, encounter_id, modality, body_part, clinical_indication,
-    priority, status, ordered_by, radiologist, report, report_completed_at, notes,
+    priority, status, ordered_by, radiologist, report, report_completed_at,
+    report_signed_off_at, report_signed_off_by, notes,
     created_at, updated_at`;
 
 function requireIntId(id) {
@@ -197,7 +206,9 @@ class RadiologyService {
     const result = await prisma.$queryRawUnsafe(
       `SELECT ro.id, ro.patient_uid, ro.encounter_id, ro.modality, ro.body_part,
               ro.clinical_indication, ro.priority, ro.status, ro.ordered_by,
-              ro.radiologist, ro.report_completed_at, ro.notes, ro.created_at, ro.updated_at
+              ro.radiologist, ro.report_completed_at,
+              ro.report_signed_off_at, ro.report_signed_off_by,
+              ro.notes, ro.created_at, ro.updated_at
        FROM radiology_orders ro
        ${whereClause}
        ORDER BY
