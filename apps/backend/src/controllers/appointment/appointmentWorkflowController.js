@@ -1858,15 +1858,30 @@ export const adviseForAdmission = async (req, res) => {
     // NURSE / RECEPTIONIST / PATIENT through — fine for booking +
     // cancel, too permissive for "patient needs to be admitted". The
     // admission advice is the trigger for an IPD bed allocation, so
-    // restricting to DOCTOR + SUPER_ADMIN keeps the chain of clinical
-    // authority intact. ADMIN can also advise (super-admin override
-    // for ops desk edge cases) but not NURSE or RECEPTIONIST.
+    // restricting to consultant-tier clinicians keeps the chain of
+    // clinical authority intact. ADMIN/SUPER_ADMIN can also advise
+    // (ops-desk override for missed-by-clinician edge cases) but not
+    // NURSE or RECEPTIONIST.
+    //
+    // D37 — JUNIOR_DOCTOR was previously in this allowlist but Indian
+    // clinical practice (and the consultant-led admission discipline
+    // this hospital runs) does not let a junior independently advise
+    // admission — the consultant must sign. Drop JUNIOR_DOCTOR from
+    // the allowlist; junior doctors who want to advise must escalate
+    // to a CONSULTANT/SENIOR_DOCTOR who records the advice.
+    // Finding ee096dc7.
     const role = req.user?.role ?? null;
-    const ALLOWED_ROLES = new Set(['DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'ADMIN', 'SUPER_ADMIN']);
+    const ALLOWED_ROLES = new Set([
+      'DOCTOR', 'CONSULTANT', 'SENIOR_DOCTOR',
+      'ADMIN', 'SUPER_ADMIN',
+    ]);
     if (role && !ALLOWED_ROLES.has(role)) {
+      const msg = role === 'JUNIOR_DOCTOR'
+        ? 'Only a consultant-tier doctor or admin can advise admission. Junior doctors must escalate to a consultant who records the advice.'
+        : 'Only a doctor or admin can advise admission';
       return error(
         res,
-        'Only a doctor or admin can advise admission',
+        msg,
         HTTP_STATUS.FORBIDDEN,
         { code: 'ADVISE_ADMISSION_ROLE_REQUIRED' },
       );
