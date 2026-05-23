@@ -859,6 +859,7 @@ export async function getMyClaim({ tenantId, patient_uid, id }) {
   // what the TPA approved, plus any pre-disclosed non_payable amount.
   let invoiceLines = [];
   let invoiceTotal = 0;
+  let patientPayments = [];
   if (claim.invoice_id) {
     const lines = await prisma.$queryRawUnsafe(
       `SELECT category, SUM(line_total)::numeric AS total
@@ -870,6 +871,22 @@ export async function getMyClaim({ tenantId, patient_uid, id }) {
     );
     invoiceLines = lines;
     invoiceTotal = lines.reduce((sum, l) => sum + Number(l.total || 0), 0);
+
+    // Patient-portal labelling fix: the claim screen previously surfaced
+    // only `tpa_paid` (insurer → hospital settlement), which the patient
+    // app rendered as "You paid" even though the patient had paid
+    // nothing themselves. Pull the patient's own non-INSURANCE, non-
+    // reversed payments off the linked invoice so the patient-facing
+    // surface can distinguish "the insurer settled X" from "you paid Y"
+    // and can show a real payment receipt list as evidence.
+    // Finding 2026-05-22-discharge-tpa-patient-claim-paid-without-evidence-1a29da94.
+    patientPayments = await prisma.$queryRawUnsafe(
+      `SELECT id, amount, mode, reference, collected_at, reversed
+         FROM billing_payments
+        WHERE invoice_id = $1::int
+        ORDER BY collected_at DESC NULLS LAST, id DESC`,
+      Number(claim.invoice_id),
+    );
   }
 
   const totalBilled = Number(claim.total_billed || 0);
@@ -883,6 +900,17 @@ export async function getMyClaim({ tenantId, patient_uid, id }) {
     0,
     nonPayable + patientCopay + disallowedAmount +
       (disallowedAmount > 0 ? 0 : Math.max(0, claimedAmount - approvedAmount))
+  );
+
+  // Aggregate the patient's own payments off the invoice; INSURANCE-mode
+  // rows are the TPA settlement and must NOT count toward `patient_paid`.
+  const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const patientPaidTotal = patientPayments
+    .filter((p) => !p.reversed && String(p.mode || '').toUpperCase() !== 'INSURANCE')
+    .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+  const patientAmountDue = Math.max(
+    0,
+    round2(patientResponsibility - patientPaidTotal),
   );
 
   // Surface the recorded TPA correspondence so the patient can see WHY
@@ -926,8 +954,32 @@ export async function getMyClaim({ tenantId, patient_uid, id }) {
       non_payable: nonPayable,
       patient_copay: patientCopay,
       patient_responsibility: patientResponsibility,
+      // ── New patient-paid evidence (finding 1a29da94) ──
+      // `patient_paid` is the patient's own settled total (cash/UPI/card
+      // /netbanking — anything that isn't INSURANCE) on the linked
+      // invoice, excluding reversed entries. The patient app should
+      // label THIS as "You paid", not `tpa_paid`. `patient_amount_due`
+      // is the residual the patient still owes; both are zero when the
+      // claim has no linked invoice yet.
+      patient_paid: round2(patientPaidTotal),
+      patient_amount_due: patientAmountDue,
       currency: 'INR',
     },
+    // Per-payment evidence list backing `patient_paid` — the patient
+    // app can drop this directly under the "You paid" header so the
+    // amount is auditable per transaction (mode, reference, timestamp,
+    // reversal flag). Empty when no invoice is linked or no patient-
+    // mode payments have been collected.
+    patient_payments: patientPayments
+      .filter((p) => String(p.mode || '').toUpperCase() !== 'INSURANCE')
+      .map((p) => ({
+        id: p.id,
+        amount: round2(p.amount),
+        mode: p.mode,
+        reference: p.reference || null,
+        collected_at: p.collected_at,
+        reversed: Boolean(p.reversed),
+      })),
     correspondence,
     latest_insurer_message: latestInbound
       ? {
