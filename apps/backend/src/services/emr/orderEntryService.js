@@ -800,13 +800,57 @@ const ITEM_KIND_TO_ORDER_TYPE = {
 // on payload shape via order_type. A best-effort priority hint is
 // pulled from the payload's `urgency` ('stat'|'routine'|...) field —
 // the chest-pain bundle marks ECG/troponin as stat that way.
+//
+// D56 — Chest-pain order set items for ECG/X-ray/ECHO used to land
+// on the lab worklist because the seeded template gave them
+// `kind: 'lab'`. Investigations carry their modality on
+// `details.test_type` (CARDIOLOGY / RADIOLOGY / PULMONARY /
+// ENDOSCOPY), and `listLabWorklist` already EXCLUDES non-LAB types —
+// so the simplest fix is to infer the correct `test_type` from the
+// payload's test name/code/modality whenever the caller didn't set
+// it. Inference is intentionally conservative — if no recognisable
+// pattern fires we leave `test_type` alone so the existing default
+// ('LAB') still applies.
+const TEST_TYPE_INFERENCE = [
+  // Cardiology (ECG / EKG / 12-lead / treadmill / echo / cath).
+  { regex: /\b(ecg|ekg|electrocardiogram|12.?lead|treadmill|tmt|echo(cardiogram)?|holter|angiograph(y|ic)|cath\s+lab)\b/i, type: 'CARDIOLOGY' },
+  // Radiology (x-ray, CT, MRI, US, mammogram, fluoroscopy). The CT
+  // pattern matches as a whole word OR followed by a word-boundary
+  // (so "CT_HEAD" / "CT-CHEST" / "CT abdomen" all hit).
+  { regex: /\b(x.?ray|xray|cxr|chest\s+film|ct[_\-\s]|\bct\b|computed\s+tomograph|mri\b|magnetic\s+resonance|ultrasound|us\b|usg\b|sonograph|mammogram|fluoroscop)/i, type: 'RADIOLOGY' },
+  // Pulmonary (PFT / spirometry / DLCO / ABG).
+  { regex: /\b(pft|spirometry|dlco|peak\s+flow|abg|arterial\s+blood\s+gas)\b/i, type: 'PULMONARY' },
+  // Endoscopy (OGD / colonoscopy / bronchoscopy).
+  { regex: /\b(ogd|gastroscop|colonoscop|bronchoscop|cystoscop|endoscop|sigmoidoscop)/i, type: 'ENDOSCOPY' },
+];
+function inferTestType(payload) {
+  const haystack = [
+    payload.test_name, payload.test_code, payload.name,
+    payload.code, payload.modality, payload.investigation_type,
+  ].filter(Boolean).join(' ');
+  if (!haystack) return null;
+  for (const rule of TEST_TYPE_INFERENCE) {
+    if (rule.regex.test(haystack)) return rule.type;
+  }
+  return null;
+}
 function orderRequestFromItem(item, orderSetTitle) {
-  const payload = item.payload && typeof item.payload === 'object' ? item.payload : {};
+  const payload = item.payload && typeof item.payload === 'object'
+    ? { ...item.payload } : {};
   const priority = typeof payload.urgency === 'string' && VALID_PRIORITIES.includes(payload.urgency.toLowerCase())
     ? payload.urgency.toLowerCase()
     : (payload.prn ? 'prn' : 'routine');
+  // Stamp inferred test_type only when caller hasn't already set one,
+  // so explicitly-typed items always win.
+  const orderType = ITEM_KIND_TO_ORDER_TYPE[item.kind] || 'nursing';
+  if (orderType === 'investigation'
+      && !payload.test_type
+      && !payload.investigation_type) {
+    const inferred = inferTestType(payload);
+    if (inferred) payload.test_type = inferred;
+  }
   return {
-    order_type: ITEM_KIND_TO_ORDER_TYPE[item.kind] || 'nursing',
+    order_type: orderType,
     priority,
     details: payload,
     notes: `From order set: ${orderSetTitle}`,
@@ -1009,6 +1053,10 @@ export async function createOrderSet(data) {
   logger.info(`Order set created: id=${created.id}, name=${name}, category=${category}, by=${created_by}`);
   return created;
 }
+
+// Test-only export for unit-testing the per-item routing/inference logic
+// without spinning up the full prisma transaction surface.
+export const __test_orderRequestFromItem = orderRequestFromItem;
 
 export default {
   createOrder,
