@@ -226,9 +226,24 @@ export class DoctorService {
       // ?ageRange=paediatric returns paediatricians + 'all' doctors so a
       // paeds-OPD receptionist sees the right roster. Finding:
       // 2026-05-08-pediatric-opd-receptionist-doctor-list-no-age-filter.
+      // D73 — Pre-fix `COALESCE(d.age_range, 'all')` defaulted any
+      // doctor with NULL age_range to 'all', so the paediatric picker
+      // surfaced the entire adult-trained roster (most doctors don't
+      // explicitly set age_range — migration 189 added the column
+      // but didn't backfill, leaving everyone NULL). Defaulting NULL
+      // to 'adult' aligns with the historical hospital policy
+      // (adult-only is the default; paediatricians are a flagged
+      // specialty). Paediatric pickers now only see doctors with
+      // age_range IN ('paediatric','all'); adult pickers see
+      // ('adult','all'); all-picker sees everyone. Finding 37cf68ae.
       if (ageRange && ['paediatric', 'adult', 'all'].includes(ageRange)) {
-        params.push(ageRange);
-        where.push(`(COALESCE(d.age_range, 'all') = $${params.length} OR COALESCE(d.age_range, 'all') = 'all')`);
+        if (ageRange === 'all') {
+          // No-op — caller wants the full roster.
+        } else if (ageRange === 'paediatric') {
+          where.push(`COALESCE(d.age_range, 'adult') IN ('paediatric', 'all')`);
+        } else if (ageRange === 'adult') {
+          where.push(`COALESCE(d.age_range, 'adult') IN ('adult', 'all')`);
+        }
       }
 
       // Specialty filter — substring (case-insensitive) so callers can
@@ -313,9 +328,24 @@ export class DoctorService {
         where.push(`d.is_available = $${params.length}`);
       }
 
+      // D73 — Pre-fix `COALESCE(d.age_range, 'all')` defaulted any
+      // doctor with NULL age_range to 'all', so the paediatric picker
+      // surfaced the entire adult-trained roster (most doctors don't
+      // explicitly set age_range — migration 189 added the column
+      // but didn't backfill, leaving everyone NULL). Defaulting NULL
+      // to 'adult' aligns with the historical hospital policy
+      // (adult-only is the default; paediatricians are a flagged
+      // specialty). Paediatric pickers now only see doctors with
+      // age_range IN ('paediatric','all'); adult pickers see
+      // ('adult','all'); all-picker sees everyone. Finding 37cf68ae.
       if (ageRange && ['paediatric', 'adult', 'all'].includes(ageRange)) {
-        params.push(ageRange);
-        where.push(`(COALESCE(d.age_range, 'all') = $${params.length} OR COALESCE(d.age_range, 'all') = 'all')`);
+        if (ageRange === 'all') {
+          // No-op — caller wants the full roster.
+        } else if (ageRange === 'paediatric') {
+          where.push(`COALESCE(d.age_range, 'adult') IN ('paediatric', 'all')`);
+        } else if (ageRange === 'adult') {
+          where.push(`COALESCE(d.age_range, 'adult') IN ('adult', 'all')`);
+        }
       }
 
       if (specialty && schema.specialization) {
