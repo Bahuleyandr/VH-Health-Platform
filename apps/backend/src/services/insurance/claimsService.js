@@ -1540,6 +1540,52 @@ export async function submitClaim({
         `Cashless claim packet missing required document types: ${missing.join(', ')}. Attach all of: ${FINAL_CASHLESS_REQUIRED_DOC_TYPES.join(', ')}.`,
       );
     }
+
+    // D9 — A draft discharge_summary doc was accepted in the packet
+    // even when the underlying discharge_summaries row was still
+    // draft / ready_for_signoff. Insurers received a draft summary
+    // in the cashless packet, audited the claim against unauthorised
+    // discharge documentation, then bounced the case (or worse —
+    // settled against a draft that was later amended).
+    //
+    // The gate is intentionally narrow: block ONLY when a
+    // discharge_summaries row EXISTS for the admission AND the most
+    // recent one is in a non-signed state. If no row exists at all,
+    // the auto-assembled vh:// reference (ensureClaimDocumentBundle)
+    // still pre-stages the placeholder so the bigger
+    // "no-summary-exists" case is the operator's responsibility,
+    // not this gate's — option chosen to keep the existing
+    // packet-autoassemble test green while still catching the
+    // unsigned-draft regression. Findings: d3df8c98, f6440157,
+    // 9c3e7848, 21d0b3df.
+    if (cl.admission_id) {
+      const summaryRows = await prisma.$queryRawUnsafe(
+        `SELECT status
+           FROM discharge_summaries
+          WHERE admission_id = $1::int
+          ORDER BY COALESCE(signed_at, created_at) DESC, id DESC
+          LIMIT 1`,
+        Number(cl.admission_id),
+      ).catch((err) => {
+        // Under-migrated tenant (table missing) — fall open rather
+        // than blocking submit on infrastructure. Log loudly so the
+        // gap is visible. Existing doc-presence gate still applies.
+        logger.warn(`submitClaim: discharge_summaries status-check failed for admission=${cl.admission_id}: ${err.message}`);
+        return null;
+      });
+      if (summaryRows && summaryRows.length > 0) {
+        const latestStatus = String(summaryRows[0].status || '').toLowerCase();
+        if (latestStatus !== 'signed' && latestStatus !== 'delivered') {
+          throw AppError.badRequest(
+            'Cashless final claim cannot be submitted: the discharge summary for this admission is '
+            + `in '${latestStatus || 'draft'}' state. Sign the discharge summary (status must be \`signed\` or `
+            + '`delivered`) before submitting the claim packet — insurers must not receive a draft summary.',
+            'DISCHARGE_SUMMARY_NOT_SIGNED',
+            { admission_id: cl.admission_id, current_status: latestStatus || null },
+          );
+        }
+      }
+    }
   }
   await prisma.$executeRawUnsafe(
     `UPDATE tpa_claims
