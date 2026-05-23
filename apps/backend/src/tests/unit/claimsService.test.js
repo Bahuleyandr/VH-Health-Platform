@@ -312,8 +312,13 @@ describe('submitPreauth standard document bundle', () => {
 
     prisma.$queryRawUnsafe = async (sql, ...params) => {
       const text = String(sql);
-      if (text.includes('SELECT * FROM insurance_preauth')) {
-        return [{ ...preauth }];
+      // `getPreauth` now joins insurance_policies + payers to surface
+      // `payer_name` (so recordPreauthResponse's PREAUTH_INSURER_MISMATCH
+      // guard actually fires). Match on the aliased `FROM insurance_preauth pre`
+      // signature distinctive of the new query, and include `payer_name`
+      // on the returned shape so any downstream consumer in the stub sees it.
+      if (text.includes('FROM insurance_preauth pre')) {
+        return [{ ...preauth, payer_name: preauth.payer_name ?? null }];
       }
       if (text.includes('WITH RECURSIVE root')) {
         return [{ id: preauth.id }];
