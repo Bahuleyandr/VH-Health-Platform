@@ -197,6 +197,12 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
         cohort: cohortLabel,
         message,
         recorded_by: context.recordedBy,
+        // D26 — flag the pregnancy-hypertension subset so it ALSO gets
+        // persisted to cds_alerts below. Without this, gestational HTN
+        // warnings landed only in clinical_alerts and never surfaced on
+        // the doctor's CDS dashboard, which is the screen they actually
+        // look at during the ANC visit. Finding b6dc4ea4.
+        is_pregnancy_bp_signal: isPreeclampsiaSignal,
       };
       alerts.push(alert);
     }
@@ -217,6 +223,8 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
       cohort: 'pregnant',
       message: `Positive pre-eclampsia screen: BP ${systolic ?? '?'}/${diastolic ?? '?'} with urine protein ${vitals.urine_albumin}. Escalate for obstetric review and repeat BP/protein assessment.`,
       recorded_by: context.recordedBy,
+      // D26 — preeclampsia screen always belongs on the CDS dashboard.
+      is_pregnancy_bp_signal: true,
     });
   }
 
@@ -224,12 +232,65 @@ export async function checkVitalAnomalies(patientId, vitals, context = {}) {
   // must never be silently lost due to fire-and-forget (setImmediate). If persistence
   // fails, the error propagates to the caller so it can be handled appropriately.
   if (alerts.length > 0) {
+    // Resolve patient_uid for the CDS-alert mirror — cds_alerts is keyed
+    // by uuid, not the int patient_id. Single lookup outside the loop
+    // so the mirror is amortised across multiple alert rows.
+    let pregnancyCdsPatientUid = null;
+    if (alerts.some((a) => a.is_pregnancy_bp_signal)) {
+      try {
+        const r = await prisma.$queryRawUnsafe(
+          `SELECT uid FROM users WHERE id = $1::int LIMIT 1`,
+          patientId,
+        );
+        pregnancyCdsPatientUid = r[0]?.uid ?? null;
+      } catch (err) {
+        logger.warn(`vitalSignMonitor: patient uid lookup failed for cds_alerts mirror: ${err.message}`);
+      }
+    }
     for (const alert of alerts) {
       await prisma.$queryRawUnsafe(
         `INSERT INTO clinical_alerts (patient_id, alert_type, vital_name, vital_value, severity, message, created_by, created_at)
          VALUES ($1, 'VITAL_ANOMALY', $2, $3, $4, $5, $6, NOW())`,
         alert.patient_id, alert.vital_name, alert.value, alert.severity, alert.message, alert.recorded_by
       );
+
+      // D26 — Mirror pregnancy-hypertension and pre-eclampsia screen
+      // alerts to cds_alerts so they surface on the doctor's CDS
+      // dashboard alongside the existing drug-interaction / allergy /
+      // duplicate-order alerts the dashboard already reads. Without
+      // this, the OB doctor reviewing the chart during the ANC visit
+      // saw zero pregnancy-BP warnings even though clinical_alerts
+      // carried them — the dashboard reads cds_alerts only. Best-
+      // effort: a mirror failure must not block the clinical_alerts
+      // write or the alert dispatch. Finding b6dc4ea4.
+      if (alert.is_pregnancy_bp_signal && pregnancyCdsPatientUid) {
+        try {
+          await prisma.$executeRawUnsafe(
+            `INSERT INTO cds_alerts
+               (patient_uid, alert_type, severity, title, description, source_data)
+             VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb)`,
+            pregnancyCdsPatientUid,
+            alert.vital_name === 'preeclampsia_screen'
+              ? 'PREECLAMPSIA_SCREEN_POSITIVE'
+              : 'PREGNANCY_HYPERTENSION',
+            alert.severity,
+            alert.vital_name === 'preeclampsia_screen'
+              ? 'Positive pre-eclampsia screen'
+              : `Gestational hypertension (${alert.vital_name.replace(/_/g, ' ')} ${alert.value}${alert.unit})`,
+            alert.message,
+            JSON.stringify({
+              vital_name: alert.vital_name,
+              value: alert.value,
+              unit: alert.unit,
+              normal_range: alert.normal_range,
+              cohort: alert.cohort,
+              source: 'vitalSignMonitor.checkVitalAnomalies',
+            }),
+          );
+        } catch (cdsErr) {
+          logger.warn(`vitalSignMonitor: cds_alerts mirror failed for patient_id=${patientId}: ${cdsErr.message}`);
+        }
+      }
 
       // Realtime fabric: push to staff clinical-alerts channel (all severities);
       // CRITICAL also fans out on staff:code-blue for full-screen staff-app alerts.
