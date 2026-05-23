@@ -147,10 +147,45 @@ export const getDoctorAppointments = async (req, res) => {
 export const getPatientAppointments = async (req, res) => {
   try {
     const { patient_id } = req.params;
-    
-    // Check permissions
-    if (req.user?.role === 'PATIENT' && req.user.id !== parseInt(patient_id)) {
-      return error(res, 'Can only view your own appointments', HTTP_STATUS.FORBIDDEN);
+
+    // D72 — Dependent appointment list keeps guardian id in URL.
+    // Pre-fix: a PATIENT could only request `/patient/<their-own-id>`.
+    // The guardian app, on tap-into-dependent, then either:
+    //   (a) kept the guardian's own id in the URL and got back the
+    //       guardian's appointments (the dependent's were invisible),
+    //   (b) sent the dependent's id and got a 403 forbidden.
+    // Neither produced the dependent's chart.
+    //
+    // Allow a PATIENT to request another patient's appointments when
+    // the target is a confirmed dependent (users.guardian_user_id =
+    // requester's id). The dependent's user row must also be active
+    // — a deactivated dependent stays masked. Guardian acting via
+    // X-Acting-As-Uid is a separate path (handled by jwtMiddleware);
+    // this fix covers the explicit-URL form the patient app uses for
+    // the appointment list tab.
+    // Finding 2026-05-22-..._3edd5127.
+    if (req.user?.role === 'PATIENT' && req.user.id !== parseInt(patient_id, 10)) {
+      const targetId = parseInt(patient_id, 10);
+      let allowed = false;
+      if (Number.isInteger(targetId) && targetId > 0) {
+        try {
+          const dep = await prisma.users.findUnique({
+            where: { id: targetId },
+            select: { id: true, guardian_user_id: true, is_active: true },
+          });
+          if (dep
+              && dep.guardian_user_id != null
+              && Number(dep.guardian_user_id) === Number(req.user.id)
+              && dep.is_active !== false) {
+            allowed = true;
+          }
+        } catch (lookupErr) {
+          logger.warn(`getPatientAppointments: dependent lookup failed for guardian=${req.user.id}, target=${targetId}: ${lookupErr.message}`);
+        }
+      }
+      if (!allowed) {
+        return error(res, 'Can only view your own appointments', HTTP_STATUS.FORBIDDEN);
+      }
     }
 
     const filters = {
