@@ -10,6 +10,8 @@ import { jest } from '@jest/globals';
 
 const attendantPassesFindMany = jest.fn();
 const attendantPassesUpdate = jest.fn();
+const advanceDepositsAggregate = jest.fn();
+const queryRawUnsafeMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
@@ -17,6 +19,10 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
       findMany: attendantPassesFindMany,
       update: attendantPassesUpdate,
     },
+    advance_deposits: {
+      aggregate: advanceDepositsAggregate,
+    },
+    $queryRawUnsafe: queryRawUnsafeMock,
   },
 }));
 
@@ -29,6 +35,8 @@ const ipdSupportService = (await import('../../services/ipd/ipdSupportService.js
 beforeEach(() => {
   attendantPassesFindMany.mockReset();
   attendantPassesUpdate.mockReset();
+  advanceDepositsAggregate.mockReset();
+  queryRawUnsafeMock.mockReset();
 });
 
 describe('ipdSupportService.listAdmissionPasses', () => {
@@ -53,5 +61,50 @@ describe('ipdSupportService.listAdmissionPasses', () => {
     attendantPassesFindMany.mockResolvedValueOnce([]);
     const passes = await ipdSupportService.listAdmissionPasses(9999);
     expect(passes).toEqual([]);
+  });
+});
+
+describe('ipdSupportService.getAdmissionDepositBalance — deferred-advance mirror (H D61)', () => {
+  it('sums advance_deposits AND deferred (pre-admit) billing_advances', async () => {
+    advanceDepositsAggregate.mockResolvedValueOnce({ _sum: { amount: '5000' } });
+    queryRawUnsafeMock.mockResolvedValueOnce([{ total: '2500' }]);
+
+    const balance = await ipdSupportService.getAdmissionDepositBalance(42);
+
+    // 5,000 from advance_deposits + 2,500 deferred billing_advances = 7,500.
+    // Previously returned only 5,000 (or 0 if the deposit was deferred-only),
+    // forcing the discharge cashier to ask for re-payment.
+    expect(balance).toBe(7500);
+    expect(advanceDepositsAggregate).toHaveBeenCalledWith({
+      where: { admission_id: 42 },
+      _sum: { amount: true },
+    });
+    // The billing_advances mirror probe must scope by admission_id OR
+    // (admission_id IS NULL AND patient_uid match AND collected_at <=
+    // admission.admitted_at) — preserving deferred deposits.
+    const sql = queryRawUnsafeMock.mock.calls[0][0];
+    expect(sql).toMatch(/FROM billing_advances/);
+    expect(sql).toMatch(/admission_id IS NULL/);
+    expect(sql).toMatch(/ba\.patient_uid = a\.patient_uid/);
+  });
+
+  it('returns just the advance_deposits total when the deferred mirror is empty', async () => {
+    advanceDepositsAggregate.mockResolvedValueOnce({ _sum: { amount: '3000' } });
+    queryRawUnsafeMock.mockResolvedValueOnce([{ total: '0' }]);
+    expect(await ipdSupportService.getAdmissionDepositBalance(42)).toBe(3000);
+  });
+
+  it('falls back to advance_deposits-only when the deferred mirror query throws', async () => {
+    advanceDepositsAggregate.mockResolvedValueOnce({ _sum: { amount: '1000' } });
+    queryRawUnsafeMock.mockRejectedValueOnce(new Error('table missing'));
+    // Must never throw — the cashier needs a number even if the mirror
+    // is unavailable on under-migrated tenants.
+    expect(await ipdSupportService.getAdmissionDepositBalance(42)).toBe(1000);
+  });
+
+  it('returns 0 when admissionId is missing (no DB hit)', async () => {
+    expect(await ipdSupportService.getAdmissionDepositBalance(null)).toBe(0);
+    expect(advanceDepositsAggregate).not.toHaveBeenCalled();
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
   });
 });
