@@ -1083,7 +1083,57 @@ export async function createClaim({
   }
   const billedNum = Number(total_billed);
   const copayNum = Number(patient_copay) || 0;
-  const nonPayableNum = Number(non_payable_amount) || 0;
+
+  // D8 — Invoice-driven non_payable_amount derivation. When a claim
+  // links to an invoice that has line items flagged
+  // `tpa_decision = 'non_payable'` (via the TPA-desk
+  // recordInvoiceItemTpaDecision flow), those amounts are the
+  // adjudicated non-payable totals the insurer has already determined
+  // — they MUST flow into the claim's `non_payable_amount` so the
+  // `claimed_amount` math reflects what the insurer will actually
+  // settle. Pre-fix the caller had to compute non_payable manually
+  // (and usually didn't), so a final cashless claim posted
+  // `non_payable_amount=0` even when the invoice carried ₹X,000 of
+  // already-decided non-payable lines. The insurer then bounced or
+  // partially-approved the claim, and the patient was billed for
+  // amounts that should have been written off the claim front-up.
+  // Logic:
+  //   * If invoice_id given and the invoice has non_payable line
+  //     totals > 0, USE that derived value (overrides any caller-
+  //     supplied non_payable_amount — the invoice is the source of
+  //     truth for claim adjudication).
+  //   * If the lookup fails (missing column / under-migrated tenant)
+  //     fall back to the caller-supplied value with a warning log.
+  // Findings 870ff6a9 + 5953f182.
+  let nonPayableNum = Number(non_payable_amount) || 0;
+  if (invoice_id) {
+    try {
+      const nonPayableRows = await prisma.$queryRawUnsafe(
+        `SELECT COALESCE(SUM(line_total), 0)::numeric AS total
+           FROM billing_invoice_items
+          WHERE invoice_id = $1::int
+            AND tpa_decision = 'non_payable'`,
+        Number(invoice_id),
+      );
+      const derived = Number(nonPayableRows[0]?.total ?? 0);
+      if (derived > 0) {
+        if (derived !== nonPayableNum) {
+          logger.info(
+            `createClaim: invoice ${invoice_id} non_payable lines total ${derived} — overriding caller-supplied ${nonPayableNum}`,
+          );
+        }
+        nonPayableNum = derived;
+      }
+    } catch (err) {
+      // Under-migrated tenant (tpa_decision column missing from
+      // migration 216 / 213). Log and keep the caller-supplied
+      // value so the create path doesn't hard-fail on
+      // infrastructure. The CLAIM_PATIENT_SHARE_EXCEEDS_BILLED
+      // guard below still catches a clearly-wrong fallback.
+      logger.warn(`createClaim: non_payable derivation from invoice ${invoice_id} failed: ${err.message}`);
+    }
+  }
+
   const claimAmt = Number(claimed_amount ?? (billedNum - copayNum - nonPayableNum));
   if (claimAmt <= 0) throw AppError.badRequest('claimed_amount must be > 0');
   // A claim can never seek more than was billed, and the patient share
@@ -1139,7 +1189,7 @@ export async function createClaim({
     String(patient_uid),
     admission_id ? Number(admission_id) : null,
     claim_type, Number(total_billed), Number(patient_copay),
-    Number(non_payable_amount), claimAmt,
+    nonPayableNum, claimAmt,
     notes || null,
     created_by ? String(created_by) : null, tenantId,
     finalStage,
