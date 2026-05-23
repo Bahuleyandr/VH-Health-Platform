@@ -150,6 +150,30 @@ router.post('/:id/sign-off', paramId(), validate, async (req, res, next) => {
 });
 
 /**
+ * D50 — POST /radiology/:id/addendum
+ * Append an addendum to a SIGNED radiology report. The original
+ * sign-off metadata stays untouched; the addendum is appended to the
+ * report blob with a labelled header (timestamp + author) and a
+ * matching audit_logs entry. Required body: { addendum: string }.
+ */
+router.post('/:id/addendum', paramId(), validate, async (req, res, next) => {
+  try {
+    const result = await radiologyService.appendReportAddendum(
+      parseInt(req.params.id, 10),
+      {
+        addendum: req.body?.addendum,
+        addendum_by: req.user?.uid,
+      },
+    );
+    return success(res, result, 'Radiology report addendum appended');
+  } catch (err) {
+    if (err.isOperational) return error(res, err.message, err.statusCode);
+    logger.error('Failed to append report addendum:', { error: err.message });
+    next(err);
+  }
+});
+
+/**
  * GET /radiology/patient/:uid
  * Get radiology history for a patient
  */
