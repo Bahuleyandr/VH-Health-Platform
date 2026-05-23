@@ -507,6 +507,45 @@ export async function createOrdersBulk(items, { ordered_by } = {}) {
 /**
  * Dispatch order to downstream systems (pharmacy, lab) based on order type.
  */
+// D12 — Build the MAR entry to hand off to marService.scheduleMedications.
+// Pre-fix this code only passed `scheduled_time`, never `frequency` or
+// `duration_days`, so a "Metformin 500mg BD x 5 days" order created
+// ONE MAR row instead of 10 (5 days × 2/day). Ward nurses only saw
+// the first dose; subsequent doses had no row to administer or even
+// see as pending. Now we forward frequency (and the CPOE-template
+// alias keys dosage_frequency / freq / dose_interval) plus
+// duration_days (alias `duration`) so marService.expandSchedule can
+// fan the order out. Pure + exported so unit tests can lock the
+// MAR-entry shape without spinning up the full createOrder flow.
+// Finding a5b0d216.
+export function buildMarEntryFromOrderDetails(details, { startDate } = {}) {
+  const frequency = details.frequency
+    ?? details.dosage_frequency
+    ?? details.freq
+    ?? details.dose_interval
+    ?? null;
+  const durationDays = (() => {
+    const d = details.duration_days ?? details.duration ?? null;
+    const n = Number(d);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
+  const startTime = startDate || new Date().toISOString();
+  const entry = {
+    medication_name: details.medication_name,
+    dose: details.dose,
+    route: details.route,
+    notes: details.prn_reason || null,
+  };
+  if (frequency) {
+    entry.frequency = frequency;
+    entry.start_time = startTime;
+    if (durationDays != null) entry.duration_days = durationDays;
+  } else {
+    entry.scheduled_time = startTime;
+  }
+  return entry;
+}
+
 async function dispatchOrderIntegrations(order) {
   if (order.order_type === 'medication') {
     // Create MAR entries via existing marService
@@ -515,15 +554,10 @@ async function dispatchOrderIntegrations(order) {
       // keep the string-fallback for safety in case any caller passes a
       // pre-stringified payload.
       const details = typeof order.details === 'string' ? JSON.parse(order.details) : order.details;
-      await scheduleMedications(order.patient_uid, null, [
-        {
-          medication_name: details.medication_name,
-          dose: details.dose,
-          route: details.route,
-          scheduled_time: order.start_date || new Date().toISOString(),
-          notes: details.prn_reason || null,
-        },
-      ]);
+      const marEntry = buildMarEntryFromOrderDetails(details, {
+        startDate: order.start_date,
+      });
+      await scheduleMedications(order.patient_uid, null, [marEntry]);
       logger.info(`MAR entries created for medication order ${order.order_number}`);
     } catch (err) {
       logger.error(`Failed to create MAR entries for order ${order.order_number}: ${err.message}`);
