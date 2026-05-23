@@ -305,11 +305,36 @@ export const getAllRequests = async (req, res) => {
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     params.push(Math.min(parseInt(limit), 500), parseInt(offset));
 
+    // Two bugs surfaced as one finding (7a73a9b5):
+    //   (a) the SELECT exposed only the stored `hr.sla_breached` flag —
+    //       the column is set by an async breach-detector job, so a
+    //       ticket past its SLA deadline can still show sla_breached=false
+    //       between job runs. Stats said "8 currently breached" while
+    //       the queue showed sla_breached:false on every row.
+    //       Fix: compute the live breach at read time as well, and
+    //       surface it as `sla_breached` (overriding the stored value).
+    //       Keep the stored value as `sla_breached_stored` for forensics.
+    //   (b) ORDER BY was urgency tier THEN newest-first — so older
+    //       dirty-bed tickets past SLA sank below newer ones and were
+    //       invisible to the housekeeping staff. Re-order so live-
+    //       breached tickets surface FIRST, then urgency, then
+    //       OLDEST-FIRST (the worklist convention). The discharge
+    //       throughput depends on cleaning the most-overdue bed next,
+    //       not the newest ticket.
+    // Finding: 2026-05-22-inpatient-admission-housekeeping-7a73a9b5.
     const requests = await prisma.$queryRawUnsafe(`
       SELECT hr.id, hr.request_number, hr.requester_id, hr.zone_id, hr.location_text,
              hr.assigned_to, hr.request_type, hr.request_type as task_type,
              hr.urgency, hr.description, hr.description as notes, hr.status,
-             hr.completed_at, hr.created_at, hr.sla_due_at, hr.sla_breached,
+             hr.completed_at, hr.created_at, hr.sla_due_at,
+             (
+               hr.sla_breached OR (
+                 hr.sla_due_at IS NOT NULL
+                 AND hr.sla_due_at < NOW()
+                 AND COALESCE(hr.status, '') NOT IN ('completed', 'cancelled')
+               )
+             ) AS sla_breached,
+             hr.sla_breached AS sla_breached_stored,
              hz.name as zone_name,
              u.name as requester_name, s.department as requester_dept,
              u2.name as assigned_to_name
@@ -320,8 +345,16 @@ export const getAllRequests = async (req, res) => {
       LEFT JOIN users u2 ON hr.assigned_to = u2.id
       ${where}
       ORDER BY
+        (
+          hr.sla_breached OR (
+            hr.sla_due_at IS NOT NULL
+            AND hr.sla_due_at < NOW()
+            AND COALESCE(hr.status, '') NOT IN ('completed', 'cancelled')
+          )
+        ) DESC,
         CASE hr.urgency WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 ELSE 4 END,
-        hr.created_at DESC
+        hr.sla_due_at ASC NULLS LAST,
+        hr.created_at ASC
       LIMIT $${idx++}::int OFFSET $${idx}::int
     `, ...params);
 
