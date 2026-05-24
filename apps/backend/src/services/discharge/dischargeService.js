@@ -23,6 +23,83 @@ const DISCHARGE_MED_SECTION_KEYS = new Set([
   'discharge_meds',
 ]);
 
+const DIAGNOSIS_SECTION_KEYS = new Set([
+  'diagnosis',
+  'discharge_diagnosis',
+  'primary_diagnosis',
+]);
+
+const INACTIVE_ORDER_STATUS_RE =
+  /cancelled|canceled|discontinued|stopped|\bheld\b|on[\s_-]?hold|suspended|completed/i;
+const PARENTERAL_ROUTE_RE =
+  /\b(iv|i\.v\.?|intravenous|infusion|drip|im|i\.m\.?|intramuscular|sc|s\.c\.?|subcut|subcutaneous|epidural|intrathecal)\b/i;
+
+function textValue(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value.trim();
+  return String(value).trim();
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    const text = textValue(value);
+    if (text) return text;
+  }
+  return '';
+}
+
+function parseOrderDetails(details) {
+  if (!details) return {};
+  if (typeof details === 'object' && !Array.isArray(details)) return details;
+  if (typeof details === 'string') {
+    try {
+      const parsed = JSON.parse(details);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed
+        : { text: details };
+    } catch {
+      return { text: details };
+    }
+  }
+  return {};
+}
+
+function isParenteralMedication({ name, route }) {
+  return PARENTERAL_ROUTE_RE.test(textValue(route))
+    || PARENTERAL_ROUTE_RE.test(textValue(name));
+}
+
+function formatTakeHomeMedicationLines(rows) {
+  const seen = new Set();
+  const lines = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (INACTIVE_ORDER_STATUS_RE.test(textValue(row?.status))) continue;
+    const details = parseOrderDetails(row?.details);
+    const name = firstText(
+      details.medication_name,
+      details.drug_name,
+      details.name,
+      details.medication,
+      details.text,
+      row?.detail,
+    );
+    if (!name) continue;
+    const route = firstText(details.route, details.route_name, row?.route);
+    if (isParenteralMedication({ name, route })) continue;
+    const dose = firstText(details.dose, details.dosage, details.strength);
+    const frequency = firstText(details.frequency, details.freq, details.dose_interval);
+    const duration = firstText(details.duration, details.days);
+    const dedupeKey = [name, dose, route, frequency]
+      .map((part) => textValue(part).toLowerCase())
+      .join('|');
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    const body = [name, dose, route, frequency, duration].filter(Boolean).join(' ');
+    lines.push(`- ${body}`);
+  }
+  return lines;
+}
+
 // ── Sign-completeness gate ──────────────────────────────────────────
 //
 // A discharge summary is a medico-legal patient-safety document. The
@@ -127,6 +204,7 @@ const AUTO_SECTION_KEYS = new Set([
   'treatment_given',
   'investigations',
   'past_history',
+  ...DIAGNOSIS_SECTION_KEYS,
 ]);
 
 const AUTO_BANNER =
@@ -168,6 +246,7 @@ async function appendDischargeAudit({
  */
 async function buildAutoSectionBodies({
   admission_id, patient_uid, admitted_at, discharged_at, neededKeys,
+  primary_diagnosis, secondary_diagnoses,
 }) {
   try {
     // clinical_notes / clinical_orders scope precisely by encounter_id
@@ -176,9 +255,10 @@ async function buildAutoSectionBodies({
     let encounterId = null;
     let winStart = admitted_at || null;
     let winEnd = discharged_at || null;
+    let diagnosisText = textValue(primary_diagnosis);
     if (admission_id) {
       const aRows = await prisma.$queryRawUnsafe(
-        `SELECT encounter_id, admitted_at, discharged_at
+        `SELECT encounter_id, admitted_at, discharged_at, admitting_diagnosis
            FROM admissions WHERE id = $1::int LIMIT 1`,
         Number(admission_id),
       );
@@ -186,15 +266,30 @@ async function buildAutoSectionBodies({
         encounterId = aRows[0].encounter_id || null;
         winStart = winStart || aRows[0].admitted_at;
         winEnd = winEnd || aRows[0].discharged_at;
+        diagnosisText = diagnosisText || textValue(aRows[0].admitting_diagnosis);
       }
     }
-    // No encounter id and no lower window bound → nothing safe to scope
-    // to. Leave every section on its template default rather than
-    // pulling unbounded patient history.
-    if (!encounterId && !winStart) return {};
     const windowEnd = winEnd || new Date().toISOString();
 
     const out = {};
+
+    const diagnosisKey = [...neededKeys].find((k) => DIAGNOSIS_SECTION_KEYS.has(k));
+    if (diagnosisKey) {
+      const lines = [];
+      if (diagnosisText) lines.push(`Primary diagnosis: ${diagnosisText}`);
+      const secondary = Array.isArray(secondary_diagnoses) ? secondary_diagnoses : [];
+      for (const dx of secondary.map((d) => textValue(d)).filter(Boolean)) {
+        lines.push(`Secondary diagnosis: ${dx}`);
+      }
+      if (lines.length) {
+        out[diagnosisKey] = `${AUTO_BANNER}\n\n${lines.join('\n')}`;
+      }
+    }
+
+    // No encounter id and no lower window bound → nothing safe to scope
+    // to beyond header-derived diagnosis. Leave all other sections on
+    // their template default rather than pulling unbounded patient history.
+    if (!encounterId && !winStart) return out;
 
     // course_in_hospital ← progress notes for the encounter.
     if (neededKeys.has('course_in_hospital') && encounterId) {
@@ -263,10 +358,30 @@ async function buildAutoSectionBodies({
       }
     }
 
-    // past_history + discharge_medications ← the patient's structured
-    // chronic-medication list (continue-on-discharge reconciliation).
+    // discharge_medications ← active, non-parenteral medication orders
+    // from the admission encounter. IV/IM/infusion rows are inpatient
+    // administration, not take-home instructions, so they stay out of the
+    // patient-facing section.
     const needsPastHx = neededKeys.has('past_history');
     const medKey = [...neededKeys].find((k) => DISCHARGE_MED_SECTION_KEYS.has(k));
+    let activeTakeHomeLines = [];
+    let chronicTakeHomeLines = [];
+    if (medKey && encounterId) {
+      const medicationOrders = await prisma.$queryRawUnsafe(
+        `SELECT id, status, route, details,
+                COALESCE(notes, details->>'medication_name', details->>'drug_name',
+                         details->>'name', details->>'text') AS detail
+           FROM clinical_orders
+          WHERE encounter_id = $1::uuid
+            AND LOWER(COALESCE(order_type, '')) = 'medication'
+          ORDER BY created_at ASC, id ASC`,
+        String(encounterId),
+      );
+      activeTakeHomeLines = formatTakeHomeMedicationLines(medicationOrders);
+    }
+
+    // past_history + chronic-medication part of discharge_medications ←
+    // the patient's structured chronic-medication list.
     if ((needsPastHx || medKey) && patient_uid) {
       const uRows = await prisma.$queryRawUnsafe(
         `SELECT chronic_medications FROM users WHERE uid = $1::uuid LIMIT 1`,
@@ -294,13 +409,26 @@ async function buildAutoSectionBodies({
           return bits.length ? `- ${bits.join(' ')} (continue)` : null;
         }).filter(Boolean);
         if (lines.length) {
-          out[medKey] = `${AUTO_BANNER}\n\n`
-            + 'Chronic medications to continue (reconcile against takeaway script):\n'
-            + lines.join('\n')
-            + '\n\n[PLACEHOLDER — clinician to confirm takeaway medications, doses, '
-            + 'and duration before sign-off]';
+          chronicTakeHomeLines = lines;
         }
       }
+    }
+    if (medKey && (activeTakeHomeLines.length || chronicTakeHomeLines.length)) {
+      const medSections = [];
+      if (activeTakeHomeLines.length) {
+        medSections.push(
+          'Take-home medications from active orders:\n' + activeTakeHomeLines.join('\n'),
+        );
+      }
+      if (chronicTakeHomeLines.length) {
+        medSections.push(
+          'Chronic medications to continue (reconcile against takeaway script):\n'
+          + chronicTakeHomeLines.join('\n')
+          + '\n\n[PLACEHOLDER — clinician to confirm takeaway medications, doses, and duration before sign-off]',
+        );
+      }
+      out[medKey] = `${AUTO_BANNER}\n\n`
+        + medSections.join('\n\n');
     }
 
     return out;
@@ -435,6 +563,7 @@ export async function createDraft({
   if (neededKeys.size > 0) {
     autoBodies = await buildAutoSectionBodies({
       admission_id, patient_uid, admitted_at, discharged_at, neededKeys,
+      primary_diagnosis, secondary_diagnoses,
     });
   }
   for (const s of sections) {
