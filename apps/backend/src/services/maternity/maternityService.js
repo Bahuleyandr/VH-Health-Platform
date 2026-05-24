@@ -1131,7 +1131,23 @@ export async function listMaternityPackages({ tenantId }) {
  * clinical team owns the real Hindi copy. Finding:
  * 2026-05-10-obstetric-anc-patient-no-kick-counter-or-ob-advice.
  */
-export async function getAncAdvice({ tenantId, trimester = null, language = 'hi' }) {
+const PLACEHOLDER_CONTENT_RE = /\[PLACEHOLDER\b/i;
+
+function decorateAncAdviceRows(rows, { includePlaceholders }) {
+  return rows.map((row) => {
+    const placeholder = PLACEHOLDER_CONTENT_RE.test(String(row.content || ''));
+    if (!placeholder) return { ...row, content_status: 'reviewed' };
+    return {
+      ...row,
+      content: includePlaceholders ? row.content : null,
+      content_status: 'pending_clinical_review',
+    };
+  });
+}
+
+export async function getAncAdvice({
+  tenantId, trimester = null, language = 'hi', includePlaceholders = true,
+}) {
   const tid = tenantId || '00000000-0000-4000-8000-000000000001';
   const lang = language || 'hi';
   const params = [tid, lang];
@@ -1144,13 +1160,14 @@ export async function getAncAdvice({ tenantId, trimester = null, language = 'hi'
     params.push(t);
     trimesterClause = ` AND trimester = $${params.length}::int`;
   }
-  return prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe(
     `SELECT id, trimester, language, category, title, content, display_order
        FROM maternity_anc_advice
       WHERE tenant_id = $1::uuid AND language = $2 AND active = true${trimesterClause}
       ORDER BY trimester, display_order`,
     ...params,
   );
+  return decorateAncAdviceRows(rows, { includePlaceholders });
 }
 
 export async function setSupplementReminder({

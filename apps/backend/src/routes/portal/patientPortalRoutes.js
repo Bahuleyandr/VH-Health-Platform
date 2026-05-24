@@ -451,10 +451,12 @@ router.get('/maternity/anc-advice', requirePatient, wrap(async (req) => {
     tenantId: tenantOf(req),
     trimester: req.query.trimester ?? null,
     language: req.query.language || 'hi',
+    includePlaceholders: false,
   });
   return {
     current_trimester: currentTrimester,
     gestational_age: active?.gestational_age ?? null,
+    content_pending_review: advice.some((row) => row.content_status === 'pending_clinical_review'),
     advice,
   };
 }));

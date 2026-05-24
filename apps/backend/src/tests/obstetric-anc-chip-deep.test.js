@@ -384,6 +384,14 @@ describe('Obstetric/ANC chip — deep integration', () => {
         ['danger_signs', 'fetal_movement', 'foods_to_avoid', 'when_to_contact']);
     });
 
+    it('redacts clinical-review placeholders for patient-facing reads', async () => {
+      const rows = await getAncAdvice({ tenantId: TENANT, trimester: 2, includePlaceholders: false });
+      expect(rows.length).toBe(4);
+      expect(rows.every((r) => r.content_status === 'pending_clinical_review')).toBe(true);
+      expect(rows.every((r) => r.content === null)).toBe(true);
+      expect(rows.some((r) => /PLACEHOLDER/i.test(String(r.content)))).toBe(false);
+    });
+
     it('rejects an out-of-range trimester', async () => {
       await expect(getAncAdvice({ tenantId: TENANT, trimester: 9 })).rejects.toThrow();
     });
