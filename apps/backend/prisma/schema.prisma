@@ -7190,6 +7190,7 @@ model radiology_orders {
   report_signed_off_at DateTime? @db.Timestamptz(6)
   report_signed_off_by String?   @db.Uuid
   tenant_id            String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tech_license_number  String?   @db.VarChar(120)
   tenants              tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_radiology_orders_tenant")
 
   @@index([tenant_id], map: "idx_radiology_orders_tenant_id")

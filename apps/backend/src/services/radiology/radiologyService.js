@@ -54,13 +54,20 @@ function normalisePriority(raw) {
 // Finding: 2026-05-22-dynamic-acute-abdomen-radiologist-31d32cc1.
 const RAD_RETURNING = `id, patient_uid, encounter_id, modality, body_part, clinical_indication,
     priority, status, ordered_by, radiologist, report, report_completed_at,
-    report_signed_off_at, report_signed_off_by, notes,
+    report_signed_off_at, report_signed_off_by, acquired_at, acquired_by,
+    acquired_by_name, tech_uid, tech_name, tech_license_number, notes,
     created_at, updated_at`;
 
 function requireIntId(id) {
   const n = parseInt(id, 10);
   if (!Number.isFinite(n)) throw AppError.badRequest('Invalid id — must be an integer');
   return n;
+}
+
+function cleanOptionalText(value) {
+  if (value == null) return null;
+  const trimmed = String(value).trim();
+  return trimmed || null;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -101,6 +108,61 @@ export async function resolveEncounterIdForRadiology(rawEncounterId, patientUid)
     encounter_id: raw, patient_uid: patientUid,
   });
   return null;
+}
+
+async function resolveAcquiringTechnologist(techUid, fallbackName, fallbackLicenseNumber) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT
+        u.uid,
+        u.name AS user_name,
+        s.name AS staff_name,
+        hpr.full_name AS hpr_full_name,
+        hpr.registration_number
+       FROM users u
+       LEFT JOIN staff s
+         ON s.user_id = u.uid
+        AND COALESCE(s.archived, false) = false
+       LEFT JOIN LATERAL (
+         SELECT full_name, registration_number, status, updated_at
+           FROM abdm_practitioner_mappings apm
+          WHERE apm.staff_uid = u.uid
+            AND apm.tenant_id = u.tenant_id
+            AND NULLIF(BTRIM(apm.registration_number), '') IS NOT NULL
+          ORDER BY
+            CASE apm.status
+              WHEN 'verified' THEN 1
+              WHEN 'pending' THEN 2
+              WHEN 'unverified' THEN 3
+              ELSE 4
+            END,
+            apm.updated_at DESC NULLS LAST
+          LIMIT 1
+       ) hpr ON true
+      WHERE u.uid = $1::uuid
+        AND UPPER(COALESCE(u.role, '')) = 'RADIOLOGY_STAFF'
+        AND COALESCE(u.is_active, true) = true
+      LIMIT 1`,
+    techUid,
+  );
+
+  if (rows.length === 0) {
+    throw AppError.forbidden(
+      'Only an active radiology technologist may acquire a radiology study',
+      'RADIOLOGY_TECH_REQUIRED',
+    );
+  }
+
+  const row = rows[0];
+  return {
+    techName:
+      cleanOptionalText(row.staff_name)
+      || cleanOptionalText(row.hpr_full_name)
+      || cleanOptionalText(row.user_name)
+      || cleanOptionalText(fallbackName),
+    techLicenseNumber:
+      cleanOptionalText(row.registration_number)
+      || cleanOptionalText(fallbackLicenseNumber),
+  };
 }
 
 class RadiologyService {
@@ -208,6 +270,8 @@ class RadiologyService {
               ro.clinical_indication, ro.priority, ro.status, ro.ordered_by,
               ro.radiologist, ro.report_completed_at,
               ro.report_signed_off_at, ro.report_signed_off_by,
+              ro.acquired_at, ro.acquired_by, ro.acquired_by_name,
+              ro.tech_uid, ro.tech_name, ro.tech_license_number,
               ro.notes, ro.created_at, ro.updated_at
        FROM radiology_orders ro
        ${whereClause}
@@ -315,7 +379,7 @@ class RadiologyService {
   // Tech identity (acquired_by) stays distinct from radiologist
   // identity. Finding:
   // 2026-05-08-dynamic-acute-abdomen-radiology-tech-no-acquisition-state-no-tech-attribution.
-  async markAcquired(id, { tech_uid, tech_name }) {
+  async markAcquired(id, { tech_uid, tech_name, tech_license_number }) {
     if (!tech_uid) throw AppError.badRequest('tech_uid is required');
     const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM radiology_orders WHERE id = $1`, requireIntId(id));
@@ -326,6 +390,11 @@ class RadiologyService {
     if (existing[0].status === 'completed') {
       throw AppError.badRequest('Cannot acquire — order is already completed');
     }
+    const techIdentity = await resolveAcquiringTechnologist(
+      tech_uid,
+      tech_name,
+      tech_license_number,
+    );
     const result = await prisma.$queryRawUnsafe(
       `UPDATE radiology_orders
           SET status = 'acquired',
@@ -334,10 +403,14 @@ class RadiologyService {
               acquired_by_name = $2,
               tech_uid = COALESCE(tech_uid, $1::uuid),
               tech_name = COALESCE(tech_name, $2),
+              tech_license_number = COALESCE(tech_license_number, $3),
               updated_at = NOW()
-        WHERE id = $3
-        RETURNING ${RAD_RETURNING}, acquired_at, acquired_by, acquired_by_name, tech_uid, tech_name`,
-      tech_uid, tech_name || null, requireIntId(id),
+        WHERE id = $4
+        RETURNING ${RAD_RETURNING}`,
+      tech_uid,
+      techIdentity.techName,
+      techIdentity.techLicenseNumber,
+      requireIntId(id),
     );
     logger.info('Radiology order acquired', { orderId: id, tech_uid });
     return result[0];

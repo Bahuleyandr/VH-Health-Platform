@@ -99,7 +99,8 @@ router.put('/:id/report', paramId(), validate, async (req, res, next) => {
 
 /**
  * E-8 — POST /radiology/:id/acquire
- * Mark order acquired (tech captures images). Body: { tech_name? }.
+ * Mark order acquired (tech captures images).
+ * Body: { tech_license_number? | license_number? | registration_number? }.
  *
  * Inner-RBAC: the mount in app.js allows ADMIN/SUPER_ADMIN/DOCTOR/
  * NURSING_STAFF/RADIOLOGY_STAFF for the whole module (so doctors can
@@ -122,7 +123,11 @@ router.post('/:id/acquire', paramId(), validate, async (req, res, next) => {
     }
     const result = await radiologyService.markAcquired(parseInt(req.params.id, 10), {
       tech_uid: req.user?.uid,
-      tech_name: req.body.tech_name || req.user?.name,
+      tech_name: req.user?.name,
+      tech_license_number:
+        req.body.tech_license_number
+        || req.body.license_number
+        || req.body.registration_number,
     });
     return success(res, result, 'Radiology order acquired');
   } catch (err) {
