@@ -382,6 +382,33 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
         expect.objectContaining({ allergy_name: 'Penicillin', severity: 'SEVERE' }),
       ]),
     );
+
+    const detail = await request(app)
+      .get(`/api/v1/appointments/${res.body.data.id}`)
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${searchToken}`);
+    expect(detail.statusCode).toBe(200);
+    expect(detail.body.data.appointment.has_allergies).toBe(true);
+    expect(detail.body.data.appointment.allergies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ allergy_name: 'Penicillin', severity: 'SEVERE' }),
+      ]),
+    );
+
+    const list = await request(app)
+      .get('/api/v1/appointments')
+      .query({ patient_id: patient[0].id })
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${searchToken}`);
+    expect(list.statusCode).toBe(200);
+    const listed = list.body.data.appointments.find((a) => a.id === res.body.data.id);
+    expect(listed).toBeDefined();
+    expect(listed.has_allergies).toBe(true);
+    expect(listed.allergies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ allergy_name: 'Penicillin', severity: 'SEVERE' }),
+      ]),
+    );
   });
 
   it('stamps ANC walk-in LMP on both pregnancy and patient profile', async () => {
