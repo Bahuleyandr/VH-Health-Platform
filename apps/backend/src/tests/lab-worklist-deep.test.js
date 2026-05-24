@@ -14,7 +14,9 @@
 //   2026-05-08-obstetric-anc-lab-tech-no-worklist-endpoint
 //   2026-05-08-lab-walk-in-lab-tech-results-no-validation-no-critical-alert
 
-import { authClient } from './testClient.js';
+import request from 'supertest';
+import app from '../app.js';
+import { API_KEY, authClient, generateTestToken } from './testClient.js';
 import prisma from '../lib/prisma.js';
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -26,10 +28,19 @@ const PATIENT_OPD_UID = 'b3333333-3333-4333-8333-333333333a03';
 const PATIENT_ER_PHONE  = '9000030001';
 const PATIENT_IPD_PHONE = '9000030002';
 const PATIENT_OPD_PHONE = '9000030003';
+const ORDERING_DOCTOR_UID = 'b3333333-3333-4333-8333-333333333d01';
+
+function doctorClient() {
+  const token = generateTestToken('DOCTOR', { uid: ORDERING_DOCTOR_UID, id: 933301 });
+  return {
+    post: (path) => request(app).post(path).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
+  };
+}
 
 async function delPatient(uid) {
   // Order matters: blow away dependents before users.
   await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+  await prisma.$executeRawUnsafe(`DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, uid).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM emergency_visits WHERE patient_uid = $1::uuid`, uid).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, uid).catch(() => {});
   await prisma.$executeRawUnsafe(
@@ -62,6 +73,7 @@ async function makeInvestigation({ patientId, testName, testType, priority = 'NO
 
 describe('Lab worklist + manual result validation — deep integration', () => {
   const labTech = authClient('LAB_STAFF');
+  const doctor = doctorClient();
 
   let erPatientId;
   let ipdPatientId;
@@ -71,6 +83,17 @@ describe('Lab worklist + manual result validation — deep integration', () => {
   let opdLftInvId;
 
   beforeAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, '9000039999', 'Lab Worklist Doctor', 'DOCTOR', true, NOW())
+       ON CONFLICT (uid) DO UPDATE
+          SET role = 'DOCTOR',
+              name = EXCLUDED.name,
+              is_active = true,
+              updated_at = NOW()`,
+      ORDERING_DOCTOR_UID,
+    );
+
     erPatientId  = await makePatient(PATIENT_ER_UID,  PATIENT_ER_PHONE,  'Lab Worklist ER Patient');
     ipdPatientId = await makePatient(PATIENT_IPD_UID, PATIENT_IPD_PHONE, 'Lab Worklist IPD Patient');
     opdPatientId = await makePatient(PATIENT_OPD_UID, PATIENT_OPD_PHONE, 'Lab Worklist OPD Patient');
@@ -121,10 +144,51 @@ describe('Lab worklist + manual result validation — deep integration', () => {
     await delPatient(PATIENT_ER_UID);
     await delPatient(PATIENT_IPD_UID);
     await delPatient(PATIENT_OPD_UID);
+    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, ORDERING_DOCTOR_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
 
   describe('GET /api/v1/lab/worklist', () => {
+    it('materializes a STAT clinical lab order onto the lab worklist', async () => {
+      const res = await doctor.post('/api/v1/emr/orders').send({
+        patient_uid: PATIENT_ER_UID,
+        er_visit_id: null,
+        order_type: 'lab',
+        priority: 'STAT',
+        details: {
+          test_name: 'Troponin I - CPOE bridge',
+          test_code: 'TROPI_LOCAL',
+          test_type: 'LAB',
+          reason: 'ED chest-pain pathway',
+        },
+      });
+
+      expect(res.statusCode).toBe(201);
+      const orderId = res.body.data?.order?.id;
+      expect(orderId).toBeDefined();
+
+      const investigations = await prisma.$queryRawUnsafe(
+        `SELECT id, test_name, priority, notes
+           FROM investigations
+          WHERE patient_uid = $1::uuid
+            AND notes LIKE $2
+          ORDER BY id DESC
+          LIMIT 1`,
+        PATIENT_ER_UID,
+        `%clinical_order_id:${orderId}%`,
+      );
+      expect(investigations.length).toBe(1);
+      expect(investigations[0].test_name).toBe('Troponin I - CPOE bridge');
+      expect(investigations[0].priority).toBe('STAT');
+
+      const worklist = await labTech.get('/api/v1/lab/worklist?source=er&priority=STAT&limit=100');
+      expect(worklist.statusCode).toBe(200);
+      const row = worklist.body.data.find((item) => item.id === investigations[0].id);
+      expect(row).toBeDefined();
+      expect(row.source).toBe('er');
+      expect(row.patient_uid).toBe(PATIENT_ER_UID);
+    });
+
     it('surfaces ER + IPD + OPD pending orders, with STAT/URGENT first', async () => {
       const res = await labTech.get('/api/v1/lab/worklist?limit=100');
       expect(res.statusCode).toBe(200);
