@@ -4,6 +4,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 
+const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const VALID_STATUSES = ['scheduled', 'pre_op', 'in_progress', 'post_op', 'completed', 'cancelled'];
 const VALID_TRANSITIONS = {
   scheduled: ['pre_op', 'cancelled'],
@@ -48,6 +49,44 @@ function inferProcedureSide(schedule) {
   return null;
 }
 
+function firstDefined(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== '');
+}
+
+function asBool(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  if (value === 1 || value === '1') return true;
+  if (value === 0 || value === '0') return false;
+  const text = String(value).trim().toLowerCase();
+  if (['true', 'yes', 'y'].includes(text)) return true;
+  if (['false', 'no', 'n'].includes(text)) return false;
+  return Boolean(value);
+}
+
+function asNumberOrNull(value) {
+  const candidate = firstDefined(value);
+  if (candidate === undefined) return null;
+  const parsed = Number(candidate);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function cleanTimestamp(value) {
+  const candidate = firstDefined(value);
+  if (candidate === undefined) return null;
+  const date = candidate instanceof Date ? candidate : new Date(String(candidate));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function allergySummary(checklist) {
+  const summary = firstDefined(checklist.allergies_summary, checklist.allergy_summary);
+  if (summary !== undefined) return String(summary);
+  if (Array.isArray(checklist.known_allergies) && checklist.known_allergies.length) {
+    return checklist.known_allergies.map((item) => String(item).trim()).filter(Boolean).join(', ');
+  }
+  return null;
+}
+
 // Active-diabetic probe for the OT-ready glucose gate. Looks for an
 // active ICD-10 E10/E11/E13 diagnosis (type 1, type 2, other DM) or a
 // description that mentions diabetes/diabetic. Swallows query errors —
@@ -74,6 +113,80 @@ async function isDiabeticPatient(patientUid) {
   } catch {
     return false;
   }
+}
+
+async function createStructuredPreopFromOtReady(schedule, checklist, { completedBy = null, tenantId = null } = {}) {
+  if (!checklist || typeof checklist !== 'object' || Array.isArray(checklist) || checklist.ot_ready !== true) {
+    return null;
+  }
+
+  const tid = tenantId || schedule.tenant_id || DEFAULT_TENANT_ID;
+  const bloodGlucose = asNumberOrNull(firstDefined(
+    checklist.blood_glucose_mg_dl,
+    checklist.blood_glucose_value,
+    checklist.glucose,
+  ));
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO preop_checklists
+       (tenant_id, ot_schedule_id, patient_uid,
+        consent_signed, npo_status_confirmed, site_marked,
+        allergies_reviewed, allergies_summary,
+        blood_glucose_mg_dl, blood_glucose_checked_at,
+        eye_drops_given, eye_drops_given_at, eye_drops_notes,
+        patient_identity_verified, procedure_verified, anesthesia_consent,
+        status, completed_by, completed_at, metadata)
+     VALUES ($1::uuid, $2, $3::uuid,
+       $4, $5, $6,
+       $7, $8,
+       $9::numeric, $10::timestamptz,
+       $11, $12::timestamptz, $13,
+       $14, $15, $16,
+       'complete', $17::uuid, NOW(), $18::jsonb)
+     ON CONFLICT (tenant_id, ot_schedule_id) DO UPDATE SET
+       patient_uid = EXCLUDED.patient_uid,
+       consent_signed = EXCLUDED.consent_signed,
+       npo_status_confirmed = EXCLUDED.npo_status_confirmed,
+       site_marked = EXCLUDED.site_marked,
+       allergies_reviewed = EXCLUDED.allergies_reviewed,
+       allergies_summary = EXCLUDED.allergies_summary,
+       blood_glucose_mg_dl = EXCLUDED.blood_glucose_mg_dl,
+       blood_glucose_checked_at = EXCLUDED.blood_glucose_checked_at,
+       eye_drops_given = EXCLUDED.eye_drops_given,
+       eye_drops_given_at = EXCLUDED.eye_drops_given_at,
+       eye_drops_notes = EXCLUDED.eye_drops_notes,
+       patient_identity_verified = EXCLUDED.patient_identity_verified,
+       procedure_verified = EXCLUDED.procedure_verified,
+       anesthesia_consent = EXCLUDED.anesthesia_consent,
+       status = EXCLUDED.status,
+       completed_by = EXCLUDED.completed_by,
+       completed_at = NOW(),
+       metadata = preop_checklists.metadata || EXCLUDED.metadata,
+       updated_at = NOW()
+     RETURNING id`,
+    tid,
+    schedule.id,
+    schedule.patient_uid || null,
+    asBool(firstDefined(checklist.consent_signed, checklist.consent_obtained), false),
+    asBool(firstDefined(checklist.npo_status_confirmed, checklist.fasting_confirmed), false),
+    asBool(checklist.site_marked, false),
+    asBool(firstDefined(checklist.allergies_reviewed, checklist.allergy_verified), false),
+    allergySummary(checklist),
+    bloodGlucose,
+    cleanTimestamp(firstDefined(checklist.blood_glucose_checked_at, checklist.glucose_checked_at)),
+    asBool(firstDefined(checklist.eye_drops_given, checklist.eye_dilatation_drops), false),
+    cleanTimestamp(firstDefined(checklist.eye_drops_given_at, checklist.eye_dilatation_drops_at)),
+    firstDefined(checklist.eye_drops_notes, checklist.eye_dilatation_notes) || null,
+    asBool(firstDefined(checklist.patient_identity_verified, checklist.identity_verified), false),
+    asBool(firstDefined(checklist.procedure_verified, checklist.procedure_confirmed), false),
+    asBool(checklist.anesthesia_consent, false),
+    completedBy || null,
+    JSON.stringify({
+      source: 'theatre_ot_ready_checklist',
+      legacy_ot_ready: true,
+      checklist_keys: Object.keys(checklist).sort(),
+    }),
+  );
+  return rows[0] || null;
 }
 
 function assertOtReadySiteMark(checklist, schedule) {
@@ -343,9 +456,9 @@ class TheatreService {
     return result[0];
   }
 
-  async completeChecklist(id, checklist) {
+  async completeChecklist(id, checklist, { tenantId = null, completedBy = null } = {}) {
     const existing = await prisma.$queryRawUnsafe(
-      `SELECT id, status, procedure_name, procedure_code, patient_uid FROM ot_schedules WHERE id = $1`, requireIntId(id));
+      `SELECT id, tenant_id, status, procedure_name, procedure_code, patient_uid FROM ot_schedules WHERE id = $1`, requireIntId(id));
     if (existing.length === 0) throw AppError.notFound('OT schedule not found');
     if (['completed', 'cancelled'].includes(existing[0].status)) {
       throw AppError.badRequest('Cannot update checklist for a completed or cancelled surgery');
@@ -378,8 +491,12 @@ class TheatreService {
       JSON.stringify(checklist ?? {}), requireIntId(id)
     );
 
-    logger.info('Pre-op checklist updated', { scheduleId: id });
-    return result[0];
+    const preop = await createStructuredPreopFromOtReady(existing[0], checklist, { tenantId, completedBy });
+    const row = result[0];
+    if (preop?.id) row.pre_op_check_id = preop.id;
+
+    logger.info('Pre-op checklist updated', { scheduleId: id, preopCheckId: preop?.id || null });
+    return row;
   }
 
   async getAvailableRooms(date) {

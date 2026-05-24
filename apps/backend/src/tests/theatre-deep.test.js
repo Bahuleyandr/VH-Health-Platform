@@ -201,6 +201,44 @@ describe('Theatre scheduling — deep integration', () => {
       expect(res.body.message || res.body.error).toMatch(/blood glucose/i);
     });
 
+    it('returns a durable structured pre-op check id from the legacy OT-ready API', async () => {
+      const res = await nurse.put(`/api/v1/theatre/${scheduleId}/checklist`).send({
+        checklist: {
+          ot_ready: true,
+          fasting_confirmed: true,
+          npo_status_confirmed: true,
+          site_marked: true,
+          site_marked_eye: 'right',
+          consent_signed: true,
+          allergy_verified: true,
+          known_allergies: ['Penicillin'],
+          blood_glucose_mg_dl: 154,
+          blood_glucose_checked_at: '2026-05-15T08:45:00.000Z',
+          iv_access: true,
+          eye_dilatation_drops: true,
+          patient_identity_verified: true,
+          procedure_verified: true,
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.pre_op_check_id).toBeDefined();
+
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT id, status, completed_by, consent_signed, blood_glucose_mg_dl, eye_drops_given
+           FROM preop_checklists
+          WHERE ot_schedule_id = $1
+          ORDER BY updated_at DESC
+          LIMIT 1`,
+        scheduleId,
+      );
+      expect(rows[0].id).toBe(res.body.data.pre_op_check_id);
+      expect(rows[0].status).toBe('complete');
+      expect(rows[0].completed_by).toBe(NURSE_UID);
+      expect(rows[0].consent_signed).toBe(true);
+      expect(Number(rows[0].blood_glucose_mg_dl)).toBe(154);
+      expect(rows[0].eye_drops_given).toBe(true);
+    });
+
     // Non-ASCII preservation gate. Em dashes, °C, mg/dL, μg, and Tamil
     // chars are common in nurses' clinical shorthand on the diabetic
     // protocol / vitals notes. If the DB or any stage of the request
