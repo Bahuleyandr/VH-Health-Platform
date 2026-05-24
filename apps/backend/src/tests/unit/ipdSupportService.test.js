@@ -12,6 +12,11 @@ const attendantPassesFindMany = jest.fn();
 const attendantPassesUpdate = jest.fn();
 const advanceDepositsAggregate = jest.fn();
 const queryRawUnsafeMock = jest.fn();
+const transactionMock = jest.fn();
+const txQueryRawUnsafeMock = jest.fn();
+const txWardIndentFindFirstMock = jest.fn();
+const txWardIndentFindUniqueMock = jest.fn();
+const txWardIndentCreateMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
@@ -23,6 +28,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
       aggregate: advanceDepositsAggregate,
     },
     $queryRawUnsafe: queryRawUnsafeMock,
+    $transaction: transactionMock,
   },
 }));
 
@@ -37,6 +43,19 @@ beforeEach(() => {
   attendantPassesUpdate.mockReset();
   advanceDepositsAggregate.mockReset();
   queryRawUnsafeMock.mockReset();
+  transactionMock.mockReset();
+  txQueryRawUnsafeMock.mockReset();
+  txWardIndentFindFirstMock.mockReset();
+  txWardIndentFindUniqueMock.mockReset();
+  txWardIndentCreateMock.mockReset();
+  transactionMock.mockImplementation(async (callback) => callback({
+    $queryRawUnsafe: txQueryRawUnsafeMock,
+    ward_indents: {
+      findFirst: txWardIndentFindFirstMock,
+      findUnique: txWardIndentFindUniqueMock,
+      create: txWardIndentCreateMock,
+    },
+  }));
 });
 
 describe('ipdSupportService.listAdmissionPasses', () => {
@@ -106,5 +125,99 @@ describe('ipdSupportService.getAdmissionDepositBalance — deferred-advance mirr
     expect(await ipdSupportService.getAdmissionDepositBalance(null)).toBe(0);
     expect(advanceDepositsAggregate).not.toHaveBeenCalled();
     expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('ipdSupportService.createWardIndentForClinicalMedicationOrder — catalog form matching (H D13)', () => {
+  const ORDER_BASE = {
+    id: 501,
+    order_number: 'ORD-IPD-501',
+    order_type: 'medication',
+    encounter_id: '11111111-1111-4111-8111-111111111111',
+    patient_uid: '22222222-2222-4222-8222-222222222222',
+    ordered_by: '33333333-3333-4333-8333-333333333333',
+  };
+  const ADMISSION_ROW = {
+    id: 42,
+    admission_ward: 'Ward A',
+    encounter_id: ORDER_BASE.encounter_id,
+    patient_uid: ORDER_BASE.patient_uid,
+    ward_id: 7,
+    ward_name: 'Ward A',
+  };
+
+  function mockIndentCreation(catalogRow) {
+    txQueryRawUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([ADMISSION_ROW])
+      .mockResolvedValueOnce(catalogRow ? [catalogRow] : []);
+    txWardIndentFindFirstMock.mockResolvedValueOnce(null);
+    txWardIndentCreateMock.mockImplementationOnce(async (payload) => ({
+      id: 9001,
+      ...payload.data,
+      items: payload.data.items.create,
+    }));
+  }
+
+  it('prefers an injectable Pantoprazole catalog row for IV medication orders', async () => {
+    mockIndentCreation({
+      id: 202,
+      name: 'Pantoprazole 40mg Injection',
+      unit_price: '45.00',
+    });
+
+    const indent = await ipdSupportService.createWardIndentForClinicalMedicationOrder({
+      ...ORDER_BASE,
+      route: 'iv',
+      details: {
+        medication_name: 'Pantoprazole',
+        route: 'IV',
+        dose: '40mg',
+      },
+    });
+
+    const catalogCall = txQueryRawUnsafeMock.mock.calls[2];
+    expect(catalogCall[3]).toBe('iv');
+    expect(catalogCall[1]).toEqual(expect.arrayContaining(['%Pantoprazole%']));
+    expect(indent.items[0]).toMatchObject({
+      pharmacy_catalog_id: 202,
+      item_name: 'Pantoprazole 40mg Injection',
+      unit_price: 45,
+    });
+  });
+
+  it('maps NS/normal-saline IV fluid orders to the stocked IV-fluid catalog item', async () => {
+    mockIndentCreation({
+      id: 303,
+      name: 'Normal Saline 0.9% 500ml',
+      unit_price: '35.00',
+    });
+
+    const indent = await ipdSupportService.createWardIndentForClinicalMedicationOrder({
+      ...ORDER_BASE,
+      id: 502,
+      order_number: 'ORD-IPD-502',
+      route: 'iv',
+      details: {
+        medication_name: 'NS',
+        route: 'IV infusion',
+        dose: '500ml',
+      },
+    });
+
+    const catalogCall = txQueryRawUnsafeMock.mock.calls[2];
+    expect(catalogCall[1]).toEqual(expect.arrayContaining([
+      '%NS%',
+      '%Normal Saline%',
+      '%Sodium Chloride%',
+      '%Sodium Chloride 0.9%%',
+    ]));
+    expect(catalogCall[3]).toBe('iv');
+    expect(catalogCall[4]).toBe(500);
+    expect(indent.items[0]).toMatchObject({
+      pharmacy_catalog_id: 303,
+      item_name: 'Normal Saline 0.9% 500ml',
+      unit_price: 35,
+    });
   });
 });
