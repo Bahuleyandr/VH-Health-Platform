@@ -21,6 +21,10 @@ const PREOP_DAYCARE_MIGRATION_PATH = path.resolve(
   __dirname,
   '../../migrations/243_preop_daycare_nursing_fields.sql',
 );
+const POSTOP_HANDOVER_MIGRATION_PATH = path.resolve(
+  __dirname,
+  '../../migrations/244_postop_handover_notes.sql',
+);
 
 describe('migration 116 — surgical / OR clinical entities', () => {
   let sql;
@@ -183,5 +187,21 @@ describe('migration 243 — pre-op day-care nursing fields', () => {
     expect(sql).toMatch(/eye_drops_given\s+BOOLEAN\s+NOT NULL\s+DEFAULT false/i);
     expect(sql).toMatch(/eye_drops_given_at\s+TIMESTAMPTZ/i);
     expect(sql).toMatch(/eye_drops_notes\s+TEXT/i);
+  });
+});
+
+describe('migration 244 — post-op handover notes', () => {
+  let sql;
+  beforeAll(() => {
+    sql = fs.readFileSync(POSTOP_HANDOVER_MIGRATION_PATH, 'utf8');
+  });
+
+  it('is wrapped in a transaction', () => {
+    expect(sql).toMatch(/^\s*BEGIN;[\s\S]*COMMIT;\s*$/m);
+  });
+
+  it('adds an unbounded text handover field to postop_notes', () => {
+    expect(sql).toMatch(/ALTER TABLE postop_notes/i);
+    expect(sql).toMatch(/handover_notes\s+TEXT/i);
   });
 });

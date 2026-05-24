@@ -218,6 +218,7 @@ router.post('/postop', async (req, res, next) => {
       pendingOrders: body.pending_orders,
       followUpActions: body.follow_up_actions,
       disposition: body.disposition,
+      handoverNotes: body.handover_notes ?? body.handover_text ?? body.recovery_handover ?? null,
       status: body.status,
       finalizedBy: body.finalized_by || req.user?.uid || null,
       aiAssistGenerationId: body.ai_assist_generation_id,

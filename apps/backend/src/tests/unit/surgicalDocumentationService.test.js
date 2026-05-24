@@ -276,6 +276,26 @@ describe('createPostopNote', () => {
     expect(row.recovery_phase).toBe('phase1');
   });
 
+  it('persists long handover notes without disposition truncation', async () => {
+    mockSchedule();
+    const longHandover = `SBAR handover to ward recovery nurse: ${'observe airway, pain, nausea, wound, IOL shield, escort readiness; '.repeat(8)}`.trim();
+    queryUnsafeMock.mockResolvedValueOnce([{ id: 5, handover_notes: longHandover }]);
+    const row = await createPostopNote({
+      tenantId: TENANT,
+      otScheduleId: 42,
+      patientUid: PATIENT,
+      authoredBy: USER,
+      recoveryPhase: 'phase1',
+      disposition: 'ward recovery',
+      handoverNotes: longHandover,
+    });
+    expect(row.handover_notes).toBe(longHandover);
+    const [sql, ...params] = queryUnsafeMock.mock.calls[1];
+    expect(sql).toMatch(/handover_notes/);
+    expect(params).toContain(longHandover);
+    expect(longHandover.length).toBeGreaterThan(160);
+  });
+
   it('rejects unknown recovery_phase', async () => {
     mockSchedule();
     await expect(createPostopNote({
