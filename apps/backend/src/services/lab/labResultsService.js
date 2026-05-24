@@ -697,7 +697,9 @@ export async function signOffResults({
         if (pending.length === 0) {
           await prisma.$executeRawUnsafe(
             `UPDATE investigations
-                SET status = 'COMPLETED', updated_at = NOW()
+                SET status = 'COMPLETED',
+                    completed_at = COALESCE(completed_at, NOW()),
+                    updated_at = NOW()
               WHERE id = $1::int
                 AND tenant_id = $2::uuid
                 AND status NOT IN ('COMPLETED', 'CANCELLED')`,
