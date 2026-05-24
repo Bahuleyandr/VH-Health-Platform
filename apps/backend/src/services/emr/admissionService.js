@@ -1058,11 +1058,13 @@ async function admitPatient(data) {
       : (resolvedPackageEstMinor ? Number(resolvedPackageEstMinor) / 100 : null);
     if (costForPreauth && costForPreauth > 0) {
       try {
+        const requestType = admission_type === 'emergency' ? 'emergency' : 'planned';
         await createPreauth({
           tenantId: tenant_id,
           policy_id: resolvedPolicyId,
           patient_uid,
           admission_id: admission.id,
+          request_type: requestType,
           primary_diagnosis: admitting_diagnosis,
           expected_cost: costForPreauth,
           expected_los_days: expected_los_days ?? null,
