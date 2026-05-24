@@ -12,6 +12,8 @@
 // only, and acquisition stamps canonical staff/HPR identity instead of
 // trusting request-body free text. Read paths (worklist, report) still
 // serve the broader mount.
+// D53: the allowed tech acquire path must also carry a PACS/image
+// evidence pointer; status cannot move to acquired on a naked click.
 
 import { generateTestToken } from './testClient.js';
 import prisma from '../lib/prisma.js';
@@ -121,18 +123,49 @@ describe('radiology acquire — inner RBAC limits to RADIOLOGY_STAFF (b90c70d2)'
     expect(res.statusCode).toBe(403);
   });
 
+  it('rejects RADIOLOGY_STAFF acquire without PACS/image evidence (D53)', async () => {
+    const res = await client('RADIOLOGY_STAFF', RAD_TECH_UID, 4).post(`/api/v1/radiology/${orderId}/acquire`)
+      .send({ tech_license_number: 'RAD-LIC-D51' });
+    expect(res.statusCode).toBe(400);
+    expect(String(res.body?.message ?? res.body?.error ?? '')).toMatch(/PACS|image attachment/i);
+
+    const row = await prisma.$queryRawUnsafe(
+      `SELECT status, acquired_at, pacs_study_instance_uid, acquisition_evidence
+         FROM radiology_orders
+        WHERE id = $1`,
+      orderId,
+    );
+    expect(row[0].status).toBe('ordered');
+    expect(row[0].acquired_at).toBeNull();
+    expect(row[0].pacs_study_instance_uid).toBeNull();
+    expect(row[0].acquisition_evidence).toEqual({});
+  });
+
   it('ALLOWS RADIOLOGY_STAFF acquire (200) and stamps canonical tech identity/license', async () => {
     const res = await client('RADIOLOGY_STAFF', RAD_TECH_UID, 4).post(`/api/v1/radiology/${orderId}/acquire`)
-      .send({ tech_name: 'Spoofed Free Text', tech_license_number: 'FAKE-LIC-D51' });
+      .send({
+        tech_name: 'Spoofed Free Text',
+        tech_license_number: 'FAKE-LIC-D51',
+        pacs_study_instance_uid: '1.2.826.0.1.3680043.10.54321.53',
+        pacs_url: 'pacs://orthanc/studies/d53',
+        instance_count: 42,
+      });
     expect(res.statusCode).toBe(200);
     expect(res.body?.data?.acquired_by).toBe(RAD_TECH_UID);
     expect(res.body?.data?.tech_uid).toBe(RAD_TECH_UID);
     expect(res.body?.data?.acquired_by_name).toBe('Rad Tech Canonical');
     expect(res.body?.data?.tech_name).toBe('Rad Tech Canonical');
     expect(res.body?.data?.tech_license_number).toBe('RAD-LIC-D51');
+    expect(res.body?.data?.pacs_study_instance_uid).toBe('1.2.826.0.1.3680043.10.54321.53');
+    expect(res.body?.data?.acquisition_evidence).toMatchObject({
+      pacs_study_instance_uid: '1.2.826.0.1.3680043.10.54321.53',
+      pacs_url: 'pacs://orthanc/studies/d53',
+      instance_count: 42,
+    });
 
     const row = await prisma.$queryRawUnsafe(
-      `SELECT acquired_by, acquired_by_name, tech_uid, tech_name, tech_license_number
+      `SELECT acquired_by, acquired_by_name, tech_uid, tech_name, tech_license_number,
+              pacs_study_instance_uid, acquisition_evidence
          FROM radiology_orders
         WHERE id = $1`,
       orderId,
@@ -141,5 +174,11 @@ describe('radiology acquire — inner RBAC limits to RADIOLOGY_STAFF (b90c70d2)'
     expect(row[0].tech_uid).toBe(RAD_TECH_UID);
     expect(row[0].tech_name).toBe('Rad Tech Canonical');
     expect(row[0].tech_license_number).toBe('RAD-LIC-D51');
+    expect(row[0].pacs_study_instance_uid).toBe('1.2.826.0.1.3680043.10.54321.53');
+    expect(row[0].acquisition_evidence).toMatchObject({
+      pacs_study_instance_uid: '1.2.826.0.1.3680043.10.54321.53',
+      pacs_url: 'pacs://orthanc/studies/d53',
+      instance_count: 42,
+    });
   });
 });

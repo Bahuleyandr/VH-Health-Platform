@@ -7167,31 +7167,33 @@ model quality_incidents {
 }
 
 model radiology_orders {
-  id                   Int       @id @default(autoincrement())
-  patient_uid          String    @db.Uuid
-  encounter_id         Int?
-  modality             String    @db.VarChar(50)
-  body_part            String    @db.VarChar(100)
-  clinical_indication  String
-  priority             String?   @default("routine") @db.VarChar(50)
-  status               String?   @default("ordered") @db.VarChar(50)
-  ordered_by           String    @db.Uuid
-  radiologist          String?   @db.Uuid
-  report               String?
-  report_completed_at  DateTime? @db.Timestamptz(6)
-  notes                String?
-  created_at           DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at           DateTime? @default(now()) @db.Timestamptz(6)
-  acquired_at          DateTime? @db.Timestamptz(6)
-  acquired_by          String?   @db.Uuid
-  acquired_by_name     String?   @db.VarChar(160)
-  tech_uid             String?   @db.Uuid
-  tech_name            String?   @db.VarChar(160)
-  report_signed_off_at DateTime? @db.Timestamptz(6)
-  report_signed_off_by String?   @db.Uuid
-  tenant_id            String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
-  tech_license_number  String?   @db.VarChar(120)
-  tenants              tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_radiology_orders_tenant")
+  id                      Int       @id @default(autoincrement())
+  patient_uid             String    @db.Uuid
+  encounter_id            Int?
+  modality                String    @db.VarChar(50)
+  body_part               String    @db.VarChar(100)
+  clinical_indication     String
+  priority                String?   @default("routine") @db.VarChar(50)
+  status                  String?   @default("ordered") @db.VarChar(50)
+  ordered_by              String    @db.Uuid
+  radiologist             String?   @db.Uuid
+  report                  String?
+  report_completed_at     DateTime? @db.Timestamptz(6)
+  notes                   String?
+  created_at              DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime? @default(now()) @db.Timestamptz(6)
+  acquired_at             DateTime? @db.Timestamptz(6)
+  acquired_by             String?   @db.Uuid
+  acquired_by_name        String?   @db.VarChar(160)
+  tech_uid                String?   @db.Uuid
+  tech_name               String?   @db.VarChar(160)
+  report_signed_off_at    DateTime? @db.Timestamptz(6)
+  report_signed_off_by    String?   @db.Uuid
+  tenant_id               String    @default(dbgenerated("'00000000-0000-4000-8000-000000000001'::uuid")) @db.Uuid
+  tech_license_number     String?   @db.VarChar(120)
+  pacs_study_instance_uid String?   @db.VarChar(200)
+  acquisition_evidence    Json      @default("{}")
+  tenants                 tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_radiology_orders_tenant")
 
   @@index([tenant_id], map: "idx_radiology_orders_tenant_id")
 }
