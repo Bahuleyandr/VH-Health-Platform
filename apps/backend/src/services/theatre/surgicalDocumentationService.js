@@ -520,7 +520,7 @@ const POSTOP_RETURNING = `id, tenant_id, ot_schedule_id, patient_uid,
   drain_status, wound_status, diet_advanced_to,
   ambulation, bowel_function, urine_output_ml,
   complications_noted, pending_orders, follow_up_actions,
-  disposition,
+  disposition, handover_notes,
   status, finalized_by, finalized_at, ai_assist_generation_id,
   metadata, created_at, updated_at`;
 
@@ -544,6 +544,7 @@ export async function createPostopNote({
   pendingOrders = null,
   followUpActions = null,
   disposition = null,
+  handoverNotes = null,
   status = 'draft',
   finalizedBy = null,
   aiAssistGenerationId = null,
@@ -576,7 +577,7 @@ export async function createPostopNote({
           drain_status, wound_status, diet_advanced_to,
           ambulation, bowel_function, urine_output_ml,
           complications_noted, pending_orders, follow_up_actions,
-          disposition, status, finalized_by, finalized_at,
+          disposition, handover_notes, status, finalized_by, finalized_at,
           ai_assist_generation_id, metadata)
        VALUES ($1::uuid, $2, $3::uuid,
          $4::uuid, $5, $6,
@@ -584,9 +585,9 @@ export async function createPostopNote({
          $10::jsonb, $11, $12,
          $13, $14, $15,
          $16, $17::jsonb, $18::jsonb,
-         $19, $20, $21::uuid,
-         CASE WHEN $20 = 'finalized' THEN NOW() ELSE NULL END,
-         $22, $23::jsonb)
+         $19, $20, $21, $22::uuid,
+         CASE WHEN $21 = 'finalized' THEN NOW() ELSE NULL END,
+         $23, $24::jsonb)
        RETURNING ${POSTOP_RETURNING}`,
       tid, scheduleId, maybeUuid(patientUid, 'patient_uid'),
       maybeUuid(authoredBy, 'authored_by'),
@@ -605,6 +606,7 @@ export async function createPostopNote({
       JSON.stringify(pendingOrders ? normalizeJsonArray(pendingOrders, 'pending_orders') : []),
       JSON.stringify(followUpActions ? normalizeJsonArray(followUpActions, 'follow_up_actions') : []),
       safeText(disposition, 160),
+      safeText(handoverNotes),
       cleanStatus,
       finalizerUid,
       aiAssistGenerationId ? normalizeId(aiAssistGenerationId, 'ai_assist_generation_id') : null,
