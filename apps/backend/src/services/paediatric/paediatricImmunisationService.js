@@ -29,6 +29,38 @@ const TENANT_DEFAULT = '00000000-0000-4000-8000-000000000001';
 
 function tenantOr(t) { return t || TENANT_DEFAULT; }
 
+function dateOnly(value) {
+  if (!value) return null;
+  const text = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
+}
+
+async function latestSignedUpToDateReview({ patientUid, tenantId }) {
+  const tid = tenantOr(tenantId);
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id,
+            COALESCE(content->>'as_of', signed_at::date::text, created_at::date::text) AS as_of,
+            signed_at,
+            signed_by
+       FROM clinical_notes
+      WHERE patient_uid = $1::uuid
+        AND note_type = 'immunisation_review'
+        AND COALESCE(is_signed, false) = true
+        AND COALESCE(content->>'status', '') = 'up_to_date'
+        AND (tenant_id = $2::uuid OR content->>'tenant_id' = $2)
+      ORDER BY COALESCE(signed_at, created_at) DESC, created_at DESC
+      LIMIT 1`,
+    patientUid, tid,
+  );
+  if (!rows.length) return null;
+  const asOf = dateOnly(rows[0].as_of);
+  if (!asOf) return null;
+  return { ...rows[0], as_of: asOf };
+}
+
 async function ensureScheduleSeededForPatient({ patientUid, tenantId }) {
   const tid = tenantOr(tenantId);
   const existing = await prisma.$queryRawUnsafe(
@@ -172,6 +204,8 @@ export async function listDueForPatient(patientUid, { asOf = null, tenantId = nu
   await ensureScheduleSeededForPatient({ patientUid, tenantId });
   const checkpoint = asOf ? new Date(asOf) : new Date();
   const checkpointIso = checkpoint.toISOString().slice(0, 10);
+  const review = await latestSignedUpToDateReview({ patientUid, tenantId });
+  const reviewCutoffIso = review && review.as_of <= checkpointIso ? review.as_of : null;
   return prisma.$queryRawUnsafe(
     `SELECT pi.id, pi.due_date, pi.status, vc.code, vc.display_name,
             vc.dose_number, vc.window_days,
@@ -181,8 +215,9 @@ export async function listDueForPatient(patientUid, { asOf = null, tenantId = nu
        JOIN vaccine_catalogue vc ON vc.id = pi.vaccine_catalogue_id
       WHERE pi.patient_uid = $1::uuid
         AND pi.status = 'scheduled'
+        AND ($3::date IS NULL OR pi.due_date > $3::date)
       ORDER BY pi.due_date ASC`,
-    patientUid, checkpointIso,
+    patientUid, checkpointIso, reviewCutoffIso,
   );
 }
 

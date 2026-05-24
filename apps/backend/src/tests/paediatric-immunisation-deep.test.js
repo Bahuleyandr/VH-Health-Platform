@@ -10,6 +10,10 @@ function twoYearOldDob() {
   return new Date(Date.now() - 760 * 86400000).toISOString().slice(0, 10);
 }
 
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function nurseClient(id = 1) {
   const token = generateTestToken('NURSING_STAFF', { uid: NURSE_UID, id });
   return {
@@ -26,6 +30,10 @@ describe('Paediatric immunisation schedule reads', () => {
   let nurse;
 
   beforeAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_notes WHERE patient_uid=$1::uuid AND note_type='immunisation_review'`,
+      PATIENT_UID,
+    ).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM patient_immunisations WHERE patient_uid=$1::uuid`,
       PATIENT_UID,
@@ -54,6 +62,10 @@ describe('Paediatric immunisation schedule reads', () => {
   });
 
   afterAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM clinical_notes WHERE patient_uid=$1::uuid AND note_type='immunisation_review'`,
+      PATIENT_UID,
+    ).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM patient_immunisations WHERE patient_uid=$1::uuid`,
       PATIENT_UID,
@@ -88,5 +100,28 @@ describe('Paediatric immunisation schedule reads', () => {
     expect(due.statusCode).toBe(200);
     expect(due.body.data.length).toBeGreaterThan(0);
     expect(due.body.data.every((row) => row.status === 'scheduled')).toBe(true);
+  });
+
+  it('does not show already-reviewed doses in the due list', async () => {
+    const reviewAsOf = todayIso();
+    const before = await nurse.get(`/api/v1/paediatric/immunisations/patient/${PATIENT_UID}/due?asOf=${reviewAsOf}`);
+    expect(before.statusCode).toBe(200);
+    expect(before.body.data.some((row) => row.bucket === 'due_or_overdue')).toBe(true);
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO clinical_notes
+         (patient_uid, author_uid, author_role, note_type, title, content,
+          is_signed, signed_at, signed_by, status, tenant_id)
+       VALUES ($1::uuid, $2::uuid, 'NURSING_STAFF', 'immunisation_review',
+               'Immunisation up to date',
+               jsonb_build_object('status', 'up_to_date', 'as_of', $3::text, 'age_group', 'current', 'tenant_id', $4::text),
+               true, NOW(), $2::uuid, 'current', $4::uuid)`,
+      PATIENT_UID, NURSE_UID, reviewAsOf, '00000000-0000-4000-8000-000000000001',
+    );
+
+    const after = await nurse.get(`/api/v1/paediatric/immunisations/patient/${PATIENT_UID}/due?asOf=${reviewAsOf}`);
+    expect(after.statusCode).toBe(200);
+    expect(after.body.data.some((row) => row.bucket === 'due_or_overdue')).toBe(false);
+    expect(after.body.data.every((row) => String(row.due_date).slice(0, 10) > reviewAsOf)).toBe(true);
   });
 });
