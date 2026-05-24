@@ -23,13 +23,32 @@ class AncTimelineScreen extends StatefulWidget {
 
 class _AncTimelineScreenState extends State<AncTimelineScreen> {
   bool _loading = true;
+  bool _savingKicks = false;
   String? _error;
+  String? _kickMessage;
   Map<String, dynamic>? _timeline;
+  Map<String, dynamic>? _kickPregnancy;
+  List<Map<String, dynamic>> _kickLog = const [];
+  List<Map<String, dynamic>> _packages = const [];
+  List<Map<String, dynamic>> _advice = const [];
+  bool _contentPendingReview = false;
+
+  final _kickCountController = TextEditingController();
+  final _kickWindowController = TextEditingController(text: '720');
+  final _kickNotesController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _fetch();
+  }
+
+  @override
+  void dispose() {
+    _kickCountController.dispose();
+    _kickWindowController.dispose();
+    _kickNotesController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetch() async {
@@ -38,19 +57,41 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
       _error = null;
     });
     try {
-      final response = await ApiClient.get('/portal/maternity/timeline');
+      final responses = await Future.wait([
+        ApiClient.get('/portal/maternity/timeline'),
+        ApiClient.get('/portal/maternity/fetal-kicks'),
+        ApiClient.get('/portal/maternity/packages'),
+        ApiClient.get('/portal/maternity/anc-advice'),
+      ]);
       if (!mounted) return;
-      if (response.isSuccess) {
+      final timelineResponse = responses[0];
+      final kicksResponse = responses[1];
+      final packagesResponse = responses[2];
+      final adviceResponse = responses[3];
+      if (timelineResponse.isSuccess) {
         // Backend returns null when there's no active pregnancy. ApiResponse
         // unwraps the envelope so we may get either a Map or a flat null.
-        final data = response.data;
+        final data = timelineResponse.data;
+        final kickData = _asMap(kicksResponse.data);
+        final adviceData = _asMap(adviceResponse.data);
         setState(() {
           _timeline = data is Map<String, dynamic> ? data : null;
+          _kickPregnancy = _asMap(kickData?['pregnancy']);
+          _kickLog = kicksResponse.isSuccess
+              ? _listOfMaps(kickData?['fetal_kicks'])
+              : const [];
+          _packages = packagesResponse.isSuccess
+              ? _listOfMaps(packagesResponse.data)
+              : const [];
+          _advice = adviceResponse.isSuccess
+              ? _listOfMaps(adviceData?['advice'])
+              : const [];
+          _contentPendingReview = adviceData?['content_pending_review'] == true;
           _loading = false;
         });
       } else {
         setState(() {
-          _error = response.message ?? 'Failed to load ANC timeline';
+          _error = timelineResponse.message ?? 'Failed to load ANC timeline';
           _loading = false;
         });
       }
@@ -59,6 +100,57 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
       setState(() {
         _error = e.toString();
         _loading = false;
+      });
+    }
+  }
+
+  Future<void> _recordKickCount() async {
+    final count = int.tryParse(_kickCountController.text.trim());
+    final window = int.tryParse(_kickWindowController.text.trim());
+    if (count == null || count < 0 || count > 999) {
+      setState(() => _kickMessage = 'Enter a kick count between 0 and 999');
+      return;
+    }
+    if (window == null || window <= 0 || window > 1440) {
+      setState(
+        () => _kickMessage = 'Observation window must be 1-1440 minutes',
+      );
+      return;
+    }
+    setState(() {
+      _savingKicks = true;
+      _kickMessage = null;
+    });
+    try {
+      final response = await ApiClient.post(
+        '/portal/maternity/fetal-kicks',
+        body: {
+          'kick_count': count,
+          'observation_window_minutes': window,
+          if (_kickNotesController.text.trim().isNotEmpty)
+            'notes': _kickNotesController.text.trim(),
+        },
+      );
+      if (!mounted) return;
+      if (response.isSuccess) {
+        _kickCountController.clear();
+        _kickNotesController.clear();
+        setState(() {
+          _savingKicks = false;
+          _kickMessage = 'Kick count saved';
+        });
+        await _fetch();
+      } else {
+        setState(() {
+          _savingKicks = false;
+          _kickMessage = response.message ?? 'Could not save kick count';
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _savingKicks = false;
+        _kickMessage = e.toString();
       });
     }
   }
@@ -158,6 +250,16 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
       children: [
         _pregnancyHeader(theme, pregnancy),
         const SizedBox(height: 16),
+        _kickCounterCard(theme),
+        const SizedBox(height: 16),
+        if (_advice.isNotEmpty) ...[
+          _adviceSection(theme),
+          const SizedBox(height: 16),
+        ],
+        if (_packages.isNotEmpty) ...[
+          _packagesSection(theme),
+          const SizedBox(height: 16),
+        ],
         if (nextVisit != null) _nextVisitCard(theme, nextVisit),
         if (nextVisit != null) const SizedBox(height: 16),
         if (visitsAsc.isNotEmpty) ...[
@@ -287,6 +389,196 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
     );
   }
 
+  Widget _kickCounterCard(ThemeData theme) {
+    final cs = theme.colorScheme;
+    final latest = _kickLog.isNotEmpty ? _kickLog.first : null;
+    final latestCount = latest?['kick_count'];
+    final latestDate = latest?['log_date']?.toString();
+    final lowFlag = latest?['low_count_flag'] == true;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.touch_app_outlined, color: cs.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Fetal kick counter',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+              ],
+            ),
+            if (_kickPregnancy == null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'No active pregnancy is linked to this account.',
+                style: theme.textTheme.bodyMedium,
+              ),
+            ] else ...[
+              const SizedBox(height: 12),
+              if (latest != null)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: lowFlag
+                        ? cs.errorContainer
+                        : cs.secondaryContainer.withValues(alpha: 0.65),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    latestDate != null
+                        ? 'Last saved: $latestCount kicks on ${_fmtDate(latestDate)}'
+                        : 'Last saved: $latestCount kicks',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: lowFlag
+                          ? cs.onErrorContainer
+                          : cs.onSecondaryContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _kickCountController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Kick count',
+                  prefixIcon: Icon(Icons.add_circle_outline),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _kickWindowController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Observation window (minutes)',
+                  prefixIcon: Icon(Icons.timer_outlined),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _kickNotesController,
+                minLines: 1,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Notes',
+                  prefixIcon: Icon(Icons.notes_outlined),
+                ),
+              ),
+              if (_kickMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _kickMessage!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: _kickMessage == 'Kick count saved'
+                        ? cs.primary
+                        : cs.error,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _savingKicks ? null : _recordKickCount,
+                  icon: _savingKicks
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save_outlined),
+                  label: Text(_savingKicks ? 'Saving...' : 'Save kick count'),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _adviceSection(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('ANC self-care', style: theme.textTheme.titleMedium),
+        if (_contentPendingReview) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Reviewed local-language guidance is pending clinical sign-off.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
+        ],
+        const SizedBox(height: 8),
+        ..._advice.map((row) => _adviceTile(theme, row)),
+      ],
+    );
+  }
+
+  Widget _adviceTile(ThemeData theme, Map<String, dynamic> row) {
+    final title = row['title']?.toString();
+    final category = row['category']?.toString().replaceAll('_', ' ');
+    final content = row['content']?.toString();
+    final pending = row['content_status'] == 'pending_clinical_review';
+    return Card(
+      child: ListTile(
+        leading: Icon(
+          pending ? Icons.pending_actions_outlined : Icons.health_and_safety,
+        ),
+        title: Text(title?.isNotEmpty == true ? title! : _titleCase(category)),
+        subtitle: Text(
+          pending || content == null || content.isEmpty
+              ? 'Clinical content pending review'
+              : content,
+        ),
+      ),
+    );
+  }
+
+  Widget _packagesSection(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Maternity packages', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 8),
+        ..._packages.map((pkg) => _packageTile(theme, pkg)),
+      ],
+    );
+  }
+
+  Widget _packageTile(ThemeData theme, Map<String, dynamic> pkg) {
+    final name = pkg['display_name']?.toString() ?? 'Maternity package';
+    final desc = pkg['description']?.toString();
+    final days = pkg['duration_days'];
+    final price = pkg['fixed_price_minor'];
+    final priceValue = price == null ? null : num.tryParse(price.toString());
+    final priceLabel = priceValue == null
+        ? 'Pricing under review'
+        : '₹${NumberFormat.decimalPattern().format((priceValue / 100).round())}';
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.local_hospital_outlined),
+        title: Text(name),
+        subtitle: Text(
+          [
+            if (desc != null && desc.isNotEmpty) desc,
+            if (days != null) '$days days',
+            priceLabel,
+          ].join(' • '),
+        ),
+      ),
+    );
+  }
+
   Widget _visitCard(ThemeData theme, Map<String, dynamic> v) {
     final visitNumber = v['visit_number'];
     final date = v['visit_date']?.toString();
@@ -394,5 +686,32 @@ class _AncTimelineScreenState extends State<AncTimelineScreen> {
     final d = DateTime.tryParse(iso);
     if (d == null) return iso;
     return DateFormat.yMMMd().format(d.toLocal());
+  }
+
+  String _titleCase(String? value) {
+    final text = value?.trim();
+    if (text == null || text.isEmpty) return 'Advice';
+    return text
+        .split(RegExp(r'\s+'))
+        .map(
+          (word) => word.isEmpty
+              ? word
+              : '${word[0].toUpperCase()}${word.substring(1)}',
+        )
+        .join(' ');
+  }
+
+  Map<String, dynamic>? _asMap(Object? value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return null;
+  }
+
+  List<Map<String, dynamic>> _listOfMaps(Object? value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
   }
 }

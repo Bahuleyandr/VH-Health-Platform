@@ -473,6 +473,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         color: const Color(0xFFFFD54F),
         onTap: (ctx) => _openFeature(ctx, '/health-points'),
       ),
+      FeatureIconData(
+        icon: Icons.pregnant_woman,
+        label: 'Maternity',
+        color: const Color(0xFFF8BBD0),
+        description: 'Track ANC visits, kick counts, advice, and packages',
+        onTap: (ctx) => _openFeature(ctx, '/portal/maternity/timeline'),
+      ),
       // Patient self-service portal — Sprint 10. SVG assets not yet
       // designed; falls back to the Lucide icon glyph.
       FeatureIconData(
