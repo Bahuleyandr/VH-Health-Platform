@@ -53,9 +53,12 @@ export const deleteWard = async (req, res) => {
 
 export const listBeds = async (req, res) => {
   try {
-    const beds = await bedService.listBeds();
+    const beds = await bedService.listBeds(req.query || {});
     success(res, { beds, count: beds.length }, 'Beds retrieved');
   } catch (err) {
+    if (err && typeof err.statusCode === 'number') {
+      return error(res, err.message, err.statusCode, err.details);
+    }
     logger.error('Error listing beds:', err);
     error(res, 'Failed to list beds', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -63,9 +66,12 @@ export const listBeds = async (req, res) => {
 
 export const getBedsByWard = async (req, res) => {
   try {
-    const beds = await bedService.getBedsByWard(req.params.wardId);
+    const beds = await bedService.getBedsByWard(req.params.wardId, req.query || {});
     success(res, { beds, count: beds.length }, 'Beds retrieved');
   } catch (err) {
+    if (err && typeof err.statusCode === 'number') {
+      return error(res, err.message, err.statusCode, err.details);
+    }
     logger.error('Error getting beds by ward:', err);
     error(res, 'Failed to get beds', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
