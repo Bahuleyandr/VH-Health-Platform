@@ -13,6 +13,12 @@ const router = express.Router();
 
 logger.info('✅ Enhanced pharmacyRoutes loaded');
 
+function dispenseByBodyOrderId(req, res) {
+  const id = req.body?.order_id ?? req.body?.orderId ?? req.body?.id;
+  req.params.id = id == null ? undefined : String(id);
+  return pharmacyOrderController.markCounterDispensed(req, res);
+}
+
 // Public test route
 wrapRoutesWithValidation(
   router,
@@ -52,6 +58,15 @@ router.use('/ward-indents', wardIndentRoutes);
 // Re-route some paths for backward compatibility
 router.use('/category', medicationRoutes);
 router.use('/search', medicationRoutes);
+
+// D57: swarm/client documentation advertises POST /api/v1/pharmacy/dispense
+// and /api/v1/pharmacy-orders/dispense. Accept order_id in the body and reuse
+// the canonical counter-dispense controller.
+wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
+  post: [
+    ['/dispense', [], dispenseByBodyOrderId]
+  ]
+});
 
 // Catalog routes must be registered after patient sub-routers because wrapAutoRBAC
 // installs router-level RBAC middleware for the routes that follow it.

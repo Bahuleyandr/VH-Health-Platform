@@ -14,9 +14,9 @@ const router = express.Router();
 wrapAutoRBAC(router, 'pharmacyStaffMedicationRoutes', {
   get: [
     ['/', medicationController.getAllMedications],
-    ['/:id', medicationController.getMedicationById],
     ['/category/:category', medicationController.getMedicationsByCategory],
-    ['/search', searchMedicationValidation, medicationController.searchMedications]
+    ['/search', searchMedicationValidation, medicationController.searchMedications],
+    ['/:id', medicationController.getMedicationById]
   ],
   
   put: [
