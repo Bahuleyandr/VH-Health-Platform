@@ -6,6 +6,64 @@ import { ICU_BED_TYPES, canAllocateIcu } from '../../utils/roleHelpers.js';
 const BED_RETURNING = `id, ward_id, bed_number, status, patient_id, patient_name,
     admitted_at, notes, assigned_at, created_at, updated_at`;
 const WARD_RETURNING = `id, name, floor, department_id, total_beds, created_at, updated_at`;
+const VALID_BED_STATUSES = new Set(['available', 'occupied', 'reserved', 'maintenance', 'cleaning', 'dirty']);
+
+function truthyParam(value) {
+  return value === true || value === 'true' || value === '1' || value === 1;
+}
+
+function addAvailableBedConditions(conditions) {
+  conditions.push(
+    "b.status = 'available'",
+    'b.patient_uid IS NULL',
+    'b.patient_id IS NULL',
+    'b.patient_name IS NULL',
+    'b.admission_id IS NULL',
+    "NOT EXISTS (SELECT 1 FROM admissions a WHERE a.bed_id = b.id AND a.discharged_at IS NULL)",
+  );
+}
+
+function buildBedListFilters(filters = {}, fixedWardId = null) {
+  const conditions = [];
+  const params = [];
+  const addParam = (value) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+
+  const rawStatus = filters.status ? String(filters.status).trim().toLowerCase() : null;
+  const availableOnly = truthyParam(filters.available)
+    || truthyParam(filters.only_available)
+    || rawStatus === 'available';
+
+  if (availableOnly) {
+    addAvailableBedConditions(conditions);
+  } else if (rawStatus && rawStatus !== 'all') {
+    if (!VALID_BED_STATUSES.has(rawStatus)) {
+      throw AppError.badRequest(`Invalid bed status "${filters.status}"`);
+    }
+    conditions.push(`b.status = ${addParam(rawStatus)}`);
+  }
+
+  const wardId = fixedWardId ?? filters.ward_id ?? filters.wardId;
+  if (wardId !== null && wardId !== undefined && wardId !== '') {
+    const parsed = Number(wardId);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw AppError.badRequest('ward_id must be a positive integer');
+    }
+    conditions.push(`b.ward_id = ${addParam(parsed)}`);
+  }
+
+  const bedType = filters.bed_type || filters.bedType;
+  if (bedType) {
+    conditions.push(`b.bed_type = ${addParam(String(bedType))}`);
+  }
+
+  return {
+    where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '',
+    params,
+  };
+}
 
 class BedService {
   // ===== WARD OPERATIONS =====
@@ -56,16 +114,18 @@ class BedService {
 
   // ===== BED OPERATIONS =====
 
-  async listBeds() {
+  async listBeds(filters = {}) {
+    const { where, params } = buildBedListFilters(filters);
     return prisma.$queryRawUnsafe(`
       SELECT b.*, w.name as ward_name, w.floor as ward_floor
       FROM beds b
       LEFT JOIN wards w ON b.ward_id = w.id
+      ${where}
       ORDER BY w.name, b.bed_number
-    `);
+    `, ...params);
   }
 
-  async getBedsByWard(wardId) {
+  async getBedsByWard(wardId, filters = {}) {
     // Pull patient + admission context alongside the bed so the bed-board
     // detail sheet can render name + age + gender + admission reason +
     // attending doctor without an N+1 round trip per bed. All joins are
@@ -77,6 +137,7 @@ class BedService {
     // details come from users via `b.patient_uid = u.uid`. The age
     // column is computed in SQL from `users.birthday` (NOT `dob` —
     // that's a schema-dump-vs-live mismatch).
+    const { where, params } = buildBedListFilters(filters, wardId);
     return prisma.$queryRawUnsafe(
       `SELECT b.*,
               w.name AS ward_name,
@@ -104,9 +165,9 @@ class BedService {
          ON a.bed_id = b.id AND a.discharged_at IS NULL
        LEFT JOIN users doc
          ON doc.uid = a.attending_doctor
-       WHERE b.ward_id = $1
+       ${where}
        ORDER BY b.bed_number`,
-      parseInt(wardId)
+      ...params
     );
   }
 

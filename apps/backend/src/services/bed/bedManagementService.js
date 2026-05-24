@@ -331,6 +331,8 @@ class BedManagementService {
       "status = 'available'",
       'patient_uid IS NULL',
       'patient_id IS NULL',
+      'patient_name IS NULL',
+      'admission_id IS NULL',
       "NOT EXISTS (SELECT 1 FROM admissions a WHERE a.bed_id = beds.id AND a.discharged_at IS NULL)",
     ];
     const params = [];

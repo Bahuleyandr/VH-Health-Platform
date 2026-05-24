@@ -30,12 +30,12 @@ describe('Bed + ward management — deep integration', () => {
 
   beforeAll(async () => {
     // Clean any fixtures from prior runs (in FK-safe order)
-    await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number LIKE 'BD-DEEP-%'`);
+    await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number LIKE 'BD-DEEP-%' OR bed_number LIKE 'BD-FLT-%'`);
     await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name = $1`, WARD_NAME);
   });
 
   afterAll(async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number LIKE 'BD-DEEP-%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number LIKE 'BD-DEEP-%' OR bed_number LIKE 'BD-FLT-%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM wards WHERE name = $1`, WARD_NAME).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
@@ -136,6 +136,40 @@ describe('Bed + ward management — deep integration', () => {
       expect(ours.actual_beds).toBe(1);
       expect(ours.maintenance).toBe(1);
       expect(ours.available).toBe(0);
+    });
+
+    it('honors available filters so occupied, cleaning, and stale occupant beds are not selectable', async () => {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO beds (ward_id, bed_number, status, patient_name)
+         VALUES
+           ($1, 'BD-FLT-AVAIL', 'available', NULL),
+           ($1, 'BD-FLT-OCC', 'occupied', 'Current Patient'),
+           ($1, 'BD-FLT-CLEAN', 'cleaning', NULL),
+           ($1, 'BD-FLT-STALE', 'available', 'Previous Patient')`,
+        wardId,
+      );
+
+      const listRes = await admin.get(`/api/v1/beds?status=available&ward_id=${wardId}`);
+      expect(listRes.statusCode).toBe(200);
+      const listNumbers = listRes.body.data.beds.map((b) => b.bed_number);
+      expect(listNumbers).toContain('BD-FLT-AVAIL');
+      expect(listNumbers).not.toContain('BD-FLT-OCC');
+      expect(listNumbers).not.toContain('BD-FLT-CLEAN');
+      expect(listNumbers).not.toContain('BD-FLT-STALE');
+
+      const wardRes = await admin.get(`/api/v1/beds/ward/${wardId}?available=true`);
+      expect(wardRes.statusCode).toBe(200);
+      const wardNumbers = wardRes.body.data.beds.map((b) => b.bed_number);
+      expect(wardNumbers).toContain('BD-FLT-AVAIL');
+      expect(wardNumbers).not.toContain('BD-FLT-OCC');
+      expect(wardNumbers).not.toContain('BD-FLT-CLEAN');
+      expect(wardNumbers).not.toContain('BD-FLT-STALE');
+
+      const availableRes = await admin.get(`/api/v1/beds/available?ward_id=${wardId}`);
+      expect(availableRes.statusCode).toBe(200);
+      const availableNumbers = availableRes.body.data.beds.map((b) => b.bed_number);
+      expect(availableNumbers).toContain('BD-FLT-AVAIL');
+      expect(availableNumbers).not.toContain('BD-FLT-STALE');
     });
   });
 
