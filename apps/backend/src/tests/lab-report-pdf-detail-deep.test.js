@@ -29,6 +29,8 @@ import { generateLabReportPDF } from '../services/documents/clinicalPdfGenerator
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
 const PATIENT_UID = 'd6d6d6d6-d6d6-4d6d-8d6d-d6d6d6d60701';
+const PATHOLOGIST_UID = 'd6d6d6d6-d6d6-4d6d-8d6d-d6d6d6d60709';
+const PATIENT_MRN = 'VH-LAB-D19';
 
 const createdInvestigationIds = [];
 
@@ -48,25 +50,35 @@ async function seedCompletedOrderWithResults() {
   createdInvestigationIds.push(invId);
 
   // Two verified (signed-off) analytes — these MUST appear on the report.
-  await prisma.$executeRawUnsafe(
+  const hbRows = await prisma.$queryRawUnsafe(
     `INSERT INTO lab_results
        (tenant_id, patient_uid, patient_name, investigation_id, test_code,
         test_name, value_text, value_numeric, unit, reference_range,
         abnormal_flag, status, signed_off_at, hl7_segment_index)
      VALUES ($1::uuid, $2::uuid, 'R. Subramaniam', $3::int, 'HB',
              'Haemoglobin', '13.2', 13.2, 'g/dL', '13-17', NULL,
-             'final', NOW(), 1)`,
+             'final', NOW(), 1)
+     RETURNING id`,
     TENANT, PATIENT_UID, invId,
   );
-  await prisma.$executeRawUnsafe(
+  const wbcRows = await prisma.$queryRawUnsafe(
     `INSERT INTO lab_results
        (tenant_id, patient_uid, patient_name, investigation_id, test_code,
         test_name, value_text, value_numeric, unit, reference_range,
         abnormal_flag, status, signed_off_at, hl7_segment_index)
      VALUES ($1::uuid, $2::uuid, 'R. Subramaniam', $3::int, 'WBC',
              'WBC Count', '12.1', 12.1, 'x10^9/L', '4-11', 'H',
-             'final', NOW(), 2)`,
+             'final', NOW(), 2)
+     RETURNING id`,
     TENANT, PATIENT_UID, invId,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO lab_pathologist_signoffs
+       (tenant_id, patient_uid, result_ids, signed_off_by,
+        signed_off_by_name, signed_off_by_reg, decision, comments, signed_at)
+     VALUES ($1::uuid, $2::uuid, ARRAY[$3::int, $4::int], $5::uuid,
+             'Dr Lab Signoff', 'TNMC-12345', 'verified', 'Reviewed for release', NOW())`,
+    TENANT, PATIENT_UID, hbRows[0].id, wbcRows[0].id, PATHOLOGIST_UID,
   );
   // A preliminary (unsigned) analyte — medico-legally unverified, MUST be
   // excluded from the patient-facing report + detail read.
@@ -104,13 +116,26 @@ describe('Lab report PDF + detail for a completed signed-off order', () => {
        ON CONFLICT (uid) DO NOTHING`,
       PATIENT_UID,
     );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM patient_identifiers
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND identifier_type = 'mrn'`,
+      TENANT, PATIENT_UID,
+    );
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO patient_identifiers
+         (tenant_id, patient_uid, identifier_type, identifier_value, is_primary, status)
+       VALUES ($1::uuid, $2::uuid, 'mrn', $3, true, 'active')`,
+      TENANT, PATIENT_UID, PATIENT_MRN,
+    );
   });
 
   afterAll(async () => {
+    await prisma.$executeRawUnsafe(`DELETE FROM lab_pathologist_signoffs WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     for (const id of createdInvestigationIds) {
       await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE investigation_id = $1::int`, id).catch(() => {});
       await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE id = $1::int`, id).catch(() => {});
     }
+    await prisma.$executeRawUnsafe(`DELETE FROM patient_identifiers WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });
@@ -131,6 +156,13 @@ describe('Lab report PDF + detail for a completed signed-off order', () => {
       const buffer = await generateLabReportPDF(invId);
       expect(buffer.slice(0, 4).toString()).toBe('%PDF');
       const joined = captured.join('\n');
+      expect(joined).toContain(`Patient ID: MRN: ${PATIENT_MRN}`);
+      expect(joined).toContain(`Patient UID: ${PATIENT_UID}`);
+      expect(joined).not.toContain('Completed: Pending');
+      expect(joined).toContain('Verification');
+      expect(joined).toContain('Verified: Yes');
+      expect(joined).toContain('Pathologist: Dr Lab Signoff');
+      expect(joined).toContain('Registration: TNMC-12345');
       expect(joined).toContain('Results');
       expect(joined).toContain('Haemoglobin');
       expect(joined).toContain('13.2');

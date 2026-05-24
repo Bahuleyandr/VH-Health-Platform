@@ -291,13 +291,24 @@ export async function generateLabReportPDF(investigationId) {
   logger.info(`Generating lab report PDF for investigation ${id}`);
 
   const invRows = await prisma.$queryRawUnsafe(
-    `SELECT i.id, i.patient_uid, i.test_name, i.investigation_type, i.status,
+    `SELECT i.id, i.patient_id, i.patient_uid, i.test_name, i.investigation_type, i.status,
             i.result_summary, i.conclusion, i.interpretation, i.results,
             i.requested_at AS ordered_at, i.completed_at, i.created_at,
             u.name as patient_name, u.phone as patient_phone,
-            u.gender as patient_gender, u.birthday as patient_birthday
+            u.gender as patient_gender, u.birthday as patient_birthday,
+            pid.patient_identifier
      FROM investigations i
      LEFT JOIN users u ON i.patient_uid = u.uid
+     LEFT JOIN LATERAL (
+       SELECT UPPER(pi.identifier_type) || ': ' || pi.identifier_value AS patient_identifier
+         FROM patient_identifiers pi
+        WHERE pi.patient_uid = COALESCE(i.patient_uid, u.uid)
+          AND pi.status = 'active'
+        ORDER BY pi.is_primary DESC,
+                 CASE pi.identifier_type WHEN 'mrn' THEN 0 WHEN 'uhid' THEN 1 ELSE 2 END,
+                 pi.created_at DESC
+        LIMIT 1
+     ) pid ON true
      WHERE i.id = $1::int LIMIT 1`,
     id
   );
@@ -318,7 +329,7 @@ export async function generateLabReportPDF(investigationId) {
   // unverified (same gate as getResultsForPatient).
   const labResultRows = await prisma.$queryRawUnsafe(
     `SELECT test_name, value_text, value_numeric, unit, reference_range,
-            abnormal_flag, status
+            abnormal_flag, status, signed_off_at, signed_off_by
        FROM lab_results
       WHERE investigation_id = $1::int
         AND signed_off_at IS NOT NULL
@@ -326,6 +337,28 @@ export async function generateLabReportPDF(investigationId) {
       ORDER BY hl7_segment_index NULLS LAST, id`,
     id
   );
+
+  const signoffRows = await prisma.$queryRawUnsafe(
+    `SELECT s.signed_at, s.signed_off_by, s.signed_off_by_name,
+            s.signed_off_by_reg, s.decision, s.comments
+       FROM lab_pathologist_signoffs s
+      WHERE EXISTS (
+        SELECT 1
+          FROM lab_results lr
+         WHERE lr.investigation_id = $1::int
+           AND lr.id = ANY(s.result_ids)
+      )
+      ORDER BY s.signed_at DESC
+      LIMIT 1`,
+    id
+  );
+  const latestResultSignoffAt = labResultRows
+    .map((r) => r.signed_off_at)
+    .filter(Boolean)
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || null;
+  const signoff = signoffRows[0] || null;
+  const completedAt = inv.completed_at || signoff?.signed_at || latestResultSignoffAt || null;
+  const patientIdentifier = inv.patient_identifier || inv.patient_uid || inv.patient_id || null;
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50, size: 'A4' });
@@ -345,6 +378,8 @@ export async function generateLabReportPDF(investigationId) {
 
     // Patient Info
     addSection(doc, 'Patient Information', [
+      `Patient ID: ${patientIdentifier || 'N/A'}`,
+      inv.patient_uid ? `Patient UID: ${inv.patient_uid}` : null,
       `Name: ${inv.patient_name || 'N/A'}`,
       `Phone: ${inv.patient_phone || 'N/A'}`,
       `Gender: ${inv.patient_gender || 'N/A'}`,
@@ -356,7 +391,15 @@ export async function generateLabReportPDF(investigationId) {
       `Test: ${inv.test_name || inv.investigation_type || 'N/A'}`,
       `Status: ${inv.status || 'N/A'}`,
       `Ordered: ${inv.ordered_at ? new Date(inv.ordered_at).toLocaleString() : 'N/A'}`,
-      `Completed: ${inv.completed_at ? new Date(inv.completed_at).toLocaleString() : 'Pending'}`,
+      `Completed: ${completedAt ? new Date(completedAt).toLocaleString() : 'Pending'}`,
+    ]);
+
+    addSection(doc, 'Verification', [
+      `Verified: ${labResultRows.length > 0 ? 'Yes' : 'No'}`,
+      `Signed off: ${signoff?.signed_at ? new Date(signoff.signed_at).toLocaleString() : (latestResultSignoffAt ? new Date(latestResultSignoffAt).toLocaleString() : 'Pending')}`,
+      `Pathologist: ${signoff?.signed_off_by_name || signoff?.signed_off_by || labResultRows[0]?.signed_off_by || 'N/A'}`,
+      signoff?.signed_off_by_reg ? `Registration: ${signoff.signed_off_by_reg}` : null,
+      signoff?.decision ? `Decision: ${signoff.decision}` : null,
     ]);
 
     // Results — prefer the structured `lab_results` rows (the canonical

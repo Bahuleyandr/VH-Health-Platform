@@ -48,6 +48,13 @@ async function investigationStatus(id) {
   return rows[0]?.status;
 }
 
+async function investigationState(id) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT status, completed_at FROM investigations WHERE id = $1::int`, id,
+  );
+  return rows[0];
+}
+
 describe('Lab order completes on result sign-off', () => {
   beforeAll(async () => {
     await prisma.$executeRawUnsafe(
@@ -83,7 +90,9 @@ describe('Lab order completes on result sign-off', () => {
       patient_uid: PATIENT_UID,
     });
 
-    expect(await investigationStatus(invId)).toBe('COMPLETED');
+    const state = await investigationState(invId);
+    expect(state.status).toBe('COMPLETED');
+    expect(state.completed_at).toBeTruthy();
   });
 
   it('leaves a multi-result order IN_PROGRESS until every result is final', async () => {
