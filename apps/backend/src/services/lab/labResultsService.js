@@ -705,6 +705,26 @@ export async function signOffResults({
                 AND status NOT IN ('COMPLETED', 'CANCELLED')`,
             investigation_id, tenantId,
           );
+          await prisma.$executeRawUnsafe(
+            `WITH linked_order AS (
+               SELECT DISTINCT ((regexp_match(notes, 'clinical_order_id:([0-9]+)'))[1])::int AS order_id
+                 FROM investigations
+                WHERE id = $1::int
+                  AND tenant_id = $2::uuid
+                  AND notes ~ 'clinical_order_id:[0-9]+'
+             )
+             UPDATE clinical_orders co
+                SET status = 'completed',
+                    completed_at = COALESCE(co.completed_at, NOW()),
+                    completed_by = COALESCE(co.completed_by, $3::uuid),
+                    updated_at = NOW()
+               FROM linked_order lo
+              WHERE co.id = lo.order_id
+                AND co.tenant_id = $2::uuid
+                AND co.order_type = 'investigation'
+                AND co.status NOT IN ('completed', 'cancelled', 'discontinued')`,
+            investigation_id, tenantId, String(signed_off_by),
+          );
         }
       }
     } catch (e) {

@@ -16,28 +16,46 @@ const PATHOLOGIST_UID = 'b7b7b7b7-b7b7-4b7b-8b7b-b7b7b7b70709';
 
 const createdInvestigationIds = [];
 const createdResultIds = [];
+const createdClinicalOrderIds = [];
 
-async function seedInvestigation() {
+async function seedInvestigation({ notes = null, testName = 'CBC', priority = 'NORMAL' } = {}) {
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO investigations
-       (patient_uid, phone, test_name, status, tenant_id, updated_at)
-     VALUES ($1::uuid, '9007070701', 'CBC', 'IN_PROGRESS', $2::uuid, NOW())
+       (patient_uid, phone, test_name, status, tenant_id, priority, notes, updated_at)
+     VALUES ($1::uuid, '9007070701', $3, 'IN_PROGRESS', $2::uuid, $4, $5, NOW())
      RETURNING id`,
-    PATIENT_UID, TENANT,
+    PATIENT_UID, TENANT, testName, priority, notes,
   );
   createdInvestigationIds.push(rows[0].id);
   return rows[0].id;
 }
 
-async function seedResult(investigationId) {
+async function seedResult(investigationId, { testCode = 'HB', testName = 'Haemoglobin', value = '12.5' } = {}) {
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO lab_results
        (tenant_id, patient_uid, investigation_id, test_code, test_name, value_text, status)
-     VALUES ($1::uuid, $2::uuid, $3::int, 'HB', 'Haemoglobin', '12.5', 'preliminary')
+     VALUES ($1::uuid, $2::uuid, $3::int, $4, $5, $6, 'preliminary')
      RETURNING id`,
-    TENANT, PATIENT_UID, investigationId,
+    TENANT, PATIENT_UID, investigationId, testCode, testName, value,
   );
   createdResultIds.push(rows[0].id);
+  return rows[0].id;
+}
+
+async function seedClinicalOrder() {
+  const orderNumber = `D44-LAB-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_orders
+       (tenant_id, order_number, patient_uid, order_type, priority, details, status, ordered_by, created_at, updated_at)
+     VALUES ($1::uuid, $2, $3::uuid, 'investigation', 'stat', $4::jsonb, 'ordered', $5::uuid, NOW(), NOW())
+     RETURNING id`,
+    TENANT,
+    orderNumber,
+    PATIENT_UID,
+    JSON.stringify({ test_name: 'Troponin I', source: 'er' }),
+    PATHOLOGIST_UID,
+  );
+  createdClinicalOrderIds.push(rows[0].id);
   return rows[0].id;
 }
 
@@ -51,6 +69,13 @@ async function investigationStatus(id) {
 async function investigationState(id) {
   const rows = await prisma.$queryRawUnsafe(
     `SELECT status, completed_at FROM investigations WHERE id = $1::int`, id,
+  );
+  return rows[0];
+}
+
+async function clinicalOrderState(id) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT status, completed_at, completed_by FROM clinical_orders WHERE id = $1::int`, id,
   );
   return rows[0];
 }
@@ -70,6 +95,9 @@ describe('Lab order completes on result sign-off', () => {
     }
     for (const id of createdInvestigationIds) {
       await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE id = $1::int`, id).catch(() => {});
+    }
+    for (const id of createdClinicalOrderIds) {
+      await prisma.$executeRawUnsafe(`DELETE FROM clinical_orders WHERE id = $1::int`, id).catch(() => {});
     }
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
@@ -137,5 +165,34 @@ describe('Lab order completes on result sign-off', () => {
     });
 
     expect(await investigationStatus(invId)).toBe('IN_PROGRESS');
+  });
+
+  it('completes the linked clinical lab order when a verified STAT result closes the investigation', async () => {
+    const clinicalOrderId = await seedClinicalOrder();
+    const invId = await seedInvestigation({
+      testName: 'Troponin I',
+      priority: 'STAT',
+      notes: `ED chest-pain pathway; clinical_order_id:${clinicalOrderId}`,
+    });
+    const resultId = await seedResult(invId, {
+      testCode: 'TROPI',
+      testName: 'Troponin I',
+      value: '0.01',
+    });
+
+    await labResults.signOffResults({
+      tenantId: TENANT,
+      signed_off_by: PATHOLOGIST_UID,
+      signed_off_by_role: 'PATHOLOGIST',
+      result_ids: [resultId],
+      decision: 'verified',
+      patient_uid: PATIENT_UID,
+    });
+
+    const order = await clinicalOrderState(clinicalOrderId);
+    expect(await investigationStatus(invId)).toBe('COMPLETED');
+    expect(order.status).toBe('completed');
+    expect(order.completed_at).toBeTruthy();
+    expect(String(order.completed_by)).toBe(PATHOLOGIST_UID);
   });
 });
