@@ -103,6 +103,8 @@ async function getAdmission(admissionId) {
     select: {
       id: true,
       encounter_id: true,
+      from_er_visit_id: true,
+      er_arrival_at: true,
       patient_uid: true,
       status: true,
       priority: true,
@@ -614,7 +616,9 @@ export async function collectAdmissionClinicalContext(admissionId) {
   if (!admission) throw AppError.notFound('Admission not found');
 
   const patient = await getPatient(admission.patient_uid);
-  const dateFrom = admission.admitted_at || admission.created_at || null;
+  const dateFrom = admission.from_er_visit_id && admission.er_arrival_at
+    ? admission.er_arrival_at
+    : admission.admitted_at || admission.created_at || null;
   const dateTo = admission.discharged_at || null;
   const timeline = await getPatientTimeline(admission.patient_uid, {
     dateFrom,

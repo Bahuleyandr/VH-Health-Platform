@@ -16,6 +16,7 @@ import {
   issueDefaultAttendantPasses,
   expireAttendantPassesForAdmission,
   relocateActiveAttendantPasses,
+  createWardIndentForClinicalMedicationOrder,
 } from '../ipd/ipdSupportService.js';
 import { createClaim as createTpaClaim, createPreauth } from '../insurance/claimsService.js';
 
@@ -36,6 +37,7 @@ const VALID_CODE_STATUSES = ['full_code', 'dnr', 'dni', 'comfort_care'];
 const VALID_DISCHARGE_TYPES = ['home', 'transfer', 'lama', 'expired', 'aor'];
 // Mirrors the CHECK on admissions.room_category (migration 177).
 const VALID_ROOM_CATEGORIES = ['general', 'semi_private', 'private', 'deluxe', 'icu', 'day_care'];
+const ACTIVE_ER_ORDER_STATUSES = ['ordered', 'verified', 'in_progress'];
 
 // Columns returned by the pre-batch-55 `RETURNING` clause. Mirrored as
 // a Prisma `select` so the public response shape is unchanged.
@@ -163,6 +165,55 @@ function mapTriagePriorityToAdmissionPriority(triagePriority) {
     return 'urgent';
   }
   return 'routine';
+}
+
+async function carryActiveErOrdersToAdmission(tx, {
+  erVisit,
+  admission,
+  patientUid,
+  createdBy,
+}) {
+  if (!erVisit?.encounter_id || !admission?.encounter_id) return [];
+
+  const carried = await tx.$queryRawUnsafe(
+    `UPDATE clinical_orders
+        SET encounter_id = $1::uuid,
+            updated_at = NOW()
+      WHERE patient_uid = $2::uuid
+        AND encounter_id = $3::uuid
+        AND COALESCE(status, 'ordered') = ANY($4::text[])
+      RETURNING id, order_number, encounter_id, patient_uid, order_type,
+                priority, details, status, ordered_by, verified_by,
+                verified_at, start_date, end_date, notes, route,
+                created_at, updated_at`,
+    admission.encounter_id,
+    patientUid,
+    erVisit.encounter_id,
+    ACTIVE_ER_ORDER_STATUSES,
+  );
+
+  if (!carried.length) return carried;
+
+  await tx.audit_logs.create({
+    data: {
+      uid: createdBy,
+      action: 'ER_ORDERS_CARRIED_TO_ADMISSION',
+      resource: 'admission',
+      resource_id: String(admission.id),
+      metadata: {
+        patient_uid: patientUid,
+        admission_id: admission.id,
+        from_er_visit_id: erVisit.id,
+        from_er_encounter_id: erVisit.encounter_id,
+        admission_encounter_id: admission.encounter_id,
+        carried_order_ids: carried.map((order) => order.id),
+        carried_order_numbers: carried.map((order) => order.order_number).filter(Boolean),
+      },
+      ip_address: null,
+    },
+  });
+
+  return carried;
 }
 
 // Compute days-since-admission when actual LOS not persisted
@@ -356,6 +407,7 @@ async function admitPatient(data) {
         patient_uid: true,
         status: true,
         disposition: true,
+        encounter_id: true,
         chief_complaint: true,
         triage_priority: true,
         attending_doctor_uid: true,
@@ -637,6 +689,8 @@ async function admitPatient(data) {
     }
   }
 
+  let carriedErOrders = [];
+
   const admission = await prisma.$transaction(async (tx) => {
     // Resolve patient_uid → users.id (beds.patient_id is int FK)
     const patientUser = await tx.users.findUnique({
@@ -733,6 +787,13 @@ async function admitPatient(data) {
           status: erVisit.status === 'arriving' ? erVisit.status : 'in_treatment',
           updated_at: new Date(),
         },
+      });
+
+      carriedErOrders = await carryActiveErOrdersToAdmission(tx, {
+        erVisit,
+        admission,
+        patientUid: patient_uid,
+        createdBy: created_by,
       });
     }
 
@@ -861,6 +922,21 @@ async function admitPatient(data) {
 
     return admission;
   });
+
+  if (carriedErOrders.length) {
+    logger.info(
+      `admitPatient: carried ${carriedErOrders.length} active ER order(s) ` +
+      `from visit #${erVisit?.id} into admission #${admission.id}`,
+    );
+    for (const order of carriedErOrders) {
+      if (order.order_type !== 'medication') continue;
+      try {
+        await createWardIndentForClinicalMedicationOrder(order);
+      } catch (e) {
+        logger.warn(`admitPatient: ER medication order indent failed for order ${order.id}: ${e.message}`);
+      }
+    }
+  }
 
   // Phase 1.5: day-care surgical OT auto-schedule. A day_care admission
   // linked to a surgical package (DC-CATARACT-PHACO, DC-LAP-CHOLE, etc.)

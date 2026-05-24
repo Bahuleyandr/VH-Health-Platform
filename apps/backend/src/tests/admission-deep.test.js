@@ -4,6 +4,7 @@
 
 import { authClient, generateTestToken } from './testClient.js';
 import prisma from '../lib/prisma.js';
+import { collectAdmissionClinicalContext } from '../services/emr/clinicalTimelineService.js';
 import request from 'supertest';
 import app from '../app.js';
 
@@ -270,6 +271,128 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
         `SELECT allergies FROM admissions WHERE id = $1`, res.body.data.admission.id);
       const names = (adm[0].allergies || []).map((a) => (a && a.allergy_name) || a);
       expect(names).toContain('Sulfa drugs');
+
+      await cleanup();
+    });
+
+    it('carries active ER orders into the IPD admission encounter', async () => {
+      // Finding cluster H' D3: ER admission closed the ER visit but left
+      // active ER-scoped orders behind on emergency_visits.encounter_id, so
+      // ward/discharge context could not see them as inpatient orders.
+      const uid = 'a1111111-1111-4111-8111-1111111119cc';
+      const orderSuffix = String(Date.now()).slice(-8);
+      const cleanup = async () => {
+        await prisma.$executeRawUnsafe(`DELETE FROM bed_transfers WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM attendant_passes WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(
+          `DELETE FROM audit_logs
+            WHERE metadata->>'patient_uid' = $1`,
+          uid,
+        ).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM emergency_visits WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM patient_consents WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number = 'DEEP-ER-ORDERS-BED'`).catch(() => {});
+        await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, uid).catch(() => {});
+      };
+      await cleanup();
+
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+         VALUES ($1::uuid, '9000019199', 'ER Order Carry Patient', 'PATIENT', true, NOW())`,
+        uid,
+      );
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO patient_consents (patient_uid, consent_type, granted, status)
+         VALUES ($1::uuid, 'treatment', true, 'active')`,
+        uid,
+      );
+      const bed = await prisma.$queryRawUnsafe(
+        `INSERT INTO beds (ward_id, ward_name, bed_number, status)
+         VALUES ($1, 'DEEP-TEST-WARD', 'DEEP-ER-ORDERS-BED', 'available') RETURNING id`,
+        wardId,
+      );
+      const erVisitRows = await prisma.$queryRawUnsafe(
+        `INSERT INTO emergency_visits
+           (tenant_id, visit_number, patient_uid, chief_complaint, triage_priority,
+            status, attending_doctor_uid, created_by, arrival_at)
+         VALUES ('00000000-0000-4000-8000-000000000001'::uuid, $1, $2::uuid,
+                 'Acute chest pain', 'esi_2', 'in_treatment', $3::uuid, $4::uuid,
+                 NOW() - INTERVAL '30 minutes')
+         RETURNING id, encounter_id`,
+        `ER-ORDERS-${orderSuffix}`,
+        uid,
+        DOCTOR_UID,
+        ADMIN_UID,
+      );
+      const erVisit = erVisitRows[0];
+
+      const activeOrderRows = await prisma.$queryRawUnsafe(
+        `INSERT INTO clinical_orders
+           (order_number, encounter_id, patient_uid, order_type, priority, details,
+            status, ordered_by, created_at, updated_at)
+         VALUES ($1, $2::uuid, $3::uuid, 'investigation', 'stat',
+                 '{"test_name":"Troponin I"}'::jsonb, 'ordered', $4::uuid,
+                 NOW() - INTERVAL '20 minutes', NOW())
+         RETURNING id`,
+        `ORD-ER-CARRY-${orderSuffix}`,
+        erVisit.encounter_id,
+        uid,
+        DOCTOR_UID,
+      );
+      const completedOrderRows = await prisma.$queryRawUnsafe(
+        `INSERT INTO clinical_orders
+           (order_number, encounter_id, patient_uid, order_type, priority, details,
+            status, ordered_by, created_at, updated_at)
+         VALUES ($1, $2::uuid, $3::uuid, 'investigation', 'routine',
+                 '{"test_name":"Completed ECG"}'::jsonb, 'completed', $4::uuid,
+                 NOW() - INTERVAL '15 minutes', NOW())
+         RETURNING id`,
+        `ORD-ER-DONE-${orderSuffix}`,
+        erVisit.encounter_id,
+        uid,
+        DOCTOR_UID,
+      );
+
+      const res = await admin.post('/api/v1/emr/admit').send({
+        patient_uid: uid,
+        admitting_doctor: DOCTOR_UID,
+        admission_type: 'emergency',
+        priority: 'urgent',
+        bed_id: bed[0].id,
+        from_er_visit_id: erVisit.id,
+      });
+
+      expect(res.statusCode).toBe(201);
+      const admission = res.body.data?.admission;
+      expect(admission?.encounter_id).toBeDefined();
+
+      const orders = await prisma.$queryRawUnsafe(
+        `SELECT id, encounter_id, status
+           FROM clinical_orders
+          WHERE id IN ($1, $2)
+          ORDER BY id`,
+        activeOrderRows[0].id,
+        completedOrderRows[0].id,
+      );
+      const activeOrder = orders.find((row) => row.id === activeOrderRows[0].id);
+      const completedOrder = orders.find((row) => row.id === completedOrderRows[0].id);
+      expect(activeOrder.encounter_id).toBe(admission.encounter_id);
+      expect(completedOrder.encounter_id).toBe(erVisit.encounter_id);
+
+      const audits = await prisma.$queryRawUnsafe(
+        `SELECT metadata
+           FROM audit_logs
+          WHERE action = 'ER_ORDERS_CARRIED_TO_ADMISSION'
+            AND resource_id = $1`,
+        String(admission.id),
+      );
+      expect(audits.length).toBe(1);
+      expect(audits[0].metadata.carried_order_ids).toContain(activeOrderRows[0].id);
+
+      const context = await collectAdmissionClinicalContext(admission.id);
+      expect(context.orders.some((order) => order.id === activeOrderRows[0].id)).toBe(true);
 
       await cleanup();
     });
