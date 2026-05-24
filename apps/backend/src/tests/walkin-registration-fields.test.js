@@ -842,4 +842,108 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
       }
     }
   });
+
+  it('rejects doctor_id when a legacy doctors.id collides with a non-doctor users.id', async () => {
+    const deptName = `DoctorAmbig-${RUN_SUFFIX}`;
+    const nonDoctorUid = 'a8888888-8888-4888-8888-88888888fd04';
+    const profileDoctorUid = 'a8888888-8888-4888-8888-88888888fd05';
+    const patientPhone = `97780${RUN_SUFFIX}`;
+    let collisionId;
+    let profileDoctorUserId;
+
+    try {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM appointments WHERE department = $1`,
+        deptName,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM doctors
+          WHERE user_id IN (SELECT id FROM users WHERE uid IN ($1::uuid, $2::uuid))`,
+        nonDoctorUid,
+        profileDoctorUid,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM users
+          WHERE uid IN ($1::uuid, $2::uuid)
+             OR phone IN ($3, $4)`,
+        nonDoctorUid,
+        profileDoctorUid,
+        patientPhone,
+        `+91${patientPhone}`,
+      ).catch(() => {});
+
+      const idRows = await prisma.$queryRawUnsafe(
+        `SELECT GREATEST(
+           COALESCE((SELECT MAX(id) FROM users), 0),
+           COALESCE((SELECT MAX(id) FROM doctors), 0)
+         )::int + 51000 AS id`,
+      );
+      collisionId = Number(idRows[0].id);
+
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO users (id, uid, phone, name, role, is_active, updated_at)
+         VALUES ($1::int, $2::uuid, '+919999799904', 'Not A Doctor Collision', 'PATIENT', true, NOW())`,
+        collisionId,
+        nonDoctorUid,
+      );
+      const profileRows = await prisma.$queryRawUnsafe(
+        `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+         VALUES ($1::uuid, '+919999799905', 'Dr. Ambiguous Walkin', 'DOCTOR', true, NOW())
+         RETURNING id`,
+        profileDoctorUid,
+      );
+      profileDoctorUserId = profileRows[0].id;
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO doctors
+           (id, user_id, name, department, specialty, is_active, is_available, available_days, updated_at)
+         VALUES ($1::int, $2::int, 'Dr. Ambiguous Walkin', $3, 'General Practitioner',
+                 true, true, ARRAY['Mon','Tue','Wed','Thu','Fri','Sat'], NOW())`,
+        collisionId,
+        profileDoctorUserId,
+        deptName,
+      );
+
+      const res = await request(app)
+        .post('/api/v1/appointments/walk-in')
+        .set('x-api-key', API_KEY)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({
+          patient_name: 'Doctor Ambiguous Patient',
+          patient_phone: patientPhone,
+          patient_gender: 'F',
+          department: deptName,
+          doctor_id: collisionId,
+          reason: 'Ambiguous doctor id smoke',
+        });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.details?.code).toBe('AMBIGUOUS_DOCTOR_REF');
+      expect(String(res.body.message || '')).toMatch(/ambiguous/i);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM appointment_status_history
+           WHERE appointment_id IN (SELECT id FROM appointments WHERE department = $1)`,
+        deptName,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM appointments WHERE department = $1`,
+        deptName,
+      ).catch(() => {});
+      if (collisionId) {
+        await prisma.$executeRawUnsafe(
+          `DELETE FROM doctors WHERE id = $1::int`,
+          collisionId,
+        ).catch(() => {});
+      }
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM users
+          WHERE uid IN ($1::uuid, $2::uuid)
+             OR phone IN ($3, $4)`,
+        nonDoctorUid,
+        profileDoctorUid,
+        patientPhone,
+        `+91${patientPhone}`,
+      ).catch(() => {});
+    }
+  });
 });

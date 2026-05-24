@@ -12,6 +12,8 @@ const PATIENT_UID = 'a7777777-7777-4777-8777-777777777a01';
 const OTHER_PATIENT_UID = 'a7777777-7777-4777-8777-777777777a02';
 const DOCTOR_UID = 'a7777777-7777-4777-8777-777777777a03';
 const ADMIN_UID = 'a7777777-7777-4777-8777-777777777a04';
+const COLLISION_DIRECT_DOCTOR_UID = 'a7777777-7777-4777-8777-777777777a05';
+const COLLISION_PROFILE_DOCTOR_UID = 'a7777777-7777-4777-8777-777777777a06';
 const PATIENT_PHONE = '+919000070001';
 const OTHER_PHONE = '+919000070002';
 const API_KEY = process.env.API_KEY || 'test-api-key';
@@ -226,6 +228,82 @@ describe('Appointment booking + lifecycle — deep integration', () => {
       const row = await prisma.$queryRawUnsafe(
         `SELECT doctor_id FROM appointments WHERE id = $1`, a.id);
       expect(row[0].doctor_id).toBe(doctorIntId);
+    });
+
+    it('rejects ambiguous doctor ids instead of letting doctors.id override users.id', async () => {
+      let collisionId;
+      let profileDoctorUserId;
+
+      try {
+        await prisma.$executeRawUnsafe(
+          `DELETE FROM appointments WHERE reason = 'Ambiguous doctor ref smoke'`,
+        ).catch(() => {});
+        await prisma.$executeRawUnsafe(
+          `DELETE FROM doctors
+            WHERE user_id IN (SELECT id FROM users WHERE uid IN ($1::uuid, $2::uuid))`,
+          COLLISION_DIRECT_DOCTOR_UID,
+          COLLISION_PROFILE_DOCTOR_UID,
+        ).catch(() => {});
+        await prisma.$executeRawUnsafe(
+          `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`,
+          COLLISION_DIRECT_DOCTOR_UID,
+          COLLISION_PROFILE_DOCTOR_UID,
+        ).catch(() => {});
+
+        const idRows = await prisma.$queryRawUnsafe(
+          `SELECT GREATEST(
+             COALESCE((SELECT MAX(id) FROM users), 0),
+             COALESCE((SELECT MAX(id) FROM doctors), 0)
+           )::int + 50000 AS id`,
+        );
+        collisionId = Number(idRows[0].id);
+
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO users (id, uid, phone, name, role, is_active, updated_at)
+           VALUES ($1::int, $2::uuid, '+919000070005', 'Dr. Direct Collision', 'DOCTOR', true, NOW())`,
+          collisionId,
+          COLLISION_DIRECT_DOCTOR_UID,
+        );
+        const profileRows = await prisma.$queryRawUnsafe(
+          `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+           VALUES ($1::uuid, '+919000070006', 'Dr. Profile Collision', 'DOCTOR', true, NOW())
+           RETURNING id`,
+          COLLISION_PROFILE_DOCTOR_UID,
+        );
+        profileDoctorUserId = profileRows[0].id;
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO doctors
+             (id, user_id, name, department, specialty, is_active, is_available, available_days, updated_at)
+           VALUES ($1::int, $2::int, 'Dr. Profile Collision', 'Cardiology', 'Cardiologist',
+                   true, true, ARRAY['Mon','Tue'], NOW())`,
+          collisionId,
+          profileDoctorUserId,
+        );
+
+        const res = await patient.post('/api/v1/appointments/book').send({
+          patient_id: patientIntId,
+          doctor_id: collisionId,
+          appointment_date: apptDate,
+          appointment_time: '10:45',
+          reason: 'Ambiguous doctor ref smoke',
+          confirm_duplicate: true,
+        });
+
+        expect(res.statusCode).toBe(400);
+        expect(String(res.body.message || '')).toMatch(/ambiguous/i);
+      } finally {
+        if (collisionId) {
+          await prisma.$executeRawUnsafe(
+            `DELETE FROM doctors WHERE id = $1::int`,
+            collisionId,
+          ).catch(() => {});
+        }
+        await prisma.$executeRawUnsafe(
+          `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`,
+          COLLISION_DIRECT_DOCTOR_UID,
+          COLLISION_PROFILE_DOCTOR_UID,
+        ).catch(() => {});
+      }
     });
 
     it('rejects a double-booking on the same doctor/date/time with 409', async () => {

@@ -5,6 +5,7 @@ import { APPOINTMENT_CONFIG } from '../../config/appointmentConfig.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { composeVisitNo, deptPrefix } from '../../controllers/appointment/appointmentWorkflowController.js';
+import { resolveDoctorRef } from '../doctor/doctorRefService.js';
 
 export class AppointmentService {
   async validateUser(userId, requiredRole = null) {
@@ -23,29 +24,7 @@ export class AppointmentService {
 
   async validateDoctor(doctorId) {
     try {
-      const id = parseInt(doctorId, 10);
-      const rows = await prisma.$queryRaw`
-        SELECT id, name, role
-        FROM (
-          SELECT u.id, u.name, u.role, 0 AS sort_order
-          FROM users u
-          WHERE u.id = ${id}
-            AND u.role = 'DOCTOR'
-            AND u.is_active = true
-          UNION ALL
-          SELECT u.id AS id,
-                 u.name AS name,
-                 'DOCTOR'::text AS role,
-                 1 AS sort_order
-          FROM doctors d
-          JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR' AND u.is_active = true
-          WHERE d.is_active = true
-            AND (u.id = ${id} OR d.id = ${id})
-        ) candidates
-        ORDER BY sort_order
-        LIMIT 1
-      `;
-      return rows[0] || null;
+      return await resolveDoctorRef(prisma, doctorId);
     } catch (error) {
       logger.error('Error validating doctor:', error);
       throw error;
@@ -109,65 +88,22 @@ export class AppointmentService {
     try {
       return await prisma.$transaction(async (tx) => {
         // Resolve patient phone + doctor name for the NOT NULL columns on appointments.
-        const [pRows, dRows] = await Promise.all([
+        const [pRows, resolvedDoctor] = await Promise.all([
           tx.$queryRaw`SELECT id, phone, name FROM users WHERE id = ${parseInt(patient_id)}`,
-          tx.$queryRaw`
-            SELECT id, name, department
-            FROM (
-              -- Highest priority: input matches a doctors.id directly.
-              -- This is the "doctor picker" semantic — the admin UI's
-              -- dropdown surfaces doctors.id, so when both interpretations
-              -- collide (the input also happens to equal some other
-              -- doctor's users.id), the picker wins.
-              SELECT u.id AS id,
-                     u.name AS name,
-                     COALESCE(dept.name, d.department) AS department,
-                     0 AS sort_order
-              FROM doctors d
-              JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR' AND u.is_active = true
-              LEFT JOIN departments dept ON dept.id = d.department_id
-              WHERE d.is_active = true
-                AND d.id = ${parseInt(doctor_id)}
-              UNION ALL
-              -- Second priority: input is a users.id with role=DOCTOR
-              -- (covers doctors who haven't been migrated to the doctors
-              -- profile table yet, plus the common-case users.id input).
-              SELECT u.id, u.name, COALESCE(dept.name, doc.department) AS department, 1 AS sort_order
-              FROM users u
-              LEFT JOIN doctors doc ON doc.user_id = u.id AND doc.is_active = true
-              LEFT JOIN departments dept ON dept.id = doc.department_id
-              WHERE u.id = ${parseInt(doctor_id)}
-                AND u.role = 'DOCTOR'
-                AND u.is_active = true
-              UNION ALL
-              -- Fallback: input matches a users.id reachable via a doctors
-              -- profile (kept for legacy callers).
-              SELECT u.id AS id,
-                     u.name AS name,
-                     COALESCE(dept.name, d.department) AS department,
-                     2 AS sort_order
-              FROM doctors d
-              JOIN users u ON u.id = d.user_id AND u.role = 'DOCTOR' AND u.is_active = true
-              LEFT JOIN departments dept ON dept.id = d.department_id
-              WHERE d.is_active = true
-                AND u.id = ${parseInt(doctor_id)}
-            ) candidates
-            ORDER BY sort_order
-            LIMIT 1
-          `,
+          resolveDoctorRef(tx, doctor_id),
         ]);
         const patientPhone = pRows[0]?.phone ?? '';
         const patientName = pRows[0]?.name ?? null;
-        if (!dRows[0]?.id) {
+        if (!resolvedDoctor?.id) {
           const err = new Error('Doctor not found');
           err.statusCode = 400;
           throw err;
         }
-        const resolvedDoctorId = dRows[0].id;
-        const doctorName = dRows[0]?.name ?? '';
+        const resolvedDoctorId = resolvedDoctor.id;
+        const doctorName = resolvedDoctor?.name ?? '';
         const resolvedDepartment = department
           ? String(department).trim().slice(0, 100)
-          : (dRows[0]?.department ? String(dRows[0].department).trim().slice(0, 100) : null);
+          : (resolvedDoctor?.department ? String(resolvedDoctor.department).trim().slice(0, 100) : null);
 
         // Lock conflicting rows
         const conflict = await tx.$queryRaw`
