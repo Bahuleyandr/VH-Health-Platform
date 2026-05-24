@@ -17,6 +17,9 @@ import prisma from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import logger from '../../logging/logger.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
+import { istDateString } from '../../utils/dateUtils.js';
+
+export { istDateString };
 
 // ── Pregnancy episode ────────────────────────────────────────────────
 
@@ -36,11 +39,6 @@ function computeEdd(lmpDate) {
 // 05:30 the GA / visit milestones read one day behind the clinic's calendar.
 // Anchoring the default to the IST date makes the day-diff exact.
 // Finding: ANC uses UTC not IST for visit-number/GA.
-export function istDateString(at = new Date()) {
-  const istMs = at.getTime() + (5.5 * 60 * 60 * 1000);
-  return new Date(istMs).toISOString().slice(0, 10);
-}
-
 /**
  * Gestational age (in weeks + days) on a given date, computed from LMP.
  * Returns { weeks, days, total_days, label } or null if inputs invalid.

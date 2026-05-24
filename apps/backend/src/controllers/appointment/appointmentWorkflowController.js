@@ -12,6 +12,7 @@ import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { canWriteAppointmentClinical } from '../../utils/appointment/appointmentHelpers.js';
 import { isDoctor } from '../../utils/roleHelpers.js';
 import { AppError } from '../../utils/AppError.js';
+import { istDateString } from '../../utils/dateUtils.js';
 
 // All four handlers below were originally written against a raw pg.Pool
 // client (await pool.connect → client.query → client.release) and ported
@@ -434,8 +435,9 @@ export const getTodayQueue = async (req, res) => {
       doctorId = parsed;
     }
 
-    let where = `WHERE DATE(a.appointment_date) = CURRENT_DATE AND a.status NOT IN ('CANCELLED')`;
-    const params = [];
+    const today = istDateString();
+    let where = `WHERE a.appointment_date::date = $1::date AND a.status NOT IN ('CANCELLED')`;
+    const params = [today];
     if (doctorId !== null) { params.push(doctorId); where += ` AND a.doctor_id=$${params.length}`; }
     if (department) { params.push(department); where += ` AND a.department=$${params.length}`; }
 
@@ -483,7 +485,7 @@ export const getTodayQueue = async (req, res) => {
           chief_complaint AS ed_chief_complaint,
           arrival_at
         FROM emergency_visits
-        WHERE DATE(arrival_at) = CURRENT_DATE
+        WHERE DATE(arrival_at AT TIME ZONE 'Asia/Kolkata') = $1::date
           AND COALESCE(disposition, '') NOT IN ('discharged', 'lama', 'expired')
         ORDER BY patient_uid, arrival_at DESC
       ),
@@ -1464,18 +1466,19 @@ export const registerWalkIn = async (req, res) => {
       //   2026-05-08-lab-walk-in-receptionist-no-dept-scoped-visit-no
       //   2026-05-08-dynamic-acute-abdomen-receptionist-walkin-token-not-dept-scoped
       //   2026-05-15-dynamic-acute-abdomen-receptionist-6e92df1b
-      const today = new Date();
-      const yyyymmdd = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+      const todayDate = istDateString();
+      const yyyymmdd = todayDate.replace(/-/g, '');
       const visitNoLikePrefix = `${deptPrefix(appointmentDepartment)}-${yyyymmdd}-`;
       const tokenResult = await tx.$queryRawUnsafe(
         `SELECT COALESCE(MAX(NULLIF(token_number, '')::int), 0) + 1 AS next_token
          FROM appointments
-         WHERE DATE(appointment_date) = CURRENT_DATE
+         WHERE appointment_date::date = $2::date
            AND confirmed_at IS NOT NULL
            AND token_number IS NOT NULL
            AND token_number ~ '^[0-9]+$'
            AND visit_no LIKE $1 || '%'`,
         visitNoLikePrefix,
+        todayDate,
       );
       const tokenNumber = String(parseInt(tokenResult[0].next_token));
 
@@ -1486,7 +1489,7 @@ export const registerWalkIn = async (req, res) => {
       // 2026-05-10-inpatient-admission-receptionist-visit-no-not-persisted.
       const visitNo = composeVisitNo({
         department: appointmentDepartment,
-        date: today,
+        date: todayDate,
         tokenNumber,
       });
 
@@ -1518,11 +1521,12 @@ export const registerWalkIn = async (req, res) => {
             ORDER BY (
               SELECT COUNT(*) FROM appointments a
                WHERE a.doctor_id = u.id
-                 AND DATE(a.appointment_date) = CURRENT_DATE
+                 AND a.appointment_date::date = $2::date
                  AND a.status NOT IN ('CANCELLED', 'NO_SHOW')
             ) ASC, u.id ASC
             LIMIT 1`,
           appointmentDepartment,
+          todayDate,
         );
         if (candidates.length > 0) {
           resolvedDoctorIdForInsert = candidates[0].id;
@@ -1546,12 +1550,13 @@ export const registerWalkIn = async (req, res) => {
           `SELECT id, visit_no, status, doctor_id, appointment_time, created_at
              FROM appointments
             WHERE patient_id = $1::int
-              AND appointment_date::date = CURRENT_DATE
+              AND appointment_date::date = $3::date
               AND status NOT IN ('CANCELLED', 'NO_SHOW')
               AND ($2::int IS NULL OR doctor_id = $2::int)
             ORDER BY created_at ASC`,
           patientId,
           resolvedDoctorIdForInsert || null,
+          todayDate,
         );
       }
 
@@ -1566,10 +1571,10 @@ export const registerWalkIn = async (req, res) => {
             visit_type, parent_appointment_id,
             payer_type, patient_category, insurer_name, policy_number, scheme_name,
             tenant_id)
-         VALUES ($1, $2, NOW(), $3, $4, $5, $6, 'CONFIRMED', NOW(), $7, $8, $9, $10::uuid, NOW(),
+         VALUES ($1, $2, $18::date, $3, $4, $5, $6, 'CONFIRMED', NOW(), $7, $8, $9, $10::uuid, NOW(),
                  $11, $12,
                  $13, $14, $15, $16, $17,
-                 $18::uuid)
+                 $19::uuid)
          RETURNING id, patient_id, doctor_id, appointment_date, appointment_time, phone, reason, notes,
                    status, confirmed_at, token_number, visit_no, department, created_at,
                    visit_type, parent_appointment_id,
@@ -1596,7 +1601,8 @@ export const registerWalkIn = async (req, res) => {
         resolvedInsurerName,
         resolvedPolicyNumber,
         resolvedSchemeName,
-        // C4 — bind the appointment to the authenticated tenant ($18).
+        todayDate,
+        // C4 — bind the appointment to the authenticated tenant ($19).
         actingTenantId,
       );
       const appt = apptRows[0];
@@ -1696,13 +1702,14 @@ export const registerWalkIn = async (req, res) => {
                   gravida, parity, living_children, abortions,
                   booking_status, booking_visit_date, status, created_by)
                VALUES ($1::uuid, $2::date, $3::date, 'lmp',
-                       $4, $5, $6, $7, 'booked', CURRENT_DATE, 'ongoing', $8::uuid)`,
+                       $4, $5, $6, $7, 'booked', $9::date, 'ongoing', $8::uuid)`,
               patientUid, lmp_date, computedEdd,
               parseInt(gravida, 10) || 1,
               parseInt(parity, 10) || 0,
               parseInt(living_children, 10) || 0,
               parseInt(abortions, 10) || 0,
               staffUid,
+              todayDate,
             );
           }
           await tx.$executeRawUnsafe(

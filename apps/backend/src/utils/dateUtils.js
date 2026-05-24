@@ -15,6 +15,14 @@ export function formatDateDDMMYYYY(date) {
 }
 
 /**
+ * Current calendar date in IST as 'YYYY-MM-DD'.
+ */
+export function istDateString(at = new Date()) {
+  const istMs = at.getTime() + (5.5 * 60 * 60 * 1000);
+  return new Date(istMs).toISOString().slice(0, 10);
+}
+
+/**
  * Checks if the provided date is in the future.
  * @param {Date|string} date - Date object or ISO date string.
  * @returns {boolean} - True if date is in the future.
