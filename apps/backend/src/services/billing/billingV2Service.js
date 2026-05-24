@@ -14,6 +14,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { istDateString } from '../../utils/dateUtils.js';
 
 const VALID_INVOICE_TYPES = ['OP', 'IP', 'PHARMACY', 'EMERGENCY'];
 const VALID_PAYMENT_MODES = [
@@ -1260,7 +1261,7 @@ export async function listRefunds({ approval_status, patient_uid } = {}) {
 // ───────────────────────────────────────────────────────────────────────
 
 export async function dailyCollection({ date, mode, shift, collected_by } = {}) {
-  const target = date || new Date().toISOString().slice(0, 10);
+  const target = date || istDateString();
   const params = [target];
   const where = [`DATE(collected_at AT TIME ZONE 'Asia/Kolkata') = $1::date`];
   // bpWhere mirrors `where` with a `bp.` table alias for the insurer

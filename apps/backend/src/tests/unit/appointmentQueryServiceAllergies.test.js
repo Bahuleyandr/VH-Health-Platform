@@ -23,6 +23,10 @@ beforeEach(() => {
   queryUnsafeMock.mockReset();
 });
 
+afterEach(() => {
+  jest.useRealTimers();
+});
+
 describe('appointmentQueryService allergy propagation', () => {
   it('surfaces profile and structured allergies on the doctor appointment queue', async () => {
     const patientUid = 'ba000000-0000-4000-8000-00000000b011';
@@ -71,5 +75,25 @@ describe('appointmentQueryService allergy propagation', () => {
         expect.objectContaining({ allergy_name: 'Penicillin', severity: 'SEVERE', source: 'structured' }),
       ]),
     );
+  });
+});
+
+describe('appointmentQueryService today date handling', () => {
+  it('defaults today appointments to the IST calendar date', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-05-21T20:00:00Z'));
+    findManyMock.mockResolvedValueOnce([]);
+
+    const result = await appointmentQueryService.getTodayAppointments('DOCTOR', 7);
+
+    expect(result.date).toBe('2026-05-22');
+    expect(findManyMock).toHaveBeenCalledTimes(1);
+    expect(findManyMock.mock.calls[0][0].where).toEqual(expect.objectContaining({
+      doctor_id: 7,
+      appointment_date: {
+        gte: new Date('2026-05-22T00:00:00.000Z'),
+        lt: new Date('2026-05-23T00:00:00.000Z'),
+      },
+    }));
   });
 });

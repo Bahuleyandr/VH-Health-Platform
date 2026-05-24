@@ -9,6 +9,7 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { computeGestationalAge } from '../maternity/maternityService.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
+import { istDateString } from '../../utils/dateUtils.js';
 
 // Base set of appointment columns every list view returns.
 const APPT_BASE_SELECT = {
@@ -302,14 +303,19 @@ function attachPatientAllergies(flat, patient, allergyMap) {
 // `req.query.date`. Resolve here as the authoritative second line of defense
 // so /appointments/list?date=today renders 200 instead of bombing through
 // `new Date("today")` → Invalid Date → Prisma validation error → 500.
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+function addDaysToDateString(dateString, days) {
+  const d = new Date(`${dateString}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 function resolveDateInput(date) {
   if (typeof date !== 'string') return date;
   const v = date.trim().toLowerCase();
-  const now = new Date();
-  if (v === 'today') return now.toISOString().slice(0, 10);
-  if (v === 'tomorrow') return new Date(now.getTime() + ONE_DAY_MS).toISOString().slice(0, 10);
-  if (v === 'yesterday') return new Date(now.getTime() - ONE_DAY_MS).toISOString().slice(0, 10);
+  const today = istDateString();
+  if (v === 'today') return today;
+  if (v === 'tomorrow') return addDaysToDateString(today, 1);
+  if (v === 'yesterday') return addDaysToDateString(today, -1);
   return date;
 }
 
@@ -578,7 +584,7 @@ export class AppointmentQueryService {
 
   async getTodayAppointments(userRole = null, userId = null) {
     try {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = istDateString();
       const where = { appointment_date: dateRangeFilter(todayStr) };
       if (userRole === 'DOCTOR') where.doctor_id = parseInt(userId);
 
