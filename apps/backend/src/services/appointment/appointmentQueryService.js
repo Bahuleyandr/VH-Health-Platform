@@ -69,6 +69,7 @@ const PATIENT_INCLUDE = {
     phone: true,
     guardian_phone: true,
     email: true,
+    allergies: true,
   },
 };
 
@@ -184,6 +185,111 @@ async function resolveFollowUpContext({ patientUid, appointmentId, parentAppoint
   }
 }
 
+function allergiesFromProfileText(value) {
+  if (!value) return [];
+  return String(value)
+    .split(/[,;\n]+/)
+    .map((allergy) => allergy.trim())
+    .filter(Boolean)
+    .map((allergy_name) => ({ allergy_name, severity: null, reaction: null, source: 'profile' }));
+}
+
+function dedupeAllergies(allergies = []) {
+  const byName = new Map();
+  for (const allergy of allergies) {
+    const allergyName = String(allergy?.allergy_name || allergy?.allergen || allergy?.name || '').trim();
+    if (!allergyName) continue;
+    const key = allergyName.toLowerCase();
+    const next = {
+      allergy_name: allergyName,
+      severity: allergy.severity ?? null,
+      reaction: allergy.reaction ?? null,
+      source: allergy.source ?? 'structured',
+    };
+    const existing = byName.get(key);
+    if (!existing || (!existing.severity && next.severity) || (!existing.reaction && next.reaction)) {
+      byName.set(key, { ...existing, ...next });
+    }
+  }
+  return [...byName.values()].sort((a, b) => a.allergy_name.localeCompare(b.allergy_name));
+}
+
+async function loadAllergiesForPatients(patients = []) {
+  const refs = patients
+    .filter((patient) => patient?.id != null)
+    .map((patient) => ({
+      id: Number(patient.id),
+      uid: patient.uid ? String(patient.uid).toLowerCase() : null,
+      allergies: patient.allergies,
+    }));
+  const byPatientId = new Map(refs.map((patient) => [
+    patient.id,
+    allergiesFromProfileText(patient.allergies),
+  ]));
+  if (refs.length === 0) return byPatientId;
+
+  const ids = [...new Set(refs.map((patient) => patient.id).filter((id) => Number.isInteger(id)))];
+  const uids = [...new Set(refs.map((patient) => patient.uid).filter(Boolean))];
+  const uidToIds = new Map();
+  for (const ref of refs) {
+    if (!ref.uid) continue;
+    const arr = uidToIds.get(ref.uid) ?? [];
+    arr.push(ref.id);
+    uidToIds.set(ref.uid, arr);
+  }
+
+  try {
+    const structuredRows = await prisma.$queryRawUnsafe(
+      `SELECT patient_id, patient_uid, allergy_name, severity, reaction
+         FROM patient_allergies
+        WHERE COALESCE(is_active, TRUE) = TRUE
+          AND (
+            (patient_id IS NOT NULL AND patient_id = ANY($1::int[]))
+            OR (patient_uid IS NOT NULL AND patient_uid = ANY($2::uuid[]))
+          )
+        ORDER BY allergy_name`,
+      ids,
+      uids,
+    );
+    for (const row of structuredRows) {
+      const targetIds = new Set();
+      if (row.patient_id != null) targetIds.add(Number(row.patient_id));
+      const rowUid = row.patient_uid ? String(row.patient_uid).toLowerCase() : null;
+      for (const id of uidToIds.get(rowUid) ?? []) targetIds.add(id);
+
+      for (const id of targetIds) {
+        if (!byPatientId.has(id)) continue;
+        const current = byPatientId.get(id) ?? [];
+        current.push({
+          allergy_name: row.allergy_name,
+          severity: row.severity ?? null,
+          reaction: row.reaction ?? null,
+          source: 'structured',
+        });
+        byPatientId.set(id, current);
+      }
+    }
+  } catch (e) {
+    logger.warn('Appointment allergy lookup failed:', e?.message);
+  }
+
+  for (const [id, allergies] of byPatientId.entries()) {
+    byPatientId.set(id, dedupeAllergies(allergies));
+  }
+  return byPatientId;
+}
+
+function attachPatientAllergies(flat, patient, allergyMap) {
+  const patientId = Number(patient?.id ?? flat.patient_id);
+  const allergies = Number.isInteger(patientId)
+    ? (allergyMap?.get(patientId) ?? [])
+    : [];
+  flat.has_allergies = allergies.length > 0;
+  flat.allergy_flag = allergies.length > 0;
+  flat.allergies = allergies;
+  return flat;
+}
+
 // Format a date range filter for `DATE(appointment_date) = $d` — Prisma's
 // Date equality on an appointment_date Date column needs the whole day
 // covered.
@@ -221,7 +327,7 @@ const REL_DOCTOR = 'users_appointments_doctor_idTousers';
 
 // Flatten the nested relation payload back into the flat-alias response
 // shape that the old SQL returned.
-function flattenListRow(row) {
+function flattenListRow(row, allergyMap = null) {
   const patient = row[REL_PATIENT] ?? null;
   const doctor = row[REL_DOCTOR] ?? null;
   const profile = doctor?.doctors?.[0] ?? null;
@@ -240,7 +346,7 @@ function flattenListRow(row) {
   flat.specialty = profile?.specialty ?? null;
   flat.doctor_department = profile?.department ?? row.department ?? null;
   flat.department = profile?.department ?? row.department ?? null;
-  return flat;
+  return attachPatientAllergies(flat, patient, allergyMap);
 }
 
 function appointmentOrderBy(sortBy, sortOrder) {
@@ -340,8 +446,10 @@ export class AppointmentQueryService {
         }),
       ]);
 
+      const allergyMap = await loadAllergiesForPatients(rows.map((row) => row[REL_PATIENT]));
+
       return {
-        appointments: rows.map(flattenListRow),
+        appointments: rows.map((row) => flattenListRow(row, allergyMap)),
         pagination: buildPagination(total, listQuery.page, listQuery.limit),
         filters: {
           ...filters,
@@ -391,6 +499,8 @@ export class AppointmentQueryService {
         orderBy: [{ appointment_date: 'asc' }, { appointment_time: 'asc' }],
       });
 
+      const allergyMap = await loadAllergiesForPatients(rows.map((row) => row[REL_PATIENT]));
+
       // This view only needs patient_* fields, no doctor aliases.
       return rows.map((r) => {
         const p = r[REL_PATIENT] ?? null;
@@ -399,7 +509,7 @@ export class AppointmentQueryService {
         flat.patient_name = p?.name ?? null;
         flat.patient_phone = p?.phone ?? null;
         flat.patient_email = p?.email ?? null;
-        return flat;
+        return attachPatientAllergies(flat, p, allergyMap);
       });
     } catch (error) {
       logger.error('Error getting doctor appointments:', error);
@@ -433,10 +543,13 @@ export class AppointmentQueryService {
           department: true,
           created_at: true,
           updated_at: true,
+          users_appointments_patient_idTousers: PATIENT_INCLUDE,
           users_appointments_doctor_idTousers: DOCTOR_INCLUDE,
         },
         orderBy: [{ appointment_date: 'desc' }, { appointment_time: 'desc' }],
       });
+
+      const allergyMap = await loadAllergiesForPatients(rows.map((row) => row[REL_PATIENT]));
 
       // Only doctor_* + specialty/department aliases needed — no patient_*
       // (this view is scoped to one patient). Prefer the appointment's own
@@ -444,14 +557,16 @@ export class AppointmentQueryService {
       // for legacy rows where department was never written on the row.
       return rows.map((r) => {
         const d = r[REL_DOCTOR] ?? null;
+        const p = r[REL_PATIENT] ?? null;
         const profile = d?.doctors?.[0] ?? null;
         const flat = { ...r };
+        delete flat[REL_PATIENT];
         delete flat[REL_DOCTOR];
         flat.doctor_name = d?.name ?? null;
         flat.doctor_phone = d?.phone ?? null;
         flat.specialty = profile?.specialty ?? null;
         flat.department = r.department ?? profile?.department ?? null;
-        return flat;
+        return attachPatientAllergies(flat, p, allergyMap);
       });
     } catch (error) {
       logger.error('Error getting patient appointments:', error);
@@ -474,7 +589,7 @@ export class AppointmentQueryService {
           reason: true,
           patient_id: true,
           doctor_id: true,
-          [REL_PATIENT]: { select: { name: true, phone: true } },
+          [REL_PATIENT]: PATIENT_INCLUDE,
           [REL_DOCTOR]: {
             select: {
               name: true,
@@ -488,6 +603,7 @@ export class AppointmentQueryService {
         orderBy: { appointment_time: 'asc' },
       });
 
+      const allergyMap = await loadAllergiesForPatients(rows.map((row) => row[REL_PATIENT]));
       const appointments = rows.map((r) => {
         const p = r[REL_PATIENT] ?? null;
         const d = r[REL_DOCTOR] ?? null;
@@ -500,7 +616,7 @@ export class AppointmentQueryService {
         flat.doctor_name = d?.name ?? null;
         flat.department = profile?.department ?? null;
         flat.specialty = profile?.specialty ?? null;
-        return flat;
+        return attachPatientAllergies(flat, p, allergyMap);
       });
 
       return { appointments, date: todayStr };
@@ -569,6 +685,8 @@ export class AppointmentQueryService {
       // ANC appointments don't get re-routed to the doctor's home
       // department.
       flat.department = row.department ?? profile?.department ?? null;
+      const allergyMap = await loadAllergiesForPatients(patient ? [patient] : []);
+      attachPatientAllergies(flat, patient, allergyMap);
 
       // ANC context — when the patient has an ongoing pregnancy, surface
       // gestational age + pregnancy id inline so the receptionist can
