@@ -16,6 +16,8 @@ const SURGEON_UID = 'ba000000-0000-4000-8000-00000000a002';
 const OTHER_SURGEON_UID = 'ba000000-0000-4000-8000-00000000a006';
 const ANESTHETIST_UID = 'ba000000-0000-4000-8000-00000000a003';
 const ADMIN_UID = 'ba000000-0000-4000-8000-00000000a004';
+const NURSE_UID = 'ba000000-0000-4000-8000-00000000a005';
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 beforeEach(() => {
   queryUnsafeMock.mockReset();
@@ -24,7 +26,9 @@ beforeEach(() => {
 function rightEyeSchedule() {
   return {
     id: 3,
+    tenant_id: TENANT_ID,
     status: 'pre_op',
+    patient_uid: 'ba000000-0000-4000-8000-00000000a001',
     procedure_name: 'Right eye cataract surgery',
     procedure_code: null,
   };
@@ -67,15 +71,27 @@ describe('theatreService.completeChecklist', () => {
       fasting_confirmed: true,
       site_marked: true,
       site_marked_eye: 'right',
+      blood_glucose_mg_dl: 142,
+      eye_dilatation_drops: true,
     };
     queryUnsafeMock
       .mockResolvedValueOnce([rightEyeSchedule()])
-      .mockResolvedValueOnce([{ id: 3, pre_op_checklist: checklist }]);
+      .mockResolvedValueOnce([{ id: 3, pre_op_checklist: checklist }])
+      .mockResolvedValueOnce([{ id: 88 }]);
 
-    const result = await theatreService.completeChecklist(3, checklist);
+    const result = await theatreService.completeChecklist(3, checklist, {
+      tenantId: TENANT_ID,
+      completedBy: NURSE_UID,
+    });
 
     expect(result.id).toBe(3);
+    expect(result.pre_op_check_id).toBe(88);
     expect(JSON.parse(queryUnsafeMock.mock.calls[1][1])).toMatchObject(checklist);
+    const [sql, ...params] = queryUnsafeMock.mock.calls[2];
+    expect(sql).toMatch(/INSERT INTO preop_checklists/);
+    expect(sql).toMatch(/ON CONFLICT \(tenant_id, ot_schedule_id\)/);
+    expect(params).toContain(142);
+    expect(params).toContain(NURSE_UID);
   });
 
   it('rejects OT-ready when the checklist itself marks the patient diabetic without glucose', async () => {

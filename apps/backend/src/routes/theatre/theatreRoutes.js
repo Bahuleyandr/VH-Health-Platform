@@ -119,7 +119,10 @@ router.put('/:id/checklist', paramId(), validate, async (req, res, next) => {
     const { id } = req.params;
     const { checklist } = req.body;
 
-    const result = await theatreService.completeChecklist(parseInt(id, 10), checklist);
+    const result = await theatreService.completeChecklist(parseInt(id, 10), checklist, {
+      tenantId: req.tenantId,
+      completedBy: req.user?.uid || null,
+    });
     return success(res, result, 'Pre-op checklist updated successfully');
   } catch (err) {
     if (err.isOperational) {
