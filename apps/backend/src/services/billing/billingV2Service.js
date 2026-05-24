@@ -950,6 +950,43 @@ export async function listInvoices({
 // Payments
 // ───────────────────────────────────────────────────────────────────────
 
+async function assertInsurancePaymentHasClaimAnchor(invoiceId) {
+  if (!invoiceId) {
+    throw AppError.badRequest(
+      'INSURANCE payments must be recorded against an invoice linked to a submitted cashless TPA claim.',
+      'INSURANCE_PAYMENT_REQUIRES_INVOICE',
+    );
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, claim_number, preauth_id, status
+       FROM tpa_claims
+      WHERE invoice_id = $1::int
+        AND claim_type = 'cashless'
+        AND COALESCE(stage, 'final') = 'final'
+        AND status IN ('submitted', 'approved', 'partially_approved', 'paid', 'settled_partial')
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1`,
+    Number(invoiceId),
+  );
+
+  if (!rows.length) {
+    throw AppError.badRequest(
+      'INSURANCE payments require a submitted/approved final cashless TPA claim linked to this invoice. Record the insurer settlement through the TPA claim workflow first.',
+      'INSURANCE_PAYMENT_REQUIRES_TPA_CLAIM',
+      { invoice_id: Number(invoiceId) },
+    );
+  }
+
+  if (!rows[0].preauth_id) {
+    throw AppError.badRequest(
+      `INSURANCE payment cannot be collected for claim ${rows[0].claim_number || rows[0].id}: the claim is not linked to a preauth.`,
+      'INSURANCE_PAYMENT_REQUIRES_TPA_PREAUTH',
+      { invoice_id: Number(invoiceId), claim_id: Number(rows[0].id) },
+    );
+  }
+}
+
 export async function collectPayment({
   invoice_id, patient_uid, amount, mode, reference,
   denominations, collected_by, shift, notes,
@@ -958,6 +995,7 @@ export async function collectPayment({
     throw AppError.badRequest(`Invalid mode. Allowed: ${VALID_PAYMENT_MODES.join(', ')}`);
   }
   if (Number(amount) <= 0) throw AppError.badRequest('amount must be > 0');
+  const normalizedMode = String(mode).toUpperCase();
 
   // CASH payments must be tied to a cashier shift so the daily zero-
   // variance drawer-close control can reconcile them. Without `shift`,
@@ -968,11 +1006,15 @@ export async function collectPayment({
   // insurance, etc.) don't move physical cash and don't need a drawer
   // session, so the guard only fires for CASH.
   // Finding: 2026-05-22-inpatient-admission-billing-8f3634b2.
-  if (String(mode).toUpperCase() === 'CASH' && (shift == null || shift === '')) {
+  if (normalizedMode === 'CASH' && (shift == null || shift === '')) {
     throw AppError.badRequest(
       'CASH payments require a cashier shift so daily drawer reconciliation can include them. Open / select a cash-drawer session first.',
       'CASH_PAYMENT_REQUIRES_SHIFT',
     );
+  }
+
+  if (normalizedMode === 'INSURANCE' && !invoice_id) {
+    await assertInsurancePaymentHasClaimAnchor(null);
   }
 
   // Resolve patient_uid + invoice gating from invoice if invoice_id given.
@@ -992,6 +1034,9 @@ export async function collectPayment({
       throw AppError.badRequest(
         `Amount ${amount} exceeds outstanding due ${inv[0].amount_due}`,
       );
+    }
+    if (normalizedMode === 'INSURANCE') {
+      await assertInsurancePaymentHasClaimAnchor(invoice_id);
     }
   }
   if (!resolvedPatientUid) throw AppError.badRequest('patient_uid is required when invoice_id is omitted');

@@ -61,4 +61,99 @@ describe('billing v2 payment invoice totals', () => {
       expect.stringContaining('UPDATE billing_invoices'), 15000, 2300, 'PARTIAL', 3,
     );
   });
+
+  it('rejects INSURANCE payment when no invoice is linked', async () => {
+    await expect(
+      collectPayment({
+        patient_uid: '11111111-1111-4111-8111-111111111111',
+        amount: 5000,
+        mode: 'INSURANCE',
+        reference: 'TPA-UTR-UNATTRIBUTED',
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'INSURANCE_PAYMENT_REQUIRES_INVOICE',
+    });
+    expect(mockPrisma.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  it('rejects INSURANCE payment when the invoice has no submitted cashless TPA claim', async () => {
+    mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{
+        patient_uid: '11111111-1111-4111-8111-111111111111',
+        status: 'ISSUED',
+        amount_due: '5000',
+      }])
+      .mockResolvedValueOnce([]);
+
+    await expect(
+      collectPayment({
+        invoice_id: 3,
+        amount: 5000,
+        mode: 'INSURANCE',
+        reference: 'TPA-UTR-UNATTRIBUTED',
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'INSURANCE_PAYMENT_REQUIRES_TPA_CLAIM',
+    });
+  });
+
+  it('rejects INSURANCE payment when the linked cashless claim has no preauth', async () => {
+    mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{
+        patient_uid: '11111111-1111-4111-8111-111111111111',
+        status: 'ISSUED',
+        amount_due: '5000',
+      }])
+      .mockResolvedValueOnce([{
+        id: 44,
+        claim_number: 'CL-TEST-NO-PREAUTH',
+        preauth_id: null,
+        status: 'approved',
+      }]);
+
+    await expect(
+      collectPayment({
+        invoice_id: 3,
+        amount: 5000,
+        mode: 'INSURANCE',
+        reference: 'TPA-UTR-NO-PREAUTH',
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'INSURANCE_PAYMENT_REQUIRES_TPA_PREAUTH',
+    });
+  });
+
+  it('accepts INSURANCE payment when the invoice is anchored to a preauth-linked final claim', async () => {
+    mockPrisma.$queryRawUnsafe
+      .mockResolvedValueOnce([{
+        patient_uid: '11111111-1111-4111-8111-111111111111',
+        status: 'PARTIAL',
+        amount_due: '5000',
+      }])
+      .mockResolvedValueOnce([{
+        id: 45,
+        claim_number: 'CL-TEST-PAID',
+        preauth_id: 9,
+        status: 'approved',
+      }])
+      .mockResolvedValueOnce([{ id: 10, invoice_id: 3, amount: '5000', mode: 'INSURANCE' }])
+      .mockResolvedValueOnce([{ paid: '17300' }])
+      .mockResolvedValueOnce([{ total_amount: '17300' }]);
+
+    await collectPayment({
+      invoice_id: 3,
+      amount: 5000,
+      mode: 'INSURANCE',
+      reference: 'TPA-UTR-OK',
+    });
+
+    const claimAnchorSql = mockPrisma.$queryRawUnsafe.mock.calls[1][0];
+    expect(claimAnchorSql).toContain('FROM tpa_claims');
+    expect(mockPrisma.$executeRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE billing_invoices'), 17300, 0, 'PAID', 3,
+    );
+  });
 });
