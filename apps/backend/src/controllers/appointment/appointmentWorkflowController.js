@@ -1731,8 +1731,13 @@ export const registerWalkIn = async (req, res) => {
       // appointment row, the ED nurse can't find a matching visit_id, and
       // the whole ER pipeline goes through paper handover. Finding:
       // 2026-05-08-emergency-walk-in-nurse-emer-walkin-no-ed-visit.
+      // D47 — key off visit_type=EMERGENCY too, not only an EMER
+      // department prefix, so a specialty-routed emergency (e.g. chest
+      // pain to Cardiology) still appears on the ED triage queue.
       let erVisit = null;
-      if (deptPrefix(appointmentDepartment) === 'EMER') {
+      const shouldCreateEmergencyVisit =
+        deptPrefix(appointmentDepartment) === 'EMER' || resolvedVisitType === 'EMERGENCY';
+      if (shouldCreateEmergencyVisit) {
         // Pull the patient_uid for the FK. Walk-ins create users by
         // phone earlier in this txn, so the lookup is reliable. Explicit
         // `$1::int` cast mirrors the ANC branch defense-in-depth.
