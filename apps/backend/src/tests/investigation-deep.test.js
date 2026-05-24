@@ -43,6 +43,7 @@ function doctorAs(uid = DOCTOR_UID) {
 function labAs(uid = LAB_UID) {
   const token = generateTestToken('LAB_STAFF', { uid, id: 990502 });
   return {
+    get: (p) => request(app).get(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     post: (p) => request(app).post(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
     put: (p) => request(app).put(p).set('x-api-key', API_KEY).set('Authorization', `Bearer ${token}`),
   };
@@ -238,6 +239,39 @@ describe('Investigation order workflow — deep integration', () => {
       expect(rows[0].collected_at).toBeTruthy();
       expect(rows[0].sample_barcode).toBeTruthy();
       expect(rows[0].verified_at).toBeTruthy();
+    });
+
+    it('exposes lab sample collect, barcode lookup, and rejection APIs', async () => {
+      const order = await doctor.post('/api/v1/investigations/order').send({
+        patient_id: patientIntId, test_name: 'Serum Sodium', type: 'LAB', priority: 'URGENT',
+      });
+      expect(order.statusCode).toBe(200);
+      const invId = order.body.data.investigation.id;
+
+      const collected = await lab.post(`/api/v1/lab/samples/${invId}/collect`).send({
+        collected_notes: 'Drawn at lab counter',
+      });
+      expect(collected.statusCode).toBe(200);
+      expect(collected.body.data.status).toBe('COLLECTED');
+      expect(collected.body.data.collected_by).toBe(LAB_UID);
+      expect(collected.body.data.sample_barcode).toMatch(/^INV-[A-Z0-9]+-[A-Z0-9]{6}$/);
+
+      const barcode = collected.body.data.sample_barcode;
+      const barcodeLookup = await lab.get(`/api/v1/lab/samples/barcode/${barcode}`);
+      expect(barcodeLookup.statusCode).toBe(200);
+      expect(barcodeLookup.body.data.id).toBe(invId);
+      expect(barcodeLookup.body.data.sample_barcode).toBe(barcode);
+
+      const rejected = await lab.post(`/api/v1/lab/samples/${invId}/reject`).send({
+        rejection_reason: 'Haemolysed sample',
+      });
+      expect(rejected.statusCode).toBe(200);
+      expect(rejected.body.data.status).toBe('REQUESTED');
+      expect(rejected.body.data.sample_barcode).toBeNull();
+      expect(rejected.body.data.collected_at).toBeNull();
+      expect(rejected.body.data.sample_rejected_at).toBeTruthy();
+      expect(rejected.body.data.sample_rejected_by).toBe(LAB_UID);
+      expect(rejected.body.data.sample_rejection_reason).toBe('Haemolysed sample');
     });
 
     it('bulk-updates investigation sample collection with audit fields', async () => {

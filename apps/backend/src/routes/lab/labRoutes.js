@@ -7,6 +7,7 @@
 import { Router } from 'express';
 import logger from '../../logging/logger.js';
 import * as lab from '../../services/lab/labResultsService.js';
+import * as investigationService from '../../services/investigation/investigationService.js';
 import * as investigationOrderService from '../../services/investigation/orderService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { isAdmin, isClinical, isStaff } from '../../utils/roleHelpers.js';
@@ -114,6 +115,43 @@ router.post('/orders', requireOrderingStaff, wrap(async (req) => {
   });
   return result;
 }));
+
+// ── Sample collection / barcode / rejection workflow ────────────────
+// D43 — expose the lab-facing sample lifecycle under /api/v1/lab so a
+// lab tech can collect a sample, print/scan the barcode, and reject a
+// bad specimen without discovering the older /investigations routes.
+router.post('/samples/:investigationId/collect', requireStaffOrAdmin, wrap(async (req) =>
+  investigationService.markSampleCollected({
+    id: req.params.investigationId,
+    collected_by: req.user?.uid,
+    collected_notes: req.body?.collected_notes ?? req.body?.notes,
+    sample_barcode: req.body?.sample_barcode,
+    tenantId: tenantOf(req),
+  }),
+));
+
+router.get('/samples/barcode/:barcode', requireStaffOrAdmin, wrap(async (req) =>
+  investigationService.getSampleByBarcode({
+    barcode: req.params.barcode,
+    tenantId: tenantOf(req),
+  }),
+));
+
+router.get('/samples/:investigationId/barcode', requireStaffOrAdmin, wrap(async (req) =>
+  investigationService.getSampleByInvestigationId({
+    id: req.params.investigationId,
+    tenantId: tenantOf(req),
+  }),
+));
+
+router.post('/samples/:investigationId/reject', requireStaffOrAdmin, wrap(async (req) =>
+  investigationService.rejectSample({
+    id: req.params.investigationId,
+    rejected_by: req.user?.uid,
+    rejection_reason: req.body?.rejection_reason ?? req.body?.reason,
+    tenantId: tenantOf(req),
+  }),
+));
 
 // ── Manual result entry (when no analyzer integration) ───────────────
 router.post('/results', requireStaffOrAdmin, wrap(async (req) =>

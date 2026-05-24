@@ -48,6 +48,9 @@ describe('investigationService.updateStatus', () => {
         collected_by: LAB_TECH_UID,
         collected_notes: 'Collected urgent IPD sample',
         sample_barcode: expect.stringMatching(/^INV-K-/),
+        sample_rejected_at: null,
+        sample_rejected_by: null,
+        sample_rejection_reason: null,
       },
       select: expect.objectContaining({
         id: true,

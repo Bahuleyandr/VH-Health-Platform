@@ -533,6 +533,9 @@ export const updateStatus = async (id, status, notes, userId) => {
     data.collected_by = userId || null;
     data.collected_notes = notes ?? null;
     data.sample_barcode = existing?.sample_barcode || mintInvestigationBarcode(parseInt(id));
+    data.sample_rejected_at = null;
+    data.sample_rejected_by = null;
+    data.sample_rejection_reason = null;
   }
   if (normalizedStatus === 'COMPLETED') {
     data.completed_at = new Date();
@@ -863,7 +866,7 @@ function mintInvestigationBarcode(investigationId) {
 }
 
 export const markSampleCollected = async ({
-  id, collected_by, collected_notes, sample_barcode,
+  id, collected_by, collected_notes, sample_barcode, tenantId = null,
 }) => {
   const investigationId = parseInt(id, 10);
   if (!Number.isFinite(investigationId) || investigationId <= 0) {
@@ -880,8 +883,10 @@ export const markSampleCollected = async ({
     `SELECT id, status, sample_barcode
        FROM investigations
       WHERE id = $1::int
+        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
       LIMIT 1`,
     investigationId,
+    tenantId || null,
   );
   if (!existing.length) throw AppError.notFound('Investigation not found');
 
@@ -899,14 +904,120 @@ export const markSampleCollected = async ({
             collected_by = $1::uuid,
             collected_notes = $2,
             sample_barcode = $3,
+            sample_rejected_at = NULL,
+            sample_rejected_by = NULL,
+            sample_rejection_reason = NULL,
             updated_at = NOW()
       WHERE id = $4::int
+        AND ($5::uuid IS NULL OR tenant_id = $5::uuid)
       RETURNING id, uid, status, collected_at, collected_by,
-                collected_notes, sample_barcode`,
+                collected_notes, sample_barcode,
+                sample_rejected_at, sample_rejected_by, sample_rejection_reason`,
     String(collected_by),
     collected_notes || null,
     resolvedBarcode,
     investigationId,
+    tenantId || null,
+  );
+  return rows[0];
+};
+
+export const getSampleByBarcode = async ({ barcode, tenantId = null }) => {
+  const normalizedBarcode = String(barcode || '').trim().slice(0, 40);
+  if (!normalizedBarcode) {
+    throw AppError.badRequest('sample barcode is required');
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, uid, patient_id, patient_uid, test_name, test_code, test_type,
+            status, priority, sample_barcode, collected_at, collected_by,
+            collected_notes, sample_rejected_at, sample_rejected_by,
+            sample_rejection_reason, collection_location, collection_deadline_at,
+            requested_at, updated_at
+       FROM investigations
+      WHERE sample_barcode = $1
+        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+      LIMIT 1`,
+    normalizedBarcode,
+    tenantId || null,
+  );
+  if (!rows.length) throw AppError.notFound('Sample barcode not found');
+  return rows[0];
+};
+
+export const getSampleByInvestigationId = async ({ id, tenantId = null }) => {
+  const investigationId = parseInt(id, 10);
+  if (!Number.isFinite(investigationId) || investigationId <= 0) {
+    throw AppError.badRequest('id must be a positive integer');
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, uid, patient_id, patient_uid, test_name, test_code, test_type,
+            status, priority, sample_barcode, collected_at, collected_by,
+            collected_notes, sample_rejected_at, sample_rejected_by,
+            sample_rejection_reason, collection_location, collection_deadline_at,
+            requested_at, updated_at
+       FROM investigations
+      WHERE id = $1::int
+        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+      LIMIT 1`,
+    investigationId,
+    tenantId || null,
+  );
+  if (!rows.length) throw AppError.notFound('Investigation not found');
+  return rows[0];
+};
+
+export const rejectSample = async ({
+  id, rejected_by, rejection_reason, tenantId = null,
+}) => {
+  const investigationId = parseInt(id, 10);
+  if (!Number.isFinite(investigationId) || investigationId <= 0) {
+    throw AppError.badRequest('id must be a positive integer');
+  }
+  if (!rejected_by) {
+    throw AppError.badRequest('rejected_by (staff uid) is required');
+  }
+  const reason = String(rejection_reason || '').trim();
+  if (reason.length < 3) {
+    throw AppError.badRequest('rejection_reason is required');
+  }
+
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT id, status
+       FROM investigations
+      WHERE id = $1::int
+        AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+      LIMIT 1`,
+    investigationId,
+    tenantId || null,
+  );
+  if (!existing.length) throw AppError.notFound('Investigation not found');
+  if (String(existing[0].status || '').toUpperCase() === 'COMPLETED') {
+    throw AppError.conflict('Cannot reject a sample after results are completed', 'SAMPLE_ALREADY_COMPLETED');
+  }
+
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE investigations
+        SET status = 'REQUESTED',
+            collected_at = NULL,
+            collected_by = NULL,
+            collected_notes = NULL,
+            sample_barcode = NULL,
+            sample_rejected_at = NOW(),
+            sample_rejected_by = $1::uuid,
+            sample_rejection_reason = $2,
+            updated_at = NOW()
+      WHERE id = $3::int
+        AND ($4::uuid IS NULL OR tenant_id = $4::uuid)
+      RETURNING id, uid, status, collected_at, collected_by,
+                collected_notes, sample_barcode,
+                sample_rejected_at, sample_rejected_by,
+                sample_rejection_reason`,
+    String(rejected_by),
+    reason,
+    investigationId,
+    tenantId || null,
   );
   return rows[0];
 };
