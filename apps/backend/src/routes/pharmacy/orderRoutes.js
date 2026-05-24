@@ -68,6 +68,9 @@ function orderIdGuard(req, res, next) {
 // Pharmacist lifecycle actions
 wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
   get: [
+    // D57: documented/admin probes call GET /pharmacy/orders. Keep it as
+    // a staff queue alias rather than falling through to the legacy :phone route.
+    ['/', [], pharmacyOrderController.getOrderQueue],
     ['/:id/detail', [], pharmacyOrderController.getOrderDetail],
     ['/:id', [orderIdGuard], pharmacyOrderController.getOrderDetail],
     // Dispense label / receipt for printing or in-app display. Available
@@ -82,6 +85,8 @@ wrapAutoRBAC(router, 'pharmacyLifecycleRoutes', {
     ['/:id/delivered', [], pharmacyOrderController.markDelivered],
     // B-2: counter-dispense — short-circuit lifecycle for walk-in customers.
     ['/:id/dispense-counter', [], pharmacyOrderController.markCounterDispensed],
+    // D57: documented short alias used by the swarm/client contract.
+    ['/:id/dispense', [], pharmacyOrderController.markCounterDispensed],
     ['/:id/cancel', [], pharmacyOrderController.cancelOrder]
   ]
 });
