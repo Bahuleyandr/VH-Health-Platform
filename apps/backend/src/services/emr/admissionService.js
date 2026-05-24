@@ -35,6 +35,7 @@ const VALID_ADMISSION_TYPES = ['elective', 'emergency', 'transfer_in', 'day_care
 const VALID_PRIORITIES = ['routine', 'urgent', 'emergent'];
 const VALID_CODE_STATUSES = ['full_code', 'dnr', 'dni', 'comfort_care'];
 const VALID_DISCHARGE_TYPES = ['home', 'transfer', 'lama', 'expired', 'aor'];
+const READINESS_GATED_DISCHARGE_TYPES = new Set(['home', 'transfer', 'aor']);
 // Mirrors the CHECK on admissions.room_category (migration 177).
 const VALID_ROOM_CATEGORIES = ['general', 'semi_private', 'private', 'deluxe', 'icu', 'day_care'];
 const ACTIVE_ER_ORDER_STATUSES = ['ordered', 'verified', 'in_progress'];
@@ -1739,6 +1740,222 @@ async function markDischargeDrugsDispensed(admissionId, dispensedBy) {
   return updated;
 }
 
+function normalizeDischargeType(value = 'home') {
+  const normalized = String(value || 'home').trim().toLowerCase();
+  if (!VALID_DISCHARGE_TYPES.includes(normalized)) {
+    throw AppError.badRequest(`Invalid discharge_type: ${normalized}`);
+  }
+  return normalized;
+}
+
+function buildDischargeReadinessChecklist(blockers, { gated, transitionAllowed }) {
+  const blockerTypes = new Set(blockers.map((blocker) => blocker.type));
+  const clear = (type) => !blockerTypes.has(type);
+  return {
+    status_transition_allowed: transitionAllowed,
+    gated_discharge_type: gated,
+    marked_for_discharge: !gated || clear('NOT_MARKED_FOR_DISCHARGE'),
+    discharge_summary_signed: !gated || clear('SUMMARY_NOT_SIGNED'),
+    discharge_drugs_dispensed: !gated || clear('DRUGS_NOT_DISPENSED'),
+    finalized_invoice_exists: !gated || clear('NO_INVOICE'),
+    invoice_balance_clear: !gated || clear('UNPAID_INVOICE'),
+    investigations_resolved: !gated || clear('PENDING_RESULTS'),
+    radiology_resolved: !gated || clear('PENDING_RADIOLOGY'),
+    follow_up_booked: !gated || clear('FOLLOWUP_NOT_BOOKED'),
+  };
+}
+
+async function getDischargeReadiness(admissionId, options = {}) {
+  const dischargeType = normalizeDischargeType(options.discharge_type ?? options.dischargeType ?? 'home');
+  const dischargeSummary = options.discharge_summary ?? options.dischargeSummary ?? null;
+  const admissionPre = options.admissionPre || await prisma.admissions.findUnique({
+    where: { id: admissionId },
+    select: {
+      id: true, patient_uid: true, status: true, encounter_id: true,
+      admitted_at: true,
+      discharge_initiated_at: true, summary_signed_at: true,
+      discharge_drugs_dispensed_at: true,
+      billing_closed_at: true,
+    },
+  });
+  if (!admissionPre) throw AppError.notFound('Admission not found');
+
+  const allowedFromPre = VALID_STATUS_TRANSITIONS[admissionPre.status] || [];
+  const transitionAllowed = allowedFromPre.includes('discharged');
+  const gated = READINESS_GATED_DISCHARGE_TYPES.has(dischargeType);
+  const blockers = [];
+
+  if (!transitionAllowed) {
+    blockers.push({
+      type: 'INVALID_STATE_TRANSITION',
+      message: `Admission is ${admissionPre.status}; final discharge is not allowed from this state.`,
+      from: admissionPre.status,
+      allowed: allowedFromPre,
+    });
+  }
+
+  if (gated) {
+    // Discharge cascade gates (D2). Require:
+    //   - mark-for-discharge already happened (T0 stamped)
+    //   - signed summary (T2)
+    //   - takeaway drugs dispensed (T3)
+    // discharge_summary text in dischargeData is allowed as the
+    // legacy free-text path; if the admission has a clinical_notes
+    // discharge note that's signed, that satisfies the summary gate.
+    if (!admissionPre.discharge_initiated_at) {
+      blockers.push({
+        type: 'NOT_MARKED_FOR_DISCHARGE',
+        message: 'Admission has not been marked for discharge yet. Call POST /admissions/:id/mark-for-discharge first to open the cascade.',
+      });
+    }
+    if (!admissionPre.summary_signed_at) {
+      const signedNote = await prisma.clinical_notes.findFirst({
+        where: {
+          encounter_id: admissionPre.encounter_id ?? undefined,
+          note_type: 'discharge',
+          is_addendum: false,
+          is_signed: true,
+        },
+        select: { id: true },
+      });
+      if (!signedNote && (!dischargeSummary || !String(dischargeSummary).trim())) {
+        blockers.push({
+          type: 'SUMMARY_NOT_SIGNED',
+          message: 'Discharge summary must be signed by the doctor before final discharge.',
+        });
+      }
+    }
+    if (!admissionPre.discharge_drugs_dispensed_at) {
+      blockers.push({
+        type: 'DRUGS_NOT_DISPENSED',
+        message: 'Discharge takeaway drugs must be dispensed before final discharge. Call POST /admissions/:id/mark-drugs-dispensed when pharmacy hands over.',
+      });
+    }
+    // Phase 0 readiness probes — these run on plain prisma (not in a tx),
+    // so failures bubble as 500. We intentionally do NOT swallow query
+    // errors: a schema-drift or column-rename in any of these tables
+    // would have silently no-op'd the entire safety gate (finding
+    // 2026-05-09-inpatient-admission-discharge-pending-results-gate-silently-skipped),
+    // letting a patient be discharged with active investigations,
+    // unpaid invoices, or no invoice at all. Fail loud -> fix the drift.
+
+    // No-invoice gate (finding 2026-05-09-inpatient-admission-discharge-no-invoice-bypass,
+    // tightened by 2026-05-22-inpatient-admission-discharge-d670b613).
+    const finalizedRows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS c
+         FROM billing_invoices
+        WHERE admission_id = $1::int
+          AND status IN ('ISSUED', 'PARTIAL', 'PAID')`,
+      admissionId,
+    );
+    if ((finalizedRows[0]?.c ?? 0) === 0) {
+      blockers.push({
+        type: 'NO_INVOICE',
+        message: 'No finalized invoice exists for this admission. Issue + collect (or zero out) at least one IPD invoice before discharge. Closing billing alone does not satisfy this - a finalized invoice is required.',
+      });
+    }
+
+    const unpaid = await prisma.$queryRawUnsafe(
+      `SELECT id,
+              COALESCE(invoice_number, 'DRAFT-' || id::text) AS invoice_number,
+              status,
+              amount_due AS balance
+         FROM billing_invoices
+        WHERE admission_id = $1::int
+          AND COALESCE(status, '') NOT IN ('PAID', 'VOID', 'paid', 'written_off', 'cancelled')
+          AND COALESCE(amount_due, 0) > 0
+        ORDER BY id
+        LIMIT 5`,
+      admissionId,
+    );
+    if (unpaid.length > 0) {
+      blockers.push({
+        type: 'UNPAID_INVOICE',
+        message: `Outstanding invoice(s) on this admission: ${unpaid
+          .map((i) => `${i.invoice_number} [${i.status}] (₹${i.balance})`)
+          .join(', ')}.`,
+        invoices: unpaid,
+      });
+    }
+
+    const pendingResults = await prisma.$queryRawUnsafe(
+      `SELECT id FROM investigations
+        WHERE patient_uid = $1::uuid
+          AND COALESCE(status, '') NOT IN ('COMPLETED', 'CANCELLED', 'completed', 'cancelled')
+          AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)
+        LIMIT 5`,
+      admissionPre.patient_uid,
+      admissionPre.admitted_at,
+    );
+    if (pendingResults.length > 0) {
+      blockers.push({
+        type: 'PENDING_RESULTS',
+        message: `${pendingResults.length} pending lab/imaging result(s) tied to this admission. Review or cancel before discharge.`,
+        count: pendingResults.length,
+      });
+    }
+
+    const pendingRadiology = await prisma.radiology_orders.findMany({
+      where: {
+        patient_uid: admissionPre.patient_uid,
+        status: { notIn: ['completed', 'cancelled', 'reported', 'signed_off'] },
+        created_at: admissionPre.admitted_at ? { gte: admissionPre.admitted_at } : undefined,
+      },
+      select: { id: true, modality: true, body_part: true, status: true },
+      take: 5,
+    });
+    if (pendingRadiology.length > 0) {
+      blockers.push({
+        type: 'PENDING_RADIOLOGY',
+        message: `${pendingRadiology.length} pending radiology order(s) (${pendingRadiology
+          .map((r) => `${r.modality} ${r.body_part || ''} [${r.status}]`.trim())
+          .join(', ')}). Resolve or cancel before discharge.`,
+        count: pendingRadiology.length,
+        orders: pendingRadiology,
+      });
+    }
+
+    try {
+      const followupRows = await prisma.$queryRawUnsafe(
+        `SELECT id, due_at, appointment_id, status
+           FROM follow_up_plans
+          WHERE patient_uid = $1::uuid
+            AND status IN ('open', 'scheduled')
+            AND ($2::int IS NULL OR encounter_id IS NULL OR encounter_id = $2::int)
+            AND ($3::timestamptz IS NULL OR COALESCE(due_at, created_at) >= $3::timestamptz)
+          LIMIT 1`,
+        admissionPre.patient_uid,
+        Number.isFinite(admissionPre.encounter_id) ? admissionPre.encounter_id : null,
+        admissionPre.admitted_at ? new Date(admissionPre.admitted_at).toISOString() : null,
+      );
+      if (followupRows.length === 0) {
+        blockers.push({
+          type: 'FOLLOWUP_NOT_BOOKED',
+          message: 'Final discharge requires a booked follow-up plan (e.g., POD1 review) for this admission. Create one via POST /admin/follow-ups before final discharge.',
+        });
+      }
+    } catch (e) {
+      logger.warn(`Discharge readiness: follow-up check skipped (${e.message})`);
+    }
+  }
+
+  const checklist = buildDischargeReadinessChecklist(blockers, { gated, transitionAllowed });
+  return {
+    admission_id: admissionPre.id,
+    patient_uid: admissionPre.patient_uid,
+    encounter_id: admissionPre.encounter_id,
+    discharge_type: dischargeType,
+    admission_status: admissionPre.status,
+    gated,
+    transition_allowed: transitionAllowed,
+    ready: transitionAllowed && blockers.length === 0,
+    checklist,
+    blockers,
+    blocker_count: blockers.length,
+    rules_authoritative: true,
+  };
+}
+
 async function dischargePatient(admissionId, dischargeData, dischargedBy) {
   const { discharge_type, discharge_summary, override_readiness_gate } = dischargeData || {};
 
@@ -1783,194 +2000,17 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
   // results. Explicit `override_readiness_gate: true` lets the
   // discharge counter override (with audit). See finding
   // 2026-05-08-tpa-insurance-claim-discharge-no-readiness-gate.
-  const READINESS_GATED_TYPES = new Set(['home', 'transfer', 'aor']);
-  if (READINESS_GATED_TYPES.has(discharge_type) && override_readiness_gate !== true) {
-    const blockers = [];
-    // Discharge cascade gates (D2). Require:
-    //   - mark-for-discharge already happened (T0 stamped)
-    //   - signed summary (T2)
-    //   - takeaway drugs dispensed (T3)
-    // discharge_summary text in dischargeData is allowed as the
-    // legacy free-text path; if the admission has a clinical_notes
-    // discharge note that's signed, that satisfies the summary gate.
-    if (!admissionPre.discharge_initiated_at) {
-      blockers.push({
-        type: 'NOT_MARKED_FOR_DISCHARGE',
-        message: 'Admission has not been marked for discharge yet. Call POST /admissions/:id/mark-for-discharge first to open the cascade.',
-      });
-    }
-    if (!admissionPre.summary_signed_at) {
-      const signedNote = await prisma.clinical_notes.findFirst({
-        where: {
-          encounter_id: admissionPre.encounter_id ?? undefined,
-          note_type: 'discharge',
-          is_addendum: false,
-          is_signed: true,
-        },
-        select: { id: true },
-      });
-      if (!signedNote && (!discharge_summary || !String(discharge_summary).trim())) {
-        blockers.push({
-          type: 'SUMMARY_NOT_SIGNED',
-          message: 'Discharge summary must be signed by the doctor before final discharge.',
-        });
-      }
-    }
-    if (!admissionPre.discharge_drugs_dispensed_at) {
-      blockers.push({
-        type: 'DRUGS_NOT_DISPENSED',
-        message: 'Discharge takeaway drugs must be dispensed before final discharge. Call POST /admissions/:id/mark-drugs-dispensed when pharmacy hands over.',
-      });
-    }
-    // Phase 0 readiness probes — these run on plain prisma (not in a tx),
-    // so failures bubble as 500. We intentionally do NOT swallow query
-    // errors: a schema-drift or column-rename in any of these tables
-    // would have silently no-op'd the entire safety gate (finding
-    // 2026-05-09-inpatient-admission-discharge-pending-results-gate-silently-skipped),
-    // letting a patient be discharged with active investigations,
-    // unpaid invoices, or no invoice at all. Fail loud → fix the drift.
-
-    // No-invoice gate (finding 2026-05-09-inpatient-admission-discharge-no-invoice-bypass,
-    // tightened by 2026-05-22-inpatient-admission-discharge-d670b613).
-    // The unpaid query below only fires when an invoice EXISTS with
-    // amount_due > 0; a zero-invoice admission slipped through silently.
-    // Require at least one FINALIZED invoice (ISSUED/PARTIAL/PAID) for
-    // home/transfer/aor discharges — a genuine charity / zero-charge
-    // discharge is represented by an ISSUED invoice with total_amount 0
-    // (zeroed then issued), which this status filter already accepts.
-    //
-    // This check used to be skipped when `billing_closed_at` was stamped,
-    // on the theory that the cashier had explicitly closed billing with
-    // zero net charges. That assumption was wrong: `markForDischarge`
-    // (the mandatory first cascade step — see NOT_MARKED_FOR_DISCHARGE
-    // blocker above) ALWAYS stamps `billing_closed_at` as a soft freeze,
-    // so by the time final discharge is reachable the column is always
-    // set and the gate was dead code. A patient could be marked
-    // DISCHARGED with no finalized bill ever issued. The soft-freeze
-    // stamp is NOT proof billing was completed, so it no longer bypasses
-    // this gate; only an actual finalized invoice clears it.
-    const finalizedRows = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*)::int AS c
-         FROM billing_invoices
-        WHERE admission_id = $1::int
-          AND status IN ('ISSUED', 'PARTIAL', 'PAID')`,
-      admissionId,
-    );
-    if ((finalizedRows[0]?.c ?? 0) === 0) {
-      blockers.push({
-        type: 'NO_INVOICE',
-        message: 'No finalized invoice exists for this admission. Issue + collect (or zero out) at least one IPD invoice before discharge. Closing billing alone does not satisfy this — a finalized invoice is required.',
-      });
-    }
-
-    // Surface ALL non-final v2 invoices that still owe money. The
-    // exclude list deliberately omits 'DRAFT' — a DRAFT invoice
-    // with positive amount_due means the cashier added charges
-    // but never issued + collected, which is itself a billing-
-    // close concern at discharge. ISSUED + PARTIAL flow through
-    // as obvious unpaid blockers. Findings:
-    //   2026-05-10-inpatient-admission-discharge-billing-v2-due-not-in-readiness
-    //   2026-05-10-surgical-day-care-discharge-billing-v2-due-not-in-readiness
-    const unpaid = await prisma.$queryRawUnsafe(
-      `SELECT id,
-              COALESCE(invoice_number, 'DRAFT-' || id::text) AS invoice_number,
-              status,
-              amount_due AS balance
-         FROM billing_invoices
-        WHERE admission_id = $1::int
-          AND COALESCE(status, '') NOT IN ('PAID', 'VOID', 'paid', 'written_off', 'cancelled')
-          AND COALESCE(amount_due, 0) > 0
-        ORDER BY id
-        LIMIT 5`,
-      admissionId,
-    );
-    if (unpaid.length > 0) {
-      blockers.push({
-        type: 'UNPAID_INVOICE',
-        message: `Outstanding invoice(s) on this admission: ${unpaid
-          .map((i) => `${i.invoice_number} [${i.status}] (₹${i.balance})`)
-          .join(', ')}.`,
-        invoices: unpaid,
-      });
-    }
-
-    const pendingResults = await prisma.$queryRawUnsafe(
-      `SELECT id FROM investigations
-        WHERE patient_uid = $1::uuid
-          AND COALESCE(status, '') NOT IN ('COMPLETED', 'CANCELLED', 'completed', 'cancelled')
-          AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)
-        LIMIT 5`,
-      admissionPre.patient_uid,
-      admissionPre.admitted_at,
-    );
-    if (pendingResults.length > 0) {
-      blockers.push({
-        type: 'PENDING_RESULTS',
-        message: `${pendingResults.length} pending lab/imaging result(s) tied to this admission. Review or cancel before discharge.`,
-        count: pendingResults.length,
-      });
-    }
-
-    // Wave-4B-1 — pending radiology orders. `radiology_orders` lives in a
-    // separate table from `investigations`; the prior gate missed
-    // ultrasound/CT/MRI orders that hadn't reached the lab queue. Treat
-    // any non-terminal radiology status as a blocker. Finding:
-    //   2026-05-10-inpatient-admission-discharge-pending-radiology-not-in-readiness
-    const pendingRadiology = await prisma.radiology_orders.findMany({
-      where: {
-        patient_uid: admissionPre.patient_uid,
-        status: { notIn: ['completed', 'cancelled', 'reported', 'signed_off'] },
-        created_at: admissionPre.admitted_at ? { gte: admissionPre.admitted_at } : undefined,
-      },
-      select: { id: true, modality: true, body_part: true, status: true },
-      take: 5,
+  if (READINESS_GATED_DISCHARGE_TYPES.has(discharge_type) && override_readiness_gate !== true) {
+    const readiness = await getDischargeReadiness(admissionId, {
+      admissionPre,
+      discharge_type,
+      discharge_summary,
     });
-    if (pendingRadiology.length > 0) {
-      blockers.push({
-        type: 'PENDING_RADIOLOGY',
-        message: `${pendingRadiology.length} pending radiology order(s) (${pendingRadiology
-          .map((r) => `${r.modality} ${r.body_part || ''} [${r.status}]`.trim())
-          .join(', ')}). Resolve or cancel before discharge.`,
-        count: pendingRadiology.length,
-        orders: pendingRadiology,
-      });
-    }
 
-    // Final discharge for `home`/`transfer`/`aor` types must have an
-    // open or scheduled follow-up plan for this admission (matched by
-    // patient_uid + encounter_id where present, falling back to patient_uid
-    // for legacy admissions with no encounter linkage). POD1 review is
-    // mandatory after most day-care procedures (cataract being the
-    // canonical example) and patient handoff without one shipped twice.
-    // Finding:
-    //   2026-05-10-surgical-day-care-discharge-followup-not-in-readiness
-    try {
-      const followupRows = await prisma.$queryRawUnsafe(
-        `SELECT id, due_at, appointment_id, status
-           FROM follow_up_plans
-          WHERE patient_uid = $1::uuid
-            AND status IN ('open', 'scheduled')
-            AND ($2::int IS NULL OR encounter_id IS NULL OR encounter_id = $2::int)
-            AND ($3::timestamptz IS NULL OR COALESCE(due_at, created_at) >= $3::timestamptz)
-          LIMIT 1`,
-        admissionPre.patient_uid,
-        Number.isFinite(admissionPre.encounter_id) ? admissionPre.encounter_id : null,
-        admissionPre.admitted_at ? new Date(admissionPre.admitted_at).toISOString() : null,
-      );
-      if (followupRows.length === 0) {
-        blockers.push({
-          type: 'FOLLOWUP_NOT_BOOKED',
-          message: 'Final discharge requires a booked follow-up plan (e.g., POD1 review) for this admission. Create one via POST /admin/follow-ups before final discharge.',
-        });
-      }
-    } catch (e) {
-      logger.warn(`Discharge readiness: follow-up check skipped (${e.message})`);
-    }
-
-    if (blockers.length > 0) {
+    if (readiness.blockers.length > 0) {
       const err = AppError.badRequest('Discharge blocked — readiness gate not met. Pass `override_readiness_gate: true` with a reason in discharge_summary to override.');
       err.code = 'DISCHARGE_NOT_READY';
-      err.details = { blockers };
+      err.details = { blockers: readiness.blockers, checklist: readiness.checklist };
       throw err;
     }
   }
@@ -2804,6 +2844,7 @@ export default {
   markForDischarge,
   completeDischargeConsult,
   markDischargeDrugsDispensed,
+  getDischargeReadiness,
   dischargePatient,
   transferPatient,
   getActiveAdmissions,

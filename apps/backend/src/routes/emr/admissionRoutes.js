@@ -561,6 +561,108 @@ async function respondWithAdmissionAiDraft(req, res, moduleKey, message) {
   success(res, draft, message);
 }
 
+function dischargeReadinessAiDisabled(err) {
+  return err?.statusCode === 403
+    && /Clinical AI module is disabled/i.test(String(err?.message || ''));
+}
+
+function safetyFlagsFromReadiness(readiness) {
+  return (readiness.blockers || []).map((blocker) => ({
+    severity: blocker.type === 'INVALID_STATE_TRANSITION' ? 'high' : 'medium',
+    code: blocker.type,
+    message: blocker.message,
+  }));
+}
+
+function buildDischargeReadinessRulesResponse(readiness, fallbackReason) {
+  return {
+    draft: {
+      ready: readiness.ready,
+      blockers: readiness.blockers,
+      checklist: readiness.checklist,
+      forecast: readiness.ready
+        ? 'Authoritative readiness rules found no discharge blockers.'
+        : 'Final discharge is blocked by the authoritative readiness checklist.',
+      rules_readiness: readiness,
+    },
+    module_key: 'discharge_readiness',
+    prompt_version: 'rules-v1',
+    source_citations: [{
+      source_type: 'admission_readiness_rules',
+      source_id: String(readiness.admission_id),
+      summary: 'Deterministic discharge cascade, billing, investigations, radiology, and follow-up readiness checks.',
+    }],
+    safety_flags: safetyFlagsFromReadiness(readiness),
+    ai_metadata: {
+      provider: 'rules',
+      model: null,
+      used_ai: false,
+      fallback_reason: fallbackReason,
+      usage: {},
+      safety_review: null,
+    },
+    review_status: 'not_required',
+    review_id: null,
+    generation_id: null,
+    draft_generation_id: null,
+    requires_signoff: false,
+    rules_authoritative: true,
+    rules_readiness: readiness,
+  };
+}
+
+function attachRulesReadinessToDraft(aiDraft, readiness) {
+  return {
+    ...aiDraft,
+    draft: {
+      ...(aiDraft?.draft || {}),
+      ready: readiness.ready,
+      blockers: readiness.blockers,
+      checklist: {
+        ...(aiDraft?.draft?.checklist || {}),
+        ...readiness.checklist,
+      },
+      rules_readiness: readiness,
+      forecast: readiness.ready
+        ? (aiDraft?.draft?.forecast || 'Authoritative readiness rules found no discharge blockers.')
+        : 'Final discharge is blocked by the authoritative readiness checklist.',
+    },
+    safety_flags: [
+      ...(Array.isArray(aiDraft?.safety_flags) ? aiDraft.safety_flags : []),
+      ...safetyFlagsFromReadiness(readiness),
+    ],
+    rules_authoritative: true,
+    rules_readiness: readiness,
+  };
+}
+
+async function respondWithDischargeReadiness(req, res) {
+  const admissionId = parseAdmissionId(req, res);
+  if (admissionId === null) return;
+
+  const readiness = await admissionService.getDischargeReadiness(admissionId, {
+    discharge_type: req.query?.discharge_type || req.query?.dischargeType || 'home',
+  });
+
+  try {
+    const draft = await generateAdmissionAiDraft(
+      admissionId,
+      'discharge_readiness',
+      req.user?.uid || null,
+      req,
+    );
+    success(res, attachRulesReadinessToDraft(draft, readiness), 'Discharge readiness draft generated');
+  } catch (err) {
+    if (!dischargeReadinessAiDisabled(err)) throw err;
+
+    success(
+      res,
+      buildDischargeReadinessRulesResponse(readiness, 'clinical_ai_module_disabled'),
+      'Discharge readiness checklist generated'
+    );
+  }
+}
+
 router.post(
   '/:id/ai/patient-record-summary',
   wrapAsync((req, res) =>
@@ -584,9 +686,7 @@ router.post(
 
 router.get(
   '/:id/discharge-readiness',
-  wrapAsync((req, res) =>
-    respondWithAdmissionAiDraft(req, res, 'discharge_readiness', 'Discharge readiness draft generated')
-  )
+  wrapAsync((req, res) => respondWithDischargeReadiness(req, res))
 );
 
 router.post(
