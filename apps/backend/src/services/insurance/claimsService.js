@@ -1237,6 +1237,11 @@ export const CLAIM_WARNING_CODES = {
   ROOM_CHARGES_EXCEED_CAP: 'CLAIM_ROOM_CHARGES_EXCEED_CAP',
 };
 
+const ROOM_CAP_LIABILITY_CONSENT_TYPES = [
+  'financial_liability',
+  'room_upgrade_liability',
+];
+
 /**
  * Pure cover-exceeded check. Returns a warning object when the claimed
  * amount exceeds the cumulative sanctioned cover (with a meaningful
@@ -1303,8 +1308,8 @@ export function computeRoomCapWarning({
       message:
         `Room charges ₹${charges} exceed the insurer's room cap ₹${capAmt} ` +
         `by ₹${excess}. The excess is patient-payable / non-covered; collect ` +
-        `the difference or downgrade the room. This is informational and does ` +
-        `not block the claim.`,
+        `the difference, capture financial-liability consent, or downgrade ` +
+        `the room before final claim submission.`,
     };
   }
   // Category-only flag: admission category outranks the capped category.
@@ -1327,12 +1332,107 @@ export function computeRoomCapWarning({
         message:
           `Insurer capped the covered room category at '${capCat}' but the ` +
           `admission is in '${admCat}'. The room-upgrade differential is ` +
-          `patient-payable / non-covered. This is informational and does not ` +
-          `block the claim.`,
+          `patient-payable / non-covered. Capture financial-liability consent ` +
+          `or downgrade the room before final claim submission.`,
       };
     }
   }
   return null;
+}
+
+function roomCapRequiredAmount(warning) {
+  const amount = Number(warning?.patient_payable ?? warning?.excess ?? 0);
+  return amount > 0 ? Number(amount.toFixed(2)) : 0;
+}
+
+async function findRoomCapLiabilityEvidence({ tenantId, claim, warning }) {
+  const requiredAmount = roomCapRequiredAmount(warning);
+  let patientPaid = 0;
+
+  if (claim.invoice_id && requiredAmount > 0) {
+    const paymentRows = await prisma.$queryRawUnsafe(
+      `SELECT COALESCE(SUM(amount), 0)::numeric AS total
+         FROM billing_payments
+        WHERE invoice_id = $1::int
+          AND tenant_id = $2::uuid
+          AND reversed = false
+          AND UPPER(mode) NOT IN ('INSURANCE', 'TPA', 'CORPORATE_TPA')`,
+      Number(claim.invoice_id),
+      tenantId,
+    );
+    patientPaid = Number(paymentRows[0]?.total ?? 0);
+    if (patientPaid + 0.01 >= requiredAmount) {
+      return {
+        cleared: true,
+        method: 'patient_payment',
+        required_patient_payable: requiredAmount,
+        patient_paid: Number(patientPaid.toFixed(2)),
+      };
+    }
+  }
+
+  const consentRows = await prisma.$queryRawUnsafe(
+    `SELECT id, consent_type, granted_at
+       FROM patient_consents
+      WHERE patient_uid = $1::uuid
+        AND tenant_id = $2::uuid
+        AND consent_type IN ('financial_liability', 'room_upgrade_liability')
+        AND granted = true
+        AND COALESCE(status, 'active') = 'active'
+        AND revoked_at IS NULL
+        AND (expires_at IS NULL OR expires_at > NOW())
+      ORDER BY granted_at DESC NULLS LAST, id DESC
+      LIMIT 1`,
+    String(claim.patient_uid),
+    tenantId,
+  );
+
+  if (consentRows.length) {
+    return {
+      cleared: true,
+      method: 'consent',
+      consent_id: Number(consentRows[0].id),
+      consent_type: consentRows[0].consent_type,
+      required_patient_payable: requiredAmount || null,
+      patient_paid: Number(patientPaid.toFixed(2)),
+    };
+  }
+
+  return {
+    cleared: false,
+    required_patient_payable: requiredAmount || null,
+    patient_paid: Number(patientPaid.toFixed(2)),
+  };
+}
+
+async function assertRoomCapLiabilityCleared({ tenantId, claim }) {
+  if (claim.claim_type !== 'cashless' || claim.stage !== 'final') return;
+
+  const warnings = await buildClaimWarnings({ tenantId, claim });
+  const roomWarning = warnings.find((w) => w.code === CLAIM_WARNING_CODES.ROOM_CHARGES_EXCEED_CAP);
+  if (!roomWarning) return;
+
+  const evidence = await findRoomCapLiabilityEvidence({ tenantId, claim, warning: roomWarning });
+  if (evidence.cleared) return;
+
+  const required = evidence.required_patient_payable;
+  const requiredText = required
+    ? `₹${required} room-upgrade difference`
+    : 'the room-upgrade liability';
+  throw AppError.badRequest(
+    `Cashless final claim cannot be submitted: insurer room-cap liability is unresolved. ` +
+    `Collect at least ${requiredText} from the patient on the linked invoice, capture ` +
+    `financial_liability / room_upgrade_liability consent, or downgrade the room before submitting.`,
+    'ROOM_CAP_LIABILITY_NOT_ACKNOWLEDGED',
+    {
+      claim_id: Number(claim.id),
+      invoice_id: claim.invoice_id ? Number(claim.invoice_id) : null,
+      admission_id: claim.admission_id ? Number(claim.admission_id) : null,
+      warning: roomWarning,
+      evidence,
+      accepted_consent_types: ROOM_CAP_LIABILITY_CONSENT_TYPES,
+    },
+  );
 }
 
 /**
@@ -1561,6 +1661,7 @@ export async function submitClaim({
       totalBilled: cl.total_billed,
     });
   }
+  await assertRoomCapLiabilityCleared({ tenantId, claim: cl });
   // Assemble the standard packet (discharge summary + final bill) before
   // the doc gates so the cashless requirement is satisfiable from the live
   // records instead of erroring at a dead end. Skips any doc whose backing

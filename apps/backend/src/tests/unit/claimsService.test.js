@@ -645,7 +645,7 @@ describe('computeCoverExceededWarning (non-blocking cover advisory)', () => {
   });
 });
 
-describe('computeRoomCapWarning (non-blocking room-cap advisory)', () => {
+describe('computeRoomCapWarning (room-cap liability advisory)', () => {
   it('returns null when there is neither a cap amount nor a capped category', () => {
     expect(computeRoomCapWarning({})).toBeNull();
     expect(computeRoomCapWarning({ roomCharges: 30000 })).toBeNull();
@@ -672,8 +672,8 @@ describe('computeRoomCapWarning (non-blocking room-cap advisory)', () => {
       capped_category: 'semi_private',
       admission_category: 'private',
     });
-    // Copy reassures it is non-blocking ("does not block the claim").
-    expect(w.message).toMatch(/does not block/i);
+    expect(w.message).toMatch(/before final claim submission/i);
+    expect(w.message).toMatch(/financial-liability consent/i);
   });
 
   it('flags qualitatively when only categories are known (no rupee cap)', () => {
@@ -689,6 +689,7 @@ describe('computeRoomCapWarning (non-blocking room-cap advisory)', () => {
       capped_category: 'semi_private',
       admission_category: 'private',
     });
+    expect(w.message).toMatch(/Capture financial-liability consent/i);
   });
 
   it('does not flag when the admission category is at or below the capped category', () => {

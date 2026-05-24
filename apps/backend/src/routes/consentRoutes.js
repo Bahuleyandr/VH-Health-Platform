@@ -34,6 +34,11 @@ const VALID_CONSENT_TYPES = [
   'general',
   'abdm',
   'insurance',
+  // Explicit acknowledgement of patient-payable deltas such as TPA
+  // room-upgrade differences. The claim submit gate accepts these as
+  // evidence when the insurer caps the covered room category.
+  'financial_liability',
+  'room_upgrade_liability',
   'ai_documentation',
 ];
 
