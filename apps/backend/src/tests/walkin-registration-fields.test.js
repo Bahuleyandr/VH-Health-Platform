@@ -38,6 +38,7 @@ const RUN_SUFFIX = String(Date.now() % 100000).padStart(5, '0');
 const EMER_PHONE = `97771${RUN_SUFFIX}`;
 const OPD_PHONE = `97772${RUN_SUFFIX}`;
 const UNIDENT_COLLISION_PHONE = `97773${RUN_SUFFIX}`;
+const SPECIALTY_EMER_PHONE = `97774${RUN_SUFFIX}`;
 const ALLERGY_PHONE = `97775${RUN_SUFFIX}`;
 const ANC_PHONE = `97776${RUN_SUFFIX}`;
 const MINOR_GUARDIAN_PHONE = `97777${RUN_SUFFIX}`;
@@ -50,6 +51,8 @@ const PHONE_FORMS = [
   `+91${OPD_PHONE}`,
   UNIDENT_COLLISION_PHONE,
   `+91${UNIDENT_COLLISION_PHONE}`,
+  SPECIALTY_EMER_PHONE,
+  `+91${SPECIALTY_EMER_PHONE}`,
   ALLERGY_PHONE,
   `+91${ALLERGY_PHONE}`,
   ANC_PHONE,
@@ -197,6 +200,44 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
       mlc_number: 'FIR-2026-00481',
       mlc_notes: 'Brought by Indiranagar PS; rider, no helmet.',
     });
+  });
+
+  it('puts a specialty-routed EMERGENCY walk-in on the ED queue', async () => {
+    const res = await request(app)
+      .post('/api/v1/appointments/walk-in')
+      .set('x-api-key', API_KEY)
+      .set('Authorization', `Bearer ${staffToken}`)
+      .send({
+        patient_name: 'Specialty Emergency Patient',
+        patient_phone: SPECIALTY_EMER_PHONE,
+        patient_gender: 'F',
+        department: 'Cardiology',
+        reason: 'Chest pain routed to cardiology but needs ED triage',
+        visit_type: 'EMERGENCY',
+        chief_complaint: 'Crushing chest pain',
+      });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.department).toBe('Cardiology');
+    expect(res.body.data.visit_type).toBe('EMERGENCY');
+    expect(res.body.data.er_visit_id).not.toBeNull();
+
+    const patientRows = await prisma.$queryRawUnsafe(
+      `SELECT uid FROM users WHERE id = $1::int`,
+      res.body.data.patient_id,
+    );
+    const ev = await prisma.$queryRawUnsafe(
+      `SELECT visit_number, patient_uid, chief_complaint, status
+         FROM emergency_visits
+        WHERE id = $1`,
+      res.body.data.er_visit_id,
+    );
+    expect(ev[0]).toMatchObject({
+      chief_complaint: 'Crushing chest pain',
+      status: 'arriving',
+    });
+    expect(String(ev[0].patient_uid)).toBe(String(patientRows[0].uid));
   });
 
   it('rejects lab staff attempts to create official OPD walk-in visits', async () => {

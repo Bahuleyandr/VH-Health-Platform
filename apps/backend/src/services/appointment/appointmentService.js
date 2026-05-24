@@ -254,7 +254,7 @@ export class AppointmentService {
         await prisma.$transaction(async (tx) => {
           const apptRows = await tx.$queryRawUnsafe(
             `SELECT id, patient_id, doctor_id, appointment_date,
-                    token_number, confirmed_at, department, status
+                    token_number, confirmed_at, department, status, visit_type
                FROM appointments WHERE id = $1::int FOR UPDATE`,
             apptId,
           );
@@ -318,7 +318,7 @@ export class AppointmentService {
           // (tenant_id, visit_number). Tenant context isn't threaded
           // through this service path, so fall back to the platform
           // default tenant (the same default registerWalkIn uses).
-          if (deptPrefix(resolvedDept) === 'EMER') {
+          if (deptPrefix(resolvedDept) === 'EMER' || String(a.visit_type || '').toUpperCase() === 'EMERGENCY') {
             const patientRow = await tx.$queryRawUnsafe(
               'SELECT uid FROM users WHERE id = $1::int LIMIT 1',
               parseInt(a.patient_id, 10),
