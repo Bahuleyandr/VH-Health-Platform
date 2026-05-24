@@ -397,12 +397,13 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       await cleanup();
     });
 
-    it('links policy_id from a raw policy_number at admit', async () => {
+    it('links policy_id from a raw policy_number and opens emergency preauth with emergency SLA', async () => {
       // Finding 2026-05-21-tpa-insurance-claim-admission-cea3771d: the TPA
       // admission desk posts a raw policy_number; admit must resolve it to
       // policy_id so the insurance desk isn't forced into a manual second step.
       const uid = 'a1111111-1111-4111-8111-1111111119bb';
       const cleanup = async () => {
+        await prisma.$executeRawUnsafe(`DELETE FROM insurance_preauth WHERE patient_uid = $1::uuid`, uid).catch(() => {});
         await prisma.$executeRawUnsafe(`DELETE FROM admissions WHERE patient_uid = $1::uuid`, uid).catch(() => {});
         await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE patient_uid = $1::uuid`, uid).catch(() => {});
         await prisma.$executeRawUnsafe(`DELETE FROM beds WHERE bed_number = 'DEEP-TPA-BED'`).catch(() => {});
@@ -429,12 +430,29 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
         priority: 'urgent',
         bed_id: bed[0].id,
         policy_number: 'POL-CEA-TEST-1',
+        estimated_cost: 75000,
         emergency_consent_bypass_reason: 'Test — TPA policy link',
       });
       expect(res.statusCode).toBe(201);
       const adm = await prisma.$queryRawUnsafe(
         `SELECT policy_id FROM admissions WHERE id = $1`, res.body.data.admission.id);
       expect(adm[0].policy_id).toBe(pol[0].id);
+      const preauth = await prisma.$queryRawUnsafe(
+        `SELECT policy_id, admission_id, request_type,
+                EXTRACT(EPOCH FROM (submit_due_at - created_at)) / 3600 AS sla_hours
+           FROM insurance_preauth
+          WHERE patient_uid = $1::uuid
+          ORDER BY id DESC
+          LIMIT 1`,
+        uid,
+      );
+      expect(preauth[0]).toMatchObject({
+        policy_id: pol[0].id,
+        admission_id: res.body.data.admission.id,
+        request_type: 'emergency',
+      });
+      expect(Number(preauth[0].sla_hours)).toBeGreaterThan(5.5);
+      expect(Number(preauth[0].sla_hours)).toBeLessThan(6.5);
 
       await cleanup();
     });
