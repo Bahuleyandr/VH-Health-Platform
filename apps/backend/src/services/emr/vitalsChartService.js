@@ -102,10 +102,13 @@ async function propagateTriageAcuity({ patientId, patientUid, visitId, triageAcu
   if (triageAcuity == null) return null;
 
   const priority = `esi_${triageAcuity}`;
-  const emergencyVisitId = parseOptionalPositiveInt(visitId, 'visit_id');
+  const visitNumericId = visitId !== undefined && visitId !== null && visitId !== ''
+    ? parseOptionalPositiveInt(visitId, 'visit_id')
+    : null;
   let emergencyVisit = null;
+  let appointment = null;
 
-  if (emergencyVisitId != null) {
+  if (visitNumericId != null) {
     const rows = await prisma.$queryRawUnsafe(
       `UPDATE emergency_visits
           SET triage_priority = $1,
@@ -116,7 +119,7 @@ async function propagateTriageAcuity({ patientId, patientUid, visitId, triageAcu
           AND patient_uid = $3::uuid
         RETURNING id, visit_number`,
       priority,
-      emergencyVisitId,
+      visitNumericId,
       patientUid,
     );
     emergencyVisit = rows[0] ?? null;
@@ -142,33 +145,51 @@ async function propagateTriageAcuity({ patientId, patientUid, visitId, triageAcu
     emergencyVisit = rows[0] ?? null;
   }
 
-  const appointmentRows = await prisma.$queryRawUnsafe(
-    `UPDATE appointments
-        SET triage_acuity = $1,
-            updated_at = NOW()
-      WHERE id = (
-        SELECT a.id
-          FROM appointments a
-         WHERE a.patient_id = $2
-           AND (
-             ($3::text IS NOT NULL AND a.visit_no = $3::text)
-             OR a.visit_type = 'EMERGENCY'
-             OR a.department ILIKE '%emergency%'
-           )
-         ORDER BY a.appointment_date DESC, a.created_at DESC
-         LIMIT 1
-      )
-      RETURNING id, triage_acuity`,
-    triageAcuity,
-    patientId,
-    emergencyVisit?.visit_number ?? null,
-  );
+  if (!emergencyVisit && visitNumericId != null) {
+    const rows = await prisma.$queryRawUnsafe(
+      `UPDATE appointments
+          SET triage_acuity = $1,
+              updated_at = NOW()
+        WHERE id = $2
+          AND patient_id = $3
+        RETURNING id, triage_acuity`,
+      triageAcuity,
+      visitNumericId,
+      patientId,
+    );
+    appointment = rows[0] ?? null;
+  }
+
+  if (!appointment) {
+    const appointmentRows = await prisma.$queryRawUnsafe(
+      `UPDATE appointments
+          SET triage_acuity = $1,
+              updated_at = NOW()
+        WHERE id = (
+          SELECT a.id
+            FROM appointments a
+           WHERE a.patient_id = $2
+             AND (
+               ($3::text IS NOT NULL AND a.visit_no = $3::text)
+               OR a.visit_type = 'EMERGENCY'
+               OR a.department ILIKE '%emergency%'
+             )
+           ORDER BY a.appointment_date DESC, a.created_at DESC
+           LIMIT 1
+        )
+        RETURNING id, triage_acuity`,
+      triageAcuity,
+      patientId,
+      emergencyVisit?.visit_number ?? null,
+    );
+    appointment = appointmentRows[0] ?? null;
+  }
 
   return {
     triage_acuity: triageAcuity,
     triage_priority: priority,
     emergency_visit_id: emergencyVisit?.id ?? null,
-    appointment_id: appointmentRows[0]?.id ?? null,
+    appointment_id: appointment?.id ?? null,
   };
 }
 
