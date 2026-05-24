@@ -993,6 +993,53 @@ function moneyEquals(a, b) {
   return Math.abs(Number(a || 0) - Number(b || 0)) <= 0.01;
 }
 
+const FINAL_CASHLESS_TRACEABLE_SOURCE_TYPES = new Set([
+  'lab_order',
+  'radiology_order',
+  'pharmacy_order',
+  'ward_indent',
+  'room_day',
+  'discharge_consult',
+  'theatre_case',
+  'admission_package',
+  'package',
+]);
+
+const FINAL_CASHLESS_SOURCE_ID_OPTIONAL = new Set(['admission_package', 'package']);
+
+async function assertFinalCashlessInvoiceLinesTraceable(invoiceId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, description, line_total, source_ref_type, source_ref_id
+       FROM billing_invoice_items
+      WHERE invoice_id = $1::int
+        AND COALESCE(line_total, 0) > 0
+      ORDER BY id`,
+    Number(invoiceId),
+  );
+  if (!rows.length) return;
+
+  const untraceable = rows.filter((row) => {
+    const sourceType = String(row.source_ref_type || '').trim().toLowerCase();
+    if (!sourceType || sourceType === 'manual') return true;
+    if (!FINAL_CASHLESS_TRACEABLE_SOURCE_TYPES.has(sourceType)) return true;
+    return !FINAL_CASHLESS_SOURCE_ID_OPTIONAL.has(sourceType) && row.source_ref_id == null;
+  });
+  if (!untraceable.length) return;
+
+  const examples = untraceable.slice(0, 5).map((row) => ({
+    id: Number(row.id),
+    description: String(row.description || '').slice(0, 120),
+    source_ref_type: row.source_ref_type || null,
+    source_ref_id: row.source_ref_id == null ? null : Number(row.source_ref_id),
+  }));
+  throw AppError.badRequest(
+    `Final cashless claim invoice ${invoiceId} has ${untraceable.length} untraceable billable line(s). ` +
+      'Run admission itemization or attach source_ref_type/source_ref_id before creating or submitting the final claim.',
+    'TPA_INVOICE_LINE_TRACE_REQUIRED',
+    { invoice_id: Number(invoiceId), untraceable_count: untraceable.length, examples },
+  );
+}
+
 async function assertIssuedFinalCashlessInvoice({
   tenantId, invoiceId, patientUid, admissionId, totalBilled,
 }) {
@@ -1067,6 +1114,7 @@ async function assertIssuedFinalCashlessInvoice({
       `Final cashless claim total_billed ${Number(totalBilled)} must match issued invoice total_amount ${Number(invoice.total_amount)}`,
     );
   }
+  await assertFinalCashlessInvoiceLinesTraceable(invoice.id);
   return invoice;
 }
 
