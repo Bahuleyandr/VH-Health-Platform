@@ -610,6 +610,9 @@ describe('E-prescriptions — deep integration', () => {
     const dispensedItem = matched.body.data.items_list[0];
     expect(dispensedItem.dispensed_qty).toBe(9);
     expect(dispensedItem.ordered_qty).toBe(9);
+    const fulfilledRx = await prisma.$queryRawUnsafe(
+      `SELECT status, pharmacy_order_id FROM e_prescriptions WHERE id = $1`, rxRows[0].id);
+    expect(fulfilledRx[0]).toMatchObject({ status: 'fulfilled', pharmacy_order_id: orderId });
 
     await prisma.$executeRawUnsafe(
       `DELETE FROM pharmacy_order_history WHERE order_id = $1`, orderId).catch(() => {});
@@ -678,8 +681,12 @@ describe('E-prescriptions — deep integration', () => {
         dispensed_items: [{ catalog_id: catalogId, name: 'Amoxicillin', dispensed_qty: 9, price: 10 }],
       });
     expect(acked.statusCode).toBe(200);
+    expect(acked.body.data.partial_dispense).toBe(true);
     expect(acked.body.data.items_list[0].dispensed_qty).toBe(9);
     expect(acked.body.data.items_list[0].ordered_qty).toBe(10);
+    const partialRx = await prisma.$queryRawUnsafe(
+      `SELECT status, pharmacy_order_id FROM e_prescriptions WHERE id = $1`, rxRows[0].id);
+    expect(partialRx[0]).toMatchObject({ status: 'pharmacy_linked', pharmacy_order_id: orderId });
 
     const history = await prisma.$queryRawUnsafe(
       `SELECT notes FROM pharmacy_order_history

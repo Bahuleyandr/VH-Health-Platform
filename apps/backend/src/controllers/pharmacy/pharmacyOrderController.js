@@ -909,14 +909,12 @@ export const markCounterDispensed = async (req, res) => {
         );
       }
 
-      // Rx fulfilment, identical to markDelivered. A partial dispense
-      // still flips status to 'fulfilled' — the remaining qty stays
-      // visible on the order itself (partial_dispense=true + items
-      // carry ordered_qty/dispensed_qty), and the pharmacist creates a
-      // refill order from the prescription when the balance is collected.
+      // Full counter dispenses close the prescription. Short supplies stay
+      // linked to pharmacy so the remaining quantity is not hidden as fulfilled.
+      const prescriptionStatus = partialDispense ? 'pharmacy_linked' : 'fulfilled';
       await tx.$executeRawUnsafe(
         `UPDATE e_prescriptions
-            SET status = 'fulfilled',
+            SET status = $3,
                 pharmacy_opted = TRUE,
                 pharmacy_order_id = COALESCE(pharmacy_order_id, $1),
                 updated_at = NOW()
@@ -927,7 +925,7 @@ export const markCounterDispensed = async (req, res) => {
                      AND ep.status IN ('active', 'pharmacy_linked')
                    ORDER BY ep.created_at DESC LIMIT 1
                  ))`,
-        orderId, out.patient_id ?? null,
+        orderId, out.patient_id ?? null, prescriptionStatus,
       );
 
       await tx.$queryRawUnsafe(
