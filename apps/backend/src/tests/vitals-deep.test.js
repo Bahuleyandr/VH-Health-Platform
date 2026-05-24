@@ -27,6 +27,8 @@ function doctorAs(uid = RECORDER_UID) {
 describe('EMR vitals + anomaly alerts — deep integration', () => {
   const doctor = doctorAs();
   let patientIntId;
+  let recorderIntId;
+  let ancPatientIntId;
 
   beforeAll(async () => {
     // Cleanup — delete alerts + vitals tied to our fixtures
@@ -45,6 +47,7 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       await prisma.$executeRawUnsafe(`DELETE FROM clinical_alerts WHERE patient_id = $1`, existingAnc[0].id);
     }
     await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE visit_no LIKE 'EMER-VITALS-%'`);
+    await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE visit_no LIKE 'ANC-VITALS-%'`);
     await prisma.$executeRawUnsafe(`DELETE FROM emergency_visits WHERE visit_number LIKE 'EMER-VITALS-%'`);
     await prisma.$executeRawUnsafe(`DELETE FROM maternity_pregnancies WHERE patient_uid = $1::uuid`, ANC_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`, PATIENT_UID, RECORDER_UID, ANC_UID);
@@ -56,15 +59,19 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       PATIENT_UID, PATIENT_PHONE);
     patientIntId = p[0].id;
 
-    await prisma.$executeRawUnsafe(
+    const recorder = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
-       VALUES ($1::uuid, '9000020002', 'Vitals Test Doctor', 'DOCTOR', true, NOW())`,
+       VALUES ($1::uuid, '9000020002', 'Vitals Test Doctor', 'DOCTOR', true, NOW())
+       RETURNING id`,
       RECORDER_UID);
+    recorderIntId = recorder[0].id;
 
-    await prisma.$executeRawUnsafe(
+    const ancPatient = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, gender, is_active, updated_at)
-       VALUES ($1::uuid, $2, 'ANC Vitals Test Patient', 'PATIENT', 'Female', true, NOW())`,
+       VALUES ($1::uuid, $2, 'ANC Vitals Test Patient', 'PATIENT', 'Female', true, NOW())
+       RETURNING id`,
       ANC_UID, ANC_PHONE);
+    ancPatientIntId = ancPatient[0].id;
 
     await prisma.$executeRawUnsafe(
       `INSERT INTO maternity_pregnancies
@@ -85,6 +92,7 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       await prisma.$executeRawUnsafe(`DELETE FROM clinical_alerts WHERE patient_id = $1`, patientIntId).catch(() => {});
     }
     await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE visit_no LIKE 'EMER-VITALS-%'`).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE visit_no LIKE 'ANC-VITALS-%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM emergency_visits WHERE visit_number LIKE 'EMER-VITALS-%'`).catch(() => {});
     const existingAnc = await prisma.$queryRawUnsafe(`SELECT id FROM users WHERE uid = $1::uuid`, ANC_UID).catch(() => []);
     if (existingAnc.length) {
@@ -306,6 +314,49 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       expect(rows[0].vitals_acuity).toBe(2);
       expect(rows[0].triage_priority).toBe('esi_2');
       expect(rows[0].appointment_acuity).toBe(2);
+    });
+
+    it('propagates ANC vitals triage acuity to the doctor queue appointment row', async () => {
+      const visitNo = `ANC-VITALS-${Date.now()}`;
+      const apptRows = await prisma.$queryRawUnsafe(
+        `INSERT INTO appointments
+           (phone, patient_id, doctor_id, doctor_name, patient_name,
+            appointment_date, appointment_time, status, token_number,
+            department, visit_type, visit_no, confirmed_at, created_at, updated_at)
+         VALUES ($1, $2, $3, 'Vitals Test Doctor', 'ANC Vitals Test Patient',
+                 CURRENT_DATE, '10:15', 'CONFIRMED', 'ANC-001',
+                 'Obstetric ANC', 'NEW', $4, NOW(), NOW(), NOW())
+         RETURNING id`,
+        ANC_PHONE,
+        ancPatientIntId,
+        recorderIntId,
+        visitNo,
+      );
+      const appointmentId = apptRows[0].id;
+
+      const res = await doctor.post('/api/v1/emr/vitals').send({
+        patient_uid: ANC_UID,
+        visit_id: appointmentId,
+        triage_acuity: 2,
+        systolic_bp: 150,
+        diastolic_bp: 96,
+        fhr: 142,
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.body.data.triage).toMatchObject({
+        triage_acuity: 2,
+        emergency_visit_id: null,
+        appointment_id: appointmentId,
+      });
+
+      const queue = await doctor.get(`/api/v1/appointments/queue/today?doctor_id=${recorderIntId}`);
+      expect(queue.statusCode).toBe(200);
+      const ancRow = queue.body.data.find((row) => row.id === appointmentId);
+      expect(ancRow).toBeDefined();
+      expect(ancRow.triage_acuity).toBe(2);
+      expect(ancRow.triage_priority).toBe('esi_2');
+      expect(ancRow.acuity_rank).toBe(2);
+      expect(ancRow.is_emergent).toBe(true);
     });
 
     // Finding: 2026-05-17-obstetric-anc-nurse-6fe6f592.

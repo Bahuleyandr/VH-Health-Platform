@@ -25,6 +25,7 @@ const APPT_BASE_SELECT = {
   doctor_name: true,
   department: true,
   token_number: true,
+  triage_acuity: true,
   // Persisted human-readable visit_no (migration 217) so receptionists
   // can reprint the slip and downstream counters can match the printed
   // OPD-YYYYMMDD-NNN token in list responses.
@@ -491,6 +492,7 @@ export class AppointmentQueryService {
           notes: true,
           patient_id: true,
           token_number: true,
+          triage_acuity: true,
           visit_no: true,
           visit_type: true,
           department: true,
