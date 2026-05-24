@@ -55,7 +55,8 @@ function normalisePriority(raw) {
 const RAD_RETURNING = `id, patient_uid, encounter_id, modality, body_part, clinical_indication,
     priority, status, ordered_by, radiologist, report, report_completed_at,
     report_signed_off_at, report_signed_off_by, acquired_at, acquired_by,
-    acquired_by_name, tech_uid, tech_name, tech_license_number, notes,
+    acquired_by_name, tech_uid, tech_name, tech_license_number,
+    pacs_study_instance_uid, acquisition_evidence, notes,
     created_at, updated_at`;
 
 function requireIntId(id) {
@@ -68,6 +69,20 @@ function cleanOptionalText(value) {
   if (value == null) return null;
   const trimmed = String(value).trim();
   return trimmed || null;
+}
+
+function firstClean(...values) {
+  for (const value of values) {
+    const cleaned = cleanOptionalText(value);
+    if (cleaned) return cleaned;
+  }
+  return null;
+}
+
+function positiveIntOrNull(value) {
+  if (value == null || value === '') return null;
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -162,6 +177,74 @@ async function resolveAcquiringTechnologist(techUid, fallbackName, fallbackLicen
     techLicenseNumber:
       cleanOptionalText(row.registration_number)
       || cleanOptionalText(fallbackLicenseNumber),
+  };
+}
+
+function normalizeAcquisitionEvidence(raw = {}) {
+  const nested =
+    raw?.acquisition_evidence && typeof raw.acquisition_evidence === 'object' && !Array.isArray(raw.acquisition_evidence)
+      ? raw.acquisition_evidence
+      : {};
+
+  const pacsStudyInstanceUid = firstClean(
+    raw.pacs_study_instance_uid,
+    raw.study_instance_uid,
+    raw.studyInstanceUid,
+    nested.pacs_study_instance_uid,
+    nested.study_instance_uid,
+    nested.studyInstanceUid,
+  );
+  const pacsUrl = firstClean(raw.pacs_url, raw.pacsUrl, nested.pacs_url, nested.pacsUrl);
+  const storageKey = firstClean(
+    raw.storage_key,
+    raw.image_storage_key,
+    raw.file_key,
+    raw.storageKey,
+    nested.storage_key,
+    nested.image_storage_key,
+    nested.file_key,
+    nested.storageKey,
+  );
+  const imageUrl = firstClean(
+    raw.image_url,
+    raw.file_url,
+    raw.attachment_url,
+    raw.imageUrl,
+    nested.image_url,
+    nested.file_url,
+    nested.attachment_url,
+    nested.imageUrl,
+  );
+  const attachmentId = firstClean(raw.attachment_id, raw.attachmentId, nested.attachment_id, nested.attachmentId);
+  const sourceSystem = firstClean(raw.source_system, raw.sourceSystem, nested.source_system, nested.sourceSystem);
+  const seriesCount = positiveIntOrNull(raw.series_count ?? raw.seriesCount ?? nested.series_count ?? nested.seriesCount);
+  const instanceCount = positiveIntOrNull(raw.instance_count ?? raw.instanceCount ?? nested.instance_count ?? nested.instanceCount);
+
+  if (!pacsStudyInstanceUid && !pacsUrl && !storageKey && !imageUrl && !attachmentId) {
+    throw AppError.badRequest(
+      'PACS study UID or image attachment evidence is required before marking a radiology study acquired',
+      'RADIOLOGY_ACQUISITION_EVIDENCE_REQUIRED',
+    );
+  }
+
+  const evidence = {
+    recorded_at: new Date().toISOString(),
+  };
+  if (pacsStudyInstanceUid) evidence.pacs_study_instance_uid = pacsStudyInstanceUid;
+  if (pacsUrl) evidence.pacs_url = pacsUrl;
+  if (storageKey) evidence.storage_key = storageKey;
+  if (imageUrl) evidence.image_url = imageUrl;
+  if (attachmentId) evidence.attachment_id = attachmentId;
+  if (sourceSystem) evidence.source_system = sourceSystem;
+  if (seriesCount) evidence.series_count = seriesCount;
+  if (instanceCount) evidence.instance_count = instanceCount;
+  if (raw.metadata && typeof raw.metadata === 'object' && !Array.isArray(raw.metadata)) {
+    evidence.metadata = raw.metadata;
+  }
+
+  return {
+    pacsStudyInstanceUid,
+    evidence,
   };
 }
 
@@ -272,6 +355,7 @@ class RadiologyService {
               ro.report_signed_off_at, ro.report_signed_off_by,
               ro.acquired_at, ro.acquired_by, ro.acquired_by_name,
               ro.tech_uid, ro.tech_name, ro.tech_license_number,
+              ro.pacs_study_instance_uid, ro.acquisition_evidence,
               ro.notes, ro.created_at, ro.updated_at
        FROM radiology_orders ro
        ${whereClause}
@@ -379,7 +463,7 @@ class RadiologyService {
   // Tech identity (acquired_by) stays distinct from radiologist
   // identity. Finding:
   // 2026-05-08-dynamic-acute-abdomen-radiology-tech-no-acquisition-state-no-tech-attribution.
-  async markAcquired(id, { tech_uid, tech_name, tech_license_number }) {
+  async markAcquired(id, { tech_uid, tech_name, tech_license_number, acquisition_evidence }) {
     if (!tech_uid) throw AppError.badRequest('tech_uid is required');
     const existing = await prisma.$queryRawUnsafe(
       `SELECT id, status FROM radiology_orders WHERE id = $1`, requireIntId(id));
@@ -390,6 +474,7 @@ class RadiologyService {
     if (existing[0].status === 'completed') {
       throw AppError.badRequest('Cannot acquire — order is already completed');
     }
+    const evidence = normalizeAcquisitionEvidence(acquisition_evidence);
     const techIdentity = await resolveAcquiringTechnologist(
       tech_uid,
       tech_name,
@@ -404,12 +489,16 @@ class RadiologyService {
               tech_uid = COALESCE(tech_uid, $1::uuid),
               tech_name = COALESCE(tech_name, $2),
               tech_license_number = COALESCE(tech_license_number, $3),
+              pacs_study_instance_uid = COALESCE(pacs_study_instance_uid, $4),
+              acquisition_evidence = COALESCE(acquisition_evidence, '{}'::jsonb) || $5::jsonb,
               updated_at = NOW()
-        WHERE id = $4
+        WHERE id = $6
         RETURNING ${RAD_RETURNING}`,
       tech_uid,
       techIdentity.techName,
       techIdentity.techLicenseNumber,
+      evidence.pacsStudyInstanceUid,
+      JSON.stringify(evidence.evidence),
       requireIntId(id),
     );
     logger.info('Radiology order acquired', { orderId: id, tech_uid });

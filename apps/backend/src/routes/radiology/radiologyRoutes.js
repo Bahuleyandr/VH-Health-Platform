@@ -100,7 +100,11 @@ router.put('/:id/report', paramId(), validate, async (req, res, next) => {
 /**
  * E-8 — POST /radiology/:id/acquire
  * Mark order acquired (tech captures images).
- * Body: { tech_license_number? | license_number? | registration_number? }.
+ * Body: {
+ *   tech_license_number? | license_number? | registration_number?,
+ *   pacs_study_instance_uid? | study_instance_uid?,
+ *   pacs_url? | storage_key? | image_url? | attachment_id?
+ * }.
  *
  * Inner-RBAC: the mount in app.js allows ADMIN/SUPER_ADMIN/DOCTOR/
  * NURSING_STAFF/RADIOLOGY_STAFF for the whole module (so doctors can
@@ -128,6 +132,20 @@ router.post('/:id/acquire', paramId(), validate, async (req, res, next) => {
         req.body.tech_license_number
         || req.body.license_number
         || req.body.registration_number,
+      acquisition_evidence: {
+        ...(req.body.acquisition_evidence && typeof req.body.acquisition_evidence === 'object'
+          ? req.body.acquisition_evidence
+          : {}),
+        pacs_study_instance_uid: req.body.pacs_study_instance_uid || req.body.study_instance_uid,
+        pacs_url: req.body.pacs_url,
+        storage_key: req.body.storage_key || req.body.image_storage_key || req.body.file_key,
+        image_url: req.body.image_url || req.body.file_url || req.body.attachment_url,
+        attachment_id: req.body.attachment_id,
+        source_system: req.body.source_system,
+        series_count: req.body.series_count,
+        instance_count: req.body.instance_count,
+        metadata: req.body.metadata,
+      },
     });
     return success(res, result, 'Radiology order acquired');
   } catch (err) {
