@@ -123,6 +123,90 @@ function parseClinicalOrderDetails(details) {
   return typeof details === 'object' ? details : {};
 }
 
+function normalizeOrderRoute(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const route = String(value).trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+  if (!route) return null;
+  if (/\b(iv|intravenous|infusion|injectable|injection|inj|vial|ampoule)\b/.test(route)) return 'iv';
+  if (/\b(im|intramuscular)\b/.test(route)) return 'im';
+  if (/\b(sc|subcutaneous|subcut)\b/.test(route)) return 'sc';
+  if (/\b(po|oral|mouth|tablet|tab|capsule|cap|syrup|sachet)\b/.test(route)) return 'oral';
+  return route;
+}
+
+function inferMedicationRoute(order, details) {
+  return normalizeOrderRoute(
+    order?.route
+      ?? details.route
+      ?? details.medication_route
+      ?? details.prescribed_route
+      ?? details.administration_route
+      ?? details.form
+      ?? details.dosage_form
+  );
+}
+
+function inferVolumeMl(details, medicationName) {
+  const explicit = Number(
+    details.volume_ml
+      ?? details.volumeMl
+      ?? details.iv_fluid_ml
+      ?? details.ivFluidsMl
+      ?? details.fluid_ml
+  );
+  if (Number.isFinite(explicit) && explicit > 0) return Math.round(explicit);
+
+  const text = [
+    medicationName,
+    details.dose,
+    details.dosage,
+    details.strength,
+    details.quantity_label,
+    details.unit,
+  ].filter(Boolean).join(' ');
+  const match = text.match(/\b(\d{2,4})\s*(ml|mL|ML)\b/);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
+function catalogSearchTerms(medicationName, details) {
+  const terms = new Set();
+  const add = (value) => {
+    const text = value == null ? '' : String(value).trim();
+    if (text) terms.add(text);
+  };
+
+  add(medicationName);
+  add(details.generic_name);
+  add(details.generic);
+  add(details.drug);
+
+  const text = [
+    medicationName,
+    details.generic_name,
+    details.generic,
+    details.drug,
+    details.dose,
+    details.dosage,
+    details.strength,
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  if (/\b(ns|normal saline|saline|sodium chloride|nacl)\b/.test(text)) {
+    add('Normal Saline');
+    add('Sodium Chloride');
+    add('Sodium Chloride 0.9%');
+  }
+  if (/\b(rl|ringer|ringer lactate|compound sodium lactate|hartmann)\b/.test(text)) {
+    add('Ringer Lactate');
+    add('Compound Sodium Lactate');
+  }
+  if (/\b(dns|dextrose normal saline)\b/.test(text)) {
+    add('DNS');
+    add('Dextrose-Normal Saline');
+  }
+
+  return [...terms];
+}
+
 function quantityFromMedicationDetails(details) {
   const qty = Number(details.quantity_requested ?? details.quantity ?? details.qty ?? details.units);
   return Number.isFinite(qty) && qty > 0 ? qty : 1;
@@ -696,6 +780,10 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
   const details = parseClinicalOrderDetails(order.details);
   const medicationName = details.medication_name || details.medication || details.name;
   if (!medicationName || !order.ordered_by) return null;
+  const medicationRoute = inferMedicationRoute(order, details);
+  const volumeMl = inferVolumeMl(details, medicationName);
+  const searchTerms = catalogSearchTerms(medicationName, details);
+  const wildcardTerms = searchTerms.map((term) => `%${term}%`);
 
   return prisma.$transaction(async (tx) => {
     const existing = await tx.$queryRawUnsafe(
@@ -731,27 +819,54 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
     if (!admission) return null;
 
     const catalogMatches = await tx.$queryRawUnsafe(
-      `SELECT id, COALESCE(unit_price, price) AS unit_price
+      `SELECT id, name, COALESCE(unit_price, price) AS unit_price
          FROM pharmacy_catalog
         WHERE COALESCE(is_active, TRUE) = TRUE
           AND (
-            name ILIKE $1
-            OR generic_name ILIKE $1
-            OR $2 ILIKE '%' || name || '%'
-            OR (generic_name IS NOT NULL AND $2 ILIKE '%' || generic_name || '%')
+            name ILIKE ANY($1::text[])
+            OR generic_name ILIKE ANY($1::text[])
+            OR EXISTS (
+              SELECT 1
+                FROM unnest($2::text[]) AS term(value)
+               WHERE term.value ILIKE '%' || name || '%'
+                  OR (generic_name IS NOT NULL AND term.value ILIKE '%' || generic_name || '%')
+            )
           )
         ORDER BY
           CASE
-            WHEN name ILIKE $1 THEN 0
-            WHEN generic_name ILIKE $1 THEN 1
-            WHEN $2 ILIKE '%' || name || '%' THEN 2
-            ELSE 3
+            WHEN $3::text = 'iv' AND LOWER(COALESCE(category, '')) = 'iv_fluid' THEN 0
+            WHEN $3::text = 'iv'
+              AND LOWER(CONCAT_WS(' ', name, generic_name, category, pack_size, description))
+                ~ '(injection|injectable|inj|vial|ampoule|intravenous|\\biv\\b|infusion)' THEN 1
+            WHEN $3::text = 'iv'
+              AND LOWER(CONCAT_WS(' ', name, generic_name, category, pack_size, description))
+                ~ '(tablet|\\btab\\b|capsule|\\bcap\\b|syrup|sachet|oral)' THEN 50
+            WHEN $3::text = 'oral'
+              AND LOWER(CONCAT_WS(' ', name, generic_name, category, pack_size, description))
+                ~ '(tablet|\\btab\\b|capsule|\\bcap\\b|syrup|sachet|oral)' THEN 0
+            WHEN $3::text = 'oral'
+              AND LOWER(CONCAT_WS(' ', name, generic_name, category, pack_size, description))
+                ~ '(injection|injectable|inj|vial|ampoule|intravenous|\\biv\\b|infusion)' THEN 50
+            ELSE 10
+          END,
+          CASE
+            WHEN $4::int IS NULL THEN 5
+            WHEN name ILIKE '%' || $4::text || 'ml%' THEN 0
+            WHEN pack_size ILIKE '%' || $4::text || 'ml%' THEN 1
+            ELSE 5
+          END,
+          CASE
+            WHEN name ILIKE ANY($1::text[]) THEN 0
+            WHEN generic_name ILIKE ANY($1::text[]) THEN 1
+            ELSE 2
           END,
           COALESCE(is_available, TRUE) DESC,
           id ASC
         LIMIT 1`,
-      `%${medicationName}%`,
-      medicationName,
+      wildcardTerms,
+      searchTerms,
+      medicationRoute,
+      volumeMl,
     );
     const catalog = catalogMatches[0] ?? null;
     const indentNumber = await nextIndentNumber(tx);
@@ -771,7 +886,7 @@ export async function createWardIndentForClinicalMedicationOrder(order) {
         items: {
           create: [{
             pharmacy_catalog_id: catalog?.id ?? null,
-            item_name: medicationName,
+            item_name: catalog?.name ?? medicationName,
             quantity_requested: quantityFromMedicationDetails(details),
             unit: details.unit ?? null,
             unit_price: catalog?.unit_price != null ? Number(catalog.unit_price) : null,
