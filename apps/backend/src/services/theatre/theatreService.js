@@ -110,6 +110,45 @@ function assertOtReadySiteMark(checklist, schedule) {
 
 class TheatreService {
   async _assertReadyForClosure(scheduleId) {
+    const [schedule] = await prisma.$queryRawUnsafe(
+      `SELECT surgeon, consent_obtained, pre_op_checklist
+         FROM ot_schedules
+        WHERE id = $1
+        LIMIT 1`,
+      scheduleId,
+    );
+    if (!schedule) throw AppError.notFound('OT schedule not found');
+
+    const [preopChecklist] = await prisma.$queryRawUnsafe(
+      `SELECT consent_signed, consent_signed_at, status
+         FROM preop_checklists
+        WHERE ot_schedule_id = $1
+        ORDER BY updated_at DESC
+        LIMIT 1`,
+      scheduleId,
+    );
+
+    const legacyChecklist = schedule.pre_op_checklist
+      && typeof schedule.pre_op_checklist === 'object'
+      && !Array.isArray(schedule.pre_op_checklist)
+      ? schedule.pre_op_checklist
+      : {};
+    const consentDocumented = schedule.consent_obtained === true
+      || legacyChecklist.consent_signed === true
+      || legacyChecklist.consent_obtained === true
+      || preopChecklist?.consent_signed === true;
+    if (!consentDocumented) {
+      throw AppError.badRequest(
+        'Cannot close OT case until surgical consent is documented',
+        'SURGICAL_CONSENT_REQUIRED',
+        {
+          consent_obtained: schedule.consent_obtained,
+          checklist_consent_signed: legacyChecklist.consent_signed ?? null,
+          preop_consent_signed: preopChecklist?.consent_signed ?? null,
+        },
+      );
+    }
+
     const [anesthesia] = await prisma.$queryRawUnsafe(
       `SELECT status, finalized_by, finalized_at
          FROM anesthesia_records
@@ -152,6 +191,19 @@ class TheatreService {
           sponge_count_correct: intraop.sponge_count_correct,
           sharp_count_correct: intraop.sharp_count_correct,
           instrument_count_correct: intraop.instrument_count_correct,
+        },
+      );
+    }
+
+    const bookedSurgeon = schedule.surgeon ? String(schedule.surgeon).toLowerCase() : null;
+    const signedBy = intraop.finalized_by ? String(intraop.finalized_by).toLowerCase() : null;
+    if (bookedSurgeon && signedBy && bookedSurgeon !== signedBy) {
+      throw AppError.badRequest(
+        'Cannot close OT case until the booked surgeon signs the intraop note',
+        'BOOKED_SURGEON_SIGNOFF_REQUIRED',
+        {
+          booked_surgeon: schedule.surgeon,
+          finalized_by: intraop.finalized_by,
         },
       );
     }

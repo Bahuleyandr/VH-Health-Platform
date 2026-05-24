@@ -12,6 +12,11 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 
 const theatreService = (await import('../../services/theatre/theatreService.js')).default;
 
+const SURGEON_UID = 'ba000000-0000-4000-8000-00000000a002';
+const OTHER_SURGEON_UID = 'ba000000-0000-4000-8000-00000000a006';
+const ANESTHETIST_UID = 'ba000000-0000-4000-8000-00000000a003';
+const ADMIN_UID = 'ba000000-0000-4000-8000-00000000a004';
+
 beforeEach(() => {
   queryUnsafeMock.mockReset();
 });
@@ -87,5 +92,103 @@ describe('theatreService.completeChecklist', () => {
       code: 'DIABETIC_GLUCOSE_CHECK_REQUIRED',
     });
     expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('theatreService.updateStatus closure gates', () => {
+  function currentSchedule(status = 'in_progress') {
+    return { id: 42, status };
+  }
+
+  function closureSchedule(overrides = {}) {
+    return {
+      surgeon: SURGEON_UID,
+      consent_obtained: true,
+      pre_op_checklist: {},
+      ...overrides,
+    };
+  }
+
+  function finalizedAnesthesia() {
+    return {
+      status: 'finalized',
+      finalized_by: ANESTHETIST_UID,
+      finalized_at: new Date('2026-05-15T10:00:00.000Z'),
+    };
+  }
+
+  function finalizedIntraop(overrides = {}) {
+    return {
+      status: 'finalized',
+      finalized_by: SURGEON_UID,
+      finalized_at: new Date('2026-05-15T10:05:00.000Z'),
+      sponge_count_correct: true,
+      sharp_count_correct: true,
+      instrument_count_correct: true,
+      ...overrides,
+    };
+  }
+
+  it('rejects post-op closure until surgical consent is documented', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([currentSchedule()])
+      .mockResolvedValueOnce([closureSchedule({ consent_obtained: false })])
+      .mockResolvedValueOnce([]);
+
+    await expect(theatreService.updateStatus(42, 'post_op', ADMIN_UID)).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'SURGICAL_CONSENT_REQUIRED',
+    });
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('accepts consent documented on the legacy theatre checklist', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([currentSchedule()])
+      .mockResolvedValueOnce([closureSchedule({
+        consent_obtained: false,
+        pre_op_checklist: { consent_signed: true },
+      })])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([finalizedAnesthesia()])
+      .mockResolvedValueOnce([finalizedIntraop()])
+      .mockResolvedValueOnce([{ id: 42, status: 'post_op' }]);
+
+    const result = await theatreService.updateStatus(42, 'post_op', ADMIN_UID);
+
+    expect(result.status).toBe('post_op');
+  });
+
+  it('rejects closure when sponge, sharp, or instrument counts are not all correct', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([currentSchedule()])
+      .mockResolvedValueOnce([closureSchedule()])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([finalizedAnesthesia()])
+      .mockResolvedValueOnce([finalizedIntraop({ instrument_count_correct: false })]);
+
+    await expect(theatreService.updateStatus(42, 'post_op', ADMIN_UID)).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'INSTRUMENT_COUNTS_REQUIRED',
+      details: expect.objectContaining({ instrument_count_correct: false }),
+    });
+  });
+
+  it('rejects closure when a non-booked surgeon signs the intraop note', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([currentSchedule()])
+      .mockResolvedValueOnce([closureSchedule()])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([finalizedAnesthesia()])
+      .mockResolvedValueOnce([finalizedIntraop({ finalized_by: OTHER_SURGEON_UID })]);
+
+    await expect(theatreService.updateStatus(42, 'post_op', ADMIN_UID)).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'BOOKED_SURGEON_SIGNOFF_REQUIRED',
+      details: expect.objectContaining({
+        booked_surgeon: SURGEON_UID,
+        finalized_by: OTHER_SURGEON_UID,
+      }),
+    });
   });
 });
