@@ -21,6 +21,7 @@ import { validatePrescriptionSafety } from '../../utils/clinical/prescriptionSaf
 import notificationOutbox from '../../utils/notifications/notificationOutbox.js'; // eslint-disable-line import/no-named-as-default
 import { scheduleMedications } from '../clinical/marService.js';
 import { createWardIndentForClinicalMedicationOrder } from '../ipd/ipdSupportService.js';
+import { createInvestigationOrder } from '../investigation/orderService.js';
 
 
 // ===================================================================
@@ -102,6 +103,13 @@ const ORDER_RETURNING_SELECT = {
   end_date: true,
   notes: true,
   created_at: true,
+};
+
+const CLINICAL_ORDER_PRIORITY_TO_INVESTIGATION = {
+  stat: 'STAT',
+  urgent: 'URGENT',
+  routine: 'NORMAL',
+  prn: 'NORMAL',
 };
 
 /**
@@ -194,6 +202,42 @@ function normalizeOrderRoute(rawRoute) {
   }
   const trimmed = String(rawRoute).trim();
   return ROUTE_SYNONYMS[trimmed.toLowerCase()] || trimmed;
+}
+
+function parseOrderDetails(details) {
+  if (!details) return {};
+  if (typeof details === 'string') {
+    try {
+      return JSON.parse(details);
+    } catch {
+      return { raw: details };
+    }
+  }
+  if (typeof details === 'object' && !Array.isArray(details)) return details;
+  return {};
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && String(value).trim()) {
+      return String(value).trim();
+    }
+  }
+  return null;
+}
+
+function investigationPriorityFromClinicalOrder(priority) {
+  const normalized = String(priority || 'routine').toLowerCase();
+  return CLINICAL_ORDER_PRIORITY_TO_INVESTIGATION[normalized] || 'NORMAL';
+}
+
+function investigationNotesFromClinicalOrder(order, details) {
+  const notes = [
+    firstText(details.reason, details.clinical_indication, details.indication, order.notes),
+    `clinical_order_id:${order.id}`,
+    `clinical_order_number:${order.order_number}`,
+  ];
+  return notes.filter(Boolean).join('; ');
 }
 
 /**
@@ -334,10 +378,15 @@ async function dispatchPostCreateSideEffects(order) {
     });
   }
 
-  // Dispatch integrations (fire-and-forget, do not block response)
-  dispatchOrderIntegrations(order).catch((err) => {
+  // Dispatch integrations. Investigation materialization is awaited so
+  // a freshly-saved lab order is present on the lab worklist by the time
+  // the doctor sees the create response; other integrations stay best-effort.
+  const integrationDispatch = dispatchOrderIntegrations(order).catch((err) => {
     logger.error(`Order integration dispatch failed for order ${order.order_number}: ${err.message}`);
   });
+  if (order.order_type === 'investigation') {
+    await integrationDispatch;
+  }
 
   // STAT orders — push notification to relevant staff
   if (order.priority === 'stat') {
@@ -565,9 +614,73 @@ async function dispatchOrderIntegrations(order) {
   }
 
   if (order.order_type === 'investigation') {
-    // Log that investigation booking should be created
-    // Actual integration depends on investigation routes creating a booking
-    logger.info(`Investigation order ${order.order_number} created — awaiting lab booking`);
+    await materializeInvestigationForClinicalOrder(order);
+  }
+}
+
+async function materializeInvestigationForClinicalOrder(order) {
+  const details = parseOrderDetails(order.details);
+  const testName = firstText(
+    details.test_name,
+    details.investigation,
+    details.test,
+    details.name,
+    details.panel_name,
+    details.panel,
+  );
+  if (!testName) {
+    logger.warn(`Investigation order ${order.order_number} has no test_name; lab worklist row not created`);
+    return null;
+  }
+
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT id
+       FROM investigations
+      WHERE patient_uid = $1::uuid
+        AND notes LIKE $2
+      ORDER BY created_at DESC NULLS LAST, id DESC
+      LIMIT 1`,
+    order.patient_uid,
+    `%clinical_order_id:${order.id}%`,
+  );
+  if (existing.length) return existing[0];
+
+  const patient = await prisma.users.findUnique({
+    where: { uid: order.patient_uid },
+    select: { id: true },
+  });
+  if (!patient) {
+    logger.warn(`Investigation order ${order.order_number} patient ${order.patient_uid} not found; lab worklist row not created`);
+    return null;
+  }
+
+  const payload = {
+    patient_id: patient.id,
+    orderedBy: order.ordered_by,
+    test_name: testName,
+    test_code: firstText(details.test_code, details.code),
+    type: firstText(details.test_type, details.type) || 'LAB',
+    priority: investigationPriorityFromClinicalOrder(order.priority),
+    notes: investigationNotesFromClinicalOrder(order, details),
+    collection_location: firstText(details.collection_location, details.collection_site),
+    collection_deadline_at: details.collection_deadline_at ?? null,
+    fasting_required: details.fasting_required ?? null,
+    fasting_instructions: firstText(details.fasting_instructions),
+  };
+
+  try {
+    const result = await createInvestigationOrder(payload);
+    logger.info(`Investigation order ${order.order_number} materialized as investigation #${result.investigation.id}`);
+    return result.investigation;
+  } catch (err) {
+    if (err?.code !== 'UNKNOWN_TEST_CODE') throw err;
+    logger.warn(
+      `Investigation order ${order.order_number} carried unknown test_code=${payload.test_code}; ` +
+      'creating lab worklist row without catalog code',
+    );
+    const result = await createInvestigationOrder({ ...payload, test_code: null });
+    logger.info(`Investigation order ${order.order_number} materialized as investigation #${result.investigation.id}`);
+    return result.investigation;
   }
 }
 
