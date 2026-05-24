@@ -1378,15 +1378,14 @@ export async function dailyCollection({ date, mode, shift, collected_by } = {}) 
 // Scope. The function itemises:
 //   * Package line (one)                — `admission_package`
 //   * Pharmacy orders (one per order)   — `pharmacy_order`
+//   * Issued ward indents (one per indent) — `ward_indent`
 //   * Investigations (one per test)     — `lab_order`
 //   * Discharge consults (one per row)  — `discharge_consult`
 //   * OT schedules (one per case)       — `theatre_case`
 //
-// Skipped intentionally: ward_indents, individual room-day breakdown.
-// Indents have no per-row monetary value at the indent level (cost
-// lives on inventory issues); room-days need a separate room-cost
-// catalogue that doesn't exist yet. Both are roll-ups the cashier
-// adds manually until those catalogues are seeded.
+// Skipped intentionally: individual room-day breakdown. Room-days need
+// a separate room-cost catalogue that doesn't exist yet, so the cashier
+// adds them manually until that catalogue is seeded.
 //
 // TPA decision defaults are conservative — 'pending' for orders, and
 // 'payable' for the package line. Room-upgrade-delta detection is
@@ -1414,7 +1413,7 @@ async function fetchExistingSourceKeys(invoiceId) {
 
 async function fetchAdmissionForItemizing(admissionId) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT a.id, a.patient_uid, a.admitted_at, a.discharged_at,
+    `SELECT a.id, a.patient_uid, a.encounter_id, a.admitted_at, a.discharged_at,
             a.ward, a.bed_id, a.package_id, a.package_code,
             a.package_estimated_cost_minor,
             p.fixed_price_minor AS package_price_minor,
@@ -1432,6 +1431,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
   decided_by = null,
   emit_package = true,
   emit_pharmacy = true,
+  emit_ward_indents = true,
   emit_lab = true,
   emit_consults = true,
   emit_theatre = true,
@@ -1467,6 +1467,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
   const summary = {
     package: 0,
     pharmacy: 0,
+    ward_indents: 0,
     lab: 0,
     consults: 0,
     theatre: 0,
@@ -1474,7 +1475,10 @@ export async function itemizeAdmissionInvoice(invoiceId, {
     skipped_existing: 0,
   };
 
-  const addLine = async ({ description, unit_price, quantity = 1, notes, source_ref_type, source_ref_id, tpa_decision, tpa_non_payable_reason }) => {
+  const addLine = async ({
+    description, category, unit_price, quantity = 1, notes,
+    source_ref_type, source_ref_id, tpa_decision, tpa_non_payable_reason,
+  }) => {
     const key = `${source_ref_type}:${source_ref_id ?? 'NULL'}`;
     if (existingKeys.has(key)) {
       summary.skipped_existing += 1;
@@ -1483,6 +1487,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
     existingKeys.add(key);
     const row = await addInvoiceItem(invId, {
       description,
+      category,
       unit_price,
       quantity,
       gst_rate: ITEMIZER_DEFAULT_GST,
@@ -1558,7 +1563,67 @@ export async function itemizeAdmissionInvoice(invoiceId, {
     }
   }
 
-  // 3. Investigations completed during the stay.
+  // 3. IPD ward pharmacy indents issued during the stay. These are the
+  // inpatient counterpart to pharmacy_orders: once stores issue stock to
+  // the ward, the patient/admission needs a traceable pharmacy charge.
+  // Finding: 2026-05-23-swarm D58 / f9007a9c.
+  if (emit_ward_indents) {
+    const indents = await prisma.$queryRawUnsafe(
+      `SELECT wi.id,
+              wi.indent_number,
+              wi.ward_name,
+              COALESCE(wi.issued_at, wi.updated_at, wi.requested_at) AS billable_at,
+              COALESCE(SUM(
+                GREATEST(COALESCE(wii.quantity_issued, wii.quantity_requested, 0), 0)
+                * COALESCE(wii.unit_price, pc.unit_price, pc.price, 0)
+              ), 0)::numeric AS total_amount,
+              STRING_AGG(
+                CONCAT(
+                  wii.item_name,
+                  ' x ',
+                  GREATEST(COALESCE(wii.quantity_issued, wii.quantity_requested, 0), 0)::text
+                ),
+                ', ' ORDER BY wii.id
+              ) AS item_summary
+         FROM ward_indents wi
+         JOIN ward_indent_items wii ON wii.ward_indent_id = wi.id
+         LEFT JOIN pharmacy_catalog pc ON pc.id = wii.pharmacy_catalog_id
+        WHERE wi.status IN ('issued', 'received')
+          AND COALESCE(wi.issued_at, wi.updated_at, wi.requested_at) >= $2::timestamptz
+          AND COALESCE(wi.issued_at, wi.updated_at, wi.requested_at) <= $3::timestamptz
+          AND (
+            wi.admission_id = $1::int
+            OR (
+              wi.admission_id IS NULL
+              AND wi.patient_uid = $4::uuid
+              AND ($5::uuid IS NULL OR wi.encounter_id = $5::uuid)
+            )
+          )
+        GROUP BY wi.id, wi.indent_number, wi.ward_name, billable_at
+        ORDER BY billable_at, wi.id`,
+      Number(admission.id),
+      startTs, endTs,
+      String(admission.patient_uid),
+      admission.encounter_id ?? null,
+    );
+    for (const wi of indents) {
+      const price = Number(wi.total_amount ?? 0);
+      if (price <= 0) continue;
+      const created = await addLine({
+        description: `Pharmacy ward indent: ${wi.indent_number || wi.id}`,
+        category: 'pharmacy',
+        unit_price: price,
+        quantity: 1,
+        notes: [wi.ward_name, wi.item_summary].filter(Boolean).join(' - ').slice(0, 255) || null,
+        source_ref_type: 'ward_indent',
+        source_ref_id: wi.id,
+        tpa_decision: 'pending',
+      });
+      if (created) summary.ward_indents += 1;
+    }
+  }
+
+  // 4. Investigations completed during the stay.
   if (emit_lab) {
     const tests = await prisma.$queryRawUnsafe(
       `SELECT id, test_name, cost, completed_at
@@ -1586,7 +1651,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
     }
   }
 
-  // 4. Discharge consults — pre-discharge speciality reviews requested
+  // 5. Discharge consults — pre-discharge speciality reviews requested
   //    during the stay. Most have no cost catalogue yet, so they're
   //    informational lines at unit_price=0 unless the operator
   //    overrides. The audit value is the source-ref trail.
@@ -1612,7 +1677,7 @@ export async function itemizeAdmissionInvoice(invoiceId, {
     }
   }
 
-  // 5. OT schedules (theatre cases) completed during the stay. Cost
+  // 6. OT schedules (theatre cases) completed during the stay. Cost
   //    catalogue not yet seeded — the package line covers the
   //    surgical fee for package-bundled admissions; for non-package
   //    admissions the cashier still has to enter the theatre fee

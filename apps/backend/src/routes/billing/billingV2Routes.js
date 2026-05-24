@@ -104,8 +104,8 @@ router.delete('/invoices/:id/items/:itemId', requireStaffOrAdmin, wrap(async (re
 ));
 
 // ── Wave-5 batch-3 — auto-itemize admission invoice ──────────────────
-// Walks the admission's completed events (package, pharmacy, lab,
-// consults, theatre) and emits one billing_invoice_items row per
+// Walks the admission's completed events (package, pharmacy orders,
+// ward indents, lab, consults, theatre) and emits one billing_invoice_items row per
 // source record. Idempotent — safe to call repeatedly during the
 // stay. Closes the Wave-2.1 deferral. Findings:
 //   2026-05-10-surgical-day-care-billing-package-not-itemised-iol-delta-opaque
@@ -115,6 +115,7 @@ router.post('/invoices/:id/itemize', requireStaffOrAdmin, wrap(async (req) =>
     decided_by: req.user?.uid,
     emit_package: req.body?.emit_package !== false,
     emit_pharmacy: req.body?.emit_pharmacy !== false,
+    emit_ward_indents: req.body?.emit_ward_indents !== false,
     emit_lab: req.body?.emit_lab !== false,
     emit_consults: req.body?.emit_consults !== false,
     emit_theatre: req.body?.emit_theatre !== false,
