@@ -179,10 +179,11 @@ class BedManagementService {
   // =========================================================================
   // transferPatient — Move patient from current bed to a new bed
   // =========================================================================
-  async transferPatient(patientUid, toBedId, reason, transferredBy, actorRole = null) {
+  async transferPatient(patientUid, toBedId, reason, transferredBy, actorRole = null, options = {}) {
+    const { acknowledgeClassChange = false } = options;
     const result = await prisma.$transaction(async (tx) => {
       const currentBedRows = await tx.$queryRawUnsafe(
-        `SELECT id, bed_number FROM beds WHERE patient_uid = $1::uuid AND status = 'occupied' FOR UPDATE`,
+        `SELECT id, bed_number, bed_type FROM beds WHERE patient_uid = $1::uuid AND status = 'occupied' FOR UPDATE`,
         patientUid
       );
 
@@ -190,7 +191,8 @@ class BedManagementService {
         throw AppError.notFound('Patient is not currently admitted to any bed');
       }
 
-      const fromBedId = currentBedRows[0].id;
+      const fromBed = currentBedRows[0];
+      const fromBedId = fromBed.id;
 
       const targetBedRows = await tx.$queryRawUnsafe(
         `SELECT id, status, bed_number, bed_type FROM beds WHERE id = $1 FOR UPDATE`,
@@ -200,16 +202,55 @@ class BedManagementService {
       if (!targetBedRows.length) {
         throw AppError.notFound('Target bed not found');
       }
+      const toBed = targetBedRows[0];
 
       // Stage-4-C — transferring INTO ICU/CCU is an allocation event and
       // must enforce the same tier as direct admit.
-      if (ICU_BED_TYPES.has(targetBedRows[0].bed_type) && !canAllocateIcu(actorRole)) {
+      if (ICU_BED_TYPES.has(toBed.bed_type) && !canAllocateIcu(actorRole)) {
         throw AppError.forbidden('Transfer to ICU/CCU requires physician or admission-officer authorisation');
       }
 
-      if (targetBedRows[0].status !== 'available') {
+      if (toBed.status !== 'available') {
         throw AppError.badRequest(
-          `Target bed ${targetBedRows[0].bed_number} is not available (current status: ${targetBedRows[0].status})`
+          `Target bed ${toBed.bed_number} is not available (current status: ${toBed.status})`
+        );
+      }
+
+      // D34 — Class-change reconciliation. Moving a patient from
+      // general → private (or general → deluxe) is a tariff event:
+      // billing must re-stamp the room_category on the admission so
+      // downstream invoice line items get the right rate, and the
+      // patient must consent to the upgrade (the price differential
+      // matters). Pre-fix this transfer happened silently — the
+      // admission's `room_category` stayed 'general' even after the
+      // patient moved to a private bed, and billing kept emitting
+      // general-rate line items.
+      //
+      // Strategy: when the new bed maps to a HIGHER tier than the
+      // current bed, require the caller to pass
+      // `acknowledgeClassChange: true` (the staff app prompts the
+      // operator with the price-difference dialog before doing so).
+      // ICU/CCU transfers (already gated above) and DOWNGRADES skip
+      // the gate — moving a private patient to a general bed is a
+      // billing benefit, not a hazard.
+      // Finding 19030e9a.
+      const CLASS_RANK = { general: 1, semi_private: 2, private: 3, deluxe: 4, icu: 5, day_care: 1 };
+      const fromRank = CLASS_RANK[fromBed.bed_type] || 0;
+      const toRank = CLASS_RANK[toBed.bed_type] || 0;
+      const isUpgrade = toRank > fromRank
+        && fromBed.bed_type !== toBed.bed_type
+        // ICU upgrade already enforced by canAllocateIcu above.
+        && !ICU_BED_TYPES.has(toBed.bed_type);
+      if (isUpgrade && !acknowledgeClassChange) {
+        throw AppError.badRequest(
+          `Bed transfer ${fromBed.bed_type} → ${toBed.bed_type} changes the room class and tariff. `
+          + 'The patient/guardian must consent to the upgrade and the cost difference. '
+          + 'Re-submit with `acknowledge_class_change: true` after the consent is recorded.',
+          'BED_TRANSFER_CLASS_CHANGE_UNACKNOWLEDGED',
+          {
+            from_bed_type: fromBed.bed_type,
+            to_bed_type: toBed.bed_type,
+          },
         );
       }
 
@@ -227,9 +268,29 @@ class BedManagementService {
         `UPDATE beds
          SET status = 'occupied', patient_uid = $1::uuid, admitted_at = NOW(), updated_at = NOW()
          WHERE id = $2
-         RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at`,
+         RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at, bed_type`,
         patientUid, toBedId
       );
+
+      // D34 — Re-stamp the admission's room_category to match the new
+      // bed's type when the bed_type maps to a recognised category.
+      // Without this, billing tariff stays anchored to the OLD class
+      // even after the move. Best-effort: a missing admission row
+      // (patient_uid mismatch between beds + admissions) is logged
+      // and skipped, never blocks the bed move itself.
+      const VALID_ROOM_CATEGORIES = new Set(['general', 'semi_private', 'private', 'deluxe', 'icu', 'day_care']);
+      if (toBed.bed_type && VALID_ROOM_CATEGORIES.has(toBed.bed_type)) {
+        try {
+          await tx.$executeRawUnsafe(
+            `UPDATE admissions
+                SET room_category = $1, updated_at = NOW()
+              WHERE patient_uid = $2::uuid AND status IN ('admitted', 'transferred')`,
+            toBed.bed_type, patientUid,
+          );
+        } catch (categoryErr) {
+          logger.warn(`transferPatient: room_category re-stamp failed for patient ${patientUid}: ${categoryErr.message}`);
+        }
+      }
 
       // Record transfer
       await tx.$executeRawUnsafe(
@@ -238,15 +299,21 @@ class BedManagementService {
         patientUid, fromBedId, toBedId, reason, transferredBy
       );
 
-      return { fromBedId, toBed: newBed[0] };
+      return { fromBedId, fromBedType: fromBed.bed_type, toBed: newBed[0], isUpgrade };
     });
 
     logger.info(`Patient ${patientUid} transferred from bed ${result.fromBedId} to bed ${toBedId}`);
 
     return {
       from_bed_id: result.fromBedId,
+      from_bed_type: result.fromBedType,
       to_bed: result.toBed,
       reason,
+      class_change: result.isUpgrade ? {
+        from: result.fromBedType,
+        to: result.toBed.bed_type,
+        acknowledged: true,
+      } : null,
     };
   }
 
