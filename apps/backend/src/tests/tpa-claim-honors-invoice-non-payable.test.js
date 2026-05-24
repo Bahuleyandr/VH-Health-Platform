@@ -53,9 +53,9 @@ async function addInvoiceLine({ invoiceId, lineTotal, tpaDecision }) {
   await prisma.$executeRawUnsafe(
     `INSERT INTO billing_invoice_items
        (invoice_id, service_code, description, quantity, unit_price,
-        line_subtotal, line_total, tpa_decision)
+        line_subtotal, line_total, tpa_decision, source_ref_type)
      VALUES ($1::int, 'ROOM', 'Room charge', 1, $2::numeric,
-             $2::numeric, $2::numeric, $3)`,
+             $2::numeric, $2::numeric, $3, 'package')`,
     invoiceId, lineTotal, tpaDecision,
   );
 }

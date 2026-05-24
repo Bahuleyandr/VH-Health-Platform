@@ -56,10 +56,12 @@ async function seedIssuedInvoice({ total, admissionId, roomRent = 0 }) {
     await prisma.$executeRawUnsafe(
       `INSERT INTO billing_invoice_items
          (invoice_id, category, description, quantity, unit_price,
-          gst_rate, line_subtotal, cgst_amount, sgst_amount, igst_amount, line_total)
+          gst_rate, line_subtotal, cgst_amount, sgst_amount, igst_amount, line_total,
+          source_ref_type, source_ref_id)
        VALUES ($1::int, 'room_rent', 'Room rent', 1, $2::numeric,
-               0, $2::numeric, 0, 0, 0, $2::numeric)`,
-      invoiceId, roomRent,
+               0, $2::numeric, 0, 0, 0, $2::numeric,
+               'room_day', $3::int)`,
+      invoiceId, roomRent, admissionId,
     );
   }
   return invoiceId;
