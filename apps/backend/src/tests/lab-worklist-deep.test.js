@@ -13,6 +13,7 @@
 //   2026-05-10-emergency-walk-in-lab-tech-stat-er-order-not-on-worklist
 //   2026-05-08-obstetric-anc-lab-tech-no-worklist-endpoint
 //   2026-05-08-lab-walk-in-lab-tech-results-no-validation-no-critical-alert
+//   H' D66 — bulk EMR lab orders must materialize onto worklists
 
 import request from 'supertest';
 import app from '../app.js';
@@ -179,6 +180,49 @@ describe('Lab worklist + manual result validation — deep integration', () => {
       );
       expect(investigations.length).toBe(1);
       expect(investigations[0].test_name).toBe('Troponin I - CPOE bridge');
+      expect(investigations[0].priority).toBe('STAT');
+
+      const worklist = await labTech.get('/api/v1/lab/worklist?source=er&priority=STAT&limit=100');
+      expect(worklist.statusCode).toBe(200);
+      const row = worklist.body.data.find((item) => item.id === investigations[0].id);
+      expect(row).toBeDefined();
+      expect(row.source).toBe('er');
+      expect(row.patient_uid).toBe(PATIENT_ER_UID);
+    });
+
+    it('materializes a STAT bulk EMR lab order onto the lab worklist (D66)', async () => {
+      const res = await doctor.post('/api/v1/emr/orders/bulk').send({
+        orders: [
+          {
+            patient_uid: PATIENT_ER_UID,
+            order_type: 'lab',
+            priority: 'STAT',
+            details: {
+              test_name: 'CBC - D66 bulk worklist bridge',
+              test_type: 'LAB',
+              reason: 'Bulk EMR order should reach lab worklist',
+            },
+          },
+        ],
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(Array.isArray(res.body.data)).toBe(true);
+      const orderId = res.body.data?.[0]?.order?.id;
+      expect(orderId).toBeDefined();
+
+      const investigations = await prisma.$queryRawUnsafe(
+        `SELECT id, test_name, priority, notes
+           FROM investigations
+          WHERE patient_uid = $1::uuid
+            AND notes LIKE $2
+          ORDER BY id DESC
+          LIMIT 1`,
+        PATIENT_ER_UID,
+        `%clinical_order_id:${orderId}%`,
+      );
+      expect(investigations.length).toBe(1);
+      expect(investigations[0].test_name).toBe('CBC - D66 bulk worklist bridge');
       expect(investigations[0].priority).toBe('STAT');
 
       const worklist = await labTech.get('/api/v1/lab/worklist?source=er&priority=STAT&limit=100');
