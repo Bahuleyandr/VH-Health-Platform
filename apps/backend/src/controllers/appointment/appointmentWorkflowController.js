@@ -749,6 +749,37 @@ function parsePositiveInt(value) {
   return parsed > 0 ? parsed : null;
 }
 
+async function resolveActiveDoctorUserId(db, doctorId) {
+  const numericDoctorId = parsePositiveInt(doctorId);
+  if (!numericDoctorId) return null;
+
+  const rows = await db.$queryRawUnsafe(
+    `SELECT id
+       FROM (
+         SELECT u.id AS id, 0 AS sort_order
+           FROM doctors d
+           JOIN users u ON u.id = d.user_id
+          WHERE d.id = $1::int
+            AND d.is_active = true
+            AND u.role = 'DOCTOR'
+            AND u.is_active = true
+         UNION ALL
+         SELECT u.id AS id, 1 AS sort_order
+           FROM users u
+           LEFT JOIN doctors d ON d.user_id = u.id
+          WHERE u.id = $1::int
+            AND u.role = 'DOCTOR'
+            AND u.is_active = true
+            AND COALESCE(d.is_active, true) = true
+       ) candidates
+      ORDER BY sort_order
+      LIMIT 1`,
+    numericDoctorId,
+  );
+
+  return rows[0]?.id ?? null;
+}
+
 async function resolveWalkInDepartment(tx, { department, departmentId, doctorId }) {
   const departmentText = department === null || department === undefined
     ? ''
@@ -1127,35 +1158,18 @@ export const registerWalkIn = async (req, res) => {
     // 2026-05-10-obstetric-anc-doctor-visit-assigned-to-non-doctor —
     // because the assigned "doctor" surfaced on every downstream
     // chart, prescription PDF, and TPA claim header.
+    let explicitDoctorUserId = null;
     if (doctor_id !== undefined && doctor_id !== null && doctor_id !== '') {
-      const doctorIdInt = parseInt(doctor_id, 10);
-      if (!Number.isFinite(doctorIdInt) || doctorIdInt <= 0) {
+      const doctorIdInt = parsePositiveInt(doctor_id);
+      if (!doctorIdInt) {
         return error(res, 'doctor_id must be a positive integer', HTTP_STATUS.BAD_REQUEST);
       }
-      // UNION ALL accepts either users.id (preferred — the
-      // assignable-mode dropdown surfaces this) or doctors.id (legacy
-      // booking surfaces) and confirms the underlying user is an
-      // active DOCTOR. The doctors-side branch goes through
-      // d.is_active=true so a deactivated doctor row also gets
-      // rejected.
-      const ok = await prisma.$queryRawUnsafe(
-        `SELECT 1 AS ok FROM (
-           SELECT 1 FROM users
-            WHERE id = $1::int
-              AND role = 'DOCTOR'
-              AND is_active = true
-           UNION ALL
-           SELECT 1 FROM doctors d
-             JOIN users u ON u.id = d.user_id
-            WHERE d.id = $1::int
-              AND d.is_active = true
-              AND u.role = 'DOCTOR'
-              AND u.is_active = true
-         ) candidates
-         LIMIT 1`,
-        doctorIdInt,
-      );
-      if (!ok.length) {
+      // Accept either users.id (assignable-mode dropdown) or doctors.id
+      // (legacy booking surfaces), but write only the canonical users.id
+      // into appointments.doctor_id. This avoids the doctors.id/users.id
+      // collision that routed visits to the wrong clinician.
+      explicitDoctorUserId = await resolveActiveDoctorUserId(prisma, doctorIdInt);
+      if (!explicitDoctorUserId) {
         return error(
           res,
           `doctor_id ${doctorIdInt} is not an active DOCTOR — use /doctors?assignable=true to pick`,
@@ -1487,7 +1501,7 @@ export const registerWalkIn = async (req, res) => {
       //   2026-05-17-walk-in-opd-receptionist-e00d0e2e
       //   2026-05-18-dynamic-acute-abdomen-doctor-078cf751
       //   Paediatric variants where doctor_id stayed null for under-12 visits.
-      let resolvedDoctorIdForInsert = doctor_id || null;
+      let resolvedDoctorIdForInsert = explicitDoctorUserId;
       if (!resolvedDoctorIdForInsert && appointmentDepartment) {
         const candidates = await tx.$queryRawUnsafe(
           `SELECT u.id

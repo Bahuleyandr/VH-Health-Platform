@@ -688,4 +688,90 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
       ).catch(() => {});
     }
   });
+
+  it("canonicalizes legacy doctors.id to users.id before saving walk-in doctor_id", async () => {
+    const deptName = `DoctorCanon-${RUN_SUFFIX}`;
+    const doctorUid = 'a8888888-8888-4888-8888-88888888fd03';
+    const doctorPhone = `+9199997${RUN_SUFFIX}`;
+    const patientPhone = `97770${RUN_SUFFIX}`;
+    let doctorUserId;
+    let doctorRowId;
+
+    try {
+      const userRows = await prisma.$queryRawUnsafe(
+        `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
+         VALUES ($1::uuid, $2, $3, 'DOCTOR', true, NOW())
+         RETURNING id`,
+        doctorUid,
+        doctorPhone,
+        `Dr. Canonical ID ${RUN_SUFFIX}`,
+      );
+      doctorUserId = userRows[0].id;
+      const idRows = await prisma.$queryRawUnsafe(
+        `SELECT COALESCE(MAX(id), 0)::int + 1000 AS id FROM doctors`,
+      );
+      doctorRowId = Number(idRows[0].id);
+      if (doctorRowId === doctorUserId) doctorRowId += 1;
+
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO doctors
+           (id, user_id, name, department, specialty, is_active, is_available, available_days, updated_at)
+         VALUES ($1::int, $2::int, $3, $4, 'General Practitioner', true, true,
+                 ARRAY['Mon','Tue','Wed','Thu','Fri','Sat'], NOW())`,
+        doctorRowId,
+        doctorUserId,
+        `Dr. Canonical ID ${RUN_SUFFIX}`,
+        deptName,
+      );
+
+      const res = await request(app)
+        .post('/api/v1/appointments/walk-in')
+        .set('x-api-key', API_KEY)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({
+          patient_name: 'Doctor Canon Patient',
+          patient_phone: patientPhone,
+          patient_gender: 'F',
+          department: deptName,
+          doctor_id: doctorRowId,
+          reason: 'Legacy doctor picker id smoke',
+        });
+
+      expect(res.statusCode).toBe(200);
+      expect(doctorRowId).not.toBe(doctorUserId);
+      expect(res.body.data.doctor_id).toBe(doctorUserId);
+
+      const appts = await prisma.$queryRawUnsafe(
+        `SELECT doctor_id FROM appointments WHERE id = $1::int`,
+        res.body.data.id,
+      );
+      expect(appts[0].doctor_id).toBe(doctorUserId);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM appointment_status_history
+           WHERE appointment_id IN (SELECT id FROM appointments WHERE department = $1)`,
+        deptName,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM appointments WHERE department = $1`,
+        deptName,
+      ).catch(() => {});
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM users WHERE phone IN ($1, $2)`,
+        patientPhone, `+91${patientPhone}`,
+      ).catch(() => {});
+      if (doctorRowId) {
+        await prisma.$executeRawUnsafe(
+          `DELETE FROM doctors WHERE id = $1::int`,
+          doctorRowId,
+        ).catch(() => {});
+      }
+      if (doctorUserId) {
+        await prisma.$executeRawUnsafe(
+          `DELETE FROM users WHERE id = $1::int`,
+          doctorUserId,
+        ).catch(() => {});
+      }
+    }
+  });
 });
