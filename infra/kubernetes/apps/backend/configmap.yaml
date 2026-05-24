@@ -56,3 +56,4 @@ data:
   # Feature flags / timeouts that the app reads directly
   HTTP_BODY_LIMIT: "10mb"
   STATEMENT_TIMEOUT_MS: "30000"
+  AUTH_ENFORCE_TENANT_RLS: "true"

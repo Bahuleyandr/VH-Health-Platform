@@ -36,6 +36,7 @@
 //   await setTenant(null, (tx) => tx.$queryRaw`...`, { superAdmin: true });
 
 import { PrismaClient } from '@prisma/client';
+import { isTenantRlsEnforcementEnabled } from '../config/tenantRlsConfig.js';
 import logger from '../logging/logger.js';
 import { getCurrentTenantContext, runInTenantContext } from './tenantContext.js';
 
@@ -53,10 +54,6 @@ const RAW_QUERY_METHODS = new Set([
   '$executeRaw',
   '$executeRawUnsafe',
 ]);
-
-function isRlsEnforcementEnabled() {
-  return String(process.env.AUTH_ENFORCE_TENANT_RLS || '').toLowerCase() === 'true';
-}
 
 const CIRCUIT_BREAKER_THRESHOLD = 5;
 const CIRCUIT_BREAKER_RESET_MS = 30_000;
@@ -160,7 +157,7 @@ function makeClient(url, tag) {
  * preserved exactly when the flag is off.
  */
 async function maybeRunUnderTenant(baseClient, methodName, args) {
-  if (!isRlsEnforcementEnabled()) return null;
+  if (!isTenantRlsEnforcementEnabled()) return null;
   if (!RAW_QUERY_METHODS.has(methodName)) return null;
   const ctx = getCurrentTenantContext();
   if (!ctx || ctx.inSetTenant) return null;
@@ -380,7 +377,7 @@ export function evaluateTenantRlsPosture({
  * never throws.
  */
 export async function tenantRlsRolePosture() {
-  const enforced = isRlsEnforcementEnabled();
+  const enforced = isTenantRlsEnforcementEnabled();
   const testRole = process.env.AUTH_TENANT_RLS_TEST_ROLE || null;
   try {
     const rows = await prisma.$queryRawUnsafe(

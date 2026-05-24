@@ -89,6 +89,26 @@ router.get('/ready', async (_req, res) => {
     logger.warn('Readiness probe failed:', err.message);
   }
 
+  try {
+    const tenantRls = await tenantRlsRolePosture();
+    if (tenantRls.enforced && tenantRls.ok === false) {
+      checks.tenant_rls = {
+        status: 'error',
+        reason: tenantRls.reason,
+        effective_role: tenantRls.effectiveRole,
+      };
+    } else {
+      checks.tenant_rls = {
+        status: 'ok',
+        enforced: tenantRls.enforced,
+        reason: tenantRls.reason,
+      };
+    }
+  } catch (err) {
+    checks.tenant_rls = { status: 'error', message: 'Tenant RLS posture check failed' };
+    logger.warn('Tenant RLS readiness probe failed:', err.message);
+  }
+
   const ready = Object.values(checks).every((c) => c.status === 'ok');
   res.status(ready ? 200 : 503).json({
     status: ready ? 'ok' : 'degraded',

@@ -32,6 +32,7 @@ describe('Health Check API', () => {
     expect(res.body).toHaveProperty('checks');
     expect(res.body.checks).toHaveProperty('database');
     expect(res.body.checks).toHaveProperty('migration_106');
+    expect(res.body.checks).toHaveProperty('tenant_rls');
   });
 
   it('GET /health/deep keeps the legacy deep endpoint working', async () => {
