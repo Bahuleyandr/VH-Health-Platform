@@ -501,6 +501,36 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expect(actions).toContain('CLINICAL_AI_DOCUMENT_INTELLIGENCE_REVIEWED');
   });
 
+  it('returns a deterministic discharge readiness checklist when Clinical AI readiness is disabled', async () => {
+    const disabled = await admin.patch('/api/v1/admin/clinical-ai/modules/discharge_readiness').send({ enabled: false });
+    expectStatus(disabled, 200, 'disable discharge readiness AI module');
+
+    const readiness = await doctor.get(`/api/v1/emr/${admissionId}/discharge-readiness`);
+    expectStatus(readiness, 200, 'rules discharge readiness checklist');
+
+    const body = readiness.body.data;
+    expect(body.module_key).toBe('discharge_readiness');
+    expect(body.rules_authoritative).toBe(true);
+    expect(body.ai_metadata.used_ai).toBe(false);
+    expect(body.ai_metadata.provider).toBe('rules');
+    expect(body.ai_metadata.fallback_reason).toBe('clinical_ai_module_disabled');
+    expect(body.generation_id).toBeNull();
+    expect(body.draft.ready).toBe(false);
+
+    const blockerTypes = body.draft.blockers.map((blocker) => blocker.type);
+    expect(blockerTypes).toEqual(expect.arrayContaining([
+      'NOT_MARKED_FOR_DISCHARGE',
+      'DRUGS_NOT_DISPENSED',
+      'NO_INVOICE',
+      'PENDING_RESULTS',
+      'FOLLOWUP_NOT_BOOKED',
+    ]));
+    expect(body.draft.checklist.marked_for_discharge).toBe(false);
+    expect(body.draft.checklist.finalized_invoice_exists).toBe(false);
+    expect(Array.isArray(body.source_citations)).toBe(true);
+    expect(body.source_citations[0].source_type).toBe('admission_readiness_rules');
+  });
+
   it('generates admission AI drafts for the new modular surfaces and records review placeholders', async () => {
     for (const key of [
       'patient_record_summary',
