@@ -184,16 +184,17 @@ export async function markScheduleUpToDate({
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_notes
        (patient_uid, author_uid, author_role, note_type, title, content,
-        is_signed, signed_at, signed_by, status)
+        is_signed, signed_at, signed_by, status, tenant_id)
      VALUES ($1::uuid, $2::uuid, $3, 'immunisation_review',
              'Immunisation up to date', $4::jsonb,
-             true, NOW(), $2::uuid, 'current')
+             true, NOW(), $2::uuid, 'current', $5::uuid)
      RETURNING id, patient_uid, author_uid, author_role, note_type,
                title, content, is_signed, signed_at, signed_by, created_at`,
     String(patient_uid),
     String(signed_by),
     'STAFF',
     JSON.stringify(content),
+    tenantId,
   );
   return rows[0];
 }
