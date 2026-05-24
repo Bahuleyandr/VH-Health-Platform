@@ -17,6 +17,10 @@ const MIGRATION_PATH = path.resolve(
   __dirname,
   '../../migrations/116_surgical_clinical_entities.sql',
 );
+const PREOP_DAYCARE_MIGRATION_PATH = path.resolve(
+  __dirname,
+  '../../migrations/243_preop_daycare_nursing_fields.sql',
+);
 
 describe('migration 116 — surgical / OR clinical entities', () => {
   let sql;
@@ -159,5 +163,25 @@ describe('migration 116 — surgical / OR clinical entities', () => {
     for (const re of expected) {
       expect(sql).toMatch(re);
     }
+  });
+});
+
+describe('migration 243 — pre-op day-care nursing fields', () => {
+  let sql;
+  beforeAll(() => {
+    sql = fs.readFileSync(PREOP_DAYCARE_MIGRATION_PATH, 'utf8');
+  });
+
+  it('is wrapped in a transaction', () => {
+    expect(sql).toMatch(/^\s*BEGIN;[\s\S]*COMMIT;\s*$/m);
+  });
+
+  it('adds glucose and ophthalmic nursing fields to preop_checklists', () => {
+    expect(sql).toMatch(/ALTER TABLE preop_checklists/i);
+    expect(sql).toMatch(/blood_glucose_mg_dl\s+NUMERIC\(8,\s*2\)/i);
+    expect(sql).toMatch(/blood_glucose_checked_at\s+TIMESTAMPTZ/i);
+    expect(sql).toMatch(/eye_drops_given\s+BOOLEAN\s+NOT NULL\s+DEFAULT false/i);
+    expect(sql).toMatch(/eye_drops_given_at\s+TIMESTAMPTZ/i);
+    expect(sql).toMatch(/eye_drops_notes\s+TEXT/i);
   });
 });

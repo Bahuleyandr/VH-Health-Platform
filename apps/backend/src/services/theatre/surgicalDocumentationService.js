@@ -148,6 +148,17 @@ function normalizeInt(value, label, { min = null, max = null } = {}) {
   return parsed;
 }
 
+function normalizeNumeric(value, label, { min = null, max = null } = {}) {
+  if (value === null || value === undefined) return null;
+  const candidate = typeof value === 'string' ? value.trim() : value;
+  if (candidate === '') return null;
+  const parsed = Number(candidate);
+  if (!Number.isFinite(parsed)) throw AppError.badRequest(`${label} must be a number`);
+  if (min !== null && parsed < min) throw AppError.badRequest(`${label} must be >= ${min}`);
+  if (max !== null && parsed > max) throw AppError.badRequest(`${label} must be <= ${max}`);
+  return parsed;
+}
+
 function normalizeTimestamp(value, label) {
   if (value === null || value === undefined || value === '') return null;
   const date = value instanceof Date ? value : new Date(String(value));
@@ -176,6 +187,8 @@ const PREOP_RETURNING = `id, tenant_id, ot_schedule_id, patient_uid,
   blood_arranged, blood_units,
   imaging_available, required_imaging,
   preop_labs_reviewed, preop_labs_summary,
+  blood_glucose_mg_dl, blood_glucose_checked_at,
+  eye_drops_given, eye_drops_given_at, eye_drops_notes,
   antibiotic_prophylaxis, antibiotic_given_at,
   patient_identity_verified, procedure_verified, anesthesia_consent,
   special_equipment, pending_items, ai_review_summary,
@@ -201,6 +214,11 @@ export async function upsertPreopChecklist({
   requiredImaging = undefined,
   preopLabsReviewed = undefined,
   preopLabsSummary = undefined,
+  bloodGlucoseMgDl = undefined,
+  bloodGlucoseCheckedAt = undefined,
+  eyeDropsGiven = undefined,
+  eyeDropsGivenAt = undefined,
+  eyeDropsNotes = undefined,
   antibioticProphylaxis = undefined,
   antibioticGivenAt = undefined,
   patientIdentityVerified = undefined,
@@ -245,6 +263,11 @@ export async function upsertPreopChecklist({
   add('required_imaging', safeText(requiredImaging));
   add('preop_labs_reviewed', normalizeBoolean(preopLabsReviewed, false));
   add('preop_labs_summary', safeText(preopLabsSummary));
+  add('blood_glucose_mg_dl', normalizeNumeric(bloodGlucoseMgDl, 'blood_glucose_mg_dl', { min: 0, max: 1000 }), '::numeric');
+  add('blood_glucose_checked_at', normalizeTimestamp(bloodGlucoseCheckedAt, 'blood_glucose_checked_at'), '::timestamptz');
+  add('eye_drops_given', normalizeBoolean(eyeDropsGiven, false));
+  add('eye_drops_given_at', normalizeTimestamp(eyeDropsGivenAt, 'eye_drops_given_at'), '::timestamptz');
+  add('eye_drops_notes', safeText(eyeDropsNotes));
   add('antibiotic_prophylaxis', safeText(antibioticProphylaxis, SHORT_MAX));
   add('antibiotic_given_at', normalizeTimestamp(antibioticGivenAt, 'antibiotic_given_at'), '::timestamptz');
   add('patient_identity_verified', normalizeBoolean(patientIdentityVerified, false));

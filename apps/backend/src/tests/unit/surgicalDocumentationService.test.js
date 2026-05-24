@@ -139,6 +139,36 @@ describe('upsertPreopChecklist', () => {
     expect(sql).toMatch(/ON CONFLICT \(tenant_id, ot_schedule_id\)/);
   });
 
+  it('persists day-care nursing glucose and eye-drop fields', async () => {
+    mockSchedule();
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 9,
+      blood_glucose_mg_dl: '146.50',
+      eye_drops_given: true,
+    }]);
+    const row = await upsertPreopChecklist({
+      tenantId: TENANT,
+      otScheduleId: 42,
+      patientUid: PATIENT,
+      bloodGlucoseMgDl: '146.5',
+      bloodGlucoseCheckedAt: '2026-05-23T08:30:00.000Z',
+      eyeDropsGiven: true,
+      eyeDropsGivenAt: '2026-05-23T08:45:00.000Z',
+      eyeDropsNotes: 'Moxifloxacin and dilating drops given',
+    });
+    expect(row.eye_drops_given).toBe(true);
+    const [sql, ...params] = queryUnsafeMock.mock.calls[1];
+    expect(sql).toMatch(/blood_glucose_mg_dl/);
+    expect(sql).toMatch(/blood_glucose_checked_at/);
+    expect(sql).toMatch(/eye_drops_given/);
+    expect(sql).toMatch(/eye_drops_given_at/);
+    expect(sql).toMatch(/eye_drops_notes/);
+    expect(params).toContain(146.5);
+    expect(params).toContain('2026-05-23T08:30:00.000Z');
+    expect(params).toContain('2026-05-23T08:45:00.000Z');
+    expect(params).toContain('Moxifloxacin and dilating drops given');
+  });
+
   it('marks completed_at when status flips to complete', async () => {
     mockSchedule();
     queryUnsafeMock.mockResolvedValueOnce([{ id: 9 }]);
