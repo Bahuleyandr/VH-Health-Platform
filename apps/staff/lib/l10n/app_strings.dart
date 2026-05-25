@@ -1919,6 +1919,16 @@ class AppStrings {
       _t('clinical_ai.draft.reject_reason_hint');
   String get clinicalAiDraftRejectButton =>
       _t('clinical_ai.draft.reject_button');
+  String get clinicalAiDraftReviewerNoteTitle =>
+      _t('clinical_ai.draft.reviewer_note_title');
+  String get clinicalAiDraftReviewerNoteLabel =>
+      _t('clinical_ai.draft.reviewer_note_label');
+  String get clinicalAiDraftReviewerNoteHint =>
+      _t('clinical_ai.draft.reviewer_note_hint');
+  String get clinicalAiDraftReviewerNoteButton =>
+      _t('clinical_ai.draft.reviewer_note_button');
+  String get clinicalAiDraftReviewerNoteMinChars =>
+      _t('clinical_ai.draft.reviewer_note_min_chars');
   String get clinicalAiDraftReviewNotFound =>
       _t('clinical_ai.draft.review_not_found');
   String get clinicalAiDraftInvalidJson => _t('clinical_ai.draft.invalid_json');
@@ -3784,6 +3794,13 @@ class AppStrings {
       'clinical_ai.draft.reject_reason_label': 'Reason',
       'clinical_ai.draft.reject_reason_hint': 'Why is this draft unsuitable?',
       'clinical_ai.draft.reject_button': 'Reject',
+      'clinical_ai.draft.reviewer_note_title': 'Reviewer note',
+      'clinical_ai.draft.reviewer_note_label': 'Note',
+      'clinical_ai.draft.reviewer_note_hint':
+          'One sentence confirming what you checked before accepting.',
+      'clinical_ai.draft.reviewer_note_button': 'Accept with note',
+      'clinical_ai.draft.reviewer_note_min_chars':
+          'Reviewer note must be at least 3 words.',
       'clinical_ai.draft.review_not_found': 'Review not found.',
       'clinical_ai.draft.invalid_json': 'Edited draft is not valid JSON.',
       'clinical_ai.draft.accept': 'Accept',

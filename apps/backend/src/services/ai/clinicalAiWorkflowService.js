@@ -53,6 +53,10 @@ const REVIEW_STATUS_BY_DECISION = {
   edited: 'edited',
 };
 
+const REVIEW_NOTE_REQUIRED_DECISIONS = new Set(['accepted', 'signed', 'approved', 'edited']);
+const REVIEW_NOTE_MIN_CHARS = 12;
+const REVIEW_NOTE_MIN_WORDS = 3;
+
 function isMissingSchemaError(err) {
   return /does not exist|column .* does not exist|relation .* does not exist/i.test(String(err?.message || ''));
 }
@@ -71,6 +75,15 @@ function clinicalAiSchemaUnavailable(err, surface) {
 
 function cleanText(value, fallback = '') {
   return String(value ?? fallback).trim();
+}
+
+function normalizeReviewerNote(data = {}) {
+  return cleanText(data.reviewer_note ?? data.reviewerNote ?? data.note ?? '');
+}
+
+function hasSubstantiveReviewerNote(note) {
+  const words = cleanText(note).split(/\s+/).filter(Boolean);
+  return note.length >= REVIEW_NOTE_MIN_CHARS && words.length >= REVIEW_NOTE_MIN_WORDS;
 }
 
 function clampInt(value, { min = 1, max = 500, fallback = 50 } = {}) {
@@ -1453,34 +1466,41 @@ export async function listReviews({ decision = null, moduleKey = null, reviewerR
   // The module's reviewRoles comes from settings JSONB; use ? to check array
   // membership with a case-insensitive upper-case comparison.
   const normalizedRole = reviewerRole ? String(reviewerRole).toUpperCase() : null;
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT r.id, r.generation_id, r.module_key, r.patient_uid, u.name AS patient_name,
-            r.admission_id, r.reviewer_uid, r.reviewer_role, r.decision,
-            r.edited_draft, r.rejection_reason, r.metadata, r.created_at, r.updated_at,
-            g.provider, g.model, g.total_tokens, g.safety_flags,
-            m.settings->'reviewRoles' AS module_review_roles
-     FROM clinical_ai_reviews r
-     LEFT JOIN users u ON u.uid = r.patient_uid
-     LEFT JOIN clinical_ai_generations g ON g.id = r.generation_id
-     LEFT JOIN clinical_ai_modules m ON m.module_key = r.module_key
-     WHERE r.tenant_id = $1::uuid
-       AND ($2::text IS NULL OR r.decision = $2)
-       AND ($3::text IS NULL OR r.module_key = $3)
-       AND ($4::text IS NULL OR COALESCE(m.settings->'reviewRoles', '[]'::jsonb) ? $4)
-     ORDER BY r.created_at DESC
-     LIMIT $5`,
-    tid,
-    decision || null,
-    moduleKey || null,
-    normalizedRole,
-    clampInt(limit, { min: 1, max: 500, fallback: 100 })
-  );
+  let rows;
+  try {
+    rows = await prisma.$queryRawUnsafe(
+      `SELECT r.id, r.generation_id, r.module_key, r.patient_uid, u.name AS patient_name,
+              r.admission_id, r.reviewer_uid, r.reviewer_role, r.decision,
+              r.edited_draft, r.rejection_reason, r.reviewer_note,
+              r.metadata, r.created_at, r.updated_at,
+              g.provider, g.model, g.total_tokens, g.safety_flags,
+              m.settings->'reviewRoles' AS module_review_roles
+       FROM clinical_ai_reviews r
+       LEFT JOIN users u ON u.uid = r.patient_uid
+       LEFT JOIN clinical_ai_generations g ON g.id = r.generation_id
+       LEFT JOIN clinical_ai_modules m ON m.module_key = r.module_key
+       WHERE r.tenant_id = $1::uuid
+         AND ($2::text IS NULL OR r.decision = $2)
+         AND ($3::text IS NULL OR r.module_key = $3)
+         AND ($4::text IS NULL OR COALESCE(m.settings->'reviewRoles', '[]'::jsonb) ? $4)
+       ORDER BY r.created_at DESC
+       LIMIT $5`,
+      tid,
+      decision || null,
+      moduleKey || null,
+      normalizedRole,
+      clampInt(limit, { min: 1, max: 500, fallback: 100 })
+    );
+  } catch (err) {
+    throw clinicalAiSchemaUnavailable(err, 'review_list');
+  }
   return { reviews: rows, count: rows.length };
 }
 
 export async function updateReview(reviewId, data = {}, reviewerUid = null, reviewerRole = null, options = {}) {
   const tid = resolveTenantId(options);
   const decision = cleanText(data.decision || 'pending').toLowerCase();
+  const reviewerNote = normalizeReviewerNote(data);
   const id = Number.parseInt(reviewId, 10);
   let existingRows;
   try {
@@ -1514,6 +1534,18 @@ export async function updateReview(reviewId, data = {}, reviewerUid = null, revi
       'CLINICAL_AI_REVIEW_ROLE_FORBIDDEN'
     );
   }
+  if (REVIEW_NOTE_REQUIRED_DECISIONS.has(decision) && !hasSubstantiveReviewerNote(reviewerNote)) {
+    throw AppError.badRequest(
+      `Accepted Clinical AI reviews require a reviewer_note with at least ${REVIEW_NOTE_MIN_WORDS} words.`,
+      'CLINICAL_AI_REVIEW_NOTE_REQUIRED',
+      {
+        field: 'reviewer_note',
+        min_chars: REVIEW_NOTE_MIN_CHARS,
+        min_words: REVIEW_NOTE_MIN_WORDS,
+        decision,
+      }
+    );
+  }
 
   let rows;
   try {
@@ -1524,20 +1556,25 @@ export async function updateReview(reviewId, data = {}, reviewerUid = null, revi
            decision = $4,
            edited_draft = $5::jsonb,
            rejection_reason = $6,
-           metadata = COALESCE(metadata, '{}'::jsonb) || $7::jsonb,
+           reviewer_note = $7,
+           metadata = COALESCE(metadata, '{}'::jsonb) || $8::jsonb,
            updated_at = NOW()
        WHERE id = $1
-         AND tenant_id = $8::uuid
+         AND tenant_id = $9::uuid
        RETURNING id, generation_id, module_key, patient_uid, admission_id,
                  reviewer_uid, reviewer_role, decision, edited_draft,
-                 rejection_reason, metadata, created_at, updated_at`,
+                 rejection_reason, reviewer_note, metadata, created_at, updated_at`,
       id,
       reviewerUid,
       reviewerRole || null,
       decision,
       data.edited_draft ? JSON.stringify(data.edited_draft) : null,
       data.rejection_reason || null,
-      JSON.stringify({ reviewed_at: new Date().toISOString() }),
+      reviewerNote || null,
+      JSON.stringify({
+        reviewed_at: new Date().toISOString(),
+        reviewer_note_required: REVIEW_NOTE_REQUIRED_DECISIONS.has(decision),
+      }),
       tid
     );
   } catch (err) {

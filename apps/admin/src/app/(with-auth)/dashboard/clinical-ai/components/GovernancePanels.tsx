@@ -144,10 +144,11 @@ export function ReviewQueuePanel() {
   });
 
   const updateReview = useMutation({
-    mutationFn: (payload: { id: number; decision: string; rejection_reason?: string }) =>
+    mutationFn: (payload: { id: number; decision: string; rejection_reason?: string; reviewer_note?: string }) =>
       updateClinicalAiReview(payload.id, {
         decision: payload.decision,
         rejection_reason: payload.rejection_reason,
+        reviewer_note: payload.reviewer_note,
       }),
     onSuccess: (_data, variables) => {
       toast.success(`Review ${variables.decision}`);
@@ -158,6 +159,17 @@ export function ReviewQueuePanel() {
   });
 
   const rows: ClinicalAiReview[] = reviews.data?.reviews ?? [];
+
+  function promptReviewerNote() {
+    const note = window.prompt("Reviewer note (one sentence required before accept)");
+    const trimmed = note?.trim() ?? "";
+    if (!trimmed) return null;
+    if (trimmed.length < 12 || trimmed.split(/\s+/).filter(Boolean).length < 3) {
+      toast.error("Reviewer note must be at least 3 words");
+      return null;
+    }
+    return trimmed;
+  }
 
   return (
     <section className="space-y-3">
@@ -227,14 +239,27 @@ export function ReviewQueuePanel() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">
-                    {row.reviewer_role ?? "-"}
+                    <div>{row.reviewer_role ?? "-"}</div>
+                    {row.reviewer_note ? (
+                      <div className="mt-1 max-w-64 truncate" title={row.reviewer_note}>
+                        {row.reviewer_note}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.created_at)}</td>
                   <td className="px-4 py-3 text-right">
                     {row.decision === "pending" ? (
                       <div className="inline-flex gap-1">
                         <button
-                          onClick={() => updateReview.mutate({ id: row.id, decision: "accepted" })}
+                          onClick={() => {
+                            const reviewerNote = promptReviewerNote();
+                            if (!reviewerNote) return;
+                            updateReview.mutate({
+                              id: row.id,
+                              decision: "accepted",
+                              reviewer_note: reviewerNote,
+                            });
+                          }}
                           disabled={updateReview.isPending}
                           className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
                         >

@@ -374,10 +374,11 @@ Symptom: average time-from-draft-to-sign-off is < 30s.
 
 Cause: reviewer queue is being click-through-rubber-stamped.
 
-Fix: introduce a "reviewer must paste in 1+ sentence into
-`reviewer_note` on accept" frontend gate. If the reviewer is genuinely
-just confirming, the friction surfaces it. If they're rubber-stamping,
-the friction blocks it.
+Fix: enforce a "reviewer must paste in 1+ sentence into
+`clinical_ai_reviews.reviewer_note` on accept/edit/sign" gate in both
+the backend and frontend. If the reviewer is genuinely just
+confirming, the friction surfaces it. If they're rubber-stamping, the
+friction blocks it.
 
 ### "Module enabled but no drafts arriving in the queue"
 

@@ -113,6 +113,7 @@ class ClinicalAiApiService {
   ///                       accepting, send the edited JSON shape here. Backend
   ///                       computes the diff vs the original for decision memory.
   ///   * [rejectionReason] required when decision == 'rejected'
+  ///   * [reviewerNote]    required by backend for accept/sign/edit decisions
   ///
   /// Returns the updated review row.
   static Future<Map<String, dynamic>> decideReview(
@@ -120,11 +121,15 @@ class ClinicalAiApiService {
     required String decision,
     Map<String, dynamic>? editedDraft,
     String? rejectionReason,
+    String? reviewerNote,
   }) async {
     final body = <String, dynamic>{'decision': decision};
     if (editedDraft != null) body['edited_draft'] = editedDraft;
     if (rejectionReason != null && rejectionReason.isNotEmpty) {
       body['rejection_reason'] = rejectionReason;
+    }
+    if (reviewerNote != null && reviewerNote.trim().isNotEmpty) {
+      body['reviewer_note'] = reviewerNote.trim();
     }
     return _patch('$_basePath/reviews/$reviewId', body);
   }
