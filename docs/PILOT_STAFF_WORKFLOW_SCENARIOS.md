@@ -73,6 +73,16 @@ blocks pilot use.
     transitions leave backend audit evidence.
 28. Security spot-check: a lower-privilege role cannot open admin/database,
     payroll admin, or unrelated clinical actions by direct navigation.
+29. Clinical AI pilot: Doctor and Pharmacy review a medication reconciliation
+    draft, verify it is labelled as AI-generated, inspect citations/safety
+    state, and accept or edit with a reviewer note before signoff.
+30. Clinical AI pilot: Nursing reviews patient aftercare instructions, verify a
+    fallback/template state is visibly labelled when AI is unavailable or
+    disabled, edit as needed, and sign with a reviewer note.
+31. Clinical AI pilot evidence: Admin exports the pilot evidence pack for
+    `medication_reconciliation` and `patient_aftercare_instructions`, confirms
+    tenant, blockers, eval gate, human review, audit trail, and redaction
+    sections, then attaches the export to the pilot record.
 
 ## Exit Criteria
 
@@ -82,3 +92,5 @@ blocks pilot use.
 - Clinical, security, and financial wording has human validation for the locale
   used in pilot.
 - The automated staff role workflow sweep is attached to the pilot record.
+- The Clinical AI pilot evidence-pack smoke is green and its export is attached
+  to the pilot record before any wider rollout.

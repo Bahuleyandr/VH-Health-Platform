@@ -182,6 +182,19 @@ jobs:
           -PgDatabase vhhealth
           -PgPassword '${{ github.run_id }}'
 
+      - name: Clinical AI pilot evidence smoke
+        shell: pwsh
+        run: >
+          ./scripts/smoke-clinical-ai-pilot-evidence.ps1
+          -BackendBase http://127.0.0.1:5206
+          -ApiKey $env:API_KEY
+          -JwtSecret $env:JWT_SECRET
+          -PgHost 127.0.0.1
+          -PgPort 5432
+          -PgUser vhhealth
+          -PgDatabase vhhealth
+          -PgPassword '${{ github.run_id }}'
+
       - name: Upload smoke logs
         if: always()
         uses: actions/upload-artifact@v7
