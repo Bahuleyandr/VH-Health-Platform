@@ -72,6 +72,18 @@ const envSchema = Joi.object({
     .valid('true', 'false')
     .default('true')
     .label('REQUIRE_MFA_FOR_SUPER_ADMIN'),
+
+  // Tenant RLS enforcement. The runtime defaults this on in production when
+  // unset; explicit false is reserved for confirmed single-tenant deployments.
+  AUTH_ENFORCE_TENANT_RLS: Joi.string()
+    .valid('true', 'false')
+    .allow('')
+    .optional()
+    .label('AUTH_ENFORCE_TENANT_RLS'),
+  AUTH_TENANT_RLS_TEST_ROLE: Joi.string()
+    .allow('')
+    .optional()
+    .label('AUTH_TENANT_RLS_TEST_ROLE'),
 }).unknown(true);
 
 // Validate the current environment variables

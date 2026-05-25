@@ -1,4 +1,5 @@
 import prisma from '../lib/prisma.js';
+import { isTenantRlsEnforcementEnabled } from '../config/tenantRlsConfig.js';
 import logger from '../logging/logger.js';
 import {
   DEFAULT_TENANT_ID,
@@ -101,6 +102,7 @@ function recordTenantOverride({ actorUid, originalTenant, targetTenant, reason, 
  */
 export default async function tenantContextMiddleware(req, _res, next) {
   try {
+    const enforceTenantRls = isTenantRlsEnforcementEnabled();
     let tenantId = null;
     let overrideUsed = false;
     let originalTenantBeforeOverride = null;
@@ -143,7 +145,16 @@ export default async function tenantContextMiddleware(req, _res, next) {
     }
 
     if (!tenantId && req.user?.uid) {
-      tenantId = await resolveTenantForUser(req.user.uid);
+      tenantId = await resolveTenantForUser(req.user.uid, { failClosed: enforceTenantRls });
+    }
+
+    if (!tenantId && req.user && enforceTenantRls) {
+      return next(
+        AppError.forbidden(
+          'Authenticated request has no tenant context',
+          'TENANT_CONTEXT_REQUIRED',
+        ),
+      );
     }
 
     tenantId = tenantId || DEFAULT_TENANT_ID;
@@ -165,6 +176,14 @@ export default async function tenantContextMiddleware(req, _res, next) {
 
     return next();
   } catch (err) {
+    if (isTenantRlsEnforcementEnabled()) {
+      logger.warn('tenantContextMiddleware failed in enforced mode', { error: err.message });
+      return next(
+        err instanceof AppError
+          ? err
+          : AppError.forbidden('Tenant context could not be resolved', 'TENANT_CONTEXT_UNAVAILABLE'),
+      );
+    }
     logger.warn('tenantContextMiddleware failed, using default tenant', { error: err.message });
     req.tenantId = DEFAULT_TENANT_ID;
     return next();

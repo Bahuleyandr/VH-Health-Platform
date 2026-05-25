@@ -1,9 +1,10 @@
 # Tenant RLS Gap Analysis
 
-**Status:** Phases 0, 1, and 2 substrate landed 2026-05-18. Phase 2 enforcement
-is opt-in via `AUTH_ENFORCE_TENANT_RLS=true` (default off — every legacy call
-site keeps working). Remaining work is the production cutover decision and
-auditing the long tail of PHI tables (Phase 2b, listed below).
+**Status:** Phases 0, 1, 2 substrate, 2b, and 3 are shipped. Production now
+defaults tenant RLS enforcement on unless `AUTH_ENFORCE_TENANT_RLS=false` is
+set explicitly. Remaining work is operational: run the backend with a
+non-superuser / non-BYPASSRLS database role and keep `/health/metrics`
+`tenant_rls.ok=true`.
 
 **Severity in swarm:** medium (does not gate the [`GOAL_2026-06-16`](GOAL_2026-06-16.md)
 milestone, which targets 0 critical/high in-flight only).
@@ -143,24 +144,23 @@ over removing.
    (AsyncLocalStorage) + `src/middleware/tenantRlsMiddleware.js` seed
    a per-request tenant context. The prisma proxy at `src/lib/prisma.js`
    auto-wraps every `$queryRaw*` / `$executeRaw*` call in `setTenant()`
-   when `AUTH_ENFORCE_TENANT_RLS=true` AND the context is set. Recursion
-   broken by the `inSetTenant` marker. 7-case deep test covers the
-   matrix (flag off, flag on + per-tenant context, SUPER_ADMIN bypass,
-   cron-shaped no-context path, WRITE rejection by WITH CHECK).
-4. **Phase 2 cutover** ⏳ **pending** — flip `AUTH_ENFORCE_TENANT_RLS=true`
-   in staging (dalekdefender), let the swarm shake the surface for a
-   week, then flip in prod. Cron jobs that touch PHI need explicit
+   when enforcement is active AND the context is set. Enforcement defaults
+   on for `NODE_ENV=production`; dev/test stay permissive unless
+   `AUTH_ENFORCE_TENANT_RLS=true` is set explicitly. Recursion is broken by
+   the `inSetTenant` marker. Deep tests cover the matrix (flag off, flag on
+   + per-tenant context, explicit SUPER_ADMIN bypass, cron-shaped no-context
+   path, WRITE rejection by WITH CHECK).
+4. **Phase 2 cutover** ✅ **shipped in repo config** — the Kubernetes backend
+   ConfigMap sets `AUTH_ENFORCE_TENANT_RLS=true`, and production code defaults
+   on if the flag is omitted. Cron jobs that touch PHI need explicit
    `runInTenantContext()` or `runWithSuperAdmin()` from
    `src/lib/tenantContext.js` (audit listed below).
-5. **Phase 2b** ⏳ **pending** — convert the 40 allow-listed PHI tables
-   (`apps/backend/scripts/check-phi-tenant-id.mjs::ALLOWLIST`) to carry
-   `tenant_id` + RLS. Each migration removes one entry from the
-   allowlist.
-6. **Phase 3** ⏳ **pending** — SUPER_ADMIN `x-tenant-id` override
-   hardening (require `reason` field + log every override to
-   `audit_logs` with original + target tenant). Remove silent
-   `DEFAULT_TENANT_ID` fallback in `tenantContextMiddleware` once
-   every login path is verified to issue the `tenant_id` claim.
+5. **Phase 2b** ✅ **shipped** — migrations `238` and `239` converted the
+   residual PHI tables; `check-phi-tenant-id.mjs::ALLOWLIST` is empty.
+6. **Phase 3** ✅ **shipped** — SUPER_ADMIN `x-tenant-id` override hardening
+   requires a reason and logs every override to `audit_logs`. Request-path
+   overrides are tenant-scoped to the target tenant, not a blanket RLS
+   bypass. Explicit cross-tenant jobs must use `runWithSuperAdmin()`.
 
 After Phase 3, the platform is honestly multi-tenant for PHI; the residual
 weak spots (analytics, scheduled jobs) are visible in the audit log
@@ -228,13 +228,11 @@ Inventory before flipping `AUTH_ENFORCE_TENANT_RLS=true`:
 ### Phase-2 activation runbook
 
 ```bash
-# 1. Roll out the substrate (flag default off — no behaviour change).
-kubectl -n vhhealth set env deploy/vhhealth-backend AUTH_ENFORCE_TENANT_RLS=false
-# 2. Verify legacy behaviour is preserved (run swarm 1-2 ticks).
-# 3. Flip on staging:
-kubectl -n vhhealth set env deploy/vhhealth-backend AUTH_ENFORCE_TENANT_RLS=true
-# 4. Watch for 42501 (RLS violation) errors in logs; fix any cron paths.
-# 5. Repeat for prod cluster.
+# Confirm enforcement and role posture after deploy.
+curl -s https://api.vhhealth.app/health/metrics | jq '.data.tenant_rls'
+
+# Expected for any multi-tenant deployment:
+# { "enforced": true, "ok": true, "reason": "enforced", ... }
 ```
 
 ---

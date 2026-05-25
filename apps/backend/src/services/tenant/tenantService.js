@@ -187,7 +187,7 @@ export async function updateTenant(tenantId, patch = {}) {
   return rows[0];
 }
 
-export async function resolveTenantForUser(userUid) {
+export async function resolveTenantForUser(userUid, { failClosed = false } = {}) {
   if (!userUid) return DEFAULT_TENANT_ID;
   try {
     const rows = await prisma.$queryRawUnsafe(
@@ -196,6 +196,9 @@ export async function resolveTenantForUser(userUid) {
     );
     return rows[0]?.tenant_id || DEFAULT_TENANT_ID;
   } catch (err) {
+    if (failClosed) {
+      throw AppError.internal('Tenant context lookup failed', 'TENANT_CONTEXT_LOOKUP_FAILED');
+    }
     logger.debug('resolveTenantForUser fallback to default', { error: err.message });
     return DEFAULT_TENANT_ID;
   }
