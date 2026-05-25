@@ -13,6 +13,7 @@ import { canWriteAppointmentClinical } from '../../utils/appointment/appointment
 import { isDoctor } from '../../utils/roleHelpers.js';
 import { AppError } from '../../utils/AppError.js';
 import { istDateString } from '../../utils/dateUtils.js';
+import { resolveDoctorRef } from '../../services/doctor/doctorRefService.js';
 
 // All four handlers below were originally written against a raw pg.Pool
 // client (await pool.connect → client.query → client.release) and ported
@@ -751,37 +752,6 @@ function parsePositiveInt(value) {
   return parsed > 0 ? parsed : null;
 }
 
-async function resolveActiveDoctorUserId(db, doctorId) {
-  const numericDoctorId = parsePositiveInt(doctorId);
-  if (!numericDoctorId) return null;
-
-  const rows = await db.$queryRawUnsafe(
-    `SELECT id
-       FROM (
-         SELECT u.id AS id, 0 AS sort_order
-           FROM doctors d
-           JOIN users u ON u.id = d.user_id
-          WHERE d.id = $1::int
-            AND d.is_active = true
-            AND u.role = 'DOCTOR'
-            AND u.is_active = true
-         UNION ALL
-         SELECT u.id AS id, 1 AS sort_order
-           FROM users u
-           LEFT JOIN doctors d ON d.user_id = u.id
-          WHERE u.id = $1::int
-            AND u.role = 'DOCTOR'
-            AND u.is_active = true
-            AND COALESCE(d.is_active, true) = true
-       ) candidates
-      ORDER BY sort_order
-      LIMIT 1`,
-    numericDoctorId,
-  );
-
-  return rows[0]?.id ?? null;
-}
-
 async function resolveWalkInDepartment(tx, { department, departmentId, doctorId }) {
   const departmentText = department === null || department === undefined
     ? ''
@@ -1166,11 +1136,12 @@ export const registerWalkIn = async (req, res) => {
       if (!doctorIdInt) {
         return error(res, 'doctor_id must be a positive integer', HTTP_STATUS.BAD_REQUEST);
       }
-      // Accept either users.id (assignable-mode dropdown) or doctors.id
-      // (legacy booking surfaces), but write only the canonical users.id
-      // into appointments.doctor_id. This avoids the doctors.id/users.id
-      // collision that routed visits to the wrong clinician.
-      explicitDoctorUserId = await resolveActiveDoctorUserId(prisma, doctorIdInt);
+      // Accept either users.id (assignable-mode dropdown) or an unambiguous
+      // legacy doctors.id, but write only the canonical users.id into
+      // appointments.doctor_id. Ambiguous collisions are rejected instead of
+      // picking a clinician by accident.
+      const resolvedDoctor = await resolveDoctorRef(prisma, doctorIdInt);
+      explicitDoctorUserId = resolvedDoctor?.id ?? null;
       if (!explicitDoctorUserId) {
         return error(
           res,
