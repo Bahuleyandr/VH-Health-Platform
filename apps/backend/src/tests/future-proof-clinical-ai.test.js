@@ -9,7 +9,10 @@ const ADMIN_UID = 'c1111111-1111-4111-8111-111111111a03';
 const ENCOUNTER_ID = 'c1111111-1111-4111-8111-111111111a04';
 const IT_UID = 'c1111111-1111-4111-8111-111111111a05';
 const CULTURE_INVESTIGATION_UID = 'c1111111-1111-4111-8111-111111111a06';
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const LONG_CLINICAL_AI_TEST_TIMEOUT_MS = 60000;
+const DEFAULT_EVAL_MODEL = 'llama3.1:8b';
+const acceptedEvalSeeds = new Set();
 
 function authed(role, uid) {
   const token = generateTestToken(role, { uid, id: role === 'PATIENT' ? 7001 : 7002 });
@@ -28,6 +31,59 @@ function expectStatus(response, expected, label) {
   }
 }
 
+function normalizeEvalProvider(value) {
+  const provider = String(value || 'template').toLowerCase().trim();
+  const aliases = {
+    local: 'ollama',
+    'llama-local': 'ollama',
+    llama: 'ollama',
+    openai_compatible: 'openai-compatible',
+    openai_compat: 'openai-compatible',
+    compatible: 'openai-compatible',
+    chatgpt: 'openai',
+    claude: 'anthropic',
+  };
+  return aliases[provider] || provider;
+}
+
+function evalGateProviderModel(data = {}) {
+  return {
+    provider: normalizeEvalProvider(data.provider_override || process.env.CLINICAL_AI_PROVIDER || process.env.AI_PROVIDER || 'template'),
+    model: String(data.model_override || process.env.CLINICAL_AI_MODEL || process.env.AI_SUMMARIZE_MODEL || DEFAULT_EVAL_MODEL).trim(),
+  };
+}
+
+async function seedAcceptedEvalGate(moduleKey, data = {}) {
+  const { provider, model } = evalGateProviderModel(data);
+  const seedKey = `${moduleKey}:${provider}:${model}`;
+  if (acceptedEvalSeeds.has(seedKey)) return;
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO clinical_ai_model_eval_runs
+       (tenant_id, model_key, version, suite, sample_count, pass_count, fail_count,
+        accuracy, f1_score, avg_latency_ms, fallback_rate_pct, safety_flag_rate_pct,
+        drift_score, recommendation, severity, signals, summary, recommended_actions,
+        source_citations, safety_flags, reviewer_decision, reviewed_by, reviewed_at,
+        metadata, created_at, updated_at)
+     VALUES ($1::uuid, $2, $3, 'test-governance-gate', 10, 10, 0,
+             1.0, 1.0, 100, 0, 0,
+             0, 'no_action', 'low', '[]'::jsonb, $4, '[]'::jsonb,
+             '[]'::jsonb, '[]'::jsonb, 'accepted', $5::uuid, NOW(),
+             $6::jsonb, NOW(), NOW())`,
+    TENANT_ID,
+    moduleKey,
+    model,
+    `Accepted eval gate seed for ${moduleKey} [test]`,
+    IT_UID,
+    JSON.stringify({
+      module_key: moduleKey,
+      provider,
+      model,
+      test_seed: true,
+    })
+  );
+  acceptedEvalSeeds.add(seedKey);
+}
+
 describe('future-proof clinical AI and privacy foundations', () => {
   let admissionId;
   const doctor = authed('DOCTOR', DOCTOR_UID);
@@ -35,7 +91,52 @@ describe('future-proof clinical AI and privacy foundations', () => {
   const itAdminClient = authed('IT_ADMIN', IT_UID);
   const patient = authed('PATIENT', PATIENT_UID);
 
+  async function approveIfRequired(response, retryWithApproval, label) {
+    if (response.statusCode !== 202) {
+      expectStatus(response, 200, label);
+      return response;
+    }
+
+    expect(response.body.data.approval_required).toBe(true);
+    const approvalId = response.body.data.approval?.id;
+    expect(approvalId).toBeTruthy();
+
+    const approved = await itAdminClient
+      .patch(`/api/v1/admin/clinical-ai/approvals/${approvalId}`)
+      .send({ decision: 'approved', reason: `${label} approved by second test approver` });
+    expectStatus(approved, 200, `${label} approval decision`);
+
+    const retried = await retryWithApproval(approvalId);
+    expectStatus(retried, 200, label);
+    return retried;
+  }
+
+  async function patchGlobalModule(moduleKey, data, label) {
+    await seedAcceptedEvalGate(moduleKey, data);
+    const first = await admin.patch(`/api/v1/admin/clinical-ai/modules/${moduleKey}`).send(data);
+    return approveIfRequired(
+      first,
+      (approvalId) => admin
+        .patch(`/api/v1/admin/clinical-ai/modules/${moduleKey}`)
+        .send({ ...data, approval_id: approvalId }),
+      label
+    );
+  }
+
+  async function patchTenantModule(moduleKey, data, label) {
+    await seedAcceptedEvalGate(moduleKey, data);
+    const first = await admin.patch(`/api/v1/admin/clinical-ai/tenant-modules/${moduleKey}`).send(data);
+    return approveIfRequired(
+      first,
+      (approvalId) => admin
+        .patch(`/api/v1/admin/clinical-ai/tenant-modules/${moduleKey}`)
+        .send({ ...data, approval_id: approvalId }),
+      label
+    );
+  }
+
   beforeAll(async () => {
+    acceptedEvalSeeds.clear();
     await prisma.$executeRawUnsafe(`DELETE FROM audit_logs WHERE resource = 'clinical_ai' OR action LIKE 'CLINICAL_AI_%'`).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM event_outbox WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM clinical_document_intake WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
@@ -347,9 +448,11 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expect(guardrails.body.data.budget.tripped).toBe(false);
 
     const aftercareModule = status.body.data.modules.find((module) => module.module_key === 'patient_aftercare_instructions');
-    const toggled = await admin.patch('/api/v1/admin/clinical-ai/modules/patient_aftercare_instructions').send({
-      enabled: !aftercareModule.enabled,
-    });
+    const toggled = await patchGlobalModule(
+      'patient_aftercare_instructions',
+      { enabled: !aftercareModule.enabled },
+      'toggle clinical AI module'
+    );
     expectStatus(toggled, 200, 'toggle clinical AI module');
     expect(toggled.body.data.enabled).toBe(!aftercareModule.enabled);
 
@@ -357,15 +460,17 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expectStatus(tenantModules, 200, 'list tenant clinical AI modules');
     expect(tenantModules.body.data.modules.some((module) => module.module_key === 'denial_risk_assist')).toBe(true);
 
-    const tenantOverride = await admin
-      .patch('/api/v1/admin/clinical-ai/tenant-modules/denial_risk_assist')
-      .send({
+    const tenantOverride = await patchTenantModule(
+      'denial_risk_assist',
+      {
         enabled: true,
         provider_override: 'ollama',
         model_override: 'tenant-test-model',
         external_allowed: false,
         max_tokens: 1111,
-      });
+      },
+      'update tenant clinical AI module'
+    );
     expectStatus(tenantOverride, 200, 'update tenant clinical AI module');
     expect(tenantOverride.body.data.enabled).toBe(true);
     expect(tenantOverride.body.data.tenant_override_id).toBeTruthy();
@@ -379,15 +484,17 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expect(denialModule.tenant_override_source).toBe('tenant');
     expect(denialModule.max_tokens).toBe(1111);
 
-    const tenantOverrideCleared = await admin
-      .patch('/api/v1/admin/clinical-ai/tenant-modules/denial_risk_assist')
-      .send({
+    const tenantOverrideCleared = await patchTenantModule(
+      'denial_risk_assist',
+      {
         provider_override: null,
         model_override: null,
         external_allowed: null,
         max_tokens: null,
         temperature: null,
-      });
+      },
+      'clear tenant clinical AI module overrides'
+    );
     expectStatus(tenantOverrideCleared, 200, 'clear tenant clinical AI module overrides');
     expect(tenantOverrideCleared.body.data.tenant_override_id).toBeTruthy();
     expect(tenantOverrideCleared.body.data.tenant_overrides.provider_override).toBeNull();
@@ -431,7 +538,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
   });
 
   async function enableModule(moduleKey) {
-    const res = await admin.patch(`/api/v1/admin/clinical-ai/modules/${moduleKey}`).send({ enabled: true });
+    const res = await patchGlobalModule(moduleKey, { enabled: true }, `enable module ${moduleKey}`);
     expectStatus(res, 200, `enable module ${moduleKey}`);
     return res.body.data;
   }
@@ -2838,9 +2945,11 @@ describe('future-proof clinical AI and privacy foundations', () => {
 
     try {
       // Enable the SOAP-from-dictation module as admin.
-      const toggled = await admin.patch('/api/v1/admin/clinical-ai/modules/soap_from_dictation').send({
-        enabled: true,
-      });
+      const toggled = await patchGlobalModule(
+        'soap_from_dictation',
+        { enabled: true },
+        'enable soap_from_dictation'
+      );
       expectStatus(toggled, 200, 'enable soap_from_dictation');
 
       // Upload a tiny synthetic WAV buffer. Mock STT returns a canned transcript.
