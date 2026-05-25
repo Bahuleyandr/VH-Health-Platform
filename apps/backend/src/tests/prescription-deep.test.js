@@ -193,6 +193,48 @@ describe('E-prescriptions — deep integration', () => {
     );
   });
 
+  it('allows a valid paediatric mg/kg syrup dose with matching ml instruction', async () => {
+    const safety = await validatePrescriptionSafety(patientId, [
+      {
+        name: 'Paracetamol syrup 125mg/5ml',
+        dosage: '15 mg/kg = 7.5 ml',
+        dose: '15 mg/kg = 7.5 ml',
+        frequency: 'q6h PRN fever',
+        route: 'oral',
+      },
+    ]);
+
+    expect(safety.safe).toBe(true);
+    expect(safety.blockers).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'PAEDIATRIC_LIQUID_DOSE_MISMATCH' }),
+        expect.objectContaining({ type: 'PAEDIATRIC_DOSE_HIGH' }),
+      ]),
+    );
+  });
+
+  it('blocks excessive paediatric mg/kg syrup doses even when the ml math matches', async () => {
+    const safety = await validatePrescriptionSafety(patientId, [
+      {
+        name: 'Paracetamol syrup 125mg/5ml',
+        dosage: '30 mg/kg = 15 ml',
+        dose: '30 mg/kg = 15 ml',
+        frequency: 'q6h PRN fever',
+        route: 'oral',
+      },
+    ]);
+
+    expect(safety.safe).toBe(false);
+    expect(safety.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'PAEDIATRIC_DOSE_HIGH',
+          entered_dose_mg: 375,
+        }),
+      ]),
+    );
+  });
+
   it('creates a structured prescription with medications and vitals stored as jsonb', async () => {
     const res = await staffAs(staffId)
       .post('/api/v1/prescriptions/create')
