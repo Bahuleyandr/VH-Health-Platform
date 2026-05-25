@@ -110,11 +110,17 @@ function isExternalUrl(baseUrl) {
  * single-tenant pilots, but MUST be set the moment a second region onboards.
  */
 function tenantCanUseExternal(tenantRegion) {
-  if (!tenantRegion) return true;
   const raw = (process.env.CLINICAL_AI_EXTERNAL_REGIONS || '').trim();
   if (!raw) return true;
+  if (!tenantRegion) return false;
   const allowed = raw.split(',').map((r) => r.trim().toUpperCase()).filter(Boolean);
-  return allowed.includes(String(tenantRegion).toUpperCase());
+  return allowed.includes(String(tenantRegion).trim().toUpperCase());
+}
+
+function externalRegionBlockReason(tenantRegion) {
+  if (tenantCanUseExternal(tenantRegion)) return null;
+  const blockedRegion = tenantRegion ? String(tenantRegion).trim().toUpperCase() : 'UNKNOWN';
+  return `external_provider_blocked_for_region:${blockedRegion}`;
 }
 
 // Tier-prefixed env helper. When the module is in the deep tier, prefer
@@ -609,8 +615,8 @@ export async function generateClinicalText({ systemPrompt, userPrompt, taskType,
   // Region-safety: block external PHI egress for tenants whose region is not
   // on the allowlist. Local providers pass through; external ones fall back
   // to the template with a clear reason written to the draft metadata.
-  if (config.externalProvider && !tenantCanUseExternal(tenantRegion)) {
-    const reason = `external_provider_blocked_for_region:${String(tenantRegion).toUpperCase()}`;
+  const regionBlockReason = config.externalProvider ? externalRegionBlockReason(tenantRegion) : null;
+  if (regionBlockReason) {
     logger.warn('External provider blocked by region policy', {
       taskType,
       tier: config.tier,
@@ -620,7 +626,7 @@ export async function generateClinicalText({ systemPrompt, userPrompt, taskType,
     return nonAiResult({
       config,
       taskType,
-      reason,
+      reason: regionBlockReason,
       usage: baseUsage,
       generationMode: 'blocked',
       providerStatus: 'blocked',
@@ -743,12 +749,23 @@ export async function getClinicalAiRuntimeStatus({
   const usage = await getClinicalAiUsageSummary({ days, tenantId });
   const budget = await getClinicalAiBudgetStatus({ days: 1, guardrails, tenantId });
   const readiness = getReadiness(config, budget);
+  const regionBlockReason = config.externalProvider ? externalRegionBlockReason(tenantRegion) : null;
+  const effectiveReadiness = regionBlockReason
+    ? { ready: false, reason: regionBlockReason }
+    : readiness;
   const providerHealth = live
-    ? await probeProvider(config)
-    : { ok: readiness.ready, status: readiness.ready ? 'configured' : 'blocked', reason: readiness.reason, latencyMs: null };
+    ? (regionBlockReason
+      ? { ok: false, status: 'blocked', reason: regionBlockReason, latencyMs: null }
+      : await probeProvider(config))
+    : {
+      ok: effectiveReadiness.ready,
+      status: effectiveReadiness.ready ? 'configured' : 'blocked',
+      reason: effectiveReadiness.reason,
+      latencyMs: null,
+    };
 
   return {
-    config: serializeClinicalAiConfig(config, readiness),
+    config: serializeClinicalAiConfig(config, effectiveReadiness),
     providerHealth,
     guardrails,
     budget,

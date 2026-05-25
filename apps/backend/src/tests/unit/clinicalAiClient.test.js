@@ -76,6 +76,7 @@ const CLINICAL_ENV_KEYS = [
   'CLINICAL_AI_DIARIZATION_PROVIDER',
   'CLINICAL_AI_DIARIZATION_REGIONS',
   'CLINICAL_AI_DIARIZATION_TIMEOUT_MS',
+  'CLINICAL_AI_EXTERNAL_REGIONS',
   'CLINICAL_AI_PACS_ALLOWED_REGIONS',
   'CLINICAL_AI_PACS_API_MODE',
   'CLINICAL_AI_PACS_BASE_URL',
@@ -88,10 +89,12 @@ const CLINICAL_ENV_KEYS = [
   'CLINICAL_AI_PRIOR_AUTH_PAYER_ENDPOINT',
   'CLINICAL_AI_PRIOR_AUTH_PAYER_MODE',
   'CLINICAL_AI_PRIOR_AUTH_PAYER_TIMEOUT_MS',
+  'CLINICAL_AI_STT_ALLOWED_REGIONS',
   'CLINICAL_AI_STT_API_KEY',
   'CLINICAL_AI_STT_AZURE_REGION',
   'CLINICAL_AI_STT_MODEL',
   'CLINICAL_AI_STT_PROVIDER',
+  'CLINICAL_AI_STT_REGIONS',
   'CLINICAL_AI_STT_URL',
   'CLINICAL_AI_TEMPERATURE',
   'CLINICAL_AI_TIMEOUT_MS',
@@ -254,6 +257,30 @@ describe('clinical AI provider client', () => {
     expect(body.model).toBe('gpt-test-model');
     expect(body.messages[0]).toEqual({ role: 'developer', content: 'System safety prompt' });
     expect(body.messages[1]).toEqual({ role: 'user', content: 'Patient context' });
+  });
+
+  it('blocks external providers when tenant region is unknown and a region allowlist is configured', async () => {
+    process.env.CLINICAL_AI_PROVIDER = 'openai';
+    process.env.CLINICAL_AI_MODEL = 'gpt-test-model';
+    process.env.CLINICAL_AI_ALLOW_EXTERNAL = 'true';
+    process.env.CLINICAL_AI_EXTERNAL_REGIONS = 'IN';
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    mockModule = { ...mockModule, external_allowed: true };
+
+    const result = await generateClinicalText({
+      systemPrompt: 'System safety prompt',
+      userPrompt: 'Patient context',
+      taskType: 'discharge_summary',
+    });
+
+    expect(result).toMatchObject({
+      usedAi: false,
+      provider: 'openai',
+      generation_mode: 'blocked',
+      provider_status: 'blocked',
+      reason: 'external_provider_blocked_for_region:UNKNOWN',
+    });
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it('calls Anthropic Messages API when external use is allowed', async () => {
@@ -427,6 +454,48 @@ describe('clinical AI provider client', () => {
         external_call: true,
         endpoint_configured: true,
         tenant_region: 'IN',
+      }),
+    ]));
+  });
+
+  it('blocks provider health probes when tenant region is unknown and a region allowlist is configured', async () => {
+    process.env.CLINICAL_AI_PROVIDER = 'openai';
+    process.env.CLINICAL_AI_MODEL = 'gpt-test-model';
+    process.env.CLINICAL_AI_ALLOW_EXTERNAL = 'true';
+    process.env.CLINICAL_AI_EXTERNAL_REGIONS = 'IN';
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+
+    const status = await getClinicalAiRuntimeStatus({ live: true });
+
+    expect(status.config).toMatchObject({
+      enabled: false,
+      externalProvider: true,
+      readiness: 'external_provider_blocked_for_region:UNKNOWN',
+    });
+    expect(status.providerHealth).toMatchObject({
+      ok: false,
+      status: 'blocked',
+      reason: 'external_provider_blocked_for_region:UNKNOWN',
+    });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('blocks external STT when tenant region is unknown and an STT allowlist is configured', async () => {
+    process.env.CLINICAL_AI_STT_PROVIDER = 'openai';
+    process.env.CLINICAL_AI_STT_ALLOWED_REGIONS = 'IN';
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+
+    const status = await getClinicalAiRuntimeStatus();
+
+    expect(status.adapters).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        key: 'speech_to_text',
+        provider: 'openai',
+        configured: false,
+        status: 'blocked',
+        reason: 'tenant_region_not_allowed_for_stt',
+        tenant_region: null,
+        allowed_regions: ['IN'],
       }),
     ]));
   });

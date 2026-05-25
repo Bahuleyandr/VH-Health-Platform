@@ -20,6 +20,17 @@ function splitCsv(value) {
     .filter(Boolean);
 }
 
+function normalizeRegion(value) {
+  return clean(value).toUpperCase();
+}
+
+function regionAllowed(tenantRegion, allowedRegions) {
+  if (!allowedRegions.length) return true;
+  if (!tenantRegion) return false;
+  const normalizedTenantRegion = normalizeRegion(tenantRegion);
+  return allowedRegions.map(normalizeRegion).includes(normalizedTenantRegion);
+}
+
 function normalizeJson(value, fallback) {
   if (value === null || value === undefined) return fallback;
   if (typeof value === 'string') {
@@ -55,7 +66,7 @@ export function resolvePriorAuthPayerConfig({
   const endpoint = clean(env.PRIOR_AUTH_PAYER_ENDPOINT || env.CLINICAL_AI_PRIOR_AUTH_PAYER_ENDPOINT);
   const apiKey = clean(env.PRIOR_AUTH_PAYER_API_KEY || env.CLINICAL_AI_PRIOR_AUTH_PAYER_API_KEY);
   const allowedRegions = splitCsv(env.PRIOR_AUTH_PAYER_ALLOWED_REGIONS || env.CLINICAL_AI_PRIOR_AUTH_PAYER_ALLOWED_REGIONS);
-  const regionAllowed = !tenantRegion || allowedRegions.length === 0 || allowedRegions.includes(String(tenantRegion));
+  const isRegionAllowed = regionAllowed(tenantRegion, allowedRegions);
   const timeoutMs = Math.max(
     Number.parseInt(env.PRIOR_AUTH_PAYER_TIMEOUT_MS || env.CLINICAL_AI_PRIOR_AUTH_PAYER_TIMEOUT_MS, 10)
       || DEFAULT_TIMEOUT_MS,
@@ -104,7 +115,7 @@ export function resolvePriorAuthPayerConfig({
     };
   }
 
-  if (!regionAllowed) {
+  if (!isRegionAllowed) {
     return {
       configured: false,
       mode: selectedMode,

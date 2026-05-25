@@ -177,4 +177,24 @@ describe('imaging PACS adapter', () => {
     expect(calls[0].url).toContain('/studies?StudyInstanceUID=1.2.840.113619.2.55.3');
     expect(calls[0].options.method).toBe('GET');
   });
+
+  it('blocks PACS metadata fetch when tenant region is unknown and an allowlist is configured', async () => {
+    const calls = [];
+    const result = await fetchPacsStudyMetadata({
+      studyInstanceUid: '1.2.840.113619.2.55.3',
+      env: {
+        CLINICAL_AI_PACS_PROVIDER: 'dicomweb',
+        CLINICAL_AI_PACS_BASE_URL: 'https://pacs.example.test/dicom-web',
+        CLINICAL_AI_PACS_ALLOWED_REGIONS: 'IN-TN',
+      },
+      fetchImpl: async (url, options) => {
+        calls.push({ url, options });
+        return { ok: true, status: 200, json: async () => dicomwebPayload };
+      },
+    });
+
+    expect(result.status).toBe('skipped');
+    expect(result.reason).toBe('tenant_region_not_allowed_for_pacs');
+    expect(calls).toHaveLength(0);
+  });
 });

@@ -110,4 +110,25 @@ describe('prior authorization payer adapter', () => {
     expect(config.configured).toBe(false);
     expect(config.reason).toBe('tenant_region_not_allowed_for_payer');
   });
+
+  it('blocks external payer submission when tenant region is unknown and an allowlist is configured', async () => {
+    const calls = [];
+    const result = await submitPriorAuthToPayer({
+      priorAuth,
+      env: {
+        PRIOR_AUTH_PAYER_MODE: 'webhook',
+        PRIOR_AUTH_PAYER_ENDPOINT: 'https://payer.example.test/prior-auth',
+        PRIOR_AUTH_PAYER_ALLOWED_REGIONS: 'IN,US',
+      },
+      fetchImpl: async (url, options) => {
+        calls.push({ url, options });
+        return { ok: true, status: 202, json: async () => ({ request_id: 'PAYER-1' }) };
+      },
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.reason).toBe('tenant_region_not_allowed_for_payer');
+    expect(result.blocking).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
 });

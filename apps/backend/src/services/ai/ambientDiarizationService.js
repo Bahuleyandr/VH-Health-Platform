@@ -40,6 +40,17 @@ function splitCsv(value) {
     .filter(Boolean);
 }
 
+function normalizeRegion(value) {
+  return clean(value).toUpperCase();
+}
+
+function regionAllowed(tenantRegion, allowedRegions) {
+  if (!allowedRegions.length) return true;
+  if (!tenantRegion) return false;
+  const normalizedTenantRegion = normalizeRegion(tenantRegion);
+  return allowedRegions.map(normalizeRegion).includes(normalizedTenantRegion);
+}
+
 function configuredProvider(env = process.env) {
   return clean(env.CLINICAL_AI_DIARIZATION_PROVIDER || 'none').toLowerCase() || 'none';
 }
@@ -63,7 +74,7 @@ export function resolveDiarizationConfig({
   const endpoint = clean(env.CLINICAL_AI_DIARIZATION_ENDPOINT || env.DIARIZATION_WEBHOOK_URL);
   const apiKey = clean(env.CLINICAL_AI_DIARIZATION_API_KEY || env.DIARIZATION_WEBHOOK_API_KEY);
   const allowedRegions = splitCsv(env.CLINICAL_AI_DIARIZATION_ALLOWED_REGIONS || env.CLINICAL_AI_DIARIZATION_REGIONS);
-  const regionAllowed = !tenantRegion || allowedRegions.length === 0 || allowedRegions.includes(String(tenantRegion));
+  const isRegionAllowed = regionAllowed(tenantRegion, allowedRegions);
   const timeoutMs = Math.max(
     Number.parseInt(env.CLINICAL_AI_DIARIZATION_TIMEOUT_MS, 10) || DEFAULT_TIMEOUT_MS,
     MIN_TIMEOUT_MS
@@ -97,7 +108,7 @@ export function resolveDiarizationConfig({
     };
   }
 
-  if (!regionAllowed) {
+  if (!isRegionAllowed) {
     return {
       configured: false,
       provider: selectedProvider,
