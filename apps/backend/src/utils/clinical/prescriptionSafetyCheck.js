@@ -22,10 +22,13 @@ const PAEDIATRIC_MG_PER_KG = {
 
 const DOSE_VALUE_RX = /(-?\d+(?:\.\d+)?)\s*(mg|mcg|µg|g|ml)\b/i;
 const DOSE_VALUE_GLOBAL_RX = /(-?\d+(?:\.\d+)?)\s*(mg|mcg|µg|g|ml)\b/gi;
+const MG_PER_KG_RX = /(\d+(?:\.\d+)?)\s*mg\s*\/\s*kg\b/i;
+const MG_PER_KG_GLOBAL_RX = /(\d+(?:\.\d+)?)\s*mg\s*\/\s*kg\b/gi;
 
 // Syrup-strength patterns in medication names. Catch "125mg/5ml",
 // "100 mg/ml", "100mg / 5 ml", etc. Returns mg-per-ml when present.
 const STRENGTH_RX = /(\d+(?:\.\d+)?)\s*mg\s*\/\s*(\d+(?:\.\d+)?)?\s*ml\b/i;
+const STRENGTH_GLOBAL_RX = /(\d+(?:\.\d+)?)\s*mg\s*\/\s*(\d+(?:\.\d+)?)?\s*ml\b/gi;
 
 function parseStrengthMgPerMl(text) {
   if (!text || typeof text !== 'string') return null;
@@ -37,9 +40,31 @@ function parseStrengthMgPerMl(text) {
   return mg / perMl;
 }
 
+function parseMgPerKgDose(text) {
+  if (!text || typeof text !== 'string') return null;
+  const m = text.match(MG_PER_KG_RX);
+  if (!m) return null;
+  const mgPerKg = Number.parseFloat(m[1]);
+  return Number.isFinite(mgPerKg) && mgPerKg > 0 ? mgPerKg : null;
+}
+
+function stripStrengthTokens(text) {
+  return String(text || '').replace(STRENGTH_GLOBAL_RX, ' ');
+}
+
 function parseDoseToMg(doseString, options = {}) {
   if (!doseString || typeof doseString !== 'string') return null;
-  const m = doseString.match(DOSE_VALUE_RX);
+  const mgPerKg = parseMgPerKgDose(doseString);
+  if (mgPerKg !== null) {
+    const weightKg = Number(options.weightKg);
+    if (Number.isFinite(weightKg) && weightKg > 0) return mgPerKg * weightKg;
+  }
+
+  // Remove syrup-strength and mg/kg tokens before looking for a literal dose.
+  // Otherwise "15 mg/kg" is misread as a flat 15 mg dose, and
+  // "125 mg/5 ml syrup" is misread as a flat 125 mg dose.
+  const doseText = stripStrengthTokens(doseString).replace(MG_PER_KG_GLOBAL_RX, ' ');
+  const m = doseText.match(DOSE_VALUE_RX);
   if (!m) return null;
   const value = Number.parseFloat(m[1]);
   if (!Number.isFinite(value) || value <= 0) return null;
@@ -58,24 +83,36 @@ function parseDoseToMg(doseString, options = {}) {
   return null;
 }
 
-function findLiquidDoseMismatch(doseString, strengthMgPerMl) {
+function findLiquidDoseMismatch(doseString, strengthMgPerMl, options = {}) {
   if (!doseString || typeof doseString !== 'string') return null;
   if (!Number.isFinite(strengthMgPerMl) || strengthMgPerMl <= 0) return null;
+  const doseWithoutStrength = stripStrengthTokens(doseString);
   const tokens = [];
-  for (const match of doseString.matchAll(DOSE_VALUE_GLOBAL_RX)) {
+  for (const match of doseWithoutStrength.matchAll(DOSE_VALUE_GLOBAL_RX)) {
     const value = Number.parseFloat(match[1]);
     const unit = String(match[2] || '').toLowerCase();
     if (Number.isFinite(value) && value > 0) tokens.push({ value, unit });
   }
-  const mgToken = tokens.find((t) => t.unit === 'mg');
+  const absoluteDoseText = doseWithoutStrength.replace(MG_PER_KG_GLOBAL_RX, ' ');
+  const absoluteTokens = [];
+  for (const match of absoluteDoseText.matchAll(DOSE_VALUE_GLOBAL_RX)) {
+    const value = Number.parseFloat(match[1]);
+    const unit = String(match[2] || '').toLowerCase();
+    if (Number.isFinite(value) && value > 0) absoluteTokens.push({ value, unit });
+  }
+  const mgPerKg = parseMgPerKgDose(doseWithoutStrength);
+  const weightKg = Number(options.weightKg);
+  const enteredMg = mgPerKg !== null && Number.isFinite(weightKg) && weightKg > 0
+    ? mgPerKg * weightKg
+    : absoluteTokens.find((t) => t.unit === 'mg')?.value;
   const mlToken = tokens.find((t) => t.unit === 'ml');
-  if (!mgToken || !mlToken) return null;
-  const expectedMl = mgToken.value / strengthMgPerMl;
+  if (!enteredMg || !mlToken) return null;
+  const expectedMl = enteredMg / strengthMgPerMl;
   const expectedMg = mlToken.value * strengthMgPerMl;
   const mlTolerance = Math.max(0.1, expectedMl * 0.05);
   if (Math.abs(mlToken.value - expectedMl) <= mlTolerance) return null;
   return {
-    entered_mg: mgToken.value,
+    entered_mg: Number(enteredMg.toFixed(2)),
     entered_ml: mlToken.value,
     strength_mg_per_ml: strengthMgPerMl,
     expected_ml: Number(expectedMl.toFixed(2)),
@@ -529,7 +566,9 @@ export async function validatePrescriptionSafety(patientId, medications) {
           parseStrengthMgPerMl(med.concentration) ||
           null;
         const doseText = med.dose || med.dosage || '';
-        const mismatch = findLiquidDoseMismatch(doseText, strengthMgPerMl);
+        const mismatch = findLiquidDoseMismatch(doseText, strengthMgPerMl, {
+          weightKg: paedCtx.weightKg,
+        });
         if (mismatch) {
           blockers.push({
             type: 'PAEDIATRIC_LIQUID_DOSE_MISMATCH',
@@ -540,7 +579,10 @@ export async function validatePrescriptionSafety(patientId, medications) {
             message: `${medName} dose text says ${mismatch.entered_mg}mg and ${mismatch.entered_ml}ml, but the listed strength converts ${mismatch.entered_mg}mg to ${mismatch.expected_ml}ml. Correct the mg/ml instruction or override with reason.`,
           });
         }
-        const doseMg = parseDoseToMg(doseText, { strengthMgPerMl });
+        const doseMg = parseDoseToMg(doseText, {
+          strengthMgPerMl,
+          weightKg: paedCtx.weightKg,
+        });
         if (doseMg === null) continue;
         const expectedMaxMg = mapping.mgPerKg * paedCtx.weightKg * 1.2; // 20% headroom
         if (doseMg > expectedMaxMg) {
