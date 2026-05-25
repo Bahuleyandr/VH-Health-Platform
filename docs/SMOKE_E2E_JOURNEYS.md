@@ -32,6 +32,7 @@ the backend and admin portal, then runs:
 - patient API routing smoke
 - staff API routing smoke
 - staff clinical-safety API smoke
+- Clinical AI pilot evidence-pack smoke
 
 This is intentionally a local fixture smoke. It does not need production
 credentials and should fail fast when endpoint drift, missing tables, proxy
@@ -129,6 +130,25 @@ Covered journeys:
 - Doctor create/update/availability/delete.
 - System settings read/update.
 - Clinical AI status, modules, review queue, and audit endpoints.
+
+## Clinical AI Pilot Evidence
+
+Command:
+
+```powershell
+.\scripts\smoke-clinical-ai-pilot-evidence.ps1
+```
+
+Covered journey:
+
+- Seeds the first pilot pair: `medication_reconciliation` and
+  `patient_aftercare_instructions`.
+- Proves tenant isolation by exporting only the seeded tenant evidence window.
+- Requires human final reviews with reviewer notes for both modules.
+- Requires an accepted eval gate for the risky medication reconciliation module.
+- Verifies visible generation labels include both `ai` and `template_fallback`.
+- Verifies the pack has no blockers, no schema-unavailable sections, an audit
+  trail, and no leaked draft bodies or full reviewer notes.
 
 Browser-level local journeys live in `apps/admin/e2e/authenticated.spec.ts` and
 cover login/session reuse, dashboard, users, appointments, uploads,
