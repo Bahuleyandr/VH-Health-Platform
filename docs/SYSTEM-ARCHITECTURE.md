@@ -503,17 +503,20 @@ in CI.
 
 ## 8. Clinical-AI subsystem
 
-The "40 future-proofing AI features" are all shipped at v1. See
+The "40 future-proofing AI features" are all shipped at v1, and the
+current Clinical AI registry contains 92 governed modules. See
 [`apps/backend/docs/AI_FEATURE_TRACKER.md`](../apps/backend/docs/AI_FEATURE_TRACKER.md)
 for the per-module status matrix — every row is `Implemented v1` as of
 batch 15 (2026-04-23), with a live admin panel under
 [`apps/admin/src/app/(with-auth)/dashboard/clinical-ai/`](../apps/admin/src/app/%28with-auth%29/dashboard/clinical-ai/).
 
-Architectural contract, consistent across all 40 modules:
+Architectural contract, consistent across all modules:
 
 - **Review-only**. No module auto-administers, auto-orders, auto-releases, or auto-appeals. Every recommendation lands in a review queue for a clinician / billing coordinator / pharmacist / security officer.
-- **Tenant-isolated**. The 10 `clinical_ai_*` tables listed in migration 075 are RLS-protected. `tenant_id` is required for any new row. Per-tenant module enablement lives in `clinical_ai_tenant_modules`.
+- **Tenant-isolated**. Clinical AI tables are tenant-scoped and guarded by the RLS/middleware pattern. `tenant_id` is required for new rows. Per-tenant module enablement lives in `clinical_ai_tenant_modules`.
 - **Cited**. Every recommendation persists the evidence/context it drew from (`clinical_ai_context_snapshots`) so the reviewer can audit provenance.
+- **Loud about fallback**. Generated output carries `generation_mode`, `fallback_reason`, `readiness_reason`, and `provider_status`; admin surfaces badge AI output separately from template fallback, blocked output, and schema-unavailable states.
+- **Governed enablement**. High-risk enablement and risky runtime changes require two-person approval and accepted eval evidence for the effective module/provider/model tuple.
 
 Admin UI: simple modules use the shared `ClinicalAIReviewQueue`
 component; bespoke panels exist for two-tier and three-tier modules

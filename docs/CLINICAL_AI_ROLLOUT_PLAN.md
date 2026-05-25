@@ -30,10 +30,12 @@ between 2026-04-30 evening and 2026-05-01:
 | G | Public / population health | 5 | 138 |
 | H | Operational forecasting | 8 | 139 |
 
-**79 modules total**, all governed via `clinical_ai_modules` /
-`clinical_ai_generations` / `clinical_ai_reviews`, all decision-support-
-only, all enabled=false by default. See `AI_FEATURE_GAP_BACKLOG.md` for
-the per-module ledger and remaining ~21 long-tail catalogue items.
+The Tier A-H build produced 79 modules; the current registry has
+**92 modules total** as of the 2026-05-25 governance-hardening branch,
+all governed via `clinical_ai_modules` / `clinical_ai_generations` /
+`clinical_ai_reviews`, all decision-support-only, all enabled=false by
+default. See `AI_FEATURE_GAP_BACKLOG.md` for the per-module ledger and
+remaining ~21 long-tail catalogue items.
 
 What's left is hospital-side configuration work that this repo can't do:
 hospital DNS pointing `clinical.<hospital>.local` at the internal ingress
@@ -44,9 +46,10 @@ in the relevant phase below.
 
 **Rollout work that follows from "all tiers shipped":**
 
-- **Admin UI for Tier C–H** — Tier A and B got admin panels in-session;
-  Tier C–H currently expose POST routes but no admin UI surface. Closing
-  this is the highest-visibility next step.
+- **Governance hardening rollout** — the 2026-05-25 branch adds strict
+  review-role enforcement, two-person approval for risky module changes,
+  eval evidence gates, explicit schema-unavailable failures, and visible
+  fallback/blocked/schema badges in the admin UI.
 - **Per-tenant rollout playbook** — which modules to enable for which
   hospital pilot, in what order. See [`PER_TENANT_ROLLOUT_PLAYBOOK.md`](PER_TENANT_ROLLOUT_PLAYBOOK.md).
 - **Local-Ollama deep-tier pilot** — Tier B/C/D/F-bundles (CRITICAL-tier
@@ -67,7 +70,7 @@ features.
   build spec; verdict matrix per section + Phase A–F remediation
   roadmap (~16 weeks). **Entity / infra layer.**
 - [`AI_FEATURE_GAP_BACKLOG.md`](AI_FEATURE_GAP_BACKLOG.md) —
-  audit of a ~250-feature user-facing AI catalogue against the 78
+  audit of a ~250-feature user-facing AI catalogue against the 92
   registered modules; tier-A/B/C/… build order + 5 substrate-level
   safety holes (S1–S5) to fix first. **Module / feature layer.**
 

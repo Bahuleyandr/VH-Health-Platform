@@ -526,6 +526,9 @@ function EvalRunForm() {
   const [modelKey, setModelKey] = useState("");
   const [version, setVersion] = useState("");
   const [suite, setSuite] = useState("");
+  const [gateModuleKey, setGateModuleKey] = useState("");
+  const [gateProvider, setGateProvider] = useState("");
+  const [gateModel, setGateModel] = useState("");
   const [accuracy, setAccuracy] = useState("");
   const [f1Score, setF1Score] = useState("");
   const [fallbackRatePct, setFallbackRatePct] = useState("");
@@ -538,6 +541,9 @@ function EvalRunForm() {
         version: version.trim(),
         suite: suite.trim(),
       };
+      if (gateModuleKey.trim()) body.module_key = gateModuleKey.trim();
+      if (gateProvider.trim()) body.provider = gateProvider.trim();
+      if (gateModel.trim()) body.model = gateModel.trim();
       const parseNum = (value: string): number | null => {
         const trimmed = value.trim();
         if (!trimmed) return null;
@@ -557,6 +563,9 @@ function EvalRunForm() {
     onSuccess: () => {
       toast.success("Eval run recorded");
       setSuite("");
+      setGateModuleKey("");
+      setGateProvider("");
+      setGateModel("");
       setAccuracy("");
       setF1Score("");
       setFallbackRatePct("");
@@ -608,6 +617,33 @@ function EvalRunForm() {
             onChange={(event) => setSuite(event.target.value)}
             className="w-full rounded-md border border-border bg-background px-3 py-2"
             placeholder="e.g. safety-regression"
+          />
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="text-muted-foreground">Gate module key</span>
+          <input
+            value={gateModuleKey}
+            onChange={(event) => setGateModuleKey(event.target.value)}
+            className="w-full rounded-md border border-border bg-background px-3 py-2"
+            placeholder="e.g. medication_reconciliation"
+          />
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="text-muted-foreground">Gate provider</span>
+          <input
+            value={gateProvider}
+            onChange={(event) => setGateProvider(event.target.value)}
+            className="w-full rounded-md border border-border bg-background px-3 py-2"
+            placeholder="e.g. template"
+          />
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="text-muted-foreground">Gate model</span>
+          <input
+            value={gateModel}
+            onChange={(event) => setGateModel(event.target.value)}
+            className="w-full rounded-md border border-border bg-background px-3 py-2"
+            placeholder="e.g. llama3.1:8b"
           />
         </label>
         <label className="space-y-1 text-sm">

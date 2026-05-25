@@ -403,10 +403,10 @@ After the matrices: the **top-10 prioritised gaps** + a **remediation roadmap** 
 | FHIR resource versioning | 🟡 partial (audit log captures changes) |
 | FHIR CapabilityStatement | 🟡 likely partial (`/metadata` referenced but I should verify) |
 | SMART-on-FHIR-ready OAuth scopes | 🔴 missing |
-| CDS Hooks endpoints | 🔴 missing |
+| CDS Hooks endpoints | ✅ shipped via CDS Hooks JSON-card adapter and `/api/v1/cds-services` |
 | FHIR conformance CI | `_reusable-backend-fhir.yml` workflow ✅ |
 
-**Verdict:** ✅ FHIR adapter is real and CI-tested. SMART-on-FHIR scopes + CDS Hooks are the two interop gaps.
+**Verdict:** ✅ FHIR adapter and CDS Hooks are real and CI-tested. SMART-on-FHIR scopes remain the main interop gap.
 
 ---
 
@@ -519,7 +519,7 @@ have them flow into AI prompts under tenant + role isolation. See
 237 Prisma models cover most spec groups. Specific gaps already called out in earlier sections. Notable:
 - Spec lists ~200 models. VH Health has 237. The deltas:
   - **VH Health-only**: 70+ `clinical_ai_*` tables, payroll/HR-deep tables (salary_*, payslip_*), gamification (`step_*`, `health_milestones`), `clinical_ambient_*`, virtual_ward
-  - **Spec-only / missing**: `Facility`, `Location`, `Room`, `CareTeam`, `CarePlan`, `FollowUpPlan`, `ClinicalForm`/`FormResponse`, `PatientIdentifier`, `PatientMergeRequest`, `Payer`/`TPA`/`TariffPlan`/`Package`, `KnowledgeBase`/`KnowledgeDocument`/`KnowledgeChunk`, `WebhookSubscription`/`WebhookDelivery`/`Integration`, `Teleconsultation`/`VideoSession`, `Task`/`Workflow`/`Approval` (non-AI), `BreachIncident`, `DataProcessingActivity`, `MedicalRecordBundle`/`RecordReleaseRequest`, `EmergencyVisit`/`TriageAssessment`/`AmbulanceRequest`/`MLCRecord`, `PreOpChecklist`/`IntraOpNote`/`PostOpNote`/`AnesthesiaRecord`/`Implant`, `PainScore`/`FallRiskAssessment`/`GrowthChartEntry`, `LabMachineIntegration`/`LabQualityControlEntry`, `SubstituteMedication`/`InventoryBatch`/`PharmacyInventoryItem`/`Supplier`/`PurchaseOrder`/`GoodsReceipt`/`ExpiryAlert`
+  - **Spec-only / missing**: `Facility`, `Location`, `Room`, `CareTeam`, `CarePlan`, `FollowUpPlan`, `ClinicalForm`/`FormResponse`, `PatientIdentifier`, `PatientMergeRequest`, `Payer`/`TPA`/`TariffPlan`/`Package`, `WebhookSubscription`/`WebhookDelivery`/`Integration`, `Teleconsultation`/`VideoSession`, `Task`/`Workflow`/`Approval` (non-AI), `MedicalRecordBundle`/`RecordReleaseRequest`, `EmergencyVisit`/`TriageAssessment`/`AmbulanceRequest`/`MLCRecord`, `PreOpChecklist`/`IntraOpNote`/`PostOpNote`/`AnesthesiaRecord`/`Implant`, `LabMachineIntegration`/`LabQualityControlEntry`, `SubstituteMedication`/`InventoryBatch`/`PharmacyInventoryItem`/`Supplier`/`PurchaseOrder`/`GoodsReceipt`/`ExpiryAlert`
 
 **Verdict:** ⏩ on AI; 🟡 on operational entities (~25 tables genuinely missing).
 
@@ -688,7 +688,7 @@ Closes the ops gaps that block hospital onboarding.
 ## Phase D — Interop + India compliance (≈4 weeks)
 
 - **D1**: ABDM HIP/HIU full flow — `ABHAProfile`, `ABDMFacilityMapping`, `ABDMPractitionerMapping`, `ABDMCareContext` (separate from generic `abdm_consents`), `ABDMConsentRequest`/`ABDMConsentArtifact` (split), `ABDMDataTransfer`, `ABDMWebhookEvent`, `ABDMIntegrationLog`. Sandbox/prod env separation.
-- **D2**: CDS Hooks endpoints — patient-view, order-select, order-sign, medication-prescribe, encounter-start, encounter-close. Reuse existing AI services as the brain behind the hooks.
+- **D2** ✅: CDS Hooks endpoints — patient-view, order-select, order-sign, medication-prescribe, encounter-start, encounter-close. Shipped through the CDS Hooks JSON-card adapter; future work is broader SMART-on-FHIR packaging.
 - **D3**: SMART-on-FHIR OAuth scopes — extend the existing OAuth surface with FHIR-scoped tokens.
 - **D4**: ED operational entities — `EmergencyVisit`, `TriageAssessment`, `EmergencyAlert`, `AmbulanceRequest`, `MLCRecord`. Wire into existing `clinical_ai_ed_triage_predictions`.
 
@@ -719,10 +719,12 @@ items unblock spec sections that were marked partial above.
 | G | 5 | 138 | §13 public-health registries + AI deidentification (§14 research) |
 | H | 8 | 139 | §16 tariff/package/feedback, §24 operational forecasting tail |
 
-**Total 79 modules** with no entity-layer migrations beyond what Phases
-A–F already shipped — every Tier wraps existing entities with an
-explainer-pipeline + module config + admin POST route. Backend test
-count grew from ~3,322 (post-E/F follow-ups) to ~3,445 across the cycle.
+The Tier A-H build produced 79 modules; the current registry has
+**92 modules** as of the 2026-05-25 governance-hardening branch. Every
+tier module wraps existing entities with an explainer-pipeline + module
+config + admin route, and the current hardening pass adds strict review
+roles, two-person risky-change approvals, eval evidence gates, and
+explicit fallback/schema status.
 
 ## Phase F — Spec polish (≈1 week) ✅ SHIPPED 2026-04-30
 

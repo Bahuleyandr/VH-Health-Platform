@@ -7,6 +7,7 @@ import {
   saveDischargeSummary,
   signDischargeSummary,
 } from "@/lib/api";
+import { generationModeClass, generationModeFor, generationModeLabel } from "@/app/(with-auth)/dashboard/clinical-ai/generationMode";
 import toast from "react-hot-toast";
 
 export default function DischargeSummaryPage() {
@@ -85,9 +86,12 @@ export default function DischargeSummaryPage() {
           provider?: string;
           model?: string;
           used_ai?: boolean;
+          generation_mode?: string | null;
           fallback_reason?: string | null;
+          readiness_reason?: string | null;
         })
       : null;
+  const aiGenerationMode = aiMetadata ? generationModeFor(aiMetadata) : null;
 
   const handleSave = async () => {
     setLoading(true);
@@ -203,16 +207,21 @@ export default function DischargeSummaryPage() {
           )}
 
           {aiMetadata && (
-            <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-              <div className="font-semibold">Clinical AI Draft</div>
+            <div className="mb-6 rounded-lg border border-border bg-card p-4 text-sm">
+              <div className="flex flex-wrap items-center gap-2 font-semibold">
+                <span>Clinical AI Draft</span>
+                <span className={`rounded-full border px-2 py-0.5 text-xs ${generationModeClass(aiGenerationMode)}`}>
+                  {generationModeLabel(aiGenerationMode)}
+                </span>
+              </div>
               <div className="mt-1">
                 Provider: {aiMetadata.provider ?? "template"} | Model:{" "}
                 {aiMetadata.model ?? "not configured"} | Local AI:{" "}
-                {aiMetadata.used_ai ? "used" : "template fallback"}
+                {generationModeLabel(aiGenerationMode)}
               </div>
-              {aiMetadata.fallback_reason && (
-                <div className="mt-1 text-blue-700">
-                  Fallback: {aiMetadata.fallback_reason}
+              {(aiMetadata.fallback_reason || aiMetadata.readiness_reason) && (
+                <div className="mt-1">
+                  Reason: {aiMetadata.fallback_reason || aiMetadata.readiness_reason}
                 </div>
               )}
             </div>

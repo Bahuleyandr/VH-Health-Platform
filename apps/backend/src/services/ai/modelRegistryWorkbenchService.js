@@ -634,7 +634,13 @@ async function insertGeneration({
       usage.completion_tokens || 0,
       usage.total_tokens || 0,
       aiResult?.estimatedCostMinor ?? 0,
-      JSON.stringify(metadata || {})
+      JSON.stringify({
+        ...(metadata || {}),
+        generation_mode: aiResult?.generation_mode || (aiResult?.usedAi ? 'ai' : 'template_fallback'),
+        fallback_reason: aiResult?.usedAi ? null : aiResult?.reason || aiResult?.fallback_reason || 'template_or_rule_output',
+        readiness_reason: aiResult?.readiness_reason || null,
+        provider_status: aiResult?.provider_status || (aiResult?.usedAi ? 'used' : 'template_fallback'),
+      })
     );
     return (rows && rows[0]) || null;
   } catch (err) {
@@ -1039,6 +1045,13 @@ export async function recordEvalRun({
   draft.safety_flags = combinedFlags;
   draft.source_citations = uniqueCitations(asArray(draft.source_citations));
 
+  const evalMetadata = {
+    ...(metadata || {}),
+    module_key: metadata?.module_key || key,
+    provider: metadata?.provider || registryRow?.provider || aiResult?.provider || 'template',
+    model: metadata?.model || aiResult?.model || ver,
+  };
+
   // Persist generation.
   const generation = await insertGeneration({
     tenantId,
@@ -1057,6 +1070,7 @@ export async function recordEvalRun({
     aiResult,
     prompt,
     metadata: {
+      ...evalMetadata,
       model_key: key,
       version: ver,
       suite: suiteName,
@@ -1116,7 +1130,7 @@ export async function recordEvalRun({
       JSON.stringify(asArray(recommendedActions)),
       JSON.stringify(asArray(draft.source_citations)),
       JSON.stringify(asArray(combinedFlags)),
-      JSON.stringify(metadata || {})
+      JSON.stringify(evalMetadata)
     );
     runRow = normalizeEvalRow((rows && rows[0]) || null);
   } catch (err) {
@@ -1193,6 +1207,10 @@ export async function recordEvalRun({
       provider: aiResult?.provider || 'template',
       model: aiResult?.model || null,
       used_ai: Boolean(aiResult?.usedAi),
+      generation_mode: aiResult?.generation_mode || (aiResult?.usedAi ? 'ai' : 'template_fallback'),
+      fallback_reason: aiResult?.usedAi ? null : aiResult?.reason || aiResult?.fallback_reason || 'template_or_rule_output',
+      readiness_reason: aiResult?.readiness_reason || null,
+      provider_status: aiResult?.provider_status || (aiResult?.usedAi ? 'used' : 'template_fallback'),
       usage: aiResult?.usage || {},
     },
     rules_authoritative: true,

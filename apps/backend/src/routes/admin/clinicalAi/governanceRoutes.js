@@ -3,6 +3,7 @@ import { setTenant } from '../../../lib/prisma.js';
 import { rawQuery } from '../../../lib/rawSql.js';
 import { getHealthReport } from '../../../middleware/selfHealingMiddleware.js';
 import { success } from '../../../utils/responseHelper.js';
+import { AppError } from '../../../utils/AppError.js';
 import { getClinicalAiRuntimeStatus } from '../../../services/ai/localLlmClient.js';
 import {
   deleteClinicalAiTenantModule,
@@ -65,6 +66,20 @@ import {
 
 const router = express.Router();
 
+function isMissingClinicalAiSchema(err) {
+  return /does not exist|column .* does not exist|relation .* does not exist|invalid_schema_name/i.test(
+    String(err?.message || '')
+  );
+}
+
+function clinicalAiSchemaUnavailable(err) {
+  if (!isMissingClinicalAiSchema(err)) return err;
+  return AppError.internal(
+    'Clinical AI governance schema is unavailable; refusing unsafe fallback',
+    'CLINICAL_AI_SCHEMA_UNAVAILABLE'
+  );
+}
+
 router.get('/status', async (req, res, next) => {
   try {
     const live = String(req.query.live || '').toLowerCase() === 'true';
@@ -77,7 +92,7 @@ router.get('/status', async (req, res, next) => {
     });
     return success(res, status, 'Clinical AI status retrieved');
   } catch (err) {
-    return next(err);
+    return next(clinicalAiSchemaUnavailable(err));
   }
 });
 
@@ -112,6 +127,16 @@ router.patch('/tenant-modules/:moduleKey', async (req, res, next) => {
       updatedBy,
       { tenantId: req.tenantId }
     );
+    if (module?.approval_required) {
+      await logClinicalAiAudit(
+        req,
+        'CLINICAL_AI_TENANT_MODULE_CHANGE_APPROVAL_REQUIRED',
+        `${req.tenantId}:${req.params.moduleKey}`,
+        before,
+        module
+      );
+      return success(res, module, 'Clinical AI tenant module change approval required', 202);
+    }
     await logClinicalAiAudit(
       req,
       'CLINICAL_AI_TENANT_MODULE_UPDATED',
@@ -149,7 +174,21 @@ router.patch('/modules/:moduleKey', async (req, res, next) => {
   try {
     const updatedBy = req.user?.uid || null;
     const before = pickModuleAuditFields(await getClinicalAiModule(req.params.moduleKey));
-    const module = await updateClinicalAiModule(req.params.moduleKey, req.body || {}, updatedBy);
+    const module = await updateClinicalAiModule(
+      req.params.moduleKey,
+      { ...(req.body || {}), tenantId: req.tenantId },
+      updatedBy
+    );
+    if (module?.approval_required) {
+      await logClinicalAiAudit(
+        req,
+        'CLINICAL_AI_MODULE_CHANGE_APPROVAL_REQUIRED',
+        req.params.moduleKey,
+        before,
+        module
+      );
+      return success(res, module, 'Clinical AI module change approval required', 202);
+    }
     await logClinicalAiAudit(
       req,
       'CLINICAL_AI_MODULE_UPDATED',
@@ -245,7 +284,7 @@ router.patch('/reviews/:id', async (req, res, next) => {
       req.body || {},
       req.user?.uid || null,
       normalizeRole(req.user?.role),
-      { tenantId: req.tenantId }
+      { tenantId: req.tenantId, allowReviewRoleOverride: true }
     );
     await logClinicalAiAudit(
       req,
@@ -573,7 +612,21 @@ router.get('/generations', async (req, res, next) => {
                 g.status, g.used_ai, g.safety_flags, g.generated_by, g.reviewed_by,
                 g.signed_note_id, g.prompt_tokens, g.completion_tokens, g.total_tokens,
                 g.estimated_cost_minor, g.latency_ms, g.provider_request_id,
-                g.finish_reason, g.metadata, g.created_at, g.updated_at
+                g.finish_reason,
+                COALESCE(
+                  g.metadata->>'generation_mode',
+                  CASE WHEN g.used_ai THEN 'ai' ELSE 'template_fallback' END
+                ) AS generation_mode,
+                COALESCE(
+                  g.metadata->>'fallback_reason',
+                  CASE WHEN g.used_ai THEN NULL ELSE 'template_or_rule_output' END
+                ) AS fallback_reason,
+                g.metadata->>'readiness_reason' AS readiness_reason,
+                COALESCE(
+                  g.metadata->>'provider_status',
+                  CASE WHEN g.used_ai THEN 'used' ELSE 'template_fallback' END
+                ) AS provider_status,
+                g.metadata, g.created_at, g.updated_at
          FROM clinical_ai_generations g
          LEFT JOIN users u ON u.uid = g.patient_uid
          ${where}
@@ -585,7 +638,7 @@ router.get('/generations', async (req, res, next) => {
 
     return success(res, { generations: rows, count: rows.length }, 'Clinical AI generations retrieved');
   } catch (err) {
-    return next(err);
+    return next(clinicalAiSchemaUnavailable(err));
   }
 });
 

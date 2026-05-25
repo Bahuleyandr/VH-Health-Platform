@@ -21,6 +21,7 @@ import {
   type ClinicalAiGuardrails,
   type ClinicalAiModule,
   type ClinicalAiModulePatch,
+  type ClinicalAiModuleUpdateResult,
   type ClinicalAiSafetyFlag,
   type ClinicalAiSafetyReviewSummary,
 } from "@/lib/api/clinicalAiAdmin";
@@ -39,6 +40,7 @@ import {
 } from "./components/GovernancePanels";
 import { AIExpansionHeader } from "./components/AIExpansionHeader";
 import { ClinicalAiExpansionPanels } from "./components/ClinicalAiExpansionPanels";
+import { generationModeClass, generationModeFor, generationModeLabel } from "./generationMode";
 
 function fmt(value?: string | null) {
   if (!value) return "-";
@@ -52,6 +54,10 @@ function fmt(value?: string | null) {
   } catch {
     return value;
   }
+}
+
+function isApprovalRequired(result: ClinicalAiModuleUpdateResult): result is Extract<ClinicalAiModuleUpdateResult, { approval_required: true }> {
+  return Boolean((result as { approval_required?: boolean })?.approval_required);
 }
 
 function fmtNumber(value?: number | null) {
@@ -590,25 +596,33 @@ export default function ClinicalAiGovernancePage() {
     queryFn: () => getClinicalAiAuditLogs(50),
   });
 
+  const invalidateModuleGovernance = () => {
+    queryClient.invalidateQueries({ queryKey: ["clinical-ai-status"] });
+    queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
+    queryClient.invalidateQueries({ queryKey: ["clinical-ai", "approvals"] });
+  };
+
+  const showModuleUpdateResult = (result: ClinicalAiModuleUpdateResult, appliedMessage: string) => {
+    invalidateModuleGovernance();
+    if (isApprovalRequired(result)) {
+      const approvalId = result.approval?.id ? ` #${result.approval.id}` : "";
+      toast(`Approval required${approvalId}; no module change was applied yet.`);
+      return;
+    }
+    toast.success(appliedMessage);
+  };
+
   const toggleModule = useMutation({
     mutationFn: (module: ClinicalAiModule) =>
       updateClinicalAiTenantModule(module.module_key, { enabled: !module.enabled }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["clinical-ai-status"] });
-      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
-      toast.success("Tenant module override updated");
-    },
+    onSuccess: (result) => showModuleUpdateResult(result, "Tenant module override updated"),
     onError: (err: Error) => toast.error(err.message || "Module update failed"),
   });
 
   const saveModuleOverride = useMutation({
     mutationFn: ({ module, payload }: { module: ClinicalAiModule; payload: ClinicalAiModulePatch }) =>
       updateClinicalAiTenantModule(module.module_key, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["clinical-ai-status"] });
-      queryClient.invalidateQueries({ queryKey: ["clinical-ai-audit"] });
-      toast.success("Tenant module settings updated");
-    },
+    onSuccess: (result) => showModuleUpdateResult(result, "Tenant module settings updated"),
     onError: (err: Error) => toast.error(err.message || "Module settings update failed"),
   });
 
@@ -1268,8 +1282,17 @@ export default function ClinicalAiGovernancePage() {
                       <div className="text-xs text-muted-foreground">{generation.patient_uid ?? ""}</div>
                     </td>
                     <td className="px-4 py-3">
-                      {generation.provider}
-                      {generation.used_ai ? "" : " fallback"}
+                      <div className="flex flex-col gap-1">
+                        <span>{generation.provider}</span>
+                        <span className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-xs font-medium ${generationModeClass(generationModeFor(generation))}`}>
+                          {generationModeLabel(generationModeFor(generation))}
+                        </span>
+                        {(generation.fallback_reason || generation.readiness_reason) ? (
+                          <span className="max-w-64 text-xs text-muted-foreground">
+                            {generation.fallback_reason || generation.readiness_reason}
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="px-4 py-3">{fmtNumber(generation.total_tokens)}</td>
                     <td className="px-4 py-3">{fmtLatency(generation.latency_ms)}</td>

@@ -1,5 +1,7 @@
+import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { AppError } from '../../utils/AppError.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
 export const CLINICAL_AI_MODULES = [
@@ -1745,13 +1747,29 @@ export const DEFAULT_CLINICAL_AI_GUARDRAILS = {
 };
 
 const MODULE_CACHE_MS = 30_000;
+const DEFAULT_EVAL_GATE_MAX_AGE_DAYS = 30;
+const DEFAULT_EVAL_GATE_MAX_SAFETY_RATE_PCT = 2;
+const DEFAULT_EVAL_GATE_MODEL = 'llama3.1:8b';
+const EVAL_GATE_BLOCKING_RECOMMENDATIONS = new Set(['rollback', 'retire', 'quarantine']);
+const EVAL_GATE_BLOCKING_SEVERITIES = new Set(['high', 'critical']);
+const MODULE_APPROVAL_TYPE = 'module_governance_change';
+const RISKY_MODULE_FIELDS = [
+  'enabled',
+  'external_allowed',
+  'provider_override',
+  'model_override',
+  'max_tokens',
+  'temperature',
+];
 let moduleCache = null;
 let moduleCacheAt = 0;
 let guardrailCache = null;
 let guardrailCacheAt = 0;
 
 function isMissingSchemaError(err) {
-  return /does not exist|column .* does not exist|relation .* does not exist/i.test(String(err?.message || ''));
+  return /does not exist|column .* does not exist|relation .* does not exist|invalid_schema_name/i.test(
+    String(err?.message || '')
+  );
 }
 
 function emptySafetyReviewSummary(windowDays, reason = null) {
@@ -1808,6 +1826,278 @@ function clampInt(value, { min = 0, max = Number.MAX_SAFE_INTEGER, fallback = nu
   const parsed = nullableInt(value);
   if (parsed === null) return fallback;
   return Math.min(Math.max(parsed, min), max);
+}
+
+function schemaUnavailableError(err, surface) {
+  if (!isMissingSchemaError(err)) return err;
+  logger.warn('Clinical AI governance schema unavailable', {
+    surface,
+    error: err.message,
+  });
+  return AppError.internal(
+    'Clinical AI governance schema is unavailable; refusing unsafe fallback',
+    'CLINICAL_AI_SCHEMA_UNAVAILABLE'
+  );
+}
+
+function normalizeProviderName(value) {
+  const provider = String(value || 'template').toLowerCase().trim();
+  const aliases = {
+    local: 'ollama',
+    'llama-local': 'ollama',
+    llama: 'ollama',
+    openai_compatible: 'openai-compatible',
+    openai_compat: 'openai-compatible',
+    compatible: 'openai-compatible',
+    chatgpt: 'openai',
+    claude: 'anthropic',
+  };
+  return aliases[provider] || provider;
+}
+
+function tieredEnvValue(module, suffix) {
+  const tier = String(module?.settings?.model_tier || module?.settings?.modelTier || '').toLowerCase();
+  if (tier === 'deep') {
+    const deepValue = process.env[`CLINICAL_AI_DEEP_${suffix}`];
+    if (deepValue !== undefined && deepValue !== '') return deepValue;
+  }
+  return process.env[`CLINICAL_AI_${suffix}`] || '';
+}
+
+function resolveEffectiveProviderModel(module) {
+  return {
+    provider: normalizeProviderName(
+      module?.provider_override
+        || tieredEnvValue(module, 'PROVIDER')
+        || process.env.AI_PROVIDER
+        || 'template'
+    ),
+    model: String(
+      module?.model_override
+        || tieredEnvValue(module, 'MODEL')
+        || process.env.AI_SUMMARIZE_MODEL
+        || DEFAULT_EVAL_GATE_MODEL
+    ).trim(),
+  };
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return value.map(stableJson);
+  if (value && typeof value === 'object') {
+    return Object.keys(value).sort().reduce((acc, key) => {
+      acc[key] = stableJson(value[key]);
+      return acc;
+    }, {});
+  }
+  return value;
+}
+
+function hashRequestedChange(change) {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify(stableJson(change || {})))
+    .digest('hex');
+}
+
+function normalizeComparable(value) {
+  if (value === undefined || value === '') return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'boolean' || value === null) return value;
+  return String(value).trim();
+}
+
+function valuesDiffer(left, right) {
+  return normalizeComparable(left) !== normalizeComparable(right);
+}
+
+function moduleRisk(module) {
+  return String(module?.settings?.risk || '').toLowerCase();
+}
+
+function moduleApprovalPolicy(module) {
+  return String(module?.settings?.approvalPolicy || '').toLowerCase();
+}
+
+function riskyChangedFields(current, next) {
+  return RISKY_MODULE_FIELDS.filter((field) => valuesDiffer(current?.[field], next?.[field]));
+}
+
+function changeRequiresApproval(current, next, changedFields) {
+  const risk = moduleRisk(next);
+  const approvalPolicy = moduleApprovalPolicy(next);
+  const enabledNow = !current?.enabled && next?.enabled && changedFields.includes('enabled');
+  const reasons = [];
+
+  if (enabledNow && (approvalPolicy === 'two_person_for_enablement' || ['high', 'critical'].includes(risk))) {
+    reasons.push('two_person_enablement');
+  }
+
+  for (const field of changedFields.filter((field) => field !== 'enabled')) {
+    reasons.push(`risky_runtime_change:${field}`);
+  }
+
+  return reasons;
+}
+
+function changeRequiresEval(current, next, changedFields) {
+  const risk = moduleRisk(next);
+  const enablingHighRisk = !current?.enabled && next?.enabled && ['high', 'critical'].includes(risk);
+  const externalOrModelChange = changedFields.some((field) => (
+    field === 'external_allowed' || field === 'provider_override' || field === 'model_override'
+  ));
+  return enablingHighRisk || externalOrModelChange;
+}
+
+function moduleChangePayload({ scope, tenantId, moduleKey, actorUid, changedFields, current, next, reasons, evalGate }) {
+  const payload = {
+    scope,
+    tenant_id: tenantId || DEFAULT_TENANT_ID,
+    module_key: moduleKey,
+    changed_fields: changedFields,
+    current: Object.fromEntries(RISKY_MODULE_FIELDS.map((field) => [field, current?.[field] ?? null])),
+    next: Object.fromEntries(RISKY_MODULE_FIELDS.map((field) => [field, next?.[field] ?? null])),
+    reasons,
+    eval_gate: evalGate || null,
+  };
+  const changeHash = hashRequestedChange(payload);
+  return {
+    ...payload,
+    requested_by: actorUid || null,
+    requested_change_hash: changeHash,
+  };
+}
+
+async function readApprovedModuleChangeApproval({ tenantId, approvalId, moduleKey, requestedChangeHash }) {
+  if (!approvalId) return null;
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, approval_type, module_key, status, requested_by, approved_by,
+              rejected_by, reason, payload, expires_at, decided_at, created_at
+       FROM clinical_ai_approvals
+       WHERE id = $1
+         AND tenant_id = $2::uuid
+         AND module_key = $3
+       LIMIT 1`,
+      Number.parseInt(approvalId, 10),
+      tenantId || DEFAULT_TENANT_ID,
+      moduleKey
+    );
+    const approval = rows[0] || null;
+    if (!approval) {
+      throw AppError.forbidden('Approved Clinical AI module-change approval was not found', 'CLINICAL_AI_APPROVAL_NOT_FOUND');
+    }
+    if (approval.status !== 'approved') {
+      throw AppError.forbidden('Clinical AI module-change approval is not approved', 'CLINICAL_AI_APPROVAL_NOT_APPROVED');
+    }
+    if (approval.approval_type !== MODULE_APPROVAL_TYPE) {
+      throw AppError.forbidden('Clinical AI approval type does not match module governance change', 'CLINICAL_AI_APPROVAL_MISMATCH');
+    }
+    if (approval.expires_at && new Date(approval.expires_at).getTime() < Date.now()) {
+      throw AppError.forbidden('Clinical AI module-change approval has expired', 'CLINICAL_AI_APPROVAL_EXPIRED');
+    }
+    if (approval.requested_by && approval.approved_by && approval.requested_by === approval.approved_by) {
+      throw AppError.forbidden('Two-person approval cannot be self-approved', 'CLINICAL_AI_APPROVAL_SELF_APPROVED');
+    }
+    if (approval.payload?.requested_change_hash !== requestedChangeHash) {
+      throw AppError.forbidden('Clinical AI approval does not match the requested module change', 'CLINICAL_AI_APPROVAL_MISMATCH');
+    }
+    return approval;
+  } catch (err) {
+    throw schemaUnavailableError(err, 'module_change_approval_lookup');
+  }
+}
+
+async function createPendingModuleChangeApproval({ tenantId, moduleKey, requestedBy, requestedChange }) {
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_ai_approvals
+         (tenant_id, approval_type, module_key, status, requested_by, reason, payload, expires_at, created_at, updated_at)
+       VALUES ($1::uuid, $2, $3, 'pending', $4::uuid, $5, $6::jsonb, NOW() + INTERVAL '7 days', NOW(), NOW())
+       RETURNING id, approval_type, module_key, status, requested_by, reason, payload, expires_at, created_at`,
+      tenantId || DEFAULT_TENANT_ID,
+      MODULE_APPROVAL_TYPE,
+      moduleKey,
+      requestedBy || null,
+      `Approve Clinical AI governance change for ${moduleKey}`,
+      JSON.stringify(requestedChange)
+    );
+    return rows[0];
+  } catch (err) {
+    throw schemaUnavailableError(err, 'module_change_approval_create');
+  }
+}
+
+async function assertAcceptedEvalGate({ tenantId, moduleKey, module, guardrails }) {
+  const { provider, model } = resolveEffectiveProviderModel(module);
+  const maxAgeDays = Math.min(
+    Math.max(Number.parseInt(process.env.CLINICAL_AI_EVAL_GATE_MAX_AGE_DAYS, 10) || DEFAULT_EVAL_GATE_MAX_AGE_DAYS, 1),
+    365
+  );
+  const fallbackThreshold = clampInt(
+    guardrails?.fallback_rate_alert_pct,
+    { min: 0, max: 100, fallback: DEFAULT_CLINICAL_AI_GUARDRAILS.fallback_rate_alert_pct }
+  );
+  const safetyThreshold = Number.isFinite(Number(process.env.CLINICAL_AI_EVAL_GATE_MAX_SAFETY_RATE_PCT))
+    ? Number(process.env.CLINICAL_AI_EVAL_GATE_MAX_SAFETY_RATE_PCT)
+    : DEFAULT_EVAL_GATE_MAX_SAFETY_RATE_PCT;
+
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, model_key, version, suite, recommendation, severity,
+              fallback_rate_pct, safety_flag_rate_pct, reviewer_decision,
+              metadata, created_at
+       FROM clinical_ai_model_eval_runs
+       WHERE tenant_id = $1::uuid
+         AND reviewer_decision = 'accepted'
+         AND created_at >= NOW() - ($2::int * INTERVAL '1 day')
+         AND COALESCE(metadata->>'module_key', model_key) = $3
+         AND COALESCE(metadata->>'provider', '') = $4
+         AND COALESCE(metadata->>'model', version, '') = $5
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      tenantId || DEFAULT_TENANT_ID,
+      maxAgeDays,
+      moduleKey,
+      provider,
+      model
+    );
+    const row = rows[0] || null;
+    if (!row) {
+      throw AppError.forbidden(
+        'Accepted Clinical AI eval run is required before this governance change',
+        'CLINICAL_AI_EVAL_GATE_REQUIRED',
+        { module_key: moduleKey, provider, model, max_age_days: maxAgeDays }
+      );
+    }
+
+    const recommendation = String(row.recommendation || '').toLowerCase();
+    const severity = String(row.severity || '').toLowerCase();
+    const fallbackRate = Number(row.fallback_rate_pct ?? 0);
+    const safetyRate = Number(row.safety_flag_rate_pct ?? 0);
+    const breaches = [];
+    if (EVAL_GATE_BLOCKING_RECOMMENDATIONS.has(recommendation)) breaches.push(`recommendation:${recommendation}`);
+    if (EVAL_GATE_BLOCKING_SEVERITIES.has(severity)) breaches.push(`severity:${severity}`);
+    if (Number.isFinite(fallbackRate) && fallbackRate >= fallbackThreshold) breaches.push(`fallback_rate:${fallbackRate}`);
+    if (Number.isFinite(safetyRate) && safetyRate >= safetyThreshold) breaches.push(`safety_flag_rate:${safetyRate}`);
+    if (breaches.length) {
+      throw AppError.forbidden(
+        'Latest accepted Clinical AI eval run does not satisfy enablement gate',
+        'CLINICAL_AI_EVAL_GATE_FAILED',
+        { module_key: moduleKey, provider, model, eval_run_id: row.id, breaches }
+      );
+    }
+
+    return {
+      eval_run_id: row.id,
+      provider,
+      model,
+      max_age_days: maxAgeDays,
+      fallback_rate_pct: fallbackRate,
+      safety_flag_rate_pct: safetyRate,
+    };
+  } catch (err) {
+    throw schemaUnavailableError(err, 'module_change_eval_gate');
+  }
 }
 
 function normalizeModule(row) {
@@ -2030,10 +2320,7 @@ export async function listClinicalAiModules({ refresh = false, tenantId = null }
     moduleCacheAt = Date.now();
     return moduleCache;
   } catch (err) {
-    logger.warn('Clinical AI module table unavailable; using defaults', { error: err.message });
-    moduleCache = CLINICAL_AI_MODULES.map((module) => normalizeModule(module));
-    moduleCacheAt = Date.now();
-    return moduleCache;
+    throw schemaUnavailableError(err, 'module_list');
   }
 }
 
@@ -2046,12 +2333,7 @@ export async function listClinicalAiTenantModules({ tenantId = null, refresh = f
     ]);
     return modules.map((module) => applyTenantOverride(module, overrides.get(module.module_key), tid));
   } catch (err) {
-    logger.warn('Clinical AI tenant module overrides unavailable; using global modules', {
-      tenantId: tid,
-      error: err.message,
-    });
-    const modules = await listClinicalAiModules({ refresh });
-    return modules.map((module) => applyTenantOverride(module, null, tid));
+    throw schemaUnavailableError(err, 'tenant_module_list');
   }
 }
 
@@ -2065,10 +2347,7 @@ export async function getClinicalAiGuardrails({ refresh = false } = {}) {
     guardrailCacheAt = Date.now();
     return guardrailCache;
   } catch (err) {
-    logger.warn('Clinical AI guardrail table unavailable; using defaults', { error: err.message });
-    guardrailCache = normalizeGuardrails(DEFAULT_CLINICAL_AI_GUARDRAILS);
-    guardrailCacheAt = Date.now();
-    return guardrailCache;
+    throw schemaUnavailableError(err, 'guardrail_read');
   }
 }
 
@@ -2088,7 +2367,10 @@ export async function updateClinicalAiModule(moduleKey, data = {}, updatedBy = n
   const key = sanitizeModuleKey(moduleKey);
   if (!key) throw new Error('module_key is required');
 
-  const current = await getClinicalAiModule(key);
+  const tid = data.tenantId || data.tenant_id || DEFAULT_TENANT_ID;
+  const current = (await readModulesFromDb().catch((err) => {
+    throw schemaUnavailableError(err, 'global_module_read');
+  })).find((module) => module.module_key === key) || normalizeModule(defaultModuleFor(key));
   const next = {
     display_name: data.display_name ?? current.display_name,
     description: data.description ?? current.description,
@@ -2102,41 +2384,94 @@ export async function updateClinicalAiModule(moduleKey, data = {}, updatedBy = n
       ? { ...(current.settings || {}), ...data.settings }
       : current.settings || {},
   };
+  const normalizedNext = normalizeModule({ ...current, ...next });
+  const changedFields = riskyChangedFields(current, normalizedNext);
+  const approvalReasons = changeRequiresApproval(current, normalizedNext, changedFields);
+  let evalGate = null;
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO clinical_ai_modules
-       (module_key, display_name, description, enabled, provider_override,
-        model_override, external_allowed, max_tokens, temperature, settings,
-        updated_by, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::uuid, NOW(), NOW())
-     ON CONFLICT (module_key)
-     DO UPDATE SET
-       display_name = EXCLUDED.display_name,
-       description = EXCLUDED.description,
-       enabled = EXCLUDED.enabled,
-       provider_override = EXCLUDED.provider_override,
-       model_override = EXCLUDED.model_override,
-       external_allowed = EXCLUDED.external_allowed,
-       max_tokens = EXCLUDED.max_tokens,
-       temperature = EXCLUDED.temperature,
-       settings = EXCLUDED.settings,
-       updated_by = EXCLUDED.updated_by,
-       updated_at = NOW()
-     RETURNING module_key, display_name, description, enabled, provider_override,
-               model_override, external_allowed, max_tokens, temperature, settings,
-               updated_by, created_at, updated_at`,
-    key,
-    next.display_name,
-    next.description,
-    next.enabled,
-    next.provider_override,
-    next.model_override,
-    next.external_allowed,
-    next.max_tokens,
-    next.temperature,
-    JSON.stringify(next.settings),
-    updatedBy || null
-  );
+  if (changeRequiresEval(current, normalizedNext, changedFields)) {
+    const guardrails = await readGuardrailsFromDb().catch((err) => {
+      throw schemaUnavailableError(err, 'module_change_guardrails');
+    });
+    evalGate = await assertAcceptedEvalGate({
+      tenantId: tid,
+      moduleKey: key,
+      module: normalizedNext,
+      guardrails,
+    });
+  }
+
+  if (approvalReasons.length) {
+    const requestedChange = moduleChangePayload({
+      scope: 'global',
+      tenantId: tid,
+      moduleKey: key,
+      actorUid: updatedBy,
+      changedFields,
+      current,
+      next: normalizedNext,
+      reasons: approvalReasons,
+      evalGate,
+    });
+    const approval = await readApprovedModuleChangeApproval({
+      tenantId: tid,
+      approvalId: data.approval_id || data.approvalId || null,
+      moduleKey: key,
+      requestedChangeHash: requestedChange.requested_change_hash,
+    });
+    if (!approval) {
+      return {
+        approval_required: true,
+        approval: await createPendingModuleChangeApproval({
+          tenantId: tid,
+          moduleKey: key,
+          requestedBy: updatedBy,
+          requestedChange,
+        }),
+        requested_change: requestedChange,
+      };
+    }
+  }
+
+  let rows;
+  try {
+    rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_ai_modules
+         (module_key, display_name, description, enabled, provider_override,
+          model_override, external_allowed, max_tokens, temperature, settings,
+          updated_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::uuid, NOW(), NOW())
+       ON CONFLICT (module_key)
+       DO UPDATE SET
+         display_name = EXCLUDED.display_name,
+         description = EXCLUDED.description,
+         enabled = EXCLUDED.enabled,
+         provider_override = EXCLUDED.provider_override,
+         model_override = EXCLUDED.model_override,
+         external_allowed = EXCLUDED.external_allowed,
+         max_tokens = EXCLUDED.max_tokens,
+         temperature = EXCLUDED.temperature,
+         settings = EXCLUDED.settings,
+         updated_by = EXCLUDED.updated_by,
+         updated_at = NOW()
+       RETURNING module_key, display_name, description, enabled, provider_override,
+                 model_override, external_allowed, max_tokens, temperature, settings,
+                 updated_by, created_at, updated_at`,
+      key,
+      next.display_name,
+      next.description,
+      next.enabled,
+      next.provider_override,
+      next.model_override,
+      next.external_allowed,
+      next.max_tokens,
+      next.temperature,
+      JSON.stringify(next.settings),
+      updatedBy || null
+    );
+  } catch (err) {
+    throw schemaUnavailableError(err, 'global_module_update');
+  }
 
   moduleCache = null;
   moduleCacheAt = 0;
@@ -2147,7 +2482,14 @@ export async function updateClinicalAiTenantModule(moduleKey, data = {}, updated
   const key = sanitizeModuleKey(moduleKey);
   if (!key) throw new Error('module_key is required');
   const tid = tenantId || DEFAULT_TENANT_ID;
-  const current = await getClinicalAiTenantModule(key, { tenantId: tid, refresh: true });
+  const globalModules = await readModulesFromDb().catch((err) => {
+    throw schemaUnavailableError(err, 'tenant_module_global_read');
+  });
+  const base = globalModules.find((module) => module.module_key === key) || normalizeModule(defaultModuleFor(key));
+  const overrides = await readTenantModuleOverrides(tid).catch((err) => {
+    throw schemaUnavailableError(err, 'tenant_module_override_read');
+  });
+  const current = applyTenantOverride(base, overrides.get(key), tid);
   const currentOverride = current.tenant_overrides || {};
   const next = {
     enabled: data.enabled === undefined
@@ -2172,34 +2514,98 @@ export async function updateClinicalAiTenantModule(moduleKey, data = {}, updated
       ? { ...(currentOverride.settings || {}), ...data.settings }
       : currentOverride.settings || {},
   };
+  const nextEffective = normalizeModule({
+    ...base,
+    enabled: hasOverrideValue(next.enabled) ? next.enabled : base.enabled,
+    provider_override: hasOverrideValue(next.provider_override) ? next.provider_override : base.provider_override,
+    model_override: hasOverrideValue(next.model_override) ? next.model_override : base.model_override,
+    external_allowed: hasOverrideValue(next.external_allowed) ? next.external_allowed : base.external_allowed,
+    max_tokens: hasOverrideValue(next.max_tokens) ? next.max_tokens : base.max_tokens,
+    temperature: hasOverrideValue(next.temperature) ? next.temperature : base.temperature,
+    settings: {
+      ...(base.settings || {}),
+      ...(next.settings || {}),
+    },
+  });
+  const changedFields = riskyChangedFields(current, nextEffective);
+  const approvalReasons = changeRequiresApproval(current, nextEffective, changedFields);
+  let evalGate = null;
 
-  await prisma.$queryRawUnsafe(
-    `INSERT INTO clinical_ai_tenant_modules
-       (tenant_id, module_key, enabled, provider_override, model_override,
-        external_allowed, max_tokens, temperature, settings, updated_by, created_at, updated_at)
-     VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::uuid, NOW(), NOW())
-     ON CONFLICT (tenant_id, module_key)
-     DO UPDATE SET
-       enabled = EXCLUDED.enabled,
-       provider_override = EXCLUDED.provider_override,
-       model_override = EXCLUDED.model_override,
-       external_allowed = EXCLUDED.external_allowed,
-       max_tokens = EXCLUDED.max_tokens,
-       temperature = EXCLUDED.temperature,
-       settings = EXCLUDED.settings,
-       updated_by = EXCLUDED.updated_by,
-       updated_at = NOW()`,
-    tid,
-    key,
-    next.enabled,
-    next.provider_override,
-    next.model_override,
-    next.external_allowed,
-    next.max_tokens,
-    next.temperature,
-    JSON.stringify(next.settings),
-    updatedBy || null
-  );
+  if (changeRequiresEval(current, nextEffective, changedFields)) {
+    const guardrails = await readGuardrailsFromDb().catch((err) => {
+      throw schemaUnavailableError(err, 'tenant_module_change_guardrails');
+    });
+    evalGate = await assertAcceptedEvalGate({
+      tenantId: tid,
+      moduleKey: key,
+      module: nextEffective,
+      guardrails,
+    });
+  }
+
+  if (approvalReasons.length) {
+    const requestedChange = moduleChangePayload({
+      scope: 'tenant',
+      tenantId: tid,
+      moduleKey: key,
+      actorUid: updatedBy,
+      changedFields,
+      current,
+      next: nextEffective,
+      reasons: approvalReasons,
+      evalGate,
+    });
+    const approval = await readApprovedModuleChangeApproval({
+      tenantId: tid,
+      approvalId: data.approval_id || data.approvalId || null,
+      moduleKey: key,
+      requestedChangeHash: requestedChange.requested_change_hash,
+    });
+    if (!approval) {
+      return {
+        approval_required: true,
+        approval: await createPendingModuleChangeApproval({
+          tenantId: tid,
+          moduleKey: key,
+          requestedBy: updatedBy,
+          requestedChange,
+        }),
+        requested_change: requestedChange,
+      };
+    }
+  }
+
+  try {
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO clinical_ai_tenant_modules
+         (tenant_id, module_key, enabled, provider_override, model_override,
+          external_allowed, max_tokens, temperature, settings, updated_by, created_at, updated_at)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::uuid, NOW(), NOW())
+       ON CONFLICT (tenant_id, module_key)
+       DO UPDATE SET
+         enabled = EXCLUDED.enabled,
+         provider_override = EXCLUDED.provider_override,
+         model_override = EXCLUDED.model_override,
+         external_allowed = EXCLUDED.external_allowed,
+         max_tokens = EXCLUDED.max_tokens,
+         temperature = EXCLUDED.temperature,
+         settings = EXCLUDED.settings,
+         updated_by = EXCLUDED.updated_by,
+         updated_at = NOW()`,
+      tid,
+      key,
+      next.enabled,
+      next.provider_override,
+      next.model_override,
+      next.external_allowed,
+      next.max_tokens,
+      next.temperature,
+      JSON.stringify(next.settings),
+      updatedBy || null
+    );
+  } catch (err) {
+    throw schemaUnavailableError(err, 'tenant_module_update');
+  }
 
   return getClinicalAiTenantModule(key, { tenantId: tid, refresh: true });
 }

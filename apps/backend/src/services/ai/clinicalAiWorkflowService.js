@@ -57,6 +57,18 @@ function isMissingSchemaError(err) {
   return /does not exist|column .* does not exist|relation .* does not exist/i.test(String(err?.message || ''));
 }
 
+function clinicalAiSchemaUnavailable(err, surface) {
+  if (!isMissingSchemaError(err)) return err;
+  logger.warn('Clinical AI workflow schema unavailable', {
+    surface,
+    error: err.message,
+  });
+  return AppError.internal(
+    'Clinical AI workflow schema is unavailable; refusing unsafe fallback',
+    'CLINICAL_AI_SCHEMA_UNAVAILABLE'
+  );
+}
+
 function cleanText(value, fallback = '') {
   return String(value ?? fallback).trim();
 }
@@ -69,6 +81,20 @@ function clampInt(value, { min = 1, max = 500, fallback = 50 } = {}) {
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function normalizeRoleValue(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function roleAllowedForReview({ review, reviewerRole, allowOverride = false }) {
+  const role = normalizeRoleValue(reviewerRole);
+  const moduleRoles = asArray(review?.module_review_roles || review?.metadata?.review_roles)
+    .map(normalizeRoleValue)
+    .filter(Boolean);
+  if (!role) return false;
+  if (moduleRoles.includes(role)) return true;
+  return allowOverride && ['ADMIN', 'SUPER_ADMIN'].includes(role);
 }
 
 function sourceHash(payload) {
@@ -527,6 +553,9 @@ async function saveGeneration({
       ...metadata,
       failure_reason: failureReason,
       fallback_reason: aiResult?.usedAi ? null : aiResult?.reason || 'template_or_rule_output',
+      generation_mode: aiResult?.generation_mode || (aiResult?.usedAi ? 'ai' : 'template_fallback'),
+      readiness_reason: aiResult?.readiness_reason || null,
+      provider_status: aiResult?.provider_status || (aiResult?.usedAi ? 'used' : 'template_fallback'),
     })
   );
   return rows[0];
@@ -620,6 +649,9 @@ function standardDraftResponse({ module, prompt, draft, citations, safetyFlags, 
       model: aiResult?.model || null,
       used_ai: Boolean(aiResult?.usedAi),
       fallback_reason: aiResult?.usedAi ? null : aiResult?.reason || 'template_or_rule_output',
+      generation_mode: aiResult?.generation_mode || (aiResult?.usedAi ? 'ai' : 'template_fallback'),
+      readiness_reason: aiResult?.readiness_reason || null,
+      provider_status: aiResult?.provider_status || (aiResult?.usedAi ? 'used' : 'template_fallback'),
       usage: aiResult?.usage || {},
       safety_review: safetyReview,
     },
@@ -1449,29 +1481,68 @@ export async function listReviews({ decision = null, moduleKey = null, reviewerR
 export async function updateReview(reviewId, data = {}, reviewerUid = null, reviewerRole = null, options = {}) {
   const tid = resolveTenantId(options);
   const decision = cleanText(data.decision || 'pending').toLowerCase();
-  const rows = await prisma.$queryRawUnsafe(
-    `UPDATE clinical_ai_reviews
-     SET reviewer_uid = $2::uuid,
-         reviewer_role = $3,
-         decision = $4,
-         edited_draft = $5::jsonb,
-         rejection_reason = $6,
-         metadata = metadata || $7::jsonb,
-         updated_at = NOW()
-     WHERE id = $1
-       AND tenant_id = $8::uuid
-     RETURNING id, generation_id, module_key, patient_uid, admission_id,
-               reviewer_uid, reviewer_role, decision, edited_draft,
-               rejection_reason, metadata, created_at, updated_at`,
-    Number.parseInt(reviewId, 10),
-    reviewerUid,
-    reviewerRole || null,
-    decision,
-    data.edited_draft ? JSON.stringify(data.edited_draft) : null,
-    data.rejection_reason || null,
-    JSON.stringify({ reviewed_at: new Date().toISOString() }),
-    tid
-  );
+  const id = Number.parseInt(reviewId, 10);
+  let existingRows;
+  try {
+    existingRows = await prisma.$queryRawUnsafe(
+      `SELECT r.id, r.generation_id, r.module_key, r.patient_uid, r.admission_id,
+              r.metadata, COALESCE(tm.settings->'reviewRoles', m.settings->'reviewRoles', r.metadata->'review_roles') AS module_review_roles
+       FROM clinical_ai_reviews r
+       LEFT JOIN clinical_ai_tenant_modules tm
+         ON tm.tenant_id = r.tenant_id
+        AND tm.module_key = r.module_key
+       LEFT JOIN clinical_ai_modules m
+         ON m.module_key = r.module_key
+       WHERE r.id = $1
+         AND r.tenant_id = $2::uuid
+       LIMIT 1`,
+      id,
+      tid
+    );
+  } catch (err) {
+    throw clinicalAiSchemaUnavailable(err, 'review_lookup');
+  }
+  const existing = existingRows[0];
+  if (!existing) throw AppError.notFound('Clinical AI review not found');
+  if (!roleAllowedForReview({
+    review: existing,
+    reviewerRole,
+    allowOverride: Boolean(options.allowReviewRoleOverride),
+  })) {
+    throw AppError.forbidden(
+      'Your role is not allowed to update this Clinical AI review',
+      'CLINICAL_AI_REVIEW_ROLE_FORBIDDEN'
+    );
+  }
+
+  let rows;
+  try {
+    rows = await prisma.$queryRawUnsafe(
+      `UPDATE clinical_ai_reviews
+       SET reviewer_uid = $2::uuid,
+           reviewer_role = $3,
+           decision = $4,
+           edited_draft = $5::jsonb,
+           rejection_reason = $6,
+           metadata = COALESCE(metadata, '{}'::jsonb) || $7::jsonb,
+           updated_at = NOW()
+       WHERE id = $1
+         AND tenant_id = $8::uuid
+       RETURNING id, generation_id, module_key, patient_uid, admission_id,
+                 reviewer_uid, reviewer_role, decision, edited_draft,
+                 rejection_reason, metadata, created_at, updated_at`,
+      id,
+      reviewerUid,
+      reviewerRole || null,
+      decision,
+      data.edited_draft ? JSON.stringify(data.edited_draft) : null,
+      data.rejection_reason || null,
+      JSON.stringify({ reviewed_at: new Date().toISOString() }),
+      tid
+    );
+  } catch (err) {
+    throw clinicalAiSchemaUnavailable(err, 'review_update');
+  }
   const review = rows[0];
   if (!review) throw AppError.notFound('Clinical AI review not found');
 

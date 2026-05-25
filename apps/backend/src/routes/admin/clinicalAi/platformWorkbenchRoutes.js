@@ -233,6 +233,10 @@ router.patch('/model-registry/:id/stage', async (req, res, next) => {
 
 router.post('/model-registry/eval-runs', async (req, res, next) => {
   try {
+    const metadata = { ...(req.body?.metadata || {}) };
+    if (req.body?.module_key) metadata.module_key = req.body.module_key;
+    if (req.body?.provider) metadata.provider = req.body.provider;
+    if (req.body?.model) metadata.model = req.body.model;
     const result = await recordEvalRun({
       req,
       modelKey: req.body?.model_key,
@@ -248,7 +252,7 @@ router.post('/model-registry/eval-runs', async (req, res, next) => {
       safetyFlagRatePct: req.body?.safety_flag_rate_pct ?? null,
       driftScore: req.body?.drift_score ?? null,
       baselineMetrics: req.body?.baseline_metrics || null,
-      metadata: req.body?.metadata || {},
+      metadata,
     });
     await logClinicalAiAudit(
       req,

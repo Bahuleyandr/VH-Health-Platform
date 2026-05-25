@@ -541,6 +541,39 @@ function serializeClinicalAiConfig(config, readiness) {
   };
 }
 
+function fallbackModeForReadiness(config, reason) {
+  if (config.provider === 'template' || /template fallback/i.test(String(reason || ''))) {
+    return 'template_fallback';
+  }
+  return 'blocked';
+}
+
+function nonAiResult({
+  config,
+  taskType,
+  reason,
+  usage,
+  generationMode,
+  providerStatus,
+  provider = null,
+}) {
+  return {
+    text: '',
+    usedAi: false,
+    provider: provider || config.provider,
+    model: config.model,
+    tier: config.tier,
+    moduleKey: config.moduleKey || taskType || null,
+    reason,
+    fallback_reason: generationMode === 'template_fallback' ? reason : null,
+    readiness_reason: reason,
+    generation_mode: generationMode,
+    provider_status: providerStatus || generationMode,
+    usage,
+    estimatedCostMinor: null,
+  };
+}
+
 export function getClinicalAiConfig() {
   const config = getProviderConfig();
   const readiness = getReadiness(config);
@@ -577,37 +610,33 @@ export async function generateClinicalText({ systemPrompt, userPrompt, taskType,
   // on the allowlist. Local providers pass through; external ones fall back
   // to the template with a clear reason written to the draft metadata.
   if (config.externalProvider && !tenantCanUseExternal(tenantRegion)) {
+    const reason = `external_provider_blocked_for_region:${String(tenantRegion).toUpperCase()}`;
     logger.warn('External provider blocked by region policy', {
       taskType,
       tier: config.tier,
       provider: config.provider,
       tenantRegion,
     });
-    return {
-      text: '',
-      usedAi: false,
-      provider: 'template',
-      model: config.model,
-      tier: config.tier,
-      moduleKey: config.moduleKey || taskType || null,
-      reason: `external_provider_blocked_for_region:${String(tenantRegion).toUpperCase()}`,
+    return nonAiResult({
+      config,
+      taskType,
+      reason,
       usage: baseUsage,
-      estimatedCostMinor: null,
-    };
+      generationMode: 'blocked',
+      providerStatus: 'blocked',
+    });
   }
 
   if (!readiness.ready) {
-    return {
-      text: '',
-      usedAi: false,
-      provider: config.provider === 'template' ? 'template' : config.provider,
-      model: config.model,
-      tier: config.tier,
-      moduleKey: config.moduleKey || taskType || null,
+    const generationMode = fallbackModeForReadiness(config, readiness.reason);
+    return nonAiResult({
+      config,
+      taskType,
       reason: readiness.reason,
       usage: baseUsage,
-      estimatedCostMinor: null,
-    };
+      generationMode,
+      providerStatus: generationMode,
+    });
   }
 
   try {
@@ -633,6 +662,10 @@ export async function generateClinicalText({ systemPrompt, userPrompt, taskType,
       model: config.model,
       tier: config.tier,
       moduleKey: config.moduleKey || taskType || null,
+      generation_mode: 'ai',
+      fallback_reason: null,
+      readiness_reason: null,
+      provider_status: 'used',
       usage,
       estimatedCostMinor,
     };
@@ -644,17 +677,14 @@ export async function generateClinicalText({ systemPrompt, userPrompt, taskType,
       model: config.model,
       error: err.message,
     });
-    return {
-      text: '',
-      usedAi: false,
-      provider: looksLikeOllama(config) ? 'ollama' : config.provider,
-      model: config.model,
-      tier: config.tier,
-      moduleKey: config.moduleKey || taskType || null,
+    return nonAiResult({
+      config: { ...config, provider: looksLikeOllama(config) ? 'ollama' : config.provider },
+      taskType,
       reason: err.message,
       usage: baseUsage,
-      estimatedCostMinor: null,
-    };
+      generationMode: 'template_fallback',
+      providerStatus: 'error',
+    });
   }
 }
 

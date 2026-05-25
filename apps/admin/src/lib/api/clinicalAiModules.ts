@@ -190,6 +190,10 @@ export interface ClinicalAiGeneration {
   model?: string;
   status: string;
   used_ai: boolean;
+  generation_mode?: 'ai' | 'template_fallback' | 'blocked' | 'schema_unavailable' | string | null;
+  fallback_reason?: string | null;
+  readiness_reason?: string | null;
+  provider_status?: string | null;
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
@@ -332,13 +336,13 @@ export async function getClinicalAiTenantModules() {
   return getJSON<{ modules: ClinicalAiModule[]; count: number }>('/admin/clinical-ai/tenant-modules');
 }
 export async function updateClinicalAiModule(moduleKey: string, payload: ClinicalAiModulePatch) {
-  return fetchAdminAPI<ClinicalAiModule>(`/admin/clinical-ai/modules/${encodeURIComponent(moduleKey)}`, {
+  return fetchAdminAPI<ClinicalAiModuleUpdateResult>(`/admin/clinical-ai/modules/${encodeURIComponent(moduleKey)}`, {
     method: 'PATCH',
     body: payload,
   });
 }
 export async function updateClinicalAiTenantModule(moduleKey: string, payload: ClinicalAiModulePatch) {
-  return fetchAdminAPI<ClinicalAiModule>(`/admin/clinical-ai/tenant-modules/${encodeURIComponent(moduleKey)}`, {
+  return fetchAdminAPI<ClinicalAiModuleUpdateResult>(`/admin/clinical-ai/tenant-modules/${encodeURIComponent(moduleKey)}`, {
     method: 'PATCH',
     body: payload,
   });
@@ -446,6 +450,12 @@ export interface ClinicalAiApproval {
   created_at: string;
   updated_at?: string;
 }
+
+export type ClinicalAiModuleUpdateResult = ClinicalAiModule | {
+  approval_required: true;
+  approval?: ClinicalAiApproval;
+  requested_change?: Record<string, unknown>;
+};
 
 export interface ClinicalAiBreakGlassSession {
   id: number;

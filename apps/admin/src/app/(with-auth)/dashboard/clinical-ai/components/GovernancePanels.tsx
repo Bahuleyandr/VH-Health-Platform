@@ -35,6 +35,7 @@ import {
   type SelfHealingRun,
   type TranslationRow,
 } from "@/lib/api/clinicalAiModules";
+import { approvalDetailLines } from "../approvalDetails";
 
 function fmt(value?: string | null) {
   if (!value) return "-";
@@ -665,7 +666,16 @@ export function ApprovalsPanel({ currentAdminUid }: { currentAdminUid: string | 
                   <tr key={row.id}>
                     <td className="px-4 py-3 font-mono text-xs">{row.approval_type}</td>
                     <td className="px-4 py-3">{row.module_key ?? "-"}</td>
-                    <td className="px-4 py-3">{row.reason ?? "-"}</td>
+                    <td className="px-4 py-3">
+                      <div>{row.reason ?? "-"}</div>
+                      {approvalDetailLines(row).length ? (
+                        <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                          {approvalDetailLines(row).map((line) => (
+                            <div key={line}>{line}</div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${decisionClass(row.status)}`}>
                         {row.status}

@@ -37,6 +37,18 @@ export type ClinicalAiModulePatch = Partial<Omit<ClinicalAiModule, "enabled" | "
   external_allowed?: boolean | null;
 };
 
+export type ClinicalAiModuleUpdateResult = ClinicalAiModule | {
+  approval_required: true;
+  approval?: {
+    id: number;
+    status: string;
+    module_key: string | null;
+    reason?: string | null;
+    payload?: Record<string, unknown> | null;
+  };
+  requested_change?: Record<string, unknown>;
+};
+
 export interface ClinicalAiGuardrails {
   id: number;
   enabled: boolean;
@@ -183,6 +195,10 @@ export interface ClinicalAiGeneration {
   model?: string;
   status: string;
   used_ai: boolean;
+  generation_mode?: "ai" | "template_fallback" | "blocked" | "schema_unavailable" | string | null;
+  fallback_reason?: string | null;
+  readiness_reason?: string | null;
+  provider_status?: string | null;
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
@@ -299,7 +315,7 @@ export async function getClinicalAiStatus(days = 7) {
 }
 
 export async function updateClinicalAiTenantModule(moduleKey: string, payload: ClinicalAiModulePatch) {
-  return fetchAdminAPI<ClinicalAiModule>(`/admin/clinical-ai/tenant-modules/${encodeURIComponent(moduleKey)}`, {
+  return fetchAdminAPI<ClinicalAiModuleUpdateResult>(`/admin/clinical-ai/tenant-modules/${encodeURIComponent(moduleKey)}`, {
     method: "PATCH",
     body: payload,
   });

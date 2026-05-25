@@ -175,6 +175,22 @@ describe('clinical AI provider client', () => {
     );
   });
 
+  it('returns explicit template fallback status when no provider is configured', async () => {
+    const result = await generateClinicalText({
+      systemPrompt: 'Summarize safely.',
+      userPrompt: 'Patient context',
+      taskType: 'discharge_summary',
+    });
+
+    expect(result).toMatchObject({
+      usedAi: false,
+      generation_mode: 'template_fallback',
+      provider_status: 'template_fallback',
+    });
+    expect(result.fallback_reason).toMatch(/template fallback/i);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   it('blocks external providers until explicitly allowed', async () => {
     process.env.CLINICAL_AI_PROVIDER = 'openai';
     process.env.OPENAI_API_KEY = 'test-openai-key';
@@ -191,6 +207,9 @@ describe('clinical AI provider client', () => {
     });
 
     expect(result.usedAi).toBe(false);
+    expect(result.generation_mode).toBe('blocked');
+    expect(result.provider_status).toBe('blocked');
+    expect(result.readiness_reason).toMatch(/ALLOW_EXTERNAL/);
     expect(result.reason).toMatch(/ALLOW_EXTERNAL/);
     expect(global.fetch).not.toHaveBeenCalled();
   });
@@ -216,6 +235,8 @@ describe('clinical AI provider client', () => {
     expect(result).toMatchObject({
       usedAi: true,
       provider: 'openai',
+      generation_mode: 'ai',
+      provider_status: 'used',
       text: 'OpenAI draft',
       usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
     });
@@ -316,6 +337,8 @@ describe('clinical AI provider client', () => {
     });
 
     expect(result.usedAi).toBe(false);
+    expect(result.generation_mode).toBe('blocked');
+    expect(result.provider_status).toBe('blocked');
     expect(result.reason).toMatch(/module disabled/i);
     expect(global.fetch).not.toHaveBeenCalled();
   });
@@ -422,6 +445,8 @@ describe('clinical AI provider client', () => {
     });
 
     expect(result.usedAi).toBe(false);
+    expect(result.generation_mode).toBe('blocked');
+    expect(result.provider_status).toBe('blocked');
     expect(result.reason).toMatch(/admin guardrail/i);
     expect(global.fetch).not.toHaveBeenCalled();
   });
@@ -442,7 +467,25 @@ describe('clinical AI provider client', () => {
     });
 
     expect(result.usedAi).toBe(false);
+    expect(result.generation_mode).toBe('blocked');
+    expect(result.provider_status).toBe('blocked');
     expect(result.reason).toMatch(/token budget/i);
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('marks provider failures as template fallback with error provider status', async () => {
+    process.env.CLINICAL_AI_PROVIDER = 'ollama';
+    global.fetch.mockRejectedValue(new Error('connection refused'));
+
+    const result = await generateClinicalText({
+      systemPrompt: 'System safety prompt',
+      userPrompt: 'Patient context',
+      taskType: 'discharge_summary',
+    });
+
+    expect(result.usedAi).toBe(false);
+    expect(result.generation_mode).toBe('template_fallback');
+    expect(result.provider_status).toBe('error');
+    expect(result.fallback_reason).toMatch(/connection refused/i);
   });
 });

@@ -1,6 +1,6 @@
 # VH Health AI Feature Tracker
 
-Last verified: 2026-04-23 (batch 15 — admin UI panels shipped for all 27 deferred modules; the entire clinical-AI surface now has a live dashboard)
+Last verified: 2026-05-25 (governance hardening branch — 40 tracked future-proofing features remain implemented v1; the broader Clinical AI registry now contains 92 governed modules)
 
 This tracker records the 40 future-proofing AI features proposed for VH Health and maps each one to the current repo state. Update this file whenever a feature graduates from "Not started" to "Partial" or from "Partial" to "Implemented v1".
 
@@ -17,7 +17,7 @@ Current count:
 - Not started: 0 / 40
 - Remaining to fully implement: 0 / 40
 
-**All 40 future-proofing AI features now have a v1 backend implementation AND a live admin-dashboard panel** under `/admin/dashboard/clinical-ai`. The 27 modules that previously said "Admin UI panel deferred" now ship with list + filter + decide UI (simple modules via shared `ClinicalAIReviewQueue` component; two-tier/three-tier modules via bespoke panels). Remaining work across the portfolio is production hardening (live data feeders, per-tenant customization) captured per-row in "Next build unit" — none are blockers for v1 coverage.
+**All 40 future-proofing AI features now have a v1 backend implementation AND a live admin-dashboard panel** under `/admin/dashboard/clinical-ai`. The broader registry has grown to 92 modules; this tracker stays focused on the original 40-feature list. The May 25 hardening branch adds strict review-role enforcement, two-person approval/eval gates for risky module changes, fail-closed schema handling, and visible fallback/blocked/schema badges. Remaining work across the portfolio is production hardening (live data feeders, per-tenant customization) captured per-row in "Next build unit" — none are blockers for v1 coverage.
 
 | # | Feature | Status | Current repo state | Next build unit |
 |---:|---|---|---|---|

@@ -1,14 +1,16 @@
 # AI Feature Gap Backlog
 
 **Scope:** This doc audits a **user-facing AI feature catalogue** (~250 features
-labelled `AI_*`) against the **78 registered modules** in
-`clinical_ai_modules` and the ~78 service files under
+labelled `AI_*`) against the **92 registered modules** in
+`clinical_ai_modules` and the AI service files under
 `apps/backend/src/services/ai/`. It complements — but does not overlap —
 `HEALTHCARE_AI_SPEC_AUDIT.md` (which audits the broader 38-section entity /
 infra spec) and `CLINICAL_AI_ROLLOUT_PLAN.md` (which tracks the
 substrate / multi-agent rollout).
 
 **Audited:** 2026-04-30 against `main`.
+**Reconciled:** 2026-05-25 against `fix/clinical-ai-governance-hardening`
+for the current 92-module registry and governance hardening status.
 **Method:** enumerated `CLINICAL_AI_MODULES` in
 `apps/backend/src/services/ai/clinicalAiModuleService.js`, walked
 `apps/backend/src/services/ai/`, the 13 route files in
@@ -24,10 +26,10 @@ ID against existing modules / services.
 The substrate the catalogue assumes — *rule-authoritative, AI-advisory,
 every output logged + reviewable + explainable + human-approved, WHO-style
 governance* — **is already built and shipped on `main`**. As of
-2026-05-01, **all 8 prioritised tiers (A–H) are shipped end-to-end** —
-**79 modules, 9 PRs, +20 backend tests-per-tier average, governance and
-hallucination defenses on every output, decision-support-only across the
-board.** Headline numbers:
+2026-05-01, **all 8 prioritised tiers (A–H) are shipped end-to-end**;
+as of the 2026-05-25 governance pass, the registry has grown to
+**92 modules**, all still decision-support-only and review-gated.
+Headline numbers:
 
 | Status | Count (out of ~250 catalogue items) |
 |---|---|
@@ -38,6 +40,25 @@ board.** Headline numbers:
 Five substrate-level safety holes (S1–S5) were called out as
 must-fix-before-new-modules. **All five shipped 2026-04-30**; the
 section below documents what landed for the historical record.
+
+### May 25 governance hardening addendum
+
+This branch tightens the substrate rather than adding new modules:
+
+- Review decisions now fail closed unless the caller role is in the
+  module's configured `reviewRoles`, with admin override reserved for
+  deliberate control-plane paths.
+- Risky module enablement/runtime changes require a matching two-person
+  approval and, for high/critical/external/provider/model changes, a
+  recent accepted eval run for the effective `{ module_key, provider,
+  model }`.
+- Governance-critical schema reads now return explicit
+  `schema_unavailable` failures instead of silently showing empty/default
+  Clinical AI state.
+- Generation metadata now standardizes `generation_mode`,
+  `fallback_reason`, `readiness_reason`, and `provider_status` while
+  retaining `used_ai` for compatibility; admin UI badges make fallback,
+  blocked, and schema-unavailable states prominent.
 
 The "First-20 build order" the catalogue prescribes is **19/20 fully
 done · 1/20 partial · 0/20 missing** — see §18.
@@ -410,7 +431,7 @@ Tier B closed the entire surgical/OR gap in one PR series — entities
 | AI_CONFLICTING_INFORMATION_DETECTOR | ⚠️ | `health_record_reconciliation` (Tier F) covers two-source case; cross-encounter still open |
 | AI_MEDICAL_RECORD_BUNDLE_GENERATOR | ✅ | `medical_record_bundle_generator` (Tier F, AI-assisted bundle for insurance/referral/ABDM) |
 | AI_CHART_GAP_DETECTOR | ✅ | `chart_completion_auditor` |
-| **AI_DOCUMENT_PROMPT_INJECTION_DETECTOR** | ❌ | **See S1** |
+| **AI_DOCUMENT_PROMPT_INJECTION_DETECTOR** | ✅ | `documentPromptInjectionDetectorService`; see S1 |
 
 ### §11 Billing / coding / insurance
 
@@ -582,7 +603,8 @@ pivot ("rule-authoritative, AI-advisory") is the design.
 Tiers A through H were the catalogue's highest-value targets. **All
 eight shipped 2026-04-30 → 2026-05-01** across 9 PRs (Tier A explainers
 + Tier A remainder + Tier B entities + Tier B AI + Tier C/D/E/F/G/H one
-each), 79 modules total, +120 backend tests across the cycle. See the
+each), 79 tier-build modules across that cycle and 92 registered modules
+as of 2026-05-25, +120 backend tests across the tier-build cycle. See the
 "Tier-by-tier shipment ledger" table in TL;DR for migration numbers and
 commit anchors.
 
@@ -656,8 +678,9 @@ What's left is **rollout, not build**:
 
 Next-up moves are no longer about adding modules — they are:
 
-- **Admin UI** for the 64 Tier C/D/E/F/G/H endpoints (Tier A and B got
-  panels in-session; Tier C–H currently have routes but no UI surface).
+- **Governance rollout**: verify per-tenant enablement requests,
+  two-person approval handoffs, eval evidence, and fallback/schema badges
+  with real hospital operators before turning on high-risk modules.
 - **Per-tenant rollout playbook** documenting which modules to enable
   for which hospital pilot first.
 - **Local-Ollama deep-tier pilot** for Tier B/C/D (CRITICAL-tier
