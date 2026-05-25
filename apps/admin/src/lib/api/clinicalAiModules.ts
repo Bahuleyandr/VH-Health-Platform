@@ -426,6 +426,7 @@ export interface ClinicalAiReview {
   decision: string;
   edited_draft: Record<string, unknown> | null;
   rejection_reason: string | null;
+  reviewer_note: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -583,7 +584,12 @@ export async function getClinicalAiReviews(params: { decision?: string; moduleKe
 
 export async function updateClinicalAiReview(
   reviewId: number,
-  payload: { decision: string; edited_draft?: Record<string, unknown>; rejection_reason?: string }
+  payload: {
+    decision: string;
+    edited_draft?: Record<string, unknown>;
+    rejection_reason?: string;
+    reviewer_note?: string;
+  }
 ) {
   return fetchAdminAPI<ClinicalAiReview>(`/admin/clinical-ai/reviews/${reviewId}`, {
     method: 'PATCH',

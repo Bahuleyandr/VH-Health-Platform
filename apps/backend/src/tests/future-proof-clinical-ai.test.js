@@ -700,6 +700,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     const decisioned = await admin.patch(`/api/v1/admin/clinical-ai/reviews/${targetReview.id}`).send({
       decision: 'accepted',
       edited_draft: record.body.data.draft,
+      reviewer_note: 'Reviewed patient summary draft before acceptance [test]',
     });
     expectStatus(decisioned, 200, 'accept review');
     expect(decisioned.body.data.decision).toBe('accepted');
@@ -2861,6 +2862,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     const accepted = await admin.patch(`/api/v1/admin/clinical-ai/reviews/${review.id}`).send({
       decision: 'accepted',
       edited_draft: aftercare.body.data.draft,
+      reviewer_note: 'Reviewed aftercare draft before translation [test]',
     });
     expectStatus(accepted, 200, 'accept aftercare review');
 
@@ -2919,6 +2921,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     const accepted = await admin.patch(`/api/v1/admin/clinical-ai/reviews/${review.id}`).send({
       decision: 'accepted',
       edited_draft: aftercare.body.data.draft,
+      reviewer_note: 'Reviewed signed aftercare draft before translation [test]',
     });
     expectStatus(accepted, 200, 'accept signed-source review');
 

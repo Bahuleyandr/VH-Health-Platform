@@ -281,6 +281,7 @@ describe('Clinical AI review authorization hardening', () => {
   });
 
   it('allows listed reviewer roles to update reviews', async () => {
+    const reviewerNote = 'Reviewed chart context and accepted safely.';
     queryUnsafeMock
       .mockResolvedValueOnce([{
         id: 11,
@@ -302,6 +303,7 @@ describe('Clinical AI review authorization hardening', () => {
         decision: 'accepted',
         edited_draft: null,
         rejection_reason: null,
+        reviewer_note: reviewerNote,
         metadata: {},
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -311,14 +313,38 @@ describe('Clinical AI review authorization hardening', () => {
 
     const review = await updateReview(
       11,
-      { decision: 'accepted' },
+      { decision: 'accepted', reviewer_note: reviewerNote },
       ACTOR,
       'DOCTOR',
       { tenantId: TENANT },
     );
 
     expect(review.decision).toBe('accepted');
+    expect(review.reviewer_note).toBe(reviewerNote);
     expect(recordDecisionMock).toHaveBeenCalled();
+  });
+
+  it('requires a substantive reviewer note before accepted reviews can be signed off', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 11,
+      generation_id: 21,
+      module_key: 'medication_reconciliation',
+      patient_uid: null,
+      admission_id: null,
+      metadata: { review_roles: ['DOCTOR'] },
+      module_review_roles: ['DOCTOR'],
+    }]);
+
+    await expect(updateReview(
+      11,
+      { decision: 'accepted', reviewer_note: 'ok' },
+      ACTOR,
+      'DOCTOR',
+      { tenantId: TENANT },
+    )).rejects.toMatchObject({ code: 'CLINICAL_AI_REVIEW_NOTE_REQUIRED' });
+
+    expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(recordDecisionMock).not.toHaveBeenCalled();
   });
 
   it('allows explicit control-plane override for admins only', async () => {
@@ -343,6 +369,7 @@ describe('Clinical AI review authorization hardening', () => {
         decision: 'rejected',
         edited_draft: null,
         rejection_reason: 'unsafe',
+        reviewer_note: null,
         metadata: {},
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

@@ -993,7 +993,11 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
     return null;
   }
 
-  Future<void> _decide(String decision, {String? rejectionReason}) async {
+  Future<void> _decide(
+    String decision, {
+    String? rejectionReason,
+    String? reviewerNote,
+  }) async {
     final s = AppStrings.of(context);
     final id = _reviewId;
     if (id == null) {
@@ -1011,6 +1015,7 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
         id,
         decision: decision,
         rejectionReason: rejectionReason,
+        reviewerNote: reviewerNote,
       );
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -1033,6 +1038,61 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
         ),
       );
     }
+  }
+
+  Future<void> _confirmAccept() async {
+    final note = await _askReviewerNote();
+    if (note == null) return;
+    await _decide('accepted', reviewerNote: note);
+  }
+
+  Future<String?> _askReviewerNote() async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        final ds = AppStrings.of(ctx);
+        return AlertDialog(
+          title: Text(ds.clinicalAiDraftReviewerNoteTitle),
+          content: TextField(
+            controller: controller,
+            decoration: InputDecoration(
+              labelText: ds.clinicalAiDraftReviewerNoteLabel,
+              hintText: ds.clinicalAiDraftReviewerNoteHint,
+              border: const OutlineInputBorder(),
+            ),
+            maxLines: 3,
+            autofocus: true,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text(ds.actionCancel),
+            ),
+            FilledButton(
+              onPressed: () {
+                final text = controller.text.trim();
+                if (text.length < 12 ||
+                    text
+                            .split(RegExp(r'\s+'))
+                            .where((w) => w.isNotEmpty)
+                            .length <
+                        3) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(ds.clinicalAiDraftReviewerNoteMinChars),
+                    ),
+                  );
+                  return;
+                }
+                Navigator.of(ctx).pop(text);
+              },
+              child: Text(ds.clinicalAiDraftReviewerNoteButton),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _confirmReject() async {
@@ -1346,7 +1406,7 @@ class _AiAssistDraftSheetState extends State<_AiAssistDraftSheet> {
                   Expanded(
                     flex: 2,
                     child: FilledButton.icon(
-                      onPressed: _busy ? null : () => _decide('accepted'),
+                      onPressed: _busy ? null : _confirmAccept,
                       icon: _busy
                           ? const SizedBox(
                               width: 16,

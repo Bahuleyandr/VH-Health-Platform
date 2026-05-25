@@ -46,12 +46,14 @@ class _ClinicalAiDraftDetailScreenState
   bool _editMode = false;
   late final TextEditingController _editController;
   late final TextEditingController _rejectionController;
+  late final TextEditingController _reviewerNoteController;
 
   @override
   void initState() {
     super.initState();
     _editController = TextEditingController();
     _rejectionController = TextEditingController();
+    _reviewerNoteController = TextEditingController();
 
     if (widget.initialReview != null) {
       _review = widget.initialReview;
@@ -66,6 +68,7 @@ class _ClinicalAiDraftDetailScreenState
   void dispose() {
     _editController.dispose();
     _rejectionController.dispose();
+    _reviewerNoteController.dispose();
     super.dispose();
   }
 
@@ -106,6 +109,7 @@ class _ClinicalAiDraftDetailScreenState
     required String decision,
     Map<String, dynamic>? editedDraft,
     String? rejectionReason,
+    String? reviewerNote,
   }) async {
     setState(() => _submitting = true);
     try {
@@ -114,6 +118,7 @@ class _ClinicalAiDraftDetailScreenState
         decision: decision,
         editedDraft: editedDraft,
         rejectionReason: rejectionReason,
+        reviewerNote: reviewerNote,
       );
       if (!mounted) return;
       final s = AppStrings.of(context);
@@ -195,8 +200,12 @@ class _ClinicalAiDraftDetailScreenState
           submitting: _submitting,
           editMode: _editMode,
           hasCritical: hasCritical,
-          onAccept: () => _submitDecision(decision: 'accepted'),
-          onAcceptEdited: () {
+          onAccept: () async {
+            final note = await _askReviewerNote();
+            if (note == null) return;
+            await _submitDecision(decision: 'accepted', reviewerNote: note);
+          },
+          onAcceptEdited: () async {
             final edited = _parseEdits();
             if (edited == null) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -204,7 +213,13 @@ class _ClinicalAiDraftDetailScreenState
               );
               return;
             }
-            _submitDecision(decision: 'edited', editedDraft: edited);
+            final note = await _askReviewerNote();
+            if (note == null) return;
+            await _submitDecision(
+              decision: 'edited',
+              editedDraft: edited,
+              reviewerNote: note,
+            );
           },
           onToggleEdit: () => setState(() => _editMode = !_editMode),
           onReject: () async {
@@ -250,6 +265,54 @@ class _ClinicalAiDraftDetailScreenState
                 Navigator.of(ctx).pop(text);
               },
               child: Text(s.clinicalAiDraftRejectButton),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<String?> _askReviewerNote() async {
+    final s = AppStrings.of(context);
+    _reviewerNoteController.clear();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(s.clinicalAiDraftReviewerNoteTitle),
+          content: TextField(
+            controller: _reviewerNoteController,
+            decoration: InputDecoration(
+              labelText: s.clinicalAiDraftReviewerNoteLabel,
+              hintText: s.clinicalAiDraftReviewerNoteHint,
+            ),
+            maxLines: 4,
+            autofocus: true,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text(s.actionCancel),
+            ),
+            FilledButton(
+              onPressed: () {
+                final text = _reviewerNoteController.text.trim();
+                if (text.length < 12 ||
+                    text
+                            .split(RegExp(r'\s+'))
+                            .where((w) => w.isNotEmpty)
+                            .length <
+                        3) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(s.clinicalAiDraftReviewerNoteMinChars),
+                    ),
+                  );
+                  return;
+                }
+                Navigator.of(ctx).pop(text);
+              },
+              child: Text(s.clinicalAiDraftReviewerNoteButton),
             ),
           ],
         );

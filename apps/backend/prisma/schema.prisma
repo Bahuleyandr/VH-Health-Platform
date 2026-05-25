@@ -3248,6 +3248,7 @@ model clinical_ai_reviews {
   created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
   updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
   tenant_id                   String                        @db.Uuid
+  reviewer_note               String?
   clinical_ai_decision_memory clinical_ai_decision_memory[]
   clinical_ai_generations     clinical_ai_generations?      @relation(fields: [generation_id], references: [id], onUpdate: NoAction)
   tenants                     tenants                       @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
