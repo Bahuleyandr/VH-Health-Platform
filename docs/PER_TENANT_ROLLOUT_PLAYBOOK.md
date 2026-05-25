@@ -309,6 +309,12 @@ at the time of writing.)
 - Run `regulatoryReadinessService.assembleReadinessPack` (S5
   exporter, admin route at `/admin/clinical-ai/readiness-pack`).
   Archive in the hospital compliance binder.
+- Before any stage expansion, export a pilot evidence pack from Admin →
+  Clinical AI → Regulatory Readiness Pack (or POST
+  `/admin/clinical-ai/pilot-evidence-pack`). The pack must show
+  `summary.pilot_ready=true`: tenant-scoped generations exist, every
+  final review has a reviewer note, risky modules have accepted eval
+  evidence, and schema-unavailable sections are visible instead of silent.
 - Review `bias_signals` rows from the past 30 days. Any slice
   underperforming overall pass rate by ≥15pp gets a remediation plan.
 
@@ -481,11 +487,14 @@ A condensed version of the above for the hospital's project lead.
       `audit_log_summary`, `pending_report_tracker`)
 - [ ] At least 10 drafts signed off (any module)
 - [ ] No `severity=critical` flags un-acknowledged
+- [ ] Pilot evidence pack exported and blocked items cleared before
+      expanding beyond the first pilot ward/module set
 
 **Stage 2 (week 3–5)**
 - [ ] 8 Tier C non-critical-risk modules enabled
 - [ ] 2 Tier H operational forecasts enabled
 - [ ] Reviewer queue median age < 24 h
+- [ ] Pilot evidence pack archived for Stage 1 module set
 - [ ] First monthly readiness-pack archived
 
 **Stage 3 (week 6–8)**
