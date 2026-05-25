@@ -90,3 +90,59 @@ describe('doctorService.getAllDoctors — paediatric / adult age-range filter (H
     expect(sql).not.toMatch(/age_range/);
   });
 });
+
+describe('doctorService.getAvailableDoctors — strict current availability', () => {
+  beforeEach(() => {
+    queryRawMock.mockReset();
+    queryRawTaggedMock.mockReset();
+    queryRawTaggedMock.mockResolvedValue([
+      'specialty', 'bio', 'experience_years', 'consultation_fee',
+      'available_days', 'available_hours', 'qualifications',
+      'education', 'certifications', 'is_available', 'created_at',
+      'updated_at', 'department', 'age_range',
+    ].map((column_name) => ({ column_name })));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('filters by route-safe current IST shift and department without future roster fallback', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-05-25T04:30:00.000Z')); // Monday 10:00 IST
+    queryRawMock.mockResolvedValueOnce([
+      {
+        id: 1,
+        uid: '11111111-1111-4111-8111-111111111111',
+        name: 'Dr Current',
+        department: 'Cardiology',
+        available_hours: [{ start: '09:00', end: '13:00' }],
+      },
+      {
+        id: 2,
+        uid: '22222222-2222-4222-8222-222222222222',
+        name: 'Dr Later',
+        department: 'Cardiology',
+        available_hours: [{ start: '14:00', end: '18:00' }],
+      },
+      {
+        id: 3,
+        uid: '33333333-3333-4333-8333-333333333333',
+        name: 'Dr Unscheduled',
+        department: 'Cardiology',
+        available_hours: null,
+      },
+    ]);
+
+    const result = await doctorService.getAvailableDoctors({ department: 'Cardiology' });
+
+    expect(result.currentTime).toEqual(expect.objectContaining({ day: 'MONDAY', hour: 10, minute: 0 }));
+    expect(result.doctors.map((d) => d.name)).toEqual(['Dr Current']);
+
+    const sql = queryRawMock.mock.calls[0][0];
+    expect(sql).toMatch(/d\.is_available = true/);
+    expect(sql).toMatch(/unnest\(d\.available_days\)/);
+    expect(sql).toMatch(/UPPER\(d\.department\) = UPPER\(\$2\)/);
+    expect(queryRawMock.mock.calls[0][1]).toBe('MONDAY');
+    expect(queryRawMock.mock.calls[0][2]).toBe('Cardiology');
+  });
+});

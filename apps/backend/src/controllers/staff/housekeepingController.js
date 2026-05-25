@@ -23,6 +23,39 @@ async function resolveCurrentUserRef(req) {
   });
 }
 
+function extractLinkedBedId(requestRow = {}) {
+  const haystack = [requestRow.description, requestRow.notes, requestRow.location_text]
+    .filter(Boolean)
+    .join('\n');
+  const match = haystack.match(/\bbed_id\s*=\s*(\d+)\b/i);
+  if (!match) return null;
+  const bedId = Number.parseInt(match[1], 10);
+  return Number.isInteger(bedId) && bedId > 0 ? bedId : null;
+}
+
+async function markLinkedDirtyBedCleaning(requestRow, actorUid) {
+  const bedId = extractLinkedBedId(requestRow);
+  if (!bedId) return;
+
+  const updated = await prisma.$queryRawUnsafe(
+    `UPDATE beds
+        SET status = 'cleaning', updated_at = NOW()
+      WHERE id = $1::int AND status = 'dirty'
+      RETURNING id, status`,
+    bedId,
+  );
+
+  if (!updated.length) return;
+
+  await prisma.$queryRawUnsafe(
+    `INSERT INTO housekeeping_request_updates (request_id, author_uid, author_role, message, is_internal)
+     VALUES ($1::int, $2::uuid, 'system', $3, false)`,
+    requestRow.id,
+    actorUid || null,
+    `Linked bed ${bedId} moved from dirty to cleaning when housekeeping work was assigned.`,
+  );
+}
+
 // ─── GET /zones — list all active zones ──────────────────────────────────────
 export const getZones = async (req, res) => {
   try {
@@ -399,11 +432,13 @@ export const assignRequest = async (req, res) => {
         status = 'assigned', updated_at = NOW()
       WHERE id = $5::int AND status IN ('open','assigned')
       RETURNING id, request_number, zone_id, assigned_to, assigned_to_uid,
-        request_type, request_type as task_type, status, description,
+        location_text, request_type, request_type as task_type, status, description,
         description as notes, completed_at, created_at
     `, assignedToId, assignedUser.uid, admin.id, admin.uid, id);
 
     if (result.length === 0) return error(res, 'Request not found or already in progress', HTTP_STATUS.NOT_FOUND);
+
+    await markLinkedDirtyBedCleaning(result[0], admin.uid);
 
     await prisma.$queryRawUnsafe(`
       INSERT INTO housekeeping_request_updates (request_id, author_id, author_uid, author_role, message, is_internal)

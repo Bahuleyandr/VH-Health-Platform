@@ -2,17 +2,24 @@ import { jest } from '@jest/globals';
 
 const updateMock = jest.fn();
 const findUniqueMock = jest.fn();
+const findManyMock = jest.fn();
+const countMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
+    users: {
+      findUnique: findUniqueMock,
+    },
     investigations: {
+      findMany: findManyMock,
+      count: countMock,
       findUnique: findUniqueMock,
       update: updateMock,
     },
   },
 }));
 
-const { updateStatus } = await import('../../services/investigation/investigationService.js');
+const { getInvestigations, updateStatus } = await import('../../services/investigation/investigationService.js');
 
 const LAB_TECH_UID = '11111111-1111-4111-8111-111111111111';
 const NOW = new Date('2026-05-15T10:00:00.000Z');
@@ -20,6 +27,8 @@ const NOW = new Date('2026-05-15T10:00:00.000Z');
 beforeEach(() => {
   jest.useFakeTimers().setSystemTime(NOW);
   findUniqueMock.mockReset();
+  findManyMock.mockReset();
+  countMock.mockReset();
   updateMock.mockReset();
 });
 
@@ -64,5 +73,43 @@ describe('investigationService.updateStatus', () => {
     expect(result.collected_at).toEqual(NOW);
     expect(result.collected_by).toBe(LAB_TECH_UID);
     expect(result.sample_barcode).toMatch(/^INV-K-/);
+  });
+});
+
+describe('investigationService requester provenance', () => {
+  it('does not flatten an admin requester as the ordering doctor', async () => {
+    const requestedBy = '33333333-3333-4333-8333-333333333333';
+    findManyMock.mockResolvedValueOnce([
+      {
+        id: 44,
+        test_name: 'CBC',
+        requested_by: requestedBy,
+        users_investigations_patient_idTousers: {
+          id: 7,
+          name: 'Lab Patient',
+          phone: '+919000000044',
+        },
+        users_investigations_requested_byTousers: {
+          id: 9,
+          uid: requestedBy,
+          name: 'Admin Requester',
+          role: 'ADMIN',
+          phone: '+919000000009',
+          doctors: [],
+        },
+      },
+    ]);
+    countMock.mockResolvedValueOnce(1);
+
+    const result = await getInvestigations(1, 20, {}, 'ADMIN', 'admin-uid');
+
+    expect(result.investigations[0]).toEqual(expect.objectContaining({
+      requested_by_name: 'Admin Requester',
+      requested_by_uid: requestedBy,
+      requested_by_role: 'ADMIN',
+      doctor_name: null,
+      doctor_id: null,
+      doctor_phone: null,
+    }));
   });
 });

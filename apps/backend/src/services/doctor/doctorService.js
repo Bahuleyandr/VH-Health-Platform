@@ -4,6 +4,79 @@ import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 
+function currentIstClock(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Kolkata',
+    weekday: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now);
+  const part = (type) => parts.find((p) => p.type === type)?.value;
+  const hour = Number.parseInt(part('hour') || '0', 10);
+  const minute = Number.parseInt(part('minute') || '0', 10);
+  return {
+    day: String(part('weekday') || '').toUpperCase(),
+    hour,
+    minute,
+    minutes: (hour * 60) + minute,
+  };
+}
+
+function parseTimeToMinutes(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const text = String(value).trim().toLowerCase();
+  const match = text.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);
+  if (!match) return null;
+  let hour = Number.parseInt(match[1], 10);
+  const minute = Number.parseInt(match[2] || '0', 10);
+  if (hour > 23 || minute > 59) return null;
+  if (match[3] === 'pm' && hour < 12) hour += 12;
+  if (match[3] === 'am' && hour === 12) hour = 0;
+  return (hour * 60) + minute;
+}
+
+function normalizeAvailabilityWindows(availableHours) {
+  if (!availableHours) return [];
+  if (typeof availableHours === 'string') {
+    const text = availableHours.trim();
+    try {
+      return normalizeAvailabilityWindows(JSON.parse(text));
+    } catch {
+      const [start, end] = text.split(/\s*-\s*/);
+      return start && end ? [{ start, end }] : [];
+    }
+  }
+  if (Array.isArray(availableHours)) {
+    return availableHours.flatMap((entry) => normalizeAvailabilityWindows(entry));
+  }
+  if (typeof availableHours === 'object') {
+    if (availableHours.start && availableHours.end) {
+      return [{ start: availableHours.start, end: availableHours.end }];
+    }
+    if (availableHours.from && availableHours.to) {
+      return [{ start: availableHours.from, end: availableHours.to }];
+    }
+    if (availableHours.start_time && availableHours.end_time) {
+      return [{ start: availableHours.start_time, end: availableHours.end_time }];
+    }
+    return Object.values(availableHours).flatMap((entry) => normalizeAvailabilityWindows(entry));
+  }
+  return [];
+}
+
+function isAvailableAtMinutes(availableHours, currentMinutes) {
+  return normalizeAvailabilityWindows(availableHours).some(({ start, end }) => {
+    const startMinutes = parseTimeToMinutes(start);
+    const endMinutes = parseTimeToMinutes(end);
+    if (startMinutes === null || endMinutes === null) return false;
+    if (startMinutes <= endMinutes) {
+      return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+    }
+    return currentMinutes >= startMinutes || currentMinutes <= endMinutes;
+  });
+}
+
 export class DoctorService {
   async getDoctorSchema() {
     if (this._doctorSchema) {
@@ -460,41 +533,54 @@ export class DoctorService {
     }
   }
 
-  // Get available doctors
-  async getAvailableDoctors() {
+  // Get currently available doctors
+  async getAvailableDoctors(filters = {}) {
     try {
-      const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
-      const currentHour = new Date().getHours();
-      const todayPattern = `%${today}%`;
+      const schema = await this.getDoctorSchema();
+      const clock = currentIstClock();
+      const params = [clock.day];
+      const where = [
+        `u.role = 'DOCTOR'`,
+        `u.is_active = true`,
+        `d.is_active = true`,
+        `d.is_available = true`,
+        `(d.available_days IS NULL
+          OR cardinality(d.available_days) = 0
+          OR EXISTS (
+            SELECT 1 FROM unnest(d.available_days) AS day_name
+             WHERE UPPER(TRIM(day_name)) = $1
+          ))`,
+      ];
+      if (filters.department && schema.department) {
+        params.push(String(filters.department).trim());
+        where.push(`UPPER(d.department) = UPPER($${params.length})`);
+      }
+      if (filters.departmentId && schema.department) {
+        params.push(Number(filters.departmentId));
+        where.push(`UPPER(d.department) = (
+          SELECT UPPER(name) FROM departments WHERE id = $${params.length} LIMIT 1
+        )`);
+      }
 
-      const rows = await prisma.$queryRaw`
+      const rows = await prisma.$queryRawUnsafe(
+        `
         SELECT u.id, u.uid, u.name, u.phone,
                d.specialty AS specialization, d.department, d.consultation_fee,
                d.available_days, d.available_hours, d.intro AS bio
         FROM users u
         JOIN doctors d ON u.id = d.user_id
-        WHERE u.role = 'DOCTOR'
-          AND d.is_available = true
-          AND (d.available_days IS NULL OR d.available_days LIKE ${todayPattern})
+        WHERE ${where.join(' AND ')}
         ORDER BY d.department, u.name
-      `;
+      `,
+        ...params,
+      );
 
-      // Filter by current time
-      const availableNow = rows.filter(doctor => {
-        if (!doctor.available_hours) { return true; }
-        try {
-          const hours = doctor.available_hours.split('-');
-          const startHour = parseInt(hours[0]);
-          const endHour = parseInt(hours[1]);
-          return currentHour >= startHour && currentHour <= endHour;
-        } catch {
-          return true;
-        }
-      });
+      const availableNow = rows.filter((doctor) =>
+        isAvailableAtMinutes(doctor.available_hours, clock.minutes));
 
       return {
         doctors: availableNow,
-        currentTime: { day: today, hour: currentHour }
+        currentTime: { day: clock.day, hour: clock.hour, minute: clock.minute }
       };
     } catch (error) {
       logger.error('Error fetching available doctors:', error);

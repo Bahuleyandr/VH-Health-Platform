@@ -221,6 +221,47 @@ describe('recordTriageAssessment', () => {
     queryUnsafeMock.mockRejectedValueOnce(new Error('relation "triage_assessments" does not exist'));
     expect(await listTriageAssessments({ tenantId: TENANT })).toEqual({ assessments: [], count: 0 });
   });
+
+  it('synthesizes ATS triage assessment from nurse vitals when no formal row exists', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        emergency_visit_id: 7,
+        tenant_id: TENANT,
+        patient_uid: PATIENT,
+        chief_complaint: 'Crushing chest pain',
+        triage_priority: 'ats_2',
+        triage_started_at: '2026-05-23T10:00:00.000Z',
+        vitals_id: 99,
+        triage_acuity: 2,
+        recorded_at: '2026-05-23T10:03:00.000Z',
+        recorded_by: USER,
+        heart_rate: 120,
+        systolic_bp: 88,
+        diastolic_bp: 56,
+        temperature: '37.1',
+        spo2: 92,
+        respiratory_rate: 24,
+        pain_score: 9,
+        gcs_score: 15,
+      }]);
+
+    const result = await listTriageAssessments({ tenantId: TENANT, emergencyVisitId: 7 });
+
+    expect(result.count).toBe(1);
+    expect(result.assessments[0]).toMatchObject({
+      id: null,
+      assessment_kind: 'australian',
+      level: 'ATS-2',
+      presenting_complaint: 'Crushing chest pain',
+      pain_score: 9,
+      metadata: {
+        source: 'vitals_chart',
+        vitals_id: 99,
+        triage_priority: 'ats_2',
+      },
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

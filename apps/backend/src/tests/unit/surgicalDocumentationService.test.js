@@ -228,6 +228,39 @@ describe('createIntraopNote', () => {
     expect(sql).toMatch(/INSERT INTO intraop_notes/);
   });
 
+  it('blocks incision/start recording until WHO time-out is complete', async () => {
+    mockSchedule();
+    queryUnsafeMock.mockResolvedValueOnce([]);
+
+    await expect(createIntraopNote({
+      tenantId: TENANT,
+      otScheduleId: 42,
+      patientUid: PATIENT,
+      surgeon: USER,
+      startTime: '2026-05-23T10:00:00.000Z',
+    })).rejects.toMatchObject({ statusCode: 400, code: 'WHO_TIMEOUT_REQUIRED' });
+  });
+
+  it('allows finalized intra-op note creation only after WHO time-out completion', async () => {
+    mockSchedule();
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ id: 77, phase: 'time_out', status: 'complete' }])
+      .mockResolvedValueOnce([{ id: 1, status: 'finalized' }]);
+
+    const row = await createIntraopNote({
+      tenantId: TENANT,
+      otScheduleId: 42,
+      patientUid: PATIENT,
+      surgeon: USER,
+      status: 'finalized',
+      procedurePerformed: 'Lap appendectomy',
+    });
+
+    expect(row.status).toBe('finalized');
+    expect(queryUnsafeMock.mock.calls[1][0]).toMatch(/FROM surgical_safety_checklists/);
+    expect(queryUnsafeMock.mock.calls[2][0]).toMatch(/INSERT INTO intraop_notes/);
+  });
+
   it('rejects invalid technique value', async () => {
     mockSchedule();
     await expect(createIntraopNote({
@@ -239,7 +272,10 @@ describe('createIntraopNote', () => {
 
 describe('finalizeIntraopNote', () => {
   it('flips status to finalized on existing draft', async () => {
-    queryUnsafeMock.mockResolvedValueOnce([{ id: 1, status: 'finalized' }]);
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ id: 1, ot_schedule_id: 42 }])
+      .mockResolvedValueOnce([{ id: 77, phase: 'time_out', status: 'complete' }])
+      .mockResolvedValueOnce([{ id: 1, status: 'finalized' }]);
     const row = await finalizeIntraopNote({ tenantId: TENANT, id: 1, finalizedBy: USER });
     expect(row.status).toBe('finalized');
   });
@@ -248,6 +284,15 @@ describe('finalizeIntraopNote', () => {
     queryUnsafeMock.mockResolvedValueOnce([]);
     await expect(finalizeIntraopNote({ tenantId: TENANT, id: 999 }))
       .rejects.toThrow(/not found or already finalized/);
+  });
+
+  it('blocks finalization if the WHO time-out is still missing', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ id: 1, ot_schedule_id: 42 }])
+      .mockResolvedValueOnce([]);
+
+    await expect(finalizeIntraopNote({ tenantId: TENANT, id: 1, finalizedBy: USER }))
+      .rejects.toMatchObject({ statusCode: 400, code: 'WHO_TIMEOUT_REQUIRED' });
   });
 });
 

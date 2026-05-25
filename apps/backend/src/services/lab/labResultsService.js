@@ -444,6 +444,16 @@ export async function recordResultManual({ tenantId, performed_by, result }) {
   }
   sanitised.investigation_id = Number.isFinite(resolvedInvestigationId)
     ? resolvedInvestigationId : null;
+  if (sanitised.investigation_id == null) {
+    throw AppError.badRequest(
+      'Manual lab results must be linked to an investigation order or booking before entry',
+      'LAB_RESULT_ORDER_LINK_REQUIRED',
+      {
+        booking_id: sanitised.booking_id ?? null,
+        investigation_id: sanitised.investigation_id ?? null,
+      },
+    );
+  }
 
   // Guard against duplicate-analyte submission after sign-off. If a
   // verified row for the same (investigation_id, test_code) already
@@ -572,12 +582,20 @@ export async function signOffResults({
   // Verify ownership: all results must belong to the tenant.
   const ids = result_ids.map(Number).filter(Boolean);
   const owned = await prisma.$queryRawUnsafe(
-    `SELECT id, patient_uid, booking_id FROM lab_results
+    `SELECT id, patient_uid, booking_id, investigation_id FROM lab_results
       WHERE id = ANY($1::int[]) AND tenant_id = $2::uuid`,
     ids, tenantId,
   );
   if (owned.length !== ids.length) {
     throw AppError.badRequest('Some result_ids are not in this tenant');
+  }
+  const unlinked = owned.filter((row) => row.investigation_id == null && row.booking_id == null);
+  if (unlinked.length > 0) {
+    throw AppError.badRequest(
+      'Cannot sign off lab results without investigation order or booking linkage',
+      'LAB_RESULT_ORDER_LINK_REQUIRED',
+      { result_ids: unlinked.map((row) => row.id) },
+    );
   }
 
   // Insert sign-off record.

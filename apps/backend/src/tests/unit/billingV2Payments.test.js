@@ -24,7 +24,8 @@ describe('billing v2 payment invoice totals', () => {
       }])
       .mockResolvedValueOnce([{ id: 9, invoice_id: 3, amount: '2300' }])
       .mockResolvedValueOnce([{ paid: '17300' }])
-      .mockResolvedValueOnce([{ total_amount: '17300' }]);
+      .mockResolvedValueOnce([{ total_amount: '17300' }])
+      .mockResolvedValueOnce([]);
 
     await collectPayment({
       invoice_id: 3,
@@ -50,7 +51,8 @@ describe('billing v2 payment invoice totals', () => {
     mockPrisma.$queryRawUnsafe
       .mockResolvedValueOnce([{ id: 9, invoice_id: 3, amount: '2300' }])
       .mockResolvedValueOnce([{ paid: '15000' }])
-      .mockResolvedValueOnce([{ total_amount: '17300' }]);
+      .mockResolvedValueOnce([{ total_amount: '17300' }])
+      .mockResolvedValueOnce([]);
 
     await reversePayment(9, { reason: 'cash entry voided' });
 
@@ -141,7 +143,8 @@ describe('billing v2 payment invoice totals', () => {
       }])
       .mockResolvedValueOnce([{ id: 10, invoice_id: 3, amount: '5000', mode: 'INSURANCE' }])
       .mockResolvedValueOnce([{ paid: '17300' }])
-      .mockResolvedValueOnce([{ total_amount: '17300' }]);
+      .mockResolvedValueOnce([{ total_amount: '17300' }])
+      .mockResolvedValueOnce([{ id: 3, admission_id: 77 }]);
 
     await collectPayment({
       invoice_id: 3,
@@ -154,6 +157,11 @@ describe('billing v2 payment invoice totals', () => {
     expect(claimAnchorSql).toContain('FROM tpa_claims');
     expect(mockPrisma.$executeRawUnsafe).toHaveBeenCalledWith(
       expect.stringContaining('UPDATE billing_invoices'), 17300, 0, 'PAID', 3,
+    );
+    expect(mockPrisma.$executeRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining("SET status = 'REFUND_DUE'"),
+      77,
+      expect.stringContaining('Invoice 3 paid'),
     );
   });
 });

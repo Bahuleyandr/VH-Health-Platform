@@ -8,8 +8,10 @@ import pharmacyRoutes from './pharmacyRoutes.js';
 import staffAdminRoutes from './staffAdminRoutes.js';
 import staffRoutes from './staffRoutes.js';
 import * as replacementController from '../../controllers/staff/replacementController.js';
+import * as workflowController from '../../controllers/appointment/appointmentWorkflowController.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 import * as orderService from '../../services/investigation/orderService.js';
 import { normalizePhone } from '../../utils/phoneUtils.js';
 import { isStaff } from '../../utils/roleHelpers.js';
@@ -21,6 +23,8 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
 });
+
+const walkInRoles = requireRole('ADMIN', 'DOCTOR', 'PATIENT', 'NURSE', 'RECEPTIONIST');
 
 function canUseStaffMedical(role) {
   const normalizedRole = String(role || '').toUpperCase();
@@ -56,6 +60,10 @@ function normalizeAppointmentDocument(row) {
     uploaded_at: row.uploaded_at || row.created_at,
   };
 }
+
+// Compatibility alias for clients documented against /api/v1/staff/walk-in.
+// The canonical implementation remains /api/v1/appointments/walk-in.
+router.post('/walk-in', walkInRoles, workflowController.registerWalkIn);
 
 // Mount sub-routers
 router.use('/', staffRoutes);           // Staff management

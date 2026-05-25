@@ -148,7 +148,14 @@ export const doctorController = {
   // Get available doctors
   getAvailableDoctors: async (req, res) => {
     try {
-      const result = await doctorService.getAvailableDoctors();
+      const departmentIdRaw = req.query.departmentId ?? req.query.department_id;
+      const departmentId = departmentIdRaw != null && /^\d+$/.test(String(departmentIdRaw))
+        ? parseInt(departmentIdRaw, 10)
+        : null;
+      const result = await doctorService.getAvailableDoctors({
+        department: req.query.department || null,
+        departmentId,
+      });
       
       // Filter sensitive information for patients
       const filteredDoctors = result.doctors.map(doctor => {

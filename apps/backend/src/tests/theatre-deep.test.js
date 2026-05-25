@@ -434,6 +434,20 @@ describe('Theatre scheduling — deep integration', () => {
     });
 
     it('lets the responsible surgeon create and sign the intra-op note', async () => {
+      const timeout = await surgeon.put(`/api/v1/surgical/safety/${scheduleId}/time_out`).send({
+        patient_uid: PATIENT_UID,
+        all_items_confirmed: true,
+        metadata: {
+          scheduled_side: 'right',
+          marked_side: 'right',
+          patient_identity_verified: true,
+          procedure_verified: true,
+          antibiotic_prophylaxis_confirmed: true,
+        },
+      });
+      expect(timeout.statusCode).toBe(200);
+      expect(timeout.body.data.status).toBe('complete');
+
       const create = await surgeon.post('/api/v1/surgical/intraop').send({
         ot_schedule_id: scheduleId,
         patient_uid: PATIENT_UID,

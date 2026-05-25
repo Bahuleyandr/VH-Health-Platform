@@ -237,6 +237,43 @@ async function recomputeInvoicePaymentState(invoiceId) {
   return { paid, due, status };
 }
 
+async function syncUnusedAdmissionAdvancesForInvoice(invoiceId, paymentState) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, admission_id
+       FROM billing_invoices
+      WHERE id = $1::int
+      LIMIT 1`,
+    Number(invoiceId),
+  );
+  const invoice = rows[0] ?? null;
+  if (!invoice?.admission_id) return;
+
+  if (paymentState?.status === 'PAID') {
+    await prisma.$executeRawUnsafe(
+      `UPDATE billing_advances
+          SET status = 'REFUND_DUE',
+              notes = CONCAT_WS(' | ', NULLIF(notes, ''), $2),
+              updated_at = NOW()
+        WHERE admission_id = $1::int
+          AND status = 'ACTIVE'
+          AND balance > 0.005`,
+      Number(invoice.admission_id),
+      `Invoice ${Number(invoiceId)} paid without consuming this advance; refund or reallocate after finance review.`,
+    );
+    return;
+  }
+
+  await prisma.$executeRawUnsafe(
+    `UPDATE billing_advances
+        SET status = 'ACTIVE',
+            updated_at = NOW()
+      WHERE admission_id = $1::int
+        AND status = 'REFUND_DUE'
+        AND balance > 0.005`,
+    Number(invoice.admission_id),
+  );
+}
+
 // ───────────────────────────────────────────────────────────────────────
 // Service master
 // ───────────────────────────────────────────────────────────────────────
@@ -1060,7 +1097,8 @@ export async function collectPayment({
   );
 
   if (invoice_id) {
-    await recomputeInvoicePaymentState(invoice_id);
+    const paymentState = await recomputeInvoicePaymentState(invoice_id);
+    await syncUnusedAdmissionAdvancesForInvoice(invoice_id, paymentState);
   }
   return rows[0];
 }
@@ -1078,7 +1116,8 @@ export async function reversePayment(paymentId, { reversed_by, reason }) {
   if (!rows.length) throw AppError.notFound('Payment not found or already reversed');
   // Recompute parent invoice if attached.
   if (rows[0].invoice_id) {
-    await recomputeInvoicePaymentState(rows[0].invoice_id);
+    const paymentState = await recomputeInvoicePaymentState(rows[0].invoice_id);
+    await syncUnusedAdmissionAdvancesForInvoice(rows[0].invoice_id, paymentState);
   }
   return rows[0];
 }

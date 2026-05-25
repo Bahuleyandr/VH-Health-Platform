@@ -22,6 +22,7 @@ const {
   detectCriticalsForResults,
   recordResultManual,
   listLabWorklist,
+  signOffResults,
 } = await import('../../services/lab/labResultsService.js');
 
 describe('labResultsService critical detection', () => {
@@ -201,23 +202,11 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
     expect(statusAdvance[0]).toMatch(/SET status = 'IN_PROGRESS'/);
   });
 
-  it('skips the investigation status advance when no investigation is linked', async () => {
+  it('rejects manual result creation when no order or booking link exists', async () => {
     queryRawUnsafeMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{
-        id: 102,
-        tenant_id: tenantId,
-        booking_id: null,
-        investigation_id: null,
-        patient_uid: patientUid,
-        test_code: 'BLDCULT',
-        test_name: 'Blood culture',
-        value_text: 'No growth',
-        value_numeric: null,
-        status: 'preliminary',
-      }]);
+      .mockResolvedValueOnce([]);
 
-    await recordResultManual({
+    await expect(recordResultManual({
       tenantId,
       performed_by: 'lab-tech-uid',
       result: {
@@ -226,11 +215,34 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
         test_name: 'Blood culture',
         value_text: 'No growth',
       },
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_RESULT_ORDER_LINK_REQUIRED',
     });
 
-    const statusAdvance = executeRawUnsafeMock.mock.calls
-      .find((args) => /UPDATE investigations/.test(args[0]));
-    expect(statusAdvance).toBeUndefined();
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+    expect(executeRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects pathologist sign-off for unlinked lab results', async () => {
+    queryRawUnsafeMock.mockResolvedValueOnce([{
+      id: 102,
+      patient_uid: patientUid,
+      booking_id: null,
+      investigation_id: null,
+    }]);
+
+    await expect(signOffResults({
+      tenantId,
+      signed_off_by: '33333333-3333-4333-8333-333333333333',
+      signed_off_by_role: 'PATHOLOGIST',
+      result_ids: [102],
+      decision: 'rejected',
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'LAB_RESULT_ORDER_LINK_REQUIRED',
+      details: { result_ids: [102] },
+    });
   });
 });
 

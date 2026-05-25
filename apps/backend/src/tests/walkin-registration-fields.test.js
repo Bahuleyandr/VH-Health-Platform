@@ -279,6 +279,8 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
         patient_gender: 'M',
         visit_type: 'EMERGENCY',
         is_unidentified: true,
+        approximate_age_years: 45,
+        approximate_age_months: 6,
         chief_complaint: 'Unconscious after fall',
         mlc: true,
       });
@@ -288,6 +290,12 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
     expect(res.body.data.visit_no).toMatch(/^EMER-\d{8}-\d{3}$/);
     expect(res.body.data.er_visit_id).not.toBeNull();
     expect(res.body.data.is_unidentified).toBe(true);
+    expect(res.body.data.er_approximate_age).toMatchObject({
+      years: 45,
+      months: 6,
+      days: null,
+      source: 'reception_estimate',
+    });
     expect(res.body.data.phone).toMatch(/^UNIDENT-[A-Z0-9]{6}$/);
 
     const patientRows = await prisma.$queryRawUnsafe(
@@ -300,12 +308,17 @@ describe('POST /appointments/walk-in — Stage-5 structured registration fields'
     });
 
     const erRows = await prisma.$queryRawUnsafe(
-      `SELECT chief_complaint, is_mlc FROM emergency_visits WHERE id = $1`,
+      `SELECT chief_complaint, is_mlc, metadata FROM emergency_visits WHERE id = $1`,
       res.body.data.er_visit_id,
     );
     expect(erRows[0]).toMatchObject({
       chief_complaint: 'Unconscious after fall',
       is_mlc: true,
+    });
+    expect(erRows[0].metadata.approximate_age).toMatchObject({
+      years: 45,
+      months: 6,
+      days: null,
     });
 
     await prisma.$executeRawUnsafe(

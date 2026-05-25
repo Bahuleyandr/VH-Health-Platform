@@ -49,12 +49,15 @@ function normaliseDipstick(raw, field) {
 function normaliseTriageAcuity(raw) {
   if (raw === undefined || raw === null || raw === '') return null;
   const text = String(raw).trim().toLowerCase();
-  const labelled = text.match(/^(?:esi|ats)[_-]?([1-5])$/);
-  const n = labelled ? Number(labelled[1]) : Number(text);
+  const labelled = text.match(/^(esi|ats)[_-]?([1-5])$/);
+  const n = labelled ? Number(labelled[2]) : Number(text);
   if (!Number.isInteger(n) || n < 1 || n > 5) {
     throw AppError.badRequest('triage_acuity must be an integer from 1 to 5');
   }
-  return n;
+  return {
+    level: n,
+    priority: `${labelled?.[1] || 'esi'}_${n}`,
+  };
 }
 
 function parseOptionalPositiveInt(raw, field) {
@@ -98,10 +101,10 @@ async function resolvePatientForVitals(patientUid, patientId) {
   return { id: user.id, uid: String(user.uid), role: user.role };
 }
 
-async function propagateTriageAcuity({ patientId, patientUid, visitId, triageAcuity }) {
+async function propagateTriageAcuity({ patientId, patientUid, visitId, triageAcuity, triagePriority = null }) {
   if (triageAcuity == null) return null;
 
-  const priority = `esi_${triageAcuity}`;
+  const priority = triagePriority || `esi_${triageAcuity}`;
   const visitNumericId = visitId !== undefined && visitId !== null && visitId !== ''
     ? parseOptionalPositiveInt(visitId, 'visit_id')
     : null;
@@ -446,7 +449,9 @@ export async function recordVitals(data) {
   const normalizedAlbumin = normaliseDipstick(urine_albumin, 'urine_albumin');
   const normalizedSugar = normaliseDipstick(urine_sugar, 'urine_sugar');
   const normalizedKetones = normaliseDipstick(urine_ketones, 'urine_ketones');
-  const normalizedAcuity = normaliseTriageAcuity(triage_acuity ?? acuity ?? triage_priority);
+  const normalizedAcuitySignal = normaliseTriageAcuity(triage_acuity ?? acuity ?? triage_priority);
+  const normalizedAcuity = normalizedAcuitySignal?.level ?? null;
+  const normalizedTriagePriority = normalizedAcuitySignal?.priority ?? null;
   const normalizedRecordedAt = normalizeRecordedAt(recorded_at ?? observed_at);
 
   const vitalValues = [heart_rate, systolic_bp, diastolic_bp, normalizedTemperature, spo2,
@@ -525,6 +530,7 @@ export async function recordVitals(data) {
       patientUid: resolvedPatientUid,
       visitId: visit_id,
       triageAcuity: normalizedAcuity,
+      triagePriority: normalizedTriagePriority,
     });
   }
 

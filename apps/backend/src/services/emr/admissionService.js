@@ -1663,6 +1663,51 @@ async function completeDischargeConsult(admissionId, consultType, completedBy, n
   return updated;
 }
 
+async function hasDischargeMedicationEvidence(admission) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT EXISTS (
+        SELECT 1
+          FROM e_prescriptions ep
+          JOIN pharmacy_orders po ON po.id = ep.pharmacy_order_id
+         WHERE ep.admission_id = $1::int
+           AND ep.patient_uid = $2::uuid
+           AND po.dispensed_at IS NOT NULL
+           AND po.dispensed_by IS NOT NULL
+           AND LOWER(po.status) IN ('dispensed', 'delivered')
+           AND (
+             $3::timestamptz IS NULL
+             OR po.dispensed_at >= $3::timestamptz
+           )
+      ) OR EXISTS (
+        SELECT 1
+          FROM clinical_ai_workflow_runs wr
+         WHERE wr.admission_id = $1::int
+           AND wr.patient_uid = $2::uuid
+           AND (
+             wr.module_key = 'medication_reconciliation'
+             OR wr.workflow_key = 'medication_reconciliation'
+             OR wr.workflow_key = 'discharge_summary_compose'
+           )
+           AND wr.status IN ('completed', 'complete', 'finalized', 'reviewed')
+      ) OR EXISTS (
+        SELECT 1
+          FROM admissions a
+         WHERE a.id = $1::int
+           AND a.patient_uid = $2::uuid
+           AND a.discharge_summary IS NOT NULL
+           AND (
+             a.discharge_summary ? 'medication_reconciliation'
+             OR a.discharge_summary ? 'med_rec'
+             OR a.discharge_summary ? 'medications_on_discharge'
+           )
+      ) AS has_evidence`,
+    admission.id,
+    admission.patient_uid,
+    admission.discharge_initiated_at,
+  );
+  return rows[0]?.has_evidence === true;
+}
+
 /**
  * Stamp admissions.discharge_drugs_dispensed_at = T3. Called by the
  * pharmacy module when discharge takeaway drugs are dispensed.
@@ -1686,6 +1731,7 @@ async function markDischargeDrugsDispensed(admissionId, dispensedBy) {
     where: { id: admissionId },
     select: {
       id: true,
+      patient_uid: true,
       status: true,
       discharge_initiated_at: true,
       discharge_drugs_dispensed_at: true,
@@ -1711,6 +1757,13 @@ async function markDischargeDrugsDispensed(admissionId, dispensedBy) {
       `markDischargeDrugsDispensed: admission ${admissionId} already stamped at ${existing.discharge_drugs_dispensed_at.toISOString?.() ?? existing.discharge_drugs_dispensed_at}; returning current state`,
     );
     return current;
+  }
+
+  if (!await hasDischargeMedicationEvidence(existing)) {
+    throw AppError.badRequest(
+      'Discharge drugs cannot be marked dispensed until linked pharmacy dispense or medication-reconciliation evidence exists',
+      'DISCHARGE_DRUG_EVIDENCE_REQUIRED',
+    );
   }
 
   const updated = await prisma.admissions.update({
@@ -2016,7 +2069,7 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
   }
 
   // Phase 1: atomic state changes — flip admission to discharged,
-  // vacate the bed (status → cleaning + clear back-links), record the
+  // vacate the bed (status → dirty + clear back-links), record the
   // bed transfer audit row, queue the housekeeping ticket, stamp
   // audit_logs. Everything here must succeed or roll back together.
   const phase1 = await prisma.$transaction(async (tx) => {
@@ -2062,7 +2115,7 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
         await tx.beds.update({
           where: { id: admission.bed_id },
           data: {
-            status: 'cleaning',
+            status: 'dirty',
             patient_id: null,
             patient_name: null,
             patient_uid: null,
@@ -2115,7 +2168,7 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
   // so a failure here cannot leave the discharge tx aborted. Each is
   // wrapped in its own try/catch, log-on-failure.
   //
-  // Housekeeping ticket: bed is already flipped to `cleaning` in
+  // Housekeeping ticket: bed is already flipped to `dirty` in
   // Phase 1, so the bed-board view shows it as awaiting turnover. The
   // explicit `housekeeping_requests` row is the work item the cleaning
   // staff app + admin dashboard query (mounted at /api/v1/housekeeping
@@ -2145,7 +2198,7 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
             location_text: bedLabel,
             request_type: 'cleaning',
             urgency: 'high',
-            description: `Discharge cleaning required for ${bedLabel} after admission #${admissionId}.`,
+            description: `Discharge cleaning required for ${bedLabel} after admission #${admissionId}. bed_id=${bed_id}.`,
             status: 'open',
             sla_due_at: slaDueAt,
             updated_at: new Date(),

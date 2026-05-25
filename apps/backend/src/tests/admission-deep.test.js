@@ -875,7 +875,7 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
 
       // Bed released
       const bedB = await prisma.$queryRawUnsafe(`SELECT status, patient_id FROM beds WHERE id = $1`, bed2Id);
-      expect(bedB[0].status).toBe('cleaning');
+      expect(bedB[0].status).toBe('dirty');
       expect(bedB[0].patient_id).toBeNull();
 
       const housekeeping = await prisma.$queryRawUnsafe(

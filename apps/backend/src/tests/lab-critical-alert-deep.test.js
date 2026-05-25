@@ -42,6 +42,11 @@ async function deletePatient(uid) {
   ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM lab_critical_alerts WHERE patient_uid = $1::uuid`, uid).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+  await prisma.$executeRawUnsafe(`DELETE FROM investigations WHERE patient_uid = $1::uuid`, uid).catch(() => {});
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM investigations WHERE patient_id IN (SELECT id FROM users WHERE uid = $1::uuid)`,
+    uid,
+  ).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM emergency_visits WHERE patient_uid = $1::uuid`, uid).catch(() => {});
   await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, uid).catch(() => {});
 }
@@ -69,12 +74,13 @@ function doctorTokenFor(uid, phone) {
 describe('Critical lab alert reaches ER doctor in-app feed — deep integration', () => {
   const labTech = authClient('LAB_STAFF');
   let doctorId;
+  let investigationId;
 
   beforeAll(async () => {
     await deletePatient(PATIENT_UID);
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, DOCTOR_UID).catch(() => {});
 
-    await makeUser(PATIENT_UID, PATIENT_PHONE, 'Lab Alert Test Patient', 'PATIENT');
+    const patientId = await makeUser(PATIENT_UID, PATIENT_PHONE, 'Lab Alert Test Patient', 'PATIENT');
     doctorId = await makeUser(DOCTOR_UID, DOCTOR_PHONE, 'Lab Alert Test ER Doctor', 'DOCTOR');
 
     // Active ER visit with the doctor as attending — this is what the
@@ -86,6 +92,22 @@ describe('Critical lab alert reaches ER doctor in-app feed — deep integration'
        VALUES ($1::uuid, $2, $3::uuid, 'walk_in', 'Chest pain', $4::uuid, 'arriving')`,
       TENANT_ID, `EMER-LABALERT-${Date.now()}`, PATIENT_UID, DOCTOR_UID,
     );
+
+    const investigationRows = await prisma.$queryRawUnsafe(
+      `INSERT INTO investigations
+         (tenant_id, phone, patient_id, patient_uid, test_name, test_type,
+          status, priority, requested_by, requested_at, updated_at)
+       VALUES
+         ($1::uuid, $2, $3, $4::uuid, 'Troponin I', 'blood',
+          'REQUESTED', 'STAT', $5::uuid, NOW(), NOW())
+       RETURNING id`,
+      TENANT_ID,
+      PATIENT_PHONE,
+      patientId,
+      PATIENT_UID,
+      DOCTOR_UID,
+    );
+    investigationId = investigationRows[0].id;
 
     await prisma.$executeRawUnsafe(
       `INSERT INTO lab_critical_thresholds
@@ -106,6 +128,7 @@ describe('Critical lab alert reaches ER doctor in-app feed — deep integration'
     // 1. Submit a critical troponin value via the lab path (mirrors what
     //    the LAB_STAFF agent does in the emergency-walk-in journey).
     const labRes = await labTech.post('/api/v1/lab/results').send({
+      investigation_id: investigationId,
       patient_uid: PATIENT_UID,
       test_code: 'TROPI',
       test_name: 'Troponin I',

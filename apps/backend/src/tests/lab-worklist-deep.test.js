@@ -304,6 +304,7 @@ describe('Lab worklist + manual result validation — deep integration', () => {
 
     it('accepts a numeric value and fires a critical alert when above threshold', async () => {
       const res = await labTech.post('/api/v1/lab/results').send({
+        investigation_id: erTroponinInvId,
         patient_uid: PATIENT_ER_UID,
         test_code: 'TROPI',
         test_name: 'Troponin I',
@@ -327,6 +328,7 @@ describe('Lab worklist + manual result validation — deep integration', () => {
 
     it('still accepts free-text value for tests without a critical threshold (e.g. culture)', async () => {
       const res = await labTech.post('/api/v1/lab/results').send({
+        investigation_id: opdLftInvId,
         patient_uid: PATIENT_OPD_UID,
         test_code: 'BLDCULT',
         test_name: 'Blood culture',

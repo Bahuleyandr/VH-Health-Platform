@@ -16,7 +16,9 @@ async function getInvestigationWithDetails(id) {
            i.priority, i.notes, i.results, i.interpretation,
            i.requested_at, i.completed_at, i.created_at, i.updated_at,
            p.name AS patient_name, p.birthday, p.gender,
-           d.name AS doctor_name,
+           d.name AS requested_by_name,
+           d.role AS requested_by_role,
+           CASE WHEN dept.id IS NOT NULL THEN d.name ELSE NULL END AS doctor_name,
            dept.department, dept.specialty AS specialization
     FROM investigations i
     JOIN users p ON i.patient_id = p.id
@@ -81,6 +83,9 @@ export const generateInvestigationReport = async (investigationId) => {
   doc.text(`Dr. ${investigation.doctor_name ?? 'N/A'}`);
   doc.text(`Department: ${investigation.department ?? 'N/A'}`);
   doc.text(`Specialization: ${investigation.specialization ?? 'N/A'}`);
+  if (!investigation.doctor_name && investigation.requested_by_name) {
+    doc.text(`Requested By: ${investigation.requested_by_name} (${investigation.requested_by_role ?? 'staff'})`);
+  }
 
   doc.fontSize(10).text(`Generated on: ${formatDateTimeDDMMYYYY(new Date())}`, 50, 700);
   doc.end();
