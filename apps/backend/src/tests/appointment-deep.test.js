@@ -82,10 +82,18 @@ describe('Appointment booking + lifecycle — deep integration', () => {
        VALUES ($1::uuid, '+919000070003', 'Dr. Appointment Tester', 'DOCTOR', true, NOW())
        RETURNING id`, DOCTOR_UID);
     doctorIntId = d[0].id;
+    const profileIdRows = await prisma.$queryRawUnsafe(
+      `SELECT GREATEST(
+         COALESCE((SELECT MAX(id) FROM users), 0),
+         COALESCE((SELECT MAX(id) FROM doctors), 0)
+       )::int + 49000 AS id`,
+    );
+    doctorProfileId = Number(profileIdRows[0].id);
     const dp = await prisma.$queryRawUnsafe(
-      `INSERT INTO doctors (user_id, name, department, specialty, is_active, is_available, available_days, updated_at)
-       VALUES ($1, 'Dr. Appointment Tester', 'Cardiology', 'Cardiologist', true, true, ARRAY['Mon','Tue'], NOW())
+      `INSERT INTO doctors (id, user_id, name, department, specialty, is_active, is_available, available_days, updated_at)
+       VALUES ($1::int, $2::int, 'Dr. Appointment Tester', 'Cardiology', 'Cardiologist', true, true, ARRAY['Mon','Tue'], NOW())
        RETURNING id`,
+      doctorProfileId,
       doctorIntId,
     );
     doctorProfileId = dp[0].id;
