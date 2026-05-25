@@ -996,6 +996,79 @@ export async function exportReadinessPack(payload: {
   return postJSON<ReadinessPack>('/admin/clinical-ai/readiness-pack', payload);
 }
 
+export interface PilotEvidenceModuleSummary {
+  module_key: string;
+  registered: boolean;
+  effective_enabled: boolean;
+  risk: string | null;
+  approval_policy: string | null;
+  risky: boolean;
+  generation_count: number;
+  ai_generation_count: number;
+  fallback_or_blocked_count: number;
+  accepted_count: number;
+  edited_count: number;
+  rejected_count: number;
+  pending_count: number;
+  final_review_count: number;
+  min_reviewed_required: number;
+  final_review_requirement_met: boolean;
+  final_reviews_missing_note_count: number;
+  safety_blocked_count: number;
+  accepted_eval_count: number;
+}
+
+export interface PilotEvidencePack {
+  pack_version: string;
+  generated_at: string;
+  generated_by: { uid: string | null; role: string | null } | null;
+  tenant_id: string;
+  pilot_stage: string;
+  module_keys: string[];
+  evidence_window: { from: string; to: string; window_days: number };
+  decision_support_only: true;
+  human_review_required: true;
+  min_reviewed_per_module: number;
+  summary: {
+    pilot_ready: boolean;
+    blockers: Array<{ code: string; module_key?: string; count?: number; required?: number; actual?: number }>;
+    row_counts: Record<string, number>;
+    skipped_sections: Record<string, string>;
+    module_summary: PilotEvidenceModuleSummary[];
+    generation_counts: {
+      total: number;
+      by_mode: Record<string, number>;
+      by_status: Record<string, number>;
+    };
+    review_counts: {
+      total: number;
+      by_decision: Record<string, number>;
+      final_review_count: number;
+      final_reviews_missing_note_count: number;
+    };
+    safety_counts: {
+      total: number;
+      by_status: Record<string, number>;
+      generation_flag_counts: { critical: number; high: number; medium: number; low: number };
+    };
+    eval_counts: { total: number; accepted: number };
+    approval_counts: { total: number; by_status: Record<string, number> };
+    audit_counts: { total: number; by_action: Record<string, number> };
+  };
+  sections: Record<string, unknown>;
+}
+
+export async function exportPilotEvidencePack(payload: {
+  module_keys?: string[];
+  pilot_stage?: string | null;
+  window_days?: number | null;
+  from?: string | null;
+  to?: string | null;
+  min_reviewed_per_module?: number | null;
+}) {
+  return postJSON<PilotEvidencePack>('/admin/clinical-ai/pilot-evidence-pack', payload);
+}
+
 // ---------------------------------------------------------------------------
 // Knowledge Base CRUD (Phase A1)
 // ---------------------------------------------------------------------------

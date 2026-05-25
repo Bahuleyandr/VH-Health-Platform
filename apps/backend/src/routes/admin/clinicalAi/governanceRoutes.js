@@ -54,6 +54,7 @@ import {
   runCanary,
   upsertCanaryCase,
 } from '../../../services/ai/driftCanaryService.js';
+import { assemblePilotEvidencePack } from '../../../services/ai/pilotEvidencePackService.js';
 import { assembleReadinessPack } from '../../../services/ai/regulatoryReadinessService.js';
 import { normalizeRole, parseClinicalAiWindowDays } from './shared.js';
 import {
@@ -920,6 +921,42 @@ router.post('/readiness-pack', async (req, res, next) => {
       },
     );
     return success(res, pack, 'Regulatory readiness pack assembled', 201);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/pilot-evidence-pack', async (req, res, next) => {
+  try {
+    const pack = await assemblePilotEvidencePack({
+      tenantId: req.tenantId,
+      moduleKeys: req.body?.module_keys ?? req.body?.module_key,
+      pilotStage: req.body?.pilot_stage,
+      windowDays: req.body?.window_days,
+      from: req.body?.from,
+      to: req.body?.to,
+      minReviewedPerModule: req.body?.min_reviewed_per_module,
+      generatedBy: {
+        uid: req.user?.uid || null,
+        role: req.user?.role || null,
+      },
+    });
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_PILOT_EVIDENCE_PACK_EXPORTED',
+      pack.pilot_stage,
+      null,
+      {
+        pilot_stage: pack.pilot_stage,
+        module_keys: pack.module_keys,
+        window_days: pack.evidence_window?.window_days,
+        pilot_ready: pack.summary?.pilot_ready,
+        blocker_count: pack.summary?.blockers?.length || 0,
+        row_counts: pack.summary?.row_counts,
+        skipped_sections: pack.summary?.skipped_sections,
+      },
+    );
+    return success(res, pack, 'Clinical AI pilot evidence pack assembled', 201);
   } catch (err) {
     return next(err);
   }
