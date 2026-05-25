@@ -48,6 +48,7 @@ export async function addDiagnosis(data) {
   const {
     patient_uid, encounter_id, icd10_code, description,
     diagnosis_type, status, onset_date, severity, diagnosed_by, notes,
+    tenant_id,
   } = data;
 
   if (!patient_uid || !description || !diagnosed_by) {
@@ -91,10 +92,24 @@ export async function addDiagnosis(data) {
       );
     }
     const enc = await prisma.admissions.findFirst({
-      where: { encounter_id },
+      where: { encounter_id, patient_uid },
       select: { id: true },
     });
+    let erEnc = null;
     if (!enc) {
+      const params = [encounter_id, patient_uid];
+      const filters = ['encounter_id = $1::uuid', 'patient_uid = $2::uuid'];
+      if (tenant_id) {
+        params.push(String(tenant_id));
+        filters.push(`tenant_id = $${params.length}::uuid`);
+      }
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT id FROM emergency_visits WHERE ${filters.join(' AND ')} LIMIT 1`,
+        ...params,
+      );
+      erEnc = rows[0] ?? null;
+    }
+    if (!enc && !erEnc) {
       throw AppError.notFound('Encounter not found');
     }
   }

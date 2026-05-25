@@ -76,7 +76,7 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
-// POST /:id/discharge — Discharge a patient (bed goes to cleaning)
+// POST /:id/discharge — Discharge a patient (bed goes to dirty)
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/discharge',
@@ -86,7 +86,7 @@ router.post(
     const dischargedBy = req.user?.uid || null;
 
     const bed = await bedManagementService.dischargePatient(bedId, dischargedBy);
-    success(res, { bed }, 'Patient discharged, bed set to cleaning');
+    success(res, { bed }, 'Patient discharged, bed set to dirty');
   })
 );
 

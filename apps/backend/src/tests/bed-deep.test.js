@@ -207,13 +207,13 @@ describe('Bed + ward management — deep integration', () => {
       expect(res.statusCode).toBe(400);
     });
 
-    it('discharges the patient and sets bed to cleaning', async () => {
+    it('discharges the patient and sets bed to dirty', async () => {
       const res = await admin.post(`/api/v1/beds/${admitBedId}/discharge`);
       expect(res.statusCode).toBe(200);
       const b = res.body.data.bed;
-      // bedManagementRoutes now handles discharge: status goes to 'cleaning'
-      // (not directly to 'available') so housekeeping can complete the cycle.
-      expect(b.status).toBe('cleaning');
+      // Discharge now marks the room clinically dirty first; the assigned
+      // housekeeping ticket moves it to cleaning, then ready closes the loop.
+      expect(b.status).toBe('dirty');
       expect(b.patient_uid).toBeNull();
     });
 

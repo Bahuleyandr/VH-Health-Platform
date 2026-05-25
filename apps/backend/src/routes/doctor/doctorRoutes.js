@@ -27,17 +27,18 @@ const validateDoctorId = (req, res, next) => {
 // Test route
 router.get('/test', doctorController.test);
 
+// Static routes must be registered before /:doctorId, otherwise Express
+// treats "available" / "list" as a doctor id.
+router.get('/available/now', doctorController.getAvailableDoctors);
+router.get('/list', doctorValidators.listDoctors, doctorController.getAllDoctors);
+
 // Legacy routes (backward compatibility)
 router.get('/', doctorController.getAllDoctors);
-router.get('/:doctorId', validateDoctorId, doctorController.getDoctorById);
 router.post('/', requiredString('name', 255), validate, doctorController.addDoctor);
-router.delete('/:doctorId', validateDoctorId, doctorController.deleteDoctor);
 
 // Enhanced routes
-router.get('/list', doctorValidators.listDoctors, doctorController.getAllDoctors);
 router.get('/profile/:id', doctorValidators.getById, doctorController.getDoctorById);
 router.get('/department/:department', doctorController.getDoctorsByDepartment);
-router.get('/available/now', doctorController.getAvailableDoctors);
 
 // Profile management
 router.post('/profile', doctorValidators.createProfile, doctorController.createDoctorProfile);
@@ -46,5 +47,8 @@ router.put('/:id/availability', doctorValidators.updateAvailability, doctorContr
 
 // Deactivation (admin only)
 router.delete('/:id/deactivate', doctorController.deactivateDoctor);
+
+router.get('/:doctorId', validateDoctorId, doctorController.getDoctorById);
+router.delete('/:doctorId', validateDoctorId, doctorController.deleteDoctor);
 
 export default router;

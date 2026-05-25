@@ -257,7 +257,7 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       expect(latest.body.data.temperature_route).toBe('axillary');
     });
 
-    it('records triage acuity and propagates it to the emergency queue spine', async () => {
+    it('records ATS triage acuity and preserves terminology on the emergency queue spine', async () => {
       const visitNo = `EMER-VITALS-${Date.now()}`;
       const visitRows = await prisma.$queryRawUnsafe(
         `INSERT INTO emergency_visits
@@ -287,7 +287,7 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       const res = await doctor.post('/api/v1/emr/vitals').send({
         patient_id: patientIntId,
         visit_id: visitRows[0].id,
-        triage_acuity: 2,
+        triage_priority: 'ATS-2',
         heart_rate: 118,
         respiratory_rate: 25,
         spo2: 92,
@@ -295,7 +295,7 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
       });
       expect(res.statusCode).toBe(201);
       expect(res.body.data.vitals.triage_acuity).toBe(2);
-      expect(res.body.data.triage.triage_priority).toBe('esi_2');
+      expect(res.body.data.triage.triage_priority).toBe('ats_2');
       expect(res.body.data.triage.emergency_visit_id).toBe(visitRows[0].id);
       expect(res.body.data.news2?.total_score).toBeGreaterThanOrEqual(5);
 
@@ -312,7 +312,7 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
         visitRows[0].id,
       );
       expect(rows[0].vitals_acuity).toBe(2);
-      expect(rows[0].triage_priority).toBe('esi_2');
+      expect(rows[0].triage_priority).toBe('ats_2');
       expect(rows[0].appointment_acuity).toBe(2);
     });
 

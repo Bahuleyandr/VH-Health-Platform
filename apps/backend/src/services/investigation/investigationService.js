@@ -76,24 +76,21 @@ function buildRelationsSelect(fields = {}) {
     ...(fields.patientBirthGender ? { birthday: true, gender: true } : {}),
     ...(fields.patientGender ? { gender: true } : {}),
   };
-  const doctorProfileNeeded = fields.specialization || fields.department;
   const doctorUserSelect = {
     id: true,
     uid: true,
     name: true,
+    role: true,
     ...(fields.doctorPhone ? { phone: true } : {}),
     ...(fields.doctorEmail ? { email: true } : {}),
-    ...(doctorProfileNeeded
-      ? {
-          doctors: {
-            select: {
-              ...(fields.specialization ? { specialty: true } : {}),
-              ...(fields.department ? { department: true } : {}),
-            },
-            take: 1,
-          },
-        }
-      : {}),
+    doctors: {
+      select: {
+        id: true,
+        specialty: true,
+        department: true,
+      },
+      take: 1,
+    },
   };
   return {
     [REL_PATIENT]: { select: patientUserSelect },
@@ -108,8 +105,9 @@ function buildRelationsSelect(fields = {}) {
  */
 function flattenRelations(row, fields = {}) {
   const patient = row[REL_PATIENT] ?? null;
-  const doctor = row[REL_DOCTOR] ?? null;
-  const profile = doctor && doctor.doctors ? doctor.doctors[0] ?? null : null;
+  const requester = row[REL_DOCTOR] ?? null;
+  const profile = requester && requester.doctors ? requester.doctors[0] ?? null : null;
+  const requesterIsDoctor = Boolean(profile?.id);
 
   const flat = { ...row };
   delete flat[REL_PATIENT];
@@ -117,8 +115,11 @@ function flattenRelations(row, fields = {}) {
 
   flat.patient_name = patient?.name ?? null;
   flat.patient_phone = patient?.phone ?? null;
-  flat.doctor_name = doctor?.name ?? null;
-  flat.doctor_id = doctor?.id ?? null;
+  flat.requested_by_name = requester?.name ?? null;
+  flat.requested_by_uid = requester?.uid ?? row.requested_by ?? null;
+  flat.requested_by_role = requester?.role ?? null;
+  flat.doctor_name = requesterIsDoctor ? requester?.name ?? null : null;
+  flat.doctor_id = requesterIsDoctor ? requester?.id ?? null : null;
 
   if (fields.patientEmail) flat.patient_email = patient?.email ?? null;
   if (fields.patientBirthGender) {
@@ -126,8 +127,8 @@ function flattenRelations(row, fields = {}) {
     flat.gender = patient?.gender ?? null;
   }
   if (fields.patientGender) flat.gender = patient?.gender ?? null;
-  if (fields.doctorPhone) flat.doctor_phone = doctor?.phone ?? null;
-  if (fields.doctorEmail) flat.doctor_email = doctor?.email ?? null;
+  if (fields.doctorPhone) flat.doctor_phone = requesterIsDoctor ? requester?.phone ?? null : null;
+  if (fields.doctorEmail) flat.doctor_email = requesterIsDoctor ? requester?.email ?? null : null;
   if (fields.specialization) flat.specialization = profile?.specialty ?? null;
   if (fields.department) flat.department = profile?.department ?? null;
   return flat;
@@ -337,7 +338,8 @@ export const getPatientInvestigations = async (patientId, filters, userRole, use
           id: true,
           uid: true,
           name: true,
-          doctors: { select: { specialty: true }, take: 1 },
+          role: true,
+          doctors: { select: { id: true, specialty: true }, take: 1 },
         },
       },
     },
@@ -348,11 +350,15 @@ export const getPatientInvestigations = async (patientId, filters, userRole, use
   const investigations = rows.map((r) => {
     const doctor = r[REL_DOCTOR] ?? null;
     const profile = doctor?.doctors?.[0] ?? null;
+    const requesterIsDoctor = Boolean(profile?.id);
     const flat = { ...r };
     delete flat[REL_DOCTOR];
-    flat.doctor_name = doctor?.name ?? null;
-    flat.doctor_id = doctor?.id ?? null;
-    flat.specialization = profile?.specialty ?? null;
+    flat.requested_by_name = doctor?.name ?? null;
+    flat.requested_by_uid = doctor?.uid ?? r.requested_by ?? null;
+    flat.requested_by_role = doctor?.role ?? null;
+    flat.doctor_name = requesterIsDoctor ? doctor?.name ?? null : null;
+    flat.doctor_id = requesterIsDoctor ? doctor?.id ?? null : null;
+    flat.specialization = requesterIsDoctor ? profile?.specialty ?? null : null;
     return flat;
   });
 

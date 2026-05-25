@@ -175,6 +175,30 @@ async function ensureScheduleVisible(tenantId, otScheduleId) {
   return rows[0];
 }
 
+async function assertWhoTimeoutComplete(otScheduleId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id FROM surgical_safety_checklists
+      WHERE ot_schedule_id = $1
+        AND phase = 'time_out'
+        AND (
+          status = 'complete'
+          OR (
+            status = 'incomplete_with_override'
+            AND NULLIF(TRIM(override_reason), '') IS NOT NULL
+            AND override_authorized_by IS NOT NULL
+          )
+        )
+      LIMIT 1`,
+    otScheduleId,
+  );
+  if (!rows[0]) {
+    throw AppError.badRequest(
+      'WHO time-out must be completed before recording incision start or finalizing the intraop note',
+      'WHO_TIMEOUT_REQUIRED',
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 1. preop_checklists
 // ---------------------------------------------------------------------------
@@ -398,6 +422,10 @@ export async function createIntraopNote({
   await ensureScheduleVisible(tid, scheduleId);
   const codeArray = procedureCodes ? normalizeJsonArray(procedureCodes, 'procedure_codes')
     .map((c) => safeText(c, SMALL_MAX)).filter(Boolean) : null;
+  const cleanStatus = normalizeEnum(status, NOTE_STATUSES, 'status') || 'draft';
+  if (startTime || cleanStatus === 'finalized') {
+    await assertWhoTimeoutComplete(scheduleId);
+  }
 
   try {
     const rows = await prisma.$queryRawUnsafe(
@@ -447,7 +475,7 @@ export async function createIntraopNote({
       safeText(closureMethod, SHORT_MAX),
       normalizeTimestamp(startTime, 'start_time'),
       normalizeTimestamp(endTime, 'end_time'),
-      normalizeEnum(status, NOTE_STATUSES, 'status') || 'draft',
+      cleanStatus,
       aiAssistGenerationId ? normalizeId(aiAssistGenerationId, 'ai_assist_generation_id') : null,
       JSON.stringify(normalizeJsonObject(metadata, 'metadata')),
     );
@@ -496,6 +524,14 @@ export async function finalizeIntraopNote({
 } = {}) {
   const tid = resolveTenantId({ tenantId });
   const noteId = normalizeId(id, 'intraop_note id');
+  const existing = await prisma.$queryRawUnsafe(
+    `SELECT id, ot_schedule_id FROM intraop_notes
+      WHERE id = $1 AND tenant_id = $2::uuid AND status IN ('draft', 'amended')
+      LIMIT 1`,
+    noteId, tid,
+  );
+  if (!existing[0]) throw AppError.notFound('Intraop note not found or already finalized');
+  await assertWhoTimeoutComplete(existing[0].ot_schedule_id);
   const rows = await prisma.$queryRawUnsafe(
     `UPDATE intraop_notes
      SET status = 'finalized',
@@ -506,7 +542,6 @@ export async function finalizeIntraopNote({
      RETURNING ${INTRAOP_RETURNING}`,
     maybeUuid(finalizedBy, 'finalized_by'), noteId, tid,
   );
-  if (!rows[0]) throw AppError.notFound('Intraop note not found or already finalized');
   return rows[0];
 }
 

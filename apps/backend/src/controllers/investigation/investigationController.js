@@ -403,7 +403,10 @@ export const getInvestigationsByPhone = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(
       `SELECT i.id, i.uid, i.phone,
         p.name AS patient_name,
-        d.name AS doctor_name,
+        d.name AS requested_by_name,
+        d.role AS requested_by_role,
+        CASE WHEN doc.id IS NOT NULL THEN d.name ELSE NULL END AS doctor_name,
+        doc.id AS doctor_id,
         i.test_name,
         i.investigation_type AS test_category,
         i.status, i.priority, i.notes, i.result_summary,
@@ -414,7 +417,8 @@ export const getInvestigationsByPhone = async (req, res) => {
         i.created_at, i.updated_at
        FROM investigations i
        LEFT JOIN users p ON i.patient_id = p.id
-       LEFT JOIN users d ON i.doctor_id = d.id
+       LEFT JOIN users d ON i.requested_by = d.uid
+       LEFT JOIN doctors doc ON d.id = doc.user_id
        WHERE i.phone = $1
        ORDER BY i.created_at DESC
        LIMIT $2 OFFSET $3`, phone, limit, offset);
@@ -497,7 +501,10 @@ export const getInvestigationsByUID = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(
       `SELECT i.id, i.uid, i.phone,
         p.name AS patient_name,
-        d.name AS doctor_name,
+        d.name AS requested_by_name,
+        d.role AS requested_by_role,
+        CASE WHEN doc.id IS NOT NULL THEN d.name ELSE NULL END AS doctor_name,
+        doc.id AS doctor_id,
         i.test_name,
         i.investigation_type AS test_category,
         i.status, i.priority, i.notes, i.result_summary,
@@ -508,7 +515,8 @@ export const getInvestigationsByUID = async (req, res) => {
         i.created_at, i.updated_at
        FROM investigations i
        LEFT JOIN users p ON i.patient_id = p.id
-       LEFT JOIN users d ON i.doctor_id = d.id
+       LEFT JOIN users d ON i.requested_by = d.uid
+       LEFT JOIN doctors doc ON d.id = doc.user_id
        WHERE i.phone = $1
        ORDER BY i.created_at DESC
        LIMIT $2 OFFSET $3`, phone, limit, offset);
@@ -630,9 +638,15 @@ export const getInvestigationSLADashboard = async (req, res) => {
         `SELECT priority, COUNT(*) as count FROM investigations WHERE DATE(requested_at) BETWEEN $1::date AND $2::date GROUP BY priority`, from, to
       ),
       prisma.$queryRawUnsafe(
-        `SELECT i.*, u.name as patient_name, u.phone as patient_phone, d.name as doctor_name,
+        `SELECT i.*, u.name as patient_name, u.phone as patient_phone,
+          d.name as requested_by_name, d.role as requested_by_role,
+          CASE WHEN doc.id IS NOT NULL THEN d.name ELSE NULL END as doctor_name,
+          doc.id as doctor_id,
           ROUND(EXTRACT(EPOCH FROM (NOW()-i.requested_at))/3600) as hours_waiting
-        FROM investigations i LEFT JOIN users u ON i.patient_id=u.id LEFT JOIN users d ON i.requested_by=d.uid
+        FROM investigations i
+        LEFT JOIN users u ON i.patient_id=u.id
+        LEFT JOIN users d ON i.requested_by=d.uid
+        LEFT JOIN doctors doc ON d.id=doc.user_id
         WHERE i.priority IN ('URGENT','STAT') AND i.status NOT IN ('completed','COMPLETED')
         ORDER BY i.requested_at ASC LIMIT 20`
       ),

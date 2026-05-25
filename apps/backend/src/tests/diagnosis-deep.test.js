@@ -10,6 +10,7 @@ const PATIENT_UID = 'a3333333-3333-4333-8333-333333333a01';
 const DOCTOR_UID = 'a3333333-3333-4333-8333-333333333a02';
 const PATIENT_PHONE = '9000030001';
 const TEST_ICD_CODE = 'TESTDX1';
+const ER_ENCOUNTER_UID = 'a3333333-3333-4333-8333-333333333e01';
 const API_KEY = process.env.API_KEY || 'test-api-key';
 
 function doctorAs(uid = DOCTOR_UID) {
@@ -45,6 +46,7 @@ describe('EMR diagnosis + ICD-10 — deep integration', () => {
 
   afterAll(async () => {
     await prisma.$executeRawUnsafe(`DELETE FROM diagnoses WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(`DELETE FROM emergency_visits WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM icd10_codes WHERE code = $1`, TEST_ICD_CODE).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, DOCTOR_UID).catch(() => {});
     await prisma.$disconnect().catch(() => {});
@@ -134,6 +136,33 @@ describe('EMR diagnosis + ICD-10 — deep integration', () => {
       });
       expect(res.statusCode).toBe(201);
       expect(res.body.data.status).toBe('chronic');
+    });
+
+    it('creates a diagnosis against an emergency visit encounter_id', async () => {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO emergency_visits
+           (tenant_id, visit_number, patient_uid, encounter_id, arrival_mode,
+            chief_complaint, status, created_by, updated_at)
+         VALUES
+           ('00000000-0000-4000-8000-000000000001'::uuid,
+            'ER-DX-DEEP-001', $1::uuid, $2::uuid, 'walk_in',
+            'Severe abdominal pain', 'in_treatment', $3::uuid, NOW())
+         ON CONFLICT (encounter_id) DO NOTHING`,
+        PATIENT_UID,
+        ER_ENCOUNTER_UID,
+        DOCTOR_UID,
+      );
+
+      const res = await doctor.post('/api/v1/emr/diagnosis').send({
+        patient_uid: PATIENT_UID,
+        encounter_id: ER_ENCOUNTER_UID,
+        description: 'Emergency appendicitis rule-out',
+        diagnosis_type: 'secondary',
+        status: 'active',
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.body.data.encounter_id).toBe(ER_ENCOUNTER_UID);
     });
 
     describe('updateDiagnosisStatus', () => {

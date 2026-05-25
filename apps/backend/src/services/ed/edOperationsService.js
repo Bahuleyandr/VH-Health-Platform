@@ -198,6 +198,23 @@ function normalizeTimestamp(value, label) {
   return date.toISOString();
 }
 
+function assessmentKindForPriority(priority) {
+  const text = String(priority || '').toLowerCase();
+  if (text.startsWith('ats_')) return 'australian';
+  if (text.startsWith('esi_')) return 'esi';
+  if (text.startsWith('ctas_')) return 'ctas';
+  if (text.startsWith('manchester_')) return 'manchester';
+  return 'other';
+}
+
+function levelLabelForPriority(priority, fallbackAcuity = null) {
+  const text = String(priority || '').toLowerCase();
+  const match = text.match(/^(ats|esi|ctas)[_-]?([1-5])$/);
+  if (match) return `${match[1].toUpperCase()}-${match[2]}`;
+  if (text.startsWith('manchester_')) return text.replace('_', '-');
+  return fallbackAcuity != null ? `ESI-${fallbackAcuity}` : null;
+}
+
 // ---------------------------------------------------------------------------
 // Emergency visits
 // ---------------------------------------------------------------------------
@@ -473,14 +490,17 @@ export async function listTriageAssessments({
   limit = DEFAULT_LIST_LIMIT,
 } = {}) {
   const tid = resolveTenantId({ tenantId });
+  const cleanAssessmentKind = assessmentKind
+    ? normalizeEnum(assessmentKind, TRIAGE_KINDS, 'assessment_kind')
+    : null;
   const filters = ['tenant_id = $1::uuid'];
   const params = [tid];
   if (emergencyVisitId) {
     params.push(normalizeId(emergencyVisitId, 'emergency_visit_id'));
     filters.push(`emergency_visit_id = $${params.length}`);
   }
-  if (assessmentKind) {
-    params.push(normalizeEnum(assessmentKind, TRIAGE_KINDS, 'assessment_kind'));
+  if (cleanAssessmentKind) {
+    params.push(cleanAssessmentKind);
     filters.push(`assessment_kind = $${params.length}`);
   }
   const safeLimit = normalizeLimit(limit);
@@ -492,6 +512,84 @@ export async function listTriageAssessments({
        LIMIT $${params.length + 1}`,
       ...params, safeLimit,
     );
+    if (rows.length === 0 && emergencyVisitId) {
+      const fallbackRows = await prisma.$queryRawUnsafe(
+        `SELECT ev.id AS emergency_visit_id,
+                ev.tenant_id,
+                ev.patient_uid,
+                ev.chief_complaint,
+                ev.triage_priority,
+                ev.triage_started_at,
+                vc.id AS vitals_id,
+                vc.triage_acuity,
+                vc.recorded_at,
+                vc.recorded_by,
+                vc.heart_rate,
+                vc.systolic_bp,
+                vc.diastolic_bp,
+                vc.temperature,
+                vc.spo2,
+                vc.respiratory_rate,
+                vc.pain_score,
+                vc.gcs_score
+           FROM emergency_visits ev
+      LEFT JOIN LATERAL (
+             SELECT id, triage_acuity, recorded_at, recorded_by,
+                    heart_rate, systolic_bp, diastolic_bp, temperature,
+                    spo2, respiratory_rate, pain_score, gcs_score
+               FROM vitals_chart
+              WHERE patient_uid = ev.patient_uid
+                AND triage_acuity IS NOT NULL
+              ORDER BY recorded_at DESC
+              LIMIT 1
+           ) vc ON TRUE
+          WHERE ev.id = $1
+            AND ev.tenant_id = $2::uuid
+          LIMIT 1`,
+        normalizeId(emergencyVisitId, 'emergency_visit_id'),
+        tid,
+      );
+      const fallback = fallbackRows[0] ?? null;
+      const fallbackLevel = levelLabelForPriority(fallback?.triage_priority, fallback?.triage_acuity);
+      const fallbackKind = assessmentKindForPriority(fallback?.triage_priority);
+      if (fallback && fallbackLevel && (!cleanAssessmentKind || fallbackKind === cleanAssessmentKind)) {
+        const synthesized = {
+          id: null,
+          tenant_id: fallback.tenant_id,
+          emergency_visit_id: fallback.emergency_visit_id,
+          patient_uid: fallback.patient_uid,
+          assessment_kind: fallbackKind,
+          assessed_at: fallback.recorded_at ?? fallback.triage_started_at,
+          assessed_by_uid: fallback.recorded_by ?? null,
+          level: fallbackLevel,
+          presenting_complaint: fallback.chief_complaint ?? null,
+          vitals: {
+            heart_rate: fallback.heart_rate ?? null,
+            systolic_bp: fallback.systolic_bp ?? null,
+            diastolic_bp: fallback.diastolic_bp ?? null,
+            temperature: fallback.temperature ?? null,
+            spo2: fallback.spo2 ?? null,
+            respiratory_rate: fallback.respiratory_rate ?? null,
+            gcs_score: fallback.gcs_score ?? null,
+          },
+          pain_score: fallback.pain_score ?? null,
+          airway_concern: false,
+          breathing_concern: false,
+          circulation_concern: false,
+          red_flags: [],
+          ai_predicted_level: null,
+          ai_prediction_id: null,
+          reassessment_due_at: null,
+          metadata: {
+            source: 'vitals_chart',
+            vitals_id: fallback.vitals_id,
+            triage_priority: fallback.triage_priority,
+          },
+          created_at: fallback.recorded_at ?? fallback.triage_started_at,
+        };
+        return { assessments: [synthesized], count: 1 };
+      }
+    }
     return { assessments: rows, count: rows.length };
   } catch (err) {
     if (isMissingSchemaError(err)) return { assessments: [], count: 0 };

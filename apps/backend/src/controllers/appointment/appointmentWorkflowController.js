@@ -859,6 +859,8 @@ export const registerWalkIn = async (req, res) => {
       // row is flagged is_unidentified=true. Finding:
       //   2026-05-09-emergency-walk-in-receptionist-no-phone-optional-er-path.
       mode, unidentified, is_unidentified,
+      approximate_age_years, approximate_age_months, approximate_age_days,
+      approximate_age, age_estimate,
       // E-12 — ANC fields captured at walk-in. When department routes
       // to ANC, lmp_date / edd_date / gravida / parity / blood_group
       // are written into a maternity_pregnancies row alongside the
@@ -957,6 +959,22 @@ export const registerWalkIn = async (req, res) => {
     const mlcNotes = mlc_notes ? String(mlc_notes).trim().slice(0, 2000) : null;
     const chiefComplaint = chief_complaint
       ? String(chief_complaint).trim().slice(0, 500)
+      : null;
+    const parseApproxAge = (value, max) => {
+      if (value === undefined || value === null || value === '') return null;
+      const parsed = Number.parseInt(String(value), 10);
+      return Number.isInteger(parsed) && parsed >= 0 && parsed <= max ? parsed : null;
+    };
+    const approxAgeYears = parseApproxAge(approximate_age_years ?? approximate_age ?? age_estimate, 130);
+    const approxAgeMonths = parseApproxAge(approximate_age_months, 11);
+    const approxAgeDays = parseApproxAge(approximate_age_days, 31);
+    const approximateAge = (approxAgeYears !== null || approxAgeMonths !== null || approxAgeDays !== null)
+      ? {
+          years: approxAgeYears,
+          months: approxAgeMonths,
+          days: approxAgeDays,
+          source: 'reception_estimate',
+        }
       : null;
 
     // Stage-5 — structured payer fields persisted on the appointment row.
@@ -1727,16 +1745,17 @@ export const registerWalkIn = async (req, res) => {
         // can pick them up later without losing what was captured at
         // intake. Finding:
         //   2026-05-09-emergency-walk-in-receptionist-no-mlc-flag-at-registration.
-        const erMetadata = (mlcNumber || mlcNotes)
-          ? JSON.stringify({ mlc_number: mlcNumber, mlc_notes: mlcNotes })
-          : '{}';
+        const erMetadata = JSON.stringify({
+          ...(mlcNumber || mlcNotes ? { mlc_number: mlcNumber, mlc_notes: mlcNotes } : {}),
+          ...(isUnidentifiedFlag && approximateAge ? { approximate_age: approximateAge } : {}),
+        });
         const erRows = await tx.$queryRawUnsafe(
           `INSERT INTO emergency_visits
              (tenant_id, visit_number, patient_uid, arrival_mode,
               chief_complaint, status, is_mlc, metadata, created_by)
            VALUES ($1::uuid, $2, $3::uuid, 'walk_in', $4, 'arriving', $5, $6::jsonb, $7::uuid)
            ON CONFLICT (tenant_id, visit_number) DO NOTHING
-           RETURNING id, visit_number, patient_uid, arrival_at, status, is_mlc`,
+           RETURNING id, visit_number, patient_uid, arrival_at, status, is_mlc, metadata`,
           tenantId, visitNo, patientUid,
           chiefComplaint || reason || 'Walk-in registration',
           mlcFlag, erMetadata,
@@ -1780,6 +1799,7 @@ export const registerWalkIn = async (req, res) => {
         visit_no: visitNo,
         er_visit_id: erVisit?.id ?? null,
         er_visit_number: erVisit?.visit_number ?? null,
+        er_approximate_age: erVisit?.metadata?.approximate_age ?? (isUnidentifiedFlag ? approximateAge : null),
         // Stage-5 — echo the MLC flag back so the ER admin UI can banner
         // "Medico-legal case" without an extra fetch. Null on non-EMER
         // walk-ins (no emergency_visits row is created).

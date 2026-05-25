@@ -36,12 +36,30 @@ async function insertUser(uid, phone, name, guardianDbId = null) {
 }
 
 async function insertResult(patientUid) {
+  const patientRows = await prisma.$queryRawUnsafe(
+    `SELECT id, phone FROM users WHERE uid = $1::uuid`,
+    patientUid,
+  );
+  const patient = patientRows[0];
+  const investigationRows = await prisma.$queryRawUnsafe(
+    `INSERT INTO investigations
+       (tenant_id, phone, patient_id, patient_uid, test_name, test_type,
+        status, priority, requested_at, updated_at)
+     VALUES
+       ($1::uuid, $2, $3, $4::uuid, 'Glucose, Fasting', 'blood',
+        'REQUESTED', 'NORMAL', NOW(), NOW())
+     RETURNING id`,
+    TENANT,
+    patient.phone,
+    patient.id,
+    patientUid,
+  );
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO lab_results
-       (tenant_id, patient_uid, test_code, test_name, value_text, status)
-     VALUES ($1::uuid, $2::uuid, 'GLU', 'Glucose, Fasting', '92', 'preliminary')
+       (tenant_id, patient_uid, investigation_id, test_code, test_name, value_text, status)
+     VALUES ($1::uuid, $2::uuid, $3::int, 'GLU', 'Glucose, Fasting', '92', 'preliminary')
      RETURNING id`,
-    TENANT, patientUid,
+    TENANT, patientUid, investigationRows[0].id,
   );
   return rows[0].id;
 }
@@ -65,6 +83,10 @@ describe('Lab sign-off notifies the patient + guardian (65aded1a)', () => {
         await prisma.$executeRawUnsafe(`DELETE FROM lab_results WHERE id = $1::int`, rid).catch(() => {});
       }
     }
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM investigations WHERE patient_uid = ANY($1::uuid[])`,
+      allUids,
+    ).catch(() => {});
     await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = ANY($1::uuid[])`, allUids).catch(() => {});
     await prisma.$disconnect().catch(() => {});
   });

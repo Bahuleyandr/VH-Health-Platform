@@ -351,8 +351,10 @@ function flattenListRow(row, allergyMap = null) {
   // Legacy aliases used by different callers.
   flat.doctor_specialization = profile?.specialty ?? null;
   flat.specialty = profile?.specialty ?? null;
-  flat.doctor_department = profile?.department ?? row.department ?? null;
-  flat.department = profile?.department ?? row.department ?? null;
+  flat.doctor_department = profile?.department ?? null;
+  flat.consultant_department = profile?.department ?? null;
+  flat.appointment_department = row.department ?? null;
+  flat.department = row.department ?? profile?.department ?? null;
   return attachPatientAllergies(flat, patient, allergyMap);
 }
 

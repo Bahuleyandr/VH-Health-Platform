@@ -126,7 +126,7 @@ class BedManagementService {
   }
 
   // =========================================================================
-  // dischargePatient — Discharge and set bed status to "cleaning"
+  // dischargePatient — Discharge and set bed status to "dirty"
   // =========================================================================
   async dischargePatient(bedId, dischargedBy) {
     const { updated, patientUid } = await prisma.$transaction(async (tx) => {
@@ -159,7 +159,7 @@ class BedManagementService {
 
       const updated = await tx.$queryRawUnsafe(
         `UPDATE beds
-         SET status = 'cleaning',
+         SET status = 'dirty',
              patient_uid = NULL,
              admitted_at = NULL,
              expected_discharge = NULL,
@@ -172,7 +172,7 @@ class BedManagementService {
       return { updated: updated[0], patientUid };
     });
 
-    logger.info(`Patient ${patientUid} discharged from bed ${bedId}, bed set to cleaning`);
+    logger.info(`Patient ${patientUid} discharged from bed ${bedId}, bed set to dirty`);
     return updated;
   }
 
