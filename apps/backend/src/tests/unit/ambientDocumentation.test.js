@@ -229,4 +229,17 @@ describe('ambient diarization adapter', () => {
     expect(config.configured).toBe(false);
     expect(config.reason).toBe('tenant_region_not_allowed_for_diarization');
   });
+
+  it('blocks external diarization when tenant region is unknown and an allowlist is configured', () => {
+    const config = resolveDiarizationConfig({
+      provider: 'azure',
+      env: {
+        CLINICAL_AI_DIARIZATION_ENDPOINT: 'https://diarizer.example.test/run',
+        CLINICAL_AI_DIARIZATION_ALLOWED_REGIONS: 'IN,US',
+      },
+    });
+
+    expect(config.configured).toBe(false);
+    expect(config.reason).toBe('tenant_region_not_allowed_for_diarization');
+  });
 });

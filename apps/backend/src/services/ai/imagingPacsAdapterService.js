@@ -34,6 +34,17 @@ function splitCsv(value) {
     .filter(Boolean);
 }
 
+function normalizeRegion(value) {
+  return clean(value).toUpperCase();
+}
+
+function regionAllowed(tenantRegion, allowedRegions) {
+  if (!allowedRegions.length) return true;
+  if (!tenantRegion) return false;
+  const normalizedTenantRegion = normalizeRegion(tenantRegion);
+  return allowedRegions.map(normalizeRegion).includes(normalizedTenantRegion);
+}
+
 export function normalizePacsProvider(provider = null) {
   const normalized = clean(provider || process.env.CLINICAL_AI_PACS_PROVIDER || 'none').toLowerCase();
   if (normalized === 'none' || normalized === 'off' || normalized === 'disabled') return 'none';
@@ -57,7 +68,7 @@ export function resolvePacsConfig({
   const normalizedProvider = normalizePacsProvider(provider || env.CLINICAL_AI_PACS_PROVIDER);
   const baseUrl = clean(env.CLINICAL_AI_PACS_BASE_URL || env.ORTHANC_URL || env.DCM4CHEE_URL).replace(/\/+$/, '');
   const allowedRegions = splitCsv(env.CLINICAL_AI_PACS_ALLOWED_REGIONS || env.CLINICAL_AI_PACS_REGIONS);
-  const regionAllowed = !tenantRegion || allowedRegions.length === 0 || allowedRegions.includes(String(tenantRegion));
+  const isRegionAllowed = regionAllowed(tenantRegion, allowedRegions);
 
   if (normalizedProvider === 'none') {
     return {
@@ -81,7 +92,7 @@ export function resolvePacsConfig({
       allowed_regions: allowedRegions,
     };
   }
-  if (!regionAllowed) {
+  if (!isRegionAllowed) {
     return {
       configured: false,
       reason: 'tenant_region_not_allowed_for_pacs',

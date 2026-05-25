@@ -7,7 +7,14 @@ import {
   saveDischargeSummary,
   signDischargeSummary,
 } from "@/lib/api";
-import { generationModeClass, generationModeFor, generationModeLabel } from "@/app/(with-auth)/dashboard/clinical-ai/generationMode";
+import {
+  generationModeClass,
+  generationModeFor,
+  generationModeLabel,
+  generationReasonFor,
+  providerStatusClass,
+  providerStatusLabel,
+} from "@/app/(with-auth)/dashboard/clinical-ai/generationMode";
 import toast from "react-hot-toast";
 
 export default function DischargeSummaryPage() {
@@ -87,6 +94,7 @@ export default function DischargeSummaryPage() {
           model?: string;
           used_ai?: boolean;
           generation_mode?: string | null;
+          provider_status?: string | null;
           fallback_reason?: string | null;
           readiness_reason?: string | null;
         })
@@ -213,15 +221,20 @@ export default function DischargeSummaryPage() {
                 <span className={`rounded-full border px-2 py-0.5 text-xs ${generationModeClass(aiGenerationMode)}`}>
                   {generationModeLabel(aiGenerationMode)}
                 </span>
+                {aiMetadata.provider_status && (
+                  <span className={`rounded-full border px-2 py-0.5 text-xs ${providerStatusClass(aiMetadata.provider_status)}`}>
+                    {providerStatusLabel(aiMetadata.provider_status)}
+                  </span>
+                )}
               </div>
               <div className="mt-1">
                 Provider: {aiMetadata.provider ?? "template"} | Model:{" "}
                 {aiMetadata.model ?? "not configured"} | Local AI:{" "}
                 {generationModeLabel(aiGenerationMode)}
               </div>
-              {(aiMetadata.fallback_reason || aiMetadata.readiness_reason) && (
+              {generationReasonFor(aiMetadata) && (
                 <div className="mt-1">
-                  Reason: {aiMetadata.fallback_reason || aiMetadata.readiness_reason}
+                  Reason: {generationReasonFor(aiMetadata)}
                 </div>
               )}
             </div>

@@ -9,6 +9,9 @@ import {
 import { AppError } from '../utils/AppError.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DEFAULT_TENANT_REGION = 'IN';
+const UNKNOWN_TENANT_REGION = 'OTHER';
+const DEFAULT_COMPLIANCE_PROFILE = 'DPDP';
 
 function isSuperAdmin(req) {
   // jwtMiddleware.normalizeRole collapses 'SUPER_ADMIN' → 'ADMIN' for
@@ -24,6 +27,27 @@ function isSuperAdmin(req) {
 function normalizeUuid(value) {
   const text = String(value || '').trim();
   return UUID_RE.test(text) ? text.toLowerCase() : null;
+}
+
+function normalizeToken(value) {
+  return String(value ?? '').trim().toUpperCase();
+}
+
+export function buildTenantContext(tenantId, tenant) {
+  const hasTenantRow = Boolean(tenant);
+  const region = normalizeToken(tenant?.region) || (hasTenantRow ? UNKNOWN_TENANT_REGION : DEFAULT_TENANT_REGION);
+  const complianceProfile = normalizeToken(tenant?.compliance_profile) || DEFAULT_COMPLIANCE_PROFILE;
+
+  return {
+    ...(tenant || {}),
+    id: tenant?.id || tenantId,
+    region,
+    compliance_profile: complianceProfile,
+    status: tenant?.status || 'active',
+    region_resolution: normalizeToken(tenant?.region)
+      ? 'tenant_row'
+      : (hasTenantRow ? 'missing_tenant_region' : 'default_tenant_fallback'),
+  };
 }
 
 // Phase-3 SUPER_ADMIN override controls (docs/GAP_ANALYSIS_TENANT_RLS.md).
@@ -165,7 +189,7 @@ export default async function tenantContextMiddleware(req, _res, next) {
     }
 
     req.tenantId = tenantId;
-    req.tenant = tenant || { id: tenantId, region: 'IN', compliance_profile: 'DPDP', status: 'active' };
+    req.tenant = buildTenantContext(tenantId, tenant);
     req.tenantOverrideUsed = overrideUsed;
 
     if (req.user) {
@@ -186,6 +210,12 @@ export default async function tenantContextMiddleware(req, _res, next) {
     }
     logger.warn('tenantContextMiddleware failed, using default tenant', { error: err.message });
     req.tenantId = DEFAULT_TENANT_ID;
+    req.tenant = buildTenantContext(DEFAULT_TENANT_ID, null);
+    if (req.user) {
+      req.user.tenantId = DEFAULT_TENANT_ID;
+      req.user.tenantRegion = req.tenant.region;
+      req.user.complianceProfile = req.tenant.compliance_profile;
+    }
     return next();
   }
 }

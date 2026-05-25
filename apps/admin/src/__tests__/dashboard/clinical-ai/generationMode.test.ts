@@ -1,7 +1,10 @@
 import {
+  generationReasonFor,
   generationModeClass,
   generationModeFor,
   generationModeLabel,
+  providerStatusClass,
+  providerStatusLabel,
 } from "@/app/(with-auth)/dashboard/clinical-ai/generationMode";
 import { approvalDetailLines } from "@/app/(with-auth)/dashboard/clinical-ai/approvalDetails";
 
@@ -9,6 +12,13 @@ describe("Clinical AI generation mode helpers", () => {
   it("falls back from used_ai when explicit mode is absent", () => {
     expect(generationModeFor({ used_ai: true })).toBe("ai");
     expect(generationModeFor({ used_ai: false })).toBe("template_fallback");
+  });
+
+  it("uses provider status when legacy rows lack an explicit generation mode", () => {
+    expect(generationModeFor({ provider_status: "used" })).toBe("ai");
+    expect(generationModeFor({ provider_status: "blocked" })).toBe("blocked");
+    expect(generationModeFor({ provider_status: "schema_unavailable" })).toBe("schema_unavailable");
+    expect(generationModeFor({ provider_status: "error" })).toBe("template_fallback");
   });
 
   it("keeps blocked and schema-unavailable states visually urgent", () => {
@@ -23,6 +33,16 @@ describe("Clinical AI generation mode helpers", () => {
     expect(generationModeClass("template_fallback")).toContain("bg-amber");
     expect(generationModeLabel("ai")).toBe("AI generated");
     expect(generationModeClass("ai")).toContain("bg-emerald");
+  });
+
+  it("surfaces provider status and fallback reasons for admin review", () => {
+    expect(providerStatusLabel("used")).toBe("Provider used");
+    expect(providerStatusLabel("blocked")).toBe("Provider blocked");
+    expect(providerStatusClass("blocked")).toContain("bg-red");
+    expect(generationReasonFor({
+      fallback_reason: "tenant_region_not_allowed_for_stt",
+      readiness_reason: "provider_not_ready",
+    })).toBe("tenant_region_not_allowed_for_stt");
   });
 
   it("summarizes risky module approval payloads for approvers", () => {

@@ -40,7 +40,14 @@ import {
 } from "./components/GovernancePanels";
 import { AIExpansionHeader } from "./components/AIExpansionHeader";
 import { ClinicalAiExpansionPanels } from "./components/ClinicalAiExpansionPanels";
-import { generationModeClass, generationModeFor, generationModeLabel } from "./generationMode";
+import {
+  generationModeClass,
+  generationModeFor,
+  generationModeLabel,
+  generationReasonFor,
+  providerStatusClass,
+  providerStatusLabel,
+} from "./generationMode";
 
 function fmt(value?: string | null) {
   if (!value) return "-";
@@ -1287,9 +1294,14 @@ export default function ClinicalAiGovernancePage() {
                         <span className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-xs font-medium ${generationModeClass(generationModeFor(generation))}`}>
                           {generationModeLabel(generationModeFor(generation))}
                         </span>
-                        {(generation.fallback_reason || generation.readiness_reason) ? (
+                        {generation.provider_status ? (
+                          <span className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-xs font-medium ${providerStatusClass(generation.provider_status)}`}>
+                            {providerStatusLabel(generation.provider_status)}
+                          </span>
+                        ) : null}
+                        {generationReasonFor(generation) ? (
                           <span className="max-w-64 text-xs text-muted-foreground">
-                            {generation.fallback_reason || generation.readiness_reason}
+                            {generationReasonFor(generation)}
                           </span>
                         ) : null}
                       </div>
