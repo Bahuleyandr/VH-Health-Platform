@@ -112,12 +112,17 @@ What this gives you on `main` today:
 - An admin web page that lets admins drive composes and inspect run trees
 - All of it gated behind `requireClinicalAiControl` (ADMIN | SUPER_ADMIN | IT_*)
 
-What this **doesn't** give you yet:
+What this originally **didn't** give you, and what has since landed:
 
-- Any way for a doctor or nurse to use it from the bedside or workstation
-- Any way to run clinical traffic without it traversing Cloudflare's edge
-- Any local-LLM deployment (the deep tier is wired but unused)
-- Any voice/ambient input path into the multi-agent system (services exist; not bridged)
+- Bedside/workstation use: the staff Flutter review queue and draft detail
+  screens now target `/api/v1/clinical-ai/clinical/*`.
+- LAN-only clinical traffic: the internal ingress path is wired; hospital
+  DNS, private CA trust, and LAN reachability remain hospital-side tasks.
+- Local LLM routing: the Ollama deep tier is wired and smoke-tested against
+  a real medication-reconciliation workflow; GPU/model selection remains a
+  hospital procurement/configuration decision.
+- Voice/ambient input: the voice-to-SOAP bridge is now part of Phase 5;
+  hospital rollout still needs audio-capture consent and device policy.
 
 ---
 
@@ -211,9 +216,10 @@ The framework was designed for exactly this.
 ### Voice-driven clinical workflows on the tablet
 
 The bridge between `voiceSoapService` / `ambientDocumentationService` /
-`ambientDiarizationService` and the multi-agent system isn't built. With
-clinicians on Flutter tablets, "tap mic → speak chart → AI drafts" is a
-real path. Not in this rollout's MVP, but a clear next step.
+`ambientDiarizationService` and the multi-agent review path shipped in
+Phase 5. Do not treat that as blanket permission to record: each hospital
+must approve audio retention, consent wording, device policy, and which
+roles can create voice-derived SOAP drafts before the feature is enabled.
 
 ---
 
@@ -407,14 +413,23 @@ Pinned here so they don't drift in:
 
 ---
 
-## 7. Decisions still open
+## 7. Hospital decisions still open
 
-These should be resolved before Phase 0 starts. None are blocking *this
-plan* — they're parameters of the implementation.
+The repo-side phases are shipped. These are the hospital/operator choices
+that still need explicit approval before real clinical rollout.
 
-1. **Hostname convention** for the LAN ingress. `clinical.<hospital>.local`? `clinical.<hospital>.internal`? Whatever the hospital network team prefers — but lock it before Phase 1.
-2. **First-pilot module set** for the Flutter review queue. Recommend: medication_reconciliation + patient_aftercare_instructions only, since those are the most-clinician-facing and the simplest review shapes. discharge_readiness involves admin and is less interesting for a doctor. Export the pilot evidence pack and approve the pilot signoff for this set before moving to broader ward rollout.
-3. **Deep-tier model choice.** Depends on hospital GPU budget. 70B is ideal; 8B-or-13B is acceptable. Decide before Phase 4 procurement asks.
+1. **Hostname convention** for the LAN ingress.
+   `clinical.<hospital>.local`? `clinical.<hospital>.internal`? Whatever
+   the hospital network team prefers — but lock it before routing real ward
+   traffic to the internal ingress.
+2. **First-pilot module set** for the Flutter review queue. Resolved in
+   repo docs and smoke coverage: use `medication_reconciliation` +
+   `patient_aftercare_instructions` for `stage_1_clinical_review`. Export
+   the pilot evidence pack and approve the pilot signoff for that exact set
+   before moving to broader ward rollout.
+3. **Deep-tier model choice.** Depends on hospital GPU budget. 70B is ideal;
+   8B-or-13B is acceptable. Decide before purchasing or allocating the GPU
+   node.
 4. **Tailscale vs hospital VPN** for off-site clinician access. Recommend Tailscale (already in use for dalekdefender, simpler, identity-aware). Hospital may already have a VPN concentrator they prefer.
 5. **Whether to keep admin portal on Cloudflare Tunnel or move it to LAN-only too.** Recommend: keep on Cloudflare. Admins are often off-site (procurement, IT-after-hours, executive review) and Tailscale-only is friction. But the option is open.
 

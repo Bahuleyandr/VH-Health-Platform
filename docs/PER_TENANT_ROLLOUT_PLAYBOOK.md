@@ -30,6 +30,11 @@ below pass.
 For a typical 100-bed tertiary hospital with no prior AI experience, a
 **3-stage pilot** over 6-8 weeks is right:
 
+0. **Narrow first-pilot package:** `medication_reconciliation` +
+   `patient_aftercare_instructions` for `stage_1_clinical_review`, one
+   ward, English only, reviewer queue staffed, no automatic patient
+   dispatch. This is the proof run for the staff workflow and signoff
+   gate.
 1. **Stage 1 (week 1–2):** Tier A explainers + 3 hand-picked Tier A
    assistants, English only, 2 ward staff + 1 reviewer. Goal: trust.
 2. **Stage 2 (week 3–5):** Add Tier C order-set / dose-check / I&O
@@ -106,7 +111,41 @@ If any of the four fail, do not enable a module. Investigate first.
 
 ---
 
-## 2. The enablement decision tree
+## 2. First-pilot proof gate
+
+Before broad Stage 1 enablement, run the narrow first-pilot package:
+
+- **Tenant/module scope:** one tenant, one ward or unit,
+  `medication_reconciliation` + `patient_aftercare_instructions`.
+- **Stage key:** `stage_1_clinical_review`.
+- **Human staffing:** at least two clinicians using the staff review queue
+  and one clinical lead able to decide the pilot signoff.
+- **Patient exposure:** drafts stay decision-support-only until reviewed;
+  do not enable automatic patient notification dispatch for this proof run.
+- **Required evidence:** pilot evidence pack shows tenant-scoped real
+  generations, final reviews with reviewer notes, visible AI/fallback labels,
+  an accepted eval for the risky med-rec module, safety decisions, and audit
+  rows.
+- **Required approval:** create and approve the pilot signoff for the exact
+  stage + module set. Expansion remains blocked while the signoff is pending,
+  held, rejected, expired, or based on schema-unavailable evidence.
+
+Operator paths:
+
+- Admin UI: Clinical AI -> Regulatory Readiness Pack -> Pilot Evidence Pack.
+- API: `POST /admin/clinical-ai/pilot-evidence-pack`,
+  `POST /admin/clinical-ai/pilot-signoffs`, then
+  `GET /admin/clinical-ai/pilot-signoffs/gate`.
+- CI/local proof: `scripts/smoke-clinical-ai-pilot-evidence.ps1` seeds the
+  same module pair and verifies the evidence pack plus signoff gate contract.
+
+Do not treat a clean smoke test as hospital approval. It proves the platform
+contract; the hospital still approves scope, staff, consent, audio policy,
+and escalation owner before real use.
+
+---
+
+## 3. The enablement decision tree
 
 For each module the hospital wants to turn on, walk this tree:
 
@@ -145,7 +184,7 @@ For each module the hospital wants to turn on, walk this tree:
           │
           ▼
   Has a similar tier been pilot-validated on this tenant?
-      ├─ no → this should be a Stage-1 or Stage-2 module per §3.
+      ├─ no → this should be a Stage-1 or Stage-2 module per §4.
       │        Don't pile a Tier D module onto a tenant that has
       │        never run a Tier A draft.
       └─ yes → enable.
@@ -157,7 +196,7 @@ the next operator can see why you bypassed the gate.
 
 ---
 
-## 3. Recommended enablement order
+## 4. Recommended enablement order
 
 A staged rollout that's worked on the dalekdefender pilot rig and
 is the right starting shape for a new hospital with no prior AI
@@ -246,7 +285,7 @@ department is ready:
 
 ---
 
-## 4. Critical-risk module enablement runbook
+## 5. Critical-risk module enablement runbook
 
 Modules whose `settings.approvalPolicy === 'two_person_for_enablement'`
 need a documented two-admin approval before flipping `enabled=true`.
@@ -287,7 +326,7 @@ at the time of writing.)
 
 ---
 
-## 5. Ongoing operations
+## 6. Ongoing operations
 
 ### Weekly
 
@@ -335,7 +374,7 @@ at the time of writing.)
 
 ---
 
-## 6. Local-LLM deep tier — when + how
+## 7. Local-LLM deep tier — when + how
 
 When PHI must not leave the building. Per the rollout plan Phase 4
 this is wired but the GPU node is hospital-side.
@@ -381,7 +420,7 @@ some clinical reasoning tasks. The eval suite (`clinical_ai_canary_runs`
 
 ---
 
-## 7. Common pitfalls + recovery
+## 8. Common pitfalls + recovery
 
 ### "Drafts are being signed off without anyone reading them"
 
@@ -456,7 +495,7 @@ should catch it. If it slips through:
 
 ---
 
-## 8. Disable / rollback
+## 9. Disable / rollback
 
 A hospital can `enabled=false` any module at any time without losing
 historical drafts. Any in-flight reviews stay pending; no new drafts
@@ -478,7 +517,7 @@ module behaves unexpectedly. The substrate is built for it.
 
 ---
 
-## 9. Per-tenant rollout checklist (printable)
+## 10. Per-tenant rollout checklist (printable)
 
 A condensed version of the above for the hospital's project lead.
 
@@ -524,7 +563,7 @@ A condensed version of the above for the hospital's project lead.
 
 ---
 
-## 10. When to update this doc
+## 11. When to update this doc
 
 Update this playbook when:
 
