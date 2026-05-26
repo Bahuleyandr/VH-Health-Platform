@@ -228,6 +228,10 @@ describe('pilotEvidencePackService.assemblePilotEvidencePack', () => {
       eval_runs: 1,
       audit_events: 1,
     });
+
+    const auditQuery = queryUnsafeMock.mock.calls.find(([sql]) => /FROM audit_logs/i.test(sql))?.[0];
+    expect(auditQuery).toContain("$2::timestamptz AT TIME ZONE current_setting('TimeZone')");
+    expect(auditQuery).toContain("$3::timestamptz AT TIME ZONE current_setting('TimeZone')");
   });
 
   it('blocks rollout evidence when final human reviews have no reviewer note', async () => {

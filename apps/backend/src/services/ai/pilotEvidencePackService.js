@@ -615,8 +615,8 @@ export async function assemblePilotEvidencePack(options = {}) {
        FROM audit_logs
        WHERE (resource = 'clinical_ai' OR action LIKE 'CLINICAL_AI_%')
          AND COALESCE(metadata->>'tenant_id', $1::text) = $1::text
-         AND created_at >= $2::timestamp
-         AND created_at <= $3::timestamp
+         AND created_at >= ($2::timestamptz AT TIME ZONE current_setting('TimeZone'))
+         AND created_at <= ($3::timestamptz AT TIME ZONE current_setting('TimeZone'))
        ORDER BY created_at DESC
        LIMIT 250`,
       tid,
