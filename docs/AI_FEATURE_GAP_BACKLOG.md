@@ -678,13 +678,18 @@ What's left is **rollout, not build**:
 
 Next-up moves are no longer about adding modules — they are:
 
-- **Governance rollout**: verify per-tenant enablement requests,
-  two-person approval handoffs, eval evidence, and fallback/schema badges
-  with real hospital operators before turning on high-risk modules.
-- **Per-tenant rollout playbook** documenting which modules to enable
-  for which hospital pilot first.
-- **Local-Ollama deep-tier pilot** for Tier B/C/D (CRITICAL-tier
-  modules) so PHI never leaves the building during clinician review.
+- **Governance rollout with operators**: the repo has per-tenant enablement
+  requests, two-person approval handoffs, eval evidence gates, and visible
+  fallback/blocked/schema-unavailable badges. The next action is to run the
+  narrow first-pilot package with real hospital staff and verify the process
+  holds outside seeded CI data.
+- **Per-tenant rollout playbook**: shipped as
+  [`PER_TENANT_ROLLOUT_PLAYBOOK.md`](PER_TENANT_ROLLOUT_PLAYBOOK.md). Use
+  `medication_reconciliation` + `patient_aftercare_instructions` for
+  `stage_1_clinical_review` before broader Stage 1 enablement.
+- **Local-Ollama deep-tier pilot**: the platform route and smoke proof are
+  shipped; hospital-side work remains GPU/node provisioning, model choice,
+  and `CLINICAL_AI_DEEP_*` configuration for CRITICAL-tier modules.
 - **Long-tail catalogue items** as customer pull arrives (see the
   "Remaining catalogue items" punch list above).
 
