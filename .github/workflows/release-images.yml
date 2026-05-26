@@ -1,7 +1,8 @@
 name: Release Container Images
 
 # Builds, signs, SBOMs, scans, and publishes container images for the
-# backend (Node/Express API) and admin (Next.js) apps. These images are
+# backend (Node/Express API), admin (Next.js), and staff-web (Flutter web)
+# apps. These images are
 # consumed by the on-prem 3-node RKE2 cluster via ArgoCD, which watches
 # kustomize overlays under `infra/kubernetes/overlays/prod` for tag bumps.
 #
@@ -9,11 +10,13 @@ name: Release Container Images
 #   - push to main                 → validates workflow wiring, no publish
 #   - push of tag `backend-v*`     → tags `backend-v1.2.3` + `latest-backend`
 #   - push of tag `admin-v*`       → tags `admin-v1.2.3` + `latest-admin`
+#   - push of tag `staff-web-v*`   → tags `staff-web-v1.2.3` + `latest-staff-web`
 #   - workflow_dispatch            → manual publish
 #
 # Image registry:
 #   ghcr.io/<lowercase-owner>/vh-health-platform-backend
 #   ghcr.io/<lowercase-owner>/vh-health-platform-adminportal
+#   ghcr.io/<lowercase-owner>/vhhealth-staff-web
 # These platform-scoped package names deliberately avoid the archived
 # pre-monorepo backend/admin repositories and keep GHCR ownership attached to
 # `Bahuleyandr/VH-Health-Platform`.
@@ -27,6 +30,7 @@ on:
     tags:
       - 'backend-v*'
       - 'admin-v*'
+      - 'staff-web-v*'
   workflow_dispatch:
     inputs:
       build_backend:
@@ -36,6 +40,11 @@ on:
         type: boolean
       build_admin:
         description: 'Build admin image'
+        required: false
+        default: 'true'
+        type: boolean
+      build_staff_web:
+        description: 'Build staff Flutter web image'
         required: false
         default: 'true'
         type: boolean
@@ -66,7 +75,7 @@ jobs:
         run: |
           {
             echo "Release image publishing is restricted to version tags and manual dispatch."
-            echo "Use backend-v* / admin-v* tags, or workflow_dispatch, when a signed GHCR release image is required."
+            echo "Use backend-v* / admin-v* / staff-web-v* tags, or workflow_dispatch, when a signed GHCR release image is required."
           } >> "$GITHUB_STEP_SUMMARY"
 
   build-backend:
@@ -423,11 +432,186 @@ jobs:
             echo "**Signed:** cosign keyless via GitHub OIDC"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  build-staff-web:
+    name: Build + sign staff web image
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Publish staff-web images only for staff-web release tags or explicit manual dispatch.
+    if: |
+      startsWith(github.ref, 'refs/tags/staff-web-v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.build_staff_web)
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-tags: ${{ steps.meta.outputs.tags }}
+      trivy-critical: ${{ steps.trivy-summary.outputs.critical }}
+      trivy-high: ${{ steps.trivy-summary.outputs.high }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image names
+        id: images
+        run: |
+          owner_lc="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          echo "staff_web=${REGISTRY}/${owner_lc}/vhhealth-staff-web" >> "$GITHUB_OUTPUT"
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.images.outputs.staff_web }}
+          tags: |
+            type=raw,value=main-${{ github.sha }},enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=match,pattern=staff-web-v(.*),group=0,enable=${{ startsWith(github.ref, 'refs/tags/staff-web-v') }}
+            type=raw,value=latest-staff-web,enable=${{ startsWith(github.ref, 'refs/tags/staff-web-v') }}
+            type=raw,value=manual-${{ github.sha }},enable=${{ github.event_name == 'workflow_dispatch' }}
+          labels: |
+            org.opencontainers.image.title=VH Health Staff Web
+            org.opencontainers.image.description=Flutter web staff app for LAN-only Clinical AI rollout
+            org.opencontainers.image.vendor=VH Health
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Build and push staff web image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./apps/staff/Dockerfile.web
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=staff-web
+          cache-to: type=gha,scope=staff-web,mode=max
+          provenance: true
+          sbom: true
+          build-args: |
+            API_URL=${{ vars.STAFF_WEB_API_URL || 'https://clinical.vhhealth.hospital.local' }}
+            API_KEY=${{ vars.STAFF_WEB_API_KEY }}
+            APP_NAME=${{ vars.STAFF_WEB_APP_NAME || 'VH Health Staff' }}
+            SENTRY_DSN=${{ vars.STAFF_WEB_SENTRY_DSN }}
+
+      - name: Prune local Docker cache before release analysis
+        run: |
+          docker buildx prune -af || true
+          docker system prune -af --volumes || true
+          df -h
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.images.outputs.staff_web }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          artifact-name: vhhealth-staff-web-sbom.spdx.json
+          output-file: vhhealth-staff-web-sbom.spdx.json
+          upload-artifact: true
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514
+        with:
+          version: v0.70.0
+          cache: true
+
+      - name: Scan image with Trivy
+        env:
+          IMAGE_REF: ${{ steps.images.outputs.staff_web }}@${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p .cache/trivy
+          trivy image \
+            --platform "${RELEASE_SCAN_PLATFORM}" \
+            --scanners vuln \
+            --format sarif \
+            --output trivy-staff-web.sarif \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1 \
+            --vuln-type os,library \
+            --cache-dir .cache/trivy \
+            "${IMAGE_REF}"
+
+      - name: Upload Trivy SARIF to GitHub Security
+        if: always() && hashFiles('trivy-staff-web.sarif') != ''
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-staff-web.sarif
+          category: trivy-staff-web
+
+      - name: Summarise Trivy counts
+        id: trivy-summary
+        if: always()
+        run: |
+          if [ -f trivy-staff-web.sarif ]; then
+            critical=$(jq '[.runs[].results[] | ((.properties."security-severity"? // "0") | tonumber? // 0) as $sev | select($sev >= 9.0)] | length' trivy-staff-web.sarif)
+            high=$(jq '[.runs[].results[] | ((.properties."security-severity"? // "0") | tonumber? // 0) as $sev | select($sev >= 7.0 and $sev < 9.0)] | length' trivy-staff-web.sarif)
+          else
+            critical=0
+            high=0
+          fi
+          echo "critical=${critical:-0}" >> "$GITHUB_OUTPUT"
+          echo "high=${high:-0}" >> "$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless OIDC)
+        env:
+          COSIGN_EXPERIMENTAL: 'true'
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            echo "::group::cosign sign ${tag}@${DIGEST}"
+            cosign sign --yes "${tag}@${DIGEST}"
+            echo "::endgroup::"
+          done <<< "$TAGS"
+
+      - name: Write build summary
+        if: always()
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          CRITICAL: ${{ steps.trivy-summary.outputs.critical }}
+          HIGH: ${{ steps.trivy-summary.outputs.high }}
+        run: |
+          {
+            echo "## Staff web image"
+            echo ""
+            echo "**Digest:** \`${DIGEST}\`"
+            echo ""
+            echo "**Tags pushed:**"
+            echo ""
+            echo '```'
+            echo "${TAGS}"
+            echo '```'
+            echo ""
+            echo "**Trivy findings (${RELEASE_SCAN_PLATFORM}):** ${CRITICAL:-0} CRITICAL / ${HIGH:-0} HIGH (fixable only)"
+            echo ""
+            echo "**SBOM:** attached as workflow artifact \`vhhealth-staff-web-sbom.spdx.json\`"
+            echo ""
+            echo "**Signed:** cosign keyless via GitHub OIDC"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   summary:
     name: Release summary
     runs-on: ubuntu-latest
-    needs: [build-backend, build-admin]
-    if: always() && (needs.build-backend.result == 'success' || needs.build-admin.result == 'success')
+    needs: [build-backend, build-admin, build-staff-web]
+    if: always() && (needs.build-backend.result == 'success' || needs.build-admin.result == 'success' || needs.build-staff-web.result == 'success')
     steps:
       - name: Generate deploy instructions
         env:
@@ -443,6 +627,11 @@ jobs:
           ADMIN_RESULT: ${{ needs.build-admin.result }}
           ADMIN_CRITICAL: ${{ needs.build-admin.outputs.trivy-critical }}
           ADMIN_HIGH: ${{ needs.build-admin.outputs.trivy-high }}
+          STAFF_WEB_DIGEST: ${{ needs.build-staff-web.outputs.image-digest }}
+          STAFF_WEB_TAGS: ${{ needs.build-staff-web.outputs.image-tags }}
+          STAFF_WEB_RESULT: ${{ needs.build-staff-web.result }}
+          STAFF_WEB_CRITICAL: ${{ needs.build-staff-web.outputs.trivy-critical }}
+          STAFF_WEB_HIGH: ${{ needs.build-staff-web.outputs.trivy-high }}
         run: |
           owner_lc="$(printf '%s' "${OWNER}" | tr '[:upper:]' '[:lower:]')"
           {
@@ -452,6 +641,7 @@ jobs:
             echo "| --- | --- | --- | --- |"
             echo "| \`ghcr.io/${owner_lc}/vh-health-platform-backend\` | ${BACKEND_RESULT} | \`${BACKEND_DIGEST:-n/a}\` | ${BACKEND_CRITICAL:-0} / ${BACKEND_HIGH:-0} |"
             echo "| \`ghcr.io/${owner_lc}/vh-health-platform-adminportal\` | ${ADMIN_RESULT} | \`${ADMIN_DIGEST:-n/a}\` | ${ADMIN_CRITICAL:-0} / ${ADMIN_HIGH:-0} |"
+            echo "| \`ghcr.io/${owner_lc}/vhhealth-staff-web\` | ${STAFF_WEB_RESULT} | \`${STAFF_WEB_DIGEST:-n/a}\` | ${STAFF_WEB_CRITICAL:-0} / ${STAFF_WEB_HIGH:-0} |"
             echo ""
             echo "## Tags pushed"
             echo ""
@@ -465,6 +655,11 @@ jobs:
             echo "${ADMIN_TAGS:-<no tags>}"
             echo '```'
             echo ""
+            echo "### Staff web"
+            echo '```'
+            echo "${STAFF_WEB_TAGS:-<no tags>}"
+            echo '```'
+            echo ""
             echo "## Deploy (bump ArgoCD-tracked digests)"
             echo ""
             echo "ArgoCD watches \`infra/kubernetes/overlays/prod/kustomization.yaml\`. Pin the new digests there and push:"
@@ -473,7 +668,8 @@ jobs:
             echo "cd infra/kubernetes/overlays/prod"
             echo "kustomize edit set image \\"
             echo "  ghcr.io/${owner_lc}/vh-health-platform-backend=ghcr.io/${owner_lc}/vh-health-platform-backend@${BACKEND_DIGEST:-<digest>} \\"
-            echo "  ghcr.io/${owner_lc}/vh-health-platform-adminportal=ghcr.io/${owner_lc}/vh-health-platform-adminportal@${ADMIN_DIGEST:-<digest>}"
+            echo "  ghcr.io/${owner_lc}/vh-health-platform-adminportal=ghcr.io/${owner_lc}/vh-health-platform-adminportal@${ADMIN_DIGEST:-<digest>} \\"
+            echo "  ghcr.io/${owner_lc}/vhhealth-staff-web=ghcr.io/${owner_lc}/vhhealth-staff-web@${STAFF_WEB_DIGEST:-<digest>}"
             echo "git commit -am \"bump images to ${REF}\""
             echo "git push"
             echo '```'
@@ -491,5 +687,10 @@ jobs:
             echo "  --certificate-identity-regexp='https://github.com/${{ github.repository }}/.github/workflows/release-images.yml@.*' \\"
             echo "  --certificate-oidc-issuer=https://token.actions.githubusercontent.com \\"
             echo "  ghcr.io/${owner_lc}/vh-health-platform-backend@${BACKEND_DIGEST:-<digest>}"
+            echo ""
+            echo "cosign verify \\"
+            echo "  --certificate-identity-regexp='https://github.com/${{ github.repository }}/.github/workflows/release-images.yml@.*' \\"
+            echo "  --certificate-oidc-issuer=https://token.actions.githubusercontent.com \\"
+            echo "  ghcr.io/${owner_lc}/vhhealth-staff-web@${STAFF_WEB_DIGEST:-<digest>}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

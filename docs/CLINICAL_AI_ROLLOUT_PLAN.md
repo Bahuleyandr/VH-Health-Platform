@@ -304,10 +304,12 @@ back to it if any phase breaks.
 
 **Verified:** `kubectl kustomize infra/kubernetes/apps/staff-web/` and `kubectl kustomize infra/kubernetes/apps/` both emit clean. All seven resources (Deployment, Service, Ingress, HPA, PDB, NetworkPolicy + namespace inheritance) have correct labels and selectors.
 
+**Follow-up shipped 2026-05-26:**
+- `.github/workflows/release-images.yml` now builds, SBOMs, scans, signs, and publishes `ghcr.io/<owner>/vhhealth-staff-web` on `staff-web-v*` tags or manual dispatch, using `apps/staff/Dockerfile.web` and the `latest-staff-web` floating tag expected by the Kubernetes base.
+
 **What's NOT done (intentionally — small follow-up tasks, NOT blocking real traffic):**
-1. CI workflow to build + push the staff-web image. Pattern: extend `.github/workflows/release-images.yml` with a third matrix entry mirroring backend/admin (build → trivy scan → cosign sign → push to ghcr). Tag scheme: `staff-web-v*` releases, `main-<sha>` per-push, `latest-staff-web` floating. Once the CI is in place, ArgoCD overlays for prod/staging pin to the tag.
-2. Per-overlay image patches in `infra/kubernetes/overlays/{prod,staging,dev}` to pin a specific `staff-web-v*` tag (default in base is `latest-staff-web` for dev convenience).
-3. Same hostname-patch story as Phase 1 — when hospital network team confirms the `clinical.<hospital>.local` naming convention, patch all three `clinical.vhhealth.hospital.local` references (backend Ingress + staff-web Ingress + Flutter `--dart-define=API_URL`).
+1. Per-overlay image patches in `infra/kubernetes/overlays/{prod,staging,dev}` to pin a specific `staff-web-v*` tag (default in base is `latest-staff-web` for dev convenience).
+2. Same hostname-patch story as Phase 1 — when hospital network team confirms the `clinical.<hospital>.local` naming convention, patch all three `clinical.vhhealth.hospital.local` references (backend Ingress + staff-web Ingress + Flutter `--dart-define=API_URL`).
 
 **Risk audit (called out in plan; verified):** the staff app's `pubspec.yaml` uses `flutter_secure_storage` (web-supported via IndexedDB), `package:http` (web ✓), `go_router` (web ✓), `provider` (web ✓). No filesystem / camera / biometric plugins on the critical path for the clinical-AI screens. Voice / ambient-recording plugins are gated to mobile only via `kIsWeb` checks in the existing code.
 
