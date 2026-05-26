@@ -27,6 +27,7 @@ import { AppError } from '../../utils/AppError.js';
 import { publishEvent } from '../events/eventOutboxService.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
+import { assertPatientInTenant } from './clinicalAiTenantGuards.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { generateClinicalText } from './localLlmClient.js';
 
@@ -771,10 +772,14 @@ export async function evaluateVoiceSession({
     throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
   }
 
-  const cleanedPatientUid = cleanText(patientUid);
-  if (!cleanedPatientUid) {
-    throw AppError.badRequest('patient_uid is required');
-  }
+  const cleanedPatientUid = await assertPatientInTenant({
+    tenantId,
+    patientUid,
+    invalidCode: 'CLINICAL_AI_VOICE_IVR_PATIENT_UID_INVALID',
+    notFoundCode: 'CLINICAL_AI_VOICE_IVR_PATIENT_NOT_FOUND',
+    roleInvalidCode: 'CLINICAL_AI_VOICE_IVR_PATIENT_ROLE_INVALID',
+    tenantMismatchCode: 'CLINICAL_AI_VOICE_IVR_PATIENT_TENANT_MISMATCH',
+  });
   if (!cleanText(intent)) {
     throw AppError.badRequest('intent is required');
   }
