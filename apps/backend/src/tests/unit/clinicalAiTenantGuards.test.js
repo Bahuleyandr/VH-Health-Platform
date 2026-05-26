@@ -7,7 +7,9 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
 }));
 
 const {
+  assertPatientConsentInTenant,
   assertPatientInTenant,
+  normalizeConsentReference,
   normalizePatientUid,
 } = await import('../../services/ai/clinicalAiTenantGuards.js');
 
@@ -80,6 +82,92 @@ describe('clinicalAiTenantGuards', () => {
     })).rejects.toMatchObject({
       statusCode: 400,
       code: 'TEST_ROLE_INVALID',
+    });
+  });
+
+  it('normalizes numeric patient consent references', () => {
+    expect(normalizeConsentReference('42')).toEqual({ id: 42, reference: '42' });
+    expect(normalizeConsentReference('consent:42')).toEqual({ id: 42, reference: '42' });
+    expect(normalizeConsentReference('patient_consent:42')).toEqual({ id: 42, reference: '42' });
+  });
+
+  it('rejects non-row consent references before querying', async () => {
+    await expect(assertPatientConsentInTenant({
+      tenantId: TENANT_ID,
+      patientUid: PATIENT_UID,
+      consentReference: 'consent:test:1',
+      referenceInvalidCode: 'TEST_CONSENT_REF_INVALID',
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'TEST_CONSENT_REF_INVALID',
+    });
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('returns a verified active consent reference for the same patient tenant', async () => {
+    queryRawUnsafeMock.mockResolvedValue([{
+      id: 7,
+      patient_uid: PATIENT_UID,
+      consent_type: 'recording_consent',
+      granted: true,
+      status: 'active',
+      expires_at: null,
+      tenant_id: TENANT_ID,
+    }]);
+
+    await expect(assertPatientConsentInTenant({
+      tenantId: TENANT_ID,
+      patientUid: PATIENT_UID,
+      consentReference: '7',
+    })).resolves.toMatchObject({
+      id: 7,
+      reference: '7',
+      consentType: 'recording_consent',
+      patientUid: PATIENT_UID,
+    });
+  });
+
+  it('rejects consent references for a different patient', async () => {
+    queryRawUnsafeMock.mockResolvedValue([{
+      id: 7,
+      patient_uid: '33333333-3333-4333-8333-333333333333',
+      consent_type: 'treatment',
+      granted: true,
+      status: 'active',
+      expires_at: null,
+      tenant_id: TENANT_ID,
+    }]);
+
+    await expect(assertPatientConsentInTenant({
+      tenantId: TENANT_ID,
+      patientUid: PATIENT_UID,
+      consentReference: '7',
+      patientMismatchCode: 'TEST_CONSENT_PATIENT_MISMATCH',
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'TEST_CONSENT_PATIENT_MISMATCH',
+    });
+  });
+
+  it('rejects inactive consent references', async () => {
+    queryRawUnsafeMock.mockResolvedValue([{
+      id: 7,
+      patient_uid: PATIENT_UID,
+      consent_type: 'treatment',
+      granted: false,
+      status: 'revoked',
+      expires_at: null,
+      tenant_id: TENANT_ID,
+    }]);
+
+    await expect(assertPatientConsentInTenant({
+      tenantId: TENANT_ID,
+      patientUid: PATIENT_UID,
+      consentReference: '7',
+      inactiveCode: 'TEST_CONSENT_INACTIVE',
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'TEST_CONSENT_INACTIVE',
     });
   });
 });

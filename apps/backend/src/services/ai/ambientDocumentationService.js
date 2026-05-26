@@ -24,7 +24,10 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
-import { assertPatientInTenant } from './clinicalAiTenantGuards.js';
+import {
+  assertPatientConsentInTenant,
+  assertPatientInTenant,
+} from './clinicalAiTenantGuards.js';
 import { generateClinicalText } from './localLlmClient.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { resolveAmbientDiarization } from './ambientDiarizationService.js';
@@ -109,33 +112,6 @@ function buildFallbackVisitNote(normalized) {
 }
 
 /**
- * Consent check — every encounter recording requires an active consent
- * of type 'recording_consent' or 'treatment' for the patient at this
- * tenant. Throws if the consent isn't present.
- */
-async function verifyRecordingConsent({ tenantId, patientUid, consentReference }) {
-  try {
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*)::int AS active
-       FROM patient_consents
-       WHERE patient_uid = $1::uuid
-         AND status = 'active'
-         AND consent_type IN ('recording_consent', 'treatment')`,
-      patientUid
-    );
-    if (Number(rows[0]?.active || 0) === 0) {
-      throw AppError.forbidden('No active recording or treatment consent — cannot record ambient encounter');
-    }
-  } catch (err) {
-    if (err?.statusCode === 403) throw err;
-    if (!isMissingSchemaError(err)) {
-      logger.warn('Ambient consent check errored', { error: err.message });
-    }
-  }
-  void tenantId; void consentReference;
-}
-
-/**
  * Create + finalise an ambient encounter from a pre-transcribed multi-
  * speaker transcript. Persists row, runs LLM over the transcript,
  * stores generation + review placeholder.
@@ -174,8 +150,20 @@ export async function createAmbientEncounter({
     roleInvalidCode: 'CLINICAL_AI_AMBIENT_PATIENT_ROLE_INVALID',
     tenantMismatchCode: 'CLINICAL_AI_AMBIENT_PATIENT_TENANT_MISMATCH',
   });
-
-  await verifyRecordingConsent({ tenantId, patientUid: verifiedPatientUid, consentReference });
+  const verifiedConsent = await assertPatientConsentInTenant({
+    tenantId,
+    patientUid: verifiedPatientUid,
+    consentReference,
+    allowedTypes: ['recording_consent', 'treatment'],
+    referenceInvalidCode: 'CLINICAL_AI_AMBIENT_CONSENT_REFERENCE_INVALID',
+    notFoundCode: 'CLINICAL_AI_AMBIENT_CONSENT_NOT_FOUND',
+    patientMismatchCode: 'CLINICAL_AI_AMBIENT_CONSENT_PATIENT_MISMATCH',
+    tenantMismatchCode: 'CLINICAL_AI_AMBIENT_CONSENT_TENANT_MISMATCH',
+    typeInvalidCode: 'CLINICAL_AI_AMBIENT_CONSENT_TYPE_INVALID',
+    inactiveCode: 'CLINICAL_AI_AMBIENT_CONSENT_INACTIVE',
+    expiredCode: 'CLINICAL_AI_AMBIENT_CONSENT_EXPIRED',
+    schemaUnavailableCode: 'CLINICAL_AI_AMBIENT_CONSENT_SCHEMA_UNAVAILABLE',
+  });
 
   const diarization = await resolveAmbientDiarization({
     transcriptSegments,
@@ -277,7 +265,7 @@ export async function createAmbientEncounter({
       durationSeconds ?? normalized.total_duration_seconds,
       recordedBy,
       clinicianUid,
-      consentReference,
+      verifiedConsent.reference,
       audioStorageKey,
       audioMime,
       sttProvider || 'none',

@@ -86,6 +86,7 @@ async function seedAcceptedEvalGate(moduleKey, data = {}) {
 
 describe('future-proof clinical AI and privacy foundations', () => {
   let admissionId;
+  let consentReference;
   const doctor = authed('DOCTOR', DOCTOR_UID);
   const admin = authed('ADMIN', ADMIN_UID);
   const itAdminClient = authed('IT_ADMIN', IT_UID);
@@ -222,12 +223,14 @@ describe('future-proof clinical AI and privacy foundations', () => {
       PATIENT_UID, DOCTOR_UID, ADMIN_UID, IT_UID
     );
 
-    await prisma.$executeRawUnsafe(
+    const consentRows = await prisma.$queryRawUnsafe(
       `INSERT INTO patient_consents
          (patient_uid, consent_type, granted, status, granted_at, granted_by)
-       VALUES ($1::uuid, 'treatment', true, 'active', NOW(), 'patient')`,
+       VALUES ($1::uuid, 'treatment', true, 'active', NOW(), 'patient')
+       RETURNING id`,
       PATIENT_UID
     );
+    consentReference = String(consentRows[0].id);
 
     const admissions = await prisma.$queryRawUnsafe(
       `INSERT INTO admissions
@@ -2106,7 +2109,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
       channel: 'ivr',
       language: 'en',
       script_key: 'meds_reminder_v1',
-      consent_ref: 'consent:test:1',
+      consent_ref: consentReference,
       consent_fresh: true,
       transcript_text: 'Can you remind me about my medication schedule?',
       candidate_response: 'Please take your evening tablet at 9pm.',
@@ -2114,6 +2117,23 @@ describe('future-proof clinical AI and privacy foundations', () => {
     expectStatus(allow, 201, 'voice IVR allow');
     expect(allow.body.data.module_key).toBe('voice_patient_assistant_ivr');
     expect(allow.body.data.recommendation).toBe('allow');
+    expect(allow.body.data.draft.consent_reference_verified).toBe(true);
+
+    const invalidConsent = await admin.post('/api/v1/admin/clinical-ai/voice-ivr/evaluate').send({
+      patient_uid: PATIENT_UID,
+      intent: 'meds',
+      channel: 'ivr',
+      language: 'en',
+      script_key: 'meds_reminder_v1',
+      consent_ref: 'consent:test:1',
+      consent_fresh: true,
+      transcript_text: 'Routine medication reminder.',
+      candidate_response: 'Please take your evening tablet at 9pm.',
+    });
+    expectStatus(invalidConsent, 201, 'voice IVR invalid consent blocks visibly');
+    expect(invalidConsent.body.data.recommendation).toBe('block');
+    expect(invalidConsent.body.data.draft.consent_reference_verified).toBe(false);
+    expect(invalidConsent.body.data.safety_flags.some((flag) => flag.code === 'CLINICAL_AI_VOICE_IVR_CONSENT_REFERENCE_INVALID')).toBe(true);
 
     const escalate = await admin.post('/api/v1/admin/clinical-ai/voice-ivr/evaluate').send({
       patient_uid: PATIENT_UID,
@@ -2121,7 +2141,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
       channel: 'ivr',
       language: 'en',
       script_key: 'aftercare_v1',
-      consent_ref: 'consent:test:1',
+      consent_ref: consentReference,
       consent_fresh: true,
       transcript_text: 'I have severe chest pain and difficulty breathing',
       candidate_response: 'Take rest and continue medications.',
@@ -2146,7 +2166,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
 
     const listed = await admin.get(`/api/v1/admin/clinical-ai/voice-ivr/sessions?patient_uid=${PATIENT_UID}`);
     expectStatus(listed, 200, 'list voice IVR sessions');
-    expect(listed.body.data.sessions.length).toBeGreaterThanOrEqual(3);
+    expect(listed.body.data.sessions.length).toBeGreaterThanOrEqual(4);
 
     const decided = await admin
       .patch(`/api/v1/admin/clinical-ai/voice-ivr/sessions/${escalate.body.data.session_id}`)
@@ -2596,13 +2616,25 @@ describe('future-proof clinical AI and privacy foundations', () => {
     const deniedListing = await doctor.get('/api/v1/admin/clinical-ai/nursing-ambient/sessions');
     expectStatus(deniedListing, 403, 'doctor denied nursing ambient admin list');
 
-    const generated = await admin.post('/api/v1/admin/clinical-ai/nursing-ambient/sessions').send({
+    const blockedConsent = await admin.post('/api/v1/admin/clinical-ai/nursing-ambient/sessions').send({
       patient_uid: PATIENT_UID,
       admission_id: admissionId,
       shift: 'day',
       recording_started_at: new Date(Date.now() - 3600 * 1000).toISOString(),
       recording_ended_at: new Date().toISOString(),
       consent_reference: 'nursing-consent-test',
+      transcript_segments: transcript,
+    });
+    expectStatus(blockedConsent, 400, 'block nursing ambient invalid consent reference');
+    expect(blockedConsent.body.code).toBe('CLINICAL_AI_NURSING_AMBIENT_CONSENT_REFERENCE_INVALID');
+
+    const generated = await admin.post('/api/v1/admin/clinical-ai/nursing-ambient/sessions').send({
+      patient_uid: PATIENT_UID,
+      admission_id: admissionId,
+      shift: 'day',
+      recording_started_at: new Date(Date.now() - 3600 * 1000).toISOString(),
+      recording_ended_at: new Date().toISOString(),
+      consent_reference: consentReference,
       transcript_segments: transcript,
     });
     expectStatus(generated, 201, 'generate nursing ambient session');
@@ -2636,7 +2668,7 @@ describe('future-proof clinical AI and privacy foundations', () => {
     const viaDoctor = await doctor.post(`/api/v1/emr/${admissionId}/ai/nursing-ambient`).send({
       patient_uid: PATIENT_UID,
       shift: 'night',
-      consent_reference: 'nursing-consent-test',
+      consent_reference: consentReference,
       transcript_segments: [
         { speaker: 'nurse', text: 'Quiet night; patient slept well.', start_seconds: 0, end_seconds: 5 },
       ],
