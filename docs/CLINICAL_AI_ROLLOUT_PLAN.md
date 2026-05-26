@@ -11,7 +11,7 @@ Tier A–H module catalogue all on `main`.
 - ✅ **Phase 2** — Flutter clinician screens (API client + review queue + draft detail).
 - ✅ **Phase 3** — Flutter web Dockerfile + nginx + cluster manifest set.
 - ✅ **Phase 4** — Ollama in-cluster deep tier + backend `CLINICAL_AI_DEEP_*` env.
-- ✅ **Phase 5** — admin sidebar nav entry + auto-resume scheduler for governance-paused runs.
+- ✅ **Phase 5** — admin/staff navigation, auto-resume scheduler, admin E2E coverage, and manual fail escape hatch for governance-paused runs.
 
 ### Module catalogue (`AI_FEATURE_GAP_BACKLOG.md`) — all shipped
 
@@ -351,7 +351,7 @@ back to it if any phase breaks.
 
 **Verified:** `kubectl kustomize infra/kubernetes/apps/ollama` emits StatefulSet + 2 services + NetworkPolicy clean. `kubectl kustomize infra/kubernetes/apps` (full app tier) composes including ollama with no conflicts.
 
-### Phase 5: parallel/optional work — ✅ FOUR ITEMS SHIPPED, others remain optional
+### Phase 5: parallel/optional work — ✅ FIVE ITEMS SHIPPED, others remain optional
 
 **What landed:**
 
@@ -369,12 +369,13 @@ back to it if any phase breaks.
 
 4. **Admin discharge-compose E2E coverage** — shipped 2026-05-26. `apps/admin/e2e/discharge-compose.spec.ts` covers the authenticated admin page contract: route render, status filter, run detail tree, critical safety flags, governance-paused resume, and fresh compose admission-id POST.
 
-**Verified:** 1,305 backend unit tests pass (9 new + 1,296 existing, no regressions). `npm run lint` clean (eslint + raw-params + secrets). Admin lint clean. Staff-nav follow-up verified with `flutter test test\core\config\role_config_test.dart`, `flutter analyze`, and `git diff --check`. Discharge-compose E2E follow-up verified with `npm run type-check`, `npx playwright test --project=chromium --list e2e/discharge-compose.spec.ts`, and `git diff --check`.
+5. **Manual fail-paused-run escape hatch** — shipped 2026-05-26. Admins can now mark a tenant-scoped, paused `discharge_summary_compose` run as failed from `/dashboard/clinical-ai/discharge-compose` with a required reason. The backend endpoint `POST /api/v1/admin/clinical-ai/discharge-compose/:runId/fail` refuses cross-tenant, non-compose, or non-paused runs, records `manual_fail` on the checkpoint store, and writes a `CLINICAL_AI_DISCHARGE_COMPOSE_MANUALLY_FAILED` audit event.
+
+**Verified:** 1,305 backend unit tests pass (9 new + 1,296 existing, no regressions). `npm run lint` clean (eslint + raw-params + secrets). Admin lint clean. Staff-nav follow-up verified with `flutter test test\core\config\role_config_test.dart`, `flutter analyze`, and `git diff --check`. Discharge-compose E2E follow-up verified with `npm run type-check`, `npx playwright test --project=chromium --list e2e/discharge-compose.spec.ts`, and `git diff --check`. Manual-fail follow-up verified with `npm test -- --runInBand src/tests/unit/dischargeComposeRoutes.test.js`, `npm run type-check`, `npx playwright test --project=chromium --list e2e/discharge-compose.spec.ts`, and `git diff --check`.
 
 **Items NOT shipped** (the rollout plan called these out as "parallel / optional"; deferred deliberately):
 - **Voice-driven draft generation** — bridging `ambientDocumentationService` / `voiceSoapService` to the multi-agent draft path. Major value-add; 2-4 weeks of focused work; out of scope for Phase 5 hygiene work.
 - **Compose tree visualisation in Flutter** — defer until clinicians actually ask for it.
-- **Manual fail-paused-run UI** — admin escape hatch for runs whose external gate will never fire. SQL UPDATE works for now.
 
 ---
 

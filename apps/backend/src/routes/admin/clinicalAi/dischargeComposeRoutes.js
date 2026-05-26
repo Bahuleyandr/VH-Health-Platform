@@ -7,6 +7,7 @@
  *   POST /discharge-compose          start a fresh compose run
  *   GET  /discharge-compose/:runId   fetch a run + its children tree
  *   POST /discharge-compose/:runId/resume   resume a paused run
+ *   POST /discharge-compose/:runId/fail     manually fail a paused run
  *   GET  /discharge-compose          list recent compose runs (top-level)
  *
  * RBAC is inherited from the parent router (see clinicalAiRoutes.js
@@ -190,6 +191,65 @@ router.post('/discharge-compose/:runId/resume', async (req, res, next) => {
 
     const statusCode = outcome.status === 'paused' ? 202 : 200;
     return success(res, outcome, 'Discharge compose resumed', statusCode);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /discharge-compose/:runId/fail — admin escape hatch for paused runs
+//
+// Used when an external pause gate will never fire (for example, a pilot
+// signoff was rejected or expired). This is intentionally admin/control-plane
+// only: clinicians can review or reject drafts, but they should not manually
+// mutate workflow-run terminal state.
+// ---------------------------------------------------------------------------
+router.post('/discharge-compose/:runId/fail', async (req, res, next) => {
+  try {
+    const runId = Number.parseInt(req.params?.runId, 10);
+    if (!Number.isFinite(runId)) {
+      return error(res, 'Invalid runId', 400, { code: 'INVALID_RUN_ID' });
+    }
+
+    const store = getDefaultCheckpointStore();
+    const run = await store.getRun(runId);
+    if (!run) {
+      throw AppError.notFound('Compose run not found');
+    }
+    if (run.tenant_id !== req.tenantId) {
+      throw AppError.notFound('Compose run not found');
+    }
+    if (run.workflow_key !== DISCHARGE_COMPOSE_WORKFLOW_KEY) {
+      throw AppError.notFound('Run is not a discharge compose');
+    }
+    if (run.status !== 'paused') {
+      throw AppError.conflict('Only paused compose runs can be manually failed', 'COMPOSE_RUN_NOT_PAUSED', {
+        status: run.status,
+      });
+    }
+
+    const reason = String(
+      req.body?.reason || 'Manually failed by admin from discharge-compose dashboard'
+    ).slice(0, 4000);
+
+    await store.markFailed(runId, run.state || {}, {
+      node: 'manual_fail',
+      message: reason,
+    });
+
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_DISCHARGE_COMPOSE_MANUALLY_FAILED',
+      String(runId),
+      { status_before: run.status, pause_reason: run.pause_reason },
+      { status_after: 'failed', manual_reason: reason }
+    );
+
+    return success(res, {
+      status: 'failed',
+      runId,
+      reason,
+    }, 'Discharge compose run marked failed');
   } catch (err) {
     return next(err);
   }

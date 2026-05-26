@@ -8,6 +8,7 @@
  *   GET  /admin/clinical-ai/discharge-compose          list recent runs
  *   GET  /admin/clinical-ai/discharge-compose/:runId   fetch run + children tree
  *   POST /admin/clinical-ai/discharge-compose/:runId/resume   resume a paused run
+ *   POST /admin/clinical-ai/discharge-compose/:runId/fail     manually fail a paused run
  *
  * Same auth + envelope-unwrap behaviour as every other admin API
  * helper — fetchAdminAPI auto-prepends /api/v1, the proxy injects the
@@ -43,9 +44,15 @@ export interface DischargeComposeResult {
   compose_generation_id: number | null;
   overall_safety_band: "ok" | "low" | "medium" | "high" | "critical";
   compose_children: DischargeComposeChildKey[];
-  components: Partial<Record<DischargeComposeChildKey, DischargeComposeComponent>>;
+  components: Partial<
+    Record<DischargeComposeChildKey, DischargeComposeComponent>
+  >;
   child_generation_ids: number[];
-  critical_safety_flags: Array<{ severity: string; code: string; message: string }>;
+  critical_safety_flags: Array<{
+    severity: string;
+    code: string;
+    message: string;
+  }>;
   requires_signoff: boolean;
 }
 
@@ -162,10 +169,12 @@ export async function startDischargeCompose(
 }
 
 /** List recent top-level compose runs for the current tenant. */
-export async function listDischargeCompose(params: {
-  limit?: number;
-  status?: DischargeComposeStatus;
-} = {}): Promise<DischargeComposeRunListResponse> {
+export async function listDischargeCompose(
+  params: {
+    limit?: number;
+    status?: DischargeComposeStatus;
+  } = {},
+): Promise<DischargeComposeRunListResponse> {
   const query: Record<string, string | number> = {};
   if (params.limit) query.limit = params.limit;
   if (params.status) query.status = params.status;
@@ -201,5 +210,22 @@ export async function resumeDischargeCompose(
   return fetchAdminAPI<DischargeComposeResumeResponse>(
     `/admin/clinical-ai/discharge-compose/${runId}/resume`,
     { method: "POST" },
+  );
+}
+
+export interface DischargeComposeFailResponse {
+  status: "failed";
+  runId: number;
+  reason: string;
+}
+
+/** Manually fail a paused compose run whose external gate will never fire. */
+export async function failDischargeCompose(
+  runId: number,
+  reason: string,
+): Promise<DischargeComposeFailResponse> {
+  return fetchAdminAPI<DischargeComposeFailResponse>(
+    `/admin/clinical-ai/discharge-compose/${runId}/fail`,
+    { method: "POST", body: { reason } },
   );
 }

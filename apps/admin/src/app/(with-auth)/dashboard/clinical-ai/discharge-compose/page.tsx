@@ -22,6 +22,7 @@ import {
   type DischargeComposeRunDetail,
   type DischargeComposeRunListItem,
   type DischargeComposeStatus,
+  failDischargeCompose,
   getDischargeCompose,
   isPaused,
   listDischargeCompose,
@@ -29,7 +30,10 @@ import {
   startDischargeCompose,
 } from "@/lib/api/dischargeCompose";
 
-const STATUS_FILTERS: Array<{ value: DischargeComposeStatus | "all"; label: string }> = [
+const STATUS_FILTERS: Array<{
+  value: DischargeComposeStatus | "all";
+  label: string;
+}> = [
   { value: "all", label: "All" },
   { value: "running", label: "Running" },
   { value: "paused", label: "Paused" },
@@ -40,7 +44,8 @@ const STATUS_FILTERS: Array<{ value: DischargeComposeStatus | "all"; label: stri
 const SAFETY_BAND_STYLES: Record<string, string> = {
   ok: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
   low: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
-  medium: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+  medium:
+    "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
   high: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
   critical: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
 };
@@ -69,9 +74,12 @@ function formatDate(value: string | null | undefined): string {
 
 export default function DischargeComposePage() {
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<DischargeComposeStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<
+    DischargeComposeStatus | "all"
+  >("all");
   const [admissionIdInput, setAdmissionIdInput] = useState("");
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
+  const [failReasonInput, setFailReasonInput] = useState("");
 
   // Recent compose runs.
   const runsQuery = useQuery({
@@ -113,10 +121,14 @@ export default function DischargeComposePage() {
         // the list and selecting the latest top-level run.
       }
       setAdmissionIdInput("");
-      await queryClient.invalidateQueries({ queryKey: ["discharge-compose", "list"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["discharge-compose", "list"],
+      });
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : "Compose failed to start");
+      toast.error(
+        err instanceof Error ? err.message : "Compose failed to start",
+      );
     },
   });
 
@@ -127,7 +139,10 @@ export default function DischargeComposePage() {
       if (outcome.status === "completed") {
         toast.success(`Run #${runId} completed.`);
       } else if (outcome.status === "paused") {
-        toast(`Run #${runId} paused again: ${outcome.pauseReason ?? "unknown reason"}.`, { icon: "⏸" });
+        toast(
+          `Run #${runId} paused again: ${outcome.pauseReason ?? "unknown reason"}.`,
+          { icon: "⏸" },
+        );
       } else if (outcome.status === "failed") {
         toast.error(
           `Run #${runId} failed at ${outcome.error?.node ?? "unknown"}: ${
@@ -135,13 +150,33 @@ export default function DischargeComposePage() {
           }`,
         );
       }
-      await queryClient.invalidateQueries({ queryKey: ["discharge-compose", "list"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["discharge-compose", "list"],
+      });
       await queryClient.invalidateQueries({
         queryKey: ["discharge-compose", "detail", runId],
       });
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : "Resume failed");
+    },
+  });
+
+  const failMutation = useMutation({
+    mutationFn: ({ runId, reason }: { runId: number; reason: string }) =>
+      failDischargeCompose(runId, reason),
+    onSuccess: async (_outcome, variables) => {
+      toast.success(`Run #${variables.runId} marked failed.`);
+      setFailReasonInput("");
+      await queryClient.invalidateQueries({
+        queryKey: ["discharge-compose", "list"],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["discharge-compose", "detail", variables.runId],
+      });
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : "Manual fail failed");
     },
   });
 
@@ -155,15 +190,31 @@ export default function DischargeComposePage() {
     startMutation.mutate(parsed);
   }
 
+  function handleManualFail() {
+    if (!selectedRunId) return;
+    const reason = failReasonInput.trim();
+    if (!reason) {
+      toast.error("Enter a reason before failing the run");
+      return;
+    }
+    failMutation.mutate({ runId: selectedRunId, reason });
+  }
+
+  const selectedRun = detailQuery.data?.run;
+  const selectedRunIsPaused = selectedRun?.status === "paused";
+
   return (
     <div className="space-y-6 p-6">
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Discharge Compose</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Discharge Compose
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Orchestrates medication reconciliation, aftercare, discharge readiness, and clinical
-            coding subgraphs into a unified discharge package. Each component remains independently
-            reviewable; the parent run rolls up safety flags.
+            Orchestrates medication reconciliation, aftercare, discharge
+            readiness, and clinical coding subgraphs into a unified discharge
+            package. Each component remains independently reviewable; the parent
+            run rolls up safety flags.
           </p>
         </div>
         <button
@@ -171,7 +222,9 @@ export default function DischargeComposePage() {
           onClick={() => runsQuery.refetch()}
           className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
         >
-          <RefreshCw className={`h-4 w-4 ${runsQuery.isFetching ? "animate-spin" : ""}`} />
+          <RefreshCw
+            className={`h-4 w-4 ${runsQuery.isFetching ? "animate-spin" : ""}`}
+          />
           Refresh
         </button>
       </header>
@@ -229,7 +282,11 @@ export default function DischargeComposePage() {
               <EmptyState
                 icon={<AlertTriangle className="h-10 w-10 text-red-500" />}
                 title="Failed to load runs"
-                description={runsQuery.error instanceof Error ? runsQuery.error.message : "Unknown error"}
+                description={
+                  runsQuery.error instanceof Error
+                    ? runsQuery.error.message
+                    : "Unknown error"
+                }
                 compact
               />
             ) : runsQuery.data?.runs.length === 0 ? (
@@ -246,7 +303,10 @@ export default function DischargeComposePage() {
                     key={run.id}
                     run={run}
                     selected={run.id === selectedRunId}
-                    onSelect={() => setSelectedRunId(run.id)}
+                    onSelect={() => {
+                      setSelectedRunId(run.id);
+                      setFailReasonInput("");
+                    }}
                   />
                 ))}
               </ul>
@@ -260,7 +320,7 @@ export default function DischargeComposePage() {
             <h2 className="text-sm font-medium">
               {selectedRunId ? `Run #${selectedRunId}` : "Run detail"}
             </h2>
-            {selectedRunId && detailQuery.data?.run.status === "paused" && (
+            {selectedRunId && selectedRunIsPaused && (
               <button
                 type="button"
                 onClick={() => resumeMutation.mutate(selectedRunId)}
@@ -272,6 +332,27 @@ export default function DischargeComposePage() {
               </button>
             )}
           </div>
+          {selectedRunId && selectedRunIsPaused && (
+            <div className="flex flex-col gap-2 border-b bg-red-50/60 p-3 dark:bg-red-950/20 sm:flex-row sm:items-center">
+              <input
+                type="text"
+                placeholder="Why should this paused run be failed?"
+                value={failReasonInput}
+                onChange={(e) => setFailReasonInput(e.target.value)}
+                className="min-w-0 flex-1 rounded-md border bg-background px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                disabled={failMutation.isPending}
+              />
+              <button
+                type="button"
+                onClick={handleManualFail}
+                disabled={failMutation.isPending || !failReasonInput.trim()}
+                className="inline-flex items-center justify-center gap-1.5 rounded-md border border-red-300 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50 dark:border-red-700 dark:text-red-300 dark:hover:bg-red-900/40"
+              >
+                <XCircle className="h-3.5 w-3.5" />
+                {failMutation.isPending ? "Failing…" : "Fail paused run"}
+              </button>
+            </div>
+          )}
           <div className="p-3">
             {!selectedRunId ? (
               <EmptyState
@@ -286,7 +367,11 @@ export default function DischargeComposePage() {
               <EmptyState
                 icon={<AlertTriangle className="h-10 w-10 text-red-500" />}
                 title="Failed to load run"
-                description={detailQuery.error instanceof Error ? detailQuery.error.message : "Unknown error"}
+                description={
+                  detailQuery.error instanceof Error
+                    ? detailQuery.error.message
+                    : "Unknown error"
+                }
                 compact
               />
             ) : detailQuery.data ? (
@@ -310,7 +395,10 @@ function RunListRow({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const meta = run.metadata as { overall_safety_band?: string; compose_children?: string[] };
+  const meta = run.metadata as {
+    overall_safety_band?: string;
+    compose_children?: string[];
+  };
   const band = meta?.overall_safety_band ?? null;
   return (
     <li>
@@ -368,7 +456,9 @@ function RunDetail({ detail }: { detail: DischargeComposeRunDetail }) {
               </span>
             )}
           </div>
-          {meta?.overall_safety_band && <SafetyBadge band={meta.overall_safety_band} />}
+          {meta?.overall_safety_band && (
+            <SafetyBadge band={meta.overall_safety_band} />
+          )}
         </div>
         <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <dt>Admission</dt>
@@ -398,29 +488,35 @@ function RunDetail({ detail }: { detail: DischargeComposeRunDetail }) {
       </div>
 
       {/* Critical flags */}
-      {result?.critical_safety_flags && result.critical_safety_flags.length > 0 && (
-        <div className="rounded-md border border-red-300 bg-red-50 p-3 dark:border-red-700 dark:bg-red-900/30">
-          <div className="mb-1 flex items-center gap-1 text-sm font-medium text-red-800 dark:text-red-200">
-            <AlertTriangle className="h-4 w-4" />
-            Critical safety flags
+      {result?.critical_safety_flags &&
+        result.critical_safety_flags.length > 0 && (
+          <div className="rounded-md border border-red-300 bg-red-50 p-3 dark:border-red-700 dark:bg-red-900/30">
+            <div className="mb-1 flex items-center gap-1 text-sm font-medium text-red-800 dark:text-red-200">
+              <AlertTriangle className="h-4 w-4" />
+              Critical safety flags
+            </div>
+            <ul className="space-y-0.5 text-xs text-red-800 dark:text-red-200">
+              {result.critical_safety_flags.map((flag, i) => (
+                <li key={i}>
+                  <code className="rounded bg-red-100 px-1 dark:bg-red-900/60">
+                    {flag.code}
+                  </code>{" "}
+                  {flag.message}
+                </li>
+              ))}
+            </ul>
           </div>
-          <ul className="space-y-0.5 text-xs text-red-800 dark:text-red-200">
-            {result.critical_safety_flags.map((flag, i) => (
-              <li key={i}>
-                <code className="rounded bg-red-100 px-1 dark:bg-red-900/60">{flag.code}</code>{" "}
-                {flag.message}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+        )}
 
       {/* Children tree */}
       <div>
-        <h3 className="mb-2 text-sm font-medium">Children ({detail.child_count})</h3>
+        <h3 className="mb-2 text-sm font-medium">
+          Children ({detail.child_count})
+        </h3>
         {children.length === 0 ? (
           <p className="text-xs text-muted-foreground">
-            No children yet — parent may still be in precheck or children will appear as they spawn.
+            No children yet — parent may still be in precheck or children will
+            appear as they spawn.
           </p>
         ) : (
           <ul className="space-y-1.5">
@@ -436,12 +532,23 @@ function RunDetail({ detail }: { detail: DischargeComposeRunDetail }) {
         <h3 className="mb-2 text-sm font-medium">Checkpoints</h3>
         <ol className="space-y-0.5 text-xs">
           {run.checkpoints.map((cp, i) => (
-            <li key={i} className="flex items-center justify-between gap-2 rounded px-1.5 py-0.5 hover:bg-muted">
+            <li
+              key={i}
+              className="flex items-center justify-between gap-2 rounded px-1.5 py-0.5 hover:bg-muted"
+            >
               <span className="flex items-center gap-2">
-                {STATUS_ICONS[cp.status === "halted" ? "completed" : cp.status] ?? null}
+                {STATUS_ICONS[
+                  cp.status === "halted" ? "completed" : cp.status
+                ] ?? null}
                 <code className="font-mono">{cp.node}</code>
-                {cp.reason && <span className="text-muted-foreground">{cp.reason}</span>}
-                {cp.error && <span className="text-red-600 dark:text-red-400">{cp.error}</span>}
+                {cp.reason && (
+                  <span className="text-muted-foreground">{cp.reason}</span>
+                )}
+                {cp.error && (
+                  <span className="text-red-600 dark:text-red-400">
+                    {cp.error}
+                  </span>
+                )}
               </span>
               <span className="text-muted-foreground">{cp.duration_ms}ms</span>
             </li>
@@ -460,7 +567,9 @@ function ChildRow({ child }: { child: DischargeComposeChildRunRow }) {
           {STATUS_ICONS[child.status] ?? null}
           <code className="font-mono text-xs">{child.parent_node}</code>
           <span className="text-muted-foreground">→</span>
-          <span className="font-medium">{child.module_key ?? child.workflow_key}</span>
+          <span className="font-medium">
+            {child.module_key ?? child.workflow_key}
+          </span>
         </div>
         <span className="text-xs text-muted-foreground">#{child.id}</span>
       </div>
