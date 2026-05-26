@@ -351,7 +351,7 @@ back to it if any phase breaks.
 
 **Verified:** `kubectl kustomize infra/kubernetes/apps/ollama` emits StatefulSet + 2 services + NetworkPolicy clean. `kubectl kustomize infra/kubernetes/apps` (full app tier) composes including ollama with no conflicts.
 
-### Phase 5: parallel/optional work — ✅ FIVE ITEMS SHIPPED, others remain optional
+### Phase 5: parallel/optional work — ✅ SEVEN ITEMS SHIPPED, no Phase 5 delivery items remain open
 
 **What landed:**
 
@@ -371,11 +371,13 @@ back to it if any phase breaks.
 
 5. **Manual fail-paused-run escape hatch** — shipped 2026-05-26. Admins can now mark a tenant-scoped, paused `discharge_summary_compose` run as failed from `/dashboard/clinical-ai/discharge-compose` with a required reason. The backend endpoint `POST /api/v1/admin/clinical-ai/discharge-compose/:runId/fail` refuses cross-tenant, non-compose, or non-paused runs, records `manual_fail` on the checkpoint store, and writes a `CLINICAL_AI_DISCHARGE_COMPOSE_MANUALLY_FAILED` audit event.
 
-**Verified:** 1,305 backend unit tests pass (9 new + 1,296 existing, no regressions). `npm run lint` clean (eslint + raw-params + secrets). Admin lint clean. Staff-nav follow-up verified with `flutter test test\core\config\role_config_test.dart`, `flutter analyze`, and `git diff --check`. Discharge-compose E2E follow-up verified with `npm run type-check`, `npx playwright test --project=chromium --list e2e/discharge-compose.spec.ts`, and `git diff --check`. Manual-fail follow-up verified with `npm test -- --runInBand src/tests/unit/dischargeComposeRoutes.test.js`, `npm run type-check`, `npx playwright test --project=chromium --list e2e/discharge-compose.spec.ts`, and `git diff --check`.
+6. **Flutter compose tree visualisation** — shipped and hardened 2026-05-26. Staff clinicians can open `/clinical-ai/compose`, filter recent `discharge_summary_compose` runs, inspect parent + child subgraph runs in `/clinical-ai/compose/:runId`, see pause/review/safety status, resume paused composes through the clinical-plane route, and jump from child runs into the human review queue. The detail screen now normalises the backend `{ run, children, child_count }` envelope so refreshed detail data keeps parent status/admission fields visible.
 
-**Items NOT shipped** (the rollout plan called these out as "parallel / optional"; deferred deliberately):
-- **Voice-driven draft generation** — bridging `ambientDocumentationService` / `voiceSoapService` to the multi-agent draft path. Major value-add; 2-4 weeks of focused work; out of scope for Phase 5 hygiene work.
-- **Compose tree visualisation in Flutter** — defer until clinicians actually ask for it.
+7. **Voice-driven draft generation bridge** — shipped before this doc refresh and now counted in the rollout. Backend `voiceSoapService` turns completed voice-note transcripts into `soap_from_dictation` drafts, `ambientDocumentationService` handles consent-gated multi-speaker encounter documentation, staff `VoiceDictateButton` records/transcribes into saved voice-note rows, and `/clinical-ai/voice-notes` lets clinicians generate SOAP drafts into the same human-reviewed Clinical AI queue.
+
+**Verified:** 1,305 backend unit tests pass (9 new + 1,296 existing, no regressions). `npm run lint` clean (eslint + raw-params + secrets). Admin lint clean. Staff-nav follow-up verified with `flutter test test\core\config\role_config_test.dart`, `flutter analyze`, and `git diff --check`. Discharge-compose E2E follow-up verified with `npm run type-check`, `npx playwright test --project=chromium --list e2e/discharge-compose.spec.ts`, and `git diff --check`. Manual-fail follow-up verified with `npm test -- --runInBand src/tests/unit/dischargeComposeRoutes.test.js`, `npm run type-check`, `npx playwright test --project=chromium --list e2e/discharge-compose.spec.ts`, and `git diff --check`. Staff compose/voice doc refresh verified with `flutter test test\features\clinical_ai\clinical_ai_compose_run_detail_test.dart`, `flutter analyze`, and `git diff --check`.
+
+**Remaining rollout decisions, not Phase 5 code blockers:** hospital-specific ambient recording consent ceremony, first-pilot ward/module scope, and production device/audio policy still need local hospital approval before broad use.
 
 ---
 

@@ -5,12 +5,9 @@
 // drafted into a SOAP), and exposes a single tap-to-generate-SOAP
 // action that pushes the resulting draft into the review queue.
 //
-// Audio recording is intentionally NOT in this screen — that needs the
-// `record` Flutter package + iOS/Android microphone permissions and is
-// scoped as a follow-up. Until then, voice notes are uploaded via the
-// existing multipart /clinical/voice-note/transcribe endpoint by other
-// clients (admin web, clinician's desktop, ambient diarization), and
-// this screen consumes them.
+// Audio recording is handled by the shared VoiceDictateButton on clinical
+// text-entry screens. This queue consumes the saved voice-note rows and
+// pushes completed transcripts into the human-reviewed AI draft workflow.
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';

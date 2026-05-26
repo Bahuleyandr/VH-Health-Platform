@@ -1,7 +1,7 @@
 // Clinical AI compose runs list — apps/staff Flutter.
 //
-// Phase 5+ rollout deferred item that's now landing: the "compose tree"
-// surface on mobile. Lists recent discharge_summary_compose runs (parent
+// Phase 5 staff rollout surface for the discharge-compose tree on mobile.
+// Lists recent discharge_summary_compose runs (parent
 // runs only — children load in detail screen). Status filter; tap to
 // detail.
 //
