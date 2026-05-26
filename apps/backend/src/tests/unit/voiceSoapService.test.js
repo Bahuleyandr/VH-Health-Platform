@@ -33,6 +33,7 @@ const {
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const DOCTOR_UID = '22222222-2222-4222-8222-222222222222';
+const PATIENT_UID = '33333333-3333-4333-8333-333333333333';
 
 function req(overrides = {}) {
   return {
@@ -53,6 +54,15 @@ function moduleRow(overrides = {}) {
       approvalPolicy: 'clinician_signoff',
       reviewRoles: ['DOCTOR', 'NURSING_STAFF'],
     },
+    ...overrides,
+  };
+}
+
+function patientRow(overrides = {}) {
+  return {
+    uid: PATIENT_UID,
+    tenant_id: TENANT_ID,
+    role: 'PATIENT',
     ...overrides,
   };
 }
@@ -94,7 +104,7 @@ describe('voiceSoapService voice capture governance', () => {
       req: req(),
       audioBuffer: Buffer.from('RIFFmockWAVEfmt fakeaudio', 'ascii'),
       mimeType: 'audio/wav',
-      patientUid: '33333333-3333-4333-8333-333333333333',
+      patientUid: PATIENT_UID,
       admissionId: 123,
     })).rejects.toMatchObject({
       statusCode: 403,
@@ -103,6 +113,28 @@ describe('voiceSoapService voice capture governance', () => {
 
     expect(transcribeMock).not.toHaveBeenCalled();
     expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    expect(publishEventMock).not.toHaveBeenCalled();
+  });
+
+  it('blocks cross-tenant patient UIDs before STT or persistence', async () => {
+    getClinicalAiModuleMock.mockResolvedValue(moduleRow());
+    queryRawUnsafeMock.mockResolvedValueOnce([patientRow({
+      tenant_id: '44444444-4444-4444-8444-444444444444',
+    })]);
+
+    await expect(createAndTranscribeVoiceNote({
+      req: req(),
+      audioBuffer: Buffer.from('RIFFmockWAVEfmt fakeaudio', 'ascii'),
+      mimeType: 'audio/wav',
+      patientUid: PATIENT_UID,
+      admissionId: 123,
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'CLINICAL_AI_VOICE_PATIENT_TENANT_MISMATCH',
+    });
+
+    expect(transcribeMock).not.toHaveBeenCalled();
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
     expect(publishEventMock).not.toHaveBeenCalled();
   });
 
@@ -116,7 +148,8 @@ describe('voiceSoapService voice capture governance', () => {
       text: 'mock transcript',
       reason: null,
     });
-    queryRawUnsafeMock.mockResolvedValue([{
+    queryRawUnsafeMock.mockResolvedValueOnce([patientRow()]);
+    queryRawUnsafeMock.mockResolvedValueOnce([{
       id: 44,
       tenant_id: TENANT_ID,
       recorded_by: DOCTOR_UID,
@@ -129,7 +162,7 @@ describe('voiceSoapService voice capture governance', () => {
       req: req(),
       audioBuffer: Buffer.from('RIFFmockWAVEfmt fakeaudio', 'ascii'),
       mimeType: 'audio/wav',
-      patientUid: '33333333-3333-4333-8333-333333333333',
+      patientUid: PATIENT_UID,
       admissionId: 123,
       language: 'en-IN',
     });
@@ -140,7 +173,7 @@ describe('voiceSoapService voice capture governance', () => {
       language: 'en-IN',
       tenantRegion: 'IN',
     }));
-    const metadata = JSON.parse(queryRawUnsafeMock.mock.calls[0].at(-1));
+    const metadata = JSON.parse(queryRawUnsafeMock.mock.calls[1].at(-1));
     expect(metadata.capture_policy).toEqual(expect.objectContaining({
       module_key: 'soap_from_dictation',
       tenant_id: TENANT_ID,
@@ -149,7 +182,7 @@ describe('voiceSoapService voice capture governance', () => {
     }));
     expect(publishEventMock).toHaveBeenCalledWith(expect.objectContaining({
       eventType: 'clinical_voice_note.created',
-      patientUid: '33333333-3333-4333-8333-333333333333',
+      patientUid: PATIENT_UID,
     }));
   });
 });

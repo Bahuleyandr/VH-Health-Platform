@@ -85,6 +85,46 @@ function validateAudio(audioBuffer, mimeType) {
   }
 }
 
+function normalizePatientUid(patientUid) {
+  const value = String(patientUid || '').trim();
+  if (!value) return null;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    throw AppError.badRequest('patient_uid must be a valid UUID', 'CLINICAL_AI_VOICE_PATIENT_UID_INVALID');
+  }
+  return value;
+}
+
+async function assertPatientInTenant({ tenantId, patientUid }) {
+  const uid = normalizePatientUid(patientUid);
+  if (!uid) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT uid, tenant_id, role
+     FROM users
+     WHERE uid = $1::uuid
+     LIMIT 1`,
+    uid,
+  );
+  const patient = rows[0];
+  if (!patient) {
+    throw AppError.notFound('Voice note patient not found', 'CLINICAL_AI_VOICE_PATIENT_NOT_FOUND');
+  }
+  if (String(patient.role || '').toUpperCase() !== 'PATIENT') {
+    throw AppError.badRequest(
+      'voice note patient_uid must reference a patient user',
+      'CLINICAL_AI_VOICE_PATIENT_ROLE_INVALID',
+      { patient_uid: uid, role: patient.role || null },
+    );
+  }
+  if (String(patient.tenant_id) !== String(tenantId)) {
+    throw AppError.forbidden(
+      'Voice note patient belongs to a different tenant',
+      'CLINICAL_AI_VOICE_PATIENT_TENANT_MISMATCH',
+      { patient_uid: uid, tenant_id: tenantId },
+    );
+  }
+  return uid;
+}
+
 function summarizeVoiceCapturePolicy(module, tenantId) {
   const settings = module?.settings || {};
   const moduleEnabled = module?.enabled === true;
@@ -189,6 +229,7 @@ export async function createAndTranscribeVoiceNote({
 }) {
   const tenantId = resolveTenantId(req);
   const capturePolicy = await assertVoiceCaptureAllowed({ req, tenantId });
+  const verifiedPatientUid = await assertPatientInTenant({ tenantId, patientUid });
   validateAudio(audioBuffer, mimeType);
   const tenantRegion = req?.tenant?.region || null;
   const recordedBy = req?.user?.uid || null;
@@ -203,7 +244,7 @@ export async function createAndTranscribeVoiceNote({
   const saved = await persistVoiceNote({
     tenantId,
     recordedBy,
-    patientUid,
+    patientUid: verifiedPatientUid,
     admissionId,
     storageKey,
     mimeType,
@@ -250,6 +291,9 @@ export async function generateSoapDraftFromVoiceNote({ req, voiceNoteId }) {
   }
   if (voiceNote.generation_id) {
     throw AppError.conflict('SOAP draft already generated for this voice note');
+  }
+  if (voiceNote.patient_uid) {
+    await assertPatientInTenant({ tenantId, patientUid: voiceNote.patient_uid });
   }
 
   const module = await getClinicalAiModule(MODULE_KEY, { tenantId });
