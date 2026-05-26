@@ -62,7 +62,9 @@ in the relevant phase below.
 - **Tenant rollout preflight** — `scripts/check-clinical-ai-tenant-preflight.ps1`
   runs the playbook gates as a read-only check: schema, module catalogue,
   tenant config, reviewer staffing, audit trail, output-defense metadata,
-  pilot signoff, PHI logger wiring, and manual hospital attestations.
+  pilot signoff, PHI logger wiring, and manual hospital attestations. Production
+  rollout tickets should pass `-RequireNoWarnings` so tenant config warnings do
+  not get treated as rollout-ready by accident.
 - **Local-Ollama deep-tier pilot** — Tier B/C/D/F-bundles (CRITICAL-tier
   modules) for PHI-never-leaves-building deployment. Phase 4 wired the
   env vars; the pilot smoke now proves a real medication-reconciliation

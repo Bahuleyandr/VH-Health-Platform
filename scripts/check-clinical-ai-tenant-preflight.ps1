@@ -28,7 +28,8 @@ param(
   [switch]$SafetyReviewCadenceConfirmed,
   [switch]$NoAutomaticPatientDispatchConfirmed,
   [switch]$Json,
-  [string]$OutputPath = ""
+  [string]$OutputPath = "",
+  [switch]$RequireNoWarnings
 )
 
 Set-StrictMode -Version Latest
@@ -376,7 +377,8 @@ $summary = [pscustomobject]@{
   pilot_stage = $PilotStage
   pilot_modules = $PilotModules
   automated_preflight_ok = $automatedFailures.Count -eq 0
-  rollout_ready = ($automatedFailures.Count -eq 0 -and $manualPending.Count -eq 0)
+  warning_gate_ok = (-not $RequireNoWarnings -or $warnings.Count -eq 0)
+  rollout_ready = ($automatedFailures.Count -eq 0 -and $manualPending.Count -eq 0 -and (-not $RequireNoWarnings -or $warnings.Count -eq 0))
   failure_count = $automatedFailures.Count
   warning_count = $warnings.Count
   manual_pending_count = $manualPending.Count
@@ -401,4 +403,7 @@ if ($automatedFailures.Count -gt 0) {
 }
 if ($RequireRolloutReady -and $manualPending.Count -gt 0) {
   throw "Clinical AI tenant preflight is not rollout-ready: $($manualPending.Count) manual attestation(s) pending."
+}
+if ($RequireNoWarnings -and $warnings.Count -gt 0) {
+  throw "Clinical AI tenant preflight is not warning-clean: $($warnings.Count) warning(s) found."
 }

@@ -64,6 +64,7 @@ Executable preflight:
 .\scripts\check-clinical-ai-tenant-preflight.ps1 `
   -TenantId '<tenant-uuid>' `
   -RequirePilotSignoff `
+  -RequireNoWarnings `
   -ReviewerQueueWalkthroughConfirmed `
   -PhiLoggingReviewed `
   -SafetyReviewCadenceConfirmed `
@@ -74,6 +75,10 @@ Use `-Json` when archiving the result into a change ticket or hospital
 governance pack. The script is read-only: it fails automated blockers,
 reports warnings, and keeps human attestations visible instead of silently
 approving rollout.
+
+Use `-RequireNoWarnings` for production rollout tickets so locale,
+numbering-series, retention-policy, and second-reviewer warnings cannot be
+accepted as rollout-ready by accident.
 
 ### 1.1 Substrate is on production
 

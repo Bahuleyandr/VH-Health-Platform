@@ -192,6 +192,7 @@ Command:
 .\scripts\check-clinical-ai-tenant-preflight.ps1 `
   -OutputPath output/ci-smoke/clinical-ai-tenant-preflight.json `
   -RequirePilotSignoff `
+  -RequireNoWarnings `
   -ReviewerQueueWalkthroughConfirmed `
   -PhiLoggingReviewed `
   -SafetyReviewCadenceConfirmed `
@@ -209,6 +210,9 @@ Covered journey:
   dispatch policy have been explicitly confirmed.
 - `-Json` prints, and `-OutputPath` writes, the archiveable evidence object
   for hospital rollout tickets.
+- `-RequireNoWarnings` turns tenant config warnings into a hard rollout gate;
+  CI seeds locale, numbering, and retention rows so the pilot fixture proves a
+  warning-clean approval packet.
 
 Browser-level local journeys live in `apps/admin/e2e/authenticated.spec.ts` and
 cover login/session reuse, dashboard, users, appointments, uploads,
