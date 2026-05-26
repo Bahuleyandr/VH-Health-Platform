@@ -58,40 +58,52 @@ const completedRun = {
   },
 };
 
-function detailFor(status: "paused" | "completed", id = 501) {
+function detailFor(
+  status: "paused" | "completed" | "failed",
+  id = 501,
+  errorMessage = "Pilot approval expired",
+) {
   const baseRun = id === 601 ? startedRunListItem : pausedRun;
+  const isPausedRun = status === "paused";
+  const isCompletedRun = status === "completed";
+  const isFailedRun = status === "failed";
   const run = {
     ...baseRun,
     id,
     status,
-    current_node: status === "paused" ? "await_governance" : "done",
-    pause_reason: status === "paused" ? "await_governance" : null,
+    current_node: isPausedRun
+      ? "await_governance"
+      : isFailedRun
+        ? "manual_fail"
+        : "done",
+    pause_reason: isPausedRun ? "await_governance" : null,
     state: { admission_id: baseRun.admission_id },
     result: {
       module_key: "discharge_summary_compose",
       admission_id: baseRun.admission_id,
-      compose_generation_id: status === "completed" ? 9901 : null,
-      overall_safety_band: status === "paused" ? "high" : "ok",
+      compose_generation_id: isCompletedRun ? 9901 : null,
+      overall_safety_band: isPausedRun || isFailedRun ? "high" : "ok",
       compose_children: [
         "medication_reconciliation",
         "patient_aftercare_instructions",
       ],
       components: {},
-      child_generation_ids: status === "completed" ? [7101, 7102] : [],
-      critical_safety_flags:
-        status === "paused"
-          ? [
-              {
-                severity: "critical",
-                code: "PILOT_SIGNOFF_REQUIRED",
-                message: "Pilot signoff must be approved before rollout.",
-              },
-            ]
-          : [],
+      child_generation_ids: isCompletedRun ? [7101, 7102] : [],
+      critical_safety_flags: isPausedRun
+        ? [
+            {
+              severity: "critical",
+              code: "PILOT_SIGNOFF_REQUIRED",
+              message: "Pilot signoff must be approved before rollout.",
+            },
+          ]
+        : [],
       requires_signoff: true,
     },
-    error_node: null,
-    error_message: null,
+    error_node: isFailedRun ? "manual_fail" : null,
+    error_message: isFailedRun ? errorMessage : null,
+    completed_at: isCompletedRun ? "2026-05-25T10:05:00.000Z" : null,
+    failed_at: isFailedRun ? "2026-05-25T10:07:00.000Z" : null,
     checkpoints: [
       {
         node: "load_context",
@@ -104,9 +116,20 @@ function detailFor(status: "paused" | "completed", id = 501) {
         node: "await_governance",
         started_at: "2026-05-25T09:02:00.000Z",
         duration_ms: 0,
-        status: status === "paused" ? "paused" : "completed",
-        reason: status === "paused" ? "await_governance" : undefined,
+        status: isPausedRun ? "paused" : "completed",
+        reason: isPausedRun ? "await_governance" : undefined,
       },
+      ...(isFailedRun
+        ? [
+            {
+              node: "manual_fail",
+              started_at: "2026-05-25T10:07:00.000Z",
+              duration_ms: 0,
+              status: "failed",
+              error: errorMessage,
+            },
+          ]
+        : []),
     ],
     parent_run_id: null,
     parent_node: null,
@@ -142,15 +165,18 @@ function detailFor(status: "paused" | "completed", id = 501) {
         patient_uid: "PAT-AI-501",
         admission_id: baseRun.admission_id,
         status,
-        current_node: status === "paused" ? "await_governance" : "done",
-        pause_reason: status === "paused" ? "await_governance" : null,
+        current_node: isPausedRun
+          ? "await_governance"
+          : isFailedRun
+            ? "manual_fail"
+            : "done",
+        pause_reason: isPausedRun ? "await_governance" : null,
         parent_run_id: id,
         parent_node: "patient_aftercare_instructions",
         started_at: "2026-05-25T09:01:01.000Z",
-        completed_at:
-          status === "completed" ? "2026-05-25T09:02:01.000Z" : null,
-        failed_at: null,
-        paused_at: status === "paused" ? "2026-05-25T09:03:00.000Z" : null,
+        completed_at: isCompletedRun ? "2026-05-25T09:02:01.000Z" : null,
+        failed_at: isFailedRun ? "2026-05-25T10:07:00.000Z" : null,
+        paused_at: isPausedRun ? "2026-05-25T09:03:00.000Z" : null,
       },
     ],
   };
@@ -166,7 +192,10 @@ const startedRunListItem = {
 async function mockDischargeComposeApi(page: Page) {
   let resumed = false;
   let started = false;
+  let manuallyFailed = false;
+  let manualFailReason = "";
   const startBodies: unknown[] = [];
+  const failBodies: unknown[] = [];
 
   await page.route(DISCHARGE_COMPOSE_API, async (route) => {
     const request = route.request();
@@ -181,6 +210,19 @@ async function mockDischargeComposeApi(page: Page) {
         runId: 501,
         state: {},
         result: detailFor("completed").run.result,
+      });
+      return;
+    }
+
+    if (method === "POST" && path.endsWith("/fail")) {
+      const body = request.postDataJSON() as { reason?: string };
+      manuallyFailed = true;
+      manualFailReason = body.reason ?? "";
+      failBodies.push(body);
+      await fulfillJson(route, {
+        status: "failed",
+        runId: 501,
+        reason: manualFailReason,
       });
       return;
     }
@@ -201,21 +243,41 @@ async function mockDischargeComposeApi(page: Page) {
 
     if (method === "GET" && /\/discharge-compose\/\d+$/.test(path)) {
       const runId = Number(path.split("/").at(-1));
-      const status = resumed ? "completed" : "paused";
-      await fulfillJson(route, detailFor(status, runId));
+      const status = manuallyFailed
+        ? "failed"
+        : resumed
+          ? "completed"
+          : "paused";
+      await fulfillJson(route, detailFor(status, runId, manualFailReason));
       return;
     }
 
     if (method === "GET" && path.endsWith("/discharge-compose")) {
       const status = url.searchParams.get("status");
+      const updatedPausedRun = manuallyFailed
+        ? {
+            ...pausedRun,
+            status: "failed",
+            current_node: "manual_fail",
+            pause_reason: null,
+            failed_at: "2026-05-25T10:07:00.000Z",
+          }
+        : resumed
+          ? {
+              ...pausedRun,
+              status: "completed",
+              current_node: "done",
+              pause_reason: null,
+              completed_at: "2026-05-25T10:05:00.000Z",
+            }
+          : pausedRun;
       const runs = started
-        ? [
-            startedRunListItem,
-            resumed ? { ...pausedRun, status: "completed" } : pausedRun,
-          ]
+        ? [startedRunListItem, updatedPausedRun]
         : status === "paused"
-          ? [pausedRun]
-          : [pausedRun, completedRun];
+          ? manuallyFailed || resumed
+            ? []
+            : [pausedRun]
+          : [updatedPausedRun, completedRun];
       await fulfillJson(route, { runs, count: runs.length });
       return;
     }
@@ -223,7 +285,7 @@ async function mockDischargeComposeApi(page: Page) {
     await route.fallback();
   });
 
-  return { startBodies };
+  return { startBodies, failBodies };
 }
 
 test.describe("authenticated — discharge compose admin workflow", () => {
@@ -241,21 +303,23 @@ test.describe("authenticated — discharge compose admin workflow", () => {
     await expect(page.getByRole("button", { name: /Run #501/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /Run #502/ })).toBeVisible();
 
-    await page.getByRole("button", { name: "Paused" }).click();
+    await page.getByRole("button", { name: "Paused", exact: true }).click();
     await expect(page.getByRole("button", { name: /Run #501/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /Run #502/ })).toHaveCount(0);
 
     await page.getByRole("button", { name: /Run #501/ }).click();
     await expect(page.getByText("Critical safety flags")).toBeVisible();
     await expect(page.getByText("PILOT_SIGNOFF_REQUIRED")).toBeVisible();
-    await expect(page.getByText("medication_reconciliation")).toBeVisible();
     await expect(
-      page.getByText("patient_aftercare_instructions"),
+      page.getByText("medication_reconciliation").first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("patient_aftercare_instructions").first(),
     ).toBeVisible();
 
     await page.getByRole("button", { name: "Resume" }).click();
     await expect(page.getByText("Run #501 completed.")).toBeVisible();
-    await expect(page.getByText("COMPLETED")).toBeVisible();
+    await expect(page.getByText("COMPLETED", { exact: true })).toBeVisible();
   });
 
   test("starts a fresh compose with the typed admission ID", async ({
@@ -272,6 +336,37 @@ test.describe("authenticated — discharge compose admin workflow", () => {
       page.getByText("Compose paused: await_governance"),
     ).toBeVisible();
     expect(api.startBodies).toEqual([{ admission_id: 9901 }]);
-    await expect(page.getByText("Run #601")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Run #601", exact: true }),
+    ).toBeVisible();
+  });
+
+  test("requires a reason before manually failing a paused run", async ({
+    page,
+  }) => {
+    const api = await mockDischargeComposeApi(page);
+
+    await page.goto("/dashboard/clinical-ai/discharge-compose");
+
+    await page.getByRole("button", { name: /Run #501/ }).click();
+    await expect(
+      page.getByRole("button", { name: "Fail paused run" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Fail paused run" }),
+    ).toBeDisabled();
+
+    await page
+      .getByPlaceholder("Why should this paused run be failed?")
+      .fill("Pilot approval expired");
+    await page.getByRole("button", { name: "Fail paused run" }).click();
+
+    await expect(page.getByText("Run #501 marked failed.")).toBeVisible();
+    expect(api.failBodies).toEqual([{ reason: "Pilot approval expired" }]);
+    await expect(page.getByText("FAILED", { exact: true })).toBeVisible();
+    await expect(page.getByText("manual_fail:")).toBeVisible();
+    await expect(
+      page.getByText("Pilot approval expired").first(),
+    ).toBeVisible();
   });
 });
