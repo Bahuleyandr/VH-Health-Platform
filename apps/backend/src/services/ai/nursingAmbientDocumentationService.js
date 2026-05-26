@@ -14,6 +14,10 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { publishEvent } from '../events/eventOutboxService.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
+import {
+  assertPatientConsentInTenant,
+  assertPatientInTenant,
+} from './clinicalAiTenantGuards.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { generateClinicalText } from './localLlmClient.js';
@@ -326,27 +330,6 @@ function normalizeAiSummary(parsed, fallbackDraft) {
   };
 }
 
-async function verifyNursingConsent({ patientUid }) {
-  try {
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*)::int AS active
-       FROM patient_consents
-       WHERE patient_uid = $1::uuid
-         AND status = 'active'
-         AND consent_type IN ('recording_consent', 'treatment')`,
-      patientUid
-    );
-    if (Number(rows[0]?.active || 0) === 0) {
-      throw AppError.forbidden('No active recording or treatment consent for nursing ambient capture');
-    }
-  } catch (err) {
-    if (err?.statusCode === 403) throw err;
-    if (!isMissingSchemaError(err)) {
-      logger.warn('Nursing ambient consent check errored', { error: err.message });
-    }
-  }
-}
-
 async function getActivePrompt(tenantId) {
   try {
     const rows = await prisma.$queryRawUnsafe(
@@ -564,7 +547,28 @@ export async function generateNursingAmbientSession({
     throw AppError.badRequest(`Recording exceeds ${MAX_DURATION_SECONDS / 60}-minute cap`);
   }
 
-  await verifyNursingConsent({ patientUid });
+  const verifiedPatientUid = await assertPatientInTenant({
+    tenantId,
+    patientUid,
+    invalidCode: 'CLINICAL_AI_NURSING_AMBIENT_PATIENT_UID_INVALID',
+    notFoundCode: 'CLINICAL_AI_NURSING_AMBIENT_PATIENT_NOT_FOUND',
+    roleInvalidCode: 'CLINICAL_AI_NURSING_AMBIENT_PATIENT_ROLE_INVALID',
+    tenantMismatchCode: 'CLINICAL_AI_NURSING_AMBIENT_PATIENT_TENANT_MISMATCH',
+  });
+  const verifiedConsent = await assertPatientConsentInTenant({
+    tenantId,
+    patientUid: verifiedPatientUid,
+    consentReference,
+    allowedTypes: ['recording_consent', 'treatment'],
+    referenceInvalidCode: 'CLINICAL_AI_NURSING_AMBIENT_CONSENT_REFERENCE_INVALID',
+    notFoundCode: 'CLINICAL_AI_NURSING_AMBIENT_CONSENT_NOT_FOUND',
+    patientMismatchCode: 'CLINICAL_AI_NURSING_AMBIENT_CONSENT_PATIENT_MISMATCH',
+    tenantMismatchCode: 'CLINICAL_AI_NURSING_AMBIENT_CONSENT_TENANT_MISMATCH',
+    typeInvalidCode: 'CLINICAL_AI_NURSING_AMBIENT_CONSENT_TYPE_INVALID',
+    inactiveCode: 'CLINICAL_AI_NURSING_AMBIENT_CONSENT_INACTIVE',
+    expiredCode: 'CLINICAL_AI_NURSING_AMBIENT_CONSENT_EXPIRED',
+    schemaUnavailableCode: 'CLINICAL_AI_NURSING_AMBIENT_CONSENT_SCHEMA_UNAVAILABLE',
+  });
 
   const normalized = normalizeNursingTranscript(transcriptSegments);
   const observations = extractNursingObservations(normalized);
@@ -602,10 +606,10 @@ export async function generateNursingAmbientSession({
   const generation = await insertGeneration({
     tenantId,
     admissionId: safeAdmissionId,
-    patientUid,
+    patientUid: verifiedPatientUid,
     prompt,
     sourceHashValue: sourceHash({
-      patient_uid: patientUid,
+      patient_uid: verifiedPatientUid,
       admission_id: safeAdmissionId,
       shift: resolvedShift,
       segments: normalized.segments,
@@ -627,14 +631,14 @@ export async function generateNursingAmbientSession({
 
   const sessionRow = await insertSessionRow({
     tenantId,
-    patientUid,
+    patientUid: verifiedPatientUid,
     admissionId: safeAdmissionId,
     nurseUid: nurseUid || req?.user?.uid || null,
     shift: resolvedShift,
     recordingStartedAt: startedAt.toISOString(),
     recordingEndedAt: endedAt ? endedAt.toISOString() : null,
     durationSeconds: durationSeconds ?? normalized.total_duration_seconds,
-    consentReference,
+    consentReference: verifiedConsent.reference,
     audioStorageKey,
     audioMime,
     sttProvider,
@@ -676,7 +680,7 @@ export async function generateNursingAmbientSession({
     tenantId,
     generationId: generation?.id || null,
     admissionId: safeAdmissionId,
-    patientUid,
+    patientUid: verifiedPatientUid,
     module,
   });
 
@@ -684,12 +688,13 @@ export async function generateNursingAmbientSession({
     eventType: 'clinical_ai.nursing_ambient_session_generated',
     aggregateType: 'clinical_nursing_ambient_session',
     aggregateId: sessionRow.id,
-    patientUid,
+    patientUid: verifiedPatientUid,
     payload: {
       tenant_id: tenantId,
       admission_id: safeAdmissionId,
       session_id: sessionRow.id,
       generation_id: generation?.id || null,
+      patient_uid: verifiedPatientUid,
       shift: resolvedShift,
       speaker_count: normalized.speaker_count,
       fall_count: observations.falls.length,

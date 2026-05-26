@@ -27,7 +27,10 @@ import { AppError } from '../../utils/AppError.js';
 import { publishEvent } from '../events/eventOutboxService.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
-import { assertPatientInTenant } from './clinicalAiTenantGuards.js';
+import {
+  assertPatientConsentInTenant,
+  assertPatientInTenant,
+} from './clinicalAiTenantGuards.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { generateClinicalText } from './localLlmClient.js';
 
@@ -785,14 +788,54 @@ export async function evaluateVoiceSession({
   }
 
   const safeAdmissionId = optionalIntOrNull(admissionId);
+  const submittedConsentRef = cleanText(consentRef);
+  let verifiedConsentRef = null;
+  let consentVerification = {
+    verified: false,
+    error_code: null,
+    error_message: null,
+  };
+  if (submittedConsentRef) {
+    try {
+      const verifiedConsent = await assertPatientConsentInTenant({
+        tenantId,
+        patientUid: cleanedPatientUid,
+        consentReference: submittedConsentRef,
+        allowedTypes: ['voice_ivr', 'recording_consent', 'treatment'],
+        referenceInvalidCode: 'CLINICAL_AI_VOICE_IVR_CONSENT_REFERENCE_INVALID',
+        notFoundCode: 'CLINICAL_AI_VOICE_IVR_CONSENT_NOT_FOUND',
+        patientMismatchCode: 'CLINICAL_AI_VOICE_IVR_CONSENT_PATIENT_MISMATCH',
+        tenantMismatchCode: 'CLINICAL_AI_VOICE_IVR_CONSENT_TENANT_MISMATCH',
+        typeInvalidCode: 'CLINICAL_AI_VOICE_IVR_CONSENT_TYPE_INVALID',
+        inactiveCode: 'CLINICAL_AI_VOICE_IVR_CONSENT_INACTIVE',
+        expiredCode: 'CLINICAL_AI_VOICE_IVR_CONSENT_EXPIRED',
+        schemaUnavailableCode: 'CLINICAL_AI_VOICE_IVR_CONSENT_SCHEMA_UNAVAILABLE',
+      });
+      verifiedConsentRef = verifiedConsent.reference;
+      consentVerification = {
+        verified: true,
+        error_code: null,
+        error_message: null,
+      };
+    } catch (err) {
+      if (!err?.statusCode) throw err;
+      consentVerification = {
+        verified: false,
+        error_code: err.code || 'CLINICAL_AI_VOICE_IVR_CONSENT_REFERENCE_UNVERIFIED',
+        error_message: err.message || 'Consent reference could not be verified',
+      };
+    }
+  }
+  const effectiveConsentRef = verifiedConsentRef || submittedConsentRef || null;
+  const effectiveConsentFresh = Boolean(consentFresh && verifiedConsentRef);
 
   const classification = classifyVoiceSession({
     intent,
     channel,
     language,
     scriptKey,
-    consentRef,
-    consentFresh,
+    consentRef: effectiveConsentRef,
+    consentFresh: effectiveConsentFresh,
     transcriptText,
     candidateResponse,
   });
@@ -810,6 +853,12 @@ export async function evaluateVoiceSession({
     normalized_intent,
     normalized_channel,
   } = classification;
+  if (consentVerification.error_code) {
+    signals.unshift({
+      code: 'CONSENT_REFERENCE_UNVERIFIED',
+      detail: `${consentVerification.error_code}: ${consentVerification.error_message}`,
+    });
+  }
 
   const transcriptPreview = truncate(String(transcriptText || ''), 500);
 
@@ -841,21 +890,32 @@ export async function evaluateVoiceSession({
       timestamp: null,
     },
   ];
-  if (cleanText(consentRef)) {
+  if (effectiveConsentRef) {
     citationsRaw.push({
       source_type: 'consent',
-      source_id: cleanText(consentRef),
-      label: `Consent reference ${cleanText(consentRef)}${consentFresh ? ' (fresh)' : ' (stale)'}`,
+      source_id: effectiveConsentRef,
+      label: `Consent reference ${effectiveConsentRef}${effectiveConsentFresh ? ' (verified fresh)' : ' (unverified/stale)'}`,
       timestamp: null,
     });
   }
   const citations = uniqueCitations(citationsRaw);
 
   const safetyFlags = [];
+  if (consentVerification.error_code) {
+    safetyFlags.push({
+      severity: 'critical',
+      code: consentVerification.error_code,
+      message: `Voice/IVR outreach blocked - consent reference could not be verified: ${consentVerification.error_message}`,
+    });
+  }
   if (consent_state === 'missing' || consent_state === 'stale' || consent_state === 'unknown') {
     safetyFlags.push({
       severity: 'critical',
-      code: 'CONSENT_MISSING',
+      code: consent_state === 'missing'
+        ? 'CONSENT_MISSING'
+        : consent_state === 'stale'
+          ? 'CONSENT_STALE'
+          : 'CONSENT_UNKNOWN',
       message: `Voice/IVR outreach blocked \u2014 consent ${consent_state}; re-consent before any delivery attempt.`,
     });
   }
@@ -894,8 +954,10 @@ export async function evaluateVoiceSession({
     channel: normalized_channel,
     language: language_state === 'unsupported' ? cleanText(language).toLowerCase() : language_state,
     script_key: cleanText(scriptKey) || null,
-    consent_ref: cleanText(consentRef) || null,
-    consent_fresh: Boolean(consentFresh),
+    consent_ref: effectiveConsentRef,
+    consent_fresh: effectiveConsentFresh,
+    consent_reference_verified: Boolean(verifiedConsentRef),
+    consent_reference_error_code: consentVerification.error_code,
     recommendation,
     severity,
     signals,
@@ -929,8 +991,10 @@ export async function evaluateVoiceSession({
           language: language_state,
           script_key: cleanText(scriptKey) || null,
           consent_state,
-          consent_ref: cleanText(consentRef) || null,
-          consent_fresh: Boolean(consentFresh),
+          consent_ref: effectiveConsentRef,
+          consent_fresh: effectiveConsentFresh,
+          consent_reference_verified: Boolean(verifiedConsentRef),
+          consent_reference_error_code: consentVerification.error_code,
           transcript_preview: transcriptPreview,
           candidate_response_preview: truncate(String(candidateResponse || ''), 500),
         },
@@ -1013,6 +1077,8 @@ export async function evaluateVoiceSession({
       channel: normalized_channel,
       language: language_state,
       consent_state,
+      consent_reference_verified: Boolean(verifiedConsentRef),
+      consent_reference_error_code: consentVerification.error_code,
       rules_authoritative: true,
       decision_support_only: true,
       ...((metadata && typeof metadata === 'object') ? metadata : {}),
@@ -1028,8 +1094,8 @@ export async function evaluateVoiceSession({
     channel: normalized_channel,
     language: language_state === 'unsupported' ? cleanText(language).toLowerCase() : language_state,
     scriptKey: cleanText(scriptKey) || null,
-    consentRef: cleanText(consentRef) || null,
-    consentFresh: Boolean(consentFresh),
+    consentRef: effectiveConsentRef,
+    consentFresh: effectiveConsentFresh,
     transcriptPreview,
     sanitizedResponse: sanitized_response,
     recommendation,
@@ -1046,6 +1112,8 @@ export async function evaluateVoiceSession({
       provider: aiResult?.provider || 'template',
       model: aiResult?.model || null,
       consent_state,
+      consent_reference_verified: Boolean(verifiedConsentRef),
+      consent_reference_error_code: consentVerification.error_code,
       intent_support,
       language_state,
       rules_authoritative: true,
