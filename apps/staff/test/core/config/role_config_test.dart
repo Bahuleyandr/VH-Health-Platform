@@ -51,6 +51,7 @@ void main() {
       expect(ids, contains('appointments'));
       expect(ids, contains('prescriptions'));
       expect(ids, contains('patient_records'));
+      expect(ids, contains('clinical_ai_review_queue'));
       expect(ids, contains('theatre'));
       expect(ids, contains('blood_bank'));
       expect(ids, isNot(contains('hr_dashboard')));
@@ -63,6 +64,7 @@ void main() {
       expect(ids, contains('vitals'));
       expect(ids, contains('nursing_notes'));
       expect(ids, contains('handover'));
+      expect(ids, contains('clinical_ai_review_queue'));
       expect(ids, isNot(contains('prescriptions'))); // Rx is doctor-only
     });
 
@@ -74,12 +76,14 @@ void main() {
       expect(ids, isNot(contains('patient_records')));
       expect(ids, isNot(contains('prescriptions')));
       expect(ids, isNot(contains('vitals')));
+      expect(ids, isNot(contains('clinical_ai_review_queue')));
     });
 
-    test('pharmacy role sees only pharmacy + admin/profile/settings', () {
+    test('pharmacy role sees pharmacy + AI review, not broad clinical', () {
       final feats = RoleFeatures.getFeaturesForRole(StaffRole.pharmacy);
       final ids = feats.map((f) => f.id).toSet();
       expect(ids, contains('pharmacy_orders'));
+      expect(ids, contains('clinical_ai_review_queue'));
       expect(ids, isNot(contains('patient_records')));
       expect(ids, isNot(contains('vitals')));
       expect(ids, isNot(contains('hr_dashboard')));
@@ -94,6 +98,7 @@ void main() {
         expect(ids, contains('investigation_results'));
         expect(ids, contains('lab_bookings'));
         expect(ids, isNot(contains('patient_records')));
+        expect(ids, isNot(contains('clinical_ai_review_queue')));
       },
     );
 
@@ -107,6 +112,7 @@ void main() {
       final ids = adminFeats.map((f) => f.id).toSet();
       expect(ids, contains('hr_dashboard'));
       expect(ids, contains('pharmacy_orders'));
+      expect(ids, contains('clinical_ai_review_queue'));
       expect(ids, contains('theatre'));
       expect(ids, contains('blood_bank'));
     });
@@ -118,6 +124,7 @@ void main() {
       expect(ids, contains('housekeeping_tasks'));
       expect(ids, isNot(contains('patient_records')));
       expect(ids, isNot(contains('hr_dashboard')));
+      expect(ids, isNot(contains('clinical_ai_review_queue')));
     });
   });
 

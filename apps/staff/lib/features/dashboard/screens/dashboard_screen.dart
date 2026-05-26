@@ -594,6 +594,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final dailyIds = switch (_role) {
       StaffRole.doctor => {
         'queue',
+        'clinical_ai_review_queue',
         'appointments',
         'appointment_queue',
         'patient_records',
@@ -607,6 +608,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.nurse => {
         'appointments',
         'appointment_queue',
+        'clinical_ai_review_queue',
         'patient_records',
         'pharmacy_orders',
         'vitals',
@@ -626,6 +628,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.admin || StaffRole.superAdmin => {
         'appointments',
         'appointment_queue',
+        'clinical_ai_review_queue',
         'patient_records',
         'pharmacy_orders',
         'investigations_upload',
@@ -639,7 +642,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'hr_dashboard',
         'staff_management',
       },
-      StaffRole.pharmacy => {'pharmacy_orders'},
+      StaffRole.pharmacy => {'pharmacy_orders', 'clinical_ai_review_queue'},
       StaffRole.lab => {
         'investigations_upload',
         'investigation_results',
@@ -674,6 +677,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.nurse => {
         'appointments',
         'appointment_queue',
+        'clinical_ai_review_queue',
         'lab_bookings',
         'nursing_notes',
         'pharmacy_orders',
@@ -687,6 +691,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.doctor => {
         'appointment_queue',
         'queue',
+        'clinical_ai_review_queue',
         'appointments',
         'patient_records',
         'prescriptions',
@@ -699,6 +704,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       StaffRole.admin || StaffRole.superAdmin => {
         'appointments',
         'appointment_queue',
+        'clinical_ai_review_queue',
         'patient_records',
         'pharmacy_orders',
         'investigations_upload',
@@ -803,6 +809,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             [
               'appointments',
               'appointment_queue',
+              'clinical_ai_review_queue',
               'lab_bookings',
               'nursing_notes',
               'pharmacy_orders',
@@ -855,6 +862,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             [
               'appointment_queue',
               'queue',
+              'clinical_ai_review_queue',
               'appointments',
               'patient_records',
               'prescriptions',
@@ -898,6 +906,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             [
               'appointments',
               'appointment_queue',
+              'clinical_ai_review_queue',
               'patient_records',
               'pharmacy_orders',
               'investigations_upload',
@@ -1307,6 +1316,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildQuickActions() {
     final s = AppStrings.of(context);
     final actions = <_QuickAction>[];
+    final canReviewClinicalAi =
+        _role == StaffRole.doctor ||
+        _role == StaffRole.nurse ||
+        _role == StaffRole.pharmacy ||
+        _role.isAdminTier;
 
     // Attendance — phone-only. The backend's requireDeviceType('mobile')
     // gate rejects desktop attempts; hide the tile on desktop so the user
@@ -1331,6 +1345,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         color: const Color(0xFF00838F),
       ),
     );
+
+    if (canReviewClinicalAi) {
+      actions.add(
+        _QuickAction(
+          icon: Icons.fact_check_outlined,
+          label: s.dashboardStatReviewQueue,
+          route: '/clinical-ai/queue',
+          color: const Color(0xFF00838F),
+        ),
+      );
+    }
 
     // Messages for all
     actions.add(
