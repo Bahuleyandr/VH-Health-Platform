@@ -295,7 +295,7 @@ final GoRouter appRouter = GoRouter(
           },
         ),
 
-        // Phase 5+ rollout deferred items: compose run tree + voice notes.
+        // Phase 5 staff Clinical AI rollout: compose run tree + voice notes.
         GoRoute(
           path: '/clinical-ai/compose',
           name: 'clinical-ai-compose-runs',

@@ -17,6 +17,28 @@ import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 
+@visibleForTesting
+Map<String, dynamic> normalizeComposeRunDetail(
+  Map<String, dynamic> payload, {
+  Map<String, dynamic>? fallbackRun,
+}) {
+  final rawParent = payload['run'];
+  final normalized = <String, dynamic>{};
+  if (fallbackRun != null) normalized.addAll(fallbackRun);
+  if (rawParent is Map) {
+    normalized.addAll(Map<String, dynamic>.from(rawParent));
+  } else {
+    normalized.addAll(payload);
+  }
+
+  final rawChildren = payload['children'] ?? normalized['children'];
+  final children = rawChildren is List ? rawChildren : const [];
+  normalized['children'] = children;
+  normalized['child_count'] =
+      payload['child_count'] ?? normalized['child_count'] ?? children.length;
+  return normalized;
+}
+
 class ClinicalAiComposeRunDetailScreen extends StatefulWidget {
   const ClinicalAiComposeRunDetailScreen({
     super.key,
@@ -57,7 +79,7 @@ class _ClinicalAiComposeRunDetailScreenState
       );
       if (!mounted) return;
       setState(() {
-        _run = result;
+        _run = normalizeComposeRunDetail(result, fallbackRun: _run);
         _loading = false;
       });
     } catch (err) {
@@ -173,7 +195,10 @@ class _ParentCard extends StatelessWidget {
     final pauseReason = run['pause_reason']?.toString();
     final admissionId = run['admission_id']?.toString() ?? '—';
     final startedAt = run['started_at']?.toString();
-    final finishedAt = run['finished_at']?.toString();
+    final finishedAt =
+        run['finished_at']?.toString() ??
+        run['completed_at']?.toString() ??
+        run['failed_at']?.toString();
     final reviewStatus = run['review_status']?.toString();
     final canResume = status.toLowerCase() == 'paused';
 
