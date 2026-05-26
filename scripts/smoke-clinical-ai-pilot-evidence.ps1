@@ -23,7 +23,9 @@ param(
   [string]$PgUser = "postgres",
   [string]$PgDatabase = "vhhealth_test",
   [string]$PgPassword = "",
-  [string]$PsqlPath = "psql"
+  [string]$PsqlPath = "psql",
+  [string]$EvidenceOutputPath = "",
+  [string]$SignoffOutputPath = ""
 )
 
 Set-StrictMode -Version Latest
@@ -271,6 +273,24 @@ function Has-JsonProperty {
   }
 
   return $null -ne $Object.PSObject.Properties[$Name]
+}
+
+function Write-JsonArtifact {
+  param(
+    [string]$Path,
+    [Parameter(Mandatory)]$Payload
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Path)) {
+    return
+  }
+
+  $directory = Split-Path -Parent $Path
+  if (-not [string]::IsNullOrWhiteSpace($directory)) {
+    New-Item -ItemType Directory -Path $directory -Force | Out-Null
+  }
+
+  $Payload | ConvertTo-Json -Depth 16 | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
 Assert-Command "node"
@@ -688,6 +708,8 @@ Add-ContractResult $results "pack_audit_trail_present" ($auditTotal -ge 1) "audi
 Add-ContractResult $results "pack_redacts_generation_drafts" (-not $generationDraftLeaked) "generationRows=$($generations.Count)"
 Add-ContractResult $results "pack_redacts_reviewer_notes" (-not $reviewNoteLeaked) "reviewRows=$($reviews.Count)"
 
+Write-JsonArtifact -Path $EvidenceOutputPath -Payload $pack
+
 $signoffResponse = Invoke-SmokeRequest $results "pilot_signoff_create" "POST" "/api/v1/admin/clinical-ai/pilot-signoffs" @{
   pilot_stage = $PilotStage
   module_keys = $PilotModules
@@ -737,6 +759,14 @@ $gateLatest = Get-JsonProperty $gate "latest_signoff"
 $gateLatestStatus = Get-JsonProperty $gateLatest "status"
 
 Add-ContractResult $results "gate_reads_approved_signoff" (($gateAllowed -eq $true) -and ($gateLatestStatus -eq "approved")) "stageExpansionAllowed=$gateAllowed latest=$gateLatestStatus"
+
+Write-JsonArtifact -Path $SignoffOutputPath -Payload ([pscustomobject]@{
+  pilot_stage = $PilotStage
+  module_keys = $PilotModules
+  evidence_pack_hash = $signoffHash
+  approved_signoff = $approvedSignoff
+  gate = $gate
+})
 
 $results | Format-Table -AutoSize
 

@@ -199,6 +199,8 @@ jobs:
           -PgUser vhhealth
           -PgDatabase vhhealth
           -PgPassword '${{ github.run_id }}'
+          -EvidenceOutputPath output/ci-smoke/clinical-ai-pilot-evidence-pack.json
+          -SignoffOutputPath output/ci-smoke/clinical-ai-pilot-signoff-gate.json
 
       - name: Clinical AI local Ollama deep-tier smoke
         shell: pwsh
@@ -224,6 +226,7 @@ jobs:
           -PgUser vhhealth
           -PgDatabase vhhealth
           -PgPassword '${{ github.run_id }}'
+          -OutputPath output/ci-smoke/clinical-ai-tenant-preflight.json
           -RequirePilotSignoff
           -RequireRolloutReady
           -ReviewerQueueWalkthroughConfirmed
