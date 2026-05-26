@@ -283,8 +283,8 @@ $smokeSql = Escape-SqlText $SmokeName
 $stageSql = Escape-SqlText $PilotStage
 $evidenceAt = (Get-Date).ToUniversalTime()
 $evidenceAtIso = $evidenceAt.ToString("o")
-$windowFrom = $evidenceAt.AddSeconds(-10).ToString("o")
-$windowTo = $evidenceAt.AddSeconds(10).ToString("o")
+$windowFrom = $evidenceAt.AddMinutes(-2).ToString("o")
+$windowTo = $evidenceAt.AddMinutes(2).ToString("o")
 
 $seedSql = @"
 WITH seed_tenant AS (
@@ -314,6 +314,13 @@ old_eval AS (
   DELETE FROM clinical_ai_model_eval_runs
   WHERE tenant_id = '$tenantSql'::uuid
     AND metadata->>'smoke_name' = '$smokeSql'
+  RETURNING id
+),
+old_signoffs AS (
+  DELETE FROM clinical_ai_approvals
+  WHERE tenant_id = '$tenantSql'::uuid
+    AND approval_type = 'pilot_evidence_pack_signoff'
+    AND payload->>'pilot_stage' = '$stageSql'
   RETURNING id
 ),
 old_audit AS (
@@ -680,6 +687,56 @@ Add-ContractResult $results "pack_human_review_notes_gate" (($finalReviewCount -
 Add-ContractResult $results "pack_audit_trail_present" ($auditTotal -ge 1) "auditEvents=$auditTotal"
 Add-ContractResult $results "pack_redacts_generation_drafts" (-not $generationDraftLeaked) "generationRows=$($generations.Count)"
 Add-ContractResult $results "pack_redacts_reviewer_notes" (-not $reviewNoteLeaked) "reviewRows=$($reviews.Count)"
+
+$signoffResponse = Invoke-SmokeRequest $results "pilot_signoff_create" "POST" "/api/v1/admin/clinical-ai/pilot-signoffs" @{
+  pilot_stage = $PilotStage
+  module_keys = $PilotModules
+  from = $windowFrom
+  to = $windowTo
+  min_reviewed_per_module = 1
+  reason = "CI pilot evidence smoke signoff request"
+} -ExpectedStatus 201
+
+$signoffJson = Get-JsonContent $signoffResponse
+$signoffData = Get-JsonProperty $signoffJson "data"
+$signoff = Get-JsonProperty $signoffData "signoff"
+$signoffPack = Get-JsonProperty $signoffData "evidence_pack"
+$signoffId = Get-JsonProperty $signoff "id"
+$signoffStatus = Get-JsonProperty $signoff "status"
+$signoffPilotReady = Get-JsonProperty $signoff "pilot_ready"
+$signoffHash = Get-JsonProperty $signoff "pack_hash"
+$signoffGateAllowed = Get-JsonProperty $signoff "stage_expansion_allowed"
+$signoffPackSummary = Get-JsonProperty $signoffPack "summary"
+
+Add-ContractResult $results "signoff_created_pending" (($signoffStatus -eq "pending") -and ($signoffId -gt 0)) "id=$signoffId status=$signoffStatus"
+Add-ContractResult $results "signoff_pilot_ready_snapshot" (($signoffPilotReady -eq $true) -and ((Get-JsonProperty $signoffPackSummary "pilot_ready") -eq $true)) "pilotReady=$signoffPilotReady"
+Add-ContractResult $results "signoff_hash_recorded" (-not [string]::IsNullOrWhiteSpace([string]$signoffHash)) "hash=$signoffHash"
+Add-ContractResult $results "signoff_blocks_until_decided" ($signoffGateAllowed -eq $false) "stageExpansionAllowed=$signoffGateAllowed"
+
+$decisionResponse = Invoke-SmokeRequest $results "pilot_signoff_approve" "PATCH" "/api/v1/admin/clinical-ai/pilot-signoffs/$signoffId" @{
+  decision = "approved"
+  reason = "CI clinical lead approves pilot evidence for stage expansion"
+} -ExpectedStatus 200
+
+$decisionJson = Get-JsonContent $decisionResponse
+$approvedSignoff = Get-JsonProperty $decisionJson "data"
+$approvedStatus = Get-JsonProperty $approvedSignoff "status"
+$approvedGateAllowed = Get-JsonProperty $approvedSignoff "stage_expansion_allowed"
+$approvedBlockingReason = Get-JsonProperty $approvedSignoff "blocking_reason"
+
+Add-ContractResult $results "signoff_approved" ($approvedStatus -eq "approved") "status=$approvedStatus"
+Add-ContractResult $results "signoff_opens_expansion_gate" (($approvedGateAllowed -eq $true) -and ($null -eq $approvedBlockingReason)) "stageExpansionAllowed=$approvedGateAllowed blockingReason=$approvedBlockingReason"
+
+$encodedStage = [System.Uri]::EscapeDataString($PilotStage)
+$encodedModules = [System.Uri]::EscapeDataString(($PilotModules -join ","))
+$gateResponse = Invoke-SmokeRequest $results "pilot_signoff_gate" "GET" "/api/v1/admin/clinical-ai/pilot-signoffs/gate?pilot_stage=$encodedStage&module_keys=$encodedModules" -ExpectedStatus 200
+$gateJson = Get-JsonContent $gateResponse
+$gate = Get-JsonProperty $gateJson "data"
+$gateAllowed = Get-JsonProperty $gate "stage_expansion_allowed"
+$gateLatest = Get-JsonProperty $gate "latest_signoff"
+$gateLatestStatus = Get-JsonProperty $gateLatest "status"
+
+Add-ContractResult $results "gate_reads_approved_signoff" (($gateAllowed -eq $true) -and ($gateLatestStatus -eq "approved")) "stageExpansionAllowed=$gateAllowed latest=$gateLatestStatus"
 
 $results | Format-Table -AutoSize
 

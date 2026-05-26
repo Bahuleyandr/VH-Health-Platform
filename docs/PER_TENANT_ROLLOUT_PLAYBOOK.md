@@ -315,6 +315,11 @@ at the time of writing.)
   `summary.pilot_ready=true`: tenant-scoped generations exist, every
   final review has a reviewer note, risky modules have accepted eval
   evidence, and schema-unavailable sections are visible instead of silent.
+- Then create a pilot signoff from the same screen (or POST
+  `/admin/clinical-ai/pilot-signoffs`) and record the reviewer decision.
+  Expansion stays blocked until
+  `/admin/clinical-ai/pilot-signoffs/gate` returns
+  `stage_expansion_allowed=true` for the exact stage + module set.
 - Review `bias_signals` rows from the past 30 days. Any slice
   underperforming overall pass rate by ≥15pp gets a remediation plan.
 
@@ -489,12 +494,14 @@ A condensed version of the above for the hospital's project lead.
 - [ ] No `severity=critical` flags un-acknowledged
 - [ ] Pilot evidence pack exported and blocked items cleared before
       expanding beyond the first pilot ward/module set
+- [ ] Pilot signoff approved and the stage-expansion gate is open
 
 **Stage 2 (week 3–5)**
 - [ ] 8 Tier C non-critical-risk modules enabled
 - [ ] 2 Tier H operational forecasts enabled
 - [ ] Reviewer queue median age < 24 h
 - [ ] Pilot evidence pack archived for Stage 1 module set
+- [ ] Pilot signoff archived for Stage 1 module set
 - [ ] First monthly readiness-pack archived
 
 **Stage 3 (week 6–8)**

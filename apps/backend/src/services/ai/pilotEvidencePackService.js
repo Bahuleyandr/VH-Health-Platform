@@ -8,12 +8,15 @@
  * notes so the artifact is governance evidence, not another PHI bundle.
  */
 
+import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 
 const PACK_VERSION = 'clinical-ai-pilot-evidence-pack-v1';
+const SIGNOFF_APPROVAL_TYPE = 'pilot_evidence_pack_signoff';
+const SIGNOFF_PAYLOAD_KIND = 'clinical_ai_pilot_signoff';
 const DEFAULT_PILOT_STAGE = 'stage_1_clinical_review';
 const DEFAULT_PILOT_MODULES = [
   'medication_reconciliation',
@@ -23,8 +26,13 @@ const ROW_LIMIT = 1_000;
 const MAX_MODULES = 24;
 const DEFAULT_WINDOW_DAYS = 14;
 const MAX_WINDOW_DAYS = 90;
+const DEFAULT_SIGNOFF_EXPIRES_DAYS = 30;
 const FINAL_REVIEW_DECISIONS = new Set(['accepted', 'signed', 'approved', 'edited']);
 const RISKY_REVIEW_GATE_POLICIES = new Set(['two_person_for_enablement', 'critical_module_change']);
+const PILOT_SIGNOFF_DECISIONS = new Set(['approved', 'hold', 'rejected']);
+
+const SIGNOFF_SELECT = `id, tenant_id, approval_type, module_key, status, requested_by, approved_by,
+        rejected_by, reason, payload, expires_at, decided_at, created_at, updated_at`;
 
 function resolveTenantId(options = {}) {
   return options.tenantId || DEFAULT_TENANT_ID;
@@ -71,6 +79,15 @@ function normalizeModuleKeys(value) {
   return unique;
 }
 
+function normalizeOptionalModuleKeys(value) {
+  if (Array.isArray(value)) {
+    const cleaned = value.map(cleanText).filter(Boolean);
+    return cleaned.length ? normalizeModuleKeys(cleaned) : null;
+  }
+  const cleaned = cleanText(value);
+  return cleaned ? normalizeModuleKeys(cleaned) : null;
+}
+
 function effectiveModuleSettings(row = {}) {
   return {
     ...(row.settings || {}),
@@ -95,6 +112,17 @@ function resolveWindow(options = {}) {
     throw AppError.badRequest('from must be a valid timestamp before to', 'CLINICAL_AI_PILOT_WINDOW_INVALID');
   }
   return { from, to, windowDays };
+}
+
+function resolveSignoffExpiry(value) {
+  if (!value) {
+    return new Date(Date.now() + DEFAULT_SIGNOFF_EXPIRES_DAYS * 24 * 60 * 60 * 1000);
+  }
+  const expiresAt = new Date(value);
+  if (Number.isNaN(expiresAt.getTime())) {
+    throw AppError.badRequest('expires_at must be a valid timestamp', 'CLINICAL_AI_PILOT_SIGNOFF_EXPIRY_INVALID');
+  }
+  return expiresAt;
 }
 
 function rowCounts(sections) {
@@ -203,6 +231,167 @@ function summarizeSafetyReviews(rows = [], generationRows = []) {
     by_status: safetyReviewByStatus,
     generation_flag_counts: severityCountsFromFlags(generationRows),
   };
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`);
+    return `{${entries.join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+function hashPack(pack) {
+  return crypto.createHash('sha256').update(stableJson(pack)).digest('hex');
+}
+
+function parsePayload(value) {
+  if (!value) return {};
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  if (typeof value === 'object') return value;
+  return {};
+}
+
+function skippedSectionCount(skippedSections = {}) {
+  return Object.keys(skippedSections || {}).length;
+}
+
+function isExpiredDate(value) {
+  if (!value) return false;
+  const expiresAt = new Date(value);
+  return !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= Date.now();
+}
+
+function buildSignoffPayload(pack, data = {}) {
+  const summary = pack.summary || {};
+  const payload = {
+    kind: SIGNOFF_PAYLOAD_KIND,
+    pack_version: pack.pack_version,
+    pilot_stage: pack.pilot_stage,
+    module_keys: pack.module_keys,
+    evidence_window: pack.evidence_window,
+    min_reviewed_per_module: pack.min_reviewed_per_module,
+    decision_support_only: true,
+    human_review_required: true,
+    pilot_ready: Boolean(summary.pilot_ready),
+    blocker_count: Array.isArray(summary.blockers) ? summary.blockers.length : 0,
+    blockers: summary.blockers || [],
+    skipped_sections: summary.skipped_sections || {},
+    row_counts: summary.row_counts || {},
+    module_summary: summary.module_summary || [],
+    generation_counts: summary.generation_counts || {},
+    review_counts: summary.review_counts || {},
+    safety_counts: summary.safety_counts || {},
+    eval_counts: summary.eval_counts || {},
+    audit_counts: summary.audit_counts || {},
+    requested_reason: cleanText(data.reason) || null,
+    requested_at: new Date().toISOString(),
+    pack_snapshot: pack,
+  };
+  payload.pack_hash = hashPack(payload.pack_snapshot);
+  return payload;
+}
+
+function signoffBlockingReason(summary = null) {
+  if (!summary) return 'SIGNOFF_REQUIRED';
+  if (summary.status === 'pending') return 'SIGNOFF_PENDING';
+  if (summary.status === 'hold') return 'SIGNOFF_ON_HOLD';
+  if (summary.status === 'rejected') return 'SIGNOFF_REJECTED';
+  if (summary.expired) return 'SIGNOFF_EXPIRED';
+  if (summary.skipped_section_count > 0) return 'PILOT_SCHEMA_UNAVAILABLE';
+  if (!summary.pilot_ready || summary.blocker_count > 0) return 'PILOT_EVIDENCE_BLOCKED';
+  if (summary.status !== 'approved') return 'SIGNOFF_REQUIRED';
+  return null;
+}
+
+function summarizeSignoffRow(row) {
+  if (!row) return null;
+  const payload = parsePayload(row.payload);
+  const blockers = Array.isArray(payload.blockers) ? payload.blockers : [];
+  const skippedSections = payload.skipped_sections || {};
+  const expired = isExpiredDate(row.expires_at);
+  const stageExpansionAllowed = (
+    row.status === 'approved' &&
+    !expired &&
+    payload.pilot_ready === true &&
+    blockers.length === 0 &&
+    skippedSectionCount(skippedSections) === 0
+  );
+  const summary = {
+    id: row.id,
+    tenant_id: row.tenant_id,
+    approval_type: row.approval_type,
+    status: row.status,
+    pilot_stage: payload.pilot_stage || null,
+    module_keys: Array.isArray(payload.module_keys) ? payload.module_keys : [],
+    requested_by: row.requested_by || null,
+    approved_by: row.approved_by || null,
+    rejected_by: row.rejected_by || null,
+    reason: row.reason || null,
+    pack_hash: payload.pack_hash || null,
+    pack_version: payload.pack_version || null,
+    evidence_window: payload.evidence_window || null,
+    min_reviewed_per_module: payload.min_reviewed_per_module || null,
+    pilot_ready: payload.pilot_ready === true,
+    blocker_count: blockers.length,
+    blockers,
+    skipped_sections: skippedSections,
+    skipped_section_count: skippedSectionCount(skippedSections),
+    row_counts: payload.row_counts || {},
+    module_summary: payload.module_summary || [],
+    generation_counts: payload.generation_counts || {},
+    review_counts: payload.review_counts || {},
+    safety_counts: payload.safety_counts || {},
+    eval_counts: payload.eval_counts || {},
+    audit_counts: payload.audit_counts || {},
+    pack_snapshot_present: Boolean(payload.pack_snapshot),
+    stage_expansion_allowed: stageExpansionAllowed,
+    expired,
+    expires_at: row.expires_at || null,
+    decided_at: row.decided_at || null,
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  };
+  return {
+    ...summary,
+    blocking_reason: stageExpansionAllowed ? null : signoffBlockingReason(summary),
+  };
+}
+
+function assertSignoffApprovable(signoff) {
+  if (!signoff) return;
+  if (signoff.expired) {
+    throw AppError.conflict(
+      'Pilot signoff evidence has expired; create a fresh evidence-pack signoff',
+      'CLINICAL_AI_PILOT_SIGNOFF_EXPIRED',
+      { expires_at: signoff.expires_at },
+    );
+  }
+  if (signoff.skipped_section_count > 0) {
+    throw AppError.forbidden(
+      'Pilot signoff cannot be approved while evidence schema sections are unavailable',
+      'CLINICAL_AI_PILOT_SCHEMA_UNAVAILABLE',
+      { skipped_sections: signoff.skipped_sections },
+    );
+  }
+  if (!signoff.pilot_ready || signoff.blocker_count > 0) {
+    throw AppError.forbidden(
+      'Pilot signoff cannot be approved until evidence blockers are cleared',
+      'CLINICAL_AI_PILOT_EVIDENCE_BLOCKED',
+      { blockers: signoff.blockers },
+    );
+  }
 }
 
 function buildBlockers(moduleSummary, reviewSummary, sections, skippedSections) {
@@ -524,10 +713,213 @@ export async function assemblePilotEvidencePack(options = {}) {
   };
 }
 
+export async function listPilotSignoffs(options = {}) {
+  const tid = resolveTenantId(options);
+  const stage = cleanText(options.pilotStage ?? options.pilot_stage) || null;
+  const moduleKeys = normalizeOptionalModuleKeys(
+    options.moduleKeys ?? options.module_keys ?? options.moduleKey ?? options.module_key,
+  );
+  const limit = clampInt(options.limit, { min: 1, max: 100, fallback: 20 });
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT ${SIGNOFF_SELECT}
+     FROM clinical_ai_approvals
+     WHERE tenant_id = $1::uuid
+       AND approval_type = $2
+       AND ($3::text IS NULL OR payload->>'pilot_stage' = $3)
+       AND (
+         $4::text[] IS NULL OR (
+           (payload->'module_keys') @> to_jsonb($4::text[])
+           AND to_jsonb($4::text[]) @> (payload->'module_keys')
+         )
+       )
+     ORDER BY created_at DESC
+     LIMIT $5`,
+    tid,
+    SIGNOFF_APPROVAL_TYPE,
+    stage,
+    moduleKeys,
+    limit,
+  );
+
+  const signoffs = rows.map(summarizeSignoffRow);
+  return { signoffs, count: signoffs.length };
+}
+
+export async function getPilotStageGate(options = {}) {
+  const tid = resolveTenantId(options);
+  const stage = cleanText(options.pilotStage ?? options.pilot_stage) || DEFAULT_PILOT_STAGE;
+  const moduleKeys = normalizeModuleKeys(
+    options.moduleKeys ?? options.module_keys ?? options.moduleKey ?? options.module_key,
+  );
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT ${SIGNOFF_SELECT}
+     FROM clinical_ai_approvals
+     WHERE tenant_id = $1::uuid
+       AND approval_type = $2
+       AND payload->>'pilot_stage' = $3
+       AND (payload->'module_keys') @> to_jsonb($4::text[])
+       AND to_jsonb($4::text[]) @> (payload->'module_keys')
+     ORDER BY created_at DESC
+     LIMIT 20`,
+    tid,
+    SIGNOFF_APPROVAL_TYPE,
+    stage,
+    moduleKeys,
+  );
+
+  const signoffs = rows.map(summarizeSignoffRow);
+  const latestSignoff = signoffs[0] || null;
+  const allowed = latestSignoff?.stage_expansion_allowed === true;
+  return {
+    tenant_id: tid,
+    pilot_stage: stage,
+    module_keys: moduleKeys,
+    stage_expansion_allowed: allowed,
+    blocking_reason: allowed ? null : signoffBlockingReason(latestSignoff),
+    latest_signoff: latestSignoff,
+    recent_signoffs: signoffs,
+  };
+}
+
+export async function createPilotSignoff(data = {}, requestedBy = null, options = {}) {
+  const tid = resolveTenantId(options);
+  const pack = await assemblePilotEvidencePack({
+    tenantId: tid,
+    moduleKeys: data.moduleKeys ?? data.module_keys ?? data.moduleKey ?? data.module_key,
+    pilotStage: data.pilotStage ?? data.pilot_stage,
+    windowDays: data.windowDays ?? data.window_days,
+    from: data.from,
+    to: data.to,
+    minReviewedPerModule: data.minReviewedPerModule ?? data.min_reviewed_per_module,
+    generatedBy: data.generatedBy || data.generated_by || null,
+  });
+  const payload = buildSignoffPayload(pack, data);
+  const reason = cleanText(data.reason) || `Clinical AI pilot signoff requested for ${pack.pilot_stage}`;
+  const expiresAt = resolveSignoffExpiry(data.expiresAt ?? data.expires_at);
+
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO clinical_ai_approvals
+       (tenant_id, approval_type, module_key, status, requested_by, reason, payload, expires_at, created_at, updated_at)
+     VALUES ($1::uuid, $2, NULL, 'pending', $3::uuid, $4, $5::jsonb, $6::timestamptz, NOW(), NOW())
+     RETURNING ${SIGNOFF_SELECT}`,
+    tid,
+    SIGNOFF_APPROVAL_TYPE,
+    requestedBy,
+    reason,
+    JSON.stringify(payload),
+    expiresAt,
+  );
+
+  return {
+    signoff: summarizeSignoffRow(rows[0]),
+    evidence_pack: pack,
+  };
+}
+
+async function getPilotSignoffById(signoffId, options = {}) {
+  const tid = resolveTenantId(options);
+  const id = Number.parseInt(signoffId, 10);
+  if (!Number.isFinite(id)) {
+    throw AppError.badRequest('Pilot signoff id must be numeric', 'CLINICAL_AI_PILOT_SIGNOFF_ID_INVALID');
+  }
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT ${SIGNOFF_SELECT}
+     FROM clinical_ai_approvals
+     WHERE id = $1
+       AND tenant_id = $2::uuid
+       AND approval_type = $3
+     LIMIT 1`,
+    id,
+    tid,
+    SIGNOFF_APPROVAL_TYPE,
+  );
+  return rows[0] || null;
+}
+
+export async function decidePilotSignoff(signoffId, decision, actorUid = null, reason = null, options = {}) {
+  const tid = resolveTenantId(options);
+  const normalized = cleanText(decision).toLowerCase();
+  if (!PILOT_SIGNOFF_DECISIONS.has(normalized)) {
+    throw AppError.badRequest(
+      'decision must be approved, hold, or rejected',
+      'CLINICAL_AI_PILOT_SIGNOFF_DECISION_INVALID',
+    );
+  }
+  const note = cleanText(reason);
+  if (note.length < 8) {
+    throw AppError.badRequest(
+      'A reviewer note is required for pilot signoff decisions',
+      'CLINICAL_AI_PILOT_SIGNOFF_REASON_REQUIRED',
+    );
+  }
+
+  const existing = await getPilotSignoffById(signoffId, { tenantId: tid });
+  if (!existing) {
+    throw AppError.notFound('Clinical AI pilot signoff not found', 'CLINICAL_AI_PILOT_SIGNOFF_NOT_FOUND');
+  }
+  if (existing.status !== 'pending') {
+    throw AppError.conflict(
+      'Clinical AI pilot signoff was already decided',
+      'CLINICAL_AI_PILOT_SIGNOFF_ALREADY_DECIDED',
+    );
+  }
+
+  const current = summarizeSignoffRow(existing);
+  if (normalized === 'approved') {
+    assertSignoffApprovable(current);
+  }
+
+  const payload = parsePayload(existing.payload);
+  const decidedAt = new Date().toISOString();
+  const decisionRecord = {
+    status: normalized,
+    decided_by: actorUid,
+    decided_at: decidedAt,
+    reason: note,
+    blocking_reason: normalized === 'approved' ? null : signoffBlockingReason(current),
+  };
+  const updatedPayload = {
+    ...payload,
+    decision: decisionRecord,
+    decisions: [
+      ...(Array.isArray(payload.decisions) ? payload.decisions : []),
+      decisionRecord,
+    ],
+  };
+
+  const rows = await prisma.$queryRawUnsafe(
+    `UPDATE clinical_ai_approvals
+     SET status = $2,
+         approved_by = CASE WHEN $2 = 'approved' THEN $3::uuid ELSE approved_by END,
+         rejected_by = CASE WHEN $2 IN ('hold', 'rejected') THEN $3::uuid ELSE rejected_by END,
+         reason = $4,
+         payload = $5::jsonb,
+         decided_at = NOW(),
+         updated_at = NOW()
+     WHERE id = $1
+       AND tenant_id = $6::uuid
+       AND approval_type = $7
+     RETURNING ${SIGNOFF_SELECT}`,
+    Number.parseInt(signoffId, 10),
+    normalized,
+    actorUid,
+    note,
+    JSON.stringify(updatedPayload),
+    tid,
+    SIGNOFF_APPROVAL_TYPE,
+  );
+
+  return summarizeSignoffRow(rows[0]);
+}
+
 export const __testing__ = {
   PACK_VERSION,
+  SIGNOFF_APPROVAL_TYPE,
   DEFAULT_PILOT_MODULES,
   normalizeModuleKeys,
+  buildSignoffPayload,
+  summarizeSignoffRow,
   effectiveModuleSettings,
   summarizeModules,
   summarizeReviews,
@@ -536,4 +928,8 @@ export const __testing__ = {
 
 export default {
   assemblePilotEvidencePack,
+  createPilotSignoff,
+  decidePilotSignoff,
+  getPilotStageGate,
+  listPilotSignoffs,
 };

@@ -2,12 +2,24 @@
 
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, CloudDownload, ScrollText } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ClipboardCheck,
+  CloudDownload,
+  PauseCircle,
+  ScrollText,
+  ShieldCheck,
+  XCircle,
+} from "lucide-react";
 import { toast } from "react-hot-toast";
 import {
+  createPilotSignoff,
+  decidePilotSignoff,
   exportPilotEvidencePack,
   exportReadinessPack,
   type PilotEvidencePack,
+  type PilotSignoffSummary,
   type ReadinessPack,
 } from "@/lib/api/clinicalAiAdmin";
 
@@ -73,6 +85,11 @@ function summarisePilotBlockers(pack: PilotEvidencePack) {
   return `${count} blocker${count === 1 ? "" : "s"}`;
 }
 
+function shortHash(value?: string | null) {
+  if (!value) return "-";
+  return value.length > 16 ? `${value.slice(0, 16)}...` : value;
+}
+
 export function RegulatoryReadinessPackPanel() {
   const [moduleKey, setModuleKey] = useState("");
   const [fromVersion, setFromVersion] = useState("");
@@ -85,6 +102,9 @@ export function RegulatoryReadinessPackPanel() {
   const [pilotWindowDays, setPilotWindowDays] = useState(14);
   const [minReviewedPerModule, setMinReviewedPerModule] = useState(1);
   const [lastPilotPack, setLastPilotPack] = useState<PilotEvidencePack | null>(null);
+  const [signoffReason, setSignoffReason] = useState("Pilot evidence reviewed for stage expansion");
+  const [decisionReason, setDecisionReason] = useState("");
+  const [lastSignoff, setLastSignoff] = useState<PilotSignoffSummary | null>(null);
 
   const exportPack = useMutation({
     mutationFn: () =>
@@ -114,14 +134,65 @@ export function RegulatoryReadinessPackPanel() {
     onSuccess: (pack) => {
       downloadPilotEvidencePack(pack);
       setLastPilotPack(pack);
+      setLastSignoff(null);
       const status = pack.summary.pilot_ready ? "ready" : summarisePilotBlockers(pack);
       toast[pack.summary.pilot_ready ? "success" : "error"](`Pilot evidence pack ${status}`);
     },
     onError: (err: Error) => toast.error(err.message || "Pilot evidence pack export failed"),
   });
 
+  const requestPilotSignoff = useMutation({
+    mutationFn: () =>
+      createPilotSignoff({
+        pilot_stage: pilotStage.trim() || null,
+        module_keys: parseModuleKeys(pilotModuleKeys),
+        window_days: pilotWindowDays,
+        min_reviewed_per_module: minReviewedPerModule,
+        reason: signoffReason.trim() || null,
+      }),
+    onSuccess: (result) => {
+      setLastPilotPack(result.evidence_pack);
+      setLastSignoff(result.signoff);
+      if (result.signoff.pilot_ready) {
+        toast.success("Pilot signoff queued for reviewer decision");
+      } else {
+        toast.error(`Pilot signoff queued with ${result.signoff.blocker_count} blocker(s)`);
+      }
+    },
+    onError: (err: Error) => toast.error(err.message || "Pilot signoff request failed"),
+  });
+
+  const decidePilot = useMutation({
+    mutationFn: (decision: "approved" | "hold" | "rejected") => {
+      if (!lastSignoff) throw new Error("Create a pilot signoff first");
+      return decidePilotSignoff(lastSignoff.id, {
+        decision,
+        reason: decisionReason.trim(),
+      });
+    },
+    onSuccess: (signoff) => {
+      setLastSignoff(signoff);
+      if (signoff.stage_expansion_allowed) {
+        toast.success("Pilot signoff approved; stage expansion gate is open");
+      } else {
+        toast.error(`Pilot signoff ${signoff.status}; gate remains blocked`);
+      }
+    },
+    onError: (err: Error) => toast.error(err.message || "Pilot signoff decision failed"),
+  });
+
   const canSubmit = moduleKey.trim().length > 0 && !exportPack.isPending;
   const canSubmitPilot = parseModuleKeys(pilotModuleKeys).length > 0 && !exportPilotPack.isPending;
+  const canCreateSignoff = parseModuleKeys(pilotModuleKeys).length > 0 && !requestPilotSignoff.isPending;
+  const canDecideSignoff =
+    Boolean(lastSignoff && lastSignoff.status === "pending") &&
+    decisionReason.trim().length >= 8 &&
+    !decidePilot.isPending;
+  const canApproveSignoff =
+    canDecideSignoff &&
+    Boolean(lastSignoff?.pilot_ready) &&
+    (lastSignoff?.blocker_count || 0) === 0 &&
+    (lastSignoff?.skipped_section_count || 0) === 0;
   const skipped = lastPack ? Object.entries(lastPack.summary.skipped_sections) : [];
   const pilotSkipped = lastPilotPack ? Object.entries(lastPilotPack.summary.skipped_sections) : [];
 
@@ -297,6 +368,24 @@ export function RegulatoryReadinessPackPanel() {
               </label>
             </div>
           </div>
+          <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto]">
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Signoff note</span>
+              <input
+                value={signoffReason}
+                onChange={(event) => setSignoffReason(event.target.value)}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs"
+              />
+            </label>
+            <button
+              onClick={() => requestPilotSignoff.mutate()}
+              disabled={!canCreateSignoff}
+              className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50 lg:self-end"
+            >
+              <ClipboardCheck className="h-4 w-4" />
+              {requestPilotSignoff.isPending ? "Creating..." : "Create Signoff"}
+            </button>
+          </div>
         </div>
 
         {lastPilotPack ? (
@@ -369,6 +458,72 @@ export function RegulatoryReadinessPackPanel() {
                     </li>
                   ))}
                 </ul>
+              </div>
+            ) : null}
+            {lastSignoff ? (
+              <div className="mt-3 rounded-md border border-border bg-muted/40 p-3 text-xs">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-medium ${
+                        lastSignoff.stage_expansion_allowed
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                          : "border-amber-200 bg-amber-50 text-amber-900"
+                      }`}
+                    >
+                      {lastSignoff.stage_expansion_allowed ? (
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                      ) : (
+                        <PauseCircle className="h-3.5 w-3.5" />
+                      )}
+                      {lastSignoff.stage_expansion_allowed ? "Expansion gate open" : "Expansion blocked"}
+                    </span>
+                    <span className="font-mono">signoff #{lastSignoff.id}</span>
+                    <span className="font-mono">hash {shortHash(lastSignoff.pack_hash)}</span>
+                  </div>
+                  <span className="font-mono text-muted-foreground">
+                    {lastSignoff.status}
+                    {lastSignoff.blocking_reason ? ` / ${lastSignoff.blocking_reason}` : ""}
+                  </span>
+                </div>
+                {lastSignoff.status === "pending" ? (
+                  <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_auto]">
+                    <label className="space-y-1">
+                      <span className="text-muted-foreground">Reviewer decision note</span>
+                      <input
+                        value={decisionReason}
+                        onChange={(event) => setDecisionReason(event.target.value)}
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs"
+                      />
+                    </label>
+                    <div className="flex flex-wrap items-end gap-2 lg:justify-end">
+                      <button
+                        onClick={() => decidePilot.mutate("approved")}
+                        disabled={!canApproveSignoff}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 font-medium text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+                      >
+                        <ShieldCheck className="h-4 w-4" />
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => decidePilot.mutate("hold")}
+                        disabled={!canDecideSignoff}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        <PauseCircle className="h-4 w-4" />
+                        Hold
+                      </button>
+                      <button
+                        onClick={() => decidePilot.mutate("rejected")}
+                        disabled={!canDecideSignoff}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 font-medium text-rose-900 hover:bg-rose-100 disabled:opacity-50"
+                      >
+                        <XCircle className="h-4 w-4" />
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>

@@ -56,6 +56,9 @@ in the relevant phase below.
   gate at `/admin/clinical-ai/pilot-evidence-pack` and in the admin Clinical
   AI dashboard. It proves real workflow generations, human reviewer notes,
   risky-module eval acceptance, safety decisions, approvals, and audit rows.
+  The pack can now be persisted as a pilot signoff record; wider rollout
+  stays blocked until the exact stage + module set has an approved,
+  unexpired signoff.
 - **Local-Ollama deep-tier pilot** — Tier B/C/D/F-bundles (CRITICAL-tier
   modules) for PHI-never-leaves-building deployment. Phase 4 wired the
   env vars; the GPU node provisioning is hospital-side.
@@ -392,7 +395,7 @@ These should be resolved before Phase 0 starts. None are blocking *this
 plan* — they're parameters of the implementation.
 
 1. **Hostname convention** for the LAN ingress. `clinical.<hospital>.local`? `clinical.<hospital>.internal`? Whatever the hospital network team prefers — but lock it before Phase 1.
-2. **First-pilot module set** for the Flutter review queue. Recommend: medication_reconciliation + patient_aftercare_instructions only, since those are the most-clinician-facing and the simplest review shapes. discharge_readiness involves admin and is less interesting for a doctor. Export the pilot evidence pack for this set before moving to broader ward rollout.
+2. **First-pilot module set** for the Flutter review queue. Recommend: medication_reconciliation + patient_aftercare_instructions only, since those are the most-clinician-facing and the simplest review shapes. discharge_readiness involves admin and is less interesting for a doctor. Export the pilot evidence pack and approve the pilot signoff for this set before moving to broader ward rollout.
 3. **Deep-tier model choice.** Depends on hospital GPU budget. 70B is ideal; 8B-or-13B is acceptable. Decide before Phase 4 procurement asks.
 4. **Tailscale vs hospital VPN** for off-site clinician access. Recommend Tailscale (already in use for dalekdefender, simpler, identity-aware). Hospital may already have a VPN concentrator they prefer.
 5. **Whether to keep admin portal on Cloudflare Tunnel or move it to LAN-only too.** Recommend: keep on Cloudflare. Admins are often off-site (procurement, IT-after-hours, executive review) and Tailscale-only is friction. But the option is open.

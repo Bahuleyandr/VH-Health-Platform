@@ -149,6 +149,9 @@ Covered journey:
 - Verifies visible generation labels include both `ai` and `template_fallback`.
 - Verifies the pack has no blockers, no schema-unavailable sections, an audit
   trail, and no leaked draft bodies or full reviewer notes.
+- Creates a pilot signoff from the same evidence window, verifies rollout is
+  blocked while the signoff is pending, approves it, then verifies the
+  stage-expansion gate opens for the exact stage + module set.
 
 Browser-level local journeys live in `apps/admin/e2e/authenticated.spec.ts` and
 cover login/session reuse, dashboard, users, appointments, uploads,
