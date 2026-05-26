@@ -36,6 +36,11 @@ the backend and admin portal, then runs:
 - Clinical AI local Ollama deep-tier smoke
 - Clinical AI tenant rollout preflight
 
+The workflow uploads `output/ci-smoke` as an artifact. Besides backend/admin
+logs, that directory contains the redacted Clinical AI pilot evidence pack,
+the approved signoff gate snapshot, and the tenant preflight JSON used for
+rollout approval records.
+
 This is intentionally a local fixture smoke. It does not need production
 credentials and should fail fast when endpoint drift, missing tables, proxy
 allowlist drift, missing rollout evidence, or visible admin route errors return.
@@ -138,7 +143,9 @@ Covered journeys:
 Command:
 
 ```powershell
-.\scripts\smoke-clinical-ai-pilot-evidence.ps1
+.\scripts\smoke-clinical-ai-pilot-evidence.ps1 `
+  -EvidenceOutputPath output/ci-smoke/clinical-ai-pilot-evidence-pack.json `
+  -SignoffOutputPath output/ci-smoke/clinical-ai-pilot-signoff-gate.json
 ```
 
 Covered journey:
@@ -154,6 +161,8 @@ Covered journey:
 - Creates a pilot signoff from the same evidence window, verifies rollout is
   blocked while the signoff is pending, approves it, then verifies the
   stage-expansion gate opens for the exact stage + module set.
+- Optionally writes the redacted evidence pack and signoff gate snapshot as
+  JSON artifacts for rollout tickets.
 
 ## Clinical AI Local Ollama Deep Tier
 
@@ -181,6 +190,7 @@ Command:
 
 ```powershell
 .\scripts\check-clinical-ai-tenant-preflight.ps1 `
+  -OutputPath output/ci-smoke/clinical-ai-tenant-preflight.json `
   -RequirePilotSignoff `
   -ReviewerQueueWalkthroughConfirmed `
   -PhiLoggingReviewed `
@@ -197,7 +207,8 @@ Covered journey:
 - Reports manual hospital attestations separately so rollout cannot be treated
   as ready unless clinical workflow, PHI logging, safety cadence, and patient
   dispatch policy have been explicitly confirmed.
-- `-Json` emits an archiveable evidence object for hospital rollout tickets.
+- `-Json` prints, and `-OutputPath` writes, the archiveable evidence object
+  for hospital rollout tickets.
 
 Browser-level local journeys live in `apps/admin/e2e/authenticated.spec.ts` and
 cover login/session reuse, dashboard, users, appointments, uploads,

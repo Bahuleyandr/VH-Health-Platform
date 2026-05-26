@@ -27,7 +27,8 @@ param(
   [switch]$PhiLoggingReviewed,
   [switch]$SafetyReviewCadenceConfirmed,
   [switch]$NoAutomaticPatientDispatchConfirmed,
-  [switch]$Json
+  [switch]$Json,
+  [string]$OutputPath = ""
 )
 
 Set-StrictMode -Version Latest
@@ -61,6 +62,24 @@ function Invoke-Psql {
   } finally {
     $env:PGPASSWORD = $previousPassword
   }
+}
+
+function Write-JsonArtifact {
+  param(
+    [string]$Path,
+    [Parameter(Mandatory)]$Payload
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Path)) {
+    return
+  }
+
+  $directory = Split-Path -Parent $Path
+  if (-not [string]::IsNullOrWhiteSpace($directory)) {
+    New-Item -ItemType Directory -Path $directory -Force | Out-Null
+  }
+
+  $Payload | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
 function Add-Check {
@@ -363,11 +382,15 @@ $summary = [pscustomobject]@{
   manual_pending_count = $manualPending.Count
 }
 
+$preflightPayload = [pscustomobject]@{
+  summary = $summary
+  checks = $script:Results
+}
+
+Write-JsonArtifact -Path $OutputPath -Payload $preflightPayload
+
 if ($Json) {
-  [pscustomobject]@{
-    summary = $summary
-    checks = $script:Results
-  } | ConvertTo-Json -Depth 8
+  $preflightPayload | ConvertTo-Json -Depth 8
 } else {
   $script:Results | Format-Table name, status, detail -AutoSize | Out-String | Write-Host
   $summary | Format-List | Out-String | Write-Host
