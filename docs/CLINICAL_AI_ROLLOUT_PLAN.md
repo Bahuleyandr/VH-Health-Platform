@@ -351,7 +351,7 @@ back to it if any phase breaks.
 
 **Verified:** `kubectl kustomize infra/kubernetes/apps/ollama` emits StatefulSet + 2 services + NetworkPolicy clean. `kubectl kustomize infra/kubernetes/apps` (full app tier) composes including ollama with no conflicts.
 
-### Phase 5: parallel/optional work — ✅ THREE ITEMS SHIPPED, others remain optional
+### Phase 5: parallel/optional work — ✅ FOUR ITEMS SHIPPED, others remain optional
 
 **What landed:**
 
@@ -367,11 +367,12 @@ back to it if any phase breaks.
 
 3. **Staff review navigation** — shipped 2026-05-26. The staff app now adds the `AI Review` dashboard feature and quick action for doctor, nurse, pharmacy, admin, and super-admin roles, routing directly to `/clinical-ai/queue` while keeping HR, lab, and general staff out of the Clinical AI review entry point.
 
-**Verified:** 1,305 backend unit tests pass (9 new + 1,296 existing, no regressions). `npm run lint` clean (eslint + raw-params + secrets). Admin lint clean. Staff-nav follow-up verified with `flutter test test\core\config\role_config_test.dart`, `flutter analyze`, and `git diff --check`.
+4. **Admin discharge-compose E2E coverage** — shipped 2026-05-26. `apps/admin/e2e/discharge-compose.spec.ts` covers the authenticated admin page contract: route render, status filter, run detail tree, critical safety flags, governance-paused resume, and fresh compose admission-id POST.
+
+**Verified:** 1,305 backend unit tests pass (9 new + 1,296 existing, no regressions). `npm run lint` clean (eslint + raw-params + secrets). Admin lint clean. Staff-nav follow-up verified with `flutter test test\core\config\role_config_test.dart`, `flutter analyze`, and `git diff --check`. Discharge-compose E2E follow-up verified with `npm run type-check`, `npx playwright test --project=chromium --list e2e/discharge-compose.spec.ts`, and `git diff --check`.
 
 **Items NOT shipped** (the rollout plan called these out as "parallel / optional"; deferred deliberately):
 - **Voice-driven draft generation** — bridging `ambientDocumentationService` / `voiceSoapService` to the multi-agent draft path. Major value-add; 2-4 weeks of focused work; out of scope for Phase 5 hygiene work.
-- **E2E Playwright coverage** for the admin discharge-compose page — mechanical follow-up.
 - **Compose tree visualisation in Flutter** — defer until clinicians actually ask for it.
 - **Manual fail-paused-run UI** — admin escape hatch for runs whose external gate will never fire. SQL UPDATE works for now.
 
