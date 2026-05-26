@@ -19,6 +19,8 @@ import 'package:flutter/material.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
+import '../clinical_ai_review_governance.dart';
+import '../widgets/clinical_ai_governance_badges.dart';
 
 class ClinicalAiDraftDetailScreen extends StatefulWidget {
   const ClinicalAiDraftDetailScreen({
@@ -173,6 +175,8 @@ class _ClinicalAiDraftDetailScreenState
     final hasCritical = flags.any(
       (f) => f is Map && f['severity']?.toString().toLowerCase() == 'critical',
     );
+    final governance = clinicalAiReviewGovernanceFor(review);
+    final blocksSignoff = hasCritical || governance.blocksSignoff;
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -199,7 +203,7 @@ class _ClinicalAiDraftDetailScreenState
         _DecisionButtons(
           submitting: _submitting,
           editMode: _editMode,
-          hasCritical: hasCritical,
+          blocksSignoff: blocksSignoff,
           onAccept: () async {
             final note = await _askReviewerNote();
             if (note == null) return;
@@ -376,6 +380,8 @@ class _ReviewHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
+    final governance = clinicalAiReviewGovernanceFor(review);
+    final reason = governance.reason;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -400,6 +406,18 @@ class _ReviewHeader extends StatelessWidget {
             if (review['provider'] != null)
               Text(
                 '${s.clinicalAiDraftProviderPrefix} ${review['provider']} · ${review['model'] ?? '—'}',
+              ),
+            const SizedBox(height: 8),
+            ClinicalAiGovernanceBadgeStrip(governance: governance),
+            if (reason != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  '${s.clinicalAiGovernanceReasonPrefix} ${humanizeClinicalAiReason(reason)}',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ),
           ],
         ),
@@ -548,7 +566,7 @@ class _DecisionButtons extends StatelessWidget {
   const _DecisionButtons({
     required this.submitting,
     required this.editMode,
-    required this.hasCritical,
+    required this.blocksSignoff,
     required this.onAccept,
     required this.onAcceptEdited,
     required this.onToggleEdit,
@@ -558,7 +576,7 @@ class _DecisionButtons extends StatelessWidget {
 
   final bool submitting;
   final bool editMode;
-  final bool hasCritical;
+  final bool blocksSignoff;
   final VoidCallback onAccept;
   final VoidCallback onAcceptEdited;
   final VoidCallback onToggleEdit;
@@ -573,13 +591,15 @@ class _DecisionButtons extends StatelessWidget {
       runSpacing: 8,
       children: [
         FilledButton.icon(
-          onPressed: submitting || editMode ? null : onAccept,
+          onPressed: submitting || editMode || blocksSignoff ? null : onAccept,
           icon: const Icon(Icons.check),
           label: Text(s.clinicalAiDraftAccept),
           style: FilledButton.styleFrom(backgroundColor: Colors.green),
         ),
         FilledButton.icon(
-          onPressed: submitting || !editMode ? null : onAcceptEdited,
+          onPressed: submitting || !editMode || blocksSignoff
+              ? null
+              : onAcceptEdited,
           icon: const Icon(Icons.check_circle_outline),
           label: Text(s.clinicalAiDraftAcceptEdits),
           style: FilledButton.styleFrom(backgroundColor: Colors.blue),

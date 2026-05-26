@@ -17,6 +17,8 @@ import 'package:go_router/go_router.dart';
 import '../../../core/services/clinical_ai_api_service.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
+import '../clinical_ai_review_governance.dart';
+import '../widgets/clinical_ai_governance_badges.dart';
 
 class ClinicalAiReviewQueueScreen extends StatefulWidget {
   const ClinicalAiReviewQueueScreen({super.key});
@@ -213,6 +215,7 @@ class _ReviewListTile extends StatelessWidget {
     final decision = review['decision']?.toString() ?? 'pending';
     final patientName =
         review['patient_name']?.toString() ?? s.clinicalAiQueuePatientFallback;
+    final governance = clinicalAiReviewGovernanceFor(review);
     final flags = (review['safety_flags'] as List?) ?? const [];
     final criticalCount = flags
         .where(
@@ -228,13 +231,22 @@ class _ReviewListTile extends StatelessWidget {
 
     return ListTile(
       onTap: onTap,
+      isThreeLine: true,
       leading: _DecisionIcon(decision: decision),
       title: Text(
         _humanizeModuleKey(moduleKey),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      subtitle: Text(patientName, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(patientName, maxLines: 1, overflow: TextOverflow.ellipsis),
+          const SizedBox(height: 4),
+          ClinicalAiGovernanceBadgeStrip(governance: governance, compact: true),
+        ],
+      ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [

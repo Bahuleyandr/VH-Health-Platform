@@ -458,6 +458,23 @@ SELECT 'seeded';
   Add-ContractResult $results "api_labels_local_ollama" (($apiProvider -eq "ollama") -and ($apiTier -eq "deep") -and ($apiModel -eq $DeepModel)) "provider=$apiProvider tier=$apiTier model=$apiModel"
   Add-ContractResult $results "api_labels_ai_used" (($apiUsedAi -eq $true) -and ($apiMode -eq "ai") -and ($apiProviderStatus -eq "used")) "usedAi=$apiUsedAi mode=$apiMode providerStatus=$apiProviderStatus"
 
+  $reviewsResponse = Invoke-SmokeRequest $results "review_queue_fetch" "GET" "/api/v1/clinical-ai/clinical/reviews?decision=pending&module_key=$ModuleKey&limit=20" $null -ExpectedStatus 200
+  $reviewsJson = Get-JsonContent $reviewsResponse
+  $reviewsData = Get-JsonProperty $reviewsJson "data"
+  $reviews = Get-JsonProperty $reviewsData "reviews"
+  $reviewMatches = @($reviews | Where-Object { $_.admission_id -eq $AdmissionId } | Select-Object -First 1)
+  $review = if ($reviewMatches.Count -gt 0) { $reviewMatches[0] } else { $null }
+  $reviewProvider = Get-JsonProperty $review "provider"
+  $reviewTier = Get-JsonProperty $review "tier"
+  $reviewMode = Get-JsonProperty $review "generation_mode"
+  $reviewProviderStatus = Get-JsonProperty $review "provider_status"
+  $reviewUsedAi = Get-JsonProperty $review "used_ai"
+  $reviewDraft = Get-JsonProperty $review "draft"
+  $reviewCitations = Get-JsonProperty $review "citations"
+
+  Add-ContractResult $results "review_queue_labels_visible" (($reviewProvider -eq "ollama") -and ($reviewTier -eq "deep") -and ($reviewUsedAi -eq $true) -and ($reviewMode -eq "ai") -and ($reviewProviderStatus -eq "used")) "provider=$reviewProvider tier=$reviewTier usedAi=$reviewUsedAi mode=$reviewMode providerStatus=$reviewProviderStatus"
+  Add-ContractResult $results "review_queue_draft_available" (($null -ne $reviewDraft) -and ($null -ne $reviewCitations)) "draft=$($null -ne $reviewDraft) citations=$($null -ne $reviewCitations)"
+
   $hitsJson = Invoke-WebRequest -Uri "http://127.0.0.1:$MockOllamaPort/__hits" -Method GET
   $hits = (($hitsJson.Content | ConvertFrom-Json).generateHits)
   Add-ContractResult $results "mock_ollama_invoked" ($hits -ge 1) "generateHits=$hits"

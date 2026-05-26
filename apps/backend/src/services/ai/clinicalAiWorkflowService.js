@@ -1477,7 +1477,20 @@ export async function listReviews({ decision = null, moduleKey = null, reviewerR
               r.admission_id, r.reviewer_uid, r.reviewer_role, r.decision,
               r.edited_draft, r.rejection_reason, r.reviewer_note,
               r.metadata, r.created_at, r.updated_at,
-              g.provider, g.model, g.total_tokens, g.safety_flags,
+              g.provider, g.model, g.total_tokens, g.used_ai,
+              g.draft, g.citations,
+              g.status AS generation_status,
+              COALESCE(g.metadata->>'tier', g.metadata->>'model_tier',
+                CASE WHEN g.used_ai THEN 'quick' ELSE 'template' END) AS tier,
+              COALESCE(g.metadata->>'model_tier', g.metadata->>'tier',
+                CASE WHEN g.used_ai THEN 'quick' ELSE 'template' END) AS model_tier,
+              COALESCE(g.metadata->>'generation_mode',
+                CASE WHEN g.used_ai THEN 'ai' ELSE 'template_fallback' END) AS generation_mode,
+              g.metadata->>'fallback_reason' AS fallback_reason,
+              g.metadata->>'readiness_reason' AS readiness_reason,
+              COALESCE(g.metadata->>'provider_status',
+                CASE WHEN g.used_ai THEN 'used' ELSE 'template_fallback' END) AS provider_status,
+              g.safety_flags,
               m.settings->'reviewRoles' AS module_review_roles
        FROM clinical_ai_reviews r
        LEFT JOIN users u ON u.uid = r.patient_uid
