@@ -33,10 +33,12 @@ the backend and admin portal, then runs:
 - staff API routing smoke
 - staff clinical-safety API smoke
 - Clinical AI pilot evidence-pack smoke
+- Clinical AI local Ollama deep-tier smoke
+- Clinical AI tenant rollout preflight
 
 This is intentionally a local fixture smoke. It does not need production
 credentials and should fail fast when endpoint drift, missing tables, proxy
-allowlist drift, or visible admin route errors return.
+allowlist drift, missing rollout evidence, or visible admin route errors return.
 
 ## Patient
 

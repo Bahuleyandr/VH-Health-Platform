@@ -8,6 +8,7 @@ on:
       - 'apps/admin/**'
       - 'apps/backend/**'
       - 'scripts/smoke-*.ps1'
+      - 'scripts/check-clinical-ai-tenant-preflight.ps1'
       - '.github/workflows/smoke-e2e.yml'
 
 permissions:
@@ -61,6 +62,10 @@ jobs:
       PLAYWRIGHT_ADMIN_USERNAME: admin
       PLAYWRIGHT_ADMIN_PASSWORD: test1234
       PLAYWRIGHT_EXTERNAL_SERVER: '1'
+      CLINICAL_AI_DEEP_PROVIDER: ollama
+      CLINICAL_AI_DEEP_BASE_URL: http://127.0.0.1:11534
+      CLINICAL_AI_DEEP_MODEL: llama3.1:70b-instruct-q4_K_M
+      CLINICAL_AI_ALLOW_EXTERNAL: 'false'
 
     steps:
       - uses: actions/checkout@v6
@@ -194,6 +199,37 @@ jobs:
           -PgUser vhhealth
           -PgDatabase vhhealth
           -PgPassword '${{ github.run_id }}'
+
+      - name: Clinical AI local Ollama deep-tier smoke
+        shell: pwsh
+        run: >
+          ./scripts/smoke-clinical-ai-local-ollama.ps1
+          -BackendBase http://127.0.0.1:5206
+          -ApiKey $env:API_KEY
+          -JwtSecret $env:JWT_SECRET
+          -PgHost 127.0.0.1
+          -PgPort 5432
+          -PgUser vhhealth
+          -PgDatabase vhhealth
+          -PgPassword '${{ github.run_id }}'
+
+      - name: Clinical AI tenant rollout preflight
+        shell: pwsh
+        run: >
+          ./scripts/check-clinical-ai-tenant-preflight.ps1
+          -BackendBase http://127.0.0.1:5206
+          -PilotStage ci_first_pilot_smoke
+          -PgHost 127.0.0.1
+          -PgPort 5432
+          -PgUser vhhealth
+          -PgDatabase vhhealth
+          -PgPassword '${{ github.run_id }}'
+          -RequirePilotSignoff
+          -RequireRolloutReady
+          -ReviewerQueueWalkthroughConfirmed
+          -PhiLoggingReviewed
+          -SafetyReviewCadenceConfirmed
+          -NoAutomaticPatientDispatchConfirmed
 
       - name: Upload smoke logs
         if: always()

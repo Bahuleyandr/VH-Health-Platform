@@ -266,7 +266,15 @@ server.listen($Port, '127.0.0.1', () => {
 });
 "@
   Set-Content -LiteralPath $serverPath -Value $serverScript -Encoding ASCII
-  $process = Start-Process -FilePath "node" -ArgumentList @($serverPath) -PassThru -WindowStyle Hidden
+  $startParams = @{
+    FilePath = "node"
+    ArgumentList = @($serverPath)
+    PassThru = $true
+  }
+  if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+    $startParams.WindowStyle = "Hidden"
+  }
+  $process = Start-Process @startParams
   Start-Sleep -Milliseconds 750
   return [pscustomobject]@{ Process = $process; Path = $serverPath }
 }
