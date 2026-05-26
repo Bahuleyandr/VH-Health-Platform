@@ -61,7 +61,8 @@ in the relevant phase below.
   unexpired signoff.
 - **Local-Ollama deep-tier pilot** — Tier B/C/D/F-bundles (CRITICAL-tier
   modules) for PHI-never-leaves-building deployment. Phase 4 wired the
-  env vars; the GPU node provisioning is hospital-side.
+  env vars; the pilot smoke now proves a real medication-reconciliation
+  workflow routes to local Ollama and persists `tier=deep` labels.
 
 **Audience:** anyone picking this up in a future session — Claude, the
 project owner, or a teammate.
@@ -191,7 +192,7 @@ no VPN concentrator.
 
 ### Aggressive local-LLM routing for the deep tier
 
-`localLlmClient.js` already supports Ollama and has a deep/quick tier
+`localLlmClient.js` supports Ollama and has a deep/quick tier
 split (commit `079ce54b`) plus a regional egress guard
 (`CLINICAL_AI_EXTERNAL_REGIONS`). With the cluster on a hospital LAN we
 can:
@@ -202,6 +203,9 @@ can:
 - **PHI never leaves the hospital building** — not even to Anthropic / OpenAI
 
 This is the architecture that compliance teams will actually approve.
+The route accepts both `settings.model_tier='deep'` and
+`settings.modelTier='deep'`, so admin JSON payloads and catalog defaults
+cannot silently miss the deep tier.
 The framework was designed for exactly this.
 
 ### Voice-driven clinical workflows on the tablet
@@ -329,8 +333,14 @@ back to it if any phase breaks.
    ```
 5. Modules `discharge_summary` / `medication_reconciliation` / `abnormal_result_triage` / `obstetric_risk_assistant` (which already declare `model_tier: 'deep'` in `clinicalAiModuleService.js`) automatically route to Ollama on next generation.
 
-**Validation criteria** (when a real GPU is available — NOT done in this PR because there's no test cluster with a GPU available locally):
-- `clinical_ai_generations.metadata.tier` shows `'deep'` and `provider` shows `'ollama'` for the four flagged modules.
+**Validation criteria**:
+- Local CI can run `scripts/smoke-clinical-ai-local-ollama.ps1` with a mock
+  Ollama endpoint and prove the real admission medication-reconciliation route
+  writes `clinical_ai_generations.provider='ollama'`,
+  `metadata.tier='deep'`, `metadata.generation_mode='ai'`, and
+  `metadata.provider_status='used'`.
+- With a real GPU, `clinical_ai_generations.metadata.tier` shows `'deep'`
+  and `provider` shows `'ollama'` for the four flagged modules.
 - Network egress logs / Cilium dropped-connection events show zero calls to `api.openai.com` / `api.anthropic.com` from the backend pod for clinical traffic.
 - Latency budget: deep tier finishes under 30s per draft, ~5 minutes per 4-child compose.
 

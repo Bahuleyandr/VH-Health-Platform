@@ -153,6 +153,24 @@ Covered journey:
   blocked while the signoff is pending, approves it, then verifies the
   stage-expansion gate opens for the exact stage + module set.
 
+## Clinical AI Local Ollama Deep Tier
+
+Command:
+
+```powershell
+.\scripts\smoke-clinical-ai-local-ollama.ps1
+```
+
+Covered journey:
+
+- Starts a mock local Ollama endpoint for deterministic CI-safe inference.
+- Seeds a disposable `medication_reconciliation` admission as a deep-tier,
+  tenant-scoped module.
+- Calls the real EMR admission workflow route.
+- Verifies both the API response and `clinical_ai_generations` row are labelled
+  `provider=ollama`, `tier=deep`, `generation_mode=ai`, and
+  `provider_status=used`.
+
 Browser-level local journeys live in `apps/admin/e2e/authenticated.spec.ts` and
 cover login/session reuse, dashboard, users, appointments, uploads,
 upload-prescription, Clinical AI, payroll, and system logs.

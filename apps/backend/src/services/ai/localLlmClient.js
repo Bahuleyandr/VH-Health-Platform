@@ -136,7 +136,12 @@ function tieredEnv(tier, suffix) {
 }
 
 function getProviderConfig(module = null, guardrails = null) {
-  const tier = normalizeTier(module?.settings?.model_tier || module?.model_tier);
+  const tier = normalizeTier(
+    module?.settings?.model_tier
+      || module?.settings?.modelTier
+      || module?.model_tier
+      || module?.modelTier
+  );
   const tierProvider = tieredEnv(tier, 'PROVIDER');
   const provider = normalizeProvider(
     module?.provider_override

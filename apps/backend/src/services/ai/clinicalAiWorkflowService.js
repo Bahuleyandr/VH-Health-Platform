@@ -564,6 +564,8 @@ async function saveGeneration({
     usage.finish_reason || null,
     JSON.stringify({
       ...metadata,
+      tier: aiResult?.tier || 'quick',
+      model_tier: aiResult?.tier || 'quick',
       failure_reason: failureReason,
       fallback_reason: aiResult?.usedAi ? null : aiResult?.reason || 'template_or_rule_output',
       generation_mode: aiResult?.generation_mode || (aiResult?.usedAi ? 'ai' : 'template_fallback'),
@@ -660,6 +662,8 @@ function standardDraftResponse({ module, prompt, draft, citations, safetyFlags, 
     ai_metadata: {
       provider: aiResult?.provider || 'template',
       model: aiResult?.model || null,
+      tier: aiResult?.tier || 'quick',
+      model_tier: aiResult?.tier || 'quick',
       used_ai: Boolean(aiResult?.usedAi),
       fallback_reason: aiResult?.usedAi ? null : aiResult?.reason || 'template_or_rule_output',
       generation_mode: aiResult?.generation_mode || (aiResult?.usedAi ? 'ai' : 'template_fallback'),

@@ -398,6 +398,8 @@ function buildStructuredSummary(context, hospitalCourse, aiResult) {
     ai_metadata: {
       provider: aiResult.provider,
       model: aiResult.model,
+      tier: aiResult.tier || 'quick',
+      model_tier: aiResult.tier || 'quick',
       module_key: aiResult.moduleKey,
       used_ai: aiResult.usedAi,
       prompt_tokens: aiResult.usage?.prompt_tokens || 0,
@@ -463,6 +465,8 @@ function buildPrompt(context) {
 
 async function saveAiGeneration(context, summary, requestedBy, sourceHash, tenantId = null) {
   const metadata = {
+    tier: summary.ai_metadata.tier || 'quick',
+    model_tier: summary.ai_metadata.model_tier || summary.ai_metadata.tier || 'quick',
     fallback_reason: summary.ai_metadata.fallback_reason,
     usage: {
       prompt_tokens: summary.ai_metadata.prompt_tokens || 0,
