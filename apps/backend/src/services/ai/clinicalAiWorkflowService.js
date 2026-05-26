@@ -802,7 +802,13 @@ const ADMISSION_AI_DRAFT_GRAPH_NODES = {
       });
     }
     // Layer hallucination defenses.
-    safetyFlags.push(...runOutputDefenses({ draft: state.draft, module: state.module, context: state.context, citations }));
+    const outputDefenseFlags = runOutputDefenses({
+      draft: state.draft,
+      module: state.module,
+      context: state.context,
+      citations,
+    });
+    safetyFlags.push(...outputDefenseFlags);
     if (
       state.moduleKey === 'clinical_coding_assist'
       && !asArray(state.context.notes).some((event) => event.payload?.is_signed === true)
@@ -813,7 +819,7 @@ const ADMISSION_AI_DRAFT_GRAPH_NODES = {
         message: 'Coding assistant is restricted to signed documentation and no signed note was found.',
       });
     }
-    return { citations, safetyFlags };
+    return { citations, safetyFlags, outputDefenseFlags };
   },
 
   run_debate: async (state) => {
@@ -857,6 +863,9 @@ const ADMISSION_AI_DRAFT_GRAPH_NODES = {
         request_id: state.requestContext.request_id,
         context_snapshot_id: state.snapshot.id || null,
         tenant_region: state.requestContext.tenant_region,
+        output_defenses_ran: true,
+        defenses_passed: !asArray(state.outputDefenseFlags).length,
+        output_defense_flag_codes: asArray(state.outputDefenseFlags).map((flag) => flag.code),
         defense_flag_codes: state.safetyFlags.map((flag) => flag.code),
         context_signature: state.contextSignature,
         prior_decisions_count: state.decisionMemory.entries.length,

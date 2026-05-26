@@ -170,6 +170,32 @@ Covered journey:
 - Verifies both the API response and `clinical_ai_generations` row are labelled
   `provider=ollama`, `tier=deep`, `generation_mode=ai`, and
   `provider_status=used`.
+- Verifies output-defense metadata is visible on the persisted generation:
+  `output_defenses_ran=true` and `defenses_passed=true`.
+
+## Clinical AI Tenant Rollout Preflight
+
+Command:
+
+```powershell
+.\scripts\check-clinical-ai-tenant-preflight.ps1 `
+  -RequirePilotSignoff `
+  -ReviewerQueueWalkthroughConfirmed `
+  -PhiLoggingReviewed `
+  -SafetyReviewCadenceConfirmed `
+  -NoAutomaticPatientDispatchConfirmed
+```
+
+Covered journey:
+
+- Checks the tenant, required Clinical AI governance tables, module catalogue,
+  guardrails, reviewer staffing, tenant region/locale, audit trail,
+  output-defense visibility, retention/numbering rows, pilot signoff, backend
+  health when requested, and PHI logger wiring.
+- Reports manual hospital attestations separately so rollout cannot be treated
+  as ready unless clinical workflow, PHI logging, safety cadence, and patient
+  dispatch policy have been explicitly confirmed.
+- `-Json` emits an archiveable evidence object for hospital rollout tickets.
 
 Browser-level local journeys live in `apps/admin/e2e/authenticated.spec.ts` and
 cover login/session reuse, dashboard, users, appointments, uploads,

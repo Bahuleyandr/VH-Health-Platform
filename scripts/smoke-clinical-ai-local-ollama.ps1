@@ -487,7 +487,9 @@ SELECT concat_ws('|',
   COALESCE(metadata->>'model_tier', ''),
   COALESCE(metadata->>'generation_mode', ''),
   COALESCE(metadata->>'provider_status', ''),
-  used_ai::text
+  used_ai::text,
+  COALESCE(metadata->>'output_defenses_ran', ''),
+  COALESCE(metadata->>'defenses_passed', '')
 )
 FROM clinical_ai_generations
 WHERE tenant_id = '$tenantSql'::uuid
@@ -505,9 +507,12 @@ LIMIT 1;
   $dbMode = if ($parts.Length -gt 4) { $parts[4] } else { "" }
   $dbProviderStatus = if ($parts.Length -gt 5) { $parts[5] } else { "" }
   $dbUsedAi = if ($parts.Length -gt 6) { $parts[6] } else { "" }
+  $dbOutputDefensesRan = if ($parts.Length -gt 7) { $parts[7] } else { "" }
+  $dbDefensesPassed = if ($parts.Length -gt 8) { $parts[8] } else { "" }
 
   Add-ContractResult $results "db_labels_local_ollama" (($dbProvider -eq "ollama") -and ($dbModel -eq $DeepModel) -and ($dbTier -eq "deep") -and ($dbModelTier -eq "deep")) "provider=$dbProvider model=$dbModel tier=$dbTier modelTier=$dbModelTier"
   Add-ContractResult $results "db_labels_ai_used" (($dbUsedAi -eq "true") -and ($dbMode -eq "ai") -and ($dbProviderStatus -eq "used")) "usedAi=$dbUsedAi mode=$dbMode providerStatus=$dbProviderStatus"
+  Add-ContractResult $results "db_output_defenses_visible" (($dbOutputDefensesRan -eq "true") -and ($dbDefensesPassed -eq "true")) "outputDefensesRan=$dbOutputDefensesRan defensesPassed=$dbDefensesPassed"
 } finally {
   if ($null -ne $mockServer) {
     try {
