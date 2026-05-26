@@ -2955,6 +2955,15 @@ describe('future-proof clinical AI and privacy foundations', () => {
       );
       expectStatus(toggled, 200, 'enable soap_from_dictation');
 
+      const config = await doctor.get('/api/v1/clinical/voice-note/config');
+      expectStatus(config, 200, 'voice note config');
+      expect(config.body.data.voice_note).toEqual(expect.objectContaining({
+        module_key: 'soap_from_dictation',
+        audio_capture_allowed: true,
+        human_review_required: true,
+        patient_dispatch_allowed: false,
+      }));
+
       // Upload a tiny synthetic WAV buffer. Mock STT returns a canned transcript.
       const fakeWav = Buffer.from('RIFFmockWAVEfmt fakeaudio', 'ascii');
       const uploaded = await request(app)
