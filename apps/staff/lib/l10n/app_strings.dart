@@ -1960,6 +1960,18 @@ class AppStrings {
       _t('clinical_ai.draft.status_prefix');
   String get clinicalAiDraftProviderPrefix =>
       _t('clinical_ai.draft.provider_prefix');
+  String get clinicalAiGovernanceLabelAi =>
+      _t('clinical_ai.governance.label.ai');
+  String get clinicalAiGovernanceLabelFallback =>
+      _t('clinical_ai.governance.label.fallback');
+  String get clinicalAiGovernanceLabelBlocked =>
+      _t('clinical_ai.governance.label.blocked');
+  String get clinicalAiGovernanceLabelSchemaUnavailable =>
+      _t('clinical_ai.governance.label.schema_unavailable');
+  String get clinicalAiGovernanceLabelDeepTier =>
+      _t('clinical_ai.governance.label.deep_tier');
+  String get clinicalAiGovernanceReasonPrefix =>
+      _t('clinical_ai.governance.reason_prefix');
   String clinicalAiDraftDecidedToast(String decision) =>
       '${_t('clinical_ai.draft.decided_prefix')} $decision';
   String clinicalAiDraftDecisionFailed(String err) =>
@@ -3820,6 +3832,12 @@ class AppStrings {
       'clinical_ai.draft.admission_prefix': 'Admission:',
       'clinical_ai.draft.status_prefix': 'Status:',
       'clinical_ai.draft.provider_prefix': 'Provider:',
+      'clinical_ai.governance.label.ai': 'AI',
+      'clinical_ai.governance.label.fallback': 'Fallback',
+      'clinical_ai.governance.label.blocked': 'Blocked',
+      'clinical_ai.governance.label.schema_unavailable': 'Schema unavailable',
+      'clinical_ai.governance.label.deep_tier': 'Deep tier',
+      'clinical_ai.governance.reason_prefix': 'Reason:',
       'clinical_ai.draft.decided_prefix': 'Draft',
       'clinical_ai.draft.decision_failed_prefix': 'Failed to record decision:',
       'clinical_ai.compose_runs.title': 'Compose Runs',

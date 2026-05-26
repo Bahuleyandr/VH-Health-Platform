@@ -24,6 +24,7 @@ const {
   updateClinicalAiTenantModule,
 } = await import('../../services/ai/clinicalAiModuleService.js');
 const {
+  listReviews,
   updateReview,
 } = await import('../../services/ai/clinicalAiWorkflowService.js');
 
@@ -278,6 +279,68 @@ describe('Clinical AI review authorization hardening', () => {
       'NURSING_STAFF',
       { tenantId: TENANT },
     )).rejects.toMatchObject({ code: 'CLINICAL_AI_REVIEW_ROLE_FORBIDDEN' });
+  });
+
+  it('exposes generation mode labels in the tenant-scoped review list', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{
+      id: 11,
+      generation_id: 21,
+      module_key: 'medication_reconciliation',
+      patient_uid: null,
+      patient_name: null,
+      admission_id: 31,
+      reviewer_uid: null,
+      reviewer_role: 'DOCTOR',
+      decision: 'pending',
+      edited_draft: null,
+      rejection_reason: null,
+      reviewer_note: null,
+      metadata: {},
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      provider: 'ollama',
+      model: 'llama3.1:70b-instruct-q4_K_M',
+      total_tokens: 42,
+      used_ai: true,
+      draft: { reconciliation: [] },
+      citations: [{ source: 'medication_orders' }],
+      generation_status: 'draft',
+      tier: 'deep',
+      model_tier: 'deep',
+      generation_mode: 'ai',
+      fallback_reason: null,
+      readiness_reason: null,
+      provider_status: 'used',
+      safety_flags: [],
+      module_review_roles: ['DOCTOR'],
+    }]);
+
+    const result = await listReviews({
+      decision: 'pending',
+      reviewerRole: 'DOCTOR',
+      tenantId: TENANT,
+    });
+
+    expect(result.count).toBe(1);
+    expect(result.reviews[0]).toMatchObject({
+      used_ai: true,
+      tier: 'deep',
+      model_tier: 'deep',
+      generation_mode: 'ai',
+      provider_status: 'used',
+      draft: { reconciliation: [] },
+      citations: [{ source: 'medication_orders' }],
+    });
+    const [sql, tenant, decision, moduleKey, role] =
+      queryUnsafeMock.mock.calls[0];
+    expect(String(sql)).toContain('g.used_ai');
+    expect(String(sql)).toContain('g.draft');
+    expect(String(sql)).toContain("metadata->>'generation_mode'");
+    expect(String(sql)).toContain("metadata->>'provider_status'");
+    expect(tenant).toBe(TENANT);
+    expect(decision).toBe('pending');
+    expect(moduleKey).toBeNull();
+    expect(role).toBe('DOCTOR');
   });
 
   it('allows listed reviewer roles to update reviews', async () => {
