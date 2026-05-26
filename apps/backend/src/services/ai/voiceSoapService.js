@@ -85,6 +85,43 @@ function validateAudio(audioBuffer, mimeType) {
   }
 }
 
+function summarizeVoiceCapturePolicy(module, tenantId) {
+  const settings = module?.settings || {};
+  const moduleEnabled = module?.enabled === true;
+  return {
+    module_key: MODULE_KEY,
+    tenant_id: tenantId,
+    module_enabled: moduleEnabled,
+    audio_capture_allowed: moduleEnabled,
+    blocking_reason: moduleEnabled ? null : 'VOICE_MODULE_DISABLED',
+    decision_support_only: true,
+    human_review_required: settings.requiresClinicianSignoff !== false,
+    patient_dispatch_allowed: false,
+    consent_policy_required: true,
+    retention_days: Number.parseInt(settings.retentionDays, 10) || 30,
+    approval_policy: settings.approvalPolicy || null,
+    review_roles: Array.isArray(settings.reviewRoles) ? settings.reviewRoles : [],
+  };
+}
+
+export async function getVoiceCapturePolicy({ req, tenantId = null, refresh = false } = {}) {
+  const tid = tenantId || resolveTenantId(req);
+  const module = await getClinicalAiModule(MODULE_KEY, { tenantId: tid, refresh });
+  return summarizeVoiceCapturePolicy(module, tid);
+}
+
+async function assertVoiceCaptureAllowed({ req, tenantId = null } = {}) {
+  const policy = await getVoiceCapturePolicy({ req, tenantId });
+  if (!policy.audio_capture_allowed) {
+    throw AppError.forbidden(
+      'Voice dictation is disabled until the tenant enables SOAP from Dictation',
+      'CLINICAL_AI_VOICE_CAPTURE_DISABLED',
+      policy,
+    );
+  }
+  return policy;
+}
+
 /**
  * Save the voice-note row (audio metadata + transcript). The audio bytes
  * themselves live in R2 — caller passes in the storage_key after uploading,
@@ -99,6 +136,7 @@ async function persistVoiceNote({
   mimeType,
   durationSeconds = null,
   transcriptResult,
+  capturePolicy = null,
 }) {
   const rows = await prisma.$queryRawUnsafe(
     `INSERT INTO clinical_voice_notes
@@ -126,7 +164,10 @@ async function persistVoiceNote({
     transcriptResult.text || null,
     transcriptResult.status || 'skipped',
     transcriptResult.reason || null,
-    JSON.stringify({ audio_bytes: null })
+    JSON.stringify({
+      audio_bytes: null,
+      capture_policy: capturePolicy,
+    })
   );
   return rows[0];
 }
@@ -146,8 +187,9 @@ export async function createAndTranscribeVoiceNote({
   durationSeconds = null,
   language = null,
 }) {
-  validateAudio(audioBuffer, mimeType);
   const tenantId = resolveTenantId(req);
+  const capturePolicy = await assertVoiceCaptureAllowed({ req, tenantId });
+  validateAudio(audioBuffer, mimeType);
   const tenantRegion = req?.tenant?.region || null;
   const recordedBy = req?.user?.uid || null;
 
@@ -167,6 +209,7 @@ export async function createAndTranscribeVoiceNote({
     mimeType,
     durationSeconds,
     transcriptResult,
+    capturePolicy,
   });
 
   await publishEvent({
@@ -209,7 +252,7 @@ export async function generateSoapDraftFromVoiceNote({ req, voiceNoteId }) {
     throw AppError.conflict('SOAP draft already generated for this voice note');
   }
 
-  const module = await getClinicalAiModule(MODULE_KEY);
+  const module = await getClinicalAiModule(MODULE_KEY, { tenantId });
   if (!module.enabled) {
     throw AppError.forbidden(`Clinical AI module is disabled: ${module.display_name}`);
   }
@@ -382,6 +425,7 @@ export async function listVoiceNotes({ tenantId, recordedBy = null, limit = 50 }
 }
 
 export default {
+  getVoiceCapturePolicy,
   createAndTranscribeVoiceNote,
   generateSoapDraftFromVoiceNote,
   listVoiceNotes,

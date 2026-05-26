@@ -40,6 +40,7 @@ class VoiceDictationService {
   /// or if the platform doesn't support recording.
   static Future<void> start() async {
     if (await _recorder.isRecording()) return;
+    await _assertCaptureAllowed();
     if (!await _recorder.hasPermission()) {
       throw Exception(
         'Microphone permission denied. Enable it in your OS / app settings.',
@@ -63,6 +64,47 @@ class VoiceDictationService {
     );
     _activePath = path;
     _startedAt = DateTime.now();
+  }
+
+  static Future<void> _assertCaptureAllowed() async {
+    final headers = await core.ApiConfig.authenticatedAuthHeaders();
+    final uri = Uri.parse(
+      '${core.ApiConfig.baseUrl}/clinical/voice-note/config',
+    );
+    final response = await http.get(uri, headers: headers);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Voice dictation policy check failed.');
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception('Unexpected voice dictation policy response.');
+    }
+    final data = decoded['data'];
+    if (data is! Map<String, dynamic>) {
+      throw Exception('Voice dictation policy response missing data.');
+    }
+    if (data['configured'] == false) {
+      final reason = data['reason']?.toString();
+      throw Exception(
+        reason == null || reason.isEmpty
+            ? 'Voice dictation is not configured.'
+            : 'Voice dictation is not configured: $reason',
+      );
+    }
+
+    final voiceNote = data['voice_note'];
+    if (voiceNote is Map<String, dynamic>) {
+      final allowed = voiceNote['audio_capture_allowed'] == true;
+      if (!allowed) {
+        final reason = voiceNote['blocking_reason']?.toString();
+        throw Exception(
+          reason == null || reason.isEmpty
+              ? 'Voice dictation is disabled for this tenant.'
+              : 'Voice dictation is disabled for this tenant: $reason',
+        );
+      }
+    }
   }
 
   /// Stop recording, upload to backend, and return the transcript text.

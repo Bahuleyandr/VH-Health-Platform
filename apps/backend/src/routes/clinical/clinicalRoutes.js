@@ -471,8 +471,14 @@ router.get(
  * Returns the configured STT provider so clients can show the right UI
  * (e.g. disable recording if no provider is reachable).
  */
-router.get('/voice-note/config', (req, res) => {
-  return success(res, describeSttConfig({ tenantRegion: req.tenant?.region || null }), 'STT configuration retrieved');
+router.get('/voice-note/config', async (req, res, next) => {
+  try {
+    const stt = describeSttConfig({ tenantRegion: req.tenant?.region || null });
+    const voiceNote = await voiceSoapService.getVoiceCapturePolicy({ req });
+    return success(res, { ...stt, voice_note: voiceNote }, 'STT configuration retrieved');
+  } catch (err) {
+    return next(err);
+  }
 });
 
 /**
