@@ -655,7 +655,15 @@ async function insertGeneration({
       usage.latency_ms || aiResult?.latencyMs || null,
       usage.provider_request_id || aiResult?.requestId || null,
       usage.finish_reason || aiResult?.finishReason || null,
-      JSON.stringify(metadata || {})
+      JSON.stringify({
+        ...(metadata || {}),
+        tier: aiResult?.tier || 'quick',
+        model_tier: aiResult?.tier || 'quick',
+        fallback_reason: aiResult?.usedAi ? null : aiResult?.reason || 'template_or_rule_output',
+        generation_mode: aiResult?.generation_mode || (aiResult?.usedAi ? 'ai' : 'template_fallback'),
+        readiness_reason: aiResult?.readiness_reason || null,
+        provider_status: aiResult?.provider_status || (aiResult?.usedAi ? 'used' : 'template_fallback'),
+      })
     );
     return rows[0] || null;
   } catch (err) {

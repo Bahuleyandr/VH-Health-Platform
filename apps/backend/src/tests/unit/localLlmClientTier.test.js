@@ -95,6 +95,28 @@ describe('module with model_tier=deep and DEEP env vars set', () => {
   });
 });
 
+describe('module with modelTier=deep and DEEP env vars set', () => {
+  it('accepts camelCase settings from admin payloads', () => {
+    process.env.CLINICAL_AI_PROVIDER = 'template';
+    process.env.CLINICAL_AI_DEEP_PROVIDER = 'ollama';
+    process.env.CLINICAL_AI_DEEP_BASE_URL = 'http://ollama-internal:11434';
+    process.env.CLINICAL_AI_DEEP_MODEL = 'llama3.1:70b-instruct-q4_K_M';
+
+    const config = _resolveProviderConfigForTesting({
+      module_key: 'medication_reconciliation',
+      enabled: true,
+      external_allowed: false,
+      settings: { risk: 'critical', modelTier: 'deep' },
+    });
+
+    expect(config.tier).toBe('deep');
+    expect(config.provider).toBe('ollama');
+    expect(config.model).toBe('llama3.1:70b-instruct-q4_K_M');
+    expect(config.baseUrl).toBe('http://ollama-internal:11434');
+    expect(config.serialized.externalProvider).toBe(false);
+  });
+});
+
 describe('module with model_tier=deep but DEEP env vars unset', () => {
   it('falls back to the standard CLINICAL_AI_* chain so single-credential deployments keep working', () => {
     process.env.CLINICAL_AI_PROVIDER = 'ollama';

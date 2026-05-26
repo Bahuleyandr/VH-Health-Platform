@@ -362,12 +362,16 @@ this is wired but the GPU node is hospital-side.
    CLINICAL_AI_ALLOW_EXTERNAL=false   # for this tenant
    ```
 3. Modules tier-routed to deep (declared in
+   `clinical_ai_modules.settings.model_tier='deep'` or
    `clinical_ai_modules.settings.modelTier='deep'`) will route to
    Ollama instead of any external provider. Quick-tier modules stay
    on whatever they were configured for.
-4. **Verify with a smoke test:** run a critical Tier C draft (e.g.
-   `medication_reconciliation`), check `clinical_ai_generations.
-   provider` says `ollama`, not `anthropic` / `openai`.
+4. **Verify with a smoke test:** run
+   `scripts/smoke-clinical-ai-local-ollama.ps1` against a backend started with
+   the deep-tier env vars above. The smoke calls the real admission
+   `medication_reconciliation` workflow and checks the API response plus
+   `clinical_ai_generations` for `provider=ollama`, `metadata.tier=deep`,
+   `metadata.generation_mode=ai`, and `metadata.provider_status=used`.
 
 **Don't flip until** at least one critical-risk module has been
 pilot-evaluated against the local model — output quality on 70B

@@ -68,6 +68,10 @@ const CLINICAL_ENV_KEYS = [
   'CLINICAL_AI_ALLOW_EXTERNAL',
   'CLINICAL_AI_API_KEY',
   'CLINICAL_AI_BASE_URL',
+  'CLINICAL_AI_DEEP_API_KEY',
+  'CLINICAL_AI_DEEP_BASE_URL',
+  'CLINICAL_AI_DEEP_MODEL',
+  'CLINICAL_AI_DEEP_PROVIDER',
   'CLINICAL_AI_MAX_TOKENS',
   'CLINICAL_AI_MODEL',
   'CLINICAL_AI_DIARIZATION_ALLOWED_REGIONS',
@@ -351,6 +355,85 @@ describe('clinical AI provider client', () => {
         headers: expect.not.objectContaining({ Authorization: expect.any(String) }),
       })
     );
+  });
+
+  it('routes deep-tier modules to local Ollama without requiring the external gate', async () => {
+    process.env.CLINICAL_AI_PROVIDER = 'template';
+    process.env.CLINICAL_AI_DEEP_PROVIDER = 'ollama';
+    process.env.CLINICAL_AI_DEEP_BASE_URL = 'http://ollama-internal:11434';
+    process.env.CLINICAL_AI_DEEP_MODEL = 'llama3.1:70b-instruct-q4_K_M';
+    mockModule = {
+      ...mockModule,
+      external_allowed: false,
+      settings: { risk: 'critical', modelTier: 'deep' },
+    };
+    global.fetch.mockResolvedValue(okJson({
+      response: 'Ollama deep draft',
+      prompt_eval_count: 17,
+      eval_count: 11,
+      total_duration: 250000000,
+      done_reason: 'stop',
+    }));
+
+    const result = await generateClinicalText({
+      systemPrompt: 'System safety prompt',
+      userPrompt: 'Patient context',
+      taskType: 'medication_reconciliation',
+      tenantRegion: 'IN',
+    });
+
+    expect(result).toMatchObject({
+      usedAi: true,
+      provider: 'ollama',
+      model: 'llama3.1:70b-instruct-q4_K_M',
+      tier: 'deep',
+      generation_mode: 'ai',
+      provider_status: 'used',
+      text: 'Ollama deep draft',
+      usage: { prompt_tokens: 17, completion_tokens: 11, total_tokens: 28 },
+    });
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://ollama-internal:11434/api/generate',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(body).toMatchObject({
+      model: 'llama3.1:70b-instruct-q4_K_M',
+      stream: false,
+      system: 'System safety prompt',
+      prompt: 'Patient context',
+    });
+  });
+
+  it('still blocks deep-tier external providers unless governance allows external AI', async () => {
+    process.env.CLINICAL_AI_DEEP_PROVIDER = 'anthropic';
+    process.env.CLINICAL_AI_DEEP_MODEL = 'claude-test-model';
+    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
+    mockModule = {
+      ...mockModule,
+      external_allowed: false,
+      settings: { risk: 'critical', model_tier: 'deep' },
+    };
+
+    const result = await generateClinicalText({
+      systemPrompt: 'System safety prompt',
+      userPrompt: 'Patient context',
+      taskType: 'medication_reconciliation',
+      tenantRegion: 'IN',
+    });
+
+    expect(result).toMatchObject({
+      usedAi: false,
+      provider: 'anthropic',
+      tier: 'deep',
+      generation_mode: 'blocked',
+      provider_status: 'blocked',
+    });
+    expect(result.reason).toMatch(/ALLOW_EXTERNAL/);
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it('turns disabled modules into template fallback without calling the provider', async () => {
