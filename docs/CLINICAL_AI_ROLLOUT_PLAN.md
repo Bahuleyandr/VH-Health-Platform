@@ -11,7 +11,7 @@ Tier A–H module catalogue all on `main`.
 - ✅ **Phase 2** — Flutter clinician screens (API client + review queue + draft detail).
 - ✅ **Phase 3** — Flutter web Dockerfile + nginx + cluster manifest set.
 - ✅ **Phase 4** — Ollama in-cluster deep tier + backend `CLINICAL_AI_DEEP_*` env.
-- ✅ **Phase 5** — admin/staff navigation, auto-resume scheduler, admin E2E coverage, and manual fail escape hatch for governance-paused runs.
+- ✅ **Phase 5** — admin/staff navigation, auto-resume scheduler, admin E2E coverage, manual fail escape hatch, Flutter compose tree, and voice-to-SOAP bridge.
 
 ### Module catalogue (`AI_FEATURE_GAP_BACKLOG.md`) — all shipped
 
@@ -275,18 +275,17 @@ back to it if any phase breaks.
 - Two new GoRouter routes added inside the existing ShellRoute: `/clinical-ai/queue` and `/clinical-ai/review/:reviewId`. Route push from the queue passes the row data via `extra:` so the detail screen renders immediately without a second round-trip.
 - `flutter analyze` clean on the new code; no errors, no info-level lints.
 
-**Decisions recorded in code:**
-- Compose tree visualisation deliberately NOT rendered in this MVP — too complex for a small screen and lower-value than the per-module review flow. Defer until clinicians ask.
-- Discharge-compose initiation flow also deferred — clinicians review drafts that are generated elsewhere; the "kick off a fresh compose" button is admin-portal-only for now.
+**Original MVP decisions, now superseded where noted:**
+- Compose tree visualisation was deliberately NOT rendered in the Phase 2 MVP. Superseded by the 2026-05-26 Phase 5 follow-up: staff now has `/clinical-ai/compose` and `/clinical-ai/compose/:runId` for parent/child run inspection.
+- Discharge-compose initiation flow remains admin-portal-only for now; clinicians review, resume, and sign drafts generated through approved admin/scheduler workflows.
 - Critical safety flags surface as a red banner (matches the admin UI's pattern). Backend already routes these to a dead-letter status, so they shouldn't normally reach the queue, but the UI handles them defensively.
 
 **Verified:** `flutter analyze` clean (0 issues). Build + sideload to dalekdefender APK pipeline is the next validation step (existing pipeline at `apps/staff/build/app/outputs/flutter-apk/app-debug.apk`; rebuild with `flutter build apk --debug --dart-define=API_URL=...`).
 
 **Follow-up shipped 2026-05-26:**
 - Staff dashboard navigation now exposes `AI Review` for doctor, nurse, pharmacy, admin, and super-admin roles through `lib/core/config/role_config.dart`; the tile and quick action both point to `/clinical-ai/queue`, while non-reviewer roles remain hidden.
-
-**Still deferred after this phase (intentional):**
-- Voice input for draft generation — deferred to Phase 5+ (the existing ambient services aren't yet bridged to multi-agent draft generation).
+- Staff compose-tree screens now expose recent discharge composes and their subgraph children.
+- Voice dictation and saved voice-note rows now bridge into `soap_from_dictation` drafts through the human-reviewed Clinical AI queue.
 
 ### Phase 3: Flutter web build + serve from cluster (~2–3 days) — ✅ SHIPPED 2026-04-30
 
@@ -465,6 +464,6 @@ If you (Claude or someone else) pick this up in a new session:
 5. **Don't add new AI services.** The rollout is delivery-focused. New AI work belongs in a separate proposal.
 
 The TauricResearch/TradingAgents-inspired multi-agent substrate is done.
-The system is ready to be used. The remaining work is making it
-*usable*, in the right places, by the right people, over the right
-network.
+The delivery surfaces are in place. Remaining rollout work is hospital-side
+approval and configuration: pilot ward/module scope, local DNS/cert choices,
+device/audio policy, and signoff before broad production use.
