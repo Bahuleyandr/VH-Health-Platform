@@ -309,9 +309,104 @@ $windowTo = $evidenceAt.AddMinutes(2).ToString("o")
 $seedSql = @"
 WITH seed_tenant AS (
   INSERT INTO tenants (id, slug, name, region, compliance_profile, status, settings, created_at, updated_at)
-  VALUES ('$tenantSql'::uuid, 'default', 'VH Health Default Tenant', 'IN', 'DPDP', 'active', '{}'::jsonb, NOW(), NOW())
+  VALUES (
+    '$tenantSql'::uuid,
+    'default',
+    'VH Health Default Tenant',
+    'IN',
+    'DPDP',
+    'active',
+    jsonb_build_object('locale', 'en', 'default_locale', 'en'),
+    NOW(),
+    NOW()
+  )
   ON CONFLICT (id) DO UPDATE
-    SET status = 'active', updated_at = NOW()
+    SET status = 'active',
+        settings = COALESCE(tenants.settings, '{}'::jsonb) || jsonb_build_object('locale', 'en', 'default_locale', 'en'),
+        updated_at = NOW()
+  RETURNING id
+),
+seed_numbering_series AS (
+  INSERT INTO numbering_series (
+    tenant_id,
+    code,
+    display_name,
+    format_template,
+    current_value,
+    starting_value,
+    padding,
+    reset_cadence,
+    status,
+    metadata,
+    created_at,
+    updated_at
+  )
+  SELECT
+    id,
+    'CLINICAL_AI_PILOT',
+    'Clinical AI pilot evidence sequence',
+    'AIP-{YYYY}-{SEQ}',
+    0,
+    0,
+    6,
+    'yearly',
+    'active',
+    jsonb_build_object('smoke_name', '$smokeSql', 'purpose', 'clinical_ai_rollout_preflight'),
+    NOW(),
+    NOW()
+  FROM seed_tenant
+  ON CONFLICT (tenant_id, code) DO UPDATE
+    SET status = 'active',
+        metadata = numbering_series.metadata || EXCLUDED.metadata,
+        updated_at = NOW()
+  RETURNING id
+),
+seed_retention_policies AS (
+  INSERT INTO data_retention_policies (
+    tenant_id,
+    policy_code,
+    applies_to_table,
+    display_name,
+    description,
+    retention_days,
+    action,
+    basis,
+    legal_hold_aware,
+    status,
+    metadata,
+    created_by,
+    created_at,
+    updated_at
+  )
+  SELECT
+    st.id,
+    policy.policy_code,
+    policy.applies_to_table,
+    policy.display_name,
+    'CI pilot fixture proving Clinical AI retention policy review before rollout.',
+    2555,
+    'archive',
+    'Clinical AI audit and medico-legal retention reviewed for pilot rollout.',
+    true,
+    'active',
+    jsonb_build_object('smoke_name', '$smokeSql', 'purpose', 'clinical_ai_rollout_preflight'),
+    '$reviewerSql'::uuid,
+    NOW(),
+    NOW()
+  FROM seed_tenant st
+  CROSS JOIN (VALUES
+    ('CLINICAL_AI_GENERATIONS_RETENTION', 'clinical_ai_generations', 'Clinical AI generation retention'),
+    ('CLINICAL_AI_REVIEWS_RETENTION', 'clinical_ai_reviews', 'Clinical AI review retention'),
+    ('CLINICAL_AI_EVAL_RETENTION', 'clinical_ai_model_eval_runs', 'Clinical AI eval retention'),
+    ('CLINICAL_AI_AUDIT_RETENTION', 'audit_logs', 'Clinical AI audit retention')
+  ) AS policy(policy_code, applies_to_table, display_name)
+  ON CONFLICT (tenant_id, applies_to_table) DO UPDATE
+    SET status = 'active',
+        retention_days = EXCLUDED.retention_days,
+        action = EXCLUDED.action,
+        basis = EXCLUDED.basis,
+        metadata = data_retention_policies.metadata || EXCLUDED.metadata,
+        updated_at = NOW()
   RETURNING id
 ),
 old_safety AS (

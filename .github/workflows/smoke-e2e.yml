@@ -229,6 +229,7 @@ jobs:
           -OutputPath output/ci-smoke/clinical-ai-tenant-preflight.json
           -RequirePilotSignoff
           -RequireRolloutReady
+          -RequireNoWarnings
           -ReviewerQueueWalkthroughConfirmed
           -PhiLoggingReviewed
           -SafetyReviewCadenceConfirmed
