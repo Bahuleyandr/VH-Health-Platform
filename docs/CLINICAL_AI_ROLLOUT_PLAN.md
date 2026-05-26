@@ -282,10 +282,11 @@ back to it if any phase breaks.
 
 **Verified:** `flutter analyze` clean (0 issues). Build + sideload to dalekdefender APK pipeline is the next validation step (existing pipeline at `apps/staff/build/app/outputs/flutter-apk/app-debug.apk`; rebuild with `flutter build apk --debug --dart-define=API_URL=...`).
 
-**Not done in this phase (intentional):**
-- Sidebar nav entry pointing to `/clinical-ai/queue` — Phase 5 work; the route exists and is reachable via deep-link or programmatic navigation today.
+**Follow-up shipped 2026-05-26:**
+- Staff dashboard navigation now exposes `AI Review` for doctor, nurse, pharmacy, admin, and super-admin roles through `lib/core/config/role_config.dart`; the tile and quick action both point to `/clinical-ai/queue`, while non-reviewer roles remain hidden.
+
+**Still deferred after this phase (intentional):**
 - Voice input for draft generation — deferred to Phase 5+ (the existing ambient services aren't yet bridged to multi-agent draft generation).
-- Per-role config gating in `lib/core/config/role_config.dart` — clinicians without any `reviewRoles` membership simply see an empty queue, which is correct behaviour. The role-config gate is cosmetic (hide nav entry from non-reviewers) and lands in Phase 5.
 
 ### Phase 3: Flutter web build + serve from cluster (~2–3 days) — ✅ SHIPPED 2026-04-30
 
@@ -348,7 +349,7 @@ back to it if any phase breaks.
 
 **Verified:** `kubectl kustomize infra/kubernetes/apps/ollama` emits StatefulSet + 2 services + NetworkPolicy clean. `kubectl kustomize infra/kubernetes/apps` (full app tier) composes including ollama with no conflicts.
 
-### Phase 5: parallel/optional work — ✅ TWO ITEMS SHIPPED 2026-04-30, others remain optional
+### Phase 5: parallel/optional work — ✅ THREE ITEMS SHIPPED, others remain optional
 
 **What landed:**
 
@@ -362,7 +363,9 @@ back to it if any phase breaks.
    - Schema-missing safe — silently no-ops if `clinical_ai_workflow_runs` table doesn't exist (migration 109 not applied).
    - 9 new unit tests in `src/tests/unit/workflowResumeScheduler.test.js` covering empty queue, schema-missing, unknown workflow_key, unknown pause_reason, gate-passes-resume, gate-fails-no-resume, resume-failure-counted-distinctly, fan-out cap, handler-throws-treated-as-gate-blocked.
 
-**Verified:** 1,305 backend unit tests pass (9 new + 1,296 existing, no regressions). `npm run lint` clean (eslint + raw-params + secrets). Admin lint clean.
+3. **Staff review navigation** — shipped 2026-05-26. The staff app now adds the `AI Review` dashboard feature and quick action for doctor, nurse, pharmacy, admin, and super-admin roles, routing directly to `/clinical-ai/queue` while keeping HR, lab, and general staff out of the Clinical AI review entry point.
+
+**Verified:** 1,305 backend unit tests pass (9 new + 1,296 existing, no regressions). `npm run lint` clean (eslint + raw-params + secrets). Admin lint clean. Staff-nav follow-up verified with `flutter test test\core\config\role_config_test.dart`, `flutter analyze`, and `git diff --check`.
 
 **Items NOT shipped** (the rollout plan called these out as "parallel / optional"; deferred deliberately):
 - **Voice-driven draft generation** — bridging `ambientDocumentationService` / `voiceSoapService` to the multi-agent draft path. Major value-add; 2-4 weeks of focused work; out of scope for Phase 5 hygiene work.
