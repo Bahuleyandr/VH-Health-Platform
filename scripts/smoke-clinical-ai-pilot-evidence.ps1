@@ -597,7 +597,7 @@ seed_audit AS (
       'pilot_stage', '$stageSql',
       'module_keys', jsonb_build_array('medication_reconciliation', 'patient_aftercare_instructions')
     ),
-    '$evidenceAtIso'::timestamp
+    ('$evidenceAtIso'::timestamptz AT TIME ZONE current_setting('TimeZone'))
   )
   RETURNING id
 )
