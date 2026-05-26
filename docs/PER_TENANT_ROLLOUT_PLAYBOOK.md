@@ -58,6 +58,23 @@ queue.
 
 Before enabling **any** AI module on a new tenant, confirm all four:
 
+Executable preflight:
+
+```powershell
+.\scripts\check-clinical-ai-tenant-preflight.ps1 `
+  -TenantId '<tenant-uuid>' `
+  -RequirePilotSignoff `
+  -ReviewerQueueWalkthroughConfirmed `
+  -PhiLoggingReviewed `
+  -SafetyReviewCadenceConfirmed `
+  -NoAutomaticPatientDispatchConfirmed
+```
+
+Use `-Json` when archiving the result into a change ticket or hospital
+governance pack. The script is read-only: it fails automated blockers,
+reports warnings, and keeps human attestations visible instead of silently
+approving rollout.
+
 ### 1.1 Substrate is on production
 
 - [ ] Migrations ≤139 applied (`SELECT MAX(id) FROM
@@ -67,7 +84,7 @@ Before enabling **any** AI module on a new tenant, confirm all four:
       `clinical_ai_workflow_runs` tables exist and are accepting
       inserts.
 - [ ] `runOutputDefenses` is wired (look for `defenses_passed` field
-      on a recent inserted generation row).
+      plus `output_defenses_ran` on a recent inserted generation row).
 - [ ] `LLM provider is reachable` — call `POST /api/v1/admin/clinical-
       ai/lab-patient-explanations` with an investigation_id you own,
       verify a 201 with `used_ai: true` and a non-zero `prompt_tokens`.
@@ -528,6 +545,8 @@ A condensed version of the above for the hospital's project lead.
 - [ ] `tenants.locale` and `tenants.region` set
 - [ ] Audit + PHI logging confirmed on at least one route
 - [ ] Weekly safety-review meeting on the calendar
+- [ ] `check-clinical-ai-tenant-preflight.ps1` archived with no automated
+      failures and all manual attestations confirmed
 
 **Stage 1 (week 1–2)**
 - [ ] Tier A explainers (5 modules) enabled
