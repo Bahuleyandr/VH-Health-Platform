@@ -24,6 +24,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { DEFAULT_TENANT_ID } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
+import { assertPatientInTenant } from './clinicalAiTenantGuards.js';
 import { generateClinicalText } from './localLlmClient.js';
 import { runOutputDefenses } from './hallucinationDefenses.js';
 import { resolveAmbientDiarization } from './ambientDiarizationService.js';
@@ -165,8 +166,16 @@ export async function createAmbientEncounter({
     throw AppError.badRequest(`Recording exceeds ${MAX_DURATION_SECONDS / 60}-minute cap`);
   }
   const tenantId = resolveTenantId({ tenantId: req?.tenantId });
+  const verifiedPatientUid = await assertPatientInTenant({
+    tenantId,
+    patientUid,
+    invalidCode: 'CLINICAL_AI_AMBIENT_PATIENT_UID_INVALID',
+    notFoundCode: 'CLINICAL_AI_AMBIENT_PATIENT_NOT_FOUND',
+    roleInvalidCode: 'CLINICAL_AI_AMBIENT_PATIENT_ROLE_INVALID',
+    tenantMismatchCode: 'CLINICAL_AI_AMBIENT_PATIENT_TENANT_MISMATCH',
+  });
 
-  await verifyRecordingConsent({ tenantId, patientUid, consentReference });
+  await verifyRecordingConsent({ tenantId, patientUid: verifiedPatientUid, consentReference });
 
   const diarization = await resolveAmbientDiarization({
     transcriptSegments,
@@ -259,9 +268,9 @@ export async function createAmbientEncounter({
        VALUES ($1::uuid, $2::uuid, $3, $4::timestamptz, $5::timestamptz, $6, $7::uuid,
                $8::uuid, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb,
                NOW(), NOW())
-       RETURNING id, created_at`,
+      RETURNING id, created_at`,
       tenantId,
-      patientUid,
+      verifiedPatientUid,
       admissionId ? Number.parseInt(admissionId, 10) : null,
       recordingStartedAt,
       recordingEndedAt || null,
@@ -308,9 +317,9 @@ export async function createAmbientEncounter({
           created_at, updated_at)
        VALUES ($1::uuid, $2::uuid, $3, $4, $4, $5, $6, 'v1', $7, $8, $9, $10::jsonb,
                $11::jsonb, $12::jsonb, $13::uuid, $14, $15, $16, $17::jsonb, NOW(), NOW())
-       RETURNING id`,
+      RETURNING id`,
       tenantId,
-      patientUid,
+      verifiedPatientUid,
       admissionId ? Number.parseInt(admissionId, 10) : null,
       MODULE_KEY,
       aiResult.provider || 'template',
@@ -364,7 +373,7 @@ export async function createAmbientEncounter({
         tenantId,
         generationId,
         MODULE_KEY,
-        patientUid,
+        verifiedPatientUid,
         admissionId ? Number.parseInt(admissionId, 10) : null,
         JSON.stringify({
           review_roles: module.settings?.reviewRoles || ['DOCTOR'],
