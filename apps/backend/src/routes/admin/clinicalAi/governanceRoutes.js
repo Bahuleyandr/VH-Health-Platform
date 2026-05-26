@@ -54,7 +54,13 @@ import {
   runCanary,
   upsertCanaryCase,
 } from '../../../services/ai/driftCanaryService.js';
-import { assemblePilotEvidencePack } from '../../../services/ai/pilotEvidencePackService.js';
+import {
+  assemblePilotEvidencePack,
+  createPilotSignoff,
+  decidePilotSignoff,
+  getPilotStageGate,
+  listPilotSignoffs,
+} from '../../../services/ai/pilotEvidencePackService.js';
 import { assembleReadinessPack } from '../../../services/ai/regulatoryReadinessService.js';
 import { normalizeRole, parseClinicalAiWindowDays } from './shared.js';
 import {
@@ -959,6 +965,96 @@ router.post('/pilot-evidence-pack', async (req, res, next) => {
     return success(res, pack, 'Clinical AI pilot evidence pack assembled', 201);
   } catch (err) {
     return next(err);
+  }
+});
+
+router.get('/pilot-signoffs/gate', async (req, res, next) => {
+  try {
+    const gate = await getPilotStageGate({
+      tenantId: req.tenantId,
+      pilotStage: req.query.pilot_stage,
+      moduleKeys: req.query.module_keys ?? req.query.module_key,
+    });
+    return success(res, gate, 'Clinical AI pilot signoff gate retrieved');
+  } catch (err) {
+    return next(clinicalAiSchemaUnavailable(err));
+  }
+});
+
+router.get('/pilot-signoffs', async (req, res, next) => {
+  try {
+    const result = await listPilotSignoffs({
+      tenantId: req.tenantId,
+      pilotStage: req.query.pilot_stage,
+      moduleKeys: req.query.module_keys ?? req.query.module_key,
+      limit: req.query.limit,
+    });
+    return success(res, result, 'Clinical AI pilot signoffs retrieved');
+  } catch (err) {
+    return next(clinicalAiSchemaUnavailable(err));
+  }
+});
+
+router.post('/pilot-signoffs', async (req, res, next) => {
+  try {
+    const result = await createPilotSignoff(
+      {
+        ...(req.body || {}),
+        module_keys: req.body?.module_keys ?? req.body?.module_key,
+        generatedBy: {
+          uid: req.user?.uid || null,
+          role: req.user?.role || null,
+        },
+      },
+      req.user?.uid || null,
+      { tenantId: req.tenantId },
+    );
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_PILOT_SIGNOFF_REQUESTED',
+      String(result.signoff?.id || 'pilot-signoff'),
+      null,
+      {
+        pilot_stage: result.signoff?.pilot_stage,
+        module_keys: result.signoff?.module_keys,
+        pack_hash: result.signoff?.pack_hash,
+        pilot_ready: result.signoff?.pilot_ready,
+        blocker_count: result.signoff?.blocker_count,
+        skipped_sections: result.signoff?.skipped_sections,
+      },
+    );
+    return success(res, result, 'Clinical AI pilot signoff requested', 201);
+  } catch (err) {
+    return next(clinicalAiSchemaUnavailable(err));
+  }
+});
+
+router.patch('/pilot-signoffs/:id', async (req, res, next) => {
+  try {
+    const signoff = await decidePilotSignoff(
+      req.params.id,
+      req.body?.decision,
+      req.user?.uid || null,
+      req.body?.reason || null,
+      { tenantId: req.tenantId },
+    );
+    await logClinicalAiAudit(
+      req,
+      'CLINICAL_AI_PILOT_SIGNOFF_DECIDED',
+      String(signoff.id),
+      null,
+      {
+        decision: signoff.status,
+        pilot_stage: signoff.pilot_stage,
+        module_keys: signoff.module_keys,
+        pack_hash: signoff.pack_hash,
+        stage_expansion_allowed: signoff.stage_expansion_allowed,
+        blocking_reason: signoff.blocking_reason,
+      },
+    );
+    return success(res, signoff, 'Clinical AI pilot signoff updated');
+  } catch (err) {
+    return next(clinicalAiSchemaUnavailable(err));
   }
 });
 

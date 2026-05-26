@@ -1031,7 +1031,15 @@ export interface PilotEvidencePack {
   min_reviewed_per_module: number;
   summary: {
     pilot_ready: boolean;
-    blockers: Array<{ code: string; module_key?: string; count?: number; required?: number; actual?: number }>;
+    blockers: Array<{
+      code: string;
+      module_key?: string;
+      section?: string;
+      reason?: string;
+      count?: number;
+      required?: number;
+      actual?: number;
+    }>;
     row_counts: Record<string, number>;
     skipped_sections: Record<string, string>;
     module_summary: PilotEvidenceModuleSummary[];
@@ -1058,15 +1066,119 @@ export interface PilotEvidencePack {
   sections: Record<string, unknown>;
 }
 
-export async function exportPilotEvidencePack(payload: {
+export interface PilotEvidencePackRequest {
   module_keys?: string[];
   pilot_stage?: string | null;
   window_days?: number | null;
   from?: string | null;
   to?: string | null;
   min_reviewed_per_module?: number | null;
-}) {
+}
+
+export async function exportPilotEvidencePack(payload: PilotEvidencePackRequest) {
   return postJSON<PilotEvidencePack>('/admin/clinical-ai/pilot-evidence-pack', payload);
+}
+
+export type PilotSignoffStatus = 'pending' | 'approved' | 'hold' | 'rejected' | string;
+
+export interface PilotSignoffSummary {
+  id: number;
+  tenant_id: string;
+  approval_type: string;
+  status: PilotSignoffStatus;
+  pilot_stage: string | null;
+  module_keys: string[];
+  requested_by?: string | null;
+  approved_by?: string | null;
+  rejected_by?: string | null;
+  reason?: string | null;
+  pack_hash?: string | null;
+  pack_version?: string | null;
+  evidence_window?: PilotEvidencePack["evidence_window"] | null;
+  min_reviewed_per_module?: number | null;
+  pilot_ready: boolean;
+  blocker_count: number;
+  blockers: PilotEvidencePack["summary"]["blockers"];
+  skipped_sections: Record<string, string>;
+  skipped_section_count: number;
+  row_counts: Record<string, number>;
+  module_summary: PilotEvidenceModuleSummary[];
+  generation_counts?: PilotEvidencePack["summary"]["generation_counts"];
+  review_counts?: PilotEvidencePack["summary"]["review_counts"];
+  safety_counts?: PilotEvidencePack["summary"]["safety_counts"];
+  eval_counts?: PilotEvidencePack["summary"]["eval_counts"];
+  audit_counts?: PilotEvidencePack["summary"]["audit_counts"];
+  pack_snapshot_present: boolean;
+  stage_expansion_allowed: boolean;
+  blocking_reason?: string | null;
+  expired: boolean;
+  expires_at?: string | null;
+  decided_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface PilotSignoffCreateResponse {
+  signoff: PilotSignoffSummary;
+  evidence_pack: PilotEvidencePack;
+}
+
+export interface PilotStageGate {
+  tenant_id: string;
+  pilot_stage: string;
+  module_keys: string[];
+  stage_expansion_allowed: boolean;
+  blocking_reason?: string | null;
+  latest_signoff: PilotSignoffSummary | null;
+  recent_signoffs: PilotSignoffSummary[];
+}
+
+export async function createPilotSignoff(payload: PilotEvidencePackRequest & {
+  reason?: string | null;
+  expires_at?: string | null;
+}) {
+  return postJSON<PilotSignoffCreateResponse>('/admin/clinical-ai/pilot-signoffs', payload);
+}
+
+export async function decidePilotSignoff(
+  id: number,
+  payload: { decision: 'approved' | 'hold' | 'rejected'; reason: string },
+) {
+  return fetchAdminAPI<PilotSignoffSummary>(`/admin/clinical-ai/pilot-signoffs/${id}`, {
+    method: 'PATCH',
+    body: payload,
+  });
+}
+
+export async function listPilotSignoffs(params: {
+  pilot_stage?: string | null;
+  module_keys?: string[] | string | null;
+  limit?: number | null;
+} = {}) {
+  const moduleKeys = Array.isArray(params.module_keys)
+    ? params.module_keys.join(',')
+    : params.module_keys;
+  return getJSON<{ signoffs: PilotSignoffSummary[]; count: number }>(
+    '/admin/clinical-ai/pilot-signoffs',
+    {
+      pilot_stage: params.pilot_stage || undefined,
+      module_keys: moduleKeys || undefined,
+      limit: params.limit || undefined,
+    },
+  );
+}
+
+export async function getPilotStageGate(params: {
+  pilot_stage?: string | null;
+  module_keys?: string[] | string | null;
+} = {}) {
+  const moduleKeys = Array.isArray(params.module_keys)
+    ? params.module_keys.join(',')
+    : params.module_keys;
+  return getJSON<PilotStageGate>('/admin/clinical-ai/pilot-signoffs/gate', {
+    pilot_stage: params.pilot_stage || undefined,
+    module_keys: moduleKeys || undefined,
+  });
 }
 
 // ---------------------------------------------------------------------------
