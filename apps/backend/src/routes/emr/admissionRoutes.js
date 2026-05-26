@@ -24,7 +24,11 @@ import {
 import { generateNursingAmbientSession } from '../../services/ai/nursingAmbientDocumentationService.js';
 import { generateFamilyUpdate } from '../../services/ai/familyUpdateGeneratorService.js';
 import { success, error } from '../../utils/responseHelper.js';
-import { canEditDischargeSummary, canSignDischargeSummary } from '../../utils/roleHelpers.js';
+import {
+  canEditDischargeSummary,
+  canSignDischargeSummary,
+  canViewDischargeSummary,
+} from '../../utils/roleHelpers.js';
 import { adviseForAdmission } from '../../controllers/appointment/appointmentWorkflowController.js';
 import prisma from '../../lib/prisma.js';
 
@@ -231,7 +235,7 @@ router.post(
       return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
     }
     const requestedBy = req.user?.uid;
-    const result = await admissionService.markForDischarge(admissionId, requestedBy);
+    const result = await admissionService.markForDischarge(admissionId, requestedBy, req.user?.role);
     success(res, result, 'Admission marked for discharge — draft summary generated, consults opened', HTTP_STATUS.CREATED);
   })
 );
@@ -254,7 +258,13 @@ router.post(
     }
     const completedBy = req.user?.uid;
     const notes = req.body?.notes ?? null;
-    const updated = await admissionService.completeDischargeConsult(admissionId, consultType, completedBy, notes);
+    const updated = await admissionService.completeDischargeConsult(
+      admissionId,
+      consultType,
+      completedBy,
+      notes,
+      { role: req.user?.role }
+    );
     success(res, { consult: updated }, `${consultType} consult logged as complete`);
   })
 );
@@ -267,6 +277,10 @@ router.post(
 router.post(
   '/:id/mark-drugs-dispensed',
   wrapAsync(async (req, res) => {
+    if (!admissionService.canCompleteDischargeWorkItem('pharmacy', req.user?.role)) {
+      return error(res, 'Only pharmacy can mark discharge drugs dispensed', HTTP_STATUS.FORBIDDEN);
+    }
+
     const admissionId = parseInt(req.params.id, 10);
     if (isNaN(admissionId)) {
       return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
@@ -274,6 +288,38 @@ router.post(
     const dispensedBy = req.user?.uid;
     const updated = await admissionService.markDischargeDrugsDispensed(admissionId, dispensedBy);
     success(res, { admission: updated }, 'Discharge drugs marked as dispensed');
+  })
+);
+
+// ---------------------------------------------------------------------------
+// GET /discharge-hub — Central discharge worklist for active cascades.
+// ---------------------------------------------------------------------------
+router.get(
+  '/discharge-hub',
+  wrapAsync(async (req, res) => {
+    const hub = await admissionService.listDischargeHubAdmissions({
+      uid: req.user?.uid,
+      role: req.user?.role,
+    });
+    success(res, hub, 'Discharge hub worklist retrieved');
+  })
+);
+
+// ---------------------------------------------------------------------------
+// GET /:id/discharge-hub — Role-owned discharge workflow state
+// ---------------------------------------------------------------------------
+router.get(
+  '/:id/discharge-hub',
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+    const hub = await admissionService.getDischargeHub(admissionId, {
+      uid: req.user?.uid,
+      role: req.user?.role,
+    });
+    success(res, hub, 'Discharge hub retrieved');
   })
 );
 
@@ -478,6 +524,27 @@ router.post(
 
     success(res, { discharge_summary: summary, is_draft: true },
       'Discharge summary generated (draft — requires doctor review and signature)');
+  })
+);
+
+// ---------------------------------------------------------------------------
+// GET /:id/discharge-summary — Load latest saved/generated summary
+// ---------------------------------------------------------------------------
+router.get(
+  '/:id/discharge-summary',
+  wrapAsync(async (req, res) => {
+    const role = req.user?.role?.toUpperCase();
+    if (!canViewDischargeSummary(role) && role !== 'SUPER_ADMIN') {
+      return error(res, 'You do not have permission to view discharge summaries', HTTP_STATUS.FORBIDDEN);
+    }
+
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const summary = await dischargeSummaryGenerator.getLatestDischargeSummary(admissionId);
+    success(res, { discharge_summary: summary }, summary ? 'Discharge summary retrieved' : 'No discharge summary found');
   })
 );
 

@@ -7,7 +7,7 @@ import '../../../core/widgets/staff_scaffold.dart';
 import '../../../l10n/app_strings.dart';
 import '../../productivity/widgets/smart_phrase_field.dart';
 
-/// EMR Clinical Notes screen — tabbed view for SOAP, Progress, and Procedure notes.
+/// EMR Clinical Notes screen — tabbed view for progress, procedure, and all notes.
 class ClinicalNotesScreen extends StatefulWidget {
   final String patientUid;
   final String? patientName;
@@ -25,18 +25,20 @@ class ClinicalNotesScreen extends StatefulWidget {
 class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  static const Color _sheetTextPrimary = Color(0xFF1F2937);
+  static const Color _sheetTextSecondary = Color(0xFF667085);
+  static const Color _sheetFieldFill = Color(0xFFF8FAFC);
 
-  // First three tabs are typed (filtered by note_type when fetching);
-  // the 4th tab (index == _noteTypes.length) is the cross-role
+  // First two tabs are typed (filtered by note_type when fetching);
+  // the 3rd tab (index == _noteTypes.length) is the cross-role
   // "All Notes" view rendered by PatientNotesList — it fetches every
   // note for the patient and shows author_role badges, plus an
   // admin-only edit pencil.
-  static const _noteTypes = ['soap', 'progress', 'procedure'];
+  static const _noteTypes = ['progress', 'procedure'];
 
   List<String> _tabLabels(BuildContext context) {
     final s = AppStrings.of(context);
     return [
-      s.clinicalNotesTabSoap,
       s.clinicalNotesTabProgress,
       s.clinicalNotesTabProcedure,
       'All Notes',
@@ -53,7 +55,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     _tabController = TabController(length: _noteTypes.length + 1, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
-        // _loadNotesForTab is a no-op for the All-Notes tab (index 3) —
+        // _loadNotesForTab is a no-op for the All-Notes tab —
         // PatientNotesList fetches its own data on init/refresh.
         if (_tabController.index < _noteTypes.length) {
           _loadNotesForTab(_tabController.index);
@@ -80,15 +82,16 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     });
 
     try {
-      final data = await MedicalApiService.getPatientNotes(
-        widget.patientUid,
-        noteType: type,
-      );
-      final list = data['notes'];
+      final list = type == 'progress'
+          ? await _loadProgressNoteList()
+          : _listFromNoteResponse(
+              await MedicalApiService.getPatientNotes(
+                widget.patientUid,
+                noteType: type,
+              ),
+            );
       setState(() {
-        _notesByType[type] = list is List
-            ? list.map((e) => Map<String, dynamic>.from(e as Map)).toList()
-            : [];
+        _notesByType[type] = list;
         _loadingByType[type] = false;
       });
     } catch (e) {
@@ -99,10 +102,140 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     }
   }
 
+  Future<List<Map<String, dynamic>>> _loadProgressNoteList() async {
+    final responses = await Future.wait([
+      MedicalApiService.getPatientNotes(widget.patientUid, noteType: 'soap'),
+      MedicalApiService.getPatientNotes(
+        widget.patientUid,
+        noteType: 'progress',
+      ),
+    ]);
+    final notes = responses.expand(_listFromNoteResponse).toList();
+    notes.sort((a, b) {
+      final aTime = DateTime.tryParse('${a['created_at']}') ?? DateTime(1970);
+      final bTime = DateTime.tryParse('${b['created_at']}') ?? DateTime(1970);
+      return bTime.compareTo(aTime);
+    });
+    return notes;
+  }
+
   void _refreshCurrentTab() {
+    if (_tabController.index >= _noteTypes.length) return;
     final type = _noteTypes[_tabController.index];
     _notesByType.remove(type);
     _loadNotesForTab(_tabController.index);
+  }
+
+  List<Map<String, dynamic>> _listFromNoteResponse(Map<String, dynamic> data) {
+    dynamic value = data['notes'] ?? data['data'] ?? data['items'];
+    if (value is Map) {
+      value = value['notes'] ?? value['items'] ?? value['data'];
+    }
+    if (value is! List) return const [];
+    return value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  Map<String, dynamic> _contentMap(Map<String, dynamic> note) {
+    final content = note['content'];
+    return content is Map ? Map<String, dynamic>.from(content) : const {};
+  }
+
+  String? _noteText(Map<String, dynamic> note, String key) {
+    final direct = note[key];
+    if (direct is String && direct.trim().isNotEmpty) return direct;
+    final content = _contentMap(note);
+    final nested = content[key];
+    if (nested is String && nested.trim().isNotEmpty) return nested;
+    return null;
+  }
+
+  String _noteAuthorName(Map<String, dynamic> note, AppStrings s) {
+    for (final value in [
+      note['author_name'],
+      note['doctor_name'],
+      note['created_by_name'],
+      note['author'] is Map ? (note['author'] as Map)['name'] : null,
+    ]) {
+      final text = value?.toString().trim() ?? '';
+      if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+    }
+    return s.clinicalNotesUnknownAuthor;
+  }
+
+  String? _noteSummary(Map<String, dynamic> note) {
+    for (final key in const [
+      'summary',
+      'current_status',
+      'assessment',
+      'subjective',
+      'procedure_details',
+      'findings',
+    ]) {
+      final text = _noteText(note, key);
+      if (text != null) return text;
+    }
+    final content = note['content'];
+    if (content is String && content.trim().isNotEmpty) return content;
+    return null;
+  }
+
+  String? _plainContentText(Map<String, dynamic> note) {
+    final content = note['content'];
+    return content is String && content.trim().isNotEmpty ? content : null;
+  }
+
+  Map<String, String> _noteVitals(Map<String, dynamic> note) {
+    final content = _contentMap(note);
+    final raw = content['vitals'];
+    final vitals = raw is Map ? Map<String, dynamic>.from(raw) : content;
+    String value(List<String> keys) {
+      for (final key in keys) {
+        final text = vitals[key]?.toString().trim() ?? '';
+        if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+      }
+      return '';
+    }
+
+    return {
+      'Pulse': value(['pulse_rate', 'pulse', 'heart_rate']),
+      'BP': value(['blood_pressure', 'bp']),
+      'SpO2': value(['spo2', 'sp_o2']),
+      'CBG': value(['cbg', 'blood_glucose']),
+      'Weight': value(['weight_kg', 'weight']),
+    }..removeWhere((_, v) => v.isEmpty);
+  }
+
+  Widget _vitalsSection(Map<String, String> vitals) {
+    if (vitals.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Vitals',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+              color: AppTheme.primaryBlue,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: vitals.entries
+                .map(
+                  (entry) => Chip(label: Text('${entry.key}: ${entry.value}')),
+                )
+                .toList(),
+          ),
+        ],
+      ),
+    );
   }
 
   // ── Note Status Badge ──
@@ -184,8 +317,9 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
         itemCount: notes.length,
         itemBuilder: (ctx, i) {
           final note = notes[i];
-          final signed = note['signed'] == true;
+          final signed = note['signed'] == true || note['is_signed'] == true;
           final noteId = note['id'];
+          final summary = _noteSummary(note);
           return Card(
             margin: const EdgeInsets.only(bottom: 10),
             child: InkWell(
@@ -221,8 +355,7 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          note['author_name'] as String? ??
-                              AppStrings.of(ctx).clinicalNotesUnknownAuthor,
+                          _noteAuthorName(note, AppStrings.of(ctx)),
                           style: TextStyle(
                             fontSize: 12,
                             color: AppTheme.textSecondary,
@@ -244,10 +377,10 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
                         ),
                       ],
                     ),
-                    if (note['summary'] != null) ...[
+                    if (summary != null) ...[
                       const SizedBox(height: 8),
                       Text(
-                        note['summary'] as String,
+                        summary,
                         style: const TextStyle(fontSize: 13),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -311,164 +444,197 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   // ── Note Detail ──
 
   void _showNoteDetail(Map<String, dynamic> note) {
+    final subjective = _noteText(note, 'subjective');
+    final objective = _noteText(note, 'objective');
+    final assessment = _noteText(note, 'assessment');
+    final plan = _noteText(note, 'plan');
+    final summary = _noteText(note, 'summary');
+    final currentStatus = _noteText(note, 'current_status');
+    final findings = _noteText(note, 'findings');
+    final procedureDetails = _noteText(note, 'procedure_details');
+    final procedureName = _noteText(note, 'procedure_name');
+    final preOpDiagnosis = _noteText(note, 'pre_op_diagnosis');
+    final postOpDiagnosis = _noteText(note, 'post_op_diagnosis');
+    final complications = _noteText(note, 'complications');
+    final plainContent = _plainContentText(note);
+    final vitals = _noteVitals(note);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(ctx).size.height * 0.85,
-        ),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppTheme.divider,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      note['title'] as String? ??
-                          AppStrings.of(ctx).clinicalNotesNoteFallback,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.textPrimary,
-                      ),
+      builder: (ctx) => Theme(
+        data: _lightSheetTheme(ctx),
+        child: Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+          ),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade500,
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                  _signedBadge(note['signed'] == true),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${note['author_name'] ?? AppStrings.of(ctx).clinicalNotesUnknownAuthor} - ${_formatTimestamp(note['created_at'] as String?)}',
-                style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
-              ),
-              const Divider(height: 24),
-              // SOAP fields
-              if (note['subjective'] != null)
-                _noteSection(
-                  AppStrings.of(ctx).clinicalNotesSubjective,
-                  note['subjective'] as String,
                 ),
-              if (note['objective'] != null)
-                _noteSection(
-                  AppStrings.of(ctx).clinicalNotesObjective,
-                  note['objective'] as String,
-                ),
-              if (note['assessment'] != null)
-                _noteSection(
-                  AppStrings.of(ctx).clinicalNotesAssessment,
-                  note['assessment'] as String,
-                ),
-              if (note['plan'] != null)
-                _noteSection(
-                  AppStrings.of(ctx).clinicalNotesPlan,
-                  note['plan'] as String,
-                ),
-              // Generic content
-              if (note['content'] != null)
-                _noteSection(
-                  AppStrings.of(ctx).clinicalNotesContent,
-                  note['content'] as String,
-                ),
-              if (note['findings'] != null)
-                _noteSection(
-                  AppStrings.of(ctx).clinicalNotesFindings,
-                  note['findings'] as String,
-                ),
-              if (note['procedure_details'] != null)
-                _noteSection(
-                  AppStrings.of(ctx).clinicalNotesProcedureDetails,
-                  note['procedure_details'] as String,
-                ),
-              if (note['complications'] != null)
-                _noteSection(
-                  AppStrings.of(ctx).clinicalNotesComplications,
-                  note['complications'] as String,
-                ),
-              const SizedBox(height: 16),
-              // ── AI Assist — generate patient-friendly explainer ──
-              // The button is enabled regardless of signed status so a doctor
-              // can preview the AI explanation before finalizing the note,
-              // OR generate it after sign-off for downstream patient delivery.
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: AppTheme.primaryBlue.withValues(alpha: 0.25),
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                  color: AppTheme.primaryBlue.withValues(alpha: 0.04),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(height: 16),
+                Row(
                   children: [
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.auto_awesome,
-                          size: 20,
-                          color: AppTheme.primaryBlue,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          AppStrings.of(context).aiAssistTitle,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: AppTheme.primaryBlue,
-                            fontSize: 15,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      AppStrings.of(context).aiAssistGenerateBlurb,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppTheme.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                          _generateAiExplainer(note);
-                        },
-                        icon: const Icon(Icons.auto_awesome, size: 18),
-                        label: Text(
-                          AppStrings.of(context).aiAssistGenerateButton,
-                        ),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppTheme.primaryBlue,
+                    Expanded(
+                      child: Text(
+                        note['title'] as String? ??
+                            AppStrings.of(ctx).clinicalNotesNoteFallback,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                          color: _sheetTextPrimary,
                         ),
                       ),
+                    ),
+                    _signedBadge(
+                      note['signed'] == true || note['is_signed'] == true,
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 20),
-            ],
+                const SizedBox(height: 4),
+                Text(
+                  '${_noteAuthorName(note, AppStrings.of(ctx))} - ${_formatTimestamp(note['created_at'] as String?)}',
+                  style: const TextStyle(
+                    color: _sheetTextSecondary,
+                    fontSize: 13,
+                  ),
+                ),
+                const Divider(height: 24, color: Color(0xFFD0D5DD)),
+                // SOAP fields
+                if (subjective != null)
+                  _noteSection(
+                    AppStrings.of(ctx).clinicalNotesSubjective,
+                    subjective,
+                  ),
+                if (objective != null)
+                  _noteSection(
+                    AppStrings.of(ctx).clinicalNotesObjective,
+                    objective,
+                  ),
+                if (assessment != null)
+                  _noteSection(
+                    AppStrings.of(ctx).clinicalNotesAssessment,
+                    assessment,
+                  ),
+                if (plan != null)
+                  _noteSection(AppStrings.of(ctx).clinicalNotesPlan, plan),
+                _vitalsSection(vitals),
+                if (summary != null) _noteSection('Summary', summary),
+                if (currentStatus != null)
+                  _noteSection('Current status', currentStatus),
+                // Generic content
+                if (plainContent != null)
+                  _noteSection(
+                    AppStrings.of(ctx).clinicalNotesContent,
+                    plainContent,
+                  ),
+                if (procedureName != null)
+                  _noteSection(
+                    AppStrings.of(ctx).clinicalNotesProcedureName,
+                    procedureName,
+                  ),
+                if (preOpDiagnosis != null)
+                  _noteSection('Pre-op diagnosis', preOpDiagnosis),
+                if (postOpDiagnosis != null)
+                  _noteSection('Post-op diagnosis', postOpDiagnosis),
+                if (findings != null)
+                  _noteSection(
+                    AppStrings.of(ctx).clinicalNotesFindings,
+                    findings,
+                  ),
+                if (procedureDetails != null)
+                  _noteSection(
+                    AppStrings.of(ctx).clinicalNotesProcedureDetails,
+                    procedureDetails,
+                  ),
+                if (complications != null)
+                  _noteSection(
+                    AppStrings.of(ctx).clinicalNotesComplications,
+                    complications,
+                  ),
+                const SizedBox(height: 16),
+                // ── AI Assist — generate patient-friendly explainer ──
+                // The button is enabled regardless of signed status so a doctor
+                // can preview the AI explanation before finalizing the note,
+                // OR generate it after sign-off for downstream patient delivery.
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: AppTheme.primaryBlue.withValues(alpha: 0.25),
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    color: AppTheme.primaryBlue.withValues(alpha: 0.04),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.auto_awesome,
+                            size: 20,
+                            color: AppTheme.primaryBlue,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            AppStrings.of(context).aiAssistTitle,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.primaryBlue,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        AppStrings.of(context).aiAssistGenerateBlurb,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: _sheetTextSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                            _generateAiExplainer(note);
+                          },
+                          icon: const Icon(Icons.auto_awesome, size: 18),
+                          label: Text(
+                            AppStrings.of(context).aiAssistGenerateButton,
+                          ),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppTheme.primaryBlue,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
           ),
         ),
       ),
@@ -487,14 +653,25 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       if (v.isNotEmpty) parts.add('$label: $v');
     }
 
-    add('Subjective', note['subjective'] as String?);
-    add('Objective', note['objective'] as String?);
-    add('Assessment', note['assessment'] as String?);
-    add('Plan', note['plan'] as String?);
-    add('Content', note['content'] as String?);
-    add('Findings', note['findings'] as String?);
-    add('Procedure details', note['procedure_details'] as String?);
-    add('Complications', note['complications'] as String?);
+    add('Subjective', _noteText(note, 'subjective'));
+    add('Objective', _noteText(note, 'objective'));
+    add('Assessment', _noteText(note, 'assessment'));
+    add('Plan', _noteText(note, 'plan'));
+    final vitals = _noteVitals(note);
+    if (vitals.isNotEmpty) {
+      parts.add(
+        'Vitals: ${vitals.entries.map((e) => '${e.key} ${e.value}').join(', ')}',
+      );
+    }
+    add('Summary', _noteText(note, 'summary'));
+    add('Current status', _noteText(note, 'current_status'));
+    add('Content', _plainContentText(note));
+    add('Procedure name', _noteText(note, 'procedure_name'));
+    add('Pre-op diagnosis', _noteText(note, 'pre_op_diagnosis'));
+    add('Post-op diagnosis', _noteText(note, 'post_op_diagnosis'));
+    add('Findings', _noteText(note, 'findings'));
+    add('Procedure details', _noteText(note, 'procedure_details'));
+    add('Complications', _noteText(note, 'complications'));
     return parts.join('\n\n');
   }
 
@@ -609,7 +786,14 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
             ),
           ),
           const SizedBox(height: 4),
-          Text(content, style: const TextStyle(fontSize: 14, height: 1.5)),
+          Text(
+            content,
+            style: const TextStyle(
+              color: _sheetTextPrimary,
+              fontSize: 14,
+              height: 1.5,
+            ),
+          ),
         ],
       ),
     );
@@ -618,11 +802,10 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   // ── Create Note FAB ──
 
   void _showCreateNoteSheet() {
-    final type = _noteTypes[_tabController.index];
+    final type = _tabController.index < _noteTypes.length
+        ? _noteTypes[_tabController.index]
+        : _noteTypes.first;
     switch (type) {
-      case 'soap':
-        _showSoapNoteForm();
-        break;
       case 'progress':
         _showProgressNoteForm();
         break;
@@ -632,18 +815,80 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     }
   }
 
-  void _showSoapNoteForm() {
+  Map<String, dynamic> _optionalProgressVitals({
+    required TextEditingController pulse,
+    required TextEditingController bpSystolic,
+    required TextEditingController bpDiastolic,
+    required TextEditingController spo2,
+    required TextEditingController cbg,
+    required TextEditingController weight,
+  }) {
+    final sys = bpSystolic.text.trim();
+    final dia = bpDiastolic.text.trim();
+    return {
+      if (pulse.text.trim().isNotEmpty) 'pulse_rate': pulse.text.trim(),
+      if (sys.isNotEmpty || dia.isNotEmpty)
+        'blood_pressure': [
+          if (sys.isNotEmpty) sys,
+          if (dia.isNotEmpty) dia,
+        ].join('/'),
+      if (spo2.text.trim().isNotEmpty) 'spo2': spo2.text.trim(),
+      if (cbg.text.trim().isNotEmpty) 'cbg': cbg.text.trim(),
+      if (weight.text.trim().isNotEmpty) 'weight_kg': weight.text.trim(),
+    };
+  }
+
+  void _showProgressNoteForm() {
     final s = AppStrings.of(context);
     final formKey = GlobalKey<FormState>();
     final subjective = TextEditingController();
     final objective = TextEditingController();
     final assessment = TextEditingController();
     final plan = TextEditingController();
+    final pulse = TextEditingController();
+    final bpSystolic = TextEditingController();
+    final bpDiastolic = TextEditingController();
+    final spo2 = TextEditingController();
+    final cbg = TextEditingController();
+    final weight = TextEditingController();
 
     _showNoteFormSheet(
-      title: s.clinicalNotesNewSoap,
+      title: s.clinicalNotesNewProgress,
       formKey: formKey,
       fields: [
+        const Text(
+          'Vitals',
+          style: TextStyle(
+            color: _sheetTextPrimary,
+            fontWeight: FontWeight.w700,
+            fontSize: 15,
+          ),
+        ),
+        const SizedBox(height: 10),
+        _buildOptionalNumberField(pulse, 'Pulse Rate', 'bpm'),
+        Row(
+          children: [
+            Expanded(
+              child: _buildOptionalNumberField(
+                bpSystolic,
+                'BP Systolic',
+                'mmHg',
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _buildOptionalNumberField(
+                bpDiastolic,
+                'BP Diastolic',
+                'mmHg',
+              ),
+            ),
+          ],
+        ),
+        _buildOptionalNumberField(spo2, 'SpO2', '%'),
+        _buildOptionalNumberField(cbg, 'CBG', 'mg/dL'),
+        _buildOptionalNumberField(weight, 'Weight', 'kg'),
+        const Divider(height: 28),
         _buildTextArea(
           subjective,
           s.clinicalNotesSubjective,
@@ -661,55 +906,30 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
         ),
         _buildTextArea(plan, s.clinicalNotesPlan, s.clinicalNotesPlanHint),
       ],
-      onSubmit: () => _submitNote(
-        formKey: formKey,
-        data: {
-          'patient_uid': widget.patientUid,
-          'note_type': 'soap',
-          'subjective': subjective.text,
-          'objective': objective.text,
-          'assessment': assessment.text,
-          'plan': plan.text,
-        },
-      ),
-    );
-  }
-
-  void _showProgressNoteForm() {
-    final s = AppStrings.of(context);
-    final formKey = GlobalKey<FormState>();
-    final title = TextEditingController();
-    final content = TextEditingController();
-
-    _showNoteFormSheet(
-      title: s.clinicalNotesNewProgress,
-      formKey: formKey,
-      fields: [
-        TextFormField(
-          controller: title,
-          decoration: InputDecoration(
-            labelText: s.clinicalNotesTitleField,
-            border: const OutlineInputBorder(),
-          ),
-          validator: (v) =>
-              (v == null || v.isEmpty) ? s.clinicalNotesRequired : null,
-        ),
-        const SizedBox(height: 12),
-        _buildTextArea(
-          content,
-          s.clinicalNotesContent,
-          s.clinicalNotesContentHint,
-        ),
-      ],
-      onSubmit: () => _submitNote(
-        formKey: formKey,
-        data: {
-          'patient_uid': widget.patientUid,
-          'note_type': 'progress',
-          'title': title.text,
-          'content': content.text,
-        },
-      ),
+      onSubmit: () {
+        final vitals = _optionalProgressVitals(
+          pulse: pulse,
+          bpSystolic: bpSystolic,
+          bpDiastolic: bpDiastolic,
+          spo2: spo2,
+          cbg: cbg,
+          weight: weight,
+        );
+        _submitNote(
+          formKey: formKey,
+          data: {
+            'patient_uid': widget.patientUid,
+            'note_type': 'soap',
+            'content': {
+              'subjective': subjective.text,
+              'objective': objective.text,
+              'assessment': assessment.text,
+              'plan': plan.text,
+              if (vitals.isNotEmpty) 'vitals': vitals,
+            },
+          },
+        );
+      },
     );
   }
 
@@ -717,6 +937,8 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     final s = AppStrings.of(context);
     final formKey = GlobalKey<FormState>();
     final title = TextEditingController();
+    final preOpDiagnosis = TextEditingController();
+    final postOpDiagnosis = TextEditingController();
     final procedureDetails = TextEditingController();
     final findings = TextEditingController();
     final complications = TextEditingController();
@@ -735,6 +957,16 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
               (v == null || v.isEmpty) ? s.clinicalNotesRequired : null,
         ),
         const SizedBox(height: 12),
+        _buildTextArea(
+          preOpDiagnosis,
+          'Pre-op diagnosis',
+          'Diagnosis before the procedure',
+        ),
+        _buildTextArea(
+          postOpDiagnosis,
+          'Post-op diagnosis',
+          'Diagnosis after the procedure',
+        ),
         _buildTextArea(
           procedureDetails,
           s.clinicalNotesProcedureDetails,
@@ -757,9 +989,14 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
           'patient_uid': widget.patientUid,
           'note_type': 'procedure',
           'title': title.text,
-          'procedure_details': procedureDetails.text,
-          'findings': findings.text,
-          'complications': complications.text,
+          'content': {
+            'procedure_name': title.text,
+            'pre_op_diagnosis': preOpDiagnosis.text,
+            'post_op_diagnosis': postOpDiagnosis.text,
+            'findings': findings.text,
+            'procedure_details': procedureDetails.text,
+            'complications': complications.text,
+          },
         },
       ),
     );
@@ -790,6 +1027,71 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     );
   }
 
+  Widget _buildOptionalNumberField(
+    TextEditingController controller,
+    String label,
+    String suffix,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: controller,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(
+          labelText: label,
+          suffixText: suffix,
+          border: const OutlineInputBorder(),
+        ),
+        validator: (value) {
+          final text = value?.trim() ?? '';
+          if (text.isEmpty) return null;
+          return num.tryParse(text) == null ? 'Enter a valid number' : null;
+        },
+      ),
+    );
+  }
+
+  ThemeData _lightSheetTheme(BuildContext context) {
+    final baseTheme = Theme.of(context);
+    return baseTheme.copyWith(
+      brightness: Brightness.light,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: AppTheme.primaryBlue,
+        brightness: Brightness.light,
+      ),
+      textTheme: baseTheme.textTheme.apply(
+        bodyColor: _sheetTextPrimary,
+        displayColor: _sheetTextPrimary,
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: _sheetFieldFill,
+        labelStyle: const TextStyle(color: _sheetTextSecondary),
+        hintStyle: TextStyle(
+          color: _sheetTextSecondary.withValues(alpha: 0.75),
+        ),
+        helperStyle: TextStyle(
+          color: _sheetTextSecondary.withValues(alpha: 0.8),
+        ),
+        suffixStyle: const TextStyle(color: _sheetTextSecondary),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: AppTheme.primaryBlue, width: 1.6),
+        ),
+      ),
+      chipTheme: baseTheme.chipTheme.copyWith(
+        backgroundColor: const Color(0xFFEFF6FF),
+        labelStyle: const TextStyle(color: _sheetTextPrimary),
+        side: BorderSide(color: Colors.blue.shade100),
+      ),
+    );
+  }
+
   void _showNoteFormSheet({
     required String title,
     required GlobalKey<FormState> formKey,
@@ -800,58 +1102,65 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Form(
-            key: formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppTheme.divider,
-                        borderRadius: BorderRadius.circular(2),
+      builder: (ctx) {
+        return Theme(
+          data: _lightSheetTheme(ctx),
+          child: Container(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(ctx).viewInsets.bottom,
+            ),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Form(
+                key: formKey,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade500,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 16),
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                          color: _sheetTextPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      ...fields,
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: onSubmit,
+                          icon: const Icon(Icons.save),
+                          label: Text(AppStrings.of(ctx).clinicalNotesSaveNote),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  ...fields,
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: onSubmit,
-                      icon: const Icon(Icons.save),
-                      label: Text(AppStrings.of(ctx).clinicalNotesSaveNote),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
+                ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -863,7 +1172,9 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
     Navigator.of(context).pop();
 
     try {
-      await MedicalApiService.createClinicalNote(data);
+      final payload = Map<String, dynamic>.from(data);
+      payload['patient_uid'] = payload['patient_uid'] ?? widget.patientUid;
+      await MedicalApiService.createClinicalNote(payload);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -871,7 +1182,17 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
             backgroundColor: AppTheme.successGreen,
           ),
         );
-        _refreshCurrentTab();
+        final noteType = '${payload['note_type'] ?? ''}';
+        final tabType = _tabTypeForNoteType(noteType);
+        final tabIndex = _noteTypes.indexOf(tabType);
+        if (tabIndex >= 0) {
+          _notesByType.remove(tabType);
+          if (_tabController.index == tabIndex) {
+            _loadNotesForTab(tabIndex);
+          } else if (_tabController.index >= _noteTypes.length) {
+            _tabController.animateTo(tabIndex);
+          }
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -888,6 +1209,12 @@ class _ClinicalNotesScreenState extends State<ClinicalNotesScreen>
   }
 
   // ── Helpers ──
+
+  String _tabTypeForNoteType(String noteType) {
+    final normalized = noteType.toLowerCase();
+    if (normalized == 'soap' || normalized == 'progress') return 'progress';
+    return normalized;
+  }
 
   String _formatTimestamp(String? ts) {
     if (ts == null) return '-';

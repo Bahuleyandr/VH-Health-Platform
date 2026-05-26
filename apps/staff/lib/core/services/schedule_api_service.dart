@@ -79,6 +79,7 @@ class ScheduleApiService {
   static Future<Map<String, dynamic>> getAppointments({
     String? department,
     String? staffId,
+    String? doctorId,
     String? date,
     String? status,
     int page = 1,
@@ -89,6 +90,7 @@ class ScheduleApiService {
       query: {
         'department': ?department,
         'staffId': ?staffId,
+        'doctor_id': ?doctorId,
         'date': ?date,
         'status': ?status,
         'page': page.toString(),

@@ -86,11 +86,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
         futures.add(
           ScheduleApiService.getAppointments(
-            staffId: _staffId,
+            doctorId: _role == StaffRole.doctor ? _staffId : null,
             date: today,
             limit: 20,
           ).then((data) {
-            final list = data['appointments'] as List? ?? [];
+            final list = _listFromApi(data, const ['appointments', 'items']);
             final pagination = data['pagination'];
             final rawTotal = pagination is Map
                 ? pagination['total']
@@ -99,15 +99,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ? rawTotal
                 : int.tryParse('$rawTotal') ?? list.length;
             _upcomingAppointments = list
-                .whereType<Map>()
-                .map((a) => Map<String, dynamic>.from(a))
                 .where((a) {
                   final status = (a['status'] ?? '').toString().toLowerCase();
                   return status != 'cancelled' &&
                       status != 'completed' &&
                       status != 'done';
                 })
-                .take(5)
+                .take(3)
                 .toList();
           }, onError: (_) {}),
         );
@@ -833,6 +831,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             features,
             [
               'bed_board',
+              'discharge_hub',
               'vitals',
               'nursing_notes',
               'lab_bookings',
@@ -882,6 +881,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             features,
             [
               'bed_board',
+              'discharge_hub',
               'patient_records',
               'prescriptions',
               'investigation_results',
@@ -929,6 +929,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             features,
             [
               'bed_board',
+              'discharge_hub',
               'patient_records',
               'pharmacy_orders',
               'investigations_upload',
@@ -1229,7 +1230,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           label: s.dashboardStatAppointments,
           value: '$_appointmentCount',
           color: const Color(0xFF6A1B9A),
-          route: _role == StaffRole.doctor ? '/queue' : '/appointments',
+          route: '/appointments',
         ),
       );
     }
@@ -1459,12 +1460,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildAppointmentCard(Map<String, dynamic> apt) {
-    final patientName =
-        apt['patientName'] ?? apt['patient']?['name'] ?? 'Patient';
-    final time = apt['time'] ?? apt['scheduledTime'] ?? '';
-    final type = apt['type'] ?? apt['appointmentType'] ?? '';
+    final patient = apt['patient'];
+    final patientName = _firstText([
+      apt['patient_name'],
+      apt['patientName'],
+      patient is Map ? patient['name'] : null,
+      apt['name'],
+      apt['patient_phone'],
+      apt['phone'],
+    ], fallback: 'Patient');
+    final time = _firstText([
+      apt['appointment_time'],
+      apt['time'],
+      apt['scheduledTime'],
+      apt['scheduled_time'],
+    ]);
+    final type = _firstText([
+      apt['reason'],
+      apt['type'],
+      apt['appointmentType'],
+      apt['visit_type'],
+    ]);
     String timeStr = '';
-    if (time is String && time.isNotEmpty) {
+    if (time.isNotEmpty) {
       try {
         timeStr = DateFormat('HH:mm').format(DateTime.parse(time));
       } catch (e) {
@@ -1480,7 +1498,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: Icon(Icons.person, color: Color(0xFF3949AB)),
         ),
         title: Text(
-          patientName.toString(),
+          patientName,
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         subtitle: Text(
@@ -1493,6 +1511,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
         onTap: () => context.push('/appointments'),
       ),
     );
+  }
+
+  List<Map<String, dynamic>> _listFromApi(
+    Map<String, dynamic> data,
+    List<String> keys,
+  ) {
+    dynamic value;
+    for (final key in keys) {
+      value = data[key];
+      if (value != null) break;
+    }
+    value ??= data['data'];
+    if (value is Map) {
+      return _listFromApi(Map<String, dynamic>.from(value), keys);
+    }
+    if (value is List) {
+      return value
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+    }
+    return const [];
+  }
+
+  String _firstText(List<dynamic> values, {String fallback = ''}) {
+    for (final value in values) {
+      final text = value?.toString().trim() ?? '';
+      if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+    }
+    return fallback;
   }
 
   Widget _buildActivityItem(dynamic notification) {

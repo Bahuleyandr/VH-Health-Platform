@@ -70,6 +70,57 @@ async function resolvePatientForRecordUpload(req) {
   return created[0].id;
 }
 
+async function resolvePatientForRecordList(req) {
+  const role = String(req.user?.role || '').toUpperCase();
+  if (role === 'PATIENT') {
+    return req.user?.id;
+  }
+
+  const explicitId = parseInt(req.query.patient_id, 10);
+  const patientUid = String(req.query.patient_uid || '').trim();
+  const patientPhone = normalizePhone(req.query.patient_phone);
+
+  let rows = [];
+  if (Number.isFinite(explicitId)) {
+    rows = await prisma.$queryRawUnsafe(
+      `SELECT id, role FROM users WHERE id=$1 LIMIT 1`,
+      explicitId,
+    );
+  } else if (patientUid) {
+    rows = await prisma.$queryRawUnsafe(
+      `SELECT id, role FROM users WHERE uid=$1::uuid LIMIT 1`,
+      patientUid,
+    );
+  } else if (patientPhone) {
+    const last10 = patientPhone.replace(/\D/g, '').slice(-10);
+    rows = await prisma.$queryRawUnsafe(
+      `SELECT id, role
+         FROM users
+        WHERE phone = $1 OR REGEXP_REPLACE(COALESCE(phone, ''), '\\D', '', 'g') LIKE $2
+        ORDER BY CASE WHEN phone = $1 THEN 0 ELSE 1 END, registered_at DESC NULLS LAST
+        LIMIT 1`,
+      patientPhone,
+      `%${last10}`,
+    );
+  } else {
+    const err = new Error('patient_id, patient_uid, or patient_phone is required');
+    err.statusCode = HTTP_STATUS.BAD_REQUEST;
+    throw err;
+  }
+
+  if (!rows.length) {
+    const err = new Error('Patient not found');
+    err.statusCode = HTTP_STATUS.NOT_FOUND;
+    throw err;
+  }
+  if (rows[0].role !== 'PATIENT') {
+    const err = new Error('Target user is not a patient');
+    err.statusCode = HTTP_STATUS.CONFLICT;
+    throw err;
+  }
+  return rows[0].id;
+}
+
 function normalizeOptionalIsoDate(value, fieldName) {
   const raw = String(value || '').trim();
   if (!raw) return null;
@@ -253,7 +304,7 @@ export const getAppointmentDocuments = async (req, res) => {
  */
 export const getPatientAllRecords = async (req, res) => {
   try {
-    const patientId = req.user?.id;
+    const patientId = await resolvePatientForRecordList(req);
 
     // Both `appointment_documents` and `patient_records` are part of an
     // unfinished records-management feature — the migrations were never
@@ -299,10 +350,12 @@ export const getPatientAllRecords = async (req, res) => {
       hospital_records: withUrls.filter(d => d.source === 'appointment'),
       my_uploads: withUrls.filter(d => d.source === 'patient_upload'),
       total: withUrls.length,
+      patient_id: patientId,
     };
 
     success(res, grouped, 'All records fetched');
   } catch (err) {
+    if (err?.statusCode) return error(res, err.message, err.statusCode);
     logger.error('Get Patient Records Error:', err);
     error(res, 'Failed to fetch records', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

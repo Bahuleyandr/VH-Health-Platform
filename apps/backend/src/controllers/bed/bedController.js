@@ -167,6 +167,9 @@ export const updateBedNotes = async (req, res) => {
     emitBedEvent('bed-notes-updated', bed);
     success(res, { bed }, 'Bed notes updated');
   } catch (err) {
+    if (err && typeof err.statusCode === 'number') {
+      return error(res, err.message, err.statusCode, err.details);
+    }
     logger.error('Error updating bed notes:', err);
     error(res, 'Failed to update bed notes', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

@@ -574,6 +574,22 @@ class MedicalApiService {
     return _handle(resp);
   }
 
+  /// GET /appointments/patient/records/all — staff-visible prior records.
+  static Future<Map<String, dynamic>> getPatientAllRecords({
+    int? patientId,
+    String? patientUid,
+    String? patientPhone,
+  }) async {
+    return _get(
+      '/appointments/patient/records/all',
+      query: {
+        if (patientId != null) 'patient_id': patientId.toString(),
+        'patient_uid': ?patientUid,
+        'patient_phone': ?patientPhone,
+      },
+    );
+  }
+
   // ─── EMR: Admissions ──────────────────────────────────────────────────────
 
   /// POST /emr/admit — admit a patient
@@ -589,6 +605,37 @@ class MedicalApiService {
     Map<String, dynamic> data,
   ) async {
     return _post('/emr/$id/discharge', data);
+  }
+
+  /// GET /admissions/:id/discharge-hub — role-owned discharge workflow
+  static Future<Map<String, dynamic>> getDischargeHub(int id) async {
+    return _get('/admissions/$id/discharge-hub');
+  }
+
+  /// GET /admissions/discharge-hub — central active discharge worklist
+  static Future<Map<String, dynamic>> listDischargeHubs() async {
+    return _get('/admissions/discharge-hub');
+  }
+
+  /// POST /admissions/:id/consults/:type/complete — finish discharge work
+  static Future<Map<String, dynamic>> completeDischargeWorkItem(
+    int id,
+    String consultType, {
+    String? notes,
+  }) async {
+    return _post('/admissions/$id/consults/$consultType/complete', {
+      if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+    });
+  }
+
+  /// POST /admissions/:id/mark-drugs-dispensed — pharmacy handover marker
+  static Future<Map<String, dynamic>> markDischargeDrugsDispensed(int id) {
+    return _post('/admissions/$id/mark-drugs-dispensed', {});
+  }
+
+  /// GET /emr/:id/discharge-summary — load latest saved/generated summary
+  static Future<Map<String, dynamic>> getDischargeSummary(int id) async {
+    return _get('/emr/$id/discharge-summary');
   }
 
   /// POST /emr/:id/discharge-summary/generate — auto-generate discharge summary

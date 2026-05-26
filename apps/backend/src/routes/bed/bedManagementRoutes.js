@@ -4,6 +4,7 @@
 import express from 'express';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import bedManagementService from '../../services/bed/bedManagementService.js';
+import admissionService from '../../services/emr/admissionService.js';
 import { success, error } from '../../utils/responseHelper.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 
@@ -76,17 +77,38 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
-// POST /:id/discharge — Discharge a patient (bed goes to dirty)
+// POST /:id/discharge — Start discharge cascade for the active admission.
+//
+// The bed board's Discharge button must not vacate the bed immediately.
+// It opens the hospital discharge workflow (summary, consults, pharmacy,
+// billing reconciliation). The final `/emr/:id/discharge` call later frees
+// the bed after readiness gates pass.
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/discharge',
   requireClinicalForBedMovement,
   wrapAsync(async (req, res) => {
     const bedId = parseInt(req.params.id, 10);
-    const dischargedBy = req.user?.uid || null;
+    const requestedBy = req.user?.uid || null;
 
-    const bed = await bedManagementService.dischargePatient(bedId, dischargedBy);
-    success(res, { bed }, 'Patient discharged, bed set to dirty');
+    const bedAdmission = await bedManagementService.getActiveAdmissionForBed(bedId);
+    const result = await admissionService.markForDischarge(
+      Number(bedAdmission.admission_id),
+      requestedBy,
+    );
+    success(
+      res,
+      {
+        ...result,
+        bed: {
+          id: bedAdmission.bed_id,
+          bed_number: bedAdmission.bed_number,
+          status: bedAdmission.bed_status,
+        },
+      },
+      'Discharge workflow initiated; bed remains occupied until final discharge',
+      HTTP_STATUS.CREATED,
+    );
   })
 );
 

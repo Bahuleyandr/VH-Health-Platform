@@ -263,6 +263,13 @@ class RoleFeatures {
     route: '/beds',
     color: Color(0xFF0277BD),
   );
+  static const DashboardFeature _dischargeHub = DashboardFeature(
+    id: 'discharge_hub',
+    title: 'Discharge Hub',
+    icon: Icons.rule_folder,
+    route: '/emr/discharge-hub',
+    color: Color(0xFFD84315),
+  );
   static const DashboardFeature _bloodBank = DashboardFeature(
     id: 'blood_bank',
     title: 'Blood Bank',
@@ -308,6 +315,7 @@ class RoleFeatures {
         _theatre,
         _radiology,
         _bedBoard,
+        _dischargeHub,
         _bloodBank,
         _leave,
         _staffDirectory,
@@ -331,6 +339,7 @@ class RoleFeatures {
         _theatre,
         _radiology,
         _bedBoard,
+        _dischargeHub,
         _bloodBank,
         _dietary,
         _leave,
@@ -366,6 +375,7 @@ class RoleFeatures {
         _theatre,
         _radiology,
         _bedBoard,
+        _dischargeHub,
         _bloodBank,
         _dietary,
         _leave,
@@ -382,6 +392,7 @@ class RoleFeatures {
         _attendance,
         _schedule,
         _pharmacyOrders,
+        _dischargeHub,
         _clinicalAiReviewQueue,
         _leave,
         _staffDirectory,

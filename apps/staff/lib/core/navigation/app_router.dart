@@ -88,6 +88,8 @@ import '../../features/emr/screens/clinical_notes_screen.dart';
 import '../../features/emr/screens/patient_timeline_screen.dart';
 import '../../features/emr/screens/orders_screen.dart';
 import '../../features/emr/screens/vitals_chart_screen.dart';
+import '../../features/emr/screens/discharge_hub_list_screen.dart';
+import '../../features/emr/screens/discharge_hub_screen.dart';
 import '../../features/emr/screens/discharge_summary_screen.dart';
 
 // Messaging
@@ -239,8 +241,11 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/patient-records',
           name: 'patient-records',
-          pageBuilder: (context, state) =>
-              const NoTransitionPage(child: PatientRecordsScreen()),
+          pageBuilder: (context, state) => NoTransitionPage(
+            child: PatientRecordsScreen(
+              contextMode: state.uri.queryParameters['context'],
+            ),
+          ),
         ),
         GoRoute(
           path: '/prescriptions',
@@ -611,6 +616,24 @@ final GoRouter appRouter = GoRouter(
             final name = state.uri.queryParameters['name'];
             return NoTransitionPage(
               child: VitalsChartScreen(patientUid: uid, patientName: name),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/emr/discharge-hub',
+          name: 'emr-discharge-hub-list',
+          pageBuilder: (context, state) {
+            return const NoTransitionPage(child: DischargeHubListScreen());
+          },
+        ),
+        GoRoute(
+          path: '/emr/discharge-hub/:id',
+          name: 'emr-discharge-hub',
+          pageBuilder: (context, state) {
+            final id = int.parse(state.pathParameters['id']!);
+            final name = state.uri.queryParameters['name'] ?? 'Patient';
+            return NoTransitionPage(
+              child: DischargeHubScreen(admissionId: id, patientName: name),
             );
           },
         ),

@@ -11,7 +11,15 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { logPhiAccess } from '../../utils/hipaaAudit.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
-import { generateDischargeSummary } from './dischargeSummaryGenerator.js';
+import {
+  generateDischargeSummary,
+  getLatestDischargeSummary,
+  saveDischargeSummary,
+} from './dischargeSummaryGenerator.js';
+import {
+  canEditDischargeSummary,
+  canSignDischargeSummary,
+} from '../../utils/roleHelpers.js';
 import {
   issueDefaultAttendantPasses,
   expireAttendantPassesForAdmission,
@@ -1278,10 +1286,75 @@ async function assignBedToAdmission(admissionId, bedId, assignedBy) {
   });
 }
 
-// Default consult types opened at mark-for-discharge. Extend in
-// migration data or via configurable seed if more roles need to be
-// pinged in future (pharmacist counselling, social worker, etc.).
-const DEFAULT_DISCHARGE_CONSULTS = ['dietary', 'physiotherapy'];
+// Default work items opened at mark-for-discharge. Final discharge is
+// blocked until these are completed, so the bedside "Discharge" action
+// starts the real hospital pathway instead of silently freeing the bed.
+const DEFAULT_DISCHARGE_CONSULTS = [
+  'dietary',
+  'family_counselling',
+  'pharmacy',
+  'physiotherapy',
+  'billing',
+];
+
+const DISCHARGE_WORK_ITEM_META = {
+  dietary: {
+    label: 'Dietary review',
+    owner_label: 'Dietitian',
+    completion_label: 'Dietary advice finished',
+    roles: ['DIETITIAN', 'DIETARY_STAFF'],
+  },
+  family_counselling: {
+    label: 'Family counselling',
+    owner_label: 'Family counselling',
+    completion_label: 'Family counselling finished',
+    roles: ['IPD_COUNSELLOR', 'COUNSELLOR', 'SOCIAL_WORKER', 'CARE_COORDINATOR'],
+  },
+  pharmacy: {
+    label: 'Pharmacy handover',
+    owner_label: 'Pharmacy',
+    completion_label: 'Discharge drugs handed over',
+    roles: ['PHARMACY_STAFF', 'PHARMACY_INCHARGE', 'PHARMACIST'],
+  },
+  physiotherapy: {
+    label: 'Physiotherapy review',
+    owner_label: 'Physiotherapist',
+    completion_label: 'Physiotherapy advice finished',
+    roles: ['PHYSIOTHERAPIST'],
+  },
+  billing: {
+    label: 'Billing clearance',
+    owner_label: 'Billing',
+    completion_label: 'Final bill reconciled',
+    roles: ['BILLING_STAFF', 'BILLING_INCHARGE', 'FINANCE_INCHARGE', 'INSURANCE_COORDINATOR'],
+  },
+};
+
+const DISCHARGE_WORK_ITEM_OVERRIDE_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
+
+function normalizeRole(role) {
+  return String(role || '').trim().toUpperCase();
+}
+
+function normalizeConsultType(consultType) {
+  return String(consultType || '').trim().toLowerCase();
+}
+
+function getWorkItemMeta(consultType) {
+  return DISCHARGE_WORK_ITEM_META[normalizeConsultType(consultType)] || {
+    label: String(consultType || 'Discharge task').replace(/_/g, ' '),
+    owner_label: 'Hospital team',
+    completion_label: 'Task finished',
+    roles: [],
+  };
+}
+
+function canCompleteDischargeWorkItem(consultType, role) {
+  const normalizedRole = normalizeRole(role);
+  if (DISCHARGE_WORK_ITEM_OVERRIDE_ROLES.has(normalizedRole)) return true;
+  const meta = getWorkItemMeta(consultType);
+  return meta.roles.includes(normalizedRole);
+}
 
 /**
  * Compute the attending-doctors snapshot from clinical_notes authored
@@ -1326,6 +1399,113 @@ async function buildAttendingDoctorsSnapshot(encounterId) {
   }
 }
 
+async function ensureDefaultDischargeConsults(admissionId, requestedBy = null, existingAdmission = null) {
+  const admission = existingAdmission || await prisma.admissions.findUnique({
+    where: { id: Number(admissionId) },
+    select: {
+      id: true,
+      patient_uid: true,
+      discharge_initiated_at: true,
+    },
+  });
+  if (!admission) throw AppError.notFound('Admission not found');
+  if (!admission.discharge_initiated_at) return [];
+
+  const now = new Date();
+  return Promise.all(
+    DEFAULT_DISCHARGE_CONSULTS.map((consultType) =>
+      prisma.discharge_consults.upsert({
+        where: {
+          admission_id_consult_type: {
+            admission_id: Number(admissionId),
+            consult_type: consultType,
+          },
+        },
+        create: {
+          admission_id: Number(admissionId),
+          patient_uid: admission.patient_uid,
+          consult_type: consultType,
+          requested_at: now,
+          requested_by: requestedBy,
+        },
+        update: {},
+      }),
+    ),
+  );
+}
+
+async function assertBillingReadyForCompletion(admissionId) {
+  const finalizedRows = await prisma.$queryRawUnsafe(
+    `SELECT COUNT(*)::int AS c
+       FROM billing_invoices
+      WHERE admission_id = $1::int
+        AND status IN ('ISSUED', 'PARTIAL', 'PAID')`,
+    Number(admissionId),
+  );
+  if ((finalizedRows[0]?.c ?? 0) === 0) {
+    throw AppError.badRequest(
+      'Billing clearance cannot be finished until a finalized IPD invoice exists.',
+      'DISCHARGE_BILLING_INVOICE_REQUIRED',
+    );
+  }
+
+  const unpaid = await prisma.$queryRawUnsafe(
+    `SELECT id,
+            COALESCE(invoice_number, 'DRAFT-' || id::text) AS invoice_number,
+            status,
+            amount_due AS balance
+       FROM billing_invoices
+      WHERE admission_id = $1::int
+        AND COALESCE(status, '') NOT IN ('PAID', 'VOID', 'paid', 'written_off', 'cancelled')
+        AND COALESCE(amount_due, 0) > 0
+      ORDER BY id
+      LIMIT 5`,
+    Number(admissionId),
+  );
+  if (unpaid.length > 0) {
+    throw AppError.badRequest(
+      `Billing clearance cannot be finished while invoice balance is pending: ${unpaid
+        .map((i) => `${i.invoice_number} [${i.status}]`)
+        .join(', ')}.`,
+      'DISCHARGE_BILLING_BALANCE_PENDING',
+    );
+  }
+}
+
+async function assertPharmacyReadyForCompletion(admissionId) {
+  const admission = await prisma.admissions.findUnique({
+    where: { id: Number(admissionId) },
+    select: { discharge_drugs_dispensed_at: true },
+  });
+  if (!admission?.discharge_drugs_dispensed_at) {
+    throw AppError.badRequest(
+      'Pharmacy handover cannot be finished until discharge drugs are marked dispensed.',
+      'DISCHARGE_DRUGS_NOT_DISPENSED',
+    );
+  }
+}
+
+async function listDischargeWorkItems(admissionId, actorRole = null) {
+  await ensureDefaultDischargeConsults(admissionId);
+  const rows = await prisma.discharge_consults.findMany({
+    where: { admission_id: Number(admissionId) },
+    orderBy: [{ requested_at: 'asc' }, { id: 'asc' }],
+  });
+
+  return rows.map((row) => {
+    const meta = getWorkItemMeta(row.consult_type);
+    return {
+      ...row,
+      label: meta.label,
+      owner_label: meta.owner_label,
+      completion_label: meta.completion_label,
+      required_roles: meta.roles,
+      status: row.completed_at ? 'completed' : 'pending',
+      actor_can_complete: canCompleteDischargeWorkItem(row.consult_type, actorRole) && !row.completed_at,
+    };
+  });
+}
+
 /**
  * Mark an admission for discharge. This is the FIRST step of the
  * discharge cascade. The actual dischargePatient (T4 = patient left
@@ -1336,8 +1516,9 @@ async function buildAttendingDoctorsSnapshot(encounterId) {
  *   1. Stamp admissions.discharge_initiated_at (T0)
  *   2. Stamp admissions.billing_closed_at (soft freeze — no new items
  *      should be added; cashier UI shows "billing closed")
- *   3. Open default discharge consults (dietary, physiotherapy) so
- *      those roles are pinged. T0→completed_at is the efficiency
+ *   3. Open default discharge work items (dietary, family counselling,
+ *      pharmacy, physiotherapy, billing) so those roles are pinged.
+ *      T0→completed_at is the efficiency
  *      marker for each consult.
  *   4. If admission has insurance_info or any active insurance_claim
  *      for this patient, open a placeholder final claim
@@ -1355,9 +1536,10 @@ async function buildAttendingDoctorsSnapshot(encounterId) {
  *
  * @param {number} admissionId
  * @param {string} requestedBy uid of the staff member marking discharge
+ * @param {string|null} requestedByRole role of the staff member marking discharge
  * @returns {{ admission: Object, summary: Object|null, consults: Array, finalClaim: Object|null, attending_doctors: Array }}
  */
-async function markForDischarge(admissionId, requestedBy) {
+async function markForDischarge(admissionId, requestedBy, requestedByRole = null) {
   if (!admissionId) throw AppError.badRequest('admissionId is required');
   if (!requestedBy) throw AppError.badRequest('requestedBy is required');
 
@@ -1580,6 +1762,12 @@ async function markForDischarge(admissionId, requestedBy) {
   let attendingDoctors = [];
   try {
     summary = await generateDischargeSummary(admissionId, requestedBy, null);
+    await saveDischargeSummary(
+      admissionId,
+      summary,
+      requestedBy,
+      normalizeRole(requestedByRole) || 'SYSTEM',
+    );
     attendingDoctors = await buildAttendingDoctorsSnapshot(phase1.encounter_id);
 
     // Stitch the attending-doctors snapshot into the just-created
@@ -1628,18 +1816,55 @@ async function markForDischarge(admissionId, requestedBy) {
 }
 
 /**
- * Log a discharge consult as completed. Used by the dietician /
- * physiotherapy / etc. roles to record that they've seen the patient
- * and given the relevant advice. T0 → completed_at is the efficiency
- * marker for each consult type. Architectural item D2.
+ * Log a discharge consult as completed. Used by dietician, family
+ * counselling, pharmacy, physiotherapy, billing, etc. roles to record
+ * that they've finished their discharge hand-off for the patient.
+ * T0 → completed_at is the efficiency marker for each consult type.
+ * Architectural item D2.
  */
-async function completeDischargeConsult(admissionId, consultType, completedBy, notes = null) {
+async function completeDischargeConsult(admissionId, consultType, completedBy, notes = null, options = {}) {
   if (!admissionId) throw AppError.badRequest('admissionId is required');
-  if (!consultType) throw AppError.badRequest('consultType is required');
+  const normalizedConsultType = normalizeConsultType(consultType);
+  if (!normalizedConsultType) throw AppError.badRequest('consultType is required');
   if (!completedBy) throw AppError.badRequest('completedBy is required');
 
+  if (options.role && !canCompleteDischargeWorkItem(normalizedConsultType, options.role)) {
+    throw AppError.forbidden(
+      `${getWorkItemMeta(normalizedConsultType).owner_label} role is required to finish this discharge work item`,
+      'DISCHARGE_WORK_ITEM_ROLE_REQUIRED',
+    );
+  }
+
+  await ensureDefaultDischargeConsults(admissionId);
+  if (normalizedConsultType === 'billing') {
+    await assertBillingReadyForCompletion(admissionId);
+  }
+  if (normalizedConsultType === 'pharmacy') {
+    await assertPharmacyReadyForCompletion(admissionId);
+  }
+
+  const existing = await prisma.discharge_consults.findUnique({
+    where: {
+      admission_id_consult_type: {
+        admission_id: Number(admissionId),
+        consult_type: normalizedConsultType,
+      },
+    },
+  });
+  if (!existing) {
+    throw AppError.notFound(`Discharge work item not found: ${normalizedConsultType}`);
+  }
+  if (existing.completed_at) {
+    return existing;
+  }
+
   const updated = await prisma.discharge_consults.update({
-    where: { admission_id_consult_type: { admission_id: admissionId, consult_type: consultType } },
+    where: {
+      admission_id_consult_type: {
+        admission_id: Number(admissionId),
+        consult_type: normalizedConsultType,
+      },
+    },
     data: {
       completed_at: new Date(),
       completed_by: completedBy,
@@ -1654,12 +1879,12 @@ async function completeDischargeConsult(admissionId, consultType, completedBy, n
       action: 'COMPLETE_DISCHARGE_CONSULT',
       resource: 'discharge_consult',
       resource_id: String(updated.id),
-      metadata: { admission_id: admissionId, consult_type: consultType },
+      metadata: { admission_id: admissionId, consult_type: normalizedConsultType },
       ip_address: null,
     },
   });
 
-  logger.info(`Discharge consult ${consultType} completed for admission ${admissionId} by ${completedBy}`);
+  logger.info(`Discharge consult ${normalizedConsultType} completed for admission ${admissionId} by ${completedBy}`);
   return updated;
 }
 
@@ -1809,6 +2034,7 @@ function buildDischargeReadinessChecklist(blockers, { gated, transitionAllowed }
     gated_discharge_type: gated,
     marked_for_discharge: !gated || clear('NOT_MARKED_FOR_DISCHARGE'),
     discharge_summary_signed: !gated || clear('SUMMARY_NOT_SIGNED'),
+    discharge_work_items_completed: !gated || clear('DISCHARGE_CONSULTS_PENDING'),
     discharge_drugs_dispensed: !gated || clear('DRUGS_NOT_DISPENSED'),
     finalized_invoice_exists: !gated || clear('NO_INVOICE'),
     invoice_balance_clear: !gated || clear('UNPAID_INVOICE'),
@@ -1832,6 +2058,9 @@ async function getDischargeReadiness(admissionId, options = {}) {
     },
   });
   if (!admissionPre) throw AppError.notFound('Admission not found');
+  if (admissionPre.discharge_initiated_at) {
+    await ensureDefaultDischargeConsults(admissionId, null, admissionPre);
+  }
 
   const allowedFromPre = VALID_STATUS_TRANSITIONS[admissionPre.status] || [];
   const transitionAllowed = allowedFromPre.includes('discharged');
@@ -1884,6 +2113,29 @@ async function getDischargeReadiness(admissionId, options = {}) {
         message: 'Discharge takeaway drugs must be dispensed before final discharge. Call POST /admissions/:id/mark-drugs-dispensed when pharmacy hands over.',
       });
     }
+
+    const pendingConsults = await prisma.discharge_consults.findMany({
+      where: {
+        admission_id: admissionId,
+        completed_at: null,
+      },
+      select: {
+        id: true,
+        consult_type: true,
+        requested_at: true,
+      },
+      orderBy: [{ requested_at: 'asc' }, { id: 'asc' }],
+    });
+    if (pendingConsults.length > 0) {
+      blockers.push({
+        type: 'DISCHARGE_CONSULTS_PENDING',
+        message: `Pending discharge work item(s): ${pendingConsults
+          .map((c) => String(c.consult_type).replace(/_/g, ' '))
+          .join(', ')}.`,
+        consults: pendingConsults,
+      });
+    }
+
     // Phase 0 readiness probes — these run on plain prisma (not in a tx),
     // so failures bubble as 500. We intentionally do NOT swallow query
     // errors: a schema-drift or column-rename in any of these tables
@@ -2009,8 +2261,102 @@ async function getDischargeReadiness(admissionId, options = {}) {
   };
 }
 
+async function getDischargeHub(admissionId, actor = {}) {
+  const actorRole = normalizeRole(actor.role);
+  const admission = await getAdmissionDetail(admissionId, {
+    userId: actor.uid,
+    userRole: actorRole,
+  });
+
+  const summary = await getLatestDischargeSummary(admissionId);
+  const workItems = admission.discharge_initiated_at
+    ? await listDischargeWorkItems(admissionId, actorRole)
+    : [];
+  const readiness = await getDischargeReadiness(admissionId, {
+    discharge_summary: summary?.content || null,
+  });
+
+  const aiMetadata = summary?.ai_metadata || null;
+  const aiStatus = !summary
+    ? 'schema_unavailable'
+    : aiMetadata?.used_ai === true
+      ? 'ai_draft'
+      : aiMetadata?.fallback_reason
+        ? 'fallback'
+        : 'rules_draft';
+
+  return {
+    admission,
+    discharge_initiated: Boolean(admission.discharge_initiated_at),
+    work_items: workItems,
+    work_item_counts: {
+      total: workItems.length,
+      completed: workItems.filter((item) => item.completed_at).length,
+      pending: workItems.filter((item) => !item.completed_at).length,
+    },
+    summary: summary
+      ? {
+          ...summary,
+          ai_status: aiStatus,
+          ai_label: aiStatus === 'ai_draft'
+            ? 'AI draft - doctor review required'
+            : aiStatus === 'fallback'
+              ? 'Fallback draft - AI unavailable'
+              : 'Rules draft - doctor review required',
+          source_citation_count: summary.source_citations?.length || 0,
+          safety_flag_count: summary.safety_flags?.length || 0,
+        }
+      : {
+          source: null,
+          content: null,
+          is_signed: false,
+          ai_status: aiStatus,
+          ai_label: 'No discharge summary draft yet',
+          source_citation_count: 0,
+          safety_flag_count: 0,
+        },
+    readiness,
+    actor: {
+      uid: actor.uid || null,
+      role: actorRole || null,
+      can_edit_summary: canEditDischargeSummary(actorRole) || actorRole === 'SUPER_ADMIN',
+      can_sign_summary: canSignDischargeSummary(actorRole) || actorRole === 'SUPER_ADMIN',
+      can_mark_drugs_dispensed: canCompleteDischargeWorkItem('pharmacy', actorRole),
+      can_complete_any_work_item: DEFAULT_DISCHARGE_CONSULTS.some((type) =>
+        canCompleteDischargeWorkItem(type, actorRole)),
+    },
+  };
+}
+
+async function listDischargeHubAdmissions(actor = {}) {
+  const rows = await prisma.admissions.findMany({
+    where: {
+      discharge_initiated_at: { not: null },
+      status: { in: ['admitted', 'transferred'] },
+    },
+    select: {
+      id: true,
+      discharge_initiated_at: true,
+    },
+    orderBy: [
+      { discharge_initiated_at: 'asc' },
+      { id: 'asc' },
+    ],
+    take: 100,
+  });
+
+  const admissions = await Promise.all(
+    rows.map((row) => getDischargeHub(row.id, actor)),
+  );
+
+  return {
+    admissions,
+    count: admissions.length,
+  };
+}
+
 async function dischargePatient(admissionId, dischargeData, dischargedBy) {
-  const { discharge_type, discharge_summary, override_readiness_gate } = dischargeData || {};
+  const { discharge_type, discharge_summary } = dischargeData || {};
 
   if (!discharge_type) throw AppError.badRequest('discharge_type is required');
   if (!VALID_DISCHARGE_TYPES.includes(discharge_type)) {
@@ -2051,9 +2397,10 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
   // discharges must clear (a) discharge_summary present, (b) no
   // unpaid invoice for this admission, (c) no still-pending lab/imaging
   // results. Explicit `override_readiness_gate: true` lets the
-  // discharge counter override (with audit). See finding
+  // discharge counter must complete the checklist before the bed can
+  // move to housekeeping. See finding
   // 2026-05-08-tpa-insurance-claim-discharge-no-readiness-gate.
-  if (READINESS_GATED_DISCHARGE_TYPES.has(discharge_type) && override_readiness_gate !== true) {
+  if (READINESS_GATED_DISCHARGE_TYPES.has(discharge_type)) {
     const readiness = await getDischargeReadiness(admissionId, {
       admissionPre,
       discharge_type,
@@ -2061,7 +2408,7 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
     });
 
     if (readiness.blockers.length > 0) {
-      const err = AppError.badRequest('Discharge blocked — readiness gate not met. Pass `override_readiness_gate: true` with a reason in discharge_summary to override.');
+      const err = AppError.badRequest('Discharge blocked — readiness gate not met. Complete the required discharge work before final discharge.');
       err.code = 'DISCHARGE_NOT_READY';
       err.details = { blockers: readiness.blockers, checklist: readiness.checklist };
       throw err;
@@ -2069,7 +2416,7 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
   }
 
   // Phase 1: atomic state changes — flip admission to discharged,
-  // vacate the bed (status → dirty + clear back-links), record the
+  // vacate the bed (status → cleaning + clear back-links), record the
   // bed transfer audit row, queue the housekeeping ticket, stamp
   // audit_logs. Everything here must succeed or roll back together.
   const phase1 = await prisma.$transaction(async (tx) => {
@@ -2115,7 +2462,7 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
         await tx.beds.update({
           where: { id: admission.bed_id },
           data: {
-            status: 'dirty',
+            status: 'cleaning',
             patient_id: null,
             patient_name: null,
             patient_uid: null,
@@ -2168,7 +2515,7 @@ async function dischargePatient(admissionId, dischargeData, dischargedBy) {
   // so a failure here cannot leave the discharge tx aborted. Each is
   // wrapped in its own try/catch, log-on-failure.
   //
-  // Housekeeping ticket: bed is already flipped to `dirty` in
+  // Housekeeping ticket: bed is already flipped to `cleaning` in
   // Phase 1, so the bed-board view shows it as awaiting turnover. The
   // explicit `housekeeping_requests` row is the work item the cleaning
   // staff app + admin dashboard query (mounted at /api/v1/housekeeping
@@ -2275,15 +2622,16 @@ async function transferPatient(admissionId, toWardId, toBedId, reason, transferr
     const patientIntId = patientUser?.id ?? null;
     const patientName = patientUser?.name ?? null;
 
-    // Bed back-linking on transfer. Clear from-bed fully (it's free for
-    // the next patient), and snapshot the admission onto the to-bed.
+    // Bed back-linking on transfer. Clear from-bed fully and send it
+    // through housekeeping before it can be allocated again, then
+    // snapshot the admission onto the to-bed.
     // Migration 172. Patients freely move between bed categories
     // mid-admission per project decision (2026-05-09); no category gate.
     if (fromBedId) {
       await tx.beds.update({
         where: { id: fromBedId },
         data: {
-          status: 'available',
+          status: 'cleaning',
           patient_id: null,
           patient_name: null,
           patient_uid: null,
@@ -2898,6 +3246,9 @@ export default {
   completeDischargeConsult,
   markDischargeDrugsDispensed,
   getDischargeReadiness,
+  getDischargeHub,
+  listDischargeHubAdmissions,
+  canCompleteDischargeWorkItem,
   dischargePatient,
   transferPatient,
   getActiveAdmissions,

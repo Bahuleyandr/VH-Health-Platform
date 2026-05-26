@@ -267,6 +267,20 @@ class AppStrings {
   String get bedSheetNotesSaved => _t('bed_sheet.notes_saved');
   String get bedSheetAdmitPatient => _t('bed_sheet.admit_patient');
   String get bedSheetDischarge => _t('bed_sheet.discharge');
+  String get bedSheetDischargeInitiated => _t('bed_sheet.discharge_initiated');
+  String get bedSheetDischargeInitiatedShort =>
+      _t('bed_sheet.discharge_initiated_short');
+  String get bedSheetTransfer => _t('bed_sheet.transfer');
+  String get bedSheetTransferDestination =>
+      _t('bed_sheet.transfer_destination');
+  String get bedSheetTransferPatient => _t('bed_sheet.transfer_patient');
+  String get bedSheetTransferReasonHint => _t('bed_sheet.transfer_reason_hint');
+  String get bedSheetTransferConsent => _t('bed_sheet.transfer_consent');
+  String get bedSheetTransferEmpty => _t('bed_sheet.transfer_empty');
+  String get bedSheetTransferSearchHint => _t('bed_sheet.transfer_search_hint');
+  String get bedSheetTransferSucceeded => _t('bed_sheet.transfer_succeeded');
+  String bedSheetTransferConfirmBody(String bed) =>
+      '${_t('bed_sheet.transfer_confirm_prefix')} $bed. ${_t('bed_sheet.transfer_confirm_suffix')}';
   String get bedSheetMarkMaintenance => _t('bed_sheet.mark_maintenance');
   String get bedSheetMarkAvailable => _t('bed_sheet.mark_available');
   String dischargeConfirmTitle(String name) =>
@@ -2342,12 +2356,27 @@ class AppStrings {
       'bed_sheet.save_notes': 'Save Notes',
       'bed_sheet.notes_saved': 'Bed notes saved',
       'bed_sheet.admit_patient': 'Admit Patient',
-      'bed_sheet.discharge': 'Discharge',
+      'bed_sheet.discharge': 'Start Discharge',
+      'bed_sheet.discharge_initiated': 'Discharge workflow initiated',
+      'bed_sheet.discharge_initiated_short': 'Discharge initiated',
+      'bed_sheet.transfer': 'Transfer',
+      'bed_sheet.transfer_destination': 'Transfer destination',
+      'bed_sheet.transfer_patient': 'Transfer Patient',
+      'bed_sheet.transfer_reason_hint': 'Reason / receiving unit note',
+      'bed_sheet.transfer_consent':
+          'Class or tariff change consent has been recorded',
+      'bed_sheet.transfer_empty': 'No available beds right now',
+      'bed_sheet.transfer_search_hint': 'Search bed, ward, or type',
+      'bed_sheet.transfer_succeeded':
+          'Patient transferred. Previous bed is now cleaning.',
+      'bed_sheet.transfer_confirm_prefix': 'Move patient to',
+      'bed_sheet.transfer_confirm_suffix':
+          'The current bed will move to cleaning.',
       'bed_sheet.mark_maintenance': 'Mark Maintenance',
       'bed_sheet.mark_available': 'Mark Available',
-      'bed_sheet.discharge_confirm_prefix': 'Discharge',
+      'bed_sheet.discharge_confirm_prefix': 'Start discharge for',
       'bed_sheet.discharge_confirm_body':
-          'This frees the bed and ends the active admission. The patient\'s EMR records remain intact.',
+          'This starts discharge summary, counselling, pharmacy, billing, and consult checks. The bed stays occupied until final discharge is completed.',
       // Attendance
       'attendance.title': 'Attendance',
       'attendance.check_in': 'Check In',

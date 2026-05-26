@@ -21,6 +21,7 @@ const ADMISSION_LOOKUP_SELECT = {
   encounter_id: true,
   patient_uid: true,
   status: true,
+  discharge_summary: true,
 };
 
 const ADMISSION_FOR_SIGN_SELECT = {
@@ -514,6 +515,89 @@ async function saveAiGeneration(context, summary, requestedBy, sourceHash, tenan
 
 export async function collectClinicalData(admissionId) {
   return collectAdmissionClinicalContext(admissionId);
+}
+
+export async function getLatestDischargeSummary(admissionId) {
+  const admission = await prisma.admissions.findUnique({
+    where: { id: Number(admissionId) },
+    select: ADMISSION_LOOKUP_SELECT,
+  });
+  if (!admission) throw AppError.notFound('Admission not found');
+
+  const note = admission.encounter_id
+    ? await prisma.clinical_notes.findFirst({
+        where: {
+          encounter_id: admission.encounter_id,
+          note_type: 'discharge',
+          is_addendum: false,
+        },
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          version: true,
+          is_signed: true,
+          signed_by: true,
+          signed_at: true,
+          author_uid: true,
+          author_role: true,
+          ai_generation_id: true,
+          created_at: true,
+          updated_at: true,
+        },
+        orderBy: [{ version: 'desc' }, { id: 'desc' }],
+      })
+    : null;
+
+  if (note) {
+    const content = (note.content && typeof note.content === 'object' && !Array.isArray(note.content))
+      ? note.content
+      : {};
+    return {
+      source: 'clinical_note',
+      note_id: note.id,
+      title: note.title,
+      version: note.version,
+      content,
+      is_signed: note.is_signed === true || content.is_signed === true,
+      signed_by: note.signed_by || content.signed_by || null,
+      signed_at: note.signed_at || content.signed_at || null,
+      author_uid: note.author_uid,
+      author_role: note.author_role,
+      ai_generation_id: note.ai_generation_id || content.draft_generation_id || null,
+      created_at: note.created_at,
+      updated_at: note.updated_at,
+      ai_metadata: content.ai_metadata || null,
+      safety_flags: Array.isArray(content.safety_flags) ? content.safety_flags : [],
+      source_citations: Array.isArray(content.source_citations) ? content.source_citations : [],
+    };
+  }
+
+  if (admission.discharge_summary) {
+    const content = typeof admission.discharge_summary === 'object'
+      ? admission.discharge_summary
+      : { text: String(admission.discharge_summary) };
+    return {
+      source: 'admission',
+      note_id: null,
+      title: 'Discharge summary',
+      version: null,
+      content,
+      is_signed: content.is_signed === true,
+      signed_by: content.signed_by || null,
+      signed_at: content.signed_at || null,
+      author_uid: null,
+      author_role: null,
+      ai_generation_id: content.draft_generation_id || null,
+      created_at: null,
+      updated_at: null,
+      ai_metadata: content.ai_metadata || null,
+      safety_flags: Array.isArray(content.safety_flags) ? content.safety_flags : [],
+      source_citations: Array.isArray(content.source_citations) ? content.source_citations : [],
+    };
+  }
+
+  return null;
 }
 
 export async function generateDischargeSummary(admissionId, requestedBy, req) {

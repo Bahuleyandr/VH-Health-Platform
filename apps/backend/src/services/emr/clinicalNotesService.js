@@ -72,6 +72,31 @@ const VERSION_HISTORY_SELECT = {
   created_at: true,
 };
 
+async function attachAuthorNames(notes) {
+  const list = Array.isArray(notes) ? notes : [notes];
+  const authorUids = [
+    ...new Set(
+      list
+        .map((note) => note?.author_uid)
+        .filter((uid) => typeof uid === 'string' && uid.length > 0),
+    ),
+  ];
+  if (authorUids.length === 0) {
+    return Array.isArray(notes) ? list : { ...notes, author_name: null };
+  }
+
+  const authors = await prisma.users.findMany({
+    where: { uid: { in: authorUids } },
+    select: { uid: true, name: true },
+  });
+  const namesByUid = new Map(authors.map((author) => [author.uid, author.name]));
+  const enriched = list.map((note) => ({
+    ...note,
+    author_name: namesByUid.get(note.author_uid) ?? null,
+  }));
+  return Array.isArray(notes) ? enriched : enriched[0];
+}
+
 /**
  * Validate content structure for a given note_type.
  */
@@ -186,7 +211,7 @@ export async function createNote(data) {
   });
 
   logger.info(`Clinical note created: id=${created.id}, type=${note_type}, patient=${patient_uid}, author=${author_uid}`);
-  return created;
+  return attachAuthorNames(created);
 }
 
 // ===================================================================
@@ -259,7 +284,7 @@ export async function addAddendum(noteId, addendumContent, authorUid, authorRole
   });
 
   logger.info(`Addendum added to note ${rootNoteId}: addendum_id=${created.id}, version=${nextVersion}, author=${authorUid}`);
-  return created;
+  return attachAuthorNames(created);
 }
 
 // ===================================================================
@@ -326,7 +351,7 @@ export async function updateNote(noteId, content, editorUid, editorRole) {
   logger.info(
     `Clinical note admin-edited: id=${noteId}, editor=${editorUid}, original_author=${existing.author_uid}, version=${existing.version}->${updated.version}`,
   );
-  return updated;
+  return attachAuthorNames(updated);
 }
 
 // ===================================================================
@@ -400,7 +425,7 @@ export async function signNote(noteId, signerUid, actingUser = null) {
   });
 
   logger.info(`Clinical note signed: id=${noteId}, signed_by=${signerUid}`);
-  return updated;
+  return attachAuthorNames(updated);
 }
 
 // ===================================================================
@@ -445,7 +470,7 @@ export async function getPatientNotes(patientUid, filters = {}) {
   const pagination = buildPagination(total, listQuery.page, listQuery.limit);
 
   return {
-    notes,
+    notes: await attachAuthorNames(notes),
     pagination,
   };
 }
@@ -460,11 +485,12 @@ export async function getPatientNotes(patientUid, filters = {}) {
  * @returns {Array} Notes sorted by created_at
  */
 export async function getEncounterNotes(encounterId) {
-  return prisma.clinical_notes.findMany({
+  const notes = await prisma.clinical_notes.findMany({
     where: { encounter_id: encounterId },
     select: NOTE_SELECT,
     orderBy: { created_at: 'asc' },
   });
+  return attachAuthorNames(notes);
 }
 
 // ===================================================================
@@ -502,9 +528,14 @@ export async function getNoteDetail(noteId) {
     orderBy: { version: 'asc' },
   });
 
+  const [enrichedNote, enrichedVersions] = await Promise.all([
+    attachAuthorNames(note),
+    attachAuthorNames(versions),
+  ]);
+
   return {
-    ...note,
-    version_history: versions,
+    ...enrichedNote,
+    version_history: enrichedVersions,
   };
 }
 

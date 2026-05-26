@@ -32,11 +32,9 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
     });
     try {
       final data = await MedicalApiService.getActiveAdmissions(page: _page);
-      final list = data['admissions'];
+      final list = _listFromAdmissions(data);
       setState(() {
-        _admissions = list is List
-            ? list.map((e) => Map<String, dynamic>.from(e as Map)).toList()
-            : [];
+        _admissions = list;
         _loading = false;
       });
     } catch (e) {
@@ -45,6 +43,18 @@ class _AdmissionScreenState extends State<AdmissionScreen> {
         _loading = false;
       });
     }
+  }
+
+  List<Map<String, dynamic>> _listFromAdmissions(Map<String, dynamic> data) {
+    dynamic value = data['admissions'] ?? data['data'] ?? data['items'];
+    if (value is Map) {
+      value = value['admissions'] ?? value['items'] ?? value['data'];
+    }
+    if (value is! List) return const [];
+    return value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
   }
 
   Color _priorityColor(String? priority) {
@@ -723,6 +733,18 @@ class _AdmissionDetailSheetState extends State<_AdmissionDetailSheet> {
                               '/emr/timeline/$uid${name != null ? '?name=$name' : ''}',
                             );
                           }
+                        },
+                      ),
+                      ActionChip(
+                        avatar: const Icon(Icons.rule_folder, size: 18),
+                        label: const Text('Discharge Hub'),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          final id = widget.admissionId;
+                          final name = _detail?['patient_name'] as String?;
+                          context.go(
+                            '/emr/discharge-hub/$id${name != null ? '?name=${Uri.encodeQueryComponent(name)}' : ''}',
+                          );
                         },
                       ),
                     ],

@@ -126,10 +126,10 @@ class BedManagementService {
   }
 
   // =========================================================================
-  // dischargePatient — Discharge and set bed status to "dirty"
+  // dischargePatient — Discharge and hand bed to housekeeping.
   // =========================================================================
   async dischargePatient(bedId, dischargedBy) {
-    const { updated, patientUid } = await prisma.$transaction(async (tx) => {
+    const { updated, patientUid, admissionId } = await prisma.$transaction(async (tx) => {
       const bedRows = await tx.$queryRawUnsafe(
         `SELECT id, status, patient_uid, bed_number FROM beds WHERE id = $1 FOR UPDATE`,
         bedId
@@ -147,20 +147,62 @@ class BedManagementService {
 
       const patientUid = bedRows[0].patient_uid;
 
+      const activeAdmissionRows = patientUid
+        ? await tx.$queryRawUnsafe(
+          `SELECT id, patient_uid, status
+             FROM admissions
+            WHERE status IN ('admitted', 'transferred')
+              AND (bed_id = $1 OR patient_uid = $2::uuid)
+            ORDER BY CASE WHEN bed_id = $1 THEN 0 ELSE 1 END,
+                     admitted_at DESC NULLS LAST,
+                     id DESC
+            LIMIT 1
+            FOR UPDATE`,
+          bedId,
+          patientUid,
+        )
+        : await tx.$queryRawUnsafe(
+          `SELECT id, patient_uid, status
+             FROM admissions
+            WHERE bed_id = $1
+              AND status IN ('admitted', 'transferred')
+            ORDER BY admitted_at DESC NULLS LAST, id DESC
+            LIMIT 1
+            FOR UPDATE`,
+          bedId,
+        );
+      const activeAdmission = activeAdmissionRows[0] || null;
+      const dischargePatientUid = patientUid || activeAdmission?.patient_uid || null;
+
+      if (activeAdmission) {
+        await tx.$executeRawUnsafe(
+          `UPDATE admissions
+              SET status = 'discharged',
+                  discharged_at = NOW(),
+                  discharge_type = COALESCE(discharge_type, 'home'),
+                  updated_at = NOW()
+            WHERE id = $1`,
+          activeAdmission.id,
+        );
+      }
+
       // bed_transfers.patient_uid is NOT NULL; skip the audit row for beds
       // admitted via the legacy bedService path (which never writes patient_uid).
-      if (patientUid) {
+      if (dischargePatientUid) {
         await tx.$executeRawUnsafe(
           `INSERT INTO bed_transfers (patient_uid, from_bed_id, to_bed_id, reason, transferred_by)
            VALUES ($1::uuid, $2, $2, 'Discharge', $3::uuid)`,
-          patientUid, bedId, dischargedBy
+          dischargePatientUid, bedId, dischargedBy
         );
       }
 
       const updated = await tx.$queryRawUnsafe(
         `UPDATE beds
-         SET status = 'dirty',
+         SET status = 'cleaning',
+             patient_id = NULL,
+             patient_name = NULL,
              patient_uid = NULL,
+             admission_id = NULL,
              admitted_at = NULL,
              expected_discharge = NULL,
              updated_at = NOW()
@@ -169,11 +211,57 @@ class BedManagementService {
         bedId
       );
 
-      return { updated: updated[0], patientUid };
+      return { updated: updated[0], patientUid: dischargePatientUid, admissionId: activeAdmission?.id || null };
     });
 
-    logger.info(`Patient ${patientUid} discharged from bed ${bedId}, bed set to dirty`);
+    logger.info(
+      `Patient ${patientUid || 'unknown'} discharged from bed ${bedId}, `
+      + `admission ${admissionId || 'none'} ended, bed set to cleaning`,
+    );
     return updated;
+  }
+
+  async getActiveAdmissionForBed(bedId) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT b.id AS bed_id,
+              b.bed_number,
+              b.status AS bed_status,
+              b.patient_uid AS bed_patient_uid,
+              a.id AS admission_id,
+              a.patient_uid AS admission_patient_uid,
+              a.status AS admission_status,
+              a.discharge_initiated_at
+         FROM beds b
+         LEFT JOIN LATERAL (
+           SELECT id, patient_uid, status, discharge_initiated_at, admitted_at
+             FROM admissions
+            WHERE status IN ('admitted', 'transferred')
+              AND (
+                bed_id = b.id
+                OR (b.patient_uid IS NOT NULL AND patient_uid = b.patient_uid)
+              )
+            ORDER BY CASE WHEN bed_id = b.id THEN 0 ELSE 1 END,
+                     admitted_at DESC NULLS LAST,
+                     id DESC
+            LIMIT 1
+         ) a ON true
+        WHERE b.id = $1`,
+      bedId,
+    );
+
+    if (!rows.length) {
+      throw AppError.notFound('Bed not found');
+    }
+    const row = rows[0];
+    if (String(row.bed_status || '').toLowerCase() !== 'occupied') {
+      throw AppError.badRequest(
+        `Bed ${row.bed_number} is not occupied (current status: ${row.bed_status})`,
+      );
+    }
+    if (!row.admission_id) {
+      throw AppError.badRequest('No active admission is linked to this occupied bed');
+    }
+    return row;
   }
 
   // =========================================================================
@@ -183,7 +271,10 @@ class BedManagementService {
     const { acknowledgeClassChange = false } = options;
     const result = await prisma.$transaction(async (tx) => {
       const currentBedRows = await tx.$queryRawUnsafe(
-        `SELECT id, bed_number, bed_type FROM beds WHERE patient_uid = $1::uuid AND status = 'occupied' FOR UPDATE`,
+        `SELECT id, bed_number, bed_type, ward_id
+           FROM beds
+          WHERE patient_uid = $1::uuid AND status = 'occupied'
+          FOR UPDATE`,
         patientUid
       );
 
@@ -195,7 +286,11 @@ class BedManagementService {
       const fromBedId = fromBed.id;
 
       const targetBedRows = await tx.$queryRawUnsafe(
-        `SELECT id, status, bed_number, bed_type FROM beds WHERE id = $1 FOR UPDATE`,
+        `SELECT b.id, b.status, b.bed_number, b.bed_type, b.ward_id, w.name AS ward_name
+           FROM beds b
+         LEFT JOIN wards w ON w.id = b.ward_id
+        WHERE b.id = $1
+        FOR UPDATE OF b`,
         toBedId
       );
 
@@ -215,6 +310,33 @@ class BedManagementService {
           `Target bed ${toBed.bed_number} is not available (current status: ${toBed.status})`
         );
       }
+
+      const admissionRows = await tx.$queryRawUnsafe(
+        `SELECT id, patient_uid, admitted_at, expected_los_days
+           FROM admissions
+          WHERE patient_uid = $1::uuid
+            AND status IN ('admitted', 'transferred')
+          ORDER BY admitted_at DESC NULLS LAST, id DESC
+          LIMIT 1
+          FOR UPDATE`,
+        patientUid,
+      );
+      if (!admissionRows.length) {
+        throw AppError.badRequest('No active admission is linked to this patient');
+      }
+      const admission = admissionRows[0];
+
+      const patientRows = await tx.$queryRawUnsafe(
+        `SELECT id, name FROM users WHERE uid = $1::uuid LIMIT 1`,
+        patientUid,
+      );
+      const patientUser = patientRows[0] || {};
+      const expectedDischarge = admission.expected_los_days
+        ? new Date(
+          new Date(admission.admitted_at || Date.now()).getTime()
+          + Number(admission.expected_los_days) * 86400000,
+        )
+        : null;
 
       // D34 — Class-change reconciliation. Moving a patient from
       // general → private (or general → deluxe) is a tariff event:
@@ -257,7 +379,12 @@ class BedManagementService {
       // Vacate old bed
       await tx.$executeRawUnsafe(
         `UPDATE beds
-         SET status = 'cleaning', patient_uid = NULL, admitted_at = NULL,
+         SET status = 'cleaning',
+             patient_id = NULL,
+             patient_name = NULL,
+             patient_uid = NULL,
+             admission_id = NULL,
+             admitted_at = NULL,
              expected_discharge = NULL, updated_at = NOW()
          WHERE id = $1`,
         fromBedId
@@ -266,40 +393,59 @@ class BedManagementService {
       // Occupy new bed
       const newBed = await tx.$queryRawUnsafe(
         `UPDATE beds
-         SET status = 'occupied', patient_uid = $1::uuid, admitted_at = NOW(), updated_at = NOW()
-         WHERE id = $2
+         SET status = 'occupied',
+             patient_id = $1,
+             patient_name = $2,
+             patient_uid = $3::uuid,
+             admission_id = $4,
+             admitted_at = NOW(),
+             assigned_at = NOW(),
+             expected_discharge = $5,
+             updated_at = NOW()
+         WHERE id = $6
          RETURNING id, bed_number, ward_id, status, patient_uid, assigned_at, created_at, updated_at, bed_type`,
-        patientUid, toBedId
+        patientUser.id || null,
+        patientUser.name || null,
+        patientUid,
+        admission.id,
+        expectedDischarge,
+        toBedId
       );
 
-      // D34 — Re-stamp the admission's room_category to match the new
-      // bed's type when the bed_type maps to a recognised category.
-      // Without this, billing tariff stays anchored to the OLD class
-      // even after the move. Best-effort: a missing admission row
-      // (patient_uid mismatch between beds + admissions) is logged
-      // and skipped, never blocks the bed move itself.
       const VALID_ROOM_CATEGORIES = new Set(['general', 'semi_private', 'private', 'deluxe', 'icu', 'day_care']);
-      if (toBed.bed_type && VALID_ROOM_CATEGORIES.has(toBed.bed_type)) {
-        try {
-          await tx.$executeRawUnsafe(
-            `UPDATE admissions
-                SET room_category = $1, updated_at = NOW()
-              WHERE patient_uid = $2::uuid AND status IN ('admitted', 'transferred')`,
-            toBed.bed_type, patientUid,
-          );
-        } catch (categoryErr) {
-          logger.warn(`transferPatient: room_category re-stamp failed for patient ${patientUid}: ${categoryErr.message}`);
-        }
-      }
+      const targetRoomCategory = toBed.bed_type && VALID_ROOM_CATEGORIES.has(toBed.bed_type)
+        ? toBed.bed_type
+        : null;
+      await tx.$executeRawUnsafe(
+        `UPDATE admissions
+            SET bed_id = $1,
+                bed_number = $2,
+                ward = COALESCE($3, ward),
+                status = 'transferred',
+                room_category = COALESCE($4, room_category),
+                updated_at = NOW()
+          WHERE id = $5`,
+        toBedId,
+        toBed.bed_number,
+        toBed.ward_name || null,
+        targetRoomCategory,
+        admission.id,
+      );
 
       // Record transfer
       await tx.$executeRawUnsafe(
-        `INSERT INTO bed_transfers (patient_uid, from_bed_id, to_bed_id, reason, transferred_by)
-         VALUES ($1::uuid, $2, $3, $4, $5::uuid)`,
-        patientUid, fromBedId, toBedId, reason, transferredBy
+        `INSERT INTO bed_transfers (patient_uid, admission_id, from_bed_id, to_bed_id, reason, transferred_by)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid)`,
+        patientUid, admission.id, fromBedId, toBedId, reason, transferredBy
       );
 
-      return { fromBedId, fromBedType: fromBed.bed_type, toBed: newBed[0], isUpgrade };
+      return {
+        fromBedId,
+        fromBedType: fromBed.bed_type,
+        admissionId: admission.id,
+        toBed: newBed[0],
+        isUpgrade,
+      };
     });
 
     logger.info(`Patient ${patientUid} transferred from bed ${result.fromBedId} to bed ${toBedId}`);
@@ -307,6 +453,7 @@ class BedManagementService {
     return {
       from_bed_id: result.fromBedId,
       from_bed_type: result.fromBedType,
+      admission_id: result.admissionId,
       to_bed: result.toBed,
       reason,
       class_change: result.isUpgrade ? {

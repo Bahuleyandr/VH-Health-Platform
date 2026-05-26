@@ -46,6 +46,12 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
   final _warningSignsCtrl = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    _loadExistingSummary();
+  }
+
+  @override
   void dispose() {
     _hospitalCourseCtrl.dispose();
     _dischargeDiagnosisCtrl.dispose();
@@ -55,6 +61,36 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
     _dietCtrl.dispose();
     _warningSignsCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadExistingSummary() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final result = await MedicalApiService.getDischargeSummary(
+        widget.admissionId,
+      );
+      final wrapper = result['discharge_summary'];
+      if (wrapper is Map) {
+        final item = Map<String, dynamic>.from(wrapper);
+        final content = item['content'];
+        if (content is Map) {
+          final summary = Map<String, dynamic>.from(content);
+          _populateControllers(summary);
+          setState(() {
+            _summary = summary;
+            _isSigned =
+                item['is_signed'] == true || summary['is_signed'] == true;
+          });
+        }
+      }
+    } catch (e) {
+      setState(() => _error = 'Could not load existing summary: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<void> _generate() async {
@@ -397,6 +433,8 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
                 style: TextStyle(color: theme.colorScheme.error),
               ),
             ),
+          _buildAiBanner(theme),
+          const SizedBox(height: 16),
 
           _buildSection(
             s.dischargeSectionHospitalCourse,
@@ -493,6 +531,51 @@ class _DischargeSummaryScreenState extends State<DischargeSummaryScreen> {
               ),
             ),
           const SizedBox(height: 80), // space for bottom bar
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAiBanner(ThemeData theme) {
+    final metadata = _summary?['ai_metadata'];
+    final citations = _summary?['source_citations'];
+    final flags = _summary?['safety_flags'];
+    final ai = metadata is Map ? Map<String, dynamic>.from(metadata) : {};
+    final usedAi = ai['used_ai'] == true;
+    final fallback = (ai['fallback_reason'] ?? '').toString();
+    final sourceCount = citations is List ? citations.length : 0;
+    final flagCount = flags is List ? flags.length : 0;
+    final label = usedAi
+        ? 'AI-generated draft - doctor review required'
+        : fallback.isNotEmpty
+        ? 'Fallback draft - AI unavailable'
+        : 'Structured draft - doctor review required';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: theme.colorScheme.primary.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Icon(Icons.auto_awesome, color: theme.colorScheme.primary, size: 18),
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+          Chip(
+            visualDensity: VisualDensity.compact,
+            label: Text('$sourceCount sources'),
+          ),
+          Chip(
+            visualDensity: VisualDensity.compact,
+            label: Text('$flagCount safety flags'),
+          ),
         ],
       ),
     );

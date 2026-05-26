@@ -220,27 +220,34 @@ class _NoteCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final role = '${note['author_role'] ?? 'UNKNOWN'}';
-    final type = '${note['note_type'] ?? 'note'}';
+    final type = _displayNoteType('${note['note_type'] ?? 'note'}');
+    final authorName = _authorName(note);
     final version = note['version'];
     final createdAt = DateTime.tryParse('${note['created_at']}');
     final signed = note['is_signed'] == true;
     final isAddendum = note['is_addendum'] == true;
     final content = note['content'];
+    final accent = _roleColor(role);
 
     return Card(
       elevation: 0,
+      color: accent.withValues(alpha: 0.04),
       shape: RoundedRectangleBorder(
-        side: BorderSide(color: Colors.grey.shade300),
+        side: BorderSide(color: accent.withValues(alpha: 0.35)),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Padding(
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border(left: BorderSide(color: accent, width: 4)),
+          borderRadius: BorderRadius.circular(8),
+        ),
         padding: const EdgeInsets.fromLTRB(12, 10, 8, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                _Badge(label: role, color: _roleColor(role)),
+                _Badge(label: role, color: accent),
                 const SizedBox(width: 6),
                 _Badge(label: type, color: AppTheme.textSecondary),
                 if (signed) ...[
@@ -270,6 +277,26 @@ class _NoteCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
+            if (authorName.isNotEmpty) ...[
+              Row(
+                children: [
+                  Icon(
+                    Icons.person_outline,
+                    size: 14,
+                    color: AppTheme.textSecondary,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    authorName,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+            ],
             if (content is Map)
               ..._renderContent(context, content.cast<String, dynamic>())
             else
@@ -330,9 +357,32 @@ class _NoteCard extends StatelessWidget {
         r.contains('SURGEON')) {
       return Colors.blue.shade700;
     }
-    if (r.contains('NURSE')) return Colors.teal.shade700;
+    if (r.contains('NURSE') || r.contains('NURS')) {
+      return Colors.teal.shade700;
+    }
     if (r.contains('ADMIN')) return Colors.purple.shade700;
     return AppTheme.textSecondary;
+  }
+
+  String _displayNoteType(String type) {
+    final normalized = type.toLowerCase();
+    if (normalized == 'soap' || normalized == 'progress') {
+      return 'Progress';
+    }
+    return type;
+  }
+
+  String _authorName(Map<String, dynamic> note) {
+    for (final value in [
+      note['author_name'],
+      note['doctor_name'],
+      note['created_by_name'],
+      note['author'] is Map ? (note['author'] as Map)['name'] : null,
+    ]) {
+      final text = value?.toString().trim() ?? '';
+      if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+    }
+    return '';
   }
 
   Future<void> _openEditor(BuildContext ctx) async {

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/services/patient_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -12,7 +14,9 @@ String _digitsOnly(String value) => value.replaceAll(RegExp(r'\D'), '');
 
 /// Patient Records screen — Doctors/Nurses/Admin view patient records.
 class PatientRecordsScreen extends StatefulWidget {
-  const PatientRecordsScreen({super.key});
+  final String? contextMode;
+
+  const PatientRecordsScreen({super.key, this.contextMode});
 
   @override
   State<PatientRecordsScreen> createState() => _PatientRecordsScreenState();
@@ -24,6 +28,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
   String? _error;
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
+  bool get _isIpContext => widget.contextMode?.toLowerCase() == 'ip';
 
   @override
   void initState() {
@@ -506,91 +511,665 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
     return StaffScaffold(
-      title: s.patientRecordsTitle,
-      body: Column(
+      title: _isIpContext ? 'IP Patient Records' : s.patientRecordsTitle,
+      body: _isIpContext ? _buildIpRecordsBody() : _buildStandardRecordsBody(s),
+    );
+  }
+
+  Widget _buildIpRecordsBody() {
+    return DefaultTabController(
+      length: 2,
+      child: Column(
         children: [
-          // Search
           Container(
             color: Colors.white,
-            padding: const EdgeInsets.all(12),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final searchField = TextField(
-                  controller: _searchCtrl,
-                  decoration: InputDecoration(
-                    hintText: s.patientRecordsSearchHint,
-                    prefixIcon: const ExcludeSemantics(
-                      child: Icon(Icons.search),
-                    ),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            tooltip: s.patientRecordsClearTooltip,
-                            onPressed: () {
-                              _searchCtrl.clear();
-                              setState(() => _searchQuery = '');
-                            },
-                          )
-                        : null,
-                    filled: true,
-                    fillColor: AppTheme.backgroundGrey,
-                  ),
-                  onChanged: (v) => setState(() => _searchQuery = v),
-                  onSubmitted: (v) {
-                    final digits = _digitsOnly(v);
-                    if (digits.length == 10) _searchByPhone(digits);
-                  },
-                );
-                final uploadButton = ElevatedButton.icon(
-                  onPressed: _showUploadRecordSheet,
-                  icon: const Icon(Icons.upload_file, color: Colors.white),
-                  label: const Text('Upload Prior Record'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primaryBlue,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(0, 50),
-                  ),
-                );
-                if (constraints.maxWidth < 560) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      searchField,
-                      const SizedBox(height: 10),
-                      uploadButton,
-                    ],
-                  );
-                }
-                return Row(
-                  children: [
-                    Expanded(child: searchField),
-                    const SizedBox(width: 12),
-                    uploadButton,
-                  ],
-                );
-              },
+            child: TabBar(
+              labelColor: AppTheme.primaryBlue,
+              unselectedLabelColor: AppTheme.textSecondary,
+              indicatorColor: AppTheme.primaryBlue,
+              tabs: const [
+                Tab(text: 'Current Admission Notes'),
+                Tab(text: 'Prior Records'),
+              ],
             ),
           ),
-
           Expanded(
-            child: RefreshIndicator(
-              onRefresh: _load,
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _error != null
-                  ? _ErrorState(error: _error!, onRetry: _load)
-                  : _filtered.isEmpty
-                  ? _EmptyState(hasSearch: _searchQuery.isNotEmpty)
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: _filtered.length,
-                      itemBuilder: (ctx, i) =>
-                          _PatientCard(record: _filtered[i]),
-                    ),
+            child: TabBarView(
+              children: [
+                const _CurrentAdmissionNotesTab(),
+                _IpPriorRecordsTab(onUpload: _showUploadRecordSheet),
+              ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildStandardRecordsBody(AppStrings s) {
+    return Column(
+      children: [
+        // Search
+        Container(
+          color: Colors.white,
+          padding: const EdgeInsets.all(12),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final searchField = TextField(
+                controller: _searchCtrl,
+                decoration: InputDecoration(
+                  hintText: s.patientRecordsSearchHint,
+                  prefixIcon: const ExcludeSemantics(child: Icon(Icons.search)),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear),
+                          tooltip: s.patientRecordsClearTooltip,
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                        )
+                      : null,
+                  filled: true,
+                  fillColor: AppTheme.backgroundGrey,
+                ),
+                onChanged: (v) => setState(() => _searchQuery = v),
+                onSubmitted: (v) {
+                  final digits = _digitsOnly(v);
+                  if (digits.length == 10) _searchByPhone(digits);
+                },
+              );
+              final uploadButton = ElevatedButton.icon(
+                onPressed: _showUploadRecordSheet,
+                icon: const Icon(Icons.upload_file, color: Colors.white),
+                label: const Text('Upload Prior Record'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryBlue,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(0, 50),
+                ),
+              );
+              if (constraints.maxWidth < 560) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    searchField,
+                    const SizedBox(height: 10),
+                    uploadButton,
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: searchField),
+                  const SizedBox(width: 12),
+                  uploadButton,
+                ],
+              );
+            },
+          ),
+        ),
+
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                ? _ErrorState(error: _error!, onRetry: _load)
+                : _filtered.isEmpty
+                ? _EmptyState(hasSearch: _searchQuery.isNotEmpty)
+                : ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: _filtered.length,
+                    itemBuilder: (ctx, i) => _PatientCard(record: _filtered[i]),
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+List<Map<String, dynamic>> _mapListFrom(dynamic value) {
+  if (value is Map) {
+    return _mapListFrom(
+      value['admissions'] ?? value['notes'] ?? value['items'] ?? value['data'],
+    );
+  }
+  if (value is List) {
+    return value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+  return const [];
+}
+
+String _firstText(List<dynamic> values, {String fallback = ''}) {
+  for (final value in values) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+  }
+  return fallback;
+}
+
+Map<String, dynamic> _contentMap(Map<String, dynamic> note) {
+  final content = note['content'];
+  return content is Map ? Map<String, dynamic>.from(content) : const {};
+}
+
+String _noteText(Map<String, dynamic> note, String key) {
+  final direct = note[key];
+  if (direct is String && direct.trim().isNotEmpty) return direct;
+  final nested = _contentMap(note)[key];
+  return nested is String && nested.trim().isNotEmpty ? nested : '';
+}
+
+String _noteSummary(Map<String, dynamic> note) {
+  for (final key in const [
+    'summary',
+    'current_status',
+    'assessment',
+    'subjective',
+    'procedure_details',
+    'findings',
+  ]) {
+    final text = _noteText(note, key);
+    if (text.isNotEmpty) return text;
+  }
+  final content = note['content'];
+  if (content is String && content.trim().isNotEmpty) return content;
+  return 'Clinical note';
+}
+
+DateTime? _parseDate(dynamic value) {
+  final text = value?.toString() ?? '';
+  return text.isEmpty ? null : DateTime.tryParse(text);
+}
+
+bool _isCurrentAdmissionNote(
+  Map<String, dynamic> admission,
+  Map<String, dynamic> note,
+) {
+  final admissionEncounter = _firstText([admission['encounter_id']]);
+  final noteEncounter = _firstText([note['encounter_id']]);
+  if (admissionEncounter.isNotEmpty && noteEncounter.isNotEmpty) {
+    return admissionEncounter == noteEncounter;
+  }
+
+  final admittedAt = _parseDate(admission['admitted_at']);
+  final createdAt = _parseDate(note['created_at']);
+  if (admittedAt != null && createdAt != null) {
+    return !createdAt.isBefore(admittedAt.subtract(const Duration(hours: 1)));
+  }
+  return true;
+}
+
+class _CurrentAdmissionNotesTab extends StatefulWidget {
+  const _CurrentAdmissionNotesTab();
+
+  @override
+  State<_CurrentAdmissionNotesTab> createState() =>
+      _CurrentAdmissionNotesTabState();
+}
+
+class _CurrentAdmissionNotesTabState extends State<_CurrentAdmissionNotesTab> {
+  bool _loading = true;
+  String? _error;
+  List<_AdmissionNotesBundle> _bundles = const [];
+  String? _expandedAdmissionKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final admissionsData = await MedicalApiService.getActiveAdmissions(
+        limit: 50,
+      );
+      final admissions = _mapListFrom(admissionsData);
+      final bundles = await Future.wait(
+        admissions.map((admission) async {
+          final uid = _firstText([admission['patient_uid']]);
+          var notes = <Map<String, dynamic>>[];
+          if (uid.isNotEmpty) {
+            final notesData = await MedicalApiService.getPatientNotes(uid);
+            notes = _mapListFrom(notesData)
+                .where((note) => _isCurrentAdmissionNote(admission, note))
+                .toList();
+          }
+          return _AdmissionNotesBundle(admission: admission, notes: notes);
+        }),
+      );
+      if (!mounted) return;
+      setState(() {
+        _bundles = bundles;
+        _expandedAdmissionKey = null;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString().replaceFirst('Exception: ', '');
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) return _ErrorState(error: _error!, onRetry: _load);
+    if (_bundles.isEmpty) {
+      return const _SimpleEmptyState(
+        icon: Icons.local_hotel_outlined,
+        title: 'No active admissions',
+        body: 'Current admission notes will appear here.',
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(12),
+        itemCount: _bundles.length,
+        itemBuilder: (context, index) {
+          final bundle = _bundles[index];
+          final admissionKey = _admissionTileKey(bundle, index);
+          return _AdmissionNotesCard(
+            bundle: bundle,
+            expansionKey: admissionKey,
+            isExpanded: _expandedAdmissionKey == admissionKey,
+            onExpansionChanged: (expanded) {
+              setState(() {
+                _expandedAdmissionKey = expanded ? admissionKey : null;
+              });
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  String _admissionTileKey(_AdmissionNotesBundle bundle, int index) {
+    final admission = bundle.admission;
+    final stableId = _firstText([
+      admission['admission_id'],
+      admission['id'],
+      admission['encounter_id'],
+      admission['patient_uid'],
+    ]);
+    return stableId.isNotEmpty ? stableId : 'admission-$index';
+  }
+}
+
+class _AdmissionNotesBundle {
+  final Map<String, dynamic> admission;
+  final List<Map<String, dynamic>> notes;
+
+  const _AdmissionNotesBundle({required this.admission, required this.notes});
+}
+
+class _AdmissionNotesCard extends StatelessWidget {
+  final _AdmissionNotesBundle bundle;
+  final String expansionKey;
+  final bool isExpanded;
+  final ValueChanged<bool> onExpansionChanged;
+
+  const _AdmissionNotesCard({
+    required this.bundle,
+    required this.expansionKey,
+    required this.isExpanded,
+    required this.onExpansionChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final admission = bundle.admission;
+    final uid = _firstText([admission['patient_uid']]);
+    final patientName = _firstText([
+      admission['patient_name'],
+      admission['name'],
+    ], fallback: 'Patient');
+    final bed = _firstText([admission['bed_number'], admission['bed_id']]);
+    final ward = _firstText([admission['ward'], admission['bed_ward_name']]);
+    final admittedAt = _firstText([admission['admitted_at']]);
+    final routeName = Uri.encodeQueryComponent(patientName);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ExpansionTile(
+        key: ValueKey('admission-notes-$expansionKey-$isExpanded'),
+        initiallyExpanded: isExpanded,
+        onExpansionChanged: onExpansionChanged,
+        leading: const CircleAvatar(
+          backgroundColor: Color(0xFFE3F2FD),
+          child: Icon(Icons.note_alt_outlined, color: AppTheme.primaryBlue),
+        ),
+        title: Text(
+          patientName,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text(
+          [
+            if (bed.isNotEmpty) 'Bed $bed',
+            if (ward.isNotEmpty) ward,
+            if (admittedAt.isNotEmpty) admittedAt,
+          ].join(' • '),
+        ),
+        trailing: Chip(label: Text('${bundle.notes.length} notes')),
+        children: [
+          if (bundle.notes.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: Text(
+                'No notes recorded for this admission yet.',
+                style: TextStyle(color: AppTheme.textSecondary),
+              ),
+            )
+          else
+            ...bundle.notes
+                .take(5)
+                .map((note) => _AdmissionNoteRow(note: note)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: uid.isEmpty
+                    ? null
+                    : () => context.push('/emr/notes/$uid?name=$routeName'),
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Open Notes'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdmissionNoteRow extends StatelessWidget {
+  final Map<String, dynamic> note;
+
+  const _AdmissionNoteRow({required this.note});
+
+  @override
+  Widget build(BuildContext context) {
+    final type = _firstText([note['note_type']], fallback: 'note');
+    final role = _firstText([note['author_role']], fallback: 'staff');
+    final created = _firstText([note['created_at']]);
+    return ListTile(
+      dense: true,
+      leading: const Icon(Icons.sticky_note_2_outlined),
+      title: Text(
+        '${type.toUpperCase()} • ${role.toUpperCase()}',
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+      subtitle: Text(
+        [_noteSummary(note), if (created.isNotEmpty) created].join('\n'),
+        maxLines: 3,
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
+  }
+}
+
+class _IpPriorRecordsTab extends StatefulWidget {
+  final Future<void> Function() onUpload;
+
+  const _IpPriorRecordsTab({required this.onUpload});
+
+  @override
+  State<_IpPriorRecordsTab> createState() => _IpPriorRecordsTabState();
+}
+
+class _IpPriorRecordsTabState extends State<_IpPriorRecordsTab> {
+  bool _loading = true;
+  String? _error;
+  List<_IpPriorRecord> _records = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final admissionsData = await MedicalApiService.getActiveAdmissions(
+        limit: 50,
+      );
+      final admissions = _mapListFrom(admissionsData);
+      final records = <_IpPriorRecord>[];
+      for (final admission in admissions) {
+        final uid = _firstText([admission['patient_uid']]);
+        final phone = _firstText([
+          admission['patient_phone'],
+          admission['phone'],
+        ]);
+        if (uid.isEmpty && phone.isEmpty) continue;
+        final data = await MedicalApiService.getPatientAllRecords(
+          patientUid: uid.isEmpty ? null : uid,
+          patientPhone: phone.isEmpty ? null : phone,
+        );
+        final docs = [
+          ..._mapListFrom(data['hospital_records']),
+          ..._mapListFrom(data['my_uploads']),
+        ];
+        records.addAll(
+          docs.map(
+            (record) => _IpPriorRecord(admission: admission, record: record),
+          ),
+        );
+      }
+      records.sort((a, b) {
+        final ad = _firstText([
+          a.record['record_date'],
+          a.record['created_at'],
+          a.record['uploaded_at'],
+        ]);
+        final bd = _firstText([
+          b.record['record_date'],
+          b.record['created_at'],
+          b.record['uploaded_at'],
+        ]);
+        return bd.compareTo(ad);
+      });
+      if (!mounted) return;
+      setState(() {
+        _records = records;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString().replaceFirst('Exception: ', '');
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _uploadAndRefresh() async {
+    await widget.onUpload();
+    if (mounted) await _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) return _ErrorState(error: _error!, onRetry: _load);
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _uploadAndRefresh,
+              icon: const Icon(Icons.upload_file, color: Colors.white),
+              label: const Text('Upload Prior Record'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryBlue,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: _records.isEmpty
+                ? const _SimpleEmptyState(
+                    icon: Icons.folder_copy_outlined,
+                    title: 'No prior records uploaded',
+                    body:
+                        'Photos and PDFs uploaded for admitted patients appear here.',
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: _records.length,
+                    itemBuilder: (context, index) =>
+                        _IpPriorRecordCard(item: _records[index]),
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _IpPriorRecord {
+  final Map<String, dynamic> admission;
+  final Map<String, dynamic> record;
+
+  const _IpPriorRecord({required this.admission, required this.record});
+}
+
+class _IpPriorRecordCard extends StatelessWidget {
+  final _IpPriorRecord item;
+
+  const _IpPriorRecordCard({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final admission = item.admission;
+    final record = item.record;
+    final patientName = _firstText([
+      admission['patient_name'],
+      record['patient_name'],
+    ], fallback: 'Patient');
+    final type = _firstText([
+      record['document_type'],
+      record['type'],
+    ], fallback: 'record');
+    final title = _firstText([
+      record['title'],
+      record['file_name'],
+    ], fallback: type);
+    final fileName = _firstText([record['file_name']], fallback: 'Document');
+    final fileUrl = _firstText([record['file_url']]);
+    final source = _firstText([
+      record['source_hospital'],
+      record['source'],
+      record['doctor_name'],
+    ]);
+    final date = _firstText([
+      record['record_date'],
+      record['created_at'],
+      record['uploaded_at'],
+    ]);
+    final bed = _firstText([admission['bed_number']]);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.1),
+          child: Icon(
+            fileName.toLowerCase().endsWith('.pdf')
+                ? Icons.picture_as_pdf_outlined
+                : Icons.image_outlined,
+            color: AppTheme.primaryBlue,
+          ),
+        ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        subtitle: Text(
+          [
+            patientName,
+            if (bed.isNotEmpty) 'Bed $bed',
+            type,
+            fileName,
+            if (source.isNotEmpty) source,
+            if (date.isNotEmpty) date,
+          ].join(' • '),
+        ),
+        trailing: IconButton(
+          tooltip: 'Open',
+          icon: const Icon(Icons.open_in_new),
+          onPressed: fileUrl.isEmpty
+              ? null
+              : () async {
+                  final uri = Uri.tryParse(fileUrl);
+                  if (uri != null && await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
+        ),
+      ),
+    );
+  }
+}
+
+class _SimpleEmptyState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String body;
+
+  const _SimpleEmptyState({
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        const SizedBox(height: 120),
+        Icon(icon, size: 56, color: AppTheme.textSecondary),
+        const SizedBox(height: 16),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: AppTheme.textPrimary,
+            fontSize: 16,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          body,
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AppTheme.textSecondary),
+        ),
+      ],
     );
   }
 }

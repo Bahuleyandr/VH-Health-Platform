@@ -154,6 +154,10 @@ class BedService {
               a.admission_type,
               a.priority    AS admission_priority,
               a.admitted_at AS admission_admitted_at,
+              a.discharge_initiated_at,
+              a.billing_closed_at,
+              a.summary_signed_at,
+              a.discharge_drugs_dispensed_at,
               a.attending_doctor AS attending_doctor_uid,
               doc.name   AS attending_doctor_name
        FROM beds b
@@ -230,13 +234,24 @@ class BedService {
   // discharge the patient. Returns the updated bed (with the same join
   // shape getBedsByWard uses) or null when the id doesn't exist.
   async updateBedNotes(id, notes) {
+    const bedId = parseInt(id, 10);
+    const bedRows = await prisma.$queryRawUnsafe(
+      `SELECT id, status FROM beds WHERE id = $1`,
+      bedId,
+    );
+    if (!bedRows.length) return null;
+    const status = String(bedRows[0].status || '').toLowerCase();
+    if (!['occupied', 'reserved'].includes(status)) {
+      throw AppError.badRequest('Bed notes can only be saved for occupied or reserved beds');
+    }
+
     const rows = await prisma.$queryRawUnsafe(
       `UPDATE beds
          SET notes = $1,
              updated_at = NOW()
        WHERE id = $2
        RETURNING ${BED_RETURNING}`,
-      typeof notes === 'string' ? notes : null, parseInt(id)
+      typeof notes === 'string' ? notes : null, bedId
     );
     return rows[0] ?? null;
   }

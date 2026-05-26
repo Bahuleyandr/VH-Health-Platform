@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
+import '../../../core/config/api_config.dart';
 import '../../../core/services/patient_api_service.dart';
 import '../../../core/services/schedule_api_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -96,7 +97,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     });
     try {
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final role = (await ApiConfig.getRole()).toUpperCase();
+      final doctorId = role == 'DOCTOR' ? await ApiConfig.getStaffId() : null;
       final data = await ScheduleApiService.getAppointments(
+        doctorId: doctorId,
         date: today,
         status: _selectedStatus == 'all' ? null : _selectedStatus,
       );
