@@ -67,6 +67,15 @@ function mockTransferRows({ fromBedType, toBedType, toStatus = 'available' }) {
     .mockResolvedValueOnce([{ id: 100, bed_number: 'A1', bed_type: fromBedType }])
     // target bed lookup
     .mockResolvedValueOnce([{ id: 200, status: toStatus, bed_number: 'B2', bed_type: toBedType }])
+    // active admission lookup
+    .mockResolvedValueOnce([{
+      id: 300,
+      patient_uid: PATIENT,
+      admitted_at: new Date('2026-05-01T00:00:00.000Z'),
+      expected_los_days: 3,
+    }])
+    // patient user lookup for destination bed back-link snapshot
+    .mockResolvedValueOnce([{ id: 400, name: 'Transfer Test Patient' }])
     // occupy new bed RETURNING
     .mockResolvedValueOnce([{
       id: 200, bed_number: 'B2', ward_id: 5, status: 'occupied',
@@ -103,8 +112,10 @@ describe('bedManagementService.transferPatient — class-change reconciliation (
       /UPDATE admissions[\s\S]*room_category/i.test(args[0]),
     );
     expect(restampCall).toBeTruthy();
-    expect(restampCall[1]).toBe('private');
-    expect(restampCall[2]).toBe(PATIENT);
+    expect(restampCall[1]).toBe(200);
+    expect(restampCall[2]).toBe('B2');
+    expect(restampCall[4]).toBe('private');
+    expect(restampCall[5]).toBe(300);
   });
 
   it('accepts private → general downgrade WITHOUT acknowledgement', async () => {
@@ -118,7 +129,7 @@ describe('bedManagementService.transferPatient — class-change reconciliation (
     const restampCall = executeRawMock.mock.calls.find((args) =>
       /UPDATE admissions[\s\S]*room_category/i.test(args[0]),
     );
-    expect(restampCall[1]).toBe('general');
+    expect(restampCall[4]).toBe('general');
   });
 
   it('accepts same-tier transfer (general → general) without acknowledgement', async () => {
