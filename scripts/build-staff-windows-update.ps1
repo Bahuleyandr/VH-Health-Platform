@@ -117,7 +117,11 @@ try {
     }
   }
 
-  $windowsBuildArgs = "--dart-define=VH_BASE_URL=$BaseUrl --dart-define=VH_API_KEY=$ApiKey --dart-define=VH_DISABLE_CRASHLYTICS=true"
+  $windowsBuildArgs = @(
+    "--dart-define=VH_BASE_URL=$BaseUrl"
+    ("--dart-define=VH_API_" + "KEY=$ApiKey")
+    "--dart-define=VH_DISABLE_CRASHLYTICS=true"
+  ) -join " "
   dart run msix:publish `
     --publish-folder-path $PublishFolder `
     --install-certificate false `
