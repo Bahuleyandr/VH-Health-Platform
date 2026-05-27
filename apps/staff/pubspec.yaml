@@ -1,7 +1,7 @@
 name: vhhealth_staff
 description: VHHealth Staff App - Hospital staff management
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.1+2
 resolution: workspace
 
 environment:
@@ -69,6 +69,23 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  msix: ^3.16.13
+
+msix_config:
+  display_name: VH Health Staff
+  publisher_display_name: VH Health
+  identity_name: com.vhhealth.staff
+  logo_path: assets/icon.png
+  output_name: VHHealthStaff
+  capabilities: internetClient, location, microphone, webcam
+  languages: en-us
+  install_certificate: false
+  app_installer:
+    hours_between_update_checks: 0
+    automatic_background_task: false
+    update_blocks_activation: true
+    show_prompt: true
+    force_update_from_any_version: false
 
 flutter:
   uses-material-design: true
