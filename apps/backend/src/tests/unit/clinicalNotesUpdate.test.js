@@ -11,12 +11,16 @@ import { jest } from '@jest/globals';
 
 const findUniqueMock = jest.fn();
 const updateMock = jest.fn();
+const usersFindManyMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
     clinical_notes: {
       findUnique: findUniqueMock,
       update: updateMock,
+    },
+    users: {
+      findMany: usersFindManyMock,
     },
   },
 }));
@@ -35,6 +39,7 @@ const VALID_SOAP_CONTENT = {
 beforeEach(() => {
   findUniqueMock.mockReset();
   updateMock.mockReset();
+  usersFindManyMock.mockReset();
 });
 
 describe('updateNote — admin gate', () => {
@@ -129,6 +134,9 @@ describe('updateNote — admin overwrite path', () => {
       created_at: new Date('2026-05-15T00:00:00Z'),
       updated_at: data.updated_at,
     }));
+    usersFindManyMock.mockResolvedValueOnce([
+      { uid: ORIGINAL_AUTHOR_UID, name: 'Original Doctor' },
+    ]);
 
     const result = await updateNote(42, VALID_SOAP_CONTENT, EDITOR_UID, 'ADMIN');
 
@@ -149,6 +157,7 @@ describe('updateNote — admin overwrite path', () => {
     expect(result.author_role).toBe('DOCTOR');
     expect(result.note_type).toBe('soap');
     expect(result.version).toBe(2);
+    expect(result.author_name).toBe('Original Doctor');
     expect(result.content).toEqual(VALID_SOAP_CONTENT);
   });
 });
