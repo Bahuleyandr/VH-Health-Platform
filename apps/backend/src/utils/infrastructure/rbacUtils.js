@@ -1,8 +1,17 @@
 // utils/infrastructure/rbacUtils.js
 import prisma from '../../lib/prisma.js';
-import { 
-  ADMIN, PATIENT, NURSING_STAFF, PHARMACY_STAFF, 
-  LAB_STAFF, DOCTOR, GENERAL_STAFF, HR_STAFF 
+import {
+  ADMIN,
+  PATIENT,
+  NURSING_STAFF,
+  PHARMACY_STAFF,
+  LAB_STAFF,
+  DOCTOR,
+  GENERAL_STAFF,
+  HOUSEKEEPING_STAFF,
+  HOUSEKEEPING_INCHARGE,
+  MAINTENANCE,
+  HR_STAFF
 } from '../../utils/roles.js';
 
 // Role hierarchy configuration
@@ -10,7 +19,19 @@ export const ROLE_HIERARCHY = {
   [ADMIN]: {
     level: 100,
     permissions: ['*'], // All permissions
-    canManageRoles: [ADMIN, DOCTOR, NURSING_STAFF, PHARMACY_STAFF, LAB_STAFF, HR_STAFF, GENERAL_STAFF, PATIENT],
+    canManageRoles: [
+      ADMIN,
+      DOCTOR,
+      NURSING_STAFF,
+      PHARMACY_STAFF,
+      LAB_STAFF,
+      HR_STAFF,
+      GENERAL_STAFF,
+      HOUSEKEEPING_STAFF,
+      HOUSEKEEPING_INCHARGE,
+      MAINTENANCE,
+      PATIENT
+    ],
     canViewData: 'all',
     description: 'System Administrator - Full Access',
     color: '#dc2626',
@@ -20,9 +41,14 @@ export const ROLE_HIERARCHY = {
   [DOCTOR]: {
     level: 80,
     permissions: [
-      'view_patients', 'manage_appointments', 'access_records',
-      'create_prescriptions', 'view_investigations', 'create_consultations',
-      'access_medical_records', 'create_treatment_plans'
+      'view_patients',
+      'manage_appointments',
+      'access_records',
+      'create_prescriptions',
+      'view_investigations',
+      'create_consultations',
+      'access_medical_records',
+      'create_treatment_plans'
     ],
     canManageRoles: [PATIENT],
     canViewData: 'departmental',
@@ -34,8 +60,12 @@ export const ROLE_HIERARCHY = {
   [NURSING_STAFF]: {
     level: 70,
     permissions: [
-      'view_patients', 'manage_appointments', 'access_basic_records',
-      'assist_consultations', 'manage_investigations', 'update_patient_vitals',
+      'view_patients',
+      'manage_appointments',
+      'access_basic_records',
+      'assist_consultations',
+      'manage_investigations',
+      'update_patient_vitals',
       'schedule_procedures'
     ],
     canManageRoles: [PATIENT],
@@ -48,8 +78,12 @@ export const ROLE_HIERARCHY = {
   [PHARMACY_STAFF]: {
     level: 60,
     permissions: [
-      'view_prescriptions', 'manage_pharmacy_orders', 'access_medication_history',
-      'dispense_medications', 'manage_inventory', 'view_drug_interactions'
+      'view_prescriptions',
+      'manage_pharmacy_orders',
+      'access_medication_history',
+      'dispense_medications',
+      'manage_inventory',
+      'view_drug_interactions'
     ],
     canManageRoles: [],
     canViewData: 'pharmacy_only',
@@ -61,8 +95,12 @@ export const ROLE_HIERARCHY = {
   [LAB_STAFF]: {
     level: 60,
     permissions: [
-      'manage_investigations', 'upload_lab_results', 'view_test_requests',
-      'process_specimens', 'generate_reports', 'manage_lab_equipment'
+      'manage_investigations',
+      'upload_lab_results',
+      'view_test_requests',
+      'process_specimens',
+      'generate_reports',
+      'manage_lab_equipment'
     ],
     canManageRoles: [],
     canViewData: 'lab_only',
@@ -74,10 +112,15 @@ export const ROLE_HIERARCHY = {
   [HR_STAFF]: {
     level: 50,
     permissions: [
-      'view_staff', 'manage_staff_basic', 'view_attendance', 'generate_hr_reports',
-      'manage_schedules', 'process_payroll', 'handle_grievances'
+      'view_staff',
+      'manage_staff_basic',
+      'view_attendance',
+      'generate_hr_reports',
+      'manage_schedules',
+      'process_payroll',
+      'handle_grievances'
     ],
-    canManageRoles: [GENERAL_STAFF],
+    canManageRoles: [GENERAL_STAFF, HOUSEKEEPING_STAFF, HOUSEKEEPING_INCHARGE, MAINTENANCE],
     canViewData: 'hr_only',
     description: 'Human Resources - Staff Management',
     color: '#0891b2',
@@ -87,8 +130,12 @@ export const ROLE_HIERARCHY = {
   [GENERAL_STAFF]: {
     level: 40,
     permissions: [
-      'view_basic_info', 'assist_patients', 'manage_appointments_basic',
-      'handle_inquiries', 'update_contact_info', 'schedule_follow_ups'
+      'view_basic_info',
+      'assist_patients',
+      'manage_appointments_basic',
+      'handle_inquiries',
+      'update_contact_info',
+      'schedule_follow_ups'
     ],
     canManageRoles: [],
     canViewData: 'limited',
@@ -97,12 +144,56 @@ export const ROLE_HIERARCHY = {
     maxUsers: 50,
     requiresApproval: false
   },
+  [HOUSEKEEPING_STAFF]: {
+    level: 35,
+    permissions: [
+      'view_assigned_housekeeping_requests',
+      'complete_housekeeping_requests',
+      'log_cleaning_proof'
+    ],
+    canManageRoles: [],
+    canViewData: 'assigned_housekeeping_only',
+    description: 'Housekeeping Staff - Cleaning Worklist',
+    color: '#047857',
+    maxUsers: 80,
+    requiresApproval: false
+  },
+  [HOUSEKEEPING_INCHARGE]: {
+    level: 45,
+    permissions: [
+      'view_housekeeping_workload',
+      'assign_housekeeping_staff',
+      'verify_housekeeping_requests',
+      'redeploy_housekeeping_staff'
+    ],
+    canManageRoles: [HOUSEKEEPING_STAFF],
+    canViewData: 'housekeeping_department',
+    description: 'Housekeeping Incharge - Floor Assignment',
+    color: '#0f766e',
+    maxUsers: 10,
+    requiresApproval: true
+  },
+  [MAINTENANCE]: {
+    level: 35,
+    permissions: ['view_assigned_maintenance_requests', 'complete_maintenance_requests'],
+    canManageRoles: [],
+    canViewData: 'assigned_maintenance_only',
+    description: 'Maintenance Staff - Facilities Work',
+    color: '#ca8a04',
+    maxUsers: 40,
+    requiresApproval: false
+  },
   [PATIENT]: {
     level: 10,
     permissions: [
-      'view_own_records', 'book_appointments', 'view_own_prescriptions',
-      'submit_feedback', 'access_patient_portal', 'update_personal_info',
-      'view_test_results', 'download_reports'
+      'view_own_records',
+      'book_appointments',
+      'view_own_prescriptions',
+      'submit_feedback',
+      'access_patient_portal',
+      'update_personal_info',
+      'view_test_results',
+      'download_reports'
     ],
     canManageRoles: [],
     canViewData: 'own_only',
@@ -115,7 +206,9 @@ export const ROLE_HIERARCHY = {
 
 // Check if user can manage role
 export const canUserManageRole = (userRole, targetRole) => {
-  if (userRole === ADMIN) {return true;}
+  if (userRole === ADMIN) {
+    return true;
+  }
   const roleData = ROLE_HIERARCHY[userRole];
   return roleData?.canManageRoles?.includes(targetRole) || false;
 };
@@ -123,13 +216,15 @@ export const canUserManageRole = (userRole, targetRole) => {
 // Check if role has capacity
 export const checkRoleCapacity = async (role, _db) => {
   const roleData = ROLE_HIERARCHY[role];
-  if (!roleData.maxUsers) {return { hasCapacity: true, current: 0, max: null };}
-  
+  if (!roleData.maxUsers) {
+    return { hasCapacity: true, current: 0, max: null };
+  }
+
   const result = await prisma.$queryRawUnsafe(
     'SELECT COUNT(*) FROM users WHERE role = $1 AND is_active = true',
     role
   );
-  
+
   const current = parseInt(result[0].count);
   return {
     hasCapacity: current < roleData.maxUsers,
@@ -140,7 +235,7 @@ export const checkRoleCapacity = async (role, _db) => {
 };
 
 // Get manageable roles for user
-export const getManageableRoles = (userRole) => {
+export const getManageableRoles = userRole => {
   if (userRole === ADMIN) {
     return Object.keys(ROLE_HIERARCHY);
   }
@@ -150,13 +245,17 @@ export const getManageableRoles = (userRole) => {
 // Check permission
 export const hasPermission = (userRole, permission) => {
   const roleData = ROLE_HIERARCHY[userRole];
-  if (!roleData) {return false;}
-  if (roleData.permissions.includes('*')) {return true;}
+  if (!roleData) {
+    return false;
+  }
+  if (roleData.permissions.includes('*')) {
+    return true;
+  }
   return roleData.permissions.includes(permission);
 };
 
 // Get role level
-export const getRoleLevel = (role) => {
+export const getRoleLevel = role => {
   return ROLE_HIERARCHY[role]?.level || 0;
 };
 
@@ -166,18 +265,22 @@ export const isHigherRole = (role1, role2) => {
 };
 
 // Format role for display
-export const formatRole = (role) => {
-  return role.replace(/_/g, ' ').toLowerCase()
+export const formatRole = role => {
+  return role
+    .replace(/_/g, ' ')
+    .toLowerCase()
     .split(' ')
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 };
 
 // Generate role badge HTML
-export const generateRoleBadge = (role) => {
+export const generateRoleBadge = role => {
   const roleData = ROLE_HIERARCHY[role];
-  if (!roleData) {return '';}
-  
+  if (!roleData) {
+    return '';
+  }
+
   return `<span style="
     background: ${roleData.color}; 
     color: white; 
@@ -191,12 +294,12 @@ export const generateRoleBadge = (role) => {
 // Validate role transition
 export const validateRoleTransition = (fromRole, toRole) => {
   const errors = [];
-  
+
   // Check if same role
   if (fromRole === toRole) {
     errors.push('Source and target roles are the same');
   }
-  
+
   // Check if valid roles
   if (!ROLE_HIERARCHY[fromRole]) {
     errors.push('Invalid source role');
@@ -204,12 +307,12 @@ export const validateRoleTransition = (fromRole, toRole) => {
   if (!ROLE_HIERARCHY[toRole]) {
     errors.push('Invalid target role');
   }
-  
+
   // Check for dangerous transitions
   if (fromRole === PATIENT && toRole === ADMIN) {
     errors.push('Direct transition from PATIENT to ADMIN requires additional approval');
   }
-  
+
   return {
     valid: errors.length === 0,
     errors
@@ -217,7 +320,7 @@ export const validateRoleTransition = (fromRole, toRole) => {
 };
 
 // Get role statistics
-export const calculateRoleStatistics = (users) => {
+export const calculateRoleStatistics = users => {
   const stats = {
     byRole: {},
     totalUsers: users.length,
@@ -225,12 +328,12 @@ export const calculateRoleStatistics = (users) => {
     inactiveUsers: 0,
     roleDistribution: []
   };
-  
+
   // Initialize role counts
   Object.keys(ROLE_HIERARCHY).forEach(role => {
     stats.byRole[role] = { total: 0, active: 0, inactive: 0 };
   });
-  
+
   // Calculate statistics
   users.forEach(user => {
     if (stats.byRole[user.role]) {
@@ -244,7 +347,7 @@ export const calculateRoleStatistics = (users) => {
       }
     }
   });
-  
+
   // Calculate distribution
   Object.entries(stats.byRole).forEach(([role, counts]) => {
     if (counts.total > 0) {
@@ -256,9 +359,9 @@ export const calculateRoleStatistics = (users) => {
       });
     }
   });
-  
+
   // Sort by level
   stats.roleDistribution.sort((a, b) => b.level - a.level);
-  
+
   return stats;
 };

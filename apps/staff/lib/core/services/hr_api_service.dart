@@ -314,6 +314,48 @@ class HrApiService {
     });
   }
 
+  /// GET /housekeeping/delegation/overview
+  static Future<Map<String, dynamic>>
+  getHousekeepingDelegationOverview() async {
+    return await _get('/housekeeping/delegation/overview');
+  }
+
+  /// POST /housekeeping/delegation/assignments
+  static Future<Map<String, dynamic>> delegateHousekeepingStaff({
+    required int staffId,
+    int? zoneId,
+    String? floor,
+    String? building,
+    String shiftLabel = 'current',
+    String? reason,
+    bool isTemporary = true,
+    bool closeExisting = true,
+    bool reassignUnassignedRequests = true,
+  }) async {
+    return await _post('/housekeeping/delegation/assignments', {
+      'staff_id': staffId,
+      'zone_id': ?zoneId,
+      'floor': ?floor,
+      'building': ?building,
+      'shift_label': shiftLabel,
+      'reason': ?reason,
+      'is_temporary': isTemporary,
+      'close_existing': closeExisting,
+      'reassign_unassigned_requests': reassignUnassignedRequests,
+    });
+  }
+
+  /// POST /housekeeping/delegation/assignments/:id/end
+  static Future<Map<String, dynamic>> endHousekeepingAssignment({
+    required int assignmentId,
+    String? reason,
+  }) async {
+    return await _post(
+      '/housekeeping/delegation/assignments/$assignmentId/end',
+      {'reason': ?reason},
+    );
+  }
+
   // ─── Payroll ──────────────────────────────────────────────────────────────
 
   /// GET /staff/hr/payslips?months=N

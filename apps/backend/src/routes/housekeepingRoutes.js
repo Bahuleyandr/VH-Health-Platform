@@ -24,32 +24,33 @@ wrapAutoRBAC(router, 'housekeepingRoutes', {
     ['/zones', housekeepingController.getZones],
     ['/logs/my', housekeepingController.getMyCleaningLogs],
     ['/requests/my', housekeepingController.getMyRequests],
-    ['/requests/:id', housekeepingController.getRequestDetail],
+    ['/requests/:id', housekeepingController.getRequestDetail]
   ],
   post: [
     ['/logs', housekeepingController.submitCleaningLog],
     ['/requests', housekeepingController.raiseRequest],
-    ['/requests/:id/complete', housekeepingController.completeRequest],
-  ],
+    ['/requests/:id/complete', housekeepingController.completeRequest]
+  ]
 });
 
 // Admin-facing list + verify + zone admin + emergency requests.
 wrapAutoRBAC(router, 'housekeepingAdminRoutes', {
   get: [
+    ['/delegation/overview', housekeepingController.getDelegationOverview],
     ['/logs', housekeepingController.getAllCleaningLogs],
     ['/requests', housekeepingController.getAllRequests],
-    ['/stats', housekeepingController.getHousekeepingStats],
+    ['/stats', housekeepingController.getHousekeepingStats]
   ],
   post: [
     ['/zones', housekeepingController.createZone],
+    ['/delegation/assignments', housekeepingController.delegateFloorAssignment],
+    ['/delegation/assignments/:id/end', housekeepingController.endFloorAssignment],
     ['/requests/create', housekeepingController.adminCreateRequest],
     ['/requests/:id/assign', housekeepingController.assignRequest],
     ['/requests/:id/verify', housekeepingController.verifyRequest],
-    ['/logs/:id/verify', housekeepingController.verifyLog],
+    ['/logs/:id/verify', housekeepingController.verifyLog]
   ],
-  put: [
-    ['/zones/:id', housekeepingController.updateZone],
-  ],
+  put: [['/zones/:id', housekeepingController.updateZone]]
 });
 
 export default router;

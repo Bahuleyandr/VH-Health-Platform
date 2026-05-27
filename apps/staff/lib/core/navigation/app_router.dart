@@ -46,6 +46,7 @@ import '../../features/hr/screens/performance_screen.dart';
 // Housekeeping
 import '../../features/housekeeping/screens/tasks_screen.dart';
 import '../../features/housekeeping/screens/housekeeping_hub_screen.dart';
+import '../../features/housekeeping/screens/housekeeping_command_screen.dart';
 
 // Directory
 import '../../features/directory/screens/staff_directory_screen.dart';
@@ -412,6 +413,12 @@ final GoRouter appRouter = GoRouter(
           name: 'housekeeping',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: HousekeepingHubScreen()),
+        ),
+        GoRoute(
+          path: '/housekeeping-command',
+          name: 'housekeeping-command',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: HousekeepingCommandScreen()),
         ),
 
         // Directory

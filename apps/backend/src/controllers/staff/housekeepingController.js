@@ -6,6 +6,8 @@ import { success, error } from '../../utils/responseHelper.js';
 
 // ─── SLA durations (minutes) ─────────────────────────────────────────────────
 const SLA_MINUTES = { urgent: 30, high: 120, normal: 240, low: 1440 };
+const ACTIVE_REQUEST_STATUSES = ['open', 'pending', 'assigned', 'in_progress'];
+const HOUSEKEEPING_ASSIGNABLE_ROLES = ['HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE'];
 
 // ─── Signature hash for proof of work ────────────────────────────────────────
 function generateSignature(staffId, zoneId, timestamp, photoKey) {
@@ -19,7 +21,7 @@ async function resolveCurrentUserRef(req) {
   if (!req.user?.uid) return null;
   return prisma.users.findUnique({
     where: { uid: req.user.uid },
-    select: { id: true, uid: true },
+    select: { id: true, uid: true }
   });
 }
 
@@ -42,7 +44,7 @@ async function markLinkedDirtyBedCleaning(requestRow, actorUid) {
         SET status = 'cleaning', updated_at = NOW()
       WHERE id = $1::int AND status = 'dirty'
       RETURNING id, status`,
-    bedId,
+    bedId
   );
 
   if (!updated.length) return;
@@ -52,8 +54,71 @@ async function markLinkedDirtyBedCleaning(requestRow, actorUid) {
      VALUES ($1::int, $2::uuid, 'system', $3, false)`,
     requestRow.id,
     actorUid || null,
-    `Linked bed ${bedId} moved from dirty to cleaning when housekeeping work was assigned.`,
+    `Linked bed ${bedId} moved from dirty to cleaning when housekeeping work was assigned.`
   );
+}
+
+async function findActiveZoneAssignee(zoneId) {
+  if (!zoneId) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT hfa.staff_id, hfa.staff_uid, u.name,
+            COUNT(hr.id)::int AS active_requests
+       FROM housekeeping_floor_assignments hfa
+       JOIN users u ON u.id = hfa.staff_id
+       LEFT JOIN housekeeping_requests hr
+         ON hr.assigned_to = hfa.staff_id
+        AND COALESCE(hr.status, 'open') = ANY($2::text[])
+      WHERE hfa.zone_id = $1::int
+        AND hfa.status = 'active'
+        AND hfa.effective_from <= NOW()
+        AND (hfa.effective_to IS NULL OR hfa.effective_to > NOW())
+        AND u.is_active = true
+      GROUP BY hfa.id, hfa.staff_id, hfa.staff_uid, u.name, hfa.created_at
+      ORDER BY active_requests ASC, hfa.created_at ASC
+      LIMIT 1`,
+    zoneId,
+    ACTIVE_REQUEST_STATUSES
+  );
+  return rows[0] || null;
+}
+
+async function resolveHousekeepingZone(zoneId) {
+  if (!zoneId) return null;
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, name, floor, building
+       FROM housekeeping_zones
+      WHERE id = $1::int AND is_active = true`,
+    zoneId
+  );
+  return rows[0] || null;
+}
+
+async function resolveAssignableHousekeepingStaff({ staffId, staffUid }) {
+  const conditions = [];
+  const params = [];
+  let idx = 1;
+  if (staffId) {
+    conditions.push(`u.id = $${idx++}::int`);
+    params.push(staffId);
+  }
+  if (staffUid) {
+    conditions.push(`u.uid = $${idx++}::uuid`);
+    params.push(staffUid);
+  }
+  if (!conditions.length) return null;
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT u.id, u.uid, u.name, u.role, s.employee_id, s.department, s.position
+       FROM users u
+       LEFT JOIN staff s ON s.user_id = u.uid
+      WHERE (${conditions.join(' OR ')})
+        AND u.is_active = true
+        AND u.role = ANY($${idx}::text[])
+      LIMIT 1`,
+    ...params,
+    HOUSEKEEPING_ASSIGNABLE_ROLES
+  );
+  return rows[0] || null;
 }
 
 // ─── GET /zones — list all active zones ──────────────────────────────────────
@@ -77,9 +142,14 @@ export const submitCleaningLog = async (req, res) => {
       return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
     }
     const {
-      zone_id, location_text, latitude, longitude,
-      cleaning_type = 'routine', notes,
-      photo_key, photo_url,
+      zone_id,
+      location_text,
+      latitude,
+      longitude,
+      cleaning_type = 'routine',
+      notes,
+      photo_key,
+      photo_url
     } = req.body;
 
     if (!location_text && !zone_id) {
@@ -89,19 +159,27 @@ export const submitCleaningLog = async (req, res) => {
     const timestamp = new Date().toISOString();
     const signature = generateSignature(staff.uid, zone_id, timestamp, photo_key);
 
-    const result = await prisma.$queryRawUnsafe(`
+    const result = await prisma.$queryRawUnsafe(
+      `
       INSERT INTO housekeeping_logs
         (staff_id, staff_uid, zone_id, location_text, latitude, longitude, cleaning_type,
          notes, photo_key, photo_url, signature_hash, logged_at)
-      VALUES ($1,$2::uuid,$3::int,$4,$5,$6,$7,$8,$9,$10,$11,$12::timestamptz)
+      VALUES ($1::int,$2::uuid,$3::int,$4,$5,$6,$7,$8,$9,$10,$11,$12::timestamptz)
       RETURNING id, staff_id, staff_uid, zone_id, location_text, cleaning_type, notes,
         photo_url, signature_hash, log_number, logged_at, status, created_at
-    `, 
-      staff.id, staff.uid, zone_id || null, location_text || null,
-      latitude || null, longitude || null,
-      cleaning_type, notes || null,
-      photo_key || null, photo_url || null,
-      signature, timestamp,
+    `,
+      staff.id,
+      staff.uid,
+      zone_id || null,
+      location_text || null,
+      latitude || null,
+      longitude || null,
+      cleaning_type,
+      notes || null,
+      photo_key || null,
+      photo_url || null,
+      signature,
+      timestamp
     );
 
     success(res, result[0], `Cleaning log ${result[0].log_number} submitted`);
@@ -120,13 +198,17 @@ export const getMyCleaningLogs = async (req, res) => {
     }
     const { limit = 50 } = req.query;
 
-    const logs = await prisma.$queryRawUnsafe(`
+    const logs = await prisma.$queryRawUnsafe(
+      `
       SELECT hl.*, hz.name as zone_name, hz.zone_type
       FROM housekeeping_logs hl
       LEFT JOIN housekeeping_zones hz ON hl.zone_id = hz.id
       WHERE hl.staff_id = $1
       ORDER BY hl.logged_at DESC LIMIT $2::int
-    `, staff.id, parseInt(limit));
+    `,
+      staff.id,
+      parseInt(limit)
+    );
 
     success(res, logs, 'Cleaning logs fetched');
   } catch (err) {
@@ -143,43 +225,69 @@ export const raiseRequest = async (req, res) => {
       return error(res, 'Requester not found', HTTP_STATUS.NOT_FOUND);
     }
     const {
-      zone_id, location_text, latitude, longitude,
-      request_type = 'cleaning', urgency = 'normal',
-      description, photo_key, photo_url,
+      zone_id,
+      location_text,
+      latitude,
+      longitude,
+      request_type = 'cleaning',
+      urgency = 'normal',
+      description,
+      photo_key,
+      photo_url
     } = req.body;
 
     if (!location_text && !zone_id) {
       return error(res, 'zone_id or location_text is required', HTTP_STATUS.BAD_REQUEST);
     }
 
-    const validUrgency = ['low','normal','high','urgent'];
+    const validUrgency = ['low', 'normal', 'high', 'urgent'];
     if (!validUrgency.includes(urgency)) {
       return error(res, `urgency must be: ${validUrgency.join(', ')}`, HTTP_STATUS.BAD_REQUEST);
     }
 
     const slaMinutes = SLA_MINUTES[urgency] || 240;
     const slaDueAt = new Date(Date.now() + slaMinutes * 60000).toISOString();
+    const activeAssignee = await findActiveZoneAssignee(zone_id);
 
-    const result = await prisma.$queryRawUnsafe(`
+    const result = await prisma.$queryRawUnsafe(
+      `
       INSERT INTO housekeeping_requests
         (requester_id, requester_uid, zone_id, location_text, latitude, longitude,
-         request_type, urgency, description, photo_key, photo_url, sla_due_at)
-      VALUES ($1,$2::uuid,$3::int,$4,$5,$6,$7,$8,$9,$10,$11,$12::timestamptz)
+         request_type, urgency, description, photo_key, photo_url, assigned_to,
+         assigned_to_uid, assigned_at, status, sla_due_at)
+      VALUES ($1::int,$2::uuid,$3::int,$4,$5,$6,$7,$8,$9,$10,$11,$12::int,
+              $13::uuid,$14::timestamptz,$15,$16::timestamptz)
       RETURNING id, request_number, requester_id, requester_uid, zone_id, assigned_to,
         request_type, request_type as task_type, urgency, description, description as notes,
         status, completed_at, created_at, sla_due_at
-    `, 
-      requester.id, requester.uid, zone_id || null, location_text || '',
-      latitude || null, longitude || null,
-      request_type, urgency, description || null,
-      photo_key || null, photo_url || null, slaDueAt,
+    `,
+      requester.id,
+      requester.uid,
+      zone_id || null,
+      location_text || '',
+      latitude || null,
+      longitude || null,
+      request_type,
+      urgency,
+      description || null,
+      photo_key || null,
+      photo_url || null,
+      activeAssignee?.staff_id || null,
+      activeAssignee?.staff_uid || null,
+      activeAssignee ? new Date().toISOString() : null,
+      activeAssignee ? 'assigned' : 'open',
+      slaDueAt
     );
 
     // System update
-    await prisma.$queryRawUnsafe(`
+    await prisma.$queryRawUnsafe(
+      `
       INSERT INTO housekeeping_request_updates (request_id, author_role, message, is_internal)
       VALUES ($1, 'system', $2, false)
-    `, result[0].id, `Request ${result[0].request_number} raised. Urgency: ${urgency.toUpperCase()}. SLA: ${slaMinutes < 60 ? `${slaMinutes}min` : `${slaMinutes/60}h`}.`);
+    `,
+      result[0].id,
+      `Request ${result[0].request_number} raised. Urgency: ${urgency.toUpperCase()}. SLA: ${slaMinutes < 60 ? `${slaMinutes}min` : `${slaMinutes / 60}h`}.${activeAssignee ? ` Routed to ${activeAssignee.name || 'assigned housekeeping staff'}.` : ''}`
+    );
 
     success(res, result[0], `Request ${result[0].request_number} raised`);
   } catch (err) {
@@ -196,7 +304,8 @@ export const getMyRequests = async (req, res) => {
       return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    const raised = await prisma.$queryRawUnsafe(`
+    const raised = await prisma.$queryRawUnsafe(
+      `
       SELECT hr.id, hr.request_number, hr.requester_id, hr.zone_id, hr.location_text,
         hr.assigned_to, hr.request_type, hr.request_type as task_type,
         hr.urgency, hr.description, hr.description as notes, hr.status,
@@ -207,9 +316,12 @@ export const getMyRequests = async (req, res) => {
       LEFT JOIN users u ON hr.assigned_to = u.id
       WHERE hr.requester_id = $1
       ORDER BY hr.created_at DESC LIMIT 30
-    `, staff.id);
+    `,
+      staff.id
+    );
 
-    const assigned = await prisma.$queryRawUnsafe(`
+    const assigned = await prisma.$queryRawUnsafe(
+      `
       SELECT hr.id, hr.request_number, hr.requester_id, hr.zone_id, hr.location_text,
         hr.assigned_to, hr.request_type, hr.request_type as task_type,
         hr.urgency, hr.description, hr.description as notes, hr.status,
@@ -220,7 +332,9 @@ export const getMyRequests = async (req, res) => {
       LEFT JOIN users u ON hr.requester_id = u.id
       WHERE hr.assigned_to = $1 AND hr.status NOT IN ('completed','verified','closed','cancelled')
       ORDER BY hr.urgency DESC, hr.created_at ASC LIMIT 20
-    `, staff.id);
+    `,
+      staff.id
+    );
 
     success(res, { raised: raised, assigned: assigned }, 'Requests fetched');
   } catch (err) {
@@ -243,15 +357,24 @@ export const completeRequest = async (req, res) => {
       `SELECT id, zone_id, assigned_to, request_type, request_type as task_type,
         status, description, description as notes, completed_at, created_at
        FROM housekeeping_requests
-       WHERE id = $1::int AND assigned_to = $2`, id, staff.id);
+       WHERE id = $1::int AND assigned_to = $2`,
+      id,
+      staff.id
+    );
     if (reqCheck.length === 0) {
       return error(res, 'Request not found or not assigned to you', HTTP_STATUS.NOT_FOUND);
     }
 
     const timestamp = new Date().toISOString();
-    const signatureHash = generateSignature(staff.uid, reqCheck[0].zone_id, timestamp, completion_photo_key);
+    const signatureHash = generateSignature(
+      staff.uid,
+      reqCheck[0].zone_id,
+      timestamp,
+      completion_photo_key
+    );
 
-    const result = await prisma.$queryRawUnsafe(`
+    const result = await prisma.$queryRawUnsafe(
+      `
       UPDATE housekeeping_requests SET
         status = 'completed',
         completed_at = NOW(),
@@ -264,12 +387,24 @@ export const completeRequest = async (req, res) => {
       RETURNING id, request_number, requester_id, zone_id, assigned_to,
         request_type, request_type as task_type, status, description,
         description as notes, completed_at, created_at
-    `, completion_notes || null, completion_photo_key || null, completion_photo_url || null, signatureHash, id);
+    `,
+      completion_notes || null,
+      completion_photo_key || null,
+      completion_photo_url || null,
+      signatureHash,
+      id
+    );
 
-    await prisma.$queryRawUnsafe(`
+    await prisma.$queryRawUnsafe(
+      `
       INSERT INTO housekeeping_request_updates (request_id, author_id, author_uid, author_role, message, is_internal)
       VALUES ($1::int, $2, $3::uuid, 'hk_staff', $4, false)
-    `, id, staff.id, staff.uid, `Task completed by housekeeping staff${completion_notes ? ': ' + completion_notes : '.'}`);
+    `,
+      id,
+      staff.id,
+      staff.uid,
+      `Task completed by housekeeping staff${completion_notes ? ': ' + completion_notes : '.'}`
+    );
 
     success(res, result[0], 'Request marked as completed');
   } catch (err) {
@@ -286,16 +421,32 @@ export const getAllCleaningLogs = async (req, res) => {
     const params = [];
     let idx = 1;
 
-    if (staff_id) { conditions.push(`hl.staff_id = $${idx++}::int`); params.push(staff_id); }
-    if (zone_id)  { conditions.push(`hl.zone_id = $${idx++}::int`); params.push(zone_id); }
-    if (status)   { conditions.push(`hl.status = $${idx++}`); params.push(status); }
-    if (from)     { conditions.push(`hl.logged_at >= $${idx++}::timestamptz`); params.push(from); }
-    if (to)       { conditions.push(`hl.logged_at <= $${idx++}::timestamptz`); params.push(to); }
+    if (staff_id) {
+      conditions.push(`hl.staff_id = $${idx++}::int`);
+      params.push(staff_id);
+    }
+    if (zone_id) {
+      conditions.push(`hl.zone_id = $${idx++}::int`);
+      params.push(zone_id);
+    }
+    if (status) {
+      conditions.push(`hl.status = $${idx++}`);
+      params.push(status);
+    }
+    if (from) {
+      conditions.push(`hl.logged_at >= $${idx++}::timestamptz`);
+      params.push(from);
+    }
+    if (to) {
+      conditions.push(`hl.logged_at <= $${idx++}::timestamptz`);
+      params.push(to);
+    }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     params.push(Math.min(parseInt(limit), 500), parseInt(offset));
 
-    const logs = await prisma.$queryRawUnsafe(`
+    const logs = await prisma.$queryRawUnsafe(
+      `
       SELECT hl.*, u.name as staff_name, s.department,
              hz.name as zone_name, hz.zone_type,
              u2.name as verified_by_name
@@ -307,7 +458,9 @@ export const getAllCleaningLogs = async (req, res) => {
       ${where}
       ORDER BY hl.logged_at DESC
       LIMIT $${idx++}::int OFFSET $${idx}::int
-    `, ...params);
+    `,
+      ...params
+    );
 
     const total = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM housekeeping_logs hl ${where}`,
@@ -329,11 +482,26 @@ export const getAllRequests = async (req, res) => {
     const params = [];
     let idx = 1;
 
-    if (status)      { conditions.push(`hr.status = $${idx++}`); params.push(status); }
-    if (urgency)     { conditions.push(`hr.urgency = $${idx++}`); params.push(urgency); }
-    if (assigned_to) { conditions.push(`hr.assigned_to = $${idx++}::int`); params.push(assigned_to); }
-    if (from)        { conditions.push(`hr.created_at >= $${idx++}::timestamptz`); params.push(from); }
-    if (to)          { conditions.push(`hr.created_at <= $${idx++}::timestamptz`); params.push(to); }
+    if (status) {
+      conditions.push(`hr.status = $${idx++}`);
+      params.push(status);
+    }
+    if (urgency) {
+      conditions.push(`hr.urgency = $${idx++}`);
+      params.push(urgency);
+    }
+    if (assigned_to) {
+      conditions.push(`hr.assigned_to = $${idx++}::int`);
+      params.push(assigned_to);
+    }
+    if (from) {
+      conditions.push(`hr.created_at >= $${idx++}::timestamptz`);
+      params.push(from);
+    }
+    if (to) {
+      conditions.push(`hr.created_at <= $${idx++}::timestamptz`);
+      params.push(to);
+    }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     params.push(Math.min(parseInt(limit), 500), parseInt(offset));
@@ -355,7 +523,8 @@ export const getAllRequests = async (req, res) => {
     //       throughput depends on cleaning the most-overdue bed next,
     //       not the newest ticket.
     // Finding: 2026-05-22-inpatient-admission-housekeeping-7a73a9b5.
-    const requests = await prisma.$queryRawUnsafe(`
+    const requests = await prisma.$queryRawUnsafe(
+      `
       SELECT hr.id, hr.request_number, hr.requester_id, hr.zone_id, hr.location_text,
              hr.assigned_to, hr.request_type, hr.request_type as task_type,
              hr.urgency, hr.description, hr.description as notes, hr.status,
@@ -389,7 +558,9 @@ export const getAllRequests = async (req, res) => {
         hr.sla_due_at ASC NULLS LAST,
         hr.created_at ASC
       LIMIT $${idx++}::int OFFSET $${idx}::int
-    `, ...params);
+    `,
+      ...params
+    );
 
     const total = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*) FROM housekeeping_requests hr ${where}`,
@@ -400,6 +571,261 @@ export const getAllRequests = async (req, res) => {
   } catch (err) {
     logger.error('Get All HK Requests Error:', err);
     error(res, 'Failed to fetch requests', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ─── INCHARGE: floor/zone workload + active staff assignments ───────────────
+export const getDelegationOverview = async (req, res) => {
+  try {
+    const [zones, assignments, staff] = await Promise.all([
+      prisma.$queryRawUnsafe(
+        `
+        SELECT hz.id, hz.name, hz.zone_type, hz.floor, hz.building,
+               COUNT(hr.id) FILTER (
+                 WHERE COALESCE(hr.status, 'open') = ANY($1::text[])
+               )::int AS active_requests,
+               COUNT(hr.id) FILTER (
+                 WHERE COALESCE(hr.status, 'open') = ANY($1::text[])
+                   AND hr.urgency = 'urgent'
+               )::int AS urgent_requests,
+               COUNT(hr.id) FILTER (
+                 WHERE COALESCE(hr.status, 'open') = ANY($1::text[])
+                   AND hr.urgency = 'high'
+               )::int AS high_requests,
+               MIN(hr.created_at) FILTER (
+                 WHERE COALESCE(hr.status, 'open') = ANY($1::text[])
+               ) AS oldest_opened_at
+          FROM housekeeping_zones hz
+          LEFT JOIN housekeeping_requests hr ON hr.zone_id = hz.id
+         WHERE hz.is_active = true
+         GROUP BY hz.id, hz.name, hz.zone_type, hz.floor, hz.building
+         ORDER BY COALESCE(hz.floor, ''), hz.name
+      `,
+        ACTIVE_REQUEST_STATUSES
+      ),
+      prisma.$queryRawUnsafe(`
+        SELECT hfa.*, u.name AS staff_name, u.role AS staff_role,
+               s.employee_id, hz.name AS current_zone_name
+          FROM housekeeping_floor_assignments hfa
+          JOIN users u ON u.id = hfa.staff_id
+          LEFT JOIN staff s ON s.user_id = u.uid
+          LEFT JOIN housekeeping_zones hz ON hz.id = hfa.zone_id
+         WHERE hfa.status = 'active'
+           AND hfa.effective_from <= NOW()
+           AND (hfa.effective_to IS NULL OR hfa.effective_to > NOW())
+         ORDER BY COALESCE(hfa.floor, ''), COALESCE(hz.name, hfa.zone_name, ''), u.name
+      `),
+      prisma.$queryRawUnsafe(
+        `
+        SELECT u.id, u.uid, u.name, u.role, s.employee_id, s.department, s.position,
+               current_assignment.zone_id, current_assignment.zone_name,
+               current_assignment.floor, current_assignment.building,
+               current_assignment.shift_label,
+               COUNT(hr.id) FILTER (
+                 WHERE COALESCE(hr.status, 'open') = ANY($1::text[])
+               )::int AS active_requests
+          FROM users u
+          LEFT JOIN staff s ON s.user_id = u.uid
+          LEFT JOIN LATERAL (
+            SELECT hfa.zone_id, COALESCE(hz.name, hfa.zone_name) AS zone_name,
+                   hfa.floor, hfa.building, hfa.shift_label
+              FROM housekeeping_floor_assignments hfa
+              LEFT JOIN housekeeping_zones hz ON hz.id = hfa.zone_id
+             WHERE hfa.staff_id = u.id
+               AND hfa.status = 'active'
+               AND hfa.effective_from <= NOW()
+               AND (hfa.effective_to IS NULL OR hfa.effective_to > NOW())
+             ORDER BY hfa.created_at DESC
+             LIMIT 1
+          ) current_assignment ON true
+          LEFT JOIN housekeeping_requests hr ON hr.assigned_to = u.id
+         WHERE u.is_active = true
+           AND u.role = ANY($2::text[])
+         GROUP BY u.id, u.uid, u.name, u.role, s.employee_id, s.department, s.position,
+                  current_assignment.zone_id, current_assignment.zone_name,
+                  current_assignment.floor, current_assignment.building,
+                  current_assignment.shift_label
+         ORDER BY u.role DESC, u.name
+      `,
+        ACTIVE_REQUEST_STATUSES,
+        HOUSEKEEPING_ASSIGNABLE_ROLES
+      )
+    ]);
+
+    success(res, { zones, assignments, staff }, 'Housekeeping delegation overview fetched');
+  } catch (err) {
+    logger.error('Get HK Delegation Overview Error:', err);
+    error(
+      res,
+      'Failed to fetch housekeeping delegation overview',
+      HTTP_STATUS.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
+// ─── INCHARGE: assign/redeploy staff to another floor or zone ────────────────
+export const delegateFloorAssignment = async (req, res) => {
+  try {
+    const incharge = await resolveCurrentUserRef(req);
+    if (!incharge) {
+      return error(res, 'Housekeeping incharge not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    const {
+      staff_id,
+      staff_uid,
+      zone_id,
+      floor,
+      building,
+      shift_label = 'current',
+      effective_from,
+      effective_to,
+      reason,
+      is_temporary = true,
+      close_existing = true,
+      reassign_unassigned_requests = false
+    } = req.body;
+
+    const staff = await resolveAssignableHousekeepingStaff({
+      staffId: staff_id,
+      staffUid: staff_uid
+    });
+    if (!staff) {
+      return error(res, 'Assignable housekeeping staff not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    const parsedZoneId = zone_id ? Number.parseInt(zone_id, 10) : null;
+    if (zone_id && (!Number.isInteger(parsedZoneId) || parsedZoneId <= 0)) {
+      return error(res, 'zone_id must be a valid zone id', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const zone = await resolveHousekeepingZone(parsedZoneId);
+    if (parsedZoneId && !zone) {
+      return error(res, 'Housekeeping zone not found or inactive', HTTP_STATUS.NOT_FOUND);
+    }
+
+    if (!parsedZoneId && !floor) {
+      return error(res, 'zone_id or floor is required', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const result = await prisma.$transaction(async tx => {
+      let sourceAssignment = null;
+      if (close_existing) {
+        const existing = await tx.$queryRawUnsafe(
+          `UPDATE housekeeping_floor_assignments
+              SET status = 'redeployed', effective_to = NOW(), updated_at = NOW()
+            WHERE staff_id = $1::int
+              AND status = 'active'
+              AND effective_from <= NOW()
+              AND (effective_to IS NULL OR effective_to > NOW())
+            RETURNING id, zone_id, floor, building`,
+          staff.id
+        );
+        sourceAssignment = existing[0] || null;
+      }
+
+      const inserted = await tx.$queryRawUnsafe(
+        `INSERT INTO housekeeping_floor_assignments
+           (staff_id, staff_uid, zone_id, zone_name, floor, building, shift_label,
+            assigned_by, assigned_by_uid, reason, source_assignment_id,
+            is_temporary, effective_from, effective_to, status)
+         VALUES ($1::int,$2::uuid,$3::int,$4,$5,$6,$7,$8::int,$9::uuid,$10,$11::int,
+                 $12::boolean,COALESCE($13::timestamptz, NOW()),$14::timestamptz,'active')
+         RETURNING *`,
+        staff.id,
+        staff.uid,
+        zone?.id || null,
+        zone?.name || null,
+        floor || zone?.floor || null,
+        building || zone?.building || null,
+        shift_label || 'current',
+        incharge.id,
+        incharge.uid,
+        reason || null,
+        sourceAssignment?.id || null,
+        Boolean(is_temporary),
+        effective_from || null,
+        effective_to || null
+      );
+
+      let reassigned = [];
+      if (reassign_unassigned_requests && zone?.id) {
+        reassigned = await tx.$queryRawUnsafe(
+          `UPDATE housekeeping_requests
+              SET assigned_to = $1::int,
+                  assigned_to_uid = $2::uuid,
+                  assigned_at = NOW(),
+                  assigned_by = $3::int,
+                  assigned_by_uid = $4::uuid,
+                  status = 'assigned',
+                  updated_at = NOW()
+            WHERE zone_id = $5::int
+              AND assigned_to IS NULL
+              AND COALESCE(status, 'open') = ANY($6::text[])
+            RETURNING id, request_number`,
+          staff.id,
+          staff.uid,
+          incharge.id,
+          incharge.uid,
+          zone.id,
+          ACTIVE_REQUEST_STATUSES
+        );
+
+        for (const row of reassigned) {
+          await tx.$executeRawUnsafe(
+            `INSERT INTO housekeeping_request_updates
+               (request_id, author_id, author_uid, author_role, message, is_internal)
+             VALUES ($1::int,$2::int,$3::uuid,'housekeeping_incharge',$4,false)`,
+            row.id,
+            incharge.id,
+            incharge.uid,
+            `Delegated to ${staff.name || 'housekeeping staff'} for ${zone.name}${reason ? ': ' + reason : '.'}`
+          );
+        }
+      }
+
+      return { assignment: inserted[0], reassigned_count: reassigned.length };
+    });
+
+    success(res, result, 'Housekeeping staff delegated');
+  } catch (err) {
+    logger.error('Delegate HK Floor Assignment Error:', err);
+    error(res, 'Failed to delegate housekeeping staff', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+  }
+};
+
+// ─── INCHARGE: end an active floor/zone assignment ──────────────────────────
+export const endFloorAssignment = async (req, res) => {
+  try {
+    const incharge = await resolveCurrentUserRef(req);
+    if (!incharge) {
+      return error(res, 'Housekeeping incharge not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    const { id } = req.params;
+    const { reason } = req.body || {};
+
+    const result = await prisma.$queryRawUnsafe(
+      `UPDATE housekeeping_floor_assignments
+          SET status = 'ended',
+              effective_to = NOW(),
+              reason = COALESCE($1, reason),
+              updated_at = NOW()
+        WHERE id = $2::int
+          AND status = 'active'
+        RETURNING *`,
+      reason || null,
+      id
+    );
+
+    if (!result.length) {
+      return error(res, 'Active assignment not found', HTTP_STATUS.NOT_FOUND);
+    }
+
+    success(res, result[0], 'Housekeeping assignment ended');
+  } catch (err) {
+    logger.error('End HK Floor Assignment Error:', err);
+    error(res, 'Failed to end housekeeping assignment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 
@@ -421,11 +847,12 @@ export const assignRequest = async (req, res) => {
 
     const assignedUser = await prisma.users.findUnique({
       where: { id: assignedToId },
-      select: { id: true, uid: true, name: true },
+      select: { id: true, uid: true, name: true }
     });
     if (!assignedUser) return error(res, 'Assigned staff not found', HTTP_STATUS.NOT_FOUND);
 
-    const result = await prisma.$queryRawUnsafe(`
+    const result = await prisma.$queryRawUnsafe(
+      `
       UPDATE housekeeping_requests SET
         assigned_to = $1, assigned_to_uid = $2::uuid,
         assigned_at = NOW(), assigned_by = $3, assigned_by_uid = $4::uuid,
@@ -434,16 +861,29 @@ export const assignRequest = async (req, res) => {
       RETURNING id, request_number, zone_id, assigned_to, assigned_to_uid,
         location_text, request_type, request_type as task_type, status, description,
         description as notes, completed_at, created_at
-    `, assignedToId, assignedUser.uid, admin.id, admin.uid, id);
+    `,
+      assignedToId,
+      assignedUser.uid,
+      admin.id,
+      admin.uid,
+      id
+    );
 
-    if (result.length === 0) return error(res, 'Request not found or already in progress', HTTP_STATUS.NOT_FOUND);
+    if (result.length === 0)
+      return error(res, 'Request not found or already in progress', HTTP_STATUS.NOT_FOUND);
 
     await markLinkedDirtyBedCleaning(result[0], admin.uid);
 
-    await prisma.$queryRawUnsafe(`
+    await prisma.$queryRawUnsafe(
+      `
       INSERT INTO housekeeping_request_updates (request_id, author_id, author_uid, author_role, message, is_internal)
       VALUES ($1::int, $2, $3::uuid, 'admin', $4, false)
-    `, id, admin.id, admin.uid, `Assigned to ${assignedUser.name || 'staff'}${note ? '. Note: ' + note : '.'}`);
+    `,
+      id,
+      admin.id,
+      admin.uid,
+      `Assigned to ${assignedUser.name || 'staff'}${note ? '. Note: ' + note : '.'}`
+    );
 
     success(res, result[0], 'Request assigned');
   } catch (err) {
@@ -463,14 +903,21 @@ export const verifyLog = async (req, res) => {
     const { flag_reason } = req.body;
     const action = flag_reason ? 'flagged' : 'verified';
 
-    const result = await prisma.$queryRawUnsafe(`
+    const result = await prisma.$queryRawUnsafe(
+      `
       UPDATE housekeeping_logs
       SET status = $1, verified_by = $2, verified_by_uid = $3::uuid,
         verified_at = NOW(), flag_reason = $4, updated_at = NOW()
       WHERE id = $5::int
       RETURNING id, staff_id, staff_uid, zone_id, status, verified_by, verified_at,
         flag_reason, logged_at, created_at
-    `, action, verifier.id, verifier.uid, flag_reason || null, id);
+    `,
+      action,
+      verifier.id,
+      verifier.uid,
+      flag_reason || null,
+      id
+    );
 
     if (result.length === 0) return error(res, 'Log not found', HTTP_STATUS.NOT_FOUND);
     success(res, result[0], `Log ${action}`);
@@ -489,7 +936,8 @@ export const verifyRequest = async (req, res) => {
       return error(res, 'Verifier not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    const result = await prisma.$queryRawUnsafe(`
+    const result = await prisma.$queryRawUnsafe(
+      `
       UPDATE housekeeping_requests
       SET status = 'verified', verified_by = $1, verified_by_uid = $2::uuid,
         verified_at = NOW(), updated_at = NOW()
@@ -497,14 +945,24 @@ export const verifyRequest = async (req, res) => {
       RETURNING id, request_number, zone_id, assigned_to, request_type,
         request_type as task_type, status, description, description as notes,
         completed_at, created_at
-    `, verifier.id, verifier.uid, id);
+    `,
+      verifier.id,
+      verifier.uid,
+      id
+    );
 
-    if (result.length === 0) return error(res, 'Request not found or not yet completed', HTTP_STATUS.NOT_FOUND);
+    if (result.length === 0)
+      return error(res, 'Request not found or not yet completed', HTTP_STATUS.NOT_FOUND);
 
-    await prisma.$queryRawUnsafe(`
+    await prisma.$queryRawUnsafe(
+      `
       INSERT INTO housekeeping_request_updates (request_id, author_id, author_uid, author_role, message, is_internal)
       VALUES ($1::int, $2, $3::uuid, 'supervisor', 'Completion verified ✓', false)
-    `, id, verifier.id, verifier.uid);
+    `,
+      id,
+      verifier.id,
+      verifier.uid
+    );
 
     success(res, result[0], 'Request verified');
   } catch (err) {
@@ -563,16 +1021,20 @@ export const getHousekeepingStats = async (req, res) => {
         LEFT JOIN housekeeping_zones hz ON hl.zone_id = hz.id
         WHERE hl.status = 'flagged'
         ORDER BY hl.logged_at DESC LIMIT 10
-      `),
+      `)
     ]);
 
-    success(res, {
-      logs: logStats[0],
-      requests: requestStats[0],
-      sla: slaStats[0],
-      top_staff: topStaff,
-      recent_flags: recentFlags,
-    }, 'Housekeeping stats fetched');
+    success(
+      res,
+      {
+        logs: logStats[0],
+        requests: requestStats[0],
+        sla: slaStats[0],
+        top_staff: topStaff,
+        recent_flags: recentFlags
+      },
+      'Housekeeping stats fetched'
+    );
   } catch (err) {
     logger.error('HK Stats Error:', err);
     error(res, 'Failed to fetch stats', HTTP_STATUS.INTERNAL_SERVER_ERROR);
@@ -588,7 +1050,8 @@ export const getRequestDetail = async (req, res) => {
       return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
     }
 
-    const req_ = await prisma.$queryRawUnsafe(`
+    const req_ = await prisma.$queryRawUnsafe(
+      `
       SELECT hr.id, hr.request_number, hr.requester_id, hr.zone_id, hr.location_text,
              hr.assigned_to, hr.request_type, hr.request_type as task_type,
              hr.urgency, hr.description, hr.description as notes,
@@ -601,16 +1064,22 @@ export const getRequestDetail = async (req, res) => {
       LEFT JOIN users u2 ON hr.assigned_to = u2.id
       LEFT JOIN users u3 ON hr.verified_by = u3.id
       WHERE hr.id = $1::int AND (hr.requester_id = $2 OR hr.assigned_to = $2)
-    `, id, staff.id);
+    `,
+      id,
+      staff.id
+    );
 
     if (req_.length === 0) return error(res, 'Request not found', HTTP_STATUS.NOT_FOUND);
 
-    const updates = await prisma.$queryRawUnsafe(`
+    const updates = await prisma.$queryRawUnsafe(
+      `
       SELECT ru.*, u.name as author_name FROM housekeeping_request_updates ru
       LEFT JOIN users u ON ru.author_id = u.id
       WHERE ru.request_id = $1::int AND ru.is_internal = false
       ORDER BY ru.created_at ASC
-    `, id);
+    `,
+      id
+    );
 
     success(res, { ...req_[0], updates: updates }, 'Request detail fetched');
   } catch (err) {
@@ -626,11 +1095,17 @@ export const createZone = async (req, res) => {
 
     if (!name) return error(res, 'name is required', HTTP_STATUS.BAD_REQUEST);
 
-    const result = await prisma.$queryRawUnsafe(`
+    const result = await prisma.$queryRawUnsafe(
+      `
       INSERT INTO housekeeping_zones (name, zone_type, floor, building, is_active)
       VALUES ($1, $2, $3, $4, true)
       RETURNING id, name, zone_type, is_active, floor, building, created_at
-    `, name, zone_type, floor || null, building || null);
+    `,
+      name,
+      zone_type,
+      floor || null,
+      building || null
+    );
 
     success(res, result[0], 'Zone created');
   } catch (err) {
@@ -645,7 +1120,8 @@ export const updateZone = async (req, res) => {
     const { id } = req.params;
     const { name, zone_type, floor, building, is_active } = req.body;
 
-    const result = await prisma.$queryRawUnsafe(`
+    const result = await prisma.$queryRawUnsafe(
+      `
       UPDATE housekeeping_zones
       SET
         name = COALESCE($1, name),
@@ -655,8 +1131,14 @@ export const updateZone = async (req, res) => {
         is_active = COALESCE($5, is_active)
       WHERE id = $6::int
       RETURNING id, name, zone_type, is_active, floor, building, created_at
-    `, name || null, zone_type || null, floor || null, building || null,
-        is_active !== undefined ? is_active : null, id);
+    `,
+      name || null,
+      zone_type || null,
+      floor || null,
+      building || null,
+      is_active !== undefined ? is_active : null,
+      id
+    );
 
     if (result.length === 0) return error(res, 'Zone not found', HTTP_STATUS.NOT_FOUND);
 
@@ -675,8 +1157,12 @@ export const adminCreateRequest = async (req, res) => {
       return error(res, 'Admin user not found', HTTP_STATUS.NOT_FOUND);
     }
     const {
-      zone_id, location_text, request_type = 'cleaning',
-      urgency = 'normal', description, assigned_to,
+      zone_id,
+      location_text,
+      request_type = 'cleaning',
+      urgency = 'normal',
+      description,
+      assigned_to
     } = req.body;
 
     if (!location_text && !zone_id) {
@@ -691,7 +1177,7 @@ export const adminCreateRequest = async (req, res) => {
       }
       assignedUser = await prisma.users.findUnique({
         where: { id: assignedToId },
-        select: { id: true, uid: true },
+        select: { id: true, uid: true }
       });
       if (!assignedUser) return error(res, 'Assigned staff not found', HTTP_STATUS.NOT_FOUND);
     }
@@ -699,7 +1185,8 @@ export const adminCreateRequest = async (req, res) => {
     const slaMinutes = { urgent: 30, high: 60, normal: 120, low: 240 }[urgency] ?? 120;
     const sla_due_at = new Date(Date.now() + slaMinutes * 60 * 1000).toISOString();
 
-    const result = await prisma.$queryRawUnsafe(`
+    const result = await prisma.$queryRawUnsafe(
+      `
       INSERT INTO housekeeping_requests
         (requester_id, requester_uid, zone_id, location_text, request_type, urgency, description,
          status, assigned_to, assigned_to_uid, assigned_at, assigned_by, assigned_by_uid, sla_due_at)
@@ -708,7 +1195,7 @@ export const adminCreateRequest = async (req, res) => {
       RETURNING id, request_number, requester_id, requester_uid, zone_id, assigned_to,
         request_type, request_type as task_type, urgency, description, description as notes,
         status, completed_at, created_at, sla_due_at
-    `, 
+    `,
       admin.id,
       admin.uid,
       zone_id || null,
@@ -722,7 +1209,7 @@ export const adminCreateRequest = async (req, res) => {
       assigned_to ? new Date().toISOString() : null,
       assigned_to ? admin.id : null,
       assigned_to ? admin.uid : null,
-      sla_due_at,
+      sla_due_at
     );
 
     success(res, result[0], `Request ${result[0].request_number} created`);

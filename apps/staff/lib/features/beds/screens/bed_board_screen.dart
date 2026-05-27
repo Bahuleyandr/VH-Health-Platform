@@ -44,7 +44,9 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
   // is one of "all" / "available" / "occupied" / "maintenance" / "cleaning".
   String _bedQuery = '';
   String _bedStatusFilter = 'all';
-  bool get _isHousekeepingRole => _role == StaffRole.housekeeping;
+  bool get _isHousekeepingRole =>
+      _role == StaffRole.housekeeping ||
+      _role == StaffRole.housekeepingIncharge;
 
   List<Map<String, dynamic>> get _filteredBeds {
     Iterable<Map<String, dynamic>> rows = _beds;
@@ -97,7 +99,8 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
     final role = StaffRole.fromString(roleStr);
     setState(() {
       _role = role;
-      if (role == StaffRole.housekeeping) {
+      if (role == StaffRole.housekeeping ||
+          role == StaffRole.housekeepingIncharge) {
         _bedStatusFilter = 'cleaning';
       }
     });
@@ -2199,7 +2202,9 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
         widget.role == StaffRole.nurse ||
         widget.role.isAdminTier;
     final canClearCleaning =
-        widget.role == StaffRole.housekeeping || widget.role.isAdminTier;
+        widget.role == StaffRole.housekeeping ||
+        widget.role == StaffRole.housekeepingIncharge ||
+        widget.role.isAdminTier;
     final dischargeInitiated = (widget.bed['discharge_initiated_at'] ?? '')
         .toString()
         .isNotEmpty;

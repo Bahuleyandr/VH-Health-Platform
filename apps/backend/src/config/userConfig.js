@@ -13,7 +13,7 @@ export const USER_CONFIG = {
   // covers the F1 seniority + specialty additions). Keeping the
   // USER_CONFIG.ROLES name for back-compat with ~20 call sites.
   ROLES: CANONICAL_ROLES,
-  
+
   // Privacy settings
   PRIVACY: {
     PHONE_MASK_LENGTH: 4,
@@ -23,7 +23,7 @@ export const USER_CONFIG = {
       DEFAULT: 50
     }
   },
-  
+
   // User status
   USER_STATUS: {
     ACTIVE: 'active',
@@ -31,7 +31,7 @@ export const USER_CONFIG = {
     SUSPENDED: 'suspended',
     DEACTIVATED: 'deactivated'
   },
-  
+
   // Search limits
   SEARCH: {
     MIN_QUERY_LENGTH: 2,
@@ -39,7 +39,7 @@ export const USER_CONFIG = {
     DEFAULT_SORT_BY: 'registered_at',
     DEFAULT_SORT_ORDER: 'DESC'
   },
-  
+
   // Activity tracking
   ACTIVITY_STATUS: {
     VERY_ACTIVE: { label: 'Very Active', days: 1 },
@@ -47,7 +47,7 @@ export const USER_CONFIG = {
     INACTIVE: { label: 'Inactive', days: 30 },
     LONG_INACTIVE: { label: 'Long Inactive', days: null }
   },
-  
+
   // Age groups for analytics
   AGE_GROUPS: [
     { label: 'Under 18', min: 0, max: 17 },
@@ -118,6 +118,27 @@ export const ACCESS_MATRIX = {
   GENERAL_STAFF: {
     users: ['read'],
     appointments: ['read'],
+    records: [],
+    pharmacy: [],
+    investigations: []
+  },
+  HOUSEKEEPING_STAFF: {
+    users: ['read'],
+    appointments: [],
+    records: [],
+    pharmacy: [],
+    investigations: []
+  },
+  HOUSEKEEPING_INCHARGE: {
+    users: ['read'],
+    appointments: [],
+    records: [],
+    pharmacy: [],
+    investigations: []
+  },
+  MAINTENANCE: {
+    users: ['read'],
+    appointments: [],
     records: [],
     pharmacy: [],
     investigations: []
@@ -226,7 +247,7 @@ export const USER_ACTIONS = {
   LOGIN_FAILED: 'LOGIN_FAILED',
   PASSWORD_RESET: 'PASSWORD_RESET',
   PASSWORD_CHANGED: 'PASSWORD_CHANGED',
-  
+
   // User management actions
   USER_CREATED: 'USER_CREATED',
   USER_UPDATED: 'USER_UPDATED',
@@ -235,34 +256,34 @@ export const USER_ACTIONS = {
   USER_DEACTIVATED: 'USER_DEACTIVATED',
   USER_SUSPENDED: 'USER_SUSPENDED',
   ROLE_CHANGED: 'ROLE_CHANGED',
-  
+
   // Patient actions
   PATIENT_REGISTERED: 'PATIENT_REGISTERED',
   PATIENT_UPDATED: 'PATIENT_UPDATED',
   PATIENT_VIEWED: 'PATIENT_VIEWED',
-  
+
   // Appointment actions
   APPOINTMENT_CREATED: 'APPOINTMENT_CREATED',
   APPOINTMENT_UPDATED: 'APPOINTMENT_UPDATED',
   APPOINTMENT_CANCELLED: 'APPOINTMENT_CANCELLED',
   APPOINTMENT_COMPLETED: 'APPOINTMENT_COMPLETED',
-  
+
   // Medical record actions
   RECORD_CREATED: 'RECORD_CREATED',
   RECORD_UPDATED: 'RECORD_UPDATED',
   RECORD_VIEWED: 'RECORD_VIEWED',
   RECORD_DELETED: 'RECORD_DELETED',
-  
+
   // Prescription actions
   PRESCRIPTION_CREATED: 'PRESCRIPTION_CREATED',
   PRESCRIPTION_UPDATED: 'PRESCRIPTION_UPDATED',
   PRESCRIPTION_DISPENSED: 'PRESCRIPTION_DISPENSED',
-  
+
   // Investigation actions
   INVESTIGATION_ORDERED: 'INVESTIGATION_ORDERED',
   INVESTIGATION_COMPLETED: 'INVESTIGATION_COMPLETED',
   RESULTS_UPLOADED: 'RESULTS_UPLOADED',
-  
+
   // Administrative actions
   SETTINGS_UPDATED: 'SETTINGS_UPDATED',
   REPORT_GENERATED: 'REPORT_GENERATED',
@@ -351,9 +372,23 @@ export const HOSPITAL_ROLES = CANONICAL_ROLES;
 
 // Role hierarchy for permission inheritance
 export const ROLE_HIERARCHY = {
-  ADMIN: ['DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'RECEPTIONIST', 'GENERAL_STAFF', 'SECURITY', 'EMERGENCY_RESPONDER'],
+  ADMIN: [
+    'DOCTOR',
+    'NURSING_STAFF',
+    'PHARMACY_STAFF',
+    'LAB_STAFF',
+    'HR_STAFF',
+    'RECEPTIONIST',
+    'GENERAL_STAFF',
+    'HOUSEKEEPING_STAFF',
+    'HOUSEKEEPING_INCHARGE',
+    'MAINTENANCE',
+    'SECURITY',
+    'EMERGENCY_RESPONDER'
+  ],
   DOCTOR: ['NURSING_STAFF'],
-  HR_STAFF: ['GENERAL_STAFF'],
+  HR_STAFF: ['GENERAL_STAFF', 'HOUSEKEEPING_STAFF', 'HOUSEKEEPING_INCHARGE', 'MAINTENANCE'],
+  HOUSEKEEPING_INCHARGE: ['HOUSEKEEPING_STAFF'],
   RECEPTIONIST: ['GENERAL_STAFF']
 };
 
@@ -367,7 +402,16 @@ export const ADMIN_ROLES = ['ADMIN', 'HR_STAFF'];
 export const MEDICAL_ROLES = ['DOCTOR', 'NURSING_STAFF', 'EMERGENCY_RESPONDER'];
 
 // Support staff roles
-export const SUPPORT_ROLES = ['PHARMACY_STAFF', 'LAB_STAFF', 'RECEPTIONIST', 'GENERAL_STAFF', 'SECURITY'];
+export const SUPPORT_ROLES = [
+  'PHARMACY_STAFF',
+  'LAB_STAFF',
+  'RECEPTIONIST',
+  'GENERAL_STAFF',
+  'HOUSEKEEPING_STAFF',
+  'HOUSEKEEPING_INCHARGE',
+  'MAINTENANCE',
+  'SECURITY'
+];
 
 // Risk levels for patient classification
 export const RISK_LEVELS = {

@@ -31,7 +31,7 @@ import {
   isPatient,
   isPlatformRole,
   isStaff,
-  isSupportStaff,
+  isSupportStaff
 } from '../../utils/roleHelpers.js';
 
 // Every gate the matrix covers. Each entry: { gate, fn, allow: Set<role> }.
@@ -42,115 +42,173 @@ import {
 // with apps/backend/src/utils/roleHelpers.js.
 const GATES = [
   {
-    name: 'isAdmin', fn: isAdmin,
-    allow: new Set(['ADMIN']),
+    name: 'isAdmin',
+    fn: isAdmin,
+    allow: new Set(['ADMIN'])
   },
   {
-    name: 'isPatient', fn: isPatient,
-    allow: new Set(['PATIENT']),
+    name: 'isPatient',
+    fn: isPatient,
+    allow: new Set(['PATIENT'])
   },
   {
-    name: 'isDoctor', fn: isDoctor,
-    allow: new Set(['DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT']),
+    name: 'isDoctor',
+    fn: isDoctor,
+    allow: new Set(['DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT'])
   },
   {
-    name: 'isClinical', fn: isClinical,
+    name: 'isClinical',
+    fn: isClinical,
     allow: new Set([
-      'DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT',
-      'NURSING_STAFF', 'RADIOLOGIST', 'ANESTHETIST',
-      'PHYSIOTHERAPIST', 'DIETITIAN', 'COUNSELLOR',
-    ]),
+      'DOCTOR',
+      'CONSULTANT',
+      'JUNIOR_DOCTOR',
+      'RESIDENT',
+      'NURSING_STAFF',
+      'RADIOLOGIST',
+      'ANESTHETIST',
+      'PHYSIOTHERAPIST',
+      'DIETITIAN',
+      'COUNSELLOR'
+    ])
   },
   {
-    name: 'isLeadership', fn: isLeadership,
-    allow: new Set(['CMO', 'CNO', 'DEPARTMENT_HEAD', 'ADMIN']),
+    name: 'isLeadership',
+    fn: isLeadership,
+    allow: new Set(['CMO', 'CNO', 'DEPARTMENT_HEAD', 'ADMIN'])
   },
   {
-    name: 'isSupportStaff', fn: isSupportStaff,
+    name: 'isSupportStaff',
+    fn: isSupportStaff,
     allow: new Set([
-      'SOCIAL_WORKER', 'SECURITY', 'BILLING_STAFF',
-      'INSURANCE_COORDINATOR', 'QUALITY_OFFICER',
-      'INFECTION_CONTROL_OFFICER', 'CARE_COORDINATOR',
-      'CLAIMS_MANAGER', 'AMBULANCE_COORDINATOR',
-      'HOUSEKEEPING_STAFF', 'MAINTENANCE',
-    ]),
+      'SOCIAL_WORKER',
+      'SECURITY',
+      'BILLING_STAFF',
+      'INSURANCE_COORDINATOR',
+      'QUALITY_OFFICER',
+      'INFECTION_CONTROL_OFFICER',
+      'CARE_COORDINATOR',
+      'CLAIMS_MANAGER',
+      'AMBULANCE_COORDINATOR',
+      'HOUSEKEEPING_STAFF',
+      'HOUSEKEEPING_INCHARGE',
+      'MAINTENANCE'
+    ])
   },
   {
-    name: 'isPlatformRole', fn: isPlatformRole,
-    allow: new Set(['INTEGRATION_ADMIN', 'AI_GOVERNANCE_ADMIN', 'DATA_PROTECTION_OFFICER']),
+    name: 'isPlatformRole',
+    fn: isPlatformRole,
+    allow: new Set(['INTEGRATION_ADMIN', 'AI_GOVERNANCE_ADMIN', 'DATA_PROTECTION_OFFICER'])
   },
   {
-    name: 'isMachineRole', fn: isMachineRole,
-    allow: new Set(['WEBHOOK_CLIENT']),
+    name: 'isMachineRole',
+    fn: isMachineRole,
+    allow: new Set(['WEBHOOK_CLIENT'])
   },
   {
-    name: 'canSignDischargeSummary', fn: canSignDischargeSummary,
-    allow: new Set(['DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR']),
+    name: 'canSignDischargeSummary',
+    fn: canSignDischargeSummary,
+    allow: new Set(['DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR'])
   },
   {
-    name: 'canEditDischargeSummary', fn: canEditDischargeSummary,
+    name: 'canEditDischargeSummary',
+    fn: canEditDischargeSummary,
+    allow: new Set(['DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'MEDICAL_RECORDS', 'ADMIN'])
+  },
+  {
+    name: 'canViewDischargeSummary',
+    fn: canViewDischargeSummary,
     allow: new Set([
-      'DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR',
-      'MEDICAL_RECORDS', 'ADMIN',
-    ]),
+      'DOCTOR',
+      'CONSULTANT',
+      'JUNIOR_DOCTOR',
+      'RESIDENT',
+      'NURSING_STAFF',
+      'MEDICAL_RECORDS',
+      'ADMIN'
+    ])
   },
   {
-    name: 'canViewDischargeSummary', fn: canViewDischargeSummary,
+    name: 'canViewMedicalData',
+    fn: canViewMedicalData,
     allow: new Set([
-      'DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT',
-      'NURSING_STAFF', 'MEDICAL_RECORDS', 'ADMIN',
-    ]),
+      'DOCTOR',
+      'CONSULTANT',
+      'JUNIOR_DOCTOR',
+      'RESIDENT',
+      'NURSING_STAFF',
+      'RADIOLOGIST',
+      'ANESTHETIST',
+      'PHYSIOTHERAPIST',
+      'DIETITIAN',
+      'COUNSELLOR',
+      'ADMIN',
+      'MEDICAL_RECORDS'
+    ])
   },
   {
-    name: 'canViewMedicalData', fn: canViewMedicalData,
+    name: 'canAccessRadiology',
+    fn: canAccessRadiology,
     allow: new Set([
-      'DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT',
-      'NURSING_STAFF', 'RADIOLOGIST', 'ANESTHETIST',
-      'PHYSIOTHERAPIST', 'DIETITIAN', 'COUNSELLOR',
-      'ADMIN', 'MEDICAL_RECORDS',
-    ]),
+      'DOCTOR',
+      'CONSULTANT',
+      'JUNIOR_DOCTOR',
+      'RESIDENT',
+      'RADIOLOGIST',
+      'ADMIN',
+      'CMO'
+    ])
   },
   {
-    name: 'canAccessRadiology', fn: canAccessRadiology,
+    name: 'canAccessOT',
+    fn: canAccessOT,
     allow: new Set([
-      'DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT',
-      'RADIOLOGIST', 'ADMIN', 'CMO',
-    ]),
+      'DOCTOR',
+      'CONSULTANT',
+      'JUNIOR_DOCTOR',
+      'OT_STAFF',
+      'ANESTHETIST',
+      'ADMIN',
+      'CMO'
+    ])
   },
   {
-    name: 'canAccessOT', fn: canAccessOT,
+    name: 'canAccessBloodBank',
+    fn: canAccessBloodBank,
     allow: new Set([
-      'DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR',
-      'OT_STAFF', 'ANESTHETIST', 'ADMIN', 'CMO',
-    ]),
+      'DOCTOR',
+      'CONSULTANT',
+      'JUNIOR_DOCTOR',
+      'NURSING_STAFF',
+      'BLOOD_BANK_TECHNICIAN',
+      'ADMIN'
+    ])
   },
   {
-    name: 'canAccessBloodBank', fn: canAccessBloodBank,
-    allow: new Set([
-      'DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR',
-      'NURSING_STAFF', 'BLOOD_BANK_TECHNICIAN', 'ADMIN',
-    ]),
+    name: 'canManageIntegrations',
+    fn: canManageIntegrations,
+    allow: new Set(['INTEGRATION_ADMIN', 'ADMIN'])
   },
   {
-    name: 'canManageIntegrations', fn: canManageIntegrations,
-    allow: new Set(['INTEGRATION_ADMIN', 'ADMIN']),
+    name: 'canManageAiGovernance',
+    fn: canManageAiGovernance,
+    allow: new Set(['AI_GOVERNANCE_ADMIN', 'ADMIN'])
   },
   {
-    name: 'canManageAiGovernance', fn: canManageAiGovernance,
-    allow: new Set(['AI_GOVERNANCE_ADMIN', 'ADMIN']),
+    name: 'canManageDataProtection',
+    fn: canManageDataProtection,
+    allow: new Set(['DATA_PROTECTION_OFFICER', 'ADMIN'])
   },
   {
-    name: 'canManageDataProtection', fn: canManageDataProtection,
-    allow: new Set(['DATA_PROTECTION_OFFICER', 'ADMIN']),
+    name: 'canDispatchAmbulance',
+    fn: canDispatchAmbulance,
+    allow: new Set(['AMBULANCE_COORDINATOR', 'EMERGENCY_RESPONDER', 'ADMIN'])
   },
   {
-    name: 'canDispatchAmbulance', fn: canDispatchAmbulance,
-    allow: new Set(['AMBULANCE_COORDINATOR', 'EMERGENCY_RESPONDER', 'ADMIN']),
-  },
-  {
-    name: 'canManageClaims', fn: canManageClaims,
-    allow: new Set(['CLAIMS_MANAGER', 'INSURANCE_COORDINATOR', 'ADMIN']),
-  },
+    name: 'canManageClaims',
+    fn: canManageClaims,
+    allow: new Set(['CLAIMS_MANAGER', 'INSURANCE_COORDINATOR', 'ADMIN'])
+  }
 ];
 
 const ALL_ROLES = Object.values(ROLES);

@@ -5,6 +5,7 @@ const DEFAULT_TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const STAFF_PASSWORD = process.env.VH_TEST_STAFF_PASSWORD || ['test', '1234'].join('');
 const ADMIN_PASSWORD = process.env.VH_TEST_ADMIN_PASSWORD || STAFF_PASSWORD;
 const SEED_TAG = 'vh_seed';
+const MANUAL_SEED_TABLES = new Set(['insurance_claim_caps']);
 
 const connectionString = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
 if (!connectionString) {
@@ -761,7 +762,7 @@ async function getCoreRefs() {
 async function seedRemainingTables() {
   const metadata = await getMetadata();
   const tables = [...metadata.columnsByTable.keys()]
-    .filter((table) => !table.startsWith('_'))
+    .filter((table) => !table.startsWith('_') && !MANUAL_SEED_TABLES.has(table))
     .sort();
   const seeded = [];
   const failed = new Map();

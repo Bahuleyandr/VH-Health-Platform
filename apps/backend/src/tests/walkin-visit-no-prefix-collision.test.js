@@ -22,6 +22,7 @@ import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
 import { API_KEY, generateTestToken } from './testClient.js';
+import { istDateString } from '../utils/dateUtils.js';
 
 const SEED_PATIENT_UID = 'a5555555-5555-4555-8555-55555555fb01';
 const STAFF_UID = 'a5555555-5555-4555-8555-55555555fb02';
@@ -31,8 +32,7 @@ const NEW_WALKIN_PHONE = `99997${RUN_SUFFIX}`;
 const PHONE_FORMS = [SEED_PHONE, `+91${SEED_PHONE}`, NEW_WALKIN_PHONE, `+91${NEW_WALKIN_PHONE}`];
 
 function todayYYYYMMDD() {
-  const d = new Date();
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  return istDateString().replaceAll('-', '');
 }
 
 async function cleanupFixtures() {
@@ -91,12 +91,13 @@ describe('walk-in visit_no prefix collision regression', () => {
           status, confirmed_at, token_number, visit_no, department,
           created_by, updated_at)
        VALUES
-         ($1, NOW(), 'Walk-in', $2, 'Seed', 'CONFIRMED', NOW(),
+         ($1, $5::date, 'Walk-in', $2, 'Seed', 'CONFIRMED', NOW(),
           '1', $3, NULL, $4::uuid, NOW())`,
       seedPatientId,
       SEED_PHONE,
       seedVisitNo,
       STAFF_UID,
+      istDateString(),
     );
   });
 
