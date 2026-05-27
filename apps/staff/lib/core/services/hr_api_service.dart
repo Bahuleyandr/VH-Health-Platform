@@ -372,6 +372,60 @@ class HrApiService {
     );
   }
 
+  /// GET /staff/roster-board/departments/:department
+  static Future<Map<String, dynamic>> getRosterBoard({
+    required String department,
+    required String rosterDate,
+  }) async {
+    return await _get(
+      '/staff/roster-board/departments/$department',
+      query: {'date': rosterDate},
+    );
+  }
+
+  /// POST /staff/roster-board/departments/:department/boards
+  static Future<Map<String, dynamic>> saveRosterBoard({
+    required String department,
+    required String rosterDate,
+    required String shiftLabel,
+    int? shiftId,
+    String? notes,
+    required List<Map<String, dynamic>> assignments,
+  }) async {
+    return await _post('/staff/roster-board/departments/$department/boards', {
+      'roster_date': rosterDate,
+      'shift_label': shiftLabel,
+      'shift_id': ?shiftId,
+      'notes': ?notes,
+      'assignments': assignments,
+    });
+  }
+
+  /// POST /staff/roster-board/boards/:id/publish
+  static Future<Map<String, dynamic>> publishRosterBoard({
+    required int rosterId,
+    String? reason,
+  }) async {
+    return await _post('/staff/roster-board/boards/$rosterId/publish', {
+      'reason': ?reason,
+    });
+  }
+
+  /// POST /staff/roster-board/departments/:department/copy-previous
+  static Future<Map<String, dynamic>> copyPreviousRosterBoard({
+    required String department,
+    required String rosterDate,
+    required String shiftLabel,
+  }) async {
+    return await _post(
+      '/staff/roster-board/departments/$department/copy-previous',
+      {
+        'target_date': rosterDate,
+        'shift_label': shiftLabel,
+      },
+    );
+  }
+
   // ─── Payroll ──────────────────────────────────────────────────────────────
 
   /// GET /staff/hr/payslips?months=N

@@ -202,6 +202,13 @@ class RoleFeatures {
     route: '/housekeeping-command',
     color: Color(0xFF00695C),
   );
+  static const DashboardFeature _housekeepingRoster = DashboardFeature(
+    id: 'housekeeping_roster',
+    title: 'Shift Roster',
+    icon: Icons.calendar_month,
+    route: '/housekeeping-roster',
+    color: Color(0xFF1565C0),
+  );
   static const DashboardFeature _vitals = DashboardFeature(
     id: 'vitals',
     title: 'Vitals Entry',
@@ -398,6 +405,7 @@ class RoleFeatures {
         _hrDashboard,
         _staffManagement,
         _performance,
+        _housekeepingRoster,
         _housekeepingCommand,
         _housekeepingHub,
         _housekeepingTasks,
@@ -442,6 +450,7 @@ class RoleFeatures {
       StaffRole.housekeepingIncharge => [
         _schedule,
         _bedBoard,
+        _housekeepingRoster,
         _housekeepingCommand,
         _housekeepingHub,
         _housekeepingTasks,

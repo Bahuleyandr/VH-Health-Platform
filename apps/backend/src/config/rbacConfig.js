@@ -121,6 +121,7 @@ export default {
   ],
   housekeepingAdminRoutes: [ADMIN, HR_STAFF, HOUSEKEEPING_INCHARGE],
   housekeepingZoneAdminRoutes: [ADMIN],
+  staffRosterBoardRoutes: [ADMIN, HR_STAFF, HOUSEKEEPING_INCHARGE],
   lookupRoutes: [ADMIN, GENERAL_STAFF, HOUSEKEEPING_STAFF, HOUSEKEEPING_INCHARGE, MAINTENANCE],
 
   // Public / open routes

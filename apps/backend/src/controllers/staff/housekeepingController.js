@@ -85,7 +85,9 @@ async function findActiveZoneAssignee(zoneId) {
         AND (hfa.effective_to IS NULL OR hfa.effective_to > NOW())
         AND u.is_active = true
       GROUP BY hfa.id, hfa.staff_id, hfa.staff_uid, u.name, hfa.created_at
-      ORDER BY active_requests ASC, hfa.created_at ASC
+      ORDER BY CASE WHEN hfa.assignment_kind = 'redeploy' OR hfa.is_temporary = true THEN 0 ELSE 1 END,
+               active_requests ASC,
+               hfa.created_at ASC
       LIMIT 1`,
     zoneId,
     ACTIVE_REQUEST_STATUSES

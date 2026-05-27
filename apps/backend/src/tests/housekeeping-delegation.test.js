@@ -32,6 +32,7 @@ describe('housekeeping floor delegation', () => {
   let unusedZoneId;
   let assignmentId;
   let requestId;
+  let rosterBoardId;
 
   beforeAll(async () => {
     const users = await prisma.$queryRawUnsafe(
@@ -101,6 +102,20 @@ describe('housekeeping floor delegation', () => {
         .$executeRawUnsafe(
           `DELETE FROM housekeeping_floor_assignments WHERE id = $1::int`,
           assignmentId
+        )
+        .catch(() => {});
+    }
+    if (rosterBoardId) {
+      await prisma
+        .$executeRawUnsafe(
+          `DELETE FROM housekeeping_floor_assignments WHERE roster_board_id = $1::int`,
+          rosterBoardId
+        )
+        .catch(() => {});
+      await prisma
+        .$executeRawUnsafe(
+          `DELETE FROM staff_shift_roster_boards WHERE id = $1::int`,
+          rosterBoardId
         )
         .catch(() => {});
     }
@@ -205,6 +220,70 @@ describe('housekeeping floor delegation', () => {
     expect(res.statusCode).toBe(200);
     const assignments = res.body.data.assignments ?? [];
     expect(assignments.some(row => row.id === assignmentId && row.staff_id === staffId)).toBe(true);
+  });
+
+  it('saves and publishes a reusable central housekeeping shift roster board', async () => {
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const incharge = authed('HOUSEKEEPING_INCHARGE', INCHARGE_UID, inchargeId);
+
+    const saved = await incharge
+      .post('/api/v1/staff/roster-board/departments/housekeeping/boards')
+      .send({
+        roster_date: tomorrow,
+        shift_label: 'Morning',
+        notes: 'Morning floor deployment',
+        assignments: [
+          {
+            staff_id: staffId,
+            assignment_target_type: 'housekeeping_zone',
+            assignment_target_id: zoneId,
+            is_lead: true
+          }
+        ]
+      });
+
+    expect(saved.statusCode).toBe(200);
+    rosterBoardId = saved.body.data.id;
+    expect(saved.body.data).toMatchObject({
+      department: 'housekeeping',
+      roster_date: tomorrow,
+      status: 'draft'
+    });
+    expect(saved.body.data.assignments).toHaveLength(1);
+
+    const published = await incharge
+      .post(`/api/v1/staff/roster-board/boards/${rosterBoardId}/publish`)
+      .send({ reason: 'Publish tomorrow morning roster' });
+
+    expect(published.statusCode).toBe(200);
+    expect(published.body.data).toMatchObject({
+      id: rosterBoardId,
+      department: 'housekeeping',
+      status: 'published',
+      projection_count: 1
+    });
+
+    const projection = await prisma.$queryRawUnsafe(
+      `SELECT staff_id, zone_id, shift_label, assignment_kind, is_temporary, status
+         FROM housekeeping_floor_assignments
+        WHERE roster_board_id = $1::int
+        LIMIT 1`,
+      rosterBoardId
+    );
+    expect(projection[0]).toMatchObject({
+      staff_id: staffId,
+      zone_id: zoneId,
+      shift_label: 'Morning',
+      assignment_kind: 'roster',
+      is_temporary: false,
+      status: 'active'
+    });
+  });
+
+  it('keeps ordinary housekeeping staff out of the central roster board', async () => {
+    const staff = authed('HOUSEKEEPING_STAFF', STAFF_UID, staffId);
+    const res = await staff.get('/api/v1/staff/roster-board/departments/housekeeping');
+    expect(res.statusCode).toBe(403);
   });
 
   it('auto-routes new zone requests to the active delegated staff member', async () => {
