@@ -26,6 +26,8 @@ jest.unstable_mockModule('../../utils/hipaaAudit.js', () => ({
 }));
 jest.unstable_mockModule('../../services/emr/dischargeSummaryGenerator.js', () => ({
   generateDischargeSummary: jest.fn(),
+  getLatestDischargeSummary: jest.fn(),
+  saveDischargeSummary: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/ipd/ipdSupportService.js', () => ({
   issueDefaultAttendantPasses: jest.fn(),
