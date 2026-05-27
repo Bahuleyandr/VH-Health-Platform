@@ -51,6 +51,9 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
       `DELETE FROM follow_up_plans WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
       PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID);
     await prisma.$executeRawUnsafe(
+      `DELETE FROM discharge_consults WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID);
+    await prisma.$executeRawUnsafe(
       `DELETE FROM admissions WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
       PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID);
     await prisma.$executeRawUnsafe(
@@ -143,6 +146,9 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
     // Best-effort teardown — mirror beforeAll in FK-safe order
     await prisma.$executeRawUnsafe(
       `DELETE FROM bed_transfers WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
+      PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID).catch(() => {});
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM discharge_consults WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
       PATIENT_UID, NO_CONSENT_PATIENT_UID, BEDLESS_PATIENT_UID).catch(() => {});
     await prisma.$executeRawUnsafe(
       `DELETE FROM admissions WHERE patient_uid IN ($1::uuid, $2::uuid, $3::uuid)`,
@@ -696,7 +702,7 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
 
       const bedA = await prisma.$queryRawUnsafe(`SELECT status, patient_id FROM beds WHERE id = $1`, bed1Id);
       const bedB = await prisma.$queryRawUnsafe(`SELECT status, patient_id FROM beds WHERE id = $1`, bed2Id);
-      expect(bedA[0].status).toBe('available');
+      expect(bedA[0].status).toBe('cleaning');
       expect(bedA[0].patient_id).toBeNull();
       expect(bedB[0].status).toBe('occupied');
       expect(bedB[0].patient_id).toBe(patientIntId);
@@ -865,6 +871,25 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
         PATIENT_UID,
       );
 
+      // Final discharge now requires every role handoff opened during
+      // discharge initiation to be completed before the bed can move to
+      // cleaning.
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO discharge_consults
+           (admission_id, patient_uid, consult_type, requested_at, requested_by,
+            completed_at, completed_by, notes, tenant_id)
+         SELECT $1::int, $2::uuid, consult_type, NOW(), $3::uuid,
+                NOW(), $3::uuid, 'Completed for deep-test final discharge',
+                '00000000-0000-4000-8000-000000000001'::uuid
+           FROM unnest(ARRAY['dietary', 'family_counselling', 'pharmacy', 'physiotherapy', 'billing']) AS consult_type
+         ON CONFLICT (admission_id, consult_type)
+         DO UPDATE SET completed_at = EXCLUDED.completed_at,
+                       completed_by = EXCLUDED.completed_by,
+                       notes = EXCLUDED.notes,
+                       updated_at = NOW()`,
+        admissionId, PATIENT_UID, ADMIN_UID,
+      );
+
       const res = await admin.post(`/api/v1/emr/${admissionId}/discharge`).send({
         discharge_type: 'home',
         discharge_summary: { notes: 'Follow up in 2 weeks' },
@@ -875,7 +900,7 @@ describe('EMR admission/discharge/transfer — deep integration', () => {
 
       // Bed released
       const bedB = await prisma.$queryRawUnsafe(`SELECT status, patient_id FROM beds WHERE id = $1`, bed2Id);
-      expect(bedB[0].status).toBe('dirty');
+      expect(bedB[0].status).toBe('cleaning');
       expect(bedB[0].patient_id).toBeNull();
 
       const housekeeping = await prisma.$queryRawUnsafe(
