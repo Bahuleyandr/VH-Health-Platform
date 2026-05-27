@@ -127,12 +127,21 @@ class _SplashScreenState extends State<SplashScreen>
       final user = data?['user'] as Map<String, dynamic>?;
       final phone = (user?['phone'] as String?) ?? '+919999999999';
       final name = (user?['name'] as String?) ?? 'Dev Patient';
+      final hospitalNumber =
+          (user?['hospital_number'] ?? user?['hospitalNumber'] ?? '')
+              .toString();
       final isNewUser = data?['isNewUser'] == true;
       if (token == null || token.isEmpty) return;
 
       await _secureStorage.write(key: 'jwt', value: token);
       await _secureStorage.write(key: 'user_phone', value: phone);
       await _secureStorage.write(key: 'user_name', value: name);
+      if (hospitalNumber.isNotEmpty) {
+        await _secureStorage.write(
+          key: 'hospital_number',
+          value: hospitalNumber,
+        );
+      }
       await _secureStorage.write(key: 'isNewUser', value: isNewUser.toString());
 
       if (!mounted) return;
@@ -140,7 +149,11 @@ class _SplashScreenState extends State<SplashScreen>
       // /dashboard?phone= probe see the right value on first paint.
       try {
         // ignore: use_build_context_synchronously
-        context.read<UserProvider>().setUser(phone, name);
+        context.read<UserProvider>().setUser(
+          phone,
+          name,
+          hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
+        );
       } catch (e) {
         developer.log(
           'Auto dev-login: UserProvider sync failed: $e',

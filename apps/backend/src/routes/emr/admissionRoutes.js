@@ -77,10 +77,10 @@ router.post(
       } else {
         const digits = q.replace(/\D/g, '');
         // Phone (>=8 digits) → search users.phone with both E.164 and
-        // bare-national forms. Otherwise treat as name (ILIKE prefix).
+        // bare-national forms. Otherwise treat as name / hospital number.
         const rows = digits.length >= 8
-          ? await admissionService.findPatientByPhoneOrName({ phone: digits })
-          : await admissionService.findPatientByPhoneOrName({ name: q });
+          ? await admissionService.findPatientByPhoneOrName({ phone: digits, tenantId: req.tenantId })
+          : await admissionService.findPatientByPhoneOrName({ name: q, tenantId: req.tenantId });
         if (rows && rows.length === 1) {
           resolved.patient_uid = rows[0].uid;
         } else if (rows && rows.length > 1) {
@@ -496,6 +496,47 @@ router.put(
       updatedBy,
     );
     success(res, { admission }, 'Next review time updated');
+  })
+);
+
+// ---------------------------------------------------------------------------
+// GET /:id/case-sheet — Admission baseline history and examination.
+// ---------------------------------------------------------------------------
+router.get(
+  '/:id/case-sheet',
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const result = await admissionService.getAdmissionCaseSheet(admissionId, {
+      uid: req.user?.uid,
+      role: req.user?.role,
+    });
+    success(res, result, 'Admission case sheet retrieved');
+  })
+);
+
+// ---------------------------------------------------------------------------
+// PUT /:id/case-sheet — Save/update admission baseline. Chief complaints and
+// provisional diagnosis are denormalized to the admission for Bed Board.
+// ---------------------------------------------------------------------------
+router.put(
+  '/:id/case-sheet',
+  wrapAsync(async (req, res) => {
+    const admissionId = parseInt(req.params.id, 10);
+    if (isNaN(admissionId)) {
+      return error(res, 'Invalid admission ID', HTTP_STATUS.BAD_REQUEST);
+    }
+
+    const result = await admissionService.saveAdmissionCaseSheet(
+      admissionId,
+      req.body?.case_sheet || req.body || {},
+      req.user?.uid,
+      req.user?.role,
+    );
+    success(res, result, `Admission case sheet ${result.action}`);
   })
 );
 

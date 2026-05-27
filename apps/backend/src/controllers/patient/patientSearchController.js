@@ -25,6 +25,7 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
+import { DEFAULT_TENANT_ID } from '../../services/tenant/tenantService.js';
 import { error, success } from '../../utils/responseHelper.js';
 
 const MIN_QUERY_LENGTH = 2;
@@ -43,25 +44,43 @@ export const searchPatients = async (req, res) => {
       MAX_RESULTS,
       parseInt(req.query.limit, 10) || MAX_RESULTS,
     );
+    const tenantId = req.tenantId || DEFAULT_TENANT_ID;
 
     const rows = await prisma.$queryRawUnsafe(
       `SELECT u.id, u.uid, u.name, u.phone, u.gender, u.abha_address,
+              COALESCE(hn.identifier_value, 'VH-' || LPAD(u.id::text, 6, '0')) AS hospital_number,
               CASE WHEN u.birthday IS NOT NULL
                    THEN DATE_PART('year', AGE(u.birthday))::int
               END AS age
          FROM users u
+         LEFT JOIN LATERAL (
+           SELECT pi.identifier_value
+             FROM patient_identifiers pi
+            WHERE pi.tenant_id = u.tenant_id
+              AND pi.patient_uid = u.uid
+              AND pi.identifier_type IN ('mrn', 'uhid')
+              AND pi.status = 'active'
+            ORDER BY pi.is_primary DESC,
+                     CASE pi.identifier_type WHEN 'mrn' THEN 0 WHEN 'uhid' THEN 1 ELSE 2 END,
+                     pi.created_at ASC
+            LIMIT 1
+         ) hn ON TRUE
         WHERE u.role = 'PATIENT'
           AND u.is_active = true
+          AND u.tenant_id = $4::uuid
           AND (
             LOWER(COALESCE(u.name, '')) LIKE $1
             OR LOWER(COALESCE(u.phone, '')) LIKE $1
             OR LOWER(COALESCE(u.abha_address, '')) LIKE $1
+            OR LOWER(COALESCE(hn.identifier_value, '')) LIKE $1
+            OR LOWER('VH-' || LPAD(u.id::text, 6, '0')) LIKE $1
           )
         ORDER BY
+          CASE WHEN LOWER(COALESCE(hn.identifier_value, 'VH-' || LPAD(u.id::text, 6, '0'))) = $5 THEN 0 ELSE 1 END,
           CASE WHEN LOWER(COALESCE(u.name, '')) LIKE $2 THEN 0 ELSE 1 END,
           u.name ASC
         LIMIT $3`,
-      `%${q}%`, `${q}%`, limit,
+      `%${q}%`, `${q}%`, limit, tenantId, q,
     );
 
     success(

@@ -28,6 +28,7 @@ export const IDENTIFIER_TYPES = [
 ];
 
 export const IDENTIFIER_STATUSES = ['active', 'retired', 'merged_into'];
+export const HOSPITAL_NUMBER_IDENTIFIER_TYPE = 'mrn';
 
 const DEFAULT_LIST_LIMIT = 100;
 const MAX_LIST_LIMIT = 500;
@@ -85,6 +86,12 @@ function normalizeIdentifierType(value) {
     );
   }
   return normalized;
+}
+
+export function formatHospitalNumber(userId) {
+  const numeric = Number.parseInt(userId, 10);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  return `VH-${String(numeric).padStart(6, '0')}`;
 }
 
 function normalizeMetadata(value) {
@@ -260,6 +267,128 @@ export async function lookupByIdentifier({
   }
 }
 
+export async function ensureHospitalNumber({
+  tenantId = null,
+  patientUid,
+  createdBy = null,
+} = {}) {
+  const uid = maybeUuid(patientUid, 'patient_uid');
+  if (!uid) throw AppError.badRequest('patient_uid is required');
+
+  const patient = await prisma.users.findUnique({
+    where: { uid },
+    select: { id: true, tenant_id: true },
+  });
+  if (!patient) throw AppError.notFound('Patient not found');
+
+  const tid = resolveTenantId({ tenantId: tenantId || patient.tenant_id });
+  const fallback = formatHospitalNumber(patient.id);
+  if (!fallback) throw AppError.badRequest('Unable to derive hospital number');
+
+  try {
+    const existing = await prisma.$queryRawUnsafe(
+      `SELECT identifier_value
+         FROM patient_identifiers
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND identifier_type IN ('mrn', 'uhid')
+          AND status = 'active'
+        ORDER BY is_primary DESC,
+                 CASE identifier_type WHEN 'mrn' THEN 0 WHEN 'uhid' THEN 1 ELSE 2 END,
+                 created_at ASC
+        LIMIT 1`,
+      tid, uid,
+    );
+    if (existing[0]?.identifier_value) return existing[0].identifier_value;
+
+    await prisma.$queryRawUnsafe(
+      `INSERT INTO patient_identifiers
+         (tenant_id, patient_uid, identifier_type, identifier_value,
+          issuer, assigned_at, is_primary, status, metadata, created_by)
+       VALUES ($1::uuid, $2::uuid, $3, $4,
+               'VH Health', NOW(), true, 'active',
+               $5::jsonb, $6::uuid)
+       ON CONFLICT DO NOTHING`,
+      tid,
+      uid,
+      HOSPITAL_NUMBER_IDENTIFIER_TYPE,
+      fallback,
+      JSON.stringify({ generated_by: 'hospital_number_allocator_v1' }),
+      createdBy || null,
+    );
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT identifier_value
+         FROM patient_identifiers
+        WHERE tenant_id = $1::uuid
+          AND patient_uid = $2::uuid
+          AND identifier_type IN ('mrn', 'uhid')
+          AND status = 'active'
+        ORDER BY is_primary DESC,
+                 CASE identifier_type WHEN 'mrn' THEN 0 WHEN 'uhid' THEN 1 ELSE 2 END,
+                 created_at ASC
+        LIMIT 1`,
+      tid, uid,
+    );
+    return rows[0]?.identifier_value || fallback;
+  } catch (err) {
+    if (isMissingSchemaError(err)) return fallback;
+    throw err;
+  }
+}
+
+export async function getHospitalNumberMap({
+  tenantId = null,
+  patientUids = [],
+} = {}) {
+  const uniqueUids = Array.from(new Set(
+    patientUids
+      .map((uid) => maybeUuid(uid, 'patient_uid'))
+      .filter(Boolean),
+  ));
+  if (!uniqueUids.length) return new Map();
+
+  const map = new Map();
+  try {
+    const tenantClause = tenantId ? 'AND tenant_id = $2::uuid' : '';
+    const params = tenantId ? [uniqueUids, resolveTenantId({ tenantId })] : [uniqueUids];
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT DISTINCT ON (patient_uid)
+              patient_uid, identifier_value
+         FROM patient_identifiers
+        WHERE patient_uid = ANY($1::uuid[])
+          ${tenantClause}
+          AND identifier_type IN ('mrn', 'uhid')
+          AND status = 'active'
+        ORDER BY patient_uid, is_primary DESC,
+                 CASE identifier_type WHEN 'mrn' THEN 0 WHEN 'uhid' THEN 1 ELSE 2 END,
+                 created_at ASC`,
+      ...params,
+    );
+    rows.forEach((row) => {
+      if (row.patient_uid && row.identifier_value) {
+        map.set(String(row.patient_uid), row.identifier_value);
+      }
+    });
+  } catch (err) {
+    if (!isMissingSchemaError(err)) throw err;
+  }
+
+  const missing = uniqueUids.filter((uid) => !map.has(uid));
+  if (missing.length) {
+    const users = await prisma.users.findMany({
+      where: { uid: { in: missing } },
+      select: { uid: true, id: true },
+    });
+    users.forEach((user) => {
+      const fallback = formatHospitalNumber(user.id);
+      if (fallback) map.set(user.uid, fallback);
+    });
+  }
+
+  return map;
+}
+
 export async function getPatientIdentifier({ tenantId = null, id } = {}) {
   const tid = resolveTenantId({ tenantId });
   const idVal = normalizeId(id, 'identifier id');
@@ -380,7 +509,10 @@ export const __testing__ = {
 
 export default {
   addPatientIdentifier,
+  ensureHospitalNumber,
+  formatHospitalNumber,
   getPatientIdentifier,
+  getHospitalNumberMap,
   hashIdentifierValue,
   listPatientIdentifiers,
   lookupByIdentifier,

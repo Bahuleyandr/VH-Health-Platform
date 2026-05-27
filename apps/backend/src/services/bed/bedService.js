@@ -145,6 +145,12 @@ class BedService {
               u.gender   AS patient_gender,
               u.birthday AS patient_dob,
               u.phone    AS patient_phone,
+              COALESCE(hn.identifier_value,
+                       CASE WHEN u.id IS NOT NULL THEN 'VH-' || LPAD(u.id::text, 6, '0') END)
+                       AS patient_hospital_number,
+              COALESCE(hn.identifier_value,
+                       CASE WHEN u.id IS NOT NULL THEN 'VH-' || LPAD(u.id::text, 6, '0') END)
+                       AS hospital_number,
               CASE WHEN u.birthday IS NOT NULL
                    THEN DATE_PART('year', AGE(u.birthday))::int
               END        AS patient_age,
@@ -167,6 +173,18 @@ class BedService {
          ON b.patient_uid = u.uid
        LEFT JOIN admissions a
          ON a.bed_id = b.id AND a.discharged_at IS NULL
+       LEFT JOIN LATERAL (
+         SELECT pi.identifier_value
+           FROM patient_identifiers pi
+          WHERE pi.tenant_id = COALESCE(a.tenant_id, u.tenant_id)
+            AND pi.patient_uid = u.uid
+            AND pi.identifier_type IN ('mrn', 'uhid')
+            AND pi.status = 'active'
+          ORDER BY pi.is_primary DESC,
+                   CASE pi.identifier_type WHEN 'mrn' THEN 0 WHEN 'uhid' THEN 1 ELSE 2 END,
+                   pi.created_at ASC
+          LIMIT 1
+       ) hn ON TRUE
        LEFT JOIN users doc
          ON doc.uid = a.attending_doctor
        ${where}

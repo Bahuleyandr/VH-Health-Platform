@@ -26,9 +26,11 @@ class UserProvider extends ChangeNotifier {
 
   String _phone = '';
   String _name = 'Guest';
+  String _hospitalNumber = '';
 
   String get phone => _phone;
   String get name => _name;
+  String get hospitalNumber => _hospitalNumber;
 
   bool get isGuest => _phone.isEmpty || _phone == 'guest';
 
@@ -36,22 +38,34 @@ class UserProvider extends ChangeNotifier {
   Future<void> loadFromStorage() async {
     _phone = await _storage.read(key: 'user_phone') ?? '';
     _name = await _storage.read(key: 'user_name') ?? 'Guest';
+    _hospitalNumber = await _storage.read(key: 'hospital_number') ?? '';
     notifyListeners();
   }
 
   /// Set user data after login and persist to secure storage.
-  Future<void> setUser(String phone, String name) async {
+  Future<void> setUser(
+    String phone,
+    String name, {
+    String? hospitalNumber,
+  }) async {
     _phone = phone;
     _name = name;
+    _hospitalNumber = hospitalNumber ?? '';
     notifyListeners();
     await _storage.write(key: 'user_phone', value: phone);
     await _storage.write(key: 'user_name', value: name);
+    if (hospitalNumber != null) {
+      await _storage.write(key: 'hospital_number', value: hospitalNumber);
+    } else {
+      await _storage.delete(key: 'hospital_number');
+    }
   }
 
   /// Clear user data on logout.
   Future<void> clear() async {
     _phone = '';
     _name = 'Guest';
+    _hospitalNumber = '';
     notifyListeners();
     // Note: storage.deleteAll() is called separately during logout
   }

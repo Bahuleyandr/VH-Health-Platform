@@ -62,7 +62,13 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                     '')
                 .toString()
                 .toLowerCase();
-        return num.contains(q) || patient.contains(q);
+        final hospitalNumber =
+            (b['patient_hospital_number'] ?? b['hospital_number'] ?? '')
+                .toString()
+                .toLowerCase();
+        return num.contains(q) ||
+            patient.contains(q) ||
+            hospitalNumber.contains(q);
       });
     }
     return rows.toList();
@@ -360,7 +366,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                 borderRadius: BorderRadius.circular(12),
               ),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: AppTheme.cardSurface,
             ),
             onChanged: (v) => setState(() => _searchQuery = v),
           ),
@@ -513,7 +519,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         // right pane to a placeholder for no good reason.
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          color: Colors.white,
+          color: AppTheme.cardSurface,
           child: Row(
             children: [
               if (!forceHideBack)
@@ -562,7 +568,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
                 borderRadius: BorderRadius.circular(12),
               ),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: AppTheme.cardSurface,
             ),
             onChanged: (v) => setState(() => _bedQuery = v),
           ),
@@ -670,6 +676,10 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         bed['doctorName'] ??
         bed['doctor']?['name'] ??
         '';
+    final hospitalNumber =
+        (bed['patient_hospital_number'] ?? bed['hospital_number'] ?? '')
+            .toString()
+            .trim();
     final notesAllowed = _bedAllowsNotes(bed);
     final hasNotes =
         notesAllowed && (bed['notes'] ?? '').toString().trim().isNotEmpty;
@@ -687,7 +697,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
 
     final card = Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.cardSurface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color, width: 2),
         boxShadow: [
@@ -749,10 +759,21 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
             const SizedBox(height: 4),
             Text(
               patientName.toString(),
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: AppTheme.textPrimary,
+              ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
+            if (hospitalNumber.isNotEmpty)
+              Text(
+                hospitalNumber,
+                style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             if (doctorName.toString().isNotEmpty)
               Text(
                 'Dr. $doctorName',
@@ -779,6 +800,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       if (status.toLowerCase() == 'occupied' &&
           patientName.toString().isNotEmpty)
         'patient $patientName',
+      if (hospitalNumber.isNotEmpty) 'Hospital ID $hospitalNumber',
       if (hasNotes) 'has notes',
     ];
 
@@ -1133,6 +1155,10 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
     final patientAge = bed['patient_age'];
     final patientGender = (bed['patient_gender'] ?? '').toString();
     final patientPhone = (bed['patient_phone'] ?? '').toString();
+    final patientHospitalNumber =
+        (bed['patient_hospital_number'] ?? bed['hospital_number'] ?? '')
+            .toString()
+            .trim();
     final chiefComplaint = (bed['chief_complaint'] ?? '').toString();
     final admittingDx = (bed['admitting_diagnosis'] ?? '').toString();
     final admissionType = (bed['admission_type'] ?? '').toString();
@@ -1243,6 +1269,7 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                   patientUid: patientUid,
                   patientId: bed['patient_id']?.toString() ?? '',
                   patientName: patientName,
+                  patientGender: patientGender,
                   patientPhone: patientPhone,
                   bedNumber: bedNumber.toString(),
                   wardName: widget.wardName,
@@ -1286,6 +1313,12 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
                         }
                       : null,
                 ),
+                if (patientHospitalNumber.isNotEmpty)
+                  _DetailRow(
+                    label: 'Hospital ID',
+                    value: patientHospitalNumber,
+                    icon: Icons.badge_outlined,
+                  ),
                 if (patientAge != null && patientAge.toString().isNotEmpty)
                   _DetailRow(
                     label: AppStrings.of(context).bedSheetFieldAge,
@@ -1605,6 +1638,7 @@ class _BedQuickActions extends StatelessWidget {
   final String patientUid;
   final String patientId; // numeric users.id — what /vitals form uses
   final String patientName;
+  final String patientGender;
   final String patientPhone;
   final String bedNumber;
   final String wardName;
@@ -1613,6 +1647,7 @@ class _BedQuickActions extends StatelessWidget {
     required this.patientUid,
     required this.patientId,
     required this.patientName,
+    required this.patientGender,
     required this.patientPhone,
     required this.bedNumber,
     required this.wardName,
@@ -1623,6 +1658,7 @@ class _BedQuickActions extends StatelessWidget {
     final s = AppStrings.of(context);
     final nameQ = Uri.encodeQueryComponent(patientName);
     final phoneQ = Uri.encodeQueryComponent(patientPhone);
+    final genderQ = Uri.encodeQueryComponent(patientGender);
     final pidQ = Uri.encodeQueryComponent(patientId);
     final patientUidPath = Uri.encodeComponent(patientUid);
     final patientRef = Uri.encodeQueryComponent(
@@ -1645,6 +1681,13 @@ class _BedQuickActions extends StatelessWidget {
         color: AppTheme.primaryBlue,
         route: '/emr/timeline/$patientUid?name=$nameQ',
       ),
+      if (admissionId.isNotEmpty)
+        _QuickAction(
+          icon: Icons.assignment_outlined,
+          label: 'Case Sheet',
+          color: const Color(0xFF5D4037),
+          route: '/emr/case-sheet/$admissionId?name=$nameQ&gender=$genderQ',
+        ),
       _QuickAction(
         icon: Icons.monitor_heart_outlined,
         label: s.bedSheetActionRecordVitals,
@@ -2600,7 +2643,11 @@ class _AdmitPatientPickerState extends State<_AdmitPatientPicker> {
         final age = p['age'];
         final gender = (p['gender'] ?? '').toString();
         final phone = (p['phone'] ?? '').toString();
+        final hospitalNumber =
+            (p['hospital_number'] ?? p['patient_hospital_number'] ?? '')
+                .toString();
         final subtitleParts = <String>[
+          if (hospitalNumber.isNotEmpty) 'Hospital ID $hospitalNumber',
           if (age != null && age.toString().isNotEmpty) '${age.toString()} yr',
           if (gender.isNotEmpty)
             gender[0].toUpperCase() + gender.substring(1).toLowerCase(),

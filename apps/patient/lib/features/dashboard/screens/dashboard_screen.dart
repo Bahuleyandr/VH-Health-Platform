@@ -48,6 +48,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final _secureStorage = const FlutterSecureStorage();
   late final String _phone;
   late final String _name;
+  late final String _hospitalNumber;
   String? lastAppointment;
   String? nextAppointment;
   String? cachedName;
@@ -90,6 +91,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final user = context.read<UserProvider>();
     _phone = user.phone;
     _name = user.name;
+    _hospitalNumber = user.hospitalNumber;
     _features = _initializeFeatures();
     cachedName = _name;
 
@@ -695,6 +697,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               DashboardHeader(
                 name: nameToShow,
                 isGuest: isGuest,
+                hospitalNumber: _hospitalNumber,
                 unreadNotifications: unread,
                 nextAppointmentLabel: nextApptLabel,
                 lastVitalsLabel: lastVitalsLabel,

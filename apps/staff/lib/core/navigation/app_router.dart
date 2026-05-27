@@ -84,6 +84,7 @@ import '../../features/radiology/screens/radiology_screen.dart';
 
 // EMR
 import '../../features/emr/screens/admission_screen.dart';
+import '../../features/emr/screens/admission_case_sheet_screen.dart';
 import '../../features/emr/screens/clinical_notes_screen.dart';
 import '../../features/emr/screens/patient_timeline_screen.dart';
 import '../../features/emr/screens/orders_screen.dart';
@@ -574,6 +575,22 @@ final GoRouter appRouter = GoRouter(
           name: 'emr-admissions',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: AdmissionScreen()),
+        ),
+        GoRoute(
+          path: '/emr/case-sheet/:id',
+          name: 'emr-case-sheet',
+          pageBuilder: (context, state) {
+            final id = int.parse(state.pathParameters['id']!);
+            final name = state.uri.queryParameters['name'] ?? 'Patient';
+            final gender = state.uri.queryParameters['gender'] ?? '';
+            return NoTransitionPage(
+              child: AdmissionCaseSheetScreen(
+                admissionId: id,
+                patientName: name,
+                patientGender: gender,
+              ),
+            );
+          },
         ),
         GoRoute(
           path: '/emr/notes/:uid',

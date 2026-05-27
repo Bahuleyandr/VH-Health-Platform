@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/services/medical_api_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/staff_scaffold.dart';
+import '../../../core/widgets/vital_text_field.dart';
 import '../../../l10n/app_strings.dart';
 
 /// EMR Vitals Charting screen — record vitals, view 24h data table, I/O charting.
@@ -164,6 +165,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                       hr,
                       AppStrings.of(ctx).vitalsChartHeartRate,
                       Icons.favorite,
+                      suffix: VitalUnit.pulse,
                       keyboardType: TextInputType.number,
                     ),
                     const SizedBox(height: 12),
@@ -176,6 +178,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             bpSystolic,
                             AppStrings.of(ctx).vitalsChartBpSys,
                             Icons.arrow_upward,
+                            suffix: VitalUnit.bp,
                             keyboardType: TextInputType.number,
                           ),
                         ),
@@ -194,6 +197,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             bpDiastolic,
                             AppStrings.of(ctx).vitalsChartBpDia,
                             Icons.arrow_downward,
+                            suffix: VitalUnit.bp,
                             keyboardType: TextInputType.number,
                           ),
                         ),
@@ -209,6 +213,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             temp,
                             AppStrings.of(ctx).vitalsChartTemp,
                             Icons.thermostat,
+                            suffix: VitalUnit.temperature,
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                             ),
@@ -220,6 +225,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             spo2,
                             AppStrings.of(ctx).vitalsChartSpo2,
                             Icons.air,
+                            suffix: VitalUnit.spo2,
                             keyboardType: TextInputType.number,
                           ),
                         ),
@@ -235,6 +241,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             rr,
                             AppStrings.of(ctx).vitalsChartRespRate,
                             Icons.waves,
+                            suffix: VitalUnit.respiratoryRate,
                             keyboardType: TextInputType.number,
                           ),
                         ),
@@ -244,6 +251,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             glucose,
                             AppStrings.of(ctx).vitalsChartGlucose,
                             Icons.water_drop,
+                            suffix: VitalUnit.cbg,
                             keyboardType: TextInputType.number,
                           ),
                         ),
@@ -259,6 +267,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             pain,
                             AppStrings.of(ctx).vitalsChartPain,
                             Icons.sentiment_dissatisfied,
+                            suffix: VitalUnit.pain,
                             keyboardType: TextInputType.number,
                           ),
                         ),
@@ -268,6 +277,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                             gcs,
                             AppStrings.of(ctx).vitalsChartGcs,
                             Icons.psychology,
+                            suffix: VitalUnit.gcs,
                             keyboardType: TextInputType.number,
                           ),
                         ),
@@ -352,6 +362,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     TextEditingController controller,
     String label,
     IconData icon, {
+    String? suffix,
     TextInputType? keyboardType,
   }) {
     return TextFormField(
@@ -359,6 +370,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
       keyboardType: keyboardType,
       decoration: InputDecoration(
         labelText: label,
+        suffixText: suffix,
         prefixIcon: ExcludeSemantics(child: Icon(icon, size: 20)),
         border: const OutlineInputBorder(),
         isDense: true,
@@ -381,17 +393,29 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
   }) async {
     Navigator.of(context).pop();
 
+    final hrValue = normalizeVitalValue(hr, VitalUnit.pulse);
+    final bpSystolicValue = normalizeVitalValue(bpSystolic, VitalUnit.bp);
+    final bpDiastolicValue = normalizeVitalValue(bpDiastolic, VitalUnit.bp);
+    final tempValue = normalizeVitalValue(temp, VitalUnit.temperature);
+    final spo2Value = normalizeVitalValue(spo2, VitalUnit.spo2);
+    final rrValue = normalizeVitalValue(rr, VitalUnit.respiratoryRate);
+    final glucoseValue = normalizeVitalValue(glucose, VitalUnit.cbg);
+    final painValue = normalizeVitalValue(pain, VitalUnit.pain);
+    final gcsValue = normalizeVitalValue(gcs, VitalUnit.gcs);
+
     final data = <String, dynamic>{
       'patient_uid': widget.patientUid,
-      if (hr.isNotEmpty) 'heart_rate': int.tryParse(hr),
-      if (bpSystolic.isNotEmpty) 'bp_systolic': int.tryParse(bpSystolic),
-      if (bpDiastolic.isNotEmpty) 'bp_diastolic': int.tryParse(bpDiastolic),
-      if (temp.isNotEmpty) 'temperature': double.tryParse(temp),
-      if (spo2.isNotEmpty) 'spo2': int.tryParse(spo2),
-      if (rr.isNotEmpty) 'respiratory_rate': int.tryParse(rr),
-      if (glucose.isNotEmpty) 'glucose': int.tryParse(glucose),
-      if (pain.isNotEmpty) 'pain_score': int.tryParse(pain),
-      if (gcs.isNotEmpty) 'gcs': int.tryParse(gcs),
+      if (hrValue.isNotEmpty) 'heart_rate': int.tryParse(hrValue),
+      if (bpSystolicValue.isNotEmpty)
+        'bp_systolic': int.tryParse(bpSystolicValue),
+      if (bpDiastolicValue.isNotEmpty)
+        'bp_diastolic': int.tryParse(bpDiastolicValue),
+      if (tempValue.isNotEmpty) 'temperature': double.tryParse(tempValue),
+      if (spo2Value.isNotEmpty) 'spo2': int.tryParse(spo2Value),
+      if (rrValue.isNotEmpty) 'respiratory_rate': int.tryParse(rrValue),
+      if (glucoseValue.isNotEmpty) 'glucose': int.tryParse(glucoseValue),
+      if (painValue.isNotEmpty) 'pain_score': int.tryParse(painValue),
+      if (gcsValue.isNotEmpty) 'gcs': int.tryParse(gcsValue),
       'consciousness': consciousness,
     };
 
@@ -854,23 +878,57 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
                     style: _cellStyle,
                   ),
                 ),
-                DataCell(_vitalCell(v['heart_rate'], 60, 100)),
+                DataCell(
+                  _vitalCell(v['heart_rate'], 60, 100, unit: VitalUnit.pulse),
+                ),
                 DataCell(
                   Text(
                     v['bp_systolic'] != null
-                        ? '${v['bp_systolic']}/${v['bp_diastolic'] ?? '-'}'
+                        ? vitalValueWithUnit(
+                            '${v['bp_systolic']}/${v['bp_diastolic'] ?? '-'}',
+                            VitalUnit.bp,
+                          )
                         : '-',
                     style: _cellStyle,
                   ),
                 ),
                 DataCell(
-                  _vitalCell(v['temperature'], 97.0, 99.5, isDouble: true),
+                  _vitalCell(
+                    v['temperature'],
+                    97.0,
+                    99.5,
+                    isDouble: true,
+                    unit: VitalUnit.temperature,
+                  ),
                 ),
-                DataCell(_vitalCell(v['spo2'], 95, 100)),
-                DataCell(_vitalCell(v['respiratory_rate'], 12, 20)),
-                DataCell(_vitalCell(v['glucose'], 70, 180)),
-                DataCell(Text('${v['pain_score'] ?? '-'}', style: _cellStyle)),
-                DataCell(Text('${v['gcs'] ?? '-'}', style: _cellStyle)),
+                DataCell(_vitalCell(v['spo2'], 95, 100, unit: VitalUnit.spo2)),
+                DataCell(
+                  _vitalCell(
+                    v['respiratory_rate'],
+                    12,
+                    20,
+                    unit: VitalUnit.respiratoryRate,
+                  ),
+                ),
+                DataCell(
+                  _vitalCell(v['glucose'], 70, 180, unit: VitalUnit.cbg),
+                ),
+                DataCell(
+                  Text(
+                    v['pain_score'] == null
+                        ? '-'
+                        : vitalValueWithUnit(v['pain_score'], VitalUnit.pain),
+                    style: _cellStyle,
+                  ),
+                ),
+                DataCell(
+                  Text(
+                    v['gcs'] == null
+                        ? '-'
+                        : vitalValueWithUnit(v['gcs'], VitalUnit.gcs),
+                    style: _cellStyle,
+                  ),
+                ),
                 DataCell(
                   Text('${v['consciousness'] ?? '-'}', style: _cellStyle),
                 ),
@@ -882,7 +940,13 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     );
   }
 
-  Widget _vitalCell(dynamic value, num low, num high, {bool isDouble = false}) {
+  Widget _vitalCell(
+    dynamic value,
+    num low,
+    num high, {
+    bool isDouble = false,
+    String? unit,
+  }) {
     if (value == null) {
       return const Text('-', style: _cellStyle);
     }
@@ -893,7 +957,7 @@ class _VitalsChartScreenState extends State<VitalsChartScreen>
     }
     final display = isDouble ? val.toStringAsFixed(1) : '$val';
     return Text(
-      display,
+      unit == null ? display : vitalValueWithUnit(display, unit),
       style: TextStyle(
         fontSize: 13,
         fontWeight: color != null ? FontWeight.w600 : FontWeight.w400,

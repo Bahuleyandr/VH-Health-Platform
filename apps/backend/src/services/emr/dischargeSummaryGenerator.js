@@ -52,9 +52,65 @@ function text(value) {
   return String(value).trim();
 }
 
+function valueWithUnit(value, unit) {
+  const valueText = text(value);
+  if (!valueText) return '';
+  if (valueText === '-') return valueText;
+  const suffixPattern = {
+    '/min': /\/\s*min$/i,
+    'mm Hg': /mm\s*hg$/i,
+    '%': /%$/i,
+    'mg/dl': /mg\s*\/\s*dl$/i,
+    Kg: /kg$/i,
+    'deg F': /(?:deg\s*f|°\s*f)$/i,
+  }[unit];
+  if (suffixPattern?.test(valueText)) return valueText;
+  return `${valueText} ${unit}`;
+}
+
 function formatDate(value) {
   if (!value) return 'not documented';
   return new Date(value).toISOString().slice(0, 10);
+}
+
+function formatDmy(value, { includeTime = false } = {}) {
+  if (!value) return 'not documented';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'not documented';
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const yyyy = date.getFullYear();
+  if (!includeTime) return `${dd}.${mm}.${yyyy}`;
+  const hh = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  return `${dd}.${mm}.${yyyy} at ${hh}:${min}`;
+}
+
+function ageYears(birthday) {
+  if (!birthday) return null;
+  const born = new Date(birthday);
+  if (Number.isNaN(born.getTime())) return null;
+  const now = new Date();
+  let years = now.getFullYear() - born.getFullYear();
+  const monthDelta = now.getMonth() - born.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && now.getDate() < born.getDate())) years -= 1;
+  return years >= 0 ? years : null;
+}
+
+function shortGender(gender) {
+  const normalized = text(gender).toLowerCase();
+  if (normalized.startsWith('m')) return 'M';
+  if (normalized.startsWith('f')) return 'F';
+  return text(gender) || 'not documented';
+}
+
+function line(label, value) {
+  return `${label.padEnd(27, ' ')} ${text(value) || 'not documented'}`;
+}
+
+function listLines(values, fallback = 'not documented') {
+  const items = asArray(values).map((value) => text(value)).filter(Boolean);
+  return items.length ? items.join('\n') : fallback;
 }
 
 function makeSourceHash(context) {
@@ -223,6 +279,7 @@ function buildTemplateHospitalCourse(context) {
   const patient = context.patient || {};
   const diagnoses = context.diagnoses.map(diagnosisText).filter(Boolean);
   const noteHighlights = context.notes
+    .filter((event) => text(event.sub_type).toLowerCase() !== 'case_sheet')
     .slice(-5)
     .map((event) => event.summary)
     .filter(Boolean);
@@ -258,6 +315,309 @@ function buildTemplateHospitalCourse(context) {
   }
 
   return sections.join('\n\n');
+}
+
+function noteContent(event) {
+  const content = event?.payload?.content;
+  return content && typeof content === 'object' && !Array.isArray(content) ? content : {};
+}
+
+function getCaseSheetContent(context) {
+  const event = [...asArray(context.notes)]
+    .reverse()
+    .find((note) => text(note.sub_type).toLowerCase() === 'case_sheet');
+  return noteContent(event);
+}
+
+function firstNoteField(notes, fields) {
+  for (const event of [...notes].reverse()) {
+    const content = noteContent(event);
+    for (const field of fields) {
+      const value = text(content[field]);
+      if (value) return value;
+    }
+  }
+  return '';
+}
+
+function diagnosisLines(context) {
+  const diagnoses = context.diagnoses.map(diagnosisText).filter(Boolean);
+  if (diagnoses.length) return diagnoses;
+  const admitting = text(context.admission?.admitting_diagnosis);
+  return admitting ? [admitting] : ['Not documented'];
+}
+
+function buildPatientHeader(context) {
+  const patient = context.patient || {};
+  const admission = context.admission || {};
+  const age = ageYears(patient.birthday);
+  const primaryDoctor = asArray(context.attending_doctors)
+    .find((doctor) => doctor.role === 'primary_consultant')
+    || asArray(context.attending_doctors)[0];
+
+  return {
+    patient_name: patient.name || 'not documented',
+    age_sex: `${age != null ? `${age}yrs` : 'age not documented'} / ${shortGender(patient.gender)}`,
+    mrn: patient.hospital_number || patient.mrn || patient.mri_no || 'not documented',
+    ip_no: admission.encounter_id || admission.id || 'not documented',
+    ward_no: admission.ward || admission.bed_number || 'not documented',
+    address: patient.address || 'not documented',
+    mobile: patient.phone || 'not documented',
+    primary_consultant: primaryDoctor?.name || admission.admitting_doctor || 'not documented',
+    date_of_admission: formatDmy(admission.admitted_at, { includeTime: true }),
+    date_of_discharge: formatDmy(admission.discharged_at || new Date()),
+  };
+}
+
+function buildAttendingDoctors(context) {
+  const doctors = asArray(context.attending_doctors);
+  if (!doctors.length) {
+    return [{
+      name: 'Not documented',
+      designation: 'Not documented',
+    }];
+  }
+  return doctors.map((doctor) => ({
+    name: doctor.name || 'Not documented',
+    designation: doctor.designation || 'Doctor',
+  }));
+}
+
+function buildPastHistory(context) {
+  const caseSheet = getCaseSheetContent(context);
+  const caseSheetHistory = [
+    caseSheet.past_history,
+    caseSheet.past_medical_surgical_history,
+  ].map((value) => text(value)).filter(Boolean);
+  if (caseSheetHistory.length) return caseSheetHistory;
+
+  const chronic = asArray(context.chronic_medications)
+    .map((med) => med.indication || med.condition || med.diagnosis)
+    .map((value) => text(value))
+    .filter(Boolean);
+  const chronicDiagnoses = context.diagnoses
+    .map(diagnosisText)
+    .filter((value) => /diabetes|hypertension|dyslipidemia|asthma|copd|cad|ckd|seizure|epilepsy/i.test(value));
+  return Array.from(new Set([...chronicDiagnoses, ...chronic]));
+}
+
+function buildRiskFactors(context) {
+  const joined = [
+    ...context.diagnoses.map(diagnosisText),
+    ...asArray(context.chronic_medications).map((med) => `${med.name || ''} ${med.indication || ''}`),
+  ].join(' ');
+  const factors = [];
+  if (/diabetes|dm\b/i.test(joined)) factors.push('DM');
+  if (/hypertension|htn/i.test(joined)) factors.push('HTN');
+  if (/dyslipidemia|hyperlipidemia/i.test(joined)) factors.push('Dyslipidemia');
+  if (/smok/i.test(joined)) factors.push('Smoking');
+  return factors;
+}
+
+function buildPreviousMedicationRows(context) {
+  return asArray(context.chronic_medications).map((med) => ({
+    medication: med.name || med.medication_name || 'Medication',
+    dose: med.dose || med.dosage || '',
+    morning: '',
+    afternoon: '',
+    night: '',
+  }));
+}
+
+function buildExaminationText(context, latestVitals) {
+  const caseSheet = getCaseSheetContent(context);
+  const caseVitals = caseSheet.vitals && typeof caseSheet.vitals === 'object' && !Array.isArray(caseSheet.vitals)
+    ? caseSheet.vitals
+    : {};
+  const caseExam = [
+    caseVitals.pulse_rate ? `PR- ${valueWithUnit(caseVitals.pulse_rate, '/min')}` : null,
+    caseVitals.bp ? `BP- ${valueWithUnit(caseVitals.bp, 'mm Hg')}` : null,
+    caseVitals.spo2 ? `SpO2- ${valueWithUnit(caseVitals.spo2, '%')}` : null,
+    caseVitals.cbg ? `CBG- ${valueWithUnit(caseVitals.cbg, 'mg/dl')}` : null,
+    caseVitals.weight ? `Wt- ${valueWithUnit(caseVitals.weight, 'Kg')}` : null,
+    caseVitals.temperature ? `Temp- ${valueWithUnit(caseVitals.temperature, 'deg F')}` : null,
+    caseSheet.cvs ? `CVS- ${caseSheet.cvs}` : null,
+    caseSheet.rs ? `RS- ${caseSheet.rs}` : null,
+    caseSheet.pa ? `P/A- ${caseSheet.pa}` : null,
+    caseSheet.cns ? `CNS- ${caseSheet.cns}` : null,
+  ].filter(Boolean);
+  if (caseExam.length) return caseExam.join('\n');
+
+  const vitals = latestVitals?.payload || {};
+  const objective = firstNoteField(context.notes, ['objective', 'examination', 'exam', 'clinical_examination']);
+  const parts = [];
+  if (objective) parts.push(objective);
+  if (latestVitals) {
+    parts.push([
+      vitals.heart_rate ? `PR- ${valueWithUnit(vitals.heart_rate, '/min')}` : null,
+      vitals.systolic_bp || vitals.diastolic_bp
+        ? `BP- ${valueWithUnit(`${vitals.systolic_bp ?? '-'}/${vitals.diastolic_bp ?? '-'}`, 'mm Hg')}`
+        : null,
+      vitals.temperature ? `Temp- ${valueWithUnit(vitals.temperature, 'deg F')}` : null,
+      vitals.spo2 ? `SpO2- ${valueWithUnit(vitals.spo2, '%')}` : null,
+      vitals.blood_glucose ? `CBG- ${valueWithUnit(vitals.blood_glucose, 'mg/dl')}` : null,
+    ].filter(Boolean).join('    '));
+  }
+  return parts.join('\n') || 'Final examination must be documented by the signing doctor.';
+}
+
+function buildInvestigationLines(context) {
+  const investigations = context.investigations.slice(-8).map((event) => {
+    const payload = event.payload || {};
+    return `${payload.test_name || payload.test_type || payload.investigation_type || 'Investigation'} - ${payload.result_summary || payload.conclusion || payload.interpretation || payload.status || 'See source record'}`;
+  });
+  const radiology = asArray(context.radiology_orders).slice(0, 4).map((row) =>
+    `${row.modality || 'Radiology'} ${row.body_part || ''} - ${row.status || 'status not documented'}`.trim());
+  return [...investigations, ...radiology];
+}
+
+function scheduleFromFrequency(frequency) {
+  const value = text(frequency).toLowerCase();
+  if (/1-0-1|bd|twice|bid/.test(value)) return { morning: '1', afternoon: '0', night: '1' };
+  if (/1-1-1|tds|tid|three/.test(value)) return { morning: '1', afternoon: '1', night: '1' };
+  if (/0-0-1|night|hs|od at night/.test(value)) return { morning: '0', afternoon: '0', night: '1' };
+  if (/1-0-0|morning|od|once|daily/.test(value)) return { morning: '1', afternoon: '0', night: '0' };
+  return { morning: '', afternoon: '', night: '' };
+}
+
+function buildMedicationTable(meds) {
+  return asArray(meds).map((med) => {
+    const schedule = scheduleFromFrequency(med.frequency);
+    return {
+      medication: med.name || med.medication_name || 'Medication',
+      dose: med.dose || med.dosage || '',
+      route: med.route || '',
+      morning: med.morning ?? schedule.morning,
+      afternoon: med.afternoon ?? schedule.afternoon,
+      night: med.night ?? schedule.night,
+      duration: med.duration || '',
+      instructions: med.instructions || med.reconciliation_status || '',
+    };
+  });
+}
+
+function formatMedicationTable(rows) {
+  const header = [
+    'MEDICATIONS'.padEnd(24),
+    'DOSE'.padEnd(10),
+    'ROUTE'.padEnd(16),
+    'MORN'.padEnd(6),
+    'NOON'.padEnd(6),
+    'NIGHT'.padEnd(7),
+    'DURATION',
+  ].join(' ');
+  const body = asArray(rows).map((row) => [
+    text(row.medication).slice(0, 23).padEnd(24),
+    text(row.dose).slice(0, 9).padEnd(10),
+    text(row.route).slice(0, 15).padEnd(16),
+    text(row.morning).slice(0, 5).padEnd(6),
+    text(row.afternoon).slice(0, 5).padEnd(6),
+    text(row.night).slice(0, 6).padEnd(7),
+    text(row.duration || row.instructions || 'doctor review'),
+  ].join(' '));
+  return [header, ...body].join('\n');
+}
+
+function buildDischargeAdvice(summary) {
+  return [
+    summary.diet_instructions ? `Diet: ${summary.diet_instructions}` : 'Diet: as advised by treating doctor / dietician.',
+    'PLEASE DO NOT STOP MEDICATIONS WITHOUT CONSULTING THE DOCTOR.',
+    summary.warning_signs || 'Please report to hospital for fever, chest pain, breathlessness, bleeding, giddiness, worsening pain, or any significant concern.',
+  ].filter(Boolean);
+}
+
+function buildSignatureBlocks(dischargeDate) {
+  return [
+    `DATE: ${dischargeDate}          CONSULTANT                     MEDICAL OFFICER`,
+    'Typed By:',
+    'Discharge summary explained by:',
+    'I have been explained and understood the content of the summary:',
+    'Patient Name & Signature:                 Patient Relative Name & Signature:',
+    'Patient signature:                         Patient relative signature:',
+    'Relationship to the Patient:',
+    'Discharge summary explained to and received by:',
+  ];
+}
+
+function buildHospitalFormattedSummary(context, summary) {
+  const header = summary.patient_header;
+  const doctors = asArray(summary.attending_doctors);
+  const medRows = summary.medication_table;
+  const previousRows = asArray(summary.previous_medications);
+  const admission = context.admission || {};
+
+  return [
+    'DISCHARGE SUMMARY',
+    '',
+    line('Name of the Patient :', header.patient_name),
+    line('Age /Sex :', header.age_sex),
+    line('MRI No. :', header.mrn),
+    line('I.P. No:', header.ip_no),
+    line('Ward No. :', header.ward_no),
+    line('Address :', header.address),
+    line('Mobile No. / Land Line No.', header.mobile),
+    line('Primary Consultant:', header.primary_consultant),
+    line('Date of Admission :', header.date_of_admission),
+    line('Date of Discharge :', header.date_of_discharge),
+    '',
+    'ATTENDING DOCTORS:',
+    'Name'.padEnd(42, ' ') + 'Designation',
+    ...doctors.map((doctor) => `${text(doctor.name).padEnd(42, ' ')}${text(doctor.designation) || 'Doctor'}`),
+    '',
+    'DIAGNOSIS:',
+    listLines(summary.diagnosis_lines),
+    '',
+    'PLAN:',
+    summary.plan || 'Not documented',
+    '',
+    `${header.patient_name}, ${header.age_sex}, was admitted ${admission.admission_type ? `as ${admission.admission_type}` : 'for inpatient care'}.`,
+    summary.presenting_complaints || admission.chief_complaint || admission.reason_for_admission || 'Presenting complaints not documented.',
+    '',
+    'PAST HISTORY:',
+    listLines(summary.past_history),
+    '',
+    `INTOLERANCE: ${summary.intolerance || 'Not documented'}`,
+    `PERSONAL HISTORY: ${summary.personal_history || 'Not documented'}`,
+    summary.menstrual_pregnancy_history
+      ? `MENSTRUAL / PREGNANCY HISTORY: ${summary.menstrual_pregnancy_history}`
+      : '',
+    '',
+    `FAMILY HISTORY: ${summary.family_history || 'Nil significant / not documented'}`,
+    `RISK FACTORS: ${listLines(summary.risk_factors, 'Not documented')}`,
+    '',
+    'PREVIOUS MEDICATION:',
+    previousRows.length
+      ? previousRows.map((row) => `${row.medication || 'Medication'} ${row.dose || ''} ${row.morning || ''} ${row.afternoon || ''} ${row.night || ''}`.trim()).join('\n')
+      : 'Not documented',
+    '',
+    'ON EXAMINATION:',
+    summary.examination_on_admission || 'Not documented',
+    '',
+    'INVESTIGATIONS:',
+    listLines(summary.investigation_lines, 'Enclosed / see EMR investigation records.'),
+    '',
+    'COURSE IN THE HOSPITAL:',
+    summary.hospital_course || 'Not documented',
+    '',
+    'CONDITION AT DISCHARGE:',
+    summary.discharge_condition || 'Not documented',
+    '',
+    'ADVISED TO CONTINUE:',
+    formatMedicationTable(medRows),
+    '',
+    'DM ADVICE:',
+    summary.dm_advice || 'As advised by diabetologist / treating doctor.',
+    '',
+    buildDischargeAdvice(summary).join('\n\n'),
+    '',
+    'Physiotherapy advice:',
+    summary.physiotherapy_advice || 'Deep breathing, limb/ankle exercises, and walking as advised.',
+    '',
+    'FOLLOW UP:',
+    summary.follow_up_instructions || 'Review with treating physician as advised.',
+    '',
+    ...summary.signature_blocks,
+  ].join('\n');
 }
 
 // Order statuses that mean the medication is no longer active and must
@@ -363,7 +723,12 @@ function buildDischargeMedications(context) {
 
 function buildStructuredSummary(context, hospitalCourse, aiResult) {
   const admission = context.admission || {};
-  const diagnoses = context.diagnoses.map(diagnosisText).filter(Boolean);
+  const caseSheet = getCaseSheetContent(context);
+  const patientHeader = buildPatientHeader(context);
+  const attendingDoctors = buildAttendingDoctors(context);
+  const diagnoses = text(caseSheet.provisional_diagnosis)
+    ? [text(caseSheet.provisional_diagnosis)]
+    : diagnosisLines(context);
   const latestVitals = latestByType(context.vitals);
   const vitals = latestVitals?.payload || {};
   const procedures = context.notes
@@ -376,20 +741,65 @@ function buildStructuredSummary(context, hospitalCourse, aiResult) {
     result: event.payload?.result_summary || event.payload?.conclusion || event.payload?.interpretation || 'See source record',
     source_id: event.id,
   }));
+  const medications = buildDischargeMedications(context);
+  const medicationTable = buildMedicationTable(medications);
+  const investigationLines = buildInvestigationLines(context);
+  const pastHistory = buildPastHistory(context);
+  const riskFactors = buildRiskFactors(context);
+  const allergies = asArray(context.allergies)
+    .map((row) => row.allergen || row.name || row.allergy_name)
+    .map((value) => text(value))
+    .filter(Boolean);
+  const presentingComplaints = text(caseSheet.chief_complaints)
+    || firstNoteField(context.notes, ['subjective', 'chief_complaint', 'presenting_complaints'])
+    || admission.chief_complaint
+    || admission.reason_for_admission
+    || admission.reason
+    || '';
+  const historyOfPresentingIllness = text(caseSheet.history_of_presenting_illness);
+  const plan = firstNoteField(context.notes, ['plan', 'discharge_plan'])
+    || admission.discharge_type
+    || '';
+  const dietInstructions = firstNoteField(context.notes, ['diet', 'diet_instructions'])
+    || '';
+  const activityRestrictions = firstNoteField(context.notes, ['activity', 'activity_restrictions'])
+    || '';
+  const warningSigns = 'Please report to hospital for fever above 100 F, new or worsening pain, vomiting, chest pain, fast or slow heart beat, giddiness, bleeding, worsening symptoms, or any significant concern.';
 
   const summary = {
+    patient_header: patientHeader,
+    attending_doctors: attendingDoctors,
+    diagnosis_lines: diagnoses,
+    plan: plan || 'Not documented',
+    presenting_complaints: [
+      presentingComplaints,
+      historyOfPresentingIllness,
+    ].filter(Boolean).join('\n') || 'Not documented',
+    past_history: pastHistory.length ? pastHistory : ['Not documented'],
+    intolerance: text(caseSheet.allergies) || (allergies.length ? allergies.join(', ') : 'Not documented'),
+    personal_history: text(caseSheet.personal_history) || 'Not documented',
+    menstrual_pregnancy_history: text(caseSheet.menstrual_pregnancy_history) || '',
+    family_history: text(caseSheet.family_history) || 'Nil significant / not documented',
+    risk_factors: riskFactors.length ? riskFactors : ['Not documented'],
+    previous_medications: buildPreviousMedicationRows(context),
+    examination_on_admission: buildExaminationText(context, latestVitals),
+    investigation_lines: investigationLines,
     hospital_course: hospitalCourse || buildTemplateHospitalCourse(context),
     discharge_diagnosis: diagnoses.join('; ') || admission.admitting_diagnosis || 'Not documented',
     discharge_condition: latestVitals
-      ? `Latest documented vitals: HR ${vitals.heart_rate ?? '-'}, BP ${vitals.systolic_bp ?? '-'}/${vitals.diastolic_bp ?? '-'}, SpO2 ${vitals.spo2 ?? '-'}%.`
+      ? `Latest documented vitals: HR ${valueWithUnit(vitals.heart_rate ?? '-', '/min')}, BP ${valueWithUnit(`${vitals.systolic_bp ?? '-'}/${vitals.diastolic_bp ?? '-'}`, 'mm Hg')}, SpO2 ${valueWithUnit(vitals.spo2 ?? '-', '%')}.`
       : 'Final discharge condition must be documented by the signing doctor.',
-    medications_on_discharge: buildDischargeMedications(context),
+    medications_on_discharge: medications,
+    medication_table: medicationTable,
     follow_up_instructions: 'Review with treating physician as advised. Return urgently for worsening symptoms, fever, breathlessness, chest pain, bleeding, confusion, or any new concerning symptom.',
-    activity_restrictions: '',
-    diet_instructions: '',
-    warning_signs: 'Seek emergency care for chest pain, breathing difficulty, fainting, high fever, severe pain, worsening weakness, bleeding, or reduced consciousness.',
+    activity_restrictions: activityRestrictions,
+    diet_instructions: dietInstructions,
+    dm_advice: 'As advised by diabetologist / treating doctor.',
+    physiotherapy_advice: 'Deep breathing, ankle exercises, and walking as advised.',
+    warning_signs: warningSigns,
     procedures_performed: procedures,
     investigations_summary: investigations,
+    signature_blocks: buildSignatureBlocks(patientHeader.date_of_discharge),
     generated_at: new Date().toISOString(),
     generated_by: null,
     is_draft: true,
@@ -417,26 +827,30 @@ function buildStructuredSummary(context, hospitalCourse, aiResult) {
   };
 
   summary.safety_flags = buildSafetyFlags(context, summary);
+  summary.formatted_summary = buildHospitalFormattedSummary(context, summary);
   return summary;
 }
 
 function buildPrompt(context) {
   const patient = context.patient || {};
   const admission = context.admission || {};
-  const compactTimeline = context.timeline.map((event) => ({
-    type: event.event_type,
-    sub_type: event.sub_type,
-    id: event.id,
-    timestamp: event.timestamp,
-    summary: event.summary,
-  }));
+  const compactTimeline = context.timeline
+    .filter((event) => !(event.event_type === 'clinical_note' && text(event.sub_type).toLowerCase() === 'case_sheet'))
+    .map((event) => ({
+      type: event.event_type,
+      sub_type: event.sub_type,
+      id: event.id,
+      timestamp: event.timestamp,
+      summary: event.summary,
+    }));
 
   const systemPrompt = [
     'You are a clinical documentation assistant inside a hospital EMR.',
     'Use only the provided source data.',
     'Never invent diagnoses, procedures, medications, dates, or follow-up plans.',
     'If something is not documented, say "not documented".',
-    'Return concise professional hospital-course prose only, not JSON.',
+    'Return formal hospital-course prose in the style of an Indian inpatient discharge summary, not JSON.',
+    'Include admission presentation, key investigations, procedures/treatment, specialist input, response, and discharge readiness when supported by source data.',
     'The output is a draft for doctor review and must not claim to be signed.',
   ].join('\n');
 
@@ -517,6 +931,24 @@ export async function collectClinicalData(admissionId) {
   return collectAdmissionClinicalContext(admissionId);
 }
 
+async function resolveSignerDetails(uid) {
+  if (!uid) return null;
+  try {
+    const signer = await prisma.users.findUnique({
+      where: { uid },
+      select: { name: true, role: true },
+    });
+    if (!signer) return null;
+    return {
+      signed_by_name: signer.name || null,
+      signed_by_role: signer.role || null,
+    };
+  } catch (e) {
+    logger.warn(`resolveSignerDetails: failed to resolve signer ${uid}: ${e.message}`);
+    return null;
+  }
+}
+
 export async function getLatestDischargeSummary(admissionId) {
   const admission = await prisma.admissions.findUnique({
     where: { id: Number(admissionId) },
@@ -553,6 +985,8 @@ export async function getLatestDischargeSummary(admissionId) {
     const content = (note.content && typeof note.content === 'object' && !Array.isArray(note.content))
       ? note.content
       : {};
+    const signedBy = note.signed_by || content.signed_by || null;
+    const signer = await resolveSignerDetails(signedBy);
     return {
       source: 'clinical_note',
       note_id: note.id,
@@ -560,7 +994,9 @@ export async function getLatestDischargeSummary(admissionId) {
       version: note.version,
       content,
       is_signed: note.is_signed === true || content.is_signed === true,
-      signed_by: note.signed_by || content.signed_by || null,
+      signed_by: signedBy,
+      signed_by_name: content.signed_by_name || signer?.signed_by_name || null,
+      signed_by_role: content.signed_by_role || signer?.signed_by_role || null,
       signed_at: note.signed_at || content.signed_at || null,
       author_uid: note.author_uid,
       author_role: note.author_role,
@@ -577,6 +1013,8 @@ export async function getLatestDischargeSummary(admissionId) {
     const content = typeof admission.discharge_summary === 'object'
       ? admission.discharge_summary
       : { text: String(admission.discharge_summary) };
+    const signedBy = content.signed_by || null;
+    const signer = await resolveSignerDetails(signedBy);
     return {
       source: 'admission',
       note_id: null,
@@ -584,7 +1022,9 @@ export async function getLatestDischargeSummary(admissionId) {
       version: null,
       content,
       is_signed: content.is_signed === true,
-      signed_by: content.signed_by || null,
+      signed_by: signedBy,
+      signed_by_name: content.signed_by_name || signer?.signed_by_name || null,
+      signed_by_role: content.signed_by_role || signer?.signed_by_role || null,
       signed_at: content.signed_at || null,
       author_uid: null,
       author_role: null,
@@ -773,6 +1213,7 @@ export async function signDischargeSummary(admissionId, doctorUid) {
   // Single shared timestamp so the column value matches the JSON value
   // the original `to_jsonb(NOW())` produced.
   const signedAt = new Date();
+  const signer = await resolveSignerDetails(doctorUid);
 
   const txnResult = await prisma.$transaction(async (tx) => {
     const note = await tx.clinical_notes.findFirst({
@@ -794,6 +1235,9 @@ export async function signDischargeSummary(admissionId, doctorUid) {
     const updatedContent = {
       ...baseContent,
       is_signed: true,
+      signed_by: doctorUid,
+      signed_by_name: signer?.signed_by_name || null,
+      signed_by_role: signer?.signed_by_role || null,
       signed_at: signedAt.toISOString(),
     };
 
@@ -852,7 +1296,12 @@ export async function signDischargeSummary(admissionId, doctorUid) {
       },
     });
 
-    return { noteId: note.id, aiGenerationId: note.ai_generation_id || null };
+    return {
+      noteId: note.id,
+      aiGenerationId: note.ai_generation_id || null,
+      signedByName: signer?.signed_by_name || null,
+      signedByRole: signer?.signed_by_role || null,
+    };
   });
 
   await publishEvent({
@@ -863,6 +1312,8 @@ export async function signDischargeSummary(admissionId, doctorUid) {
     payload: {
       admission_id: admissionId,
       signed_by: doctorUid,
+      signed_by_name: txnResult.signedByName,
+      signed_by_role: txnResult.signedByRole,
       signed_at: signedAt,
       ai_generation_id: txnResult.aiGenerationId,
     },
@@ -888,6 +1339,9 @@ export async function signDischargeSummary(admissionId, doctorUid) {
   return {
     noteId: txnResult.noteId,
     signed: true,
+    signedBy: doctorUid,
+    signedByName: txnResult.signedByName,
+    signedByRole: txnResult.signedByRole,
     signedAt: signedAt,
   };
 }

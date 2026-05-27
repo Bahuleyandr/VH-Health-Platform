@@ -23,7 +23,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     // Context is passed to controller.initialize() later (see didChangeDependencies).
     final user = context.read<UserProvider>();
-    controller = SettingsController(user.phone, user.name, refresh);
+    controller = SettingsController(
+      user.phone,
+      user.name,
+      refresh,
+      hospitalNumber: user.hospitalNumber,
+    );
   }
 
   @override

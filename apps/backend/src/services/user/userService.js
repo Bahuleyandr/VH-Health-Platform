@@ -382,6 +382,7 @@ export class UserService {
     const result = await prisma.$queryRaw`
       SELECT
         u.*,
+        COALESCE(hn.identifier_value, 'VH-' || LPAD(u.id::text, 6, '0')) AS hospital_number,
         COALESCE(u.updated_at, u.registered_at) AS last_login,
         NULL::jsonb AS insurance_details,
         NULL::text AS preferred_hospital,
@@ -390,6 +391,18 @@ export class UserService {
         s.department AS staff_department,
         s.shift
       FROM users u
+      LEFT JOIN LATERAL (
+        SELECT pi.identifier_value
+        FROM patient_identifiers pi
+        WHERE pi.tenant_id = u.tenant_id
+          AND pi.patient_uid = u.uid
+          AND pi.identifier_type IN ('mrn', 'uhid')
+          AND pi.status = 'active'
+        ORDER BY pi.is_primary DESC,
+          CASE pi.identifier_type WHEN 'mrn' THEN 0 WHEN 'uhid' THEN 1 ELSE 2 END,
+          pi.created_at ASC
+        LIMIT 1
+      ) hn ON TRUE
       LEFT JOIN doctors d ON u.id = d.user_id
       LEFT JOIN staff s ON u.uid = s.user_id
       WHERE ${identifierCondition}

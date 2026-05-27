@@ -100,6 +100,9 @@ class _LoginFormState extends State<LoginForm> {
       final user = data?['user'] as Map<String, dynamic>?;
       final phone = (user?['phone'] as String?) ?? '+919999999999';
       final name = (user?['name'] as String?) ?? 'Dev Patient';
+      final hospitalNumber =
+          (user?['hospital_number'] ?? user?['hospitalNumber'] ?? '')
+              .toString();
       final isNewUser = data?['isNewUser'] == true;
 
       if (token == null || token.isEmpty) {
@@ -113,13 +116,24 @@ class _LoginFormState extends State<LoginForm> {
 
       await _secureStorage.write(key: 'jwt', value: token);
       await _secureStorage.write(key: 'user_phone', value: phone);
+      await _secureStorage.write(key: 'user_name', value: name);
+      if (hospitalNumber.isNotEmpty) {
+        await _secureStorage.write(
+          key: 'hospital_number',
+          value: hospitalNumber,
+        );
+      }
       await _secureStorage.write(key: 'isNewUser', value: isNewUser.toString());
 
       if (!mounted) return;
       // UserProvider is the single source of truth for identity — pages
       // that read it directly (Your Health guest-gate) treat empty as
       // "not logged in" otherwise.
-      await context.read<UserProvider>().setUser(phone, name);
+      await context.read<UserProvider>().setUser(
+        phone,
+        name,
+        hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
+      );
       if (!mounted) return;
       // /profile-setup needs the phone via state.extra so the form's
       // submit can pass it to /complete-profile.
@@ -230,7 +244,16 @@ class _LoginFormState extends State<LoginForm> {
         // source of truth — guest-gated pages (Your Health) treat the
         // user as logged-in immediately, not "Guest".
         final phoneNumber = user.phoneNumber ?? '';
-        await context.read<UserProvider>().setUser(phoneNumber, 'User');
+        final storedName =
+            await _secureStorage.read(key: 'user_name') ?? 'User';
+        final hospitalNumber =
+            await _secureStorage.read(key: 'hospital_number') ?? '';
+        if (!mounted) return;
+        await context.read<UserProvider>().setUser(
+          phoneNumber,
+          storedName,
+          hospitalNumber: hospitalNumber.isEmpty ? null : hospitalNumber,
+        );
         if (!mounted) return;
 
         if (targetRoute == '/profile-setup') {

@@ -669,6 +669,19 @@ class MedicalApiService {
     return _get('/emr/admission/$id');
   }
 
+  /// GET /admissions/:id/case-sheet — admission baseline history/exam
+  static Future<Map<String, dynamic>> getAdmissionCaseSheet(int id) async {
+    return _get('/admissions/$id/case-sheet');
+  }
+
+  /// PUT /admissions/:id/case-sheet — save admission baseline history/exam
+  static Future<Map<String, dynamic>> saveAdmissionCaseSheet(
+    int id,
+    Map<String, dynamic> caseSheet,
+  ) async {
+    return _put('/admissions/$id/case-sheet', {'case_sheet': caseSheet});
+  }
+
   // ─── EMR: Clinical Notes ──────────────────────────────────────────────────
 
   /// POST /emr/notes — create a clinical note

@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/patient_context_chip.dart';
 import '../../../core/widgets/staff_scaffold.dart';
 import '../../../core/widgets/states/success_toast.dart';
+import '../../../core/widgets/vital_text_field.dart';
 import '../../../l10n/app_strings.dart';
 
 /// Vitals Entry screen — for Nursing Staff to record patient vitals.
@@ -146,23 +147,30 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
       final vitalSigns = <String, dynamic>{};
       final measurements = <String, dynamic>{};
 
-      if (_bpSysCtrl.text.isNotEmpty && _bpDiaCtrl.text.isNotEmpty) {
+      final bpSys = normalizeVitalValue(_bpSysCtrl.text, VitalUnit.bp);
+      final bpDia = normalizeVitalValue(_bpDiaCtrl.text, VitalUnit.bp);
+      final temp = normalizeVitalValue(_tempCtrl.text, VitalUnit.temperature);
+      final pulse = normalizeVitalValue(_pulseCtrl.text, VitalUnit.pulse);
+      final spo2 = normalizeVitalValue(_spo2Ctrl.text, VitalUnit.spo2);
+      final weight = normalizeVitalValue(_weightCtrl.text, VitalUnit.weight);
+
+      if (bpSys.isNotEmpty && bpDia.isNotEmpty) {
         vitalSigns['blood_pressure'] = {
-          'systolic': int.parse(_bpSysCtrl.text),
-          'diastolic': int.parse(_bpDiaCtrl.text),
+          'systolic': int.parse(bpSys),
+          'diastolic': int.parse(bpDia),
         };
       }
-      if (_tempCtrl.text.isNotEmpty) {
-        vitalSigns['temperature'] = double.parse(_tempCtrl.text);
+      if (temp.isNotEmpty) {
+        vitalSigns['temperature'] = double.parse(temp);
       }
-      if (_pulseCtrl.text.isNotEmpty) {
-        vitalSigns['pulse'] = int.parse(_pulseCtrl.text);
+      if (pulse.isNotEmpty) {
+        vitalSigns['pulse'] = int.parse(pulse);
       }
-      if (_spo2Ctrl.text.isNotEmpty) {
-        vitalSigns['spo2'] = double.parse(_spo2Ctrl.text);
+      if (spo2.isNotEmpty) {
+        vitalSigns['spo2'] = double.parse(spo2);
       }
-      if (_weightCtrl.text.isNotEmpty) {
-        measurements['weight'] = double.parse(_weightCtrl.text);
+      if (weight.isNotEmpty) {
+        measurements['weight'] = double.parse(weight);
       }
 
       final patientId = int.parse(_patientIdCtrl.text.trim());
@@ -321,11 +329,13 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                         decoration: InputDecoration(
                           labelText: s.vitalsBpSystolic,
                           hintText: s.vitalsBpSystolicHint,
-                          suffixText: 'mmHg',
+                          suffixText: VitalUnit.bp,
                         ),
                         validator: (v) {
                           if (v == null || v.isEmpty) return null;
-                          final n = int.tryParse(v);
+                          final n = int.tryParse(
+                            normalizeVitalValue(v, VitalUnit.bp),
+                          );
                           if (n == null || n < 60 || n > 300) {
                             return s.vitalsValidationInvalid;
                           }
@@ -344,11 +354,13 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                         decoration: InputDecoration(
                           labelText: s.vitalsBpDiastolic,
                           hintText: s.vitalsBpDiastolicHint,
-                          suffixText: 'mmHg',
+                          suffixText: VitalUnit.bp,
                         ),
                         validator: (v) {
                           if (v == null || v.isEmpty) return null;
-                          final n = int.tryParse(v);
+                          final n = int.tryParse(
+                            normalizeVitalValue(v, VitalUnit.bp),
+                          );
                           if (n == null || n < 30 || n > 200) {
                             return s.vitalsValidationInvalid;
                           }
@@ -375,14 +387,16 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                   decoration: InputDecoration(
                     labelText: s.vitalsTemperatureHeader,
                     hintText: s.vitalsTemperatureHint,
-                    suffixText: '°F',
+                    suffixText: VitalUnit.temperature,
                     prefixIcon: const ExcludeSemantics(
                       child: Icon(Icons.thermostat_outlined),
                     ),
                   ),
                   validator: (v) {
                     if (v == null || v.isEmpty) return null;
-                    final n = double.tryParse(v);
+                    final n = double.tryParse(
+                      normalizeVitalValue(v, VitalUnit.temperature),
+                    );
                     if (n == null || n < 90 || n > 115) {
                       return s.vitalsValidationInvalid;
                     }
@@ -407,14 +421,16 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                         decoration: InputDecoration(
                           labelText: s.vitalsPulseLabel,
                           hintText: s.vitalsPulseHint,
-                          suffixText: 'bpm',
+                          suffixText: VitalUnit.pulse,
                           prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.speed_outlined),
                           ),
                         ),
                         validator: (v) {
                           if (v == null || v.isEmpty) return null;
-                          final n = int.tryParse(v);
+                          final n = int.tryParse(
+                            normalizeVitalValue(v, VitalUnit.pulse),
+                          );
                           if (n == null || n < 20 || n > 250) {
                             return s.vitalsValidationInvalid;
                           }
@@ -432,14 +448,16 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                         decoration: InputDecoration(
                           labelText: s.vitalsSpo2Label,
                           hintText: s.vitalsSpo2Hint,
-                          suffixText: '%',
+                          suffixText: VitalUnit.spo2,
                           prefixIcon: const ExcludeSemantics(
                             child: Icon(Icons.air_outlined),
                           ),
                         ),
                         validator: (v) {
                           if (v == null || v.isEmpty) return null;
-                          final n = double.tryParse(v);
+                          final n = double.tryParse(
+                            normalizeVitalValue(v, VitalUnit.spo2),
+                          );
                           if (n == null || n < 50 || n > 100) {
                             return s.vitalsValidationInvalid;
                           }
@@ -466,14 +484,16 @@ class _RecordVitalsTabState extends State<_RecordVitalsTab> {
                   decoration: InputDecoration(
                     labelText: s.vitalsWeightHeader,
                     hintText: s.vitalsWeightHint,
-                    suffixText: 'kg',
+                    suffixText: VitalUnit.weight,
                     prefixIcon: const ExcludeSemantics(
                       child: Icon(Icons.monitor_weight_outlined),
                     ),
                   ),
                   validator: (v) {
                     if (v == null || v.isEmpty) return null;
-                    final n = double.tryParse(v);
+                    final n = double.tryParse(
+                      normalizeVitalValue(v, VitalUnit.weight),
+                    );
                     if (n == null || n < 1 || n > 500) {
                       return s.vitalsValidationInvalid;
                     }
@@ -727,16 +747,28 @@ class _RecentVitalsTabState extends State<_RecentVitalsTab> {
                       _VitalChip(
                         'BP',
                         '${vitals['blood_pressure']['systolic']}/${vitals['blood_pressure']['diastolic']}',
-                        'mmHg',
+                        VitalUnit.bp,
                       ),
                     if (vitals['temperature'] != null)
-                      _VitalChip('Temp', '${vitals['temperature']}', '°F'),
+                      _VitalChip(
+                        'Temp',
+                        '${vitals['temperature']}',
+                        VitalUnit.temperature,
+                      ),
                     if (vitals['pulse'] != null)
-                      _VitalChip('Pulse', '${vitals['pulse']}', 'bpm'),
+                      _VitalChip(
+                        'Pulse',
+                        '${vitals['pulse']}',
+                        VitalUnit.pulse,
+                      ),
                     if (vitals['spo2'] != null)
-                      _VitalChip('SpO₂', '${vitals['spo2']}', '%'),
+                      _VitalChip('SpO2', '${vitals['spo2']}', VitalUnit.spo2),
                     if (measurements['weight'] != null)
-                      _VitalChip('Weight', '${measurements['weight']}', 'kg'),
+                      _VitalChip(
+                        'Weight',
+                        '${measurements['weight']}',
+                        VitalUnit.weight,
+                      ),
                   ],
                 ),
                 if (r['notes'] != null && r['notes'].toString().isNotEmpty) ...[
@@ -778,7 +810,7 @@ class _VitalChip extends StatelessWidget {
           ),
         ),
         Text(
-          '$value $unit',
+          vitalValueWithUnit(value, unit),
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.bold,

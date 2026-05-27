@@ -20,6 +20,7 @@ class DashboardHeader extends StatelessWidget {
   final int? unreadNotifications;
   final String? nextAppointmentLabel;
   final String? lastVitalsLabel;
+  final String? hospitalNumber;
 
   const DashboardHeader({
     super.key,
@@ -28,6 +29,7 @@ class DashboardHeader extends StatelessWidget {
     this.unreadNotifications,
     this.nextAppointmentLabel,
     this.lastVitalsLabel,
+    this.hospitalNumber,
   });
 
   String _greetingFor(DateTime now) {
@@ -49,6 +51,7 @@ class DashboardHeader extends StatelessWidget {
     final cs = theme.colorScheme;
     final greeting = _greetingFor(DateTime.now());
     final displayName = isGuest ? 'there' : name;
+    final hospitalId = (hospitalNumber ?? '').trim();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -116,6 +119,18 @@ class DashboardHeader extends StatelessWidget {
                         height: 1.1,
                       ),
                     ),
+                    if (!isGuest && hospitalId.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        'Hospital ID $hospitalId',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: cs.onSurface.withValues(alpha: 0.70),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

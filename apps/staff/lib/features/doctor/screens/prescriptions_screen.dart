@@ -11,6 +11,7 @@ import '../../../core/widgets/states/empty_state.dart';
 import '../../../core/widgets/states/error_state.dart';
 import '../../../core/widgets/states/skeleton_list.dart';
 import '../../../core/widgets/states/success_toast.dart';
+import '../../../core/widgets/vital_text_field.dart';
 import '../../../l10n/app_strings.dart';
 import '../widgets/cds_blocker_modal.dart';
 
@@ -268,36 +269,48 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
 
   Map<String, dynamic>? _buildVitals() {
     final v = <String, dynamic>{};
-    if (_bpSysCtrl.text.isNotEmpty) {
-      v['bp_systolic'] = int.tryParse(_bpSysCtrl.text);
+    final bpSys = normalizeVitalValue(_bpSysCtrl.text, VitalUnit.bp);
+    final bpDia = normalizeVitalValue(_bpDiaCtrl.text, VitalUnit.bp);
+    final pulse = normalizeVitalValue(_pulseCtrl.text, VitalUnit.pulse);
+    final temp = normalizeVitalValue(_tempCtrl.text, VitalUnit.temperature);
+    final respRate = normalizeVitalValue(
+      _respRateCtrl.text,
+      VitalUnit.respiratoryRate,
+    );
+    final spo2 = normalizeVitalValue(_spo2Ctrl.text, VitalUnit.spo2);
+    final weight = normalizeVitalValue(_weightCtrl.text, VitalUnit.weight);
+    final height = normalizeVitalValue(_heightCtrl.text, 'cm');
+    final bloodSugar = normalizeVitalValue(_bsCtrl.text, VitalUnit.cbg);
+    if (bpSys.isNotEmpty) {
+      v['bp_systolic'] = int.tryParse(bpSys);
     }
-    if (_bpDiaCtrl.text.isNotEmpty) {
-      v['bp_diastolic'] = int.tryParse(_bpDiaCtrl.text);
+    if (bpDia.isNotEmpty) {
+      v['bp_diastolic'] = int.tryParse(bpDia);
     }
-    if (_pulseCtrl.text.isNotEmpty) {
-      v['pulse'] = int.tryParse(_pulseCtrl.text);
+    if (pulse.isNotEmpty) {
+      v['pulse'] = int.tryParse(pulse);
     }
-    if (_tempCtrl.text.isNotEmpty) {
-      v['temperature'] = double.tryParse(_tempCtrl.text);
+    if (temp.isNotEmpty) {
+      v['temperature'] = double.tryParse(temp);
     }
     if (_temperatureRoute != null && _temperatureRoute!.isNotEmpty) {
       v['temperature_route'] = _temperatureRoute;
     }
-    if (_respRateCtrl.text.isNotEmpty) {
-      v['respiratory_rate'] = int.tryParse(_respRateCtrl.text);
+    if (respRate.isNotEmpty) {
+      v['respiratory_rate'] = int.tryParse(respRate);
     }
-    if (_spo2Ctrl.text.isNotEmpty) {
-      v['spo2'] = int.tryParse(_spo2Ctrl.text);
+    if (spo2.isNotEmpty) {
+      v['spo2'] = int.tryParse(spo2);
     }
-    if (_weightCtrl.text.isNotEmpty) {
-      v['weight'] = double.tryParse(_weightCtrl.text);
-      v['weight_kg'] = double.tryParse(_weightCtrl.text);
+    if (weight.isNotEmpty) {
+      v['weight'] = double.tryParse(weight);
+      v['weight_kg'] = double.tryParse(weight);
     }
-    if (_heightCtrl.text.isNotEmpty) {
-      v['height_cm'] = double.tryParse(_heightCtrl.text);
+    if (height.isNotEmpty) {
+      v['height_cm'] = double.tryParse(height);
     }
-    if (_bsCtrl.text.isNotEmpty) {
-      v['blood_sugar'] = int.tryParse(_bsCtrl.text);
+    if (bloodSugar.isNotEmpty) {
+      v['blood_sugar'] = int.tryParse(bloodSugar);
     }
     return v.isEmpty ? null : v;
   }
@@ -532,7 +545,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                     child: _miniField(
                       _bpSysCtrl,
                       s.prescriptionsBpSystolic,
-                      'mmHg',
+                      VitalUnit.bp,
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -540,7 +553,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                     child: _miniField(
                       _bpDiaCtrl,
                       s.prescriptionsBpDiastolic,
-                      'mmHg',
+                      VitalUnit.bp,
                     ),
                   ),
                 ],
@@ -549,11 +562,19 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
               Row(
                 children: [
                   Expanded(
-                    child: _miniField(_pulseCtrl, s.prescriptionsPulse, 'bpm'),
+                    child: _miniField(
+                      _pulseCtrl,
+                      s.prescriptionsPulse,
+                      VitalUnit.pulse,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: _miniField(_tempCtrl, s.prescriptionsTemp, '°C'),
+                    child: _miniField(
+                      _tempCtrl,
+                      s.prescriptionsTemp,
+                      VitalUnit.temperature,
+                    ),
                   ),
                 ],
               ),
@@ -561,11 +582,19 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
               Row(
                 children: [
                   Expanded(
-                    child: _miniField(_spo2Ctrl, s.prescriptionsSpo2, '%'),
+                    child: _miniField(
+                      _spo2Ctrl,
+                      s.prescriptionsSpo2,
+                      VitalUnit.spo2,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: _miniField(_weightCtrl, s.prescriptionsWeight, 'kg'),
+                    child: _miniField(
+                      _weightCtrl,
+                      s.prescriptionsWeight,
+                      VitalUnit.weight,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(child: _miniField(_heightCtrl, 'Height', 'cm')),
@@ -575,7 +604,11 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
               Row(
                 children: [
                   Expanded(
-                    child: _miniField(_respRateCtrl, 'Resp. rate', '/min'),
+                    child: _miniField(
+                      _respRateCtrl,
+                      'Resp. rate',
+                      VitalUnit.respiratoryRate,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -608,7 +641,7 @@ class _NewEPrescriptionTabState extends State<_NewEPrescriptionTab> {
                     child: _miniField(
                       _bsCtrl,
                       s.prescriptionsBloodSugar,
-                      'mg/dL',
+                      VitalUnit.cbg,
                     ),
                   ),
                 ],

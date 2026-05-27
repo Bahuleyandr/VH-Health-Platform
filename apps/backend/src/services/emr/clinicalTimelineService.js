@@ -1,6 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { getHospitalNumberMap } from '../patient/patientIdentifierService.js';
 
 const DEFAULT_LIMIT = 250;
 const MAX_LIMIT = 1000;
@@ -102,6 +103,7 @@ async function getAdmission(admissionId) {
     where: { id: admissionId },
     select: {
       id: true,
+      tenant_id: true,
       encounter_id: true,
       from_er_visit_id: true,
       er_arrival_at: true,
@@ -564,6 +566,78 @@ async function getCombinedAllergies(patientUid) {
   });
 }
 
+async function getAdmissionDoctors(admission, timeline) {
+  const noteDoctorRoles = new Set(['DOCTOR', 'CONSULTANT', 'JUNIOR_DOCTOR', 'RESIDENT']);
+  const doctorUids = Array.from(new Set([
+    admission.admitting_doctor,
+    admission.attending_doctor,
+    ...timeline
+      .filter((event) => event.event_type === 'clinical_note')
+      .filter((event) => noteDoctorRoles.has(String(event.payload?.author_role || '').toUpperCase()))
+      .map((event) => event.payload?.author_uid),
+  ].filter(Boolean)));
+
+  if (!doctorUids.length) return [];
+
+  const users = await optionalFindMany('users.doctors', () => prisma.users.findMany({
+    where: { uid: { in: doctorUids } },
+    select: { id: true, uid: true, name: true, role: true },
+  }));
+  const usersByUid = new Map(users.map((user) => [user.uid, user]));
+  const userIds = users.map((user) => user.id).filter((id) => id != null);
+
+  const [doctorProfiles, staffProfiles] = await Promise.all([
+    userIds.length
+      ? optionalFindMany('doctors', () => prisma.doctors.findMany({
+          where: { user_id: { in: userIds } },
+          select: {
+            user_id: true,
+            name: true,
+            specialty: true,
+            qualifications: true,
+            department: true,
+          },
+        }))
+      : [],
+    optionalFindMany('staff.doctors', () => prisma.staff.findMany({
+      where: { user_id: { in: doctorUids } },
+      select: {
+        user_id: true,
+        name: true,
+        designation: true,
+        position: true,
+        department: true,
+      },
+    })),
+  ]);
+
+  const doctorProfileByUserId = new Map(doctorProfiles.map((profile) => [profile.user_id, profile]));
+  const staffProfileByUid = new Map(staffProfiles.map((profile) => [profile.user_id, profile]));
+
+  return doctorUids.map((uid) => {
+    const user = usersByUid.get(uid);
+    const doctorProfile = user?.id != null ? doctorProfileByUserId.get(user.id) : null;
+    const staffProfile = staffProfileByUid.get(uid);
+    const name = user?.name || doctorProfile?.name || staffProfile?.name || uid;
+    const designation = [
+      doctorProfile?.qualifications,
+      doctorProfile?.specialty || staffProfile?.designation || staffProfile?.position,
+      doctorProfile?.department || staffProfile?.department,
+    ].filter(Boolean).join(', ');
+
+    return {
+      uid,
+      name,
+      designation: designation || user?.role || 'Doctor',
+      role: uid === admission.admitting_doctor
+        ? 'primary_consultant'
+        : uid === admission.attending_doctor
+          ? 'attending_doctor'
+          : 'rounding_doctor',
+    };
+  });
+}
+
 export async function getPatientTimeline(patientUid, {
   dateFrom = null,
   dateTo = null,
@@ -616,6 +690,17 @@ export async function collectAdmissionClinicalContext(admissionId) {
   if (!admission) throw AppError.notFound('Admission not found');
 
   const patient = await getPatient(admission.patient_uid);
+  if (patient?.uid) {
+    const hospitalNumbers = await getHospitalNumberMap({
+      tenantId: admission.tenant_id,
+      patientUids: [patient.uid],
+    });
+    const hospitalNumber = hospitalNumbers.get(patient.uid);
+    if (hospitalNumber) {
+      patient.hospital_number = hospitalNumber;
+      patient.mrn = hospitalNumber;
+    }
+  }
   const dateFrom = admission.from_er_visit_id && admission.er_arrival_at
     ? admission.er_arrival_at
     : admission.admitted_at || admission.created_at || null;
@@ -661,9 +746,12 @@ export async function collectAdmissionClinicalContext(admissionId) {
   }
   if (!Array.isArray(chronic_medications)) chronic_medications = [];
 
+  const attending_doctors = await getAdmissionDoctors(admission, timeline);
+
   return {
     patient,
     admission,
+    attending_doctors,
     allergies,
     timeline,
     notes: byType('clinical_note'),

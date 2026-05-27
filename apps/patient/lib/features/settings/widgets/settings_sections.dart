@@ -24,7 +24,12 @@ List<Widget> buildSettingsSections(SettingsController c) {
               child: Icon(Icons.person_outline, color: cs.primary),
             ),
             title: Text(c.loc.settingsEditProfile, style: txt.titleMedium),
-            subtitle: Text(c.name, style: txt.bodySmall),
+            subtitle: Text(
+              c.hospitalNumber.trim().isEmpty
+                  ? c.name
+                  : '${c.name} · Hospital ID ${c.hospitalNumber}',
+              style: txt.bodySmall,
+            ),
             trailing: Icon(
               Icons.arrow_forward_ios,
               size: 16,
