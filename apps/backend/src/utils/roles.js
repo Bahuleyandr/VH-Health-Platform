@@ -9,6 +9,8 @@ export const PHARMACY_STAFF= 'PHARMACY_STAFF';
 export const LAB_STAFF     = 'LAB_STAFF';
 export const DOCTOR        = 'DOCTOR';
 export const GENERAL_STAFF = 'GENERAL_STAFF';
+export const HOUSEKEEPING_STAFF = 'HOUSEKEEPING_STAFF';
+export const MAINTENANCE    = 'MAINTENANCE';
 export const HR_STAFF      = 'HR_STAFF';
 export const MEDICAL_RECORDS = 'MEDICAL_RECORDS';
 export const RECEPTIONIST    = 'RECEPTIONIST';
@@ -70,6 +72,8 @@ export const ALL_ROLES = [
   HR_STAFF,
   MEDICAL_RECORDS,
   GENERAL_STAFF,
+  HOUSEKEEPING_STAFF,
+  MAINTENANCE,
   RECEPTIONIST,
   DELIVERY_STAFF,
   IT,

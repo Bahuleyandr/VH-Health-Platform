@@ -46,7 +46,8 @@ class StaffScaffold extends StatelessWidget {
             // from any StaffScaffold screen via this icon (or Cmd+K
             // when shortcuts are wired). Non-clinical roles will get
             // a 403 displayed inside the sheet, not a crash.
-            const PatientSearchAction(),
+            if (role != StaffRole.housekeeping && role != StaffRole.maintenance)
+              const PatientSearchAction(),
             // Universal logout — visible from every screen so the user
             // doesn't have to navigate to Settings (the nurse / doctor /
             // pharmacy bottom-nav variants don't include Settings, so
@@ -235,6 +236,60 @@ class StaffScaffold extends StatelessWidget {
             Icons.fingerprint_outlined,
             Icons.fingerprint,
             '/attendance',
+          ),
+          const _NavItem(
+            'Profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
+        ];
+      case StaffRole.housekeeping:
+        return [
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Beds',
+            Icons.local_hotel_outlined,
+            Icons.local_hotel,
+            '/beds',
+          ),
+          const _NavItem(
+            'Cleaning',
+            Icons.cleaning_services_outlined,
+            Icons.cleaning_services,
+            '/housekeeping',
+          ),
+          const _NavItem(
+            'Profile',
+            Icons.person_outlined,
+            Icons.person,
+            '/profile',
+          ),
+        ];
+      case StaffRole.maintenance:
+        return [
+          const _NavItem(
+            'Home',
+            Icons.dashboard_outlined,
+            Icons.dashboard,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Work',
+            Icons.build_outlined,
+            Icons.build,
+            '/dashboard',
+          ),
+          const _NavItem(
+            'Messages',
+            Icons.chat_outlined,
+            Icons.chat,
+            '/messaging',
           ),
           const _NavItem(
             'Profile',

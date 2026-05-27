@@ -1,6 +1,6 @@
 // scripts/seed-test-staff-accounts.mjs
 //
-// Seeds one staff account per StaffRole enum value used by apps/staff (8
+// Seeds one staff account per StaffRole enum value used by apps/staff (10
 // roles total). The seeded password defaults to a deterministic test value and
 // can be overridden with VH_TEST_STAFF_PASSWORD. Idempotent — safe to re-run;
 // existing accounts get their password and role re-asserted but records are
@@ -13,7 +13,7 @@
 //     { "employeeId": "EMP-100X", "password": "<seed-password>" }
 //
 // EMP-1001..EMP-1003 are pre-existing e2e_test seeds (Nurse/Pharmacy/Lab).
-// EMP-1004..EMP-1019 are added by this script (clinical + support + desk
+// EMP-1004..EMP-1021 are added by this script (clinical + support + desk
 // roles — see the inline comments on each entry for why it was added).
 //
 // Note: the staff app's login form regex requires the hyphenated `EMP-NNN`
@@ -76,6 +76,12 @@ const ACCOUNTS = [
   // 2026-05-10-surgical-day-care-admission-no-admission-officer-seed.
   { emp: 'EMP-1018', name: 'Test Admission Officer',   role: 'ADMISSION_OFFICER',     phone: '+919999990018', dept: 'Admissions',       designation: 'Admission Officer',     position: 'Admission Counter' },
   { emp: 'EMP-1019', name: 'Test IPD Counsellor',      role: 'IPD_COUNSELLOR',        phone: '+919999990019', dept: 'Admissions',       designation: 'IPD Counsellor',        position: 'IPD Counsellor' },
+  // Housekeeping and maintenance are intentionally separate from
+  // GENERAL_STAFF. Housekeeping closes bed-cleaning turnover; maintenance
+  // handles facilities/electrical work and must not inherit the bed-ready
+  // permission by accident.
+  { emp: 'EMP-1020', name: 'Test Housekeeping Staff',   role: 'HOUSEKEEPING_STAFF',    phone: '+919999990020', dept: 'Housekeeping',     designation: 'Housekeeping Staff',    position: 'Housekeeping' },
+  { emp: 'EMP-1021', name: 'Test Maintenance Staff',    role: 'MAINTENANCE',           phone: '+919999990021', dept: 'Maintenance',      designation: 'Electrician',           position: 'Maintenance Technician' },
 ];
 
 async function main() {

@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import '../../../core/config/api_config.dart';
+import '../../../core/config/role_config.dart';
 import '../../../core/services/api_client.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/services/bed_board_print_service.dart';
 import '../../../core/services/telemetry_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -33,17 +35,24 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
   bool _loadingWards = true;
   bool _loadingBeds = false;
   String? _error;
+  StaffRole _role = StaffRole.general;
 
   StreamSubscription<RealtimeEvent>? _bedEventSub;
   Timer? _refreshDebounce;
 
   // Bed-grid filters. `_bedQuery` matches against bed_number; `_bedStatusFilter`
-  // is one of "all" / "available" / "occupied" / "maintenance".
+  // is one of "all" / "available" / "occupied" / "maintenance" / "cleaning".
   String _bedQuery = '';
   String _bedStatusFilter = 'all';
+  bool get _isHousekeepingRole => _role == StaffRole.housekeeping;
 
   List<Map<String, dynamic>> get _filteredBeds {
     Iterable<Map<String, dynamic>> rows = _beds;
+    if (_isHousekeepingRole) {
+      rows = rows.where(
+        (b) => (b['status'] ?? '').toString().toLowerCase() == 'cleaning',
+      );
+    }
     if (_bedStatusFilter != 'all') {
       rows = rows.where(
         (b) => (b['status'] ?? '').toString().toLowerCase() == _bedStatusFilter,
@@ -77,8 +86,21 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
   @override
   void initState() {
     super.initState();
+    _loadRole();
     _fetchWards();
     _attachRealtime();
+  }
+
+  Future<void> _loadRole() async {
+    final roleStr = await AuthService.getRole();
+    if (!mounted) return;
+    final role = StaffRole.fromString(roleStr);
+    setState(() {
+      _role = role;
+      if (role == StaffRole.housekeeping) {
+        _bedStatusFilter = 'cleaning';
+      }
+    });
   }
 
   Future<void> _attachRealtime() async {
@@ -171,6 +193,8 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         return AppTheme.errorRed;
       case 'maintenance':
         return const Color(0xFFF9A825);
+      case 'cleaning':
+        return const Color(0xFF007A64);
       default:
         return Colors.grey;
     }
@@ -184,6 +208,8 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
         return Icons.person;
       case 'maintenance':
         return Icons.build_circle_outlined;
+      case 'cleaning':
+        return Icons.cleaning_services_outlined;
       default:
         return Icons.bed;
     }
@@ -231,7 +257,7 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
               if (_selectedWardId != null) _fetchBeds(_selectedWardId!);
             },
           ),
-          const PatientSearchAction(),
+          if (!_isHousekeepingRole) const PatientSearchAction(),
           const LogoutAction(),
         ],
       ),
@@ -339,6 +365,8 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
           _legendDot(AppTheme.errorRed, s.bedBoardLegendOccupied),
           const SizedBox(width: 16),
           _legendDot(const Color(0xFFF9A825), s.bedBoardLegendMaintenance),
+          const SizedBox(width: 16),
+          _legendDot(const Color(0xFF007A64), 'Cleaning'),
         ],
       ),
     );
@@ -508,6 +536,11 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
           (b) => (b['status'] ?? '').toString().toLowerCase() == 'maintenance',
         )
         .length;
+    final cleaning = _beds
+        .where(
+          (b) => (b['status'] ?? '').toString().toLowerCase() == 'cleaning',
+        )
+        .length;
 
     final s = AppStrings.of(context);
     return Column(
@@ -583,32 +616,41 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
             children: [
+              if (!_isHousekeepingRole) ...[
+                _statusPill(
+                  'all',
+                  s.bedBoardFilterAll,
+                  _beds.length,
+                  Colors.grey.shade700,
+                ),
+                const SizedBox(width: 8),
+                _statusPill(
+                  'available',
+                  s.bedBoardLegendAvailable,
+                  available,
+                  AppTheme.successGreen,
+                ),
+                const SizedBox(width: 8),
+                _statusPill(
+                  'occupied',
+                  s.bedBoardLegendOccupied,
+                  occupied,
+                  AppTheme.errorRed,
+                ),
+                const SizedBox(width: 8),
+                _statusPill(
+                  'maintenance',
+                  s.bedBoardLegendMaintenance,
+                  maintenance,
+                  const Color(0xFFF9A825),
+                ),
+                const SizedBox(width: 8),
+              ],
               _statusPill(
-                'all',
-                s.bedBoardFilterAll,
-                _beds.length,
-                Colors.grey.shade700,
-              ),
-              const SizedBox(width: 8),
-              _statusPill(
-                'available',
-                s.bedBoardLegendAvailable,
-                available,
-                AppTheme.successGreen,
-              ),
-              const SizedBox(width: 8),
-              _statusPill(
-                'occupied',
-                s.bedBoardLegendOccupied,
-                occupied,
-                AppTheme.errorRed,
-              ),
-              const SizedBox(width: 8),
-              _statusPill(
-                'maintenance',
-                s.bedBoardLegendMaintenance,
-                maintenance,
-                const Color(0xFFF9A825),
+                'cleaning',
+                'Cleaning',
+                cleaning,
+                const Color(0xFF007A64),
               ),
             ],
           ),
@@ -940,8 +982,11 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (sheetCtx) =>
-          _BedDetailSheet(bed: bed, wardName: _selectedWardName ?? ''),
+      builder: (sheetCtx) => _BedDetailSheet(
+        bed: bed,
+        wardName: _selectedWardName ?? '',
+        role: _role,
+      ),
     );
     if (saved == true && _selectedWardId != null) {
       await _fetchWards(showLoading: false);
@@ -1043,7 +1088,12 @@ class _BedBoardScreenState extends State<BedBoardScreen> {
 class _BedDetailSheet extends StatefulWidget {
   final Map<String, dynamic> bed;
   final String wardName;
-  const _BedDetailSheet({required this.bed, required this.wardName});
+  final StaffRole role;
+  const _BedDetailSheet({
+    required this.bed,
+    required this.wardName,
+    required this.role,
+  });
 
   @override
   State<_BedDetailSheet> createState() => _BedDetailSheetState();
@@ -1081,6 +1131,8 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
         return AppTheme.errorRed;
       case 'maintenance':
         return const Color(0xFFF9A825);
+      case 'cleaning':
+        return const Color(0xFF007A64);
       default:
         return Colors.grey;
     }
@@ -1284,6 +1336,7 @@ class _BedDetailSheetState extends State<_BedDetailSheet> {
               // without leaving the bed sheet.
               _BedStatusActions(
                 bed: bed,
+                role: widget.role,
                 onChanged: () {
                   if (Navigator.of(context).canPop()) {
                     Navigator.of(context).pop(true);
@@ -1841,8 +1894,13 @@ class _QuickAction {
 /// `await … && _fetchBeds()` path).
 class _BedStatusActions extends StatefulWidget {
   final Map<String, dynamic> bed;
+  final StaffRole role;
   final VoidCallback onChanged;
-  const _BedStatusActions({required this.bed, required this.onChanged});
+  const _BedStatusActions({
+    required this.bed,
+    required this.role,
+    required this.onChanged,
+  });
 
   @override
   State<_BedStatusActions> createState() => _BedStatusActionsState();
@@ -1911,6 +1969,38 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
         widget.onChanged();
       } else {
         ErrorToast.show(context, response.message ?? 'Status change failed');
+      }
+    } catch (e) {
+      if (mounted) {
+        ErrorToast.show(context, 'Could not connect to server');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _markReady() async {
+    final id = _bedId();
+    if (id.isEmpty) return;
+    final ok = await _confirm(
+      'Mark bed ready?',
+      'This confirms housekeeping has completed cleaning and makes the bed available for the next patient.',
+      'Mark Ready',
+      confirmColor: AppTheme.successGreen,
+    );
+    if (!ok || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      final response = await ApiClient.post(
+        '/beds/$id/ready',
+        body: {'notes': 'Housekeeping cleaning complete'},
+      );
+      if (!mounted) return;
+      if (response.isSuccess) {
+        SuccessToast.show(context, 'Bed marked available');
+        widget.onChanged();
+      } else {
+        ErrorToast.show(context, response.message ?? 'Could not mark ready');
       }
     } catch (e) {
       if (mounted) {
@@ -2104,12 +2194,29 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
     final status = _status();
+    final canMovePatients =
+        widget.role == StaffRole.doctor ||
+        widget.role == StaffRole.nurse ||
+        widget.role.isAdminTier;
+    final canClearCleaning =
+        widget.role == StaffRole.housekeeping || widget.role.isAdminTier;
     final dischargeInitiated = (widget.bed['discharge_initiated_at'] ?? '')
         .toString()
         .isNotEmpty;
     final actions = <Widget>[];
 
-    if (status == 'occupied') {
+    if (status == 'cleaning' && canClearCleaning) {
+      actions.add(
+        FilledButton.icon(
+          onPressed: _busy ? null : _markReady,
+          icon: const Icon(Icons.cleaning_services_outlined, size: 16),
+          label: const Text('Mark Ready'),
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF007A64),
+          ),
+        ),
+      );
+    } else if (status == 'occupied' && canMovePatients) {
       actions.add(
         FilledButton.icon(
           onPressed: _busy ? null : _transfer,
@@ -2151,7 +2258,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
           label: Text(s.bedBoardLegendMaintenance),
         ),
       );
-    } else if (status == 'available') {
+    } else if (status == 'available' && canMovePatients) {
       actions.add(
         FilledButton.icon(
           onPressed: _busy ? null : _admit,
@@ -2166,7 +2273,7 @@ class _BedStatusActionsState extends State<_BedStatusActions> {
           label: Text(s.bedBoardLegendMaintenance),
         ),
       );
-    } else if (status == 'maintenance') {
+    } else if (status == 'maintenance' && canMovePatients) {
       actions.add(
         FilledButton.icon(
           onPressed: _busy ? null : () => _setStatus('available'),

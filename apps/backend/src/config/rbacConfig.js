@@ -7,6 +7,8 @@ import {
   LAB_STAFF,
   DOCTOR,
   GENERAL_STAFF,
+  HOUSEKEEPING_STAFF,
+  MAINTENANCE,
   HR_STAFF,
   BILLING_STAFF,
   INSURANCE_COORDINATOR,
@@ -42,7 +44,7 @@ export default {
   // empty notifications panel until they're allowed. Stage-5 added the
   // billing / TPA / admission-counter desk roles — same treatment (the
   // role-workflow sweep caught all four 403ing on /notifications/my).
-  notificationRoutes: [PATIENT, GENERAL_STAFF, ADMIN, DOCTOR, NURSING_STAFF, PHARMACY_STAFF, LAB_STAFF, HR_STAFF, BILLING_STAFF, INSURANCE_COORDINATOR, ADMISSION_OFFICER, IPD_COUNSELLOR],
+  notificationRoutes: [PATIENT, GENERAL_STAFF, HOUSEKEEPING_STAFF, MAINTENANCE, ADMIN, DOCTOR, NURSING_STAFF, PHARMACY_STAFF, LAB_STAFF, HR_STAFF, BILLING_STAFF, INSURANCE_COORDINATOR, ADMISSION_OFFICER, IPD_COUNSELLOR],
   pharmacyRoutes: [PHARMACY_STAFF, NURSING_STAFF, DOCTOR, ADMIN],
   // If you use a separate key for /pharmacy-orders in wrappers:
   pharmacyOrdersRoutes: [PATIENT, PHARMACY_STAFF, NURSING_STAFF, DOCTOR, ADMIN],
@@ -73,15 +75,15 @@ export default {
   // shape). Including all staff roles here closes the 403-on-Profile
   // surface that NURSING_STAFF / DOCTOR / PHARMACY_STAFF / LAB_STAFF
   // / HR_STAFF were hitting on the freshly-installed staff app.
-  staffRoutes: [ADMIN, GENERAL_STAFF, NURSING_STAFF, DOCTOR, PHARMACY_STAFF, LAB_STAFF, HR_STAFF],
+  staffRoutes: [ADMIN, GENERAL_STAFF, HOUSEKEEPING_STAFF, MAINTENANCE, NURSING_STAFF, DOCTOR, PHARMACY_STAFF, LAB_STAFF, HR_STAFF],
   // /api/v1/housekeeping/* — staff self-service (raise/complete tickets,
   // submit cleaning logs, view zones). Every operational role can use it
   // because the request workflow spans wards/labs/pharmacy. Admin
   // verification + zone administration is gated separately via
   // housekeepingAdminRoutes below.
-  housekeepingRoutes: [ADMIN, GENERAL_STAFF, NURSING_STAFF, DOCTOR, PHARMACY_STAFF, LAB_STAFF, HR_STAFF],
+  housekeepingRoutes: [ADMIN, HOUSEKEEPING_STAFF, NURSING_STAFF, DOCTOR, PHARMACY_STAFF, LAB_STAFF, HR_STAFF],
   housekeepingAdminRoutes: [ADMIN, HR_STAFF],
-  lookupRoutes: [ADMIN, GENERAL_STAFF],
+  lookupRoutes: [ADMIN, GENERAL_STAFF, HOUSEKEEPING_STAFF, MAINTENANCE],
 
   // Public / open routes
   authRoutes: [],
@@ -91,7 +93,7 @@ export default {
 
   // Infra / tooling
   debugRoutes: [ADMIN],
-  versionRoutes: [ADMIN, DOCTOR, NURSING_STAFF, PHARMACY_STAFF, LAB_STAFF, HR_STAFF, GENERAL_STAFF],
+  versionRoutes: [ADMIN, DOCTOR, NURSING_STAFF, PHARMACY_STAFF, LAB_STAFF, HR_STAFF, GENERAL_STAFF, HOUSEKEEPING_STAFF, MAINTENANCE],
   rbacRoutes: [ADMIN, HR_STAFF],
   adminDocumentationRoutes: [ADMIN]
 };

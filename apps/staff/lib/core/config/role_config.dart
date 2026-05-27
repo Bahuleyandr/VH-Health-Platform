@@ -10,6 +10,8 @@ enum StaffRole {
   superAdmin('SUPER_ADMIN'),
   pharmacy('PHARMACY_STAFF'),
   lab('LAB_STAFF'),
+  housekeeping('HOUSEKEEPING_STAFF'),
+  maintenance('MAINTENANCE'),
   general('GENERAL_STAFF');
 
   final String value;
@@ -30,6 +32,8 @@ enum StaffRole {
     StaffRole.superAdmin => 'Super Admin',
     StaffRole.pharmacy => 'Pharmacy',
     StaffRole.lab => 'Lab Technician',
+    StaffRole.housekeeping => 'Housekeeping',
+    StaffRole.maintenance => 'Maintenance',
     StaffRole.general => 'Staff',
   };
 
@@ -40,6 +44,8 @@ enum StaffRole {
     StaffRole.admin || StaffRole.superAdmin => const Color(0xFFC62828),
     StaffRole.pharmacy => const Color(0xFFE65100),
     StaffRole.lab => const Color(0xFF0097A7),
+    StaffRole.housekeeping => const Color(0xFF007A64),
+    StaffRole.maintenance => const Color(0xFFF9A825),
     StaffRole.general => const Color(0xFF37474F),
   };
 
@@ -412,6 +418,22 @@ class RoleFeatures {
         _profile,
         _settings,
       ],
+      StaffRole.housekeeping => [
+        _schedule,
+        _bedBoard,
+        _housekeepingHub,
+        _housekeepingTasks,
+        _messaging,
+        _profile,
+        _settings,
+      ],
+      StaffRole.maintenance => [
+        _schedule,
+        _staffDirectory,
+        _messaging,
+        _profile,
+        _settings,
+      ],
       StaffRole.general => [
         _attendance,
         _schedule,
@@ -648,6 +670,74 @@ class RoleFeatures {
             label: 'Investigations',
           ),
           route: '/investigations',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.chat_outlined),
+            activeIcon: Icon(Icons.chat),
+            label: 'Messages',
+          ),
+          route: '/messaging',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+          route: '/profile',
+        ),
+      ],
+      StaffRole.housekeeping => [
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
+          ),
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.local_hotel_outlined),
+            activeIcon: Icon(Icons.local_hotel),
+            label: 'Beds',
+          ),
+          route: '/beds',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.cleaning_services_outlined),
+            activeIcon: Icon(Icons.cleaning_services),
+            label: 'Cleaning',
+          ),
+          route: '/housekeeping',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.person_outlined),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+          route: '/profile',
+        ),
+      ],
+      StaffRole.maintenance => [
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Home',
+          ),
+          route: '/dashboard',
+        ),
+        const BottomNavItem(
+          item: BottomNavigationBarItem(
+            icon: Icon(Icons.build_outlined),
+            activeIcon: Icon(Icons.build),
+            label: 'Work',
+          ),
+          route: '/dashboard',
         ),
         const BottomNavItem(
           item: BottomNavigationBarItem(

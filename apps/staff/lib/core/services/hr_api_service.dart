@@ -235,13 +235,13 @@ class HrApiService {
 
   // ─── Housekeeping ─────────────────────────────────────────────────────────
 
-  /// GET /staff/hr/housekeeping/zones
+  /// GET /housekeeping/zones
   static Future<List<dynamic>> getHousekeepingZones() async {
-    final result = await _get('/staff/hr/housekeeping/zones');
+    final result = await _get('/housekeeping/zones');
     return result['data'] as List? ?? result as List? ?? [];
   }
 
-  /// POST /staff/hr/housekeeping/log
+  /// POST /housekeeping/logs
   static Future<Map<String, dynamic>> submitCleaningLog({
     required String cleaningType,
     int? zoneId,
@@ -252,7 +252,7 @@ class HrApiService {
     double? latitude,
     double? longitude,
   }) async {
-    return await _post('/staff/hr/housekeeping/log', {
+    return await _post('/housekeeping/logs', {
       'cleaning_type': cleaningType,
       'zone_id': ?zoneId,
       'location_text': ?locationText,
@@ -264,13 +264,13 @@ class HrApiService {
     });
   }
 
-  /// GET /staff/hr/housekeeping/logs/my
+  /// GET /housekeeping/logs/my
   static Future<List<dynamic>> getMyCleaningLogs() async {
-    final result = await _get('/staff/hr/housekeeping/logs/my');
+    final result = await _get('/housekeeping/logs/my');
     return result['data'] as List? ?? result as List? ?? [];
   }
 
-  /// POST /staff/hr/housekeeping/request
+  /// POST /housekeeping/requests
   static Future<Map<String, dynamic>> raiseHousekeepingRequest({
     required String locationText,
     required String requestType,
@@ -282,7 +282,7 @@ class HrApiService {
     double? latitude,
     double? longitude,
   }) async {
-    return await _post('/staff/hr/housekeeping/request', {
+    return await _post('/housekeeping/requests', {
       'location_text': locationText,
       'request_type': requestType,
       'urgency': urgency,
@@ -295,19 +295,19 @@ class HrApiService {
     });
   }
 
-  /// GET /staff/hr/housekeeping/requests/my
+  /// GET /housekeeping/requests/my
   static Future<Map<String, dynamic>> getMyHousekeepingRequests() async {
-    return await _get('/staff/hr/housekeeping/requests/my');
+    return await _get('/housekeeping/requests/my');
   }
 
-  /// POST /staff/hr/housekeeping/requests/:id/complete
+  /// POST /housekeeping/requests/:id/complete
   static Future<Map<String, dynamic>> completeHousekeepingRequest({
     required String requestId,
     String? completionNotes,
     String? photoKey,
     String? photoUrl,
   }) async {
-    return await _post('/staff/hr/housekeeping/requests/$requestId/complete', {
+    return await _post('/housekeeping/requests/$requestId/complete', {
       'completion_notes': ?completionNotes,
       'completion_photo_key': ?photoKey,
       'completion_photo_url': ?photoUrl,

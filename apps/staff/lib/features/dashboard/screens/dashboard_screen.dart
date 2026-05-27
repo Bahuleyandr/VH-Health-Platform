@@ -294,7 +294,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   },
                 ),
                 const ThemeToggleAction(),
-                const PatientSearchAction(),
+                if (_role != StaffRole.housekeeping &&
+                    _role != StaffRole.maintenance)
+                  const PatientSearchAction(),
                 const LogoutAction(),
               ],
               flexibleSpace: FlexibleSpaceBar(
@@ -646,6 +648,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'investigation_results',
         'lab_bookings',
       },
+      StaffRole.housekeeping => {
+        'bed_board',
+        'housekeeping_hub',
+        'housekeeping_tasks',
+      },
+      StaffRole.maintenance => {'staff_directory'},
       StaffRole.general => {
         'appointment_queue',
         'housekeeping_hub',

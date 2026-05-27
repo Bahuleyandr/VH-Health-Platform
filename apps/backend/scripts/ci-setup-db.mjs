@@ -213,11 +213,11 @@ try {
   logger.info(`  ! Seed ICD-10 failed: ${err.message}\n`);
 }
 
-// Test staff accounts (EMP-1001..EMP-1019) — required for every staff-side
+// Test staff accounts (EMP-1001..EMP-1021) — required for every staff-side
 // login in tests, smoke runs, and the agent-driven QA swarm. Without these
 // a fresh vhhealth_test has zero rows in staff/users and every EMP-100X
 // login returns "Login failed", blocking all journey drivers at step 1.
-logger.info('→ Seeding test staff accounts (EMP-1001..EMP-1019) …');
+logger.info('→ Seeding test staff accounts (EMP-1001..EMP-1021) …');
 try {
   await import('./seed-test-staff-accounts.mjs');
   logger.info('  ✓ Test staff accounts seeded\n');

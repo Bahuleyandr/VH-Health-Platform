@@ -18,6 +18,9 @@ const router = express.Router();
 const requireClinicalForBedMovement = requireRole(
   'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF',
 );
+const requireHousekeepingForBedReady = requireRole(
+  'ADMIN', 'SUPER_ADMIN', 'HOUSEKEEPING_STAFF',
+);
 
 // ---------------------------------------------------------------------------
 // Helper: async route wrapper
@@ -161,6 +164,7 @@ router.post(
 // ---------------------------------------------------------------------------
 router.post(
   '/:id/ready',
+  requireHousekeepingForBedReady,
   wrapAsync(async (req, res) => {
     const bedId = parseInt(req.params.id, 10);
     const bed = await bedManagementService.markBedReady(bedId, {

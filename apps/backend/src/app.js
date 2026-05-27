@@ -581,25 +581,25 @@ app.use('/api/v1/staff', staffRoutes);
 // 2026-05-09-inpatient-admission-housekeeping-api-routes-absent.
 app.use(
   '/api/v1/housekeeping',
-  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'GENERAL_STAFF'),
+  requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'PHARMACY_STAFF', 'LAB_STAFF', 'HR_STAFF', 'HOUSEKEEPING_STAFF'),
   housekeepingRoutes,
 );
 
 // Bed/Ward management.
 //
-// Wave-4B-1 — parent gate widened to admit GENERAL_STAFF (the seeded
-// housekeeping role) so they can close the cleaning loop via
+// Wave-4B-1 — parent gate includes the dedicated HOUSEKEEPING_STAFF role
+// so the cleaning team can close the bed-turnover loop via
 // POST /:id/ready. Sensitive bed-management endpoints (admit / transfer
 // / discharge) re-narrow to clinical roles via per-route requireRole
 // guards inside bedManagementRoutes itself. Finding:
 //   2026-05-09-inpatient-admission-housekeeping-general-staff-cannot-mark-bed-ready
 const BED_PARENT_ROLES = [
   'ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF',
-  'GENERAL_STAFF', 'HOUSEKEEPING_STAFF',
+  'HOUSEKEEPING_STAFF',
 ];
 app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), bedRouter);
 app.use('/api/v1/beds', requireRole(...BED_PARENT_ROLES), bedManagementRoutes);
-app.use('/api/v1/wards', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF'), wardRouter);
+app.use('/api/v1/wards', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'HOUSEKEEPING_STAFF'), wardRouter);
 // D1 — bed inspection / consumer-choice flow. Receptionists need full
 // access; admission officers + nursing also; admin for audit.
 app.use('/api/v1/bed-inspections', requireRole('ADMIN', 'SUPER_ADMIN', 'DOCTOR', 'NURSING_STAFF', 'RECEPTIONIST', 'ADMISSION_OFFICER'), bedInspectionRoutes);

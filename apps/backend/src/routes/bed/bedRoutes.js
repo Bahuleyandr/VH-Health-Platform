@@ -37,6 +37,6 @@ bedRouter.post('/:id/admit', requireClinical, admitValidation, bedController.adm
 
 // ===== WARD ROUTES =====
 wardRouter.get('/', bedController.listWards);
-wardRouter.post('/', createWardValidation, bedController.createWard);
-wardRouter.put('/:id', updateWardValidation, bedController.updateWard);
-wardRouter.delete('/:id', deleteWardValidation, bedController.deleteWard);
+wardRouter.post('/', requireClinical, createWardValidation, bedController.createWard);
+wardRouter.put('/:id', requireClinical, updateWardValidation, bedController.updateWard);
+wardRouter.delete('/:id', requireClinical, deleteWardValidation, bedController.deleteWard);
