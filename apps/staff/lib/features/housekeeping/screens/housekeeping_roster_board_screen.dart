@@ -126,8 +126,9 @@ class _HousekeepingRosterBoardScreenState
         _targets = _asMapList(data['targets']);
         _boards = _asMapList(data['boards']);
         _coverage = _asMapList(data['coverage']);
-        _selectedShiftLabel ??=
-            shifts.isNotEmpty ? _asText(shifts.first['name']) : 'Morning';
+        _selectedShiftLabel ??= shifts.isNotEmpty
+            ? _asText(shifts.first['name'])
+            : 'Morning';
         _applyBoardSelections();
       });
     } catch (e) {
@@ -193,7 +194,10 @@ class _HousekeepingRosterBoardScreenState
       await _load();
       return saved;
     } catch (e) {
-      _showSnack(e.toString().replaceFirst('Exception: ', ''), AppTheme.errorRed);
+      _showSnack(
+        e.toString().replaceFirst('Exception: ', ''),
+        AppTheme.errorRed,
+      );
       return null;
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -217,7 +221,10 @@ class _HousekeepingRosterBoardScreenState
       _showSnack('Roster published for live routing', AppTheme.successGreen);
       await _load();
     } catch (e) {
-      _showSnack(e.toString().replaceFirst('Exception: ', ''), AppTheme.errorRed);
+      _showSnack(
+        e.toString().replaceFirst('Exception: ', ''),
+        AppTheme.errorRed,
+      );
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -236,7 +243,10 @@ class _HousekeepingRosterBoardScreenState
       _showSnack('Previous roster copied', AppTheme.successGreen);
       await _load();
     } catch (e) {
-      _showSnack(e.toString().replaceFirst('Exception: ', ''), AppTheme.errorRed);
+      _showSnack(
+        e.toString().replaceFirst('Exception: ', ''),
+        AppTheme.errorRed,
+      );
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -244,9 +254,9 @@ class _HousekeepingRosterBoardScreenState
 
   void _showSnack(String message, Color color) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: color),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
   }
 
   @override
@@ -254,7 +264,8 @@ class _HousekeepingRosterBoardScreenState
     final board = _currentBoard;
     final status = _asText(board?['status'], fallback: 'draft');
     final assigned = _buildAssignments().length;
-    final gapCount = _asInt(_currentCoverage?['coverage_gap_count']) ??
+    final gapCount =
+        _asInt(_currentCoverage?['coverage_gap_count']) ??
         (_targets.length - assigned).clamp(0, _targets.length);
 
     return Scaffold(
@@ -301,7 +312,10 @@ class _HousekeepingRosterBoardScreenState
                     },
                   ),
                   const SizedBox(height: 12),
-                  _RosterLegend(staffCount: _staff.length, zoneCount: _targets.length),
+                  _RosterLegend(
+                    staffCount: _staff.length,
+                    zoneCount: _targets.length,
+                  ),
                   const SizedBox(height: 8),
                   if (_targets.isEmpty)
                     const _EmptyCard(
@@ -342,7 +356,9 @@ class _HousekeepingRosterBoardScreenState
                               ? const SizedBox(
                                   height: 18,
                                   width: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 )
                               : const Icon(Icons.publish_outlined),
                           label: const Text('Publish shift'),

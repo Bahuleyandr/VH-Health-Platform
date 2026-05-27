@@ -419,10 +419,7 @@ class HrApiService {
   }) async {
     return await _post(
       '/staff/roster-board/departments/$department/copy-previous',
-      {
-        'target_date': rosterDate,
-        'shift_label': shiftLabel,
-      },
+      {'target_date': rosterDate, 'shift_label': shiftLabel},
     );
   }
 
